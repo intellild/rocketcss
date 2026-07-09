@@ -14,6 +14,7 @@ mod media;
 mod properties;
 mod rules;
 mod selector;
+mod span;
 mod token;
 mod values;
 
@@ -24,5 +25,6 @@ pub use media::*;
 pub use properties::*;
 pub use rules::*;
 pub use selector::*;
+pub use span::*;
 pub use token::*;
 pub use values::*;

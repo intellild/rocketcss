@@ -330,16 +330,9 @@ pub struct StyleSheet<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct MediaRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub query: Box<'a, MediaList<'a>>,
     pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Location2 {
-    pub column: f64,
-    pub line: f64,
-    pub source_index: f64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -369,14 +362,8 @@ pub struct EnvironmentVariable<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Url<'a> {
-    pub loc: Box<'a, Location>,
+    pub span: Span,
     pub url: &'a str,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct Location {
-    pub column: f64,
-    pub line: f64,
 }
 
 #[derive(Debug, PartialEq)]
@@ -400,7 +387,7 @@ pub struct Function<'a> {
 #[derive(Debug, PartialEq)]
 pub struct ImportRule<'a> {
     pub layer: Option<Vec<'a, &'a str>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub media: Option<Box<'a, MediaList<'a>>>,
     pub supports: Option<Box<'a, SupportsCondition<'a>>>,
     pub url: &'a str,
@@ -409,7 +396,7 @@ pub struct ImportRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct StyleRule<'a> {
     pub declarations: Option<Box<'a, DeclarationBlock<'a>>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub rules: Option<Vec<'a, Box<'a, CssRule<'a>>>>,
     pub selectors: Box<'a, SelectorList<'a>>,
 }
@@ -946,7 +933,7 @@ pub struct ListStyle<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Composes<'a> {
     pub from: Option<Box<'a, Specifier<'a>>>,
-    pub loc: Box<'a, Location>,
+    pub span: Span,
     pub names: Vec<'a, &'a str>,
 }
 
@@ -1052,7 +1039,7 @@ pub struct ViewTransitionPartSelector<'a> {
 #[derive(Debug, PartialEq)]
 pub struct KeyframesRule<'a> {
     pub keyframes: Vec<'a, Box<'a, Keyframe<'a>>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: Box<'a, KeyframesName<'a>>,
     pub vendor_prefix: Box<'a, VendorPrefix<'a>>,
 }
@@ -1071,7 +1058,7 @@ pub struct TimelineRangePercentage<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct FontFaceRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub properties: Vec<'a, Box<'a, FontFaceProperty<'a>>>,
 }
 
@@ -1090,7 +1077,7 @@ pub struct UnicodeRange {
 
 #[derive(Debug, PartialEq)]
 pub struct FontPaletteValuesRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: &'a str,
     pub properties: Vec<'a, Box<'a, FontPaletteValuesProperty<'a>>>,
 }
@@ -1103,7 +1090,7 @@ pub struct OverrideColors<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct FontFeatureValuesRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: Vec<'a, &'a str>,
     pub rules: (),
 }
@@ -1111,14 +1098,14 @@ pub struct FontFeatureValuesRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct FontFeatureSubrule<'a> {
     pub declarations: (),
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: Box<'a, FontFeatureSubruleType>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PageRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub rules: Vec<'a, Box<'a, PageMarginRule<'a>>>,
     pub selectors: Vec<'a, Box<'a, PageSelector<'a>>>,
 }
@@ -1126,7 +1113,7 @@ pub struct PageRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct PageMarginRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub margin_box: Box<'a, PageMarginBox>,
 }
 
@@ -1139,65 +1126,65 @@ pub struct PageSelector<'a> {
 #[derive(Debug, PartialEq)]
 pub struct SupportsRule<'a> {
     pub condition: Box<'a, SupportsCondition<'a>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct CounterStyleRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: &'a str,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct NamespaceRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub prefix: Option<&'a str>,
     pub url: &'a str,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct MozDocumentRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct NestingRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub style: Box<'a, StyleRule<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct NestedDeclarationsRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ViewportRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub vendor_prefix: Box<'a, VendorPrefix<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct CustomMediaRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: &'a str,
     pub query: Box<'a, MediaList<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct LayerStatementRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub names: Vec<'a, Vec<'a, &'a str>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct LayerBlockRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: Option<Vec<'a, &'a str>>,
     pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
 }
@@ -1206,7 +1193,7 @@ pub struct LayerBlockRule<'a> {
 pub struct PropertyRule<'a> {
     pub inherits: bool,
     pub initial_value: Option<Box<'a, ParsedComponent<'a>>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: &'a str,
     pub syntax: Box<'a, SyntaxString<'a>>,
 }
@@ -1220,14 +1207,14 @@ pub struct SyntaxComponent<'a> {
 #[derive(Debug, PartialEq)]
 pub struct ContainerRule<'a> {
     pub condition: Option<Box<'a, ContainerCondition<'a>>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: Option<&'a str>,
     pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ScopeRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
     pub scope_end: Option<Box<'a, SelectorList<'a>>>,
     pub scope_start: Option<Box<'a, SelectorList<'a>>>,
@@ -1235,20 +1222,20 @@ pub struct ScopeRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct StartingStyleRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ViewTransitionRule<'a> {
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub properties: Vec<'a, Box<'a, ViewTransitionProperty<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct UnknownAtRule<'a> {
     pub block: Option<Vec<'a, Box<'a, TokenOrValue<'a>>>>,
-    pub loc: Box<'a, Location2>,
+    pub span: Span,
     pub name: &'a str,
     pub prelude: Vec<'a, Box<'a, TokenOrValue<'a>>>,
 }
