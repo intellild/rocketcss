@@ -4,7 +4,7 @@ resolver = "3"
 
 [workspace.package]
 description = ""
-homepage = "https://github.com/intellild/rs-css"
+homepage    = "https://github.com/intellild/rs-css"
 keywords    = ["CSS"]
 license     = "Apache-2.0"
 repository  = "https://github.com/intellild/rs-css"
@@ -24,6 +24,8 @@ rayon            = "1.12.0"
 rustc-hash       = "2.1.2"
 seq-macro        = "0.3.6"
 similar          = "3.1.1"
+smallbitvec      = "2.6.1"
+smallvec         = "1.15.1"
 smartstring      = "1.0.1"
 stacker          = "0.1.24"
 tracing          = "0.1.44"
@@ -39,7 +41,7 @@ syn          = { version = "2.0.118", default-features = false }
 
 # Workspace
 rs_css_allocator = { version = "0.1.0", path = "crates/allocator" }
-rs_css_ast = { version = "0.1.0", path = "crates/ast" }
+rs_css_ast       = { version = "0.1.0", path = "crates/ast" }
 
 # Dev
 colored       = "3.1.1"
