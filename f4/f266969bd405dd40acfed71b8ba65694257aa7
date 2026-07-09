@@ -1,0 +1,23 @@
+crates/ast/src/common.rs
+  s_565061fd51e8cc::t_a1193740d1250d 7-29,31-32
+crates/ast/src/lib.rs
+  s_565061fd51e8cc::t_56de2dbd212ef9 1-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f4f266969bd405dd40acfed71b8ba65694257aa7",
+  "prompts": {},
+  "sessions": {
+    "s_565061fd51e8cc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a1-5981-7160-a8ba-4c25c1a4c1da",
+        "model": "unknown"
+      },
+      "human_author": "AsyncIter <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
