@@ -4,82 +4,32 @@ use rs_css_allocator::{boxed::Box, vec::Vec};
 
 #[derive(Debug, PartialEq)]
 pub enum CssRule<'a> {
-    Media {
-        value: Box<'a, MediaRule<'a>>,
-    },
-    Import {
-        value: Box<'a, ImportRule<'a>>,
-    },
-    Style {
-        value: Box<'a, StyleRule<'a>>,
-    },
-    Keyframes {
-        value: Box<'a, KeyframesRule<'a>>,
-    },
-    FontFace {
-        value: Box<'a, FontFaceRule<'a>>,
-    },
-    FontPaletteValues {
-        value: Box<'a, FontPaletteValuesRule<'a>>,
-    },
-    FontFeatureValues {
-        value: Box<'a, FontFeatureValuesRule<'a>>,
-    },
-    Page {
-        value: Box<'a, PageRule<'a>>,
-    },
-    Supports {
-        value: Box<'a, SupportsRule<'a>>,
-    },
-    CounterStyle {
-        value: Box<'a, CounterStyleRule<'a>>,
-    },
-    Namespace {
-        value: Box<'a, NamespaceRule<'a>>,
-    },
-    MozDocument {
-        value: Box<'a, MozDocumentRule<'a>>,
-    },
-    Nesting {
-        value: Box<'a, NestingRule<'a>>,
-    },
-    NestedDeclarations {
-        value: Box<'a, NestedDeclarationsRule<'a>>,
-    },
-    Viewport {
-        value: Box<'a, ViewportRule<'a>>,
-    },
-    CustomMedia {
-        value: Box<'a, CustomMediaRule<'a>>,
-    },
-    LayerStatement {
-        value: Box<'a, LayerStatementRule<'a>>,
-    },
-    LayerBlock {
-        value: Box<'a, LayerBlockRule<'a>>,
-    },
-    Property {
-        value: Box<'a, PropertyRule<'a>>,
-    },
-    Container {
-        value: Box<'a, ContainerRule<'a>>,
-    },
-    Scope {
-        value: Box<'a, ScopeRule<'a>>,
-    },
-    StartingStyle {
-        value: Box<'a, StartingStyleRule<'a>>,
-    },
-    ViewTransition {
-        value: Box<'a, ViewTransitionRule<'a>>,
-    },
+    Media(Box<'a, MediaRule<'a>>),
+    Import(Box<'a, ImportRule<'a>>),
+    Style(Box<'a, StyleRule<'a>>),
+    Keyframes(Box<'a, KeyframesRule<'a>>),
+    FontFace(Box<'a, FontFaceRule<'a>>),
+    FontPaletteValues(Box<'a, FontPaletteValuesRule<'a>>),
+    FontFeatureValues(Box<'a, FontFeatureValuesRule<'a>>),
+    Page(Box<'a, PageRule<'a>>),
+    Supports(Box<'a, SupportsRule<'a>>),
+    CounterStyle(Box<'a, CounterStyleRule<'a>>),
+    Namespace(Box<'a, NamespaceRule<'a>>),
+    MozDocument(Box<'a, MozDocumentRule<'a>>),
+    Nesting(Box<'a, NestingRule<'a>>),
+    NestedDeclarations(Box<'a, NestedDeclarationsRule<'a>>),
+    Viewport(Box<'a, ViewportRule<'a>>),
+    CustomMedia(Box<'a, CustomMediaRule<'a>>),
+    LayerStatement(Box<'a, LayerStatementRule<'a>>),
+    LayerBlock(Box<'a, LayerBlockRule<'a>>),
+    Property(Box<'a, PropertyRule<'a>>),
+    Container(Box<'a, ContainerRule<'a>>),
+    Scope(Box<'a, ScopeRule<'a>>),
+    StartingStyle(Box<'a, StartingStyleRule<'a>>),
+    ViewTransition(Box<'a, ViewTransitionRule<'a>>),
     Ignored,
-    Unknown {
-        value: Box<'a, UnknownAtRule<'a>>,
-    },
-    Custom {
-        value: Box<'a, DefaultAtRule>,
-    },
+    Unknown(Box<'a, UnknownAtRule<'a>>),
+    Custom(Box<'a, DefaultAtRule>),
 }
 
 #[derive(Debug, PartialEq)]
