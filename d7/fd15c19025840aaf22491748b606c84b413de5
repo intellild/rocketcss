@@ -1,0 +1,35 @@
+Cargo.lock
+  s_565061fd51e8cc::t_b702fd730a7c3d 58-59,67-78
+Cargo.toml
+  s_565061fd51e8cc::t_74182bc0a3cf61 7,27-28,44
+crates/ast/src/common.rs
+  s_565061fd51e8cc::t_2b7f0d26e441bd 1-640
+crates/ast/src/mod.rs
+  s_565061fd51e8cc::t_c54f3776506fce 1-20
+crates/ast/src/properties.rs
+  s_565061fd51e8cc::t_d99a0e8023bd3c 1-2658
+crates/ast/src/rules.rs
+  s_565061fd51e8cc::t_e74b83bfcbef75 1-1338
+crates/ast/src/selector.rs
+  s_565061fd51e8cc::t_671dee6cd68074 1-498
+crates/ast/src/values.rs
+  s_565061fd51e8cc::t_6fe6cc1a84fa0f 1-1971
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d7fd15c19025840aaf22491748b606c84b413de5",
+  "prompts": {},
+  "sessions": {
+    "s_565061fd51e8cc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f46a1-5981-7160-a8ba-4c25c1a4c1da",
+        "model": "unknown"
+      },
+      "human_author": "AsyncIter <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
