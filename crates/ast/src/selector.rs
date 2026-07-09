@@ -2,9 +2,7 @@ use super::*;
 
 #[derive(Debug, PartialEq)]
 pub enum SelectorComponent<'a> {
-    Combinator {
-        value: Box<'a, Combinator<'a>>,
-    },
+    Combinator(Box<'a, Combinator<'a>>),
     Universal,
     Value(()),
     Type {

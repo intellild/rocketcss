@@ -2,51 +2,33 @@ use super::*;
 
 #[derive(Debug, PartialEq)]
 pub enum KeyframeSelector<'a> {
-    Percentage {
-        value: f64,
-    },
+    Percentage(f64),
     From,
     To,
-    TimelineRangePercentage {
-        value: Box<'a, TimelineRangePercentage<'a>>,
-    },
+    TimelineRangePercentage(Box<'a, TimelineRangePercentage<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum KeyframesName<'a> {
-    Ident { value: &'a str },
-    Custom { value: &'a str },
+    Ident(&'a str),
+    Custom(&'a str),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum FontFaceProperty<'a> {
-    Source {
-        value: Vec<'a, Box<'a, Source<'a>>>,
-    },
-    FontFamily {
-        value: Box<'a, FontFamily<'a>>,
-    },
-    FontStyle {
-        value: Box<'a, FontStyle2<'a>>,
-    },
-    FontWeight {
-        value: Box<'a, Size2DFor_FontWeight<'a>>,
-    },
-    FontStretch {
-        value: Box<'a, Size2DFor_FontStretch<'a>>,
-    },
-    UnicodeRange {
-        value: Vec<'a, Box<'a, UnicodeRange>>,
-    },
-    Custom {
-        value: Box<'a, CustomProperty<'a>>,
-    },
+    Source(Vec<'a, Box<'a, Source<'a>>>),
+    FontFamily(Box<'a, FontFamily<'a>>),
+    FontStyle(Box<'a, FontStyle2<'a>>),
+    FontWeight(Box<'a, Size2DFor_FontWeight<'a>>),
+    FontStretch(Box<'a, Size2DFor_FontStretch<'a>>),
+    UnicodeRange(Vec<'a, Box<'a, UnicodeRange>>),
+    Custom(Box<'a, CustomProperty<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Source<'a> {
-    Url { value: Box<'a, UrlSource<'a>> },
-    Local { value: Box<'a, FontFamily<'a>> },
+    Url(Box<'a, UrlSource<'a>>),
+    Local(Box<'a, FontFamily<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -58,7 +40,7 @@ pub enum FontFormat<'a> {
     EmbeddedOpentype,
     Collection,
     Svg,
-    String { value: &'a str },
+    String(&'a str),
 }
 
 #[derive(Debug, PartialEq)]
@@ -80,7 +62,7 @@ pub enum FontTechnology {
 pub enum FontStyle2<'a> {
     Normal,
     Italic,
-    Oblique { value: Box<'a, Size2DFor_Angle<'a>> },
+    Oblique(Box<'a, Size2DFor_Angle<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -94,25 +76,17 @@ pub struct Size2DFor_FontStretch<'a>(pub Box<'a, FontStretch<'a>>, pub Box<'a, F
 
 #[derive(Debug, PartialEq)]
 pub enum FontPaletteValuesProperty<'a> {
-    FontFamily {
-        value: Box<'a, FontFamily<'a>>,
-    },
-    BasePalette {
-        value: Box<'a, BasePalette>,
-    },
-    OverrideColors {
-        value: Vec<'a, Box<'a, OverrideColors<'a>>>,
-    },
-    Custom {
-        value: Box<'a, CustomProperty<'a>>,
-    },
+    FontFamily(Box<'a, FontFamily<'a>>),
+    BasePalette(Box<'a, BasePalette>),
+    OverrideColors(Vec<'a, Box<'a, OverrideColors<'a>>>),
+    Custom(Box<'a, CustomProperty<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum BasePalette {
     Light,
     Dark,
-    Integer { value: f64 },
+    Integer(f64),
 }
 
 #[derive(Debug, PartialEq)]
@@ -157,60 +131,24 @@ pub enum PagePseudoClass {
 
 #[derive(Debug, PartialEq)]
 pub enum ParsedComponent<'a> {
-    Length {
-        value: Box<'a, Length<'a>>,
-    },
-    Number {
-        value: f64,
-    },
-    Percentage {
-        value: f64,
-    },
-    LengthPercentage {
-        value: Box<'a, DimensionPercentageFor_LengthValue<'a>>,
-    },
-    String {
-        value: &'a str,
-    },
-    Color {
-        value: Box<'a, CssColor<'a>>,
-    },
-    Image {
-        value: Box<'a, Image<'a>>,
-    },
-    Url {
-        value: Box<'a, Url<'a>>,
-    },
-    Integer {
-        value: f64,
-    },
-    Angle {
-        value: Box<'a, Angle>,
-    },
-    Time {
-        value: Box<'a, Time>,
-    },
-    Resolution {
-        value: Box<'a, Resolution>,
-    },
-    TransformFunction {
-        value: Box<'a, Transform<'a>>,
-    },
-    TransformList {
-        value: Vec<'a, Box<'a, Transform<'a>>>,
-    },
-    CustomIdent {
-        value: &'a str,
-    },
-    Literal {
-        value: &'a str,
-    },
-    Repeated {
-        value: (),
-    },
-    TokenList {
-        value: Vec<'a, Box<'a, TokenOrValue<'a>>>,
-    },
+    Length(Box<'a, Length<'a>>),
+    Number(f64),
+    Percentage(f64),
+    LengthPercentage(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
+    String(&'a str),
+    Color(Box<'a, CssColor<'a>>),
+    Image(Box<'a, Image<'a>>),
+    Url(Box<'a, Url<'a>>),
+    Integer(f64),
+    Angle(Box<'a, Angle>),
+    Time(Box<'a, Time>),
+    Resolution(Box<'a, Resolution>),
+    TransformFunction(Box<'a, Transform<'a>>),
+    TransformList(Vec<'a, Box<'a, Transform<'a>>>),
+    CustomIdent(&'a str),
+    Literal(&'a str),
+    Repeated(()),
+    TokenList(Vec<'a, Box<'a, TokenOrValue<'a>>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -222,9 +160,7 @@ pub enum Multiplier {
 
 #[derive(Debug, PartialEq)]
 pub enum SyntaxString<'a> {
-    Components {
-        value: Vec<'a, Box<'a, SyntaxComponent<'a>>>,
-    },
+    Components(Vec<'a, Box<'a, SyntaxComponent<'a>>>),
     Universal,
 }
 
@@ -245,30 +181,20 @@ pub enum SyntaxComponentKind<'a> {
     TransformFunction,
     TransformList,
     CustomIdent,
-    Literal { value: &'a str },
+    Literal(&'a str),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ContainerCondition<'a> {
-    Feature {
-        value: Box<'a, QueryFeatureFor_ContainerSizeFeatureId<'a>>,
-    },
-    Not {
-        value: Box<'a, ContainerCondition<'a>>,
-    },
+    Feature(Box<'a, QueryFeatureFor_ContainerSizeFeatureId<'a>>),
+    Not(Box<'a, ContainerCondition<'a>>),
     Operation {
         conditions: Vec<'a, Box<'a, ContainerCondition<'a>>>,
         operator: Box<'a, Operator>,
     },
-    Style {
-        value: Box<'a, StyleQuery<'a>>,
-    },
-    ScrollState {
-        value: Box<'a, ScrollStateQuery<'a>>,
-    },
-    Unknown {
-        value: Vec<'a, Box<'a, TokenOrValue<'a>>>,
-    },
+    Style(Box<'a, StyleQuery<'a>>),
+    ScrollState(Box<'a, ScrollStateQuery<'a>>),
+    Unknown(Vec<'a, Box<'a, TokenOrValue<'a>>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -313,15 +239,9 @@ pub enum ContainerSizeFeatureId {
 
 #[derive(Debug, PartialEq)]
 pub enum StyleQuery<'a> {
-    Declaration {
-        value: Box<'a, Declaration<'a>>,
-    },
-    Property {
-        value: Box<'a, PropertyId<'a>>,
-    },
-    Not {
-        value: Box<'a, StyleQuery<'a>>,
-    },
+    Declaration(Box<'a, Declaration<'a>>),
+    Property(Box<'a, PropertyId<'a>>),
+    Not(Box<'a, StyleQuery<'a>>),
     Operation {
         conditions: Vec<'a, Box<'a, StyleQuery<'a>>>,
         operator: Box<'a, Operator>,
@@ -330,12 +250,8 @@ pub enum StyleQuery<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum ScrollStateQuery<'a> {
-    Feature {
-        value: Box<'a, QueryFeatureFor_ScrollStateFeatureId<'a>>,
-    },
-    Not {
-        value: Box<'a, ScrollStateQuery<'a>>,
-    },
+    Feature(Box<'a, QueryFeatureFor_ScrollStateFeatureId<'a>>),
+    Not(Box<'a, ScrollStateQuery<'a>>),
     Operation {
         conditions: Vec<'a, Box<'a, ScrollStateQuery<'a>>>,
         operator: Box<'a, Operator>,
