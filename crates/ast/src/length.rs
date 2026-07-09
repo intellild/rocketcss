@@ -4,7 +4,7 @@ use rs_css_allocator::{boxed::Box, vec::Vec};
 
 #[derive(Debug, PartialEq)]
 pub enum Length<'a> {
-    Value(Box<'a, LengthValue<'a>>),
+    Value(Box<'a, LengthValue>),
     Calc(Box<'a, CalcFor_Length<'a>>),
 }
 
@@ -73,8 +73,8 @@ pub enum CalcFor_Length<'a> {
 #[derive(Debug, PartialEq)]
 pub enum MathFunctionFor_Length<'a> {
     Calc(Box<'a, CalcFor_Length<'a>>),
-    Min(Vec<'a, Box<'a, CalcFor_Length<'a>>>),
-    Max(Vec<'a, Box<'a, CalcFor_Length<'a>>>),
+    Min(Vec<'a, CalcFor_Length<'a>>),
+    Max(Vec<'a, CalcFor_Length<'a>>),
     Clamp(
         (
             Box<'a, CalcFor_Length<'a>>,
@@ -84,7 +84,7 @@ pub enum MathFunctionFor_Length<'a> {
     ),
     Round(
         (
-            Box<'a, RoundingStrategy>,
+            RoundingStrategy,
             Box<'a, CalcFor_Length<'a>>,
             Box<'a, CalcFor_Length<'a>>,
         ),
@@ -93,7 +93,7 @@ pub enum MathFunctionFor_Length<'a> {
     Mod((Box<'a, CalcFor_Length<'a>>, Box<'a, CalcFor_Length<'a>>)),
     Abs(Box<'a, CalcFor_Length<'a>>),
     Sign(Box<'a, CalcFor_Length<'a>>),
-    Hypot(Vec<'a, Box<'a, CalcFor_Length<'a>>>),
+    Hypot(Vec<'a, CalcFor_Length<'a>>),
 }
 
 #[derive(Debug, PartialEq)]

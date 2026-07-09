@@ -62,7 +62,7 @@ pub enum AttrSelectorOperator {
 pub enum TSPseudoClass<'a> {
     Object {
         kind: &'a str,
-        selectors: Vec<'a, Box<'a, Selector<'a>>>,
+        selectors: Vec<'a, Selector<'a>>,
     },
     Object2 {
         kind: &'a str,
@@ -86,13 +86,13 @@ pub enum TSPseudoClass<'a> {
         a: f64,
         b: f64,
         kind: &'a str,
-        of: Option<Vec<'a, Box<'a, Selector<'a>>>>,
+        of: Option<Vec<'a, Selector<'a>>>,
     },
     Object9 {
         a: f64,
         b: f64,
         kind: &'a str,
-        of: Option<Vec<'a, Box<'a, Selector<'a>>>>,
+        of: Option<Vec<'a, Selector<'a>>>,
     },
     Object10 {
         a: f64,
@@ -129,20 +129,20 @@ pub enum TSPseudoClass<'a> {
     },
     Object18 {
         kind: &'a str,
-        selectors: Vec<'a, Box<'a, Selector<'a>>>,
+        selectors: Vec<'a, Selector<'a>>,
     },
     Object19 {
         kind: &'a str,
-        selectors: Vec<'a, Box<'a, Selector<'a>>>,
+        selectors: Vec<'a, Selector<'a>>,
     },
     Object20 {
         kind: &'a str,
-        selectors: Vec<'a, Box<'a, Selector<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        selectors: Vec<'a, Selector<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object21 {
         kind: &'a str,
-        selectors: Vec<'a, Box<'a, Selector<'a>>>,
+        selectors: Vec<'a, Selector<'a>>,
     },
 }
 
@@ -153,7 +153,7 @@ pub enum PseudoClass<'a> {
         languages: Vec<'a, &'a str>,
     },
     Object2 {
-        direction: Box<'a, Direction>,
+        direction: Direction,
         kind: &'a str,
     },
     Object3 {
@@ -203,7 +203,7 @@ pub enum PseudoClass<'a> {
     },
     Object18 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object19 {
         kind: &'a str,
@@ -225,7 +225,7 @@ pub enum PseudoClass<'a> {
     },
     Object25 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object26 {
         kind: &'a str,
@@ -259,15 +259,15 @@ pub enum PseudoClass<'a> {
     },
     Object36 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object37 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object38 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object39 {
         kind: &'a str,
@@ -307,7 +307,7 @@ pub enum PseudoClass<'a> {
     },
     Object51 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object52 {
         kind: &'a str,
@@ -329,14 +329,14 @@ pub enum PseudoClass<'a> {
     },
     Object57 {
         kind: &'a str,
-        value: Box<'a, WebKitScrollbarPseudoClass>,
+        value: WebKitScrollbarPseudoClass,
     },
     Object58 {
         kind: &'a str,
         name: &'a str,
     },
     Object59 {
-        arguments: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+        arguments: Vec<'a, TokenOrValue<'a>>,
         kind: &'a str,
         name: &'a str,
     },
@@ -397,26 +397,26 @@ pub enum PseudoElement<'a> {
     },
     Object7 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object8 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object9 {
         kind: &'a str,
     },
     Object10 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object11 {
         kind: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object12 {
         kind: &'a str,
-        value: Box<'a, WebKitScrollbarPseudoElement>,
+        value: WebKitScrollbarPseudoElement,
     },
     Object13 {
         kind: &'a str,
@@ -472,7 +472,7 @@ pub enum PseudoElement<'a> {
         name: &'a str,
     },
     Object28 {
-        arguments: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+        arguments: Vec<'a, TokenOrValue<'a>>,
         kind: &'a str,
         name: &'a str,
     },
@@ -491,6 +491,6 @@ pub enum WebKitScrollbarPseudoElement {
 
 pub type ViewTransitionPartName<'a> = &'a str;
 
-pub type Selector<'a> = Vec<'a, Box<'a, SelectorComponent<'a>>>;
+pub type Selector<'a> = Vec<'a, SelectorComponent<'a>>;
 
-pub type SelectorList<'a> = Vec<'a, Box<'a, Selector<'a>>>;
+pub type SelectorList<'a> = Vec<'a, Selector<'a>>;

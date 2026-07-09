@@ -5,7 +5,7 @@ pub enum KeyframeSelector<'a> {
     Percentage(f64),
     From,
     To,
-    TimelineRangePercentage(Box<'a, TimelineRangePercentage<'a>>),
+    TimelineRangePercentage(Box<'a, TimelineRangePercentage>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -16,12 +16,12 @@ pub enum KeyframesName<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum FontFaceProperty<'a> {
-    Source(Vec<'a, Box<'a, Source<'a>>>),
+    Source(Vec<'a, Source<'a>>),
     FontFamily(Box<'a, FontFamily<'a>>),
     FontStyle(Box<'a, FontStyle2<'a>>),
     FontWeight(Box<'a, Size2DFor_FontWeight<'a>>),
     FontStretch(Box<'a, Size2DFor_FontStretch<'a>>),
-    UnicodeRange(Vec<'a, Box<'a, UnicodeRange>>),
+    UnicodeRange(Vec<'a, UnicodeRange>),
     Custom(Box<'a, CustomProperty<'a>>),
 }
 
@@ -72,13 +72,13 @@ pub struct Size2DFor_Angle<'a>(pub Box<'a, Angle>, pub Box<'a, Angle>);
 pub struct Size2DFor_FontWeight<'a>(pub Box<'a, FontWeight<'a>>, pub Box<'a, FontWeight<'a>>);
 
 #[derive(Debug, PartialEq)]
-pub struct Size2DFor_FontStretch<'a>(pub Box<'a, FontStretch<'a>>, pub Box<'a, FontStretch<'a>>);
+pub struct Size2DFor_FontStretch<'a>(pub Box<'a, FontStretch>, pub Box<'a, FontStretch>);
 
 #[derive(Debug, PartialEq)]
 pub enum FontPaletteValuesProperty<'a> {
     FontFamily(Box<'a, FontFamily<'a>>),
     BasePalette(Box<'a, BasePalette>),
-    OverrideColors(Vec<'a, Box<'a, OverrideColors<'a>>>),
+    OverrideColors(Vec<'a, OverrideColors<'a>>),
     Custom(Box<'a, CustomProperty<'a>>),
 }
 
@@ -144,11 +144,11 @@ pub enum ParsedComponent<'a> {
     Time(Box<'a, Time>),
     Resolution(Box<'a, Resolution>),
     TransformFunction(Box<'a, Transform<'a>>),
-    TransformList(Vec<'a, Box<'a, Transform<'a>>>),
+    TransformList(Vec<'a, Transform<'a>>),
     CustomIdent(&'a str),
     Literal(&'a str),
     Repeated(()),
-    TokenList(Vec<'a, Box<'a, TokenOrValue<'a>>>),
+    TokenList(Vec<'a, TokenOrValue<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -160,7 +160,7 @@ pub enum Multiplier {
 
 #[derive(Debug, PartialEq)]
 pub enum SyntaxString<'a> {
-    Components(Vec<'a, Box<'a, SyntaxComponent<'a>>>),
+    Components(Vec<'a, SyntaxComponent<'a>>),
     Universal,
 }
 
@@ -189,12 +189,12 @@ pub enum ContainerCondition<'a> {
     Feature(Box<'a, QueryFeatureFor_ContainerSizeFeatureId<'a>>),
     Not(Box<'a, ContainerCondition<'a>>),
     Operation {
-        conditions: Vec<'a, Box<'a, ContainerCondition<'a>>>,
-        operator: Box<'a, Operator>,
+        conditions: Vec<'a, ContainerCondition<'a>>,
+        operator: Operator,
     },
     Style(Box<'a, StyleQuery<'a>>),
     ScrollState(Box<'a, ScrollStateQuery<'a>>),
-    Unknown(Vec<'a, Box<'a, TokenOrValue<'a>>>),
+    Unknown(Vec<'a, TokenOrValue<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -208,21 +208,21 @@ pub enum QueryFeatureFor_ContainerSizeFeatureId<'a> {
     },
     Range {
         name: Box<'a, MediaFeatureNameFor_ContainerSizeFeatureId<'a>>,
-        operator: Box<'a, MediaFeatureComparison>,
+        operator: MediaFeatureComparison,
         value: Box<'a, MediaFeatureValue<'a>>,
     },
     Interval {
         end: Box<'a, MediaFeatureValue<'a>>,
-        end_operator: Box<'a, MediaFeatureComparison>,
+        end_operator: MediaFeatureComparison,
         name: Box<'a, MediaFeatureNameFor_ContainerSizeFeatureId<'a>>,
         start: Box<'a, MediaFeatureValue<'a>>,
-        start_operator: Box<'a, MediaFeatureComparison>,
+        start_operator: MediaFeatureComparison,
     },
 }
 
 #[derive(Debug, PartialEq)]
 pub enum MediaFeatureNameFor_ContainerSizeFeatureId<'a> {
-    ContainerSizeFeatureId(Box<'a, ContainerSizeFeatureId>),
+    ContainerSizeFeatureId(ContainerSizeFeatureId),
     CssString(&'a str),
     CssString2(&'a str),
 }
@@ -243,8 +243,8 @@ pub enum StyleQuery<'a> {
     Property(Box<'a, PropertyId<'a>>),
     Not(Box<'a, StyleQuery<'a>>),
     Operation {
-        conditions: Vec<'a, Box<'a, StyleQuery<'a>>>,
-        operator: Box<'a, Operator>,
+        conditions: Vec<'a, StyleQuery<'a>>,
+        operator: Operator,
     },
 }
 
@@ -253,8 +253,8 @@ pub enum ScrollStateQuery<'a> {
     Feature(Box<'a, QueryFeatureFor_ScrollStateFeatureId<'a>>),
     Not(Box<'a, ScrollStateQuery<'a>>),
     Operation {
-        conditions: Vec<'a, Box<'a, ScrollStateQuery<'a>>>,
-        operator: Box<'a, Operator>,
+        conditions: Vec<'a, ScrollStateQuery<'a>>,
+        operator: Operator,
     },
 }
 
@@ -269,21 +269,21 @@ pub enum QueryFeatureFor_ScrollStateFeatureId<'a> {
     },
     Range {
         name: Box<'a, MediaFeatureNameFor_ScrollStateFeatureId<'a>>,
-        operator: Box<'a, MediaFeatureComparison>,
+        operator: MediaFeatureComparison,
         value: Box<'a, MediaFeatureValue<'a>>,
     },
     Interval {
         end: Box<'a, MediaFeatureValue<'a>>,
-        end_operator: Box<'a, MediaFeatureComparison>,
+        end_operator: MediaFeatureComparison,
         name: Box<'a, MediaFeatureNameFor_ScrollStateFeatureId<'a>>,
         start: Box<'a, MediaFeatureValue<'a>>,
-        start_operator: Box<'a, MediaFeatureComparison>,
+        start_operator: MediaFeatureComparison,
     },
 }
 
 #[derive(Debug, PartialEq)]
 pub enum MediaFeatureNameFor_ScrollStateFeatureId<'a> {
-    ScrollStateFeatureId(Box<'a, ScrollStateFeatureId>),
+    ScrollStateFeatureId(ScrollStateFeatureId),
     CssString(&'a str),
     CssString2(&'a str),
 }
@@ -300,7 +300,7 @@ pub enum ScrollStateFeatureId {
 pub enum ViewTransitionProperty<'a> {
     Object {
         property: &'a str,
-        value: Box<'a, Navigation>,
+        value: Navigation,
     },
     Object2 {
         property: &'a str,
@@ -323,7 +323,7 @@ pub type DefaultAtRule = ();
 #[derive(Debug, PartialEq)]
 pub struct StyleSheet<'a> {
     pub license_comments: Vec<'a, &'a str>,
-    pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
     pub source_map_urls: Vec<'a, Option<&'a str>>,
     pub sources: Vec<'a, &'a str>,
 }
@@ -332,30 +332,30 @@ pub struct StyleSheet<'a> {
 pub struct MediaRule<'a> {
     pub span: Span,
     pub query: Box<'a, MediaList<'a>>,
-    pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct MediaList<'a> {
-    pub media_queries: Vec<'a, Box<'a, MediaQuery<'a>>>,
+    pub media_queries: Vec<'a, MediaQuery<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct MediaQuery<'a> {
     pub condition: Option<Box<'a, MediaCondition<'a>>>,
     pub media_type: Box<'a, MediaType<'a>>,
-    pub qualifier: Option<Box<'a, Qualifier>>,
+    pub qualifier: Option<Qualifier>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct LengthValue<'a> {
-    pub unit: Box<'a, LengthUnit>,
+pub struct LengthValue {
+    pub unit: LengthUnit,
     pub value: f64,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct EnvironmentVariable<'a> {
-    pub fallback: Option<Vec<'a, Box<'a, TokenOrValue<'a>>>>,
+    pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
     pub indices: Option<Vec<'a, f64>>,
     pub name: Box<'a, EnvironmentVariableName<'a>>,
 }
@@ -368,7 +368,7 @@ pub struct Url<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Variable<'a> {
-    pub fallback: Option<Vec<'a, Box<'a, TokenOrValue<'a>>>>,
+    pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
     pub name: Box<'a, DashedIdentReference<'a>>,
 }
 
@@ -380,7 +380,7 @@ pub struct DashedIdentReference<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Function<'a> {
-    pub arguments: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+    pub arguments: Vec<'a, TokenOrValue<'a>>,
     pub name: &'a str,
 }
 
@@ -397,14 +397,14 @@ pub struct ImportRule<'a> {
 pub struct StyleRule<'a> {
     pub declarations: Option<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
-    pub rules: Option<Vec<'a, Box<'a, CssRule<'a>>>>,
+    pub rules: Option<Vec<'a, CssRule<'a>>>,
     pub selectors: Box<'a, SelectorList<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct DeclarationBlock<'a> {
-    pub declarations: Option<Vec<'a, Box<'a, Declaration<'a>>>>,
-    pub important_declarations: Option<Vec<'a, Box<'a, Declaration<'a>>>>,
+    pub declarations: Option<Vec<'a, Declaration<'a>>>,
+    pub important_declarations: Option<Vec<'a, Declaration<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -427,8 +427,8 @@ pub struct WebKitColorStop<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct ImageSet<'a> {
-    pub options: Vec<'a, Box<'a, ImageSetOption<'a>>>,
-    pub vendor_prefix: Box<'a, VendorPrefix<'a>>,
+    pub options: Vec<'a, ImageSetOption<'a>>,
+    pub vendor_prefix: VendorPrefix<'a>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -445,20 +445,20 @@ pub struct BackgroundPosition<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct BackgroundRepeat<'a> {
-    pub x: Box<'a, BackgroundRepeatKeyword>,
-    pub y: Box<'a, BackgroundRepeatKeyword>,
+pub struct BackgroundRepeat {
+    pub x: BackgroundRepeatKeyword,
+    pub y: BackgroundRepeatKeyword,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Background<'a> {
-    pub attachment: Box<'a, BackgroundAttachment>,
-    pub clip: Box<'a, BackgroundClip>,
+    pub attachment: BackgroundAttachment,
+    pub clip: BackgroundClip,
     pub color: Box<'a, CssColor<'a>>,
     pub image: Box<'a, Image<'a>>,
-    pub origin: Box<'a, BackgroundOrigin>,
+    pub origin: BackgroundOrigin,
     pub position: Box<'a, BackgroundPosition<'a>>,
-    pub repeat: Box<'a, BackgroundRepeat<'a>>,
+    pub repeat: Box<'a, BackgroundRepeat>,
     pub size: Box<'a, BackgroundSize<'a>>,
 }
 
@@ -479,9 +479,9 @@ pub struct AspectRatio<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Overflow<'a> {
-    pub x: Box<'a, OverflowKeyword>,
-    pub y: Box<'a, OverflowKeyword>,
+pub struct Overflow {
+    pub x: OverflowKeyword,
+    pub y: OverflowKeyword,
 }
 
 #[derive(Debug, PartialEq)]
@@ -513,9 +513,9 @@ pub struct BorderRadius<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct BorderImageRepeat<'a> {
-    pub horizontal: Box<'a, BorderImageRepeatKeyword>,
-    pub vertical: Box<'a, BorderImageRepeatKeyword>,
+pub struct BorderImageRepeat {
+    pub horizontal: BorderImageRepeatKeyword,
+    pub vertical: BorderImageRepeatKeyword,
 }
 
 #[derive(Debug, PartialEq)]
@@ -527,7 +527,7 @@ pub struct BorderImageSlice<'a> {
 #[derive(Debug, PartialEq)]
 pub struct BorderImage<'a> {
     pub outset: Box<'a, RectFor_LengthOrNumber<'a>>,
-    pub repeat: Box<'a, BorderImageRepeat<'a>>,
+    pub repeat: Box<'a, BorderImageRepeat>,
     pub slice: Box<'a, BorderImageSlice<'a>>,
     pub source: Box<'a, Image<'a>>,
     pub width: Box<'a, RectFor_BorderImageSideWidth<'a>>,
@@ -542,11 +542,11 @@ pub struct BorderColor<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct BorderStyle<'a> {
-    pub bottom: Box<'a, LineStyle>,
-    pub left: Box<'a, LineStyle>,
-    pub right: Box<'a, LineStyle>,
-    pub top: Box<'a, LineStyle>,
+pub struct BorderStyle {
+    pub bottom: LineStyle,
+    pub left: LineStyle,
+    pub right: LineStyle,
+    pub top: LineStyle,
 }
 
 #[derive(Debug, PartialEq)]
@@ -564,9 +564,9 @@ pub struct BorderBlockColor<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct BorderBlockStyle<'a> {
-    pub end: Box<'a, LineStyle>,
-    pub start: Box<'a, LineStyle>,
+pub struct BorderBlockStyle {
+    pub end: LineStyle,
+    pub start: LineStyle,
 }
 
 #[derive(Debug, PartialEq)]
@@ -582,9 +582,9 @@ pub struct BorderInlineColor<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct BorderInlineStyle<'a> {
-    pub end: Box<'a, LineStyle>,
-    pub start: Box<'a, LineStyle>,
+pub struct BorderInlineStyle {
+    pub end: LineStyle,
+    pub start: LineStyle,
 }
 
 #[derive(Debug, PartialEq)]
@@ -596,21 +596,21 @@ pub struct BorderInlineWidth<'a> {
 #[derive(Debug, PartialEq)]
 pub struct GenericBorderFor_LineStyle<'a> {
     pub color: Box<'a, CssColor<'a>>,
-    pub style: Box<'a, LineStyle>,
+    pub style: LineStyle,
     pub width: Box<'a, BorderSideWidth<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct GenericBorderFor_OutlineStyleAnd_11<'a> {
     pub color: Box<'a, CssColor<'a>>,
-    pub style: Box<'a, OutlineStyle<'a>>,
+    pub style: Box<'a, OutlineStyle>,
     pub width: Box<'a, BorderSideWidth<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FlexFlow<'a> {
-    pub direction: Box<'a, FlexDirection>,
-    pub wrap: Box<'a, FlexWrap>,
+pub struct FlexFlow {
+    pub direction: FlexDirection,
+    pub wrap: FlexWrap,
 }
 
 #[derive(Debug, PartialEq)]
@@ -622,20 +622,20 @@ pub struct Flex<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct PlaceContent<'a> {
-    pub align: Box<'a, AlignContent<'a>>,
-    pub justify: Box<'a, JustifyContent<'a>>,
+    pub align: Box<'a, AlignContent>,
+    pub justify: Box<'a, JustifyContent>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PlaceSelf<'a> {
-    pub align: Box<'a, AlignSelf<'a>>,
-    pub justify: Box<'a, JustifySelf<'a>>,
+    pub align: Box<'a, AlignSelf>,
+    pub justify: Box<'a, JustifySelf>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PlaceItems<'a> {
-    pub align: Box<'a, AlignItems<'a>>,
-    pub justify: Box<'a, JustifyItems<'a>>,
+    pub align: Box<'a, AlignItems>,
+    pub justify: Box<'a, JustifyItems>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -648,13 +648,13 @@ pub struct Gap<'a> {
 pub struct TrackRepeat<'a> {
     pub count: Box<'a, RepeatCount>,
     pub line_names: Vec<'a, Vec<'a, &'a str>>,
-    pub track_sizes: Vec<'a, Box<'a, TrackSize<'a>>>,
+    pub track_sizes: Vec<'a, TrackSize<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct GridAutoFlow<'a> {
+pub struct GridAutoFlow {
     pub dense: bool,
-    pub direction: Box<'a, AutoFlowDirection>,
+    pub direction: AutoFlowDirection,
 }
 
 #[derive(Debug, PartialEq)]
@@ -667,9 +667,9 @@ pub struct GridTemplate<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Grid<'a> {
     pub areas: Box<'a, GridTemplateAreas<'a>>,
-    pub auto_columns: Vec<'a, Box<'a, TrackSize<'a>>>,
-    pub auto_flow: Box<'a, GridAutoFlow<'a>>,
-    pub auto_rows: Vec<'a, Box<'a, TrackSize<'a>>>,
+    pub auto_columns: Vec<'a, TrackSize<'a>>,
+    pub auto_flow: Box<'a, GridAutoFlow>,
+    pub auto_rows: Vec<'a, TrackSize<'a>>,
     pub columns: Box<'a, TrackSizing<'a>>,
     pub rows: Box<'a, TrackSizing<'a>>,
 }
@@ -776,12 +776,12 @@ pub struct ScrollPadding<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Font<'a> {
-    pub family: Vec<'a, Box<'a, FontFamily<'a>>>,
+    pub family: Vec<'a, FontFamily<'a>>,
     pub line_height: Box<'a, LineHeight<'a>>,
     pub size: Box<'a, FontSize<'a>>,
-    pub stretch: Box<'a, FontStretch<'a>>,
+    pub stretch: Box<'a, FontStretch>,
     pub style: Box<'a, FontStyle<'a>>,
-    pub variant_caps: Box<'a, FontVariantCaps>,
+    pub variant_caps: FontVariantCaps,
     pub weight: Box<'a, FontWeight<'a>>,
 }
 
@@ -790,18 +790,18 @@ pub struct Transition<'a> {
     pub delay: Box<'a, Time>,
     pub duration: Box<'a, Time>,
     pub property: Box<'a, PropertyId<'a>>,
-    pub timing_function: Box<'a, EasingFunction<'a>>,
+    pub timing_function: Box<'a, EasingFunction>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ScrollTimeline<'a> {
-    pub axis: Box<'a, ScrollAxis>,
-    pub scroller: Box<'a, Scroller>,
+pub struct ScrollTimeline {
+    pub axis: ScrollAxis,
+    pub scroller: Scroller,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ViewTimeline<'a> {
-    pub axis: Box<'a, ScrollAxis>,
+    pub axis: ScrollAxis,
     pub inset: Box<'a, Size2DFor_LengthPercentageOrAuto<'a>>,
 }
 
@@ -814,14 +814,14 @@ pub struct AnimationRange<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Animation<'a> {
     pub delay: Box<'a, Time>,
-    pub direction: Box<'a, AnimationDirection>,
+    pub direction: AnimationDirection,
     pub duration: Box<'a, Time>,
-    pub fill_mode: Box<'a, AnimationFillMode>,
+    pub fill_mode: AnimationFillMode,
     pub iteration_count: Box<'a, AnimationIterationCount>,
     pub name: Box<'a, AnimationName<'a>>,
-    pub play_state: Box<'a, AnimationPlayState>,
+    pub play_state: AnimationPlayState,
     pub timeline: Box<'a, AnimationTimeline<'a>>,
-    pub timing_function: Box<'a, EasingFunction<'a>>,
+    pub timing_function: Box<'a, EasingFunction>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -863,8 +863,8 @@ pub struct Rotate<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct TextTransform<'a> {
-    pub case: Box<'a, TextTransformCase>,
+pub struct TextTransform {
+    pub case: TextTransformCase,
     pub full_size_kana: bool,
     pub full_width: bool,
 }
@@ -880,7 +880,7 @@ pub struct TextIndent<'a> {
 pub struct TextDecoration<'a> {
     pub color: Box<'a, CssColor<'a>>,
     pub line: Box<'a, TextDecorationLine<'a>>,
-    pub style: Box<'a, TextDecorationStyle>,
+    pub style: TextDecorationStyle,
     pub thickness: Box<'a, TextDecorationThickness<'a>>,
 }
 
@@ -891,9 +891,9 @@ pub struct TextEmphasis<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct TextEmphasisPosition<'a> {
-    pub horizontal: Box<'a, TextEmphasisPositionHorizontal>,
-    pub vertical: Box<'a, TextEmphasisPositionVertical>,
+pub struct TextEmphasisPosition {
+    pub horizontal: TextEmphasisPositionHorizontal,
+    pub vertical: TextEmphasisPositionVertical,
 }
 
 #[derive(Debug, PartialEq)]
@@ -907,8 +907,8 @@ pub struct TextShadow<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Cursor<'a> {
-    pub images: Vec<'a, Box<'a, CursorImage<'a>>>,
-    pub keyword: Box<'a, CursorKeyword>,
+    pub images: Vec<'a, CursorImage<'a>>,
+    pub keyword: CursorKeyword,
 }
 
 #[derive(Debug, PartialEq)]
@@ -920,14 +920,14 @@ pub struct CursorImage<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Caret<'a> {
     pub color: Box<'a, ColorOrAuto<'a>>,
-    pub shape: Box<'a, CaretShape>,
+    pub shape: CaretShape,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ListStyle<'a> {
     pub image: Box<'a, Image<'a>>,
     pub list_style_type: Box<'a, ListStyleType<'a>>,
-    pub position: Box<'a, ListStylePosition>,
+    pub position: ListStylePosition,
 }
 
 #[derive(Debug, PartialEq)]
@@ -958,8 +958,8 @@ pub struct Ellipse2<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Polygon<'a> {
-    pub fill_rule: Box<'a, FillRule>,
-    pub points: Vec<'a, Box<'a, Point<'a>>>,
+    pub fill_rule: FillRule,
+    pub points: Vec<'a, Point<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -970,21 +970,21 @@ pub struct Point<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Mask<'a> {
-    pub clip: Box<'a, MaskClip<'a>>,
-    pub composite: Box<'a, MaskComposite>,
+    pub clip: Box<'a, MaskClip>,
+    pub composite: MaskComposite,
     pub image: Box<'a, Image<'a>>,
-    pub mode: Box<'a, MaskMode>,
-    pub origin: Box<'a, GeometryBox>,
+    pub mode: MaskMode,
+    pub origin: GeometryBox,
     pub position: Box<'a, Position<'a>>,
-    pub repeat: Box<'a, BackgroundRepeat<'a>>,
+    pub repeat: Box<'a, BackgroundRepeat>,
     pub size: Box<'a, BackgroundSize<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct MaskBorder<'a> {
-    pub mode: Box<'a, MaskBorderMode>,
+    pub mode: MaskBorderMode,
     pub outset: Box<'a, RectFor_LengthOrNumber<'a>>,
-    pub repeat: Box<'a, BorderImageRepeat<'a>>,
+    pub repeat: Box<'a, BorderImageRepeat>,
     pub slice: Box<'a, BorderImageSlice<'a>>,
     pub source: Box<'a, Image<'a>>,
     pub width: Box<'a, RectFor_BorderImageSideWidth<'a>>,
@@ -1000,7 +1000,7 @@ pub struct DropShadow<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Container<'a> {
-    pub container_type: Box<'a, ContainerType>,
+    pub container_type: ContainerType,
     pub name: Box<'a, ContainerNameList<'a>>,
 }
 
@@ -1014,19 +1014,19 @@ pub struct ColorScheme {
 #[derive(Debug, PartialEq)]
 pub struct UnparsedProperty<'a> {
     pub property_id: Box<'a, PropertyId<'a>>,
-    pub value: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+    pub value: Vec<'a, TokenOrValue<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct CustomProperty<'a> {
     pub name: Box<'a, CustomPropertyName<'a>>,
-    pub value: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+    pub value: Vec<'a, TokenOrValue<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct AttrOperation<'a> {
     pub case_sensitivity: Option<()>,
-    pub operator: Box<'a, AttrSelectorOperator>,
+    pub operator: AttrSelectorOperator,
     pub value: &'a str,
 }
 
@@ -1038,34 +1038,34 @@ pub struct ViewTransitionPartSelector<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct KeyframesRule<'a> {
-    pub keyframes: Vec<'a, Box<'a, Keyframe<'a>>>,
+    pub keyframes: Vec<'a, Keyframe<'a>>,
     pub span: Span,
     pub name: Box<'a, KeyframesName<'a>>,
-    pub vendor_prefix: Box<'a, VendorPrefix<'a>>,
+    pub vendor_prefix: VendorPrefix<'a>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Keyframe<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
-    pub selectors: Vec<'a, Box<'a, KeyframeSelector<'a>>>,
+    pub selectors: Vec<'a, KeyframeSelector<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct TimelineRangePercentage<'a> {
-    pub name: Box<'a, TimelineRangeName>,
+pub struct TimelineRangePercentage {
+    pub name: TimelineRangeName,
     pub percentage: f64,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct FontFaceRule<'a> {
     pub span: Span,
-    pub properties: Vec<'a, Box<'a, FontFaceProperty<'a>>>,
+    pub properties: Vec<'a, FontFaceProperty<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct UrlSource<'a> {
     pub format: Option<Box<'a, FontFormat<'a>>>,
-    pub tech: Vec<'a, Box<'a, FontTechnology>>,
+    pub tech: Vec<'a, FontTechnology>,
     pub url: Box<'a, Url<'a>>,
 }
 
@@ -1079,7 +1079,7 @@ pub struct UnicodeRange {
 pub struct FontPaletteValuesRule<'a> {
     pub span: Span,
     pub name: &'a str,
-    pub properties: Vec<'a, Box<'a, FontPaletteValuesProperty<'a>>>,
+    pub properties: Vec<'a, FontPaletteValuesProperty<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1096,38 +1096,38 @@ pub struct FontFeatureValuesRule<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FontFeatureSubrule<'a> {
+pub struct FontFeatureSubrule {
     pub declarations: (),
     pub span: Span,
-    pub name: Box<'a, FontFeatureSubruleType>,
+    pub name: FontFeatureSubruleType,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PageRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
     pub span: Span,
-    pub rules: Vec<'a, Box<'a, PageMarginRule<'a>>>,
-    pub selectors: Vec<'a, Box<'a, PageSelector<'a>>>,
+    pub rules: Vec<'a, PageMarginRule<'a>>,
+    pub selectors: Vec<'a, PageSelector<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PageMarginRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
     pub span: Span,
-    pub margin_box: Box<'a, PageMarginBox>,
+    pub margin_box: PageMarginBox,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PageSelector<'a> {
     pub name: Option<&'a str>,
-    pub pseudo_classes: Vec<'a, Box<'a, PagePseudoClass>>,
+    pub pseudo_classes: Vec<'a, PagePseudoClass>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct SupportsRule<'a> {
     pub condition: Box<'a, SupportsCondition<'a>>,
     pub span: Span,
-    pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1147,7 +1147,7 @@ pub struct NamespaceRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct MozDocumentRule<'a> {
     pub span: Span,
-    pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1166,7 +1166,7 @@ pub struct NestedDeclarationsRule<'a> {
 pub struct ViewportRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
     pub span: Span,
-    pub vendor_prefix: Box<'a, VendorPrefix<'a>>,
+    pub vendor_prefix: VendorPrefix<'a>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1186,7 +1186,7 @@ pub struct LayerStatementRule<'a> {
 pub struct LayerBlockRule<'a> {
     pub span: Span,
     pub name: Option<Vec<'a, &'a str>>,
-    pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1201,7 +1201,7 @@ pub struct PropertyRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct SyntaxComponent<'a> {
     pub kind: Box<'a, SyntaxComponentKind<'a>>,
-    pub multiplier: Box<'a, Multiplier>,
+    pub multiplier: Multiplier,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1209,13 +1209,13 @@ pub struct ContainerRule<'a> {
     pub condition: Option<Box<'a, ContainerCondition<'a>>>,
     pub span: Span,
     pub name: Option<&'a str>,
-    pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ScopeRule<'a> {
     pub span: Span,
-    pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
     pub scope_end: Option<Box<'a, SelectorList<'a>>>,
     pub scope_start: Option<Box<'a, SelectorList<'a>>>,
 }
@@ -1223,19 +1223,19 @@ pub struct ScopeRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct StartingStyleRule<'a> {
     pub span: Span,
-    pub rules: Vec<'a, Box<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ViewTransitionRule<'a> {
     pub span: Span,
-    pub properties: Vec<'a, Box<'a, ViewTransitionProperty<'a>>>,
+    pub properties: Vec<'a, ViewTransitionProperty<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct UnknownAtRule<'a> {
-    pub block: Option<Vec<'a, Box<'a, TokenOrValue<'a>>>>,
+    pub block: Option<Vec<'a, TokenOrValue<'a>>>,
     pub span: Span,
     pub name: &'a str,
-    pub prelude: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+    pub prelude: Vec<'a, TokenOrValue<'a>>,
 }

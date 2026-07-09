@@ -10,7 +10,7 @@ pub enum CssColor<'a> {
     PredefinedColor(Box<'a, PredefinedColor>),
     FloatColor(Box<'a, FloatColor>),
     LightDark(Box<'a, LightDark<'a>>),
-    SystemColor(Box<'a, SystemColor>),
+    SystemColor(SystemColor),
 }
 
 #[derive(Debug, PartialEq)]
@@ -106,19 +106,19 @@ pub enum SystemColor {
 #[derive(Debug, PartialEq)]
 pub enum UnresolvedColor<'a> {
     Rgb {
-        alpha: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+        alpha: Vec<'a, TokenOrValue<'a>>,
         b: f64,
         g: f64,
         r: f64,
     },
     Hsl {
-        alpha: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+        alpha: Vec<'a, TokenOrValue<'a>>,
         h: f64,
         l: f64,
         s: f64,
     },
     LightDark {
-        dark: Vec<'a, Box<'a, TokenOrValue<'a>>>,
-        light: Vec<'a, Box<'a, TokenOrValue<'a>>>,
+        dark: Vec<'a, TokenOrValue<'a>>,
+        light: Vec<'a, TokenOrValue<'a>>,
     },
 }

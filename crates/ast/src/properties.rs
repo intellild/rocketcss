@@ -28,7 +28,7 @@ pub enum PropertyId<'a> {
     },
     Object9 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object10 {
         property: &'a str,
@@ -38,7 +38,7 @@ pub enum PropertyId<'a> {
     },
     Object12 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object13 {
         property: &'a str,
@@ -90,7 +90,7 @@ pub enum PropertyId<'a> {
     },
     Object29 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object30 {
         property: &'a str,
@@ -106,7 +106,7 @@ pub enum PropertyId<'a> {
     },
     Object34 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object35 {
         property: &'a str,
@@ -221,19 +221,19 @@ pub enum PropertyId<'a> {
     },
     Object72 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object73 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object74 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object75 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object76 {
         property: &'a str,
@@ -249,7 +249,7 @@ pub enum PropertyId<'a> {
     },
     Object80 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object81 {
         property: &'a str,
@@ -268,7 +268,7 @@ pub enum PropertyId<'a> {
     },
     Object86 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object87 {
         property: &'a str,
@@ -344,50 +344,50 @@ pub enum PropertyId<'a> {
     },
     Object111 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object112 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object113 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object114 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object115 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object116 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object117 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object118 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object119 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object120 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object121 {
         property: &'a str,
     },
     Object122 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object123 {
         property: &'a str,
@@ -397,7 +397,7 @@ pub enum PropertyId<'a> {
     },
     Object125 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object126 {
         property: &'a str,
@@ -416,67 +416,67 @@ pub enum PropertyId<'a> {
     },
     Object131 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object132 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object133 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object134 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object135 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object136 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object137 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object138 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object139 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object140 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object141 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object142 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object143 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object144 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object145 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object146 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object147 {
         property: &'a str,
@@ -687,55 +687,55 @@ pub enum PropertyId<'a> {
     },
     Object216 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object217 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object218 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object219 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object220 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object221 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object222 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object223 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object224 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object225 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object226 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object227 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object228 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object229 {
         property: &'a str,
@@ -754,34 +754,34 @@ pub enum PropertyId<'a> {
     },
     Object234 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object235 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object236 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object237 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object238 {
         property: &'a str,
     },
     Object239 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object240 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object241 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object242 {
         property: &'a str,
@@ -800,7 +800,7 @@ pub enum PropertyId<'a> {
     },
     Object247 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object248 {
         property: &'a str,
@@ -810,7 +810,7 @@ pub enum PropertyId<'a> {
     },
     Object250 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object251 {
         property: &'a str,
@@ -823,7 +823,7 @@ pub enum PropertyId<'a> {
     },
     Object254 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object255 {
         property: &'a str,
@@ -839,49 +839,49 @@ pub enum PropertyId<'a> {
     },
     Object259 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object260 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object261 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object262 {
         property: &'a str,
     },
     Object263 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object264 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object265 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object266 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object267 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object268 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object269 {
         property: &'a str,
     },
     Object270 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object271 {
         property: &'a str,
@@ -891,7 +891,7 @@ pub enum PropertyId<'a> {
     },
     Object273 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object274 {
         property: &'a str,
@@ -910,14 +910,14 @@ pub enum PropertyId<'a> {
     },
     Object279 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object280 {
         property: &'a str,
     },
     Object281 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object282 {
         property: &'a str,
@@ -1002,21 +1002,21 @@ pub enum PropertyId<'a> {
     },
     Object309 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object310 {
         property: &'a str,
     },
     Object311 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object312 {
         property: &'a str,
     },
     Object313 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object314 {
         property: &'a str,
@@ -1026,19 +1026,19 @@ pub enum PropertyId<'a> {
     },
     Object316 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object317 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object318 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object319 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object320 {
         property: &'a str,
@@ -1048,7 +1048,7 @@ pub enum PropertyId<'a> {
     },
     Object322 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object323 {
         property: &'a str,
@@ -1076,39 +1076,39 @@ pub enum PropertyId<'a> {
     },
     Object331 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object332 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object333 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object334 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object335 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object336 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object337 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object338 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object339 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object340 {
         property: &'a str,
@@ -1136,7 +1136,7 @@ pub enum PropertyId<'a> {
     },
     Object348 {
         property: &'a str,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object349 {
         property: &'a str,
@@ -1155,7 +1155,7 @@ pub enum Prefix {
     O,
 }
 
-pub type VendorPrefix<'a> = Vec<'a, Box<'a, Prefix>>;
+pub type VendorPrefix<'a> = Vec<'a, Prefix>;
 
 #[derive(Debug, PartialEq)]
 pub enum Declaration<'a> {
@@ -1165,49 +1165,49 @@ pub enum Declaration<'a> {
     },
     Object2 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Image<'a>>>,
+        value: Vec<'a, Image<'a>>,
     },
     Object3 {
         property: &'a str,
-        value: Vec<'a, Box<'a, PositionComponentFor_HorizontalPositionKeyword<'a>>>,
+        value: Vec<'a, PositionComponentFor_HorizontalPositionKeyword<'a>>,
     },
     Object4 {
         property: &'a str,
-        value: Vec<'a, Box<'a, PositionComponentFor_VerticalPositionKeyword<'a>>>,
+        value: Vec<'a, PositionComponentFor_VerticalPositionKeyword<'a>>,
     },
     Object5 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BackgroundPosition<'a>>>,
+        value: Vec<'a, BackgroundPosition<'a>>,
     },
     Object6 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BackgroundSize<'a>>>,
+        value: Vec<'a, BackgroundSize<'a>>,
     },
     Object7 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BackgroundRepeat<'a>>>,
+        value: Vec<'a, BackgroundRepeat>,
     },
     Object8 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BackgroundAttachment>>,
+        value: Vec<'a, BackgroundAttachment>,
     },
     Object9 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BackgroundClip>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, BackgroundClip>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object10 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BackgroundOrigin>>,
+        value: Vec<'a, BackgroundOrigin>,
     },
     Object11 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Background<'a>>>,
+        value: Vec<'a, Background<'a>>,
     },
     Object12 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BoxShadow<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, BoxShadow<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object13 {
         property: &'a str,
@@ -1223,7 +1223,7 @@ pub enum Declaration<'a> {
     },
     Object16 {
         property: &'a str,
-        value: Box<'a, Visibility>,
+        value: Visibility,
     },
     Object17 {
         property: &'a str,
@@ -1275,8 +1275,8 @@ pub enum Declaration<'a> {
     },
     Object29 {
         property: &'a str,
-        value: Box<'a, BoxSizing>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BoxSizing,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object30 {
         property: &'a str,
@@ -1284,20 +1284,20 @@ pub enum Declaration<'a> {
     },
     Object31 {
         property: &'a str,
-        value: Box<'a, Overflow<'a>>,
+        value: Box<'a, Overflow>,
     },
     Object32 {
         property: &'a str,
-        value: Box<'a, OverflowKeyword>,
+        value: OverflowKeyword,
     },
     Object33 {
         property: &'a str,
-        value: Box<'a, OverflowKeyword>,
+        value: OverflowKeyword,
     },
     Object34 {
         property: &'a str,
-        value: Box<'a, TextOverflow>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: TextOverflow,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object35 {
         property: &'a str,
@@ -1385,35 +1385,35 @@ pub enum Declaration<'a> {
     },
     Object56 {
         property: &'a str,
-        value: Box<'a, LineStyle>,
+        value: LineStyle,
     },
     Object57 {
         property: &'a str,
-        value: Box<'a, LineStyle>,
+        value: LineStyle,
     },
     Object58 {
         property: &'a str,
-        value: Box<'a, LineStyle>,
+        value: LineStyle,
     },
     Object59 {
         property: &'a str,
-        value: Box<'a, LineStyle>,
+        value: LineStyle,
     },
     Object60 {
         property: &'a str,
-        value: Box<'a, LineStyle>,
+        value: LineStyle,
     },
     Object61 {
         property: &'a str,
-        value: Box<'a, LineStyle>,
+        value: LineStyle,
     },
     Object62 {
         property: &'a str,
-        value: Box<'a, LineStyle>,
+        value: LineStyle,
     },
     Object63 {
         property: &'a str,
-        value: Box<'a, LineStyle>,
+        value: LineStyle,
     },
     Object64 {
         property: &'a str,
@@ -1450,22 +1450,22 @@ pub enum Declaration<'a> {
     Object72 {
         property: &'a str,
         value: Box<'a, Size2DFor_DimensionPercentageFor_LengthValue<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object73 {
         property: &'a str,
         value: Box<'a, Size2DFor_DimensionPercentageFor_LengthValue<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object74 {
         property: &'a str,
         value: Box<'a, Size2DFor_DimensionPercentageFor_LengthValue<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object75 {
         property: &'a str,
         value: Box<'a, Size2DFor_DimensionPercentageFor_LengthValue<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object76 {
         property: &'a str,
@@ -1486,7 +1486,7 @@ pub enum Declaration<'a> {
     Object80 {
         property: &'a str,
         value: Box<'a, BorderRadius<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object81 {
         property: &'a str,
@@ -1498,7 +1498,7 @@ pub enum Declaration<'a> {
     },
     Object83 {
         property: &'a str,
-        value: Box<'a, BorderImageRepeat<'a>>,
+        value: Box<'a, BorderImageRepeat>,
     },
     Object84 {
         property: &'a str,
@@ -1511,7 +1511,7 @@ pub enum Declaration<'a> {
     Object86 {
         property: &'a str,
         value: Box<'a, BorderImage<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object87 {
         property: &'a str,
@@ -1519,7 +1519,7 @@ pub enum Declaration<'a> {
     },
     Object88 {
         property: &'a str,
-        value: Box<'a, BorderStyle<'a>>,
+        value: Box<'a, BorderStyle>,
     },
     Object89 {
         property: &'a str,
@@ -1531,7 +1531,7 @@ pub enum Declaration<'a> {
     },
     Object91 {
         property: &'a str,
-        value: Box<'a, BorderBlockStyle<'a>>,
+        value: Box<'a, BorderBlockStyle>,
     },
     Object92 {
         property: &'a str,
@@ -1543,7 +1543,7 @@ pub enum Declaration<'a> {
     },
     Object94 {
         property: &'a str,
-        value: Box<'a, BorderInlineStyle<'a>>,
+        value: Box<'a, BorderInlineStyle>,
     },
     Object95 {
         property: &'a str,
@@ -1603,7 +1603,7 @@ pub enum Declaration<'a> {
     },
     Object109 {
         property: &'a str,
-        value: Box<'a, OutlineStyle<'a>>,
+        value: Box<'a, OutlineStyle>,
     },
     Object110 {
         property: &'a str,
@@ -1611,53 +1611,53 @@ pub enum Declaration<'a> {
     },
     Object111 {
         property: &'a str,
-        value: Box<'a, FlexDirection>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: FlexDirection,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object112 {
         property: &'a str,
-        value: Box<'a, FlexWrap>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: FlexWrap,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object113 {
         property: &'a str,
-        value: Box<'a, FlexFlow<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Box<'a, FlexFlow>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object114 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object115 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object116 {
         property: &'a str,
         value: Box<'a, LengthPercentageOrAuto<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object117 {
         property: &'a str,
         value: Box<'a, Flex<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object118 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object119 {
         property: &'a str,
-        value: Box<'a, AlignContent<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Box<'a, AlignContent>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object120 {
         property: &'a str,
-        value: Box<'a, JustifyContent<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Box<'a, JustifyContent>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object121 {
         property: &'a str,
@@ -1665,12 +1665,12 @@ pub enum Declaration<'a> {
     },
     Object122 {
         property: &'a str,
-        value: Box<'a, AlignSelf<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Box<'a, AlignSelf>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object123 {
         property: &'a str,
-        value: Box<'a, JustifySelf<'a>>,
+        value: Box<'a, JustifySelf>,
     },
     Object124 {
         property: &'a str,
@@ -1678,12 +1678,12 @@ pub enum Declaration<'a> {
     },
     Object125 {
         property: &'a str,
-        value: Box<'a, AlignItems<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Box<'a, AlignItems>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object126 {
         property: &'a str,
-        value: Box<'a, JustifyItems<'a>>,
+        value: Box<'a, JustifyItems>,
     },
     Object127 {
         property: &'a str,
@@ -1703,83 +1703,83 @@ pub enum Declaration<'a> {
     },
     Object131 {
         property: &'a str,
-        value: Box<'a, BoxOrient>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BoxOrient,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object132 {
         property: &'a str,
-        value: Box<'a, BoxDirection>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BoxDirection,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object133 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object134 {
         property: &'a str,
-        value: Box<'a, BoxAlign>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BoxAlign,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object135 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object136 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object137 {
         property: &'a str,
-        value: Box<'a, BoxPack>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BoxPack,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object138 {
         property: &'a str,
-        value: Box<'a, BoxLines>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BoxLines,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object139 {
         property: &'a str,
-        value: Box<'a, FlexPack>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: FlexPack,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object140 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object141 {
         property: &'a str,
-        value: Box<'a, BoxAlign>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BoxAlign,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object142 {
         property: &'a str,
-        value: Box<'a, FlexItemAlign>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: FlexItemAlign,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object143 {
         property: &'a str,
-        value: Box<'a, FlexLinePack>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: FlexLinePack,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object144 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object145 {
         property: &'a str,
         value: f64,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object146 {
         property: &'a str,
         value: Box<'a, LengthPercentageOrAuto<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object147 {
         property: &'a str,
@@ -1791,15 +1791,15 @@ pub enum Declaration<'a> {
     },
     Object149 {
         property: &'a str,
-        value: Vec<'a, Box<'a, TrackSize<'a>>>,
+        value: Vec<'a, TrackSize<'a>>,
     },
     Object150 {
         property: &'a str,
-        value: Vec<'a, Box<'a, TrackSize<'a>>>,
+        value: Vec<'a, TrackSize<'a>>,
     },
     Object151 {
         property: &'a str,
-        value: Box<'a, GridAutoFlow<'a>>,
+        value: Box<'a, GridAutoFlow>,
     },
     Object152 {
         property: &'a str,
@@ -2027,11 +2027,11 @@ pub enum Declaration<'a> {
     },
     Object208 {
         property: &'a str,
-        value: Box<'a, FontStretch<'a>>,
+        value: Box<'a, FontStretch>,
     },
     Object209 {
         property: &'a str,
-        value: Vec<'a, Box<'a, FontFamily<'a>>>,
+        value: Vec<'a, FontFamily<'a>>,
     },
     Object210 {
         property: &'a str,
@@ -2039,7 +2039,7 @@ pub enum Declaration<'a> {
     },
     Object211 {
         property: &'a str,
-        value: Box<'a, FontVariantCaps>,
+        value: FontVariantCaps,
     },
     Object212 {
         property: &'a str,
@@ -2059,127 +2059,127 @@ pub enum Declaration<'a> {
     },
     Object216 {
         property: &'a str,
-        value: Vec<'a, Box<'a, PropertyId<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, PropertyId<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object217 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Time>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Time>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object218 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Time>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Time>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object219 {
         property: &'a str,
-        value: Vec<'a, Box<'a, EasingFunction<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, EasingFunction>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object220 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Transition<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Transition<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object221 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationName<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, AnimationName<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object222 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Time>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Time>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object223 {
         property: &'a str,
-        value: Vec<'a, Box<'a, EasingFunction<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, EasingFunction>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object224 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationIterationCount>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, AnimationIterationCount>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object225 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationDirection>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, AnimationDirection>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object226 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationPlayState>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, AnimationPlayState>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object227 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Time>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Time>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object228 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationFillMode>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, AnimationFillMode>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object229 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationComposition>>,
+        value: Vec<'a, AnimationComposition>,
     },
     Object230 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationTimeline<'a>>>,
+        value: Vec<'a, AnimationTimeline<'a>>,
     },
     Object231 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationRangeStart<'a>>>,
+        value: Vec<'a, AnimationRangeStart<'a>>,
     },
     Object232 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationRangeEnd<'a>>>,
+        value: Vec<'a, AnimationRangeEnd<'a>>,
     },
     Object233 {
         property: &'a str,
-        value: Vec<'a, Box<'a, AnimationRange<'a>>>,
+        value: Vec<'a, AnimationRange<'a>>,
     },
     Object234 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Animation<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Animation<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object235 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Transform<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Transform<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object236 {
         property: &'a str,
         value: Box<'a, Position<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object237 {
         property: &'a str,
-        value: Box<'a, TransformStyle>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: TransformStyle,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object238 {
         property: &'a str,
-        value: Box<'a, TransformBox>,
+        value: TransformBox,
     },
     Object239 {
         property: &'a str,
-        value: Box<'a, BackfaceVisibility>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BackfaceVisibility,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object240 {
         property: &'a str,
         value: Box<'a, Perspective<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object241 {
         property: &'a str,
         value: Box<'a, Position<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object242 {
         property: &'a str,
@@ -2195,50 +2195,50 @@ pub enum Declaration<'a> {
     },
     Object245 {
         property: &'a str,
-        value: Box<'a, TextTransform<'a>>,
+        value: Box<'a, TextTransform>,
     },
     Object246 {
         property: &'a str,
-        value: Box<'a, WhiteSpace>,
+        value: WhiteSpace,
     },
     Object247 {
         property: &'a str,
         value: Box<'a, LengthOrNumber<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object248 {
         property: &'a str,
-        value: Box<'a, WordBreak>,
+        value: WordBreak,
     },
     Object249 {
         property: &'a str,
-        value: Box<'a, LineBreak>,
+        value: LineBreak,
     },
     Object250 {
         property: &'a str,
-        value: Box<'a, Hyphens>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Hyphens,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object251 {
         property: &'a str,
-        value: Box<'a, OverflowWrap>,
+        value: OverflowWrap,
     },
     Object252 {
         property: &'a str,
-        value: Box<'a, OverflowWrap>,
+        value: OverflowWrap,
     },
     Object253 {
         property: &'a str,
-        value: Box<'a, TextAlign>,
+        value: TextAlign,
     },
     Object254 {
         property: &'a str,
-        value: Box<'a, TextAlignLast>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: TextAlignLast,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object255 {
         property: &'a str,
-        value: Box<'a, TextJustify>,
+        value: TextJustify,
     },
     Object256 {
         property: &'a str,
@@ -2255,17 +2255,17 @@ pub enum Declaration<'a> {
     Object259 {
         property: &'a str,
         value: Box<'a, TextDecorationLine<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object260 {
         property: &'a str,
-        value: Box<'a, TextDecorationStyle>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: TextDecorationStyle,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object261 {
         property: &'a str,
         value: Box<'a, CssColor<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object262 {
         property: &'a str,
@@ -2274,58 +2274,58 @@ pub enum Declaration<'a> {
     Object263 {
         property: &'a str,
         value: Box<'a, TextDecoration<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object264 {
         property: &'a str,
-        value: Box<'a, TextDecorationSkipInk>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: TextDecorationSkipInk,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object265 {
         property: &'a str,
         value: Box<'a, TextEmphasisStyle<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object266 {
         property: &'a str,
         value: Box<'a, CssColor<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object267 {
         property: &'a str,
         value: Box<'a, TextEmphasis<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object268 {
         property: &'a str,
-        value: Box<'a, TextEmphasisPosition<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Box<'a, TextEmphasisPosition>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object269 {
         property: &'a str,
-        value: Vec<'a, Box<'a, TextShadow<'a>>>,
+        value: Vec<'a, TextShadow<'a>>,
     },
     Object270 {
         property: &'a str,
         value: Box<'a, TextSizeAdjust>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object271 {
         property: &'a str,
-        value: Box<'a, Direction2>,
+        value: Direction2,
     },
     Object272 {
         property: &'a str,
-        value: Box<'a, UnicodeBidi>,
+        value: UnicodeBidi,
     },
     Object273 {
         property: &'a str,
-        value: Box<'a, BoxDecorationBreak>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: BoxDecorationBreak,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object274 {
         property: &'a str,
-        value: Box<'a, Resize>,
+        value: Resize,
     },
     Object275 {
         property: &'a str,
@@ -2337,7 +2337,7 @@ pub enum Declaration<'a> {
     },
     Object277 {
         property: &'a str,
-        value: Box<'a, CaretShape>,
+        value: CaretShape,
     },
     Object278 {
         property: &'a str,
@@ -2345,8 +2345,8 @@ pub enum Declaration<'a> {
     },
     Object279 {
         property: &'a str,
-        value: Box<'a, UserSelect>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: UserSelect,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object280 {
         property: &'a str,
@@ -2355,7 +2355,7 @@ pub enum Declaration<'a> {
     Object281 {
         property: &'a str,
         value: Box<'a, Appearance<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object282 {
         property: &'a str,
@@ -2367,7 +2367,7 @@ pub enum Declaration<'a> {
     },
     Object284 {
         property: &'a str,
-        value: Box<'a, ListStylePosition>,
+        value: ListStylePosition,
     },
     Object285 {
         property: &'a str,
@@ -2375,7 +2375,7 @@ pub enum Declaration<'a> {
     },
     Object286 {
         property: &'a str,
-        value: Box<'a, MarkerSide>,
+        value: MarkerSide,
     },
     Object287 {
         property: &'a str,
@@ -2387,7 +2387,7 @@ pub enum Declaration<'a> {
     },
     Object289 {
         property: &'a str,
-        value: Box<'a, FillRule>,
+        value: FillRule,
     },
     Object290 {
         property: &'a str,
@@ -2407,11 +2407,11 @@ pub enum Declaration<'a> {
     },
     Object294 {
         property: &'a str,
-        value: Box<'a, StrokeLinecap>,
+        value: StrokeLinecap,
     },
     Object295 {
         property: &'a str,
-        value: Box<'a, StrokeLinejoin>,
+        value: StrokeLinejoin,
     },
     Object296 {
         property: &'a str,
@@ -2443,91 +2443,91 @@ pub enum Declaration<'a> {
     },
     Object303 {
         property: &'a str,
-        value: Box<'a, ColorInterpolation>,
+        value: ColorInterpolation,
     },
     Object304 {
         property: &'a str,
-        value: Box<'a, ColorInterpolation>,
+        value: ColorInterpolation,
     },
     Object305 {
         property: &'a str,
-        value: Box<'a, ColorRendering>,
+        value: ColorRendering,
     },
     Object306 {
         property: &'a str,
-        value: Box<'a, ShapeRendering>,
+        value: ShapeRendering,
     },
     Object307 {
         property: &'a str,
-        value: Box<'a, TextRendering>,
+        value: TextRendering,
     },
     Object308 {
         property: &'a str,
-        value: Box<'a, ImageRendering>,
+        value: ImageRendering,
     },
     Object309 {
         property: &'a str,
         value: Box<'a, ClipPath<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object310 {
         property: &'a str,
-        value: Box<'a, FillRule>,
+        value: FillRule,
     },
     Object311 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Image<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Image<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object312 {
         property: &'a str,
-        value: Vec<'a, Box<'a, MaskMode>>,
+        value: Vec<'a, MaskMode>,
     },
     Object313 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BackgroundRepeat<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, BackgroundRepeat>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object314 {
         property: &'a str,
-        value: Vec<'a, Box<'a, PositionComponentFor_HorizontalPositionKeyword<'a>>>,
+        value: Vec<'a, PositionComponentFor_HorizontalPositionKeyword<'a>>,
     },
     Object315 {
         property: &'a str,
-        value: Vec<'a, Box<'a, PositionComponentFor_VerticalPositionKeyword<'a>>>,
+        value: Vec<'a, PositionComponentFor_VerticalPositionKeyword<'a>>,
     },
     Object316 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Position<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Position<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object317 {
         property: &'a str,
-        value: Vec<'a, Box<'a, MaskClip<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, MaskClip>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object318 {
         property: &'a str,
-        value: Vec<'a, Box<'a, GeometryBox>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, GeometryBox>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object319 {
         property: &'a str,
-        value: Vec<'a, Box<'a, BackgroundSize<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, BackgroundSize<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object320 {
         property: &'a str,
-        value: Vec<'a, Box<'a, MaskComposite>>,
+        value: Vec<'a, MaskComposite>,
     },
     Object321 {
         property: &'a str,
-        value: Box<'a, MaskType>,
+        value: MaskType,
     },
     Object322 {
         property: &'a str,
-        value: Vec<'a, Box<'a, Mask<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, Mask<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object323 {
         property: &'a str,
@@ -2535,7 +2535,7 @@ pub enum Declaration<'a> {
     },
     Object324 {
         property: &'a str,
-        value: Box<'a, MaskBorderMode>,
+        value: MaskBorderMode,
     },
     Object325 {
         property: &'a str,
@@ -2551,7 +2551,7 @@ pub enum Declaration<'a> {
     },
     Object328 {
         property: &'a str,
-        value: Box<'a, BorderImageRepeat<'a>>,
+        value: Box<'a, BorderImageRepeat>,
     },
     Object329 {
         property: &'a str,
@@ -2559,52 +2559,52 @@ pub enum Declaration<'a> {
     },
     Object330 {
         property: &'a str,
-        value: Vec<'a, Box<'a, WebKitMaskComposite<'a>>>,
+        value: Vec<'a, WebKitMaskComposite<'a>>,
     },
     Object331 {
         property: &'a str,
-        value: Vec<'a, Box<'a, WebKitMaskSourceType>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Vec<'a, WebKitMaskSourceType>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object332 {
         property: &'a str,
         value: Box<'a, BorderImage<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object333 {
         property: &'a str,
         value: Box<'a, Image<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object334 {
         property: &'a str,
         value: Box<'a, BorderImageSlice<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object335 {
         property: &'a str,
         value: Box<'a, RectFor_BorderImageSideWidth<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object336 {
         property: &'a str,
         value: Box<'a, RectFor_LengthOrNumber<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object337 {
         property: &'a str,
-        value: Box<'a, BorderImageRepeat<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: Box<'a, BorderImageRepeat>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object338 {
         property: &'a str,
         value: Box<'a, FilterList<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object339 {
         property: &'a str,
         value: Box<'a, FilterList<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object340 {
         property: &'a str,
@@ -2612,7 +2612,7 @@ pub enum Declaration<'a> {
     },
     Object341 {
         property: &'a str,
-        value: Box<'a, ContainerType>,
+        value: ContainerType,
     },
     Object342 {
         property: &'a str,
@@ -2640,12 +2640,12 @@ pub enum Declaration<'a> {
     },
     Object348 {
         property: &'a str,
-        value: Box<'a, PrintColorAdjust>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        value: PrintColorAdjust,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Object349 {
         property: &'a str,
-        value: Box<'a, CSSWideKeyword>,
+        value: CSSWideKeyword,
     },
     Object350 {
         property: &'a str,

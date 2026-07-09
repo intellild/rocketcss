@@ -11,7 +11,7 @@ pub enum TokenOrValue<'a> {
     Var(Box<'a, Variable<'a>>),
     Env(Box<'a, EnvironmentVariable<'a>>),
     Function(Box<'a, Function<'a>>),
-    Length(Box<'a, LengthValue<'a>>),
+    Length(Box<'a, LengthValue>),
     Angle(Box<'a, Angle>),
     Time(Box<'a, Time>),
     Resolution(Box<'a, Resolution>),
@@ -70,7 +70,7 @@ pub enum AnimationName<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum EnvironmentVariableName<'a> {
-    Ua(Box<'a, UAEnvironmentVariable>),
+    Ua(UAEnvironmentVariable),
     Custom {
         from: Option<Box<'a, Specifier<'a>>>,
         ident: &'a str,

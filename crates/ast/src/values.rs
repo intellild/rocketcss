@@ -12,34 +12,34 @@ pub enum Image<'a> {
 pub enum Gradient<'a> {
     Linear {
         direction: Box<'a, LineDirection<'a>>,
-        items: Vec<'a, Box<'a, GradientItemFor_DimensionPercentageFor_LengthValue<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        items: Vec<'a, GradientItemFor_DimensionPercentageFor_LengthValue<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     RepeatingLinear {
         direction: Box<'a, LineDirection<'a>>,
-        items: Vec<'a, Box<'a, GradientItemFor_DimensionPercentageFor_LengthValue<'a>>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        items: Vec<'a, GradientItemFor_DimensionPercentageFor_LengthValue<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Radial {
-        items: Vec<'a, Box<'a, GradientItemFor_DimensionPercentageFor_LengthValue<'a>>>,
+        items: Vec<'a, GradientItemFor_DimensionPercentageFor_LengthValue<'a>>,
         position: Box<'a, Position<'a>>,
         shape: Box<'a, EndingShape<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     RepeatingRadial {
-        items: Vec<'a, Box<'a, GradientItemFor_DimensionPercentageFor_LengthValue<'a>>>,
+        items: Vec<'a, GradientItemFor_DimensionPercentageFor_LengthValue<'a>>,
         position: Box<'a, Position<'a>>,
         shape: Box<'a, EndingShape<'a>>,
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
+        vendor_prefix: VendorPrefix<'a>,
     },
     Conic {
         angle: Box<'a, Angle>,
-        items: Vec<'a, Box<'a, GradientItemFor_DimensionPercentageFor_Angle<'a>>>,
+        items: Vec<'a, GradientItemFor_DimensionPercentageFor_Angle<'a>>,
         position: Box<'a, Position<'a>>,
     },
     RepeatingConic {
         angle: Box<'a, Angle>,
-        items: Vec<'a, Box<'a, GradientItemFor_DimensionPercentageFor_Angle<'a>>>,
+        items: Vec<'a, GradientItemFor_DimensionPercentageFor_Angle<'a>>,
         position: Box<'a, Position<'a>>,
     },
     Value(()),
@@ -48,11 +48,11 @@ pub enum Gradient<'a> {
 #[derive(Debug, PartialEq)]
 pub enum LineDirection<'a> {
     Angle(Box<'a, Angle>),
-    Horizontal(Box<'a, HorizontalPositionKeyword>),
-    Vertical(Box<'a, VerticalPositionKeyword>),
+    Horizontal(HorizontalPositionKeyword),
+    Vertical(VerticalPositionKeyword),
     Corner {
-        horizontal: Box<'a, HorizontalPositionKeyword>,
-        vertical: Box<'a, VerticalPositionKeyword>,
+        horizontal: HorizontalPositionKeyword,
+        vertical: VerticalPositionKeyword,
     },
 }
 
@@ -79,7 +79,7 @@ pub enum GradientItemFor_DimensionPercentageFor_LengthValue<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum DimensionPercentageFor_LengthValue<'a> {
-    Dimension(Box<'a, LengthValue<'a>>),
+    Dimension(Box<'a, LengthValue>),
     Percentage(f64),
     Calc(Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>),
 }
@@ -101,8 +101,8 @@ pub enum CalcFor_DimensionPercentageFor_LengthValue<'a> {
 #[derive(Debug, PartialEq)]
 pub enum MathFunctionFor_DimensionPercentageFor_LengthValue<'a> {
     Calc(Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>),
-    Min(Vec<'a, Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>>),
-    Max(Vec<'a, Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>>),
+    Min(Vec<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>),
+    Max(Vec<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>),
     Clamp(
         (
             Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>,
@@ -112,7 +112,7 @@ pub enum MathFunctionFor_DimensionPercentageFor_LengthValue<'a> {
     ),
     Round(
         (
-            Box<'a, RoundingStrategy>,
+            RoundingStrategy,
             Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>,
             Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>,
         ),
@@ -131,7 +131,7 @@ pub enum MathFunctionFor_DimensionPercentageFor_LengthValue<'a> {
     ),
     Abs(Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>),
     Sign(Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>),
-    Hypot(Vec<'a, Box<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>>),
+    Hypot(Vec<'a, CalcFor_DimensionPercentageFor_LengthValue<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -140,7 +140,7 @@ pub enum PositionComponentFor_HorizontalPositionKeyword<'a> {
     Length(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
     Side {
         offset: Option<Box<'a, DimensionPercentageFor_LengthValue<'a>>>,
-        side: Box<'a, HorizontalPositionKeyword>,
+        side: HorizontalPositionKeyword,
     },
 }
 
@@ -150,7 +150,7 @@ pub enum PositionComponentFor_VerticalPositionKeyword<'a> {
     Length(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
     Side {
         offset: Option<Box<'a, DimensionPercentageFor_LengthValue<'a>>>,
-        side: Box<'a, VerticalPositionKeyword>,
+        side: VerticalPositionKeyword,
     },
 }
 
@@ -166,7 +166,7 @@ pub enum Ellipse<'a> {
         x: Box<'a, DimensionPercentageFor_LengthValue<'a>>,
         y: Box<'a, DimensionPercentageFor_LengthValue<'a>>,
     },
-    Extent(Box<'a, ShapeExtent>),
+    Extent(ShapeExtent),
 }
 
 #[derive(Debug, PartialEq)]
@@ -180,7 +180,7 @@ pub enum ShapeExtent {
 #[derive(Debug, PartialEq)]
 pub enum Circle<'a> {
     Radius(Box<'a, Length<'a>>),
-    Extent(Box<'a, ShapeExtent>),
+    Extent(ShapeExtent),
 }
 
 #[derive(Debug, PartialEq)]
@@ -216,8 +216,8 @@ pub enum CalcFor_DimensionPercentageFor_Angle<'a> {
 #[derive(Debug, PartialEq)]
 pub enum MathFunctionFor_DimensionPercentageFor_Angle<'a> {
     Calc(Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>),
-    Min(Vec<'a, Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>>),
-    Max(Vec<'a, Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>>),
+    Min(Vec<'a, CalcFor_DimensionPercentageFor_Angle<'a>>),
+    Max(Vec<'a, CalcFor_DimensionPercentageFor_Angle<'a>>),
     Clamp(
         (
             Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>,
@@ -227,7 +227,7 @@ pub enum MathFunctionFor_DimensionPercentageFor_Angle<'a> {
     ),
     Round(
         (
-            Box<'a, RoundingStrategy>,
+            RoundingStrategy,
             Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>,
             Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>,
         ),
@@ -246,14 +246,14 @@ pub enum MathFunctionFor_DimensionPercentageFor_Angle<'a> {
     ),
     Abs(Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>),
     Sign(Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>),
-    Hypot(Vec<'a, Box<'a, CalcFor_DimensionPercentageFor_Angle<'a>>>),
+    Hypot(Vec<'a, CalcFor_DimensionPercentageFor_Angle<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum WebKitGradientPointComponentFor_HorizontalPositionKeyword<'a> {
     Center,
     Number(Box<'a, NumberOrPercentage>),
-    Side(Box<'a, HorizontalPositionKeyword>),
+    Side(HorizontalPositionKeyword),
 }
 
 #[derive(Debug, PartialEq)]
@@ -266,7 +266,7 @@ pub enum NumberOrPercentage {
 pub enum WebKitGradientPointComponentFor_VerticalPositionKeyword<'a> {
     Center,
     Number(Box<'a, NumberOrPercentage>),
-    Side(Box<'a, VerticalPositionKeyword>),
+    Side(VerticalPositionKeyword),
 }
 
 #[derive(Debug, PartialEq)]
@@ -318,11 +318,11 @@ pub enum BackgroundOrigin {
 
 #[derive(Debug, PartialEq)]
 pub enum Display<'a> {
-    Keyword(Box<'a, DisplayKeyword>),
+    Keyword(DisplayKeyword),
     Pair {
         inside: Box<'a, DisplayInside<'a>>,
         is_list_item: bool,
-        outside: Box<'a, DisplayOutside>,
+        outside: DisplayOutside,
     },
 }
 
@@ -349,12 +349,8 @@ pub enum DisplayInside<'a> {
     Flow,
     FlowRoot,
     Table,
-    Flex {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
-    Box {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
+    Flex { vendor_prefix: VendorPrefix<'a> },
+    Box { vendor_prefix: VendorPrefix<'a> },
     Grid,
     Ruby,
 }
@@ -377,19 +373,11 @@ pub enum Visibility {
 pub enum Size<'a> {
     Auto,
     LengthPercentage(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
-    MinContent {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
-    MaxContent {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
-    FitContent {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
+    MinContent { vendor_prefix: VendorPrefix<'a> },
+    MaxContent { vendor_prefix: VendorPrefix<'a> },
+    FitContent { vendor_prefix: VendorPrefix<'a> },
     FitContentFunction(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
-    Stretch {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
+    Stretch { vendor_prefix: VendorPrefix<'a> },
     Contain,
 }
 
@@ -397,19 +385,11 @@ pub enum Size<'a> {
 pub enum MaxSize<'a> {
     None,
     LengthPercentage(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
-    MinContent {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
-    MaxContent {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
-    FitContent {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
+    MinContent { vendor_prefix: VendorPrefix<'a> },
+    MaxContent { vendor_prefix: VendorPrefix<'a> },
+    FitContent { vendor_prefix: VendorPrefix<'a> },
     FitContentFunction(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
-    Stretch {
-        vendor_prefix: Box<'a, VendorPrefix<'a>>,
-    },
+    Stretch { vendor_prefix: VendorPrefix<'a> },
     Contain,
 }
 
@@ -439,7 +419,7 @@ pub enum Position2<'a> {
     Static,
     Relative,
     Absolute,
-    Sticky(Box<'a, VendorPrefix<'a>>),
+    Sticky(VendorPrefix<'a>),
     Fixed,
 }
 
@@ -520,9 +500,9 @@ pub struct RectFor_NumberOrPercentage<'a>(
 );
 
 #[derive(Debug, PartialEq)]
-pub enum OutlineStyle<'a> {
+pub enum OutlineStyle {
     Auto,
-    LineStyle(Box<'a, LineStyle>),
+    LineStyle(LineStyle),
 }
 
 #[derive(Debug, PartialEq)]
@@ -541,13 +521,13 @@ pub enum FlexWrap {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AlignContent<'a> {
+pub enum AlignContent {
     Normal,
-    BaselinePosition(Box<'a, BaselinePosition>),
-    ContentDistribution(Box<'a, ContentDistribution>),
+    BaselinePosition(BaselinePosition),
+    ContentDistribution(ContentDistribution),
     ContentPosition {
-        overflow: Option<Box<'a, OverflowPosition>>,
-        value: Box<'a, ContentPosition>,
+        overflow: Option<OverflowPosition>,
+        value: ContentPosition,
     },
 }
 
@@ -581,30 +561,30 @@ pub enum ContentPosition {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum JustifyContent<'a> {
+pub enum JustifyContent {
     Normal,
-    ContentDistribution(Box<'a, ContentDistribution>),
+    ContentDistribution(ContentDistribution),
     ContentPosition {
-        overflow: Option<Box<'a, OverflowPosition>>,
-        value: Box<'a, ContentPosition>,
+        overflow: Option<OverflowPosition>,
+        value: ContentPosition,
     },
     Left {
-        overflow: Option<Box<'a, OverflowPosition>>,
+        overflow: Option<OverflowPosition>,
     },
     Right {
-        overflow: Option<Box<'a, OverflowPosition>>,
+        overflow: Option<OverflowPosition>,
     },
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AlignSelf<'a> {
+pub enum AlignSelf {
     Auto,
     Normal,
     Stretch,
-    BaselinePosition(Box<'a, BaselinePosition>),
+    BaselinePosition(BaselinePosition),
     SelfPosition {
-        overflow: Option<Box<'a, OverflowPosition>>,
-        value: Box<'a, SelfPosition>,
+        overflow: Option<OverflowPosition>,
+        value: SelfPosition,
     },
 }
 
@@ -620,50 +600,50 @@ pub enum SelfPosition {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum JustifySelf<'a> {
+pub enum JustifySelf {
     Auto,
     Normal,
     Stretch,
-    BaselinePosition(Box<'a, BaselinePosition>),
+    BaselinePosition(BaselinePosition),
     SelfPosition {
-        overflow: Option<Box<'a, OverflowPosition>>,
-        value: Box<'a, SelfPosition>,
+        overflow: Option<OverflowPosition>,
+        value: SelfPosition,
     },
     Left {
-        overflow: Option<Box<'a, OverflowPosition>>,
+        overflow: Option<OverflowPosition>,
     },
     Right {
-        overflow: Option<Box<'a, OverflowPosition>>,
+        overflow: Option<OverflowPosition>,
     },
 }
 
 #[derive(Debug, PartialEq)]
-pub enum AlignItems<'a> {
+pub enum AlignItems {
     Normal,
     Stretch,
-    BaselinePosition(Box<'a, BaselinePosition>),
+    BaselinePosition(BaselinePosition),
     SelfPosition {
-        overflow: Option<Box<'a, OverflowPosition>>,
-        value: Box<'a, SelfPosition>,
+        overflow: Option<OverflowPosition>,
+        value: SelfPosition,
     },
 }
 
 #[derive(Debug, PartialEq)]
-pub enum JustifyItems<'a> {
+pub enum JustifyItems {
     Normal,
     Stretch,
-    BaselinePosition(Box<'a, BaselinePosition>),
+    BaselinePosition(BaselinePosition),
     SelfPosition {
-        overflow: Option<Box<'a, OverflowPosition>>,
-        value: Box<'a, SelfPosition>,
+        overflow: Option<OverflowPosition>,
+        value: SelfPosition,
     },
     Left {
-        overflow: Option<Box<'a, OverflowPosition>>,
+        overflow: Option<OverflowPosition>,
     },
     Right {
-        overflow: Option<Box<'a, OverflowPosition>>,
+        overflow: Option<OverflowPosition>,
     },
-    Legacy(Box<'a, LegacyJustify>),
+    Legacy(LegacyJustify),
 }
 
 #[derive(Debug, PartialEq)]
@@ -749,7 +729,7 @@ pub enum FlexLinePack {
 pub enum TrackSizing<'a> {
     None,
     TrackList {
-        items: Vec<'a, Box<'a, TrackListItem<'a>>>,
+        items: Vec<'a, TrackListItem<'a>>,
         line_names: Vec<'a, Vec<'a, &'a str>>,
     },
 }
@@ -826,8 +806,8 @@ pub enum AbsoluteFontWeight {
 #[derive(Debug, PartialEq)]
 pub enum FontSize<'a> {
     Length(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
-    Absolute(Box<'a, AbsoluteFontSize>),
-    Relative(Box<'a, RelativeFontSize>),
+    Absolute(AbsoluteFontSize),
+    Relative(RelativeFontSize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -849,8 +829,8 @@ pub enum RelativeFontSize {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FontStretch<'a> {
-    Keyword(Box<'a, FontStretchKeyword>),
+pub enum FontStretch {
+    Keyword(FontStretchKeyword),
     Percentage(f64),
 }
 
@@ -869,7 +849,7 @@ pub enum FontStretchKeyword {
 
 #[derive(Debug, PartialEq)]
 pub enum FontFamily<'a> {
-    GenericFontFamily(Box<'a, GenericFontFamily>),
+    GenericFontFamily(GenericFontFamily),
     CssString(&'a str),
 }
 
@@ -923,7 +903,7 @@ pub enum LineHeight<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum VerticalAlign<'a> {
-    Keyword(Box<'a, VerticalAlignKeyword>),
+    Keyword(VerticalAlignKeyword),
     Length(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
 }
 
@@ -940,7 +920,7 @@ pub enum VerticalAlignKeyword {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum EasingFunction<'a> {
+pub enum EasingFunction {
     Linear,
     Ease,
     EaseIn,
@@ -954,7 +934,7 @@ pub enum EasingFunction<'a> {
     },
     Steps {
         count: f64,
-        position: Option<Box<'a, StepPosition>>,
+        position: Option<StepPosition>,
     },
 }
 
@@ -1006,7 +986,7 @@ pub enum AnimationTimeline<'a> {
     Auto,
     None,
     DashedIdent(&'a str),
-    Scroll(Box<'a, ScrollTimeline<'a>>),
+    Scroll(Box<'a, ScrollTimeline>),
     View(Box<'a, ViewTimeline<'a>>),
 }
 
@@ -1038,7 +1018,7 @@ pub enum AnimationAttachmentRange<'a> {
     Normal,
     DimensionPercentageForLengthValue(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
     Object {
-        name: Box<'a, TimelineRangeName>,
+        name: TimelineRangeName,
         offset: Box<'a, DimensionPercentageFor_LengthValue<'a>>,
     },
 }
@@ -1233,8 +1213,8 @@ pub enum Spacing<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum TextDecorationLine<'a> {
-    ExclusiveTextDecorationLine(Box<'a, ExclusiveTextDecorationLine>),
-    Value(Vec<'a, Box<'a, OtherTextDecorationLine>>),
+    ExclusiveTextDecorationLine(ExclusiveTextDecorationLine),
+    Value(Vec<'a, OtherTextDecorationLine>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -1279,8 +1259,8 @@ pub enum TextDecorationSkipInk {
 pub enum TextEmphasisStyle<'a> {
     None,
     Keyword {
-        fill: Box<'a, TextEmphasisFillMode>,
-        shape: Option<Box<'a, TextEmphasisShape>>,
+        fill: TextEmphasisFillMode,
+        shape: Option<TextEmphasisShape>,
     },
     String(&'a str),
 }
@@ -1425,10 +1405,10 @@ pub enum ListStyleType<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum CounterStyle<'a> {
-    Predefined(Box<'a, PredefinedCounterStyle>),
+    Predefined(PredefinedCounterStyle),
     Name(&'a str),
     Symbols {
-        symbols: Vec<'a, Box<'a, Symbol<'a>>>,
+        symbols: Vec<'a, Symbol<'a>>,
         system: Option<()>,
     },
 }
@@ -1561,7 +1541,7 @@ pub enum StrokeLinejoin {
 #[derive(Debug, PartialEq)]
 pub enum StrokeDasharray<'a> {
     None,
-    Values(Vec<'a, Box<'a, DimensionPercentageFor_LengthValue<'a>>>),
+    Values(Vec<'a, DimensionPercentageFor_LengthValue<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -1612,10 +1592,10 @@ pub enum ClipPath<'a> {
     None,
     Url(Box<'a, Url<'a>>),
     Shape {
-        reference_box: Box<'a, GeometryBox>,
+        reference_box: GeometryBox,
         shape: Box<'a, BasicShape<'a>>,
     },
-    Box(Box<'a, GeometryBox>),
+    Box(GeometryBox),
 }
 
 #[derive(Debug, PartialEq)]
@@ -1660,8 +1640,8 @@ pub enum MaskMode {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum MaskClip<'a> {
-    GeometryBox(Box<'a, GeometryBox>),
+pub enum MaskClip {
+    GeometryBox(GeometryBox),
     NoClip,
 }
 
@@ -1704,7 +1684,7 @@ pub enum WebKitMaskSourceType {
 #[derive(Debug, PartialEq)]
 pub enum FilterList<'a> {
     None,
-    Filters(Vec<'a, Box<'a, Filter<'a>>>),
+    Filters(Vec<'a, Filter<'a>>),
 }
 
 #[derive(Debug, PartialEq)]

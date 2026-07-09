@@ -7,10 +7,10 @@ pub enum MediaCondition<'a> {
     Feature(Box<'a, QueryFeatureFor_MediaFeatureId<'a>>),
     Not(Box<'a, MediaCondition<'a>>),
     Operation {
-        conditions: Vec<'a, Box<'a, MediaCondition<'a>>>,
-        operator: Box<'a, Operator>,
+        conditions: Vec<'a, MediaCondition<'a>>,
+        operator: Operator,
     },
-    Unknown(Vec<'a, Box<'a, TokenOrValue<'a>>>),
+    Unknown(Vec<'a, TokenOrValue<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -24,21 +24,21 @@ pub enum QueryFeatureFor_MediaFeatureId<'a> {
     },
     Range {
         name: Box<'a, MediaFeatureNameFor_MediaFeatureId<'a>>,
-        operator: Box<'a, MediaFeatureComparison>,
+        operator: MediaFeatureComparison,
         value: Box<'a, MediaFeatureValue<'a>>,
     },
     Interval {
         end: Box<'a, MediaFeatureValue<'a>>,
-        end_operator: Box<'a, MediaFeatureComparison>,
+        end_operator: MediaFeatureComparison,
         name: Box<'a, MediaFeatureNameFor_MediaFeatureId<'a>>,
         start: Box<'a, MediaFeatureValue<'a>>,
-        start_operator: Box<'a, MediaFeatureComparison>,
+        start_operator: MediaFeatureComparison,
     },
 }
 
 #[derive(Debug, PartialEq)]
 pub enum MediaFeatureNameFor_MediaFeatureId<'a> {
-    MediaFeatureId(Box<'a, MediaFeatureId>),
+    MediaFeatureId(MediaFeatureId),
     CssString(&'a str),
     CssString2(&'a str),
 }
@@ -124,8 +124,8 @@ pub enum Qualifier {
 #[derive(Debug, PartialEq)]
 pub enum SupportsCondition<'a> {
     Not(Box<'a, SupportsCondition<'a>>),
-    And(Vec<'a, Box<'a, SupportsCondition<'a>>>),
-    Or(Vec<'a, Box<'a, SupportsCondition<'a>>>),
+    And(Vec<'a, SupportsCondition<'a>>),
+    Or(Vec<'a, SupportsCondition<'a>>),
     Declaration {
         property_id: Box<'a, PropertyId<'a>>,
         value: &'a str,
