@@ -1,0 +1,12 @@
+{
+  "name": "rs-css-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "format-ci:toml": "taplo format --check",
+    "format:toml": "taplo format"
+  },
+  "devDependencies": {
+    "@taplo/cli": "^0.7.0"
+  }
+}
