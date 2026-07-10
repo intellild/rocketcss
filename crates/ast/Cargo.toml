@@ -9,6 +9,7 @@ repository.workspace  = true
 version               = "0.1.0"
 
 [dependencies]
+bitflags         = { workspace = true }
 rs_css_allocator = { workspace = true }
 smallbitvec      = { workspace = true }
 smallvec         = { workspace = true }

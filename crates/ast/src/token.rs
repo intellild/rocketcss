@@ -28,9 +28,9 @@ pub enum Token<'a> {
     String(&'a str),
     UnquotedUrl(&'a str),
     Delim(&'a str),
-    Number(f64),
-    Percentage(f64),
-    Dimension { unit: &'a str, value: f64 },
+    Number(f32),
+    Percentage(f32),
+    Dimension { unit: &'a str, value: f32 },
     WhiteSpace(&'a str),
     Comment(&'a str),
     Colon,
@@ -58,7 +58,7 @@ pub enum Token<'a> {
 pub enum Specifier<'a> {
     Global,
     File(&'a str),
-    SourceIndex(f64),
+    SourceIndex(u32),
 }
 
 #[derive(Debug, PartialEq)]
@@ -70,11 +70,8 @@ pub enum AnimationName<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum EnvironmentVariableName<'a> {
-    Ua(UAEnvironmentVariable),
-    Custom {
-        from: Option<Box<'a, Specifier<'a>>>,
-        ident: &'a str,
-    },
+    UA(UAEnvironmentVariable),
+    Custom(Box<'a, DashedIdentReference<'a>>),
     Unknown(&'a str),
 }
 

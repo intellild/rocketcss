@@ -2,7 +2,7 @@ use super::*;
 
 #[derive(Debug, PartialEq)]
 pub enum KeyframeSelector<'a> {
-    Percentage(f64),
+    Percentage(f32),
     From,
     To,
     TimelineRangePercentage(Box<'a, TimelineRangePercentage>),
@@ -18,9 +18,9 @@ pub enum KeyframesName<'a> {
 pub enum FontFaceProperty<'a> {
     Source(Vec<'a, Source<'a>>),
     FontFamily(Box<'a, FontFamily<'a>>),
-    FontStyle(Box<'a, FontStyle2<'a>>),
-    FontWeight(Box<'a, Size2DFor_FontWeight<'a>>),
-    FontStretch(Box<'a, Size2DFor_FontStretch<'a>>),
+    FontStyle(Box<'a, FontFaceStyle<'a>>),
+    FontWeight(Box<'a, Size2D<'a, FontWeight<'a>>>),
+    FontStretch(Box<'a, Size2D<'a, FontStretch>>),
     UnicodeRange(Vec<'a, UnicodeRange>),
     Custom(Box<'a, CustomProperty<'a>>),
 }
@@ -59,20 +59,11 @@ pub enum FontTechnology {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum FontStyle2<'a> {
+pub enum FontFaceStyle<'a> {
     Normal,
     Italic,
-    Oblique(Box<'a, Size2DFor_Angle<'a>>),
+    Oblique(Box<'a, Size2D<'a, Angle>>),
 }
-
-#[derive(Debug, PartialEq)]
-pub struct Size2DFor_Angle<'a>(pub Box<'a, Angle>, pub Box<'a, Angle>);
-
-#[derive(Debug, PartialEq)]
-pub struct Size2DFor_FontWeight<'a>(pub Box<'a, FontWeight<'a>>, pub Box<'a, FontWeight<'a>>);
-
-#[derive(Debug, PartialEq)]
-pub struct Size2DFor_FontStretch<'a>(pub Box<'a, FontStretch>, pub Box<'a, FontStretch>);
 
 #[derive(Debug, PartialEq)]
 pub enum FontPaletteValuesProperty<'a> {
@@ -86,7 +77,7 @@ pub enum FontPaletteValuesProperty<'a> {
 pub enum BasePalette {
     Light,
     Dark,
-    Integer(f64),
+    Integer(u16),
 }
 
 #[derive(Debug, PartialEq)]
@@ -132,14 +123,14 @@ pub enum PagePseudoClass {
 #[derive(Debug, PartialEq)]
 pub enum ParsedComponent<'a> {
     Length(Box<'a, Length<'a>>),
-    Number(f64),
-    Percentage(f64),
-    LengthPercentage(Box<'a, DimensionPercentageFor_LengthValue<'a>>),
+    Number(f32),
+    Percentage(f32),
+    LengthPercentage(Box<'a, LengthPercentage<'a>>),
     String(&'a str),
     Color(Box<'a, CssColor<'a>>),
     Image(Box<'a, Image<'a>>),
     Url(Box<'a, Url<'a>>),
-    Integer(f64),
+    Integer(i32),
     Angle(Box<'a, Angle>),
     Time(Box<'a, Time>),
     Resolution(Box<'a, Resolution>),
@@ -147,7 +138,10 @@ pub enum ParsedComponent<'a> {
     TransformList(Vec<'a, Transform<'a>>),
     CustomIdent(&'a str),
     Literal(&'a str),
-    Repeated(()),
+    Repeated {
+        components: Vec<'a, ParsedComponent<'a>>,
+        multiplier: Multiplier,
+    },
     TokenList(Vec<'a, TokenOrValue<'a>>),
 }
 
@@ -186,7 +180,7 @@ pub enum SyntaxComponentKind<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum ContainerCondition<'a> {
-    Feature(Box<'a, QueryFeatureFor_ContainerSizeFeatureId<'a>>),
+    Feature(Box<'a, ContainerSizeFeature<'a>>),
     Not(Box<'a, ContainerCondition<'a>>),
     Operation {
         conditions: Vec<'a, ContainerCondition<'a>>,
@@ -197,35 +191,7 @@ pub enum ContainerCondition<'a> {
     Unknown(Vec<'a, TokenOrValue<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
-pub enum QueryFeatureFor_ContainerSizeFeatureId<'a> {
-    Plain {
-        name: Box<'a, MediaFeatureNameFor_ContainerSizeFeatureId<'a>>,
-        value: Box<'a, MediaFeatureValue<'a>>,
-    },
-    Boolean {
-        name: Box<'a, MediaFeatureNameFor_ContainerSizeFeatureId<'a>>,
-    },
-    Range {
-        name: Box<'a, MediaFeatureNameFor_ContainerSizeFeatureId<'a>>,
-        operator: MediaFeatureComparison,
-        value: Box<'a, MediaFeatureValue<'a>>,
-    },
-    Interval {
-        end: Box<'a, MediaFeatureValue<'a>>,
-        end_operator: MediaFeatureComparison,
-        name: Box<'a, MediaFeatureNameFor_ContainerSizeFeatureId<'a>>,
-        start: Box<'a, MediaFeatureValue<'a>>,
-        start_operator: MediaFeatureComparison,
-    },
-}
-
-#[derive(Debug, PartialEq)]
-pub enum MediaFeatureNameFor_ContainerSizeFeatureId<'a> {
-    ContainerSizeFeatureId(ContainerSizeFeatureId),
-    CssString(&'a str),
-    CssString2(&'a str),
-}
+pub type ContainerSizeFeature<'a> = QueryFeature<'a, ContainerSizeFeatureId>;
 
 #[derive(Debug, PartialEq)]
 pub enum ContainerSizeFeatureId {
@@ -250,7 +216,7 @@ pub enum StyleQuery<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum ScrollStateQuery<'a> {
-    Feature(Box<'a, QueryFeatureFor_ScrollStateFeatureId<'a>>),
+    Feature(Box<'a, ScrollStateFeature<'a>>),
     Not(Box<'a, ScrollStateQuery<'a>>),
     Operation {
         conditions: Vec<'a, ScrollStateQuery<'a>>,
@@ -258,35 +224,7 @@ pub enum ScrollStateQuery<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
-pub enum QueryFeatureFor_ScrollStateFeatureId<'a> {
-    Plain {
-        name: Box<'a, MediaFeatureNameFor_ScrollStateFeatureId<'a>>,
-        value: Box<'a, MediaFeatureValue<'a>>,
-    },
-    Boolean {
-        name: Box<'a, MediaFeatureNameFor_ScrollStateFeatureId<'a>>,
-    },
-    Range {
-        name: Box<'a, MediaFeatureNameFor_ScrollStateFeatureId<'a>>,
-        operator: MediaFeatureComparison,
-        value: Box<'a, MediaFeatureValue<'a>>,
-    },
-    Interval {
-        end: Box<'a, MediaFeatureValue<'a>>,
-        end_operator: MediaFeatureComparison,
-        name: Box<'a, MediaFeatureNameFor_ScrollStateFeatureId<'a>>,
-        start: Box<'a, MediaFeatureValue<'a>>,
-        start_operator: MediaFeatureComparison,
-    },
-}
-
-#[derive(Debug, PartialEq)]
-pub enum MediaFeatureNameFor_ScrollStateFeatureId<'a> {
-    ScrollStateFeatureId(ScrollStateFeatureId),
-    CssString(&'a str),
-    CssString2(&'a str),
-}
+pub type ScrollStateFeature<'a> = QueryFeature<'a, ScrollStateFeatureId>;
 
 #[derive(Debug, PartialEq)]
 pub enum ScrollStateFeatureId {
@@ -298,18 +236,9 @@ pub enum ScrollStateFeatureId {
 
 #[derive(Debug, PartialEq)]
 pub enum ViewTransitionProperty<'a> {
-    Object {
-        property: &'a str,
-        value: Navigation,
-    },
-    Object2 {
-        property: &'a str,
-        value: Box<'a, NoneOrCustomIdentList<'a>>,
-    },
-    Object3 {
-        property: &'a str,
-        value: Box<'a, CustomProperty<'a>>,
-    },
+    Navigation(Navigation),
+    Types(Box<'a, NoneOrCustomIdentList<'a>>),
+    Custom(Box<'a, CustomProperty<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -318,7 +247,8 @@ pub enum Navigation {
     Auto,
 }
 
-pub type DefaultAtRule = ();
+#[derive(Debug, Default, PartialEq)]
+pub struct DefaultAtRule;
 
 #[derive(Debug, PartialEq)]
 pub struct StyleSheet<'a> {
@@ -350,13 +280,13 @@ pub struct MediaQuery<'a> {
 #[derive(Debug, PartialEq)]
 pub struct LengthValue {
     pub unit: LengthUnit,
-    pub value: f64,
+    pub value: f32,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct EnvironmentVariable<'a> {
     pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
-    pub indices: Option<Vec<'a, f64>>,
+    pub indices: Vec<'a, i32>,
     pub name: Box<'a, EnvironmentVariableName<'a>>,
 }
 
@@ -395,40 +325,41 @@ pub struct ImportRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct StyleRule<'a> {
-    pub declarations: Option<Box<'a, DeclarationBlock<'a>>>,
+    pub declarations: Box<'a, DeclarationBlock<'a>>,
     pub span: Span,
-    pub rules: Option<Vec<'a, CssRule<'a>>>,
+    pub rules: Vec<'a, CssRule<'a>>,
     pub selectors: Box<'a, SelectorList<'a>>,
+    pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct DeclarationBlock<'a> {
-    pub declarations: Option<Vec<'a, Declaration<'a>>>,
-    pub important_declarations: Option<Vec<'a, Declaration<'a>>>,
+    pub declarations: Vec<'a, Declaration<'a>>,
+    pub important_declarations: Vec<'a, Declaration<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Position<'a> {
-    pub x: Box<'a, PositionComponentFor_HorizontalPositionKeyword<'a>>,
-    pub y: Box<'a, PositionComponentFor_VerticalPositionKeyword<'a>>,
+    pub x: Box<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
+    pub y: Box<'a, PositionComponent<'a, VerticalPositionKeyword>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct WebKitGradientPoint<'a> {
-    pub x: Box<'a, WebKitGradientPointComponentFor_HorizontalPositionKeyword<'a>>,
-    pub y: Box<'a, WebKitGradientPointComponentFor_VerticalPositionKeyword<'a>>,
+    pub x: Box<'a, WebKitGradientPointComponent<'a, HorizontalPositionKeyword>>,
+    pub y: Box<'a, WebKitGradientPointComponent<'a, VerticalPositionKeyword>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct WebKitColorStop<'a> {
     pub color: Box<'a, CssColor<'a>>,
-    pub position: f64,
+    pub position: f32,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ImageSet<'a> {
     pub options: Vec<'a, ImageSetOption<'a>>,
-    pub vendor_prefix: VendorPrefix<'a>,
+    pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq)]
@@ -440,8 +371,8 @@ pub struct ImageSetOption<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct BackgroundPosition<'a> {
-    pub x: Box<'a, PositionComponentFor_HorizontalPositionKeyword<'a>>,
-    pub y: Box<'a, PositionComponentFor_VerticalPositionKeyword<'a>>,
+    pub x: Box<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
+    pub y: Box<'a, PositionComponent<'a, VerticalPositionKeyword>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -506,10 +437,10 @@ pub struct Inset<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct BorderRadius<'a> {
-    pub bottom_left: Box<'a, Size2DFor_DimensionPercentageFor_LengthValue<'a>>,
-    pub bottom_right: Box<'a, Size2DFor_DimensionPercentageFor_LengthValue<'a>>,
-    pub top_left: Box<'a, Size2DFor_DimensionPercentageFor_LengthValue<'a>>,
-    pub top_right: Box<'a, Size2DFor_DimensionPercentageFor_LengthValue<'a>>,
+    pub bottom_left: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub bottom_right: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub top_left: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub top_right: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -521,16 +452,16 @@ pub struct BorderImageRepeat {
 #[derive(Debug, PartialEq)]
 pub struct BorderImageSlice<'a> {
     pub fill: bool,
-    pub offsets: Box<'a, RectFor_NumberOrPercentage<'a>>,
+    pub offsets: Box<'a, Rect<'a, NumberOrPercentage>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct BorderImage<'a> {
-    pub outset: Box<'a, RectFor_LengthOrNumber<'a>>,
+    pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
     pub repeat: Box<'a, BorderImageRepeat>,
     pub slice: Box<'a, BorderImageSlice<'a>>,
     pub source: Box<'a, Image<'a>>,
-    pub width: Box<'a, RectFor_BorderImageSideWidth<'a>>,
+    pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -594,16 +525,9 @@ pub struct BorderInlineWidth<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct GenericBorderFor_LineStyle<'a> {
+pub struct GenericBorder<'a, S> {
     pub color: Box<'a, CssColor<'a>>,
-    pub style: LineStyle,
-    pub width: Box<'a, BorderSideWidth<'a>>,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct GenericBorderFor_OutlineStyleAnd_11<'a> {
-    pub color: Box<'a, CssColor<'a>>,
-    pub style: Box<'a, OutlineStyle>,
+    pub style: S,
     pub width: Box<'a, BorderSideWidth<'a>>,
 }
 
@@ -616,8 +540,8 @@ pub struct FlexFlow {
 #[derive(Debug, PartialEq)]
 pub struct Flex<'a> {
     pub basis: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub grow: f64,
-    pub shrink: f64,
+    pub grow: f32,
+    pub shrink: f32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -802,7 +726,7 @@ pub struct ScrollTimeline {
 #[derive(Debug, PartialEq)]
 pub struct ViewTimeline<'a> {
     pub axis: ScrollAxis,
-    pub inset: Box<'a, Size2DFor_LengthPercentageOrAuto<'a>>,
+    pub inset: Box<'a, Size2D<'a, LengthPercentageOrAuto<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -826,40 +750,40 @@ pub struct Animation<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct MatrixForFloat {
-    pub a: f64,
-    pub b: f64,
-    pub c: f64,
-    pub d: f64,
-    pub e: f64,
-    pub f: f64,
+    pub a: f32,
+    pub b: f32,
+    pub c: f32,
+    pub d: f32,
+    pub e: f32,
+    pub f: f32,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Matrix3DForFloat {
-    pub m11: f64,
-    pub m12: f64,
-    pub m13: f64,
-    pub m14: f64,
-    pub m21: f64,
-    pub m22: f64,
-    pub m23: f64,
-    pub m24: f64,
-    pub m31: f64,
-    pub m32: f64,
-    pub m33: f64,
-    pub m34: f64,
-    pub m41: f64,
-    pub m42: f64,
-    pub m43: f64,
-    pub m44: f64,
+    pub m11: f32,
+    pub m12: f32,
+    pub m13: f32,
+    pub m14: f32,
+    pub m21: f32,
+    pub m22: f32,
+    pub m23: f32,
+    pub m24: f32,
+    pub m31: f32,
+    pub m32: f32,
+    pub m33: f32,
+    pub m34: f32,
+    pub m41: f32,
+    pub m42: f32,
+    pub m43: f32,
+    pub m44: f32,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Rotate<'a> {
     pub angle: Box<'a, Angle>,
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -873,7 +797,7 @@ pub struct TextTransform {
 pub struct TextIndent<'a> {
     pub each_line: bool,
     pub hanging: bool,
-    pub value: Box<'a, DimensionPercentageFor_LengthValue<'a>>,
+    pub value: Box<'a, LengthPercentage<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -913,7 +837,7 @@ pub struct Cursor<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct CursorImage<'a> {
-    pub hotspot: Option<(f64, f64)>,
+    pub hotspot: Option<(f32, f32)>,
     pub url: Box<'a, Url<'a>>,
 }
 
@@ -940,17 +864,17 @@ pub struct Composes<'a> {
 #[derive(Debug, PartialEq)]
 pub struct InsetRect<'a> {
     pub radius: Box<'a, BorderRadius<'a>>,
-    pub rect: Box<'a, RectFor_DimensionPercentageFor_LengthValue<'a>>,
+    pub rect: Box<'a, Rect<'a, LengthPercentage<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Circle2<'a> {
+pub struct CircleShape<'a> {
     pub position: Box<'a, Position<'a>>,
     pub radius: Box<'a, ShapeRadius<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Ellipse2<'a> {
+pub struct EllipseShape<'a> {
     pub position: Box<'a, Position<'a>>,
     pub radius_x: Box<'a, ShapeRadius<'a>>,
     pub radius_y: Box<'a, ShapeRadius<'a>>,
@@ -964,8 +888,8 @@ pub struct Polygon<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Point<'a> {
-    pub x: Box<'a, DimensionPercentageFor_LengthValue<'a>>,
-    pub y: Box<'a, DimensionPercentageFor_LengthValue<'a>>,
+    pub x: Box<'a, LengthPercentage<'a>>,
+    pub y: Box<'a, LengthPercentage<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -983,11 +907,11 @@ pub struct Mask<'a> {
 #[derive(Debug, PartialEq)]
 pub struct MaskBorder<'a> {
     pub mode: MaskBorderMode,
-    pub outset: Box<'a, RectFor_LengthOrNumber<'a>>,
+    pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
     pub repeat: Box<'a, BorderImageRepeat>,
     pub slice: Box<'a, BorderImageSlice<'a>>,
     pub source: Box<'a, Image<'a>>,
-    pub width: Box<'a, RectFor_BorderImageSideWidth<'a>>,
+    pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1024,13 +948,6 @@ pub struct CustomProperty<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct AttrOperation<'a> {
-    pub case_sensitivity: Option<()>,
-    pub operator: AttrSelectorOperator,
-    pub value: &'a str,
-}
-
-#[derive(Debug, PartialEq)]
 pub struct ViewTransitionPartSelector<'a> {
     pub classes: Vec<'a, &'a str>,
     pub name: Option<Box<'a, ViewTransitionPartName<'a>>>,
@@ -1041,7 +958,7 @@ pub struct KeyframesRule<'a> {
     pub keyframes: Vec<'a, Keyframe<'a>>,
     pub span: Span,
     pub name: Box<'a, KeyframesName<'a>>,
-    pub vendor_prefix: VendorPrefix<'a>,
+    pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1053,7 +970,7 @@ pub struct Keyframe<'a> {
 #[derive(Debug, PartialEq)]
 pub struct TimelineRangePercentage {
     pub name: TimelineRangeName,
-    pub percentage: f64,
+    pub percentage: f32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1071,8 +988,8 @@ pub struct UrlSource<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct UnicodeRange {
-    pub end: f64,
-    pub start: f64,
+    pub end: u32,
+    pub start: u32,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1085,22 +1002,31 @@ pub struct FontPaletteValuesRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct OverrideColors<'a> {
     pub color: Box<'a, CssColor<'a>>,
-    pub index: f64,
+    pub index: u16,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct FontFeatureValuesRule<'a> {
     pub span: Span,
-    pub name: Vec<'a, &'a str>,
-    pub rules: (),
+    pub name: Vec<'a, FamilyName<'a>>,
+    pub rules: Vec<'a, FontFeatureSubrule<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FontFeatureSubrule {
-    pub declarations: (),
+pub struct FontFeatureSubrule<'a> {
+    pub declarations: Vec<'a, FontFeatureDeclaration<'a>>,
     pub span: Span,
     pub name: FontFeatureSubruleType,
 }
+
+#[derive(Debug, PartialEq)]
+pub struct FontFeatureDeclaration<'a> {
+    pub name: &'a str,
+    pub values: Vec<'a, i32>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct FamilyName<'a>(pub &'a str);
 
 #[derive(Debug, PartialEq)]
 pub struct PageRule<'a> {
@@ -1166,7 +1092,7 @@ pub struct NestedDeclarationsRule<'a> {
 pub struct ViewportRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
     pub span: Span,
-    pub vendor_prefix: VendorPrefix<'a>,
+    pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1233,9 +1159,68 @@ pub struct ViewTransitionRule<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+pub struct PositionTryRule<'a> {
+    pub span: Span,
+    pub name: &'a str,
+    pub declarations: Box<'a, DeclarationBlock<'a>>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct UnknownAtRule<'a> {
     pub block: Option<Vec<'a, TokenOrValue<'a>>>,
     pub span: Span,
     pub name: &'a str,
     pub prelude: Vec<'a, TokenOrValue<'a>>,
 }
+
+macro_rules! impl_spanned {
+    ($($ty:ident),+ $(,)?) => {
+        $(
+            impl GetSpan for $ty<'_> {
+                #[inline]
+                fn span(&self) -> Span {
+                    self.span
+                }
+            }
+
+            impl SetSpan for $ty<'_> {
+                #[inline]
+                fn set_span(&mut self, span: Span) {
+                    self.span = span;
+                }
+            }
+        )+
+    };
+}
+
+impl_spanned!(
+    Composes,
+    KeyframesRule,
+    FontFaceRule,
+    FontPaletteValuesRule,
+    FontFeatureValuesRule,
+    FontFeatureSubrule,
+    PageRule,
+    PageMarginRule,
+    SupportsRule,
+    CounterStyleRule,
+    NamespaceRule,
+    MozDocumentRule,
+    NestingRule,
+    NestedDeclarationsRule,
+    ViewportRule,
+    CustomMediaRule,
+    LayerStatementRule,
+    LayerBlockRule,
+    PropertyRule,
+    ContainerRule,
+    ScopeRule,
+    StartingStyleRule,
+    ViewTransitionRule,
+    PositionTryRule,
+    UnknownAtRule,
+    MediaRule,
+    Url,
+    ImportRule,
+    StyleRule,
+);

@@ -1,37 +1,93 @@
 use super::*;
 
+/// A selector list in source order.
+pub type SelectorList<'a> = Vec<'a, Selector<'a>>;
+
+/// A complex selector. Components are stored in parse order.
+pub type Selector<'a> = Vec<'a, SelectorComponent<'a>>;
+
+/// A CSS simple selector or combinator.
+///
+/// This mirrors `parcel_selectors::parser::Component`, specialized for
+/// lightningcss' selector implementation and arena-backed containers.
 #[derive(Debug, PartialEq)]
 pub enum SelectorComponent<'a> {
-    Combinator(Box<'a, Combinator<'a>>),
-    Universal,
-    Value(()),
-    Type {
-        name: &'a str,
+    Combinator(Combinator),
+
+    ExplicitAnyNamespace,
+    ExplicitNoNamespace,
+    DefaultNamespace(&'a str),
+    Namespace {
+        prefix: &'a str,
+        url: &'a str,
     },
-    Id {
+
+    ExplicitUniversalType,
+    LocalName {
         name: &'a str,
+        lower_name: &'a str,
     },
-    Class {
-        name: &'a str,
+
+    Id(&'a str),
+    Class(&'a str),
+
+    AttributeInNoNamespaceExists {
+        local_name: &'a str,
+        local_name_lower: &'a str,
     },
-    Attribute {
-        name: &'a str,
-        namespace: Option<Box<'a, NamespaceConstraint<'a>>>,
-        operation: Option<Box<'a, AttrOperation<'a>>>,
+    AttributeInNoNamespace {
+        local_name: &'a str,
+        operator: AttrSelectorOperator,
+        value: &'a str,
+        case_sensitivity: ParsedCaseSensitivity,
+        never_matches: bool,
     },
-    Value2(()),
-    Value3(()),
+    AttributeOther(Box<'a, AttrSelector<'a>>),
+
+    Negation(Vec<'a, Selector<'a>>),
+    Root,
+    Empty,
+    Scope,
+    Nth(NthSelectorData),
+    NthOf {
+        data: NthSelectorData,
+        selectors: Vec<'a, Selector<'a>>,
+    },
+    PseudoClass(Box<'a, PseudoClass<'a>>),
+    Slotted(Box<'a, Selector<'a>>),
+    Part(Vec<'a, &'a str>),
+    Host(Option<Box<'a, Selector<'a>>>),
+    Where(Vec<'a, Selector<'a>>),
+    Is(Vec<'a, Selector<'a>>),
+    Any {
+        vendor_prefix: VendorPrefix,
+        selectors: Vec<'a, Selector<'a>>,
+    },
+    Has(Vec<'a, Selector<'a>>),
+    PseudoElement(Box<'a, PseudoElement<'a>>),
     Nesting,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Combinator<'a> {
-    Value(&'a str),
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Combinator {
+    Child,
+    Descendant,
+    NextSibling,
+    LaterSibling,
     PseudoElement,
     SlotAssignment,
     Part,
     DeepDescendant,
     Deep,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct AttrSelector<'a> {
+    pub namespace: Option<NamespaceConstraint<'a>>,
+    pub local_name: &'a str,
+    pub local_name_lower: &'a str,
+    pub operation: AttrOperation<'a>,
+    pub never_matches: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -41,14 +97,25 @@ pub enum NamespaceConstraint<'a> {
 }
 
 #[derive(Debug, PartialEq)]
+pub enum AttrOperation<'a> {
+    Exists,
+    WithValue {
+        operator: AttrSelectorOperator,
+        case_sensitivity: ParsedCaseSensitivity,
+        expected_value: &'a str,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ParsedCaseSensitivity {
     ExplicitCaseSensitive,
     AsciiCaseInsensitive,
+    #[default]
     CaseSensitive,
     AsciiCaseInsensitiveIfInHtmlElementInHtmlDocument,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AttrSelectorOperator {
     Equal,
     Includes,
@@ -58,297 +125,114 @@ pub enum AttrSelectorOperator {
     Suffix,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum TSPseudoClass<'a> {
-    Object {
-        kind: &'a str,
-        selectors: Vec<'a, Selector<'a>>,
-    },
-    Object2 {
-        kind: &'a str,
-    },
-    Object3 {
-        kind: &'a str,
-    },
-    Object4 {
-        kind: &'a str,
-    },
-    Object5 {
-        kind: &'a str,
-    },
-    Object6 {
-        kind: &'a str,
-    },
-    Object7 {
-        kind: &'a str,
-    },
-    Object8 {
-        a: f64,
-        b: f64,
-        kind: &'a str,
-        of: Option<Vec<'a, Selector<'a>>>,
-    },
-    Object9 {
-        a: f64,
-        b: f64,
-        kind: &'a str,
-        of: Option<Vec<'a, Selector<'a>>>,
-    },
-    Object10 {
-        a: f64,
-        b: f64,
-        kind: &'a str,
-    },
-    Object11 {
-        a: f64,
-        b: f64,
-        kind: &'a str,
-    },
-    Object12 {
-        a: f64,
-        b: f64,
-        kind: &'a str,
-    },
-    Object13 {
-        a: f64,
-        b: f64,
-        kind: &'a str,
-    },
-    Object14 {
-        kind: &'a str,
-    },
-    Object15 {
-        kind: &'a str,
-    },
-    Object16 {
-        kind: &'a str,
-    },
-    Object17 {
-        kind: &'a str,
-        selectors: Option<Box<'a, Selector<'a>>>,
-    },
-    Object18 {
-        kind: &'a str,
-        selectors: Vec<'a, Selector<'a>>,
-    },
-    Object19 {
-        kind: &'a str,
-        selectors: Vec<'a, Selector<'a>>,
-    },
-    Object20 {
-        kind: &'a str,
-        selectors: Vec<'a, Selector<'a>>,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object21 {
-        kind: &'a str,
-        selectors: Vec<'a, Selector<'a>>,
-    },
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NthType {
+    Child,
+    LastChild,
+    OnlyChild,
+    OfType,
+    LastOfType,
+    OnlyOfType,
+    Col,
+    LastCol,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum PseudoClass<'a> {
-    Object {
-        kind: &'a str,
-        languages: Vec<'a, &'a str>,
-    },
-    Object2 {
-        direction: Direction,
-        kind: &'a str,
-    },
-    Object3 {
-        kind: &'a str,
-    },
-    Object4 {
-        kind: &'a str,
-    },
-    Object5 {
-        kind: &'a str,
-    },
-    Object6 {
-        kind: &'a str,
-    },
-    Object7 {
-        kind: &'a str,
-    },
-    Object8 {
-        kind: &'a str,
-    },
-    Object9 {
-        kind: &'a str,
-    },
-    Object10 {
-        kind: &'a str,
-    },
-    Object11 {
-        kind: &'a str,
-    },
-    Object12 {
-        kind: &'a str,
-    },
-    Object13 {
-        kind: &'a str,
-    },
-    Object14 {
-        kind: &'a str,
-    },
-    Object15 {
-        kind: &'a str,
-    },
-    Object16 {
-        kind: &'a str,
-    },
-    Object17 {
-        kind: &'a str,
-    },
-    Object18 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object19 {
-        kind: &'a str,
-    },
-    Object20 {
-        kind: &'a str,
-    },
-    Object21 {
-        kind: &'a str,
-    },
-    Object22 {
-        kind: &'a str,
-    },
-    Object23 {
-        kind: &'a str,
-    },
-    Object24 {
-        kind: &'a str,
-    },
-    Object25 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object26 {
-        kind: &'a str,
-    },
-    Object27 {
-        kind: &'a str,
-    },
-    Object28 {
-        kind: &'a str,
-    },
-    Object29 {
-        kind: &'a str,
-    },
-    Object30 {
-        kind: &'a str,
-    },
-    Object31 {
-        kind: &'a str,
-    },
-    Object32 {
-        kind: &'a str,
-    },
-    Object33 {
-        kind: &'a str,
-    },
-    Object34 {
-        kind: &'a str,
-    },
-    Object35 {
-        kind: &'a str,
-    },
-    Object36 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object37 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object38 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object39 {
-        kind: &'a str,
-    },
-    Object40 {
-        kind: &'a str,
-    },
-    Object41 {
-        kind: &'a str,
-    },
-    Object42 {
-        kind: &'a str,
-    },
-    Object43 {
-        kind: &'a str,
-    },
-    Object44 {
-        kind: &'a str,
-    },
-    Object45 {
-        kind: &'a str,
-    },
-    Object46 {
-        kind: &'a str,
-    },
-    Object47 {
-        kind: &'a str,
-    },
-    Object48 {
-        kind: &'a str,
-    },
-    Object49 {
-        kind: &'a str,
-    },
-    Object50 {
-        kind: &'a str,
-    },
-    Object51 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object52 {
-        kind: &'a str,
-    },
-    Object53 {
-        kind: &'a str,
-    },
-    Object54 {
-        kind: &'a str,
-        state: &'a str,
-    },
-    Object55 {
-        kind: &'a str,
-        selector: Box<'a, Selector<'a>>,
-    },
-    Object56 {
-        kind: &'a str,
-        selector: Box<'a, Selector<'a>>,
-    },
-    Object57 {
-        kind: &'a str,
-        value: WebKitScrollbarPseudoClass,
-    },
-    Object58 {
-        kind: &'a str,
-        name: &'a str,
-    },
-    Object59 {
-        arguments: Vec<'a, TokenOrValue<'a>>,
-        kind: &'a str,
-        name: &'a str,
-    },
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NthSelectorData {
+    pub kind: NthType,
+    pub is_function: bool,
+    pub a: i32,
+    pub b: i32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     Ltr,
     Rtl,
 }
 
 #[derive(Debug, PartialEq)]
+pub enum PseudoClass<'a> {
+    Lang {
+        languages: Vec<'a, &'a str>,
+    },
+    Dir {
+        direction: Direction,
+    },
+
+    Hover,
+    Active,
+    Focus,
+    FocusVisible,
+    FocusWithin,
+    Current,
+    Past,
+    Future,
+    Playing,
+    Paused,
+    Seeking,
+    Buffering,
+    Stalled,
+    Muted,
+    VolumeLocked,
+    Fullscreen(VendorPrefix),
+    Open,
+    Closed,
+    Modal,
+    PictureInPicture,
+    PopoverOpen,
+    Defined,
+    AnyLink(VendorPrefix),
+    Link,
+    LocalLink,
+    Target,
+    TargetCurrent,
+    TargetBefore,
+    TargetAfter,
+    TargetWithin,
+    Visited,
+    Enabled,
+    Disabled,
+    ReadOnly(VendorPrefix),
+    ReadWrite(VendorPrefix),
+    PlaceholderShown(VendorPrefix),
+    Default,
+    Checked,
+    Indeterminate,
+    Blank,
+    Valid,
+    Invalid,
+    InRange,
+    OutOfRange,
+    Required,
+    Optional,
+    UserValid,
+    UserInvalid,
+    Autofill(VendorPrefix),
+    ActiveViewTransition,
+    ActiveViewTransitionType {
+        kinds: Vec<'a, &'a str>,
+    },
+    State {
+        state: &'a str,
+    },
+    Local {
+        selector: Box<'a, Selector<'a>>,
+    },
+    Global {
+        selector: Box<'a, Selector<'a>>,
+    },
+    WebKitScrollbar(WebKitScrollbarPseudoClass),
+    Custom {
+        name: &'a str,
+    },
+    CustomFunction {
+        name: &'a str,
+        arguments: Vec<'a, TokenOrValue<'a>>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WebKitScrollbarPseudoClass {
     Horizontal,
     Vertical,
@@ -364,121 +248,61 @@ pub enum WebKitScrollbarPseudoClass {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum BuiltinPseudoElement<'a> {
-    Object {
-        kind: &'a str,
-        selector: Box<'a, Selector<'a>>,
-    },
-    Object2 {
-        kind: &'a str,
-        names: Vec<'a, &'a str>,
-    },
-}
-
-#[derive(Debug, PartialEq)]
 pub enum PseudoElement<'a> {
-    Object {
-        kind: &'a str,
+    After,
+    Before,
+    FirstLine,
+    FirstLetter,
+    DetailsContent,
+    TargetText,
+    SearchText,
+    Selection(VendorPrefix),
+    Placeholder(VendorPrefix),
+    HighlightFunction {
+        name: &'a str,
     },
-    Object2 {
-        kind: &'a str,
-    },
-    Object3 {
-        kind: &'a str,
-    },
-    Object4 {
-        kind: &'a str,
-    },
-    Object5 {
-        kind: &'a str,
-    },
-    Object6 {
-        kind: &'a str,
-    },
-    Object7 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object8 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object9 {
-        kind: &'a str,
-    },
-    Object10 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object11 {
-        kind: &'a str,
-        vendor_prefix: VendorPrefix<'a>,
-    },
-    Object12 {
-        kind: &'a str,
-        value: WebKitScrollbarPseudoElement,
-    },
-    Object13 {
-        kind: &'a str,
-    },
-    Object14 {
-        kind: &'a str,
-    },
-    Object15 {
-        kind: &'a str,
+    Marker,
+    Backdrop(VendorPrefix),
+    FileSelectorButton(VendorPrefix),
+    WebKitScrollbar(WebKitScrollbarPseudoElement),
+    Cue,
+    CueRegion,
+    CueFunction {
         selector: Box<'a, Selector<'a>>,
     },
-    Object16 {
-        kind: &'a str,
+    CueRegionFunction {
         selector: Box<'a, Selector<'a>>,
     },
-    Object17 {
-        kind: &'a str,
-    },
-    Object18 {
-        kind: &'a str,
+    ViewTransition,
+    ViewTransitionGroup {
         part: Box<'a, ViewTransitionPartSelector<'a>>,
     },
-    Object19 {
-        kind: &'a str,
+    ViewTransitionImagePair {
         part: Box<'a, ViewTransitionPartSelector<'a>>,
     },
-    Object20 {
-        kind: &'a str,
+    ViewTransitionOld {
         part: Box<'a, ViewTransitionPartSelector<'a>>,
     },
-    Object21 {
-        kind: &'a str,
+    ViewTransitionNew {
         part: Box<'a, ViewTransitionPartSelector<'a>>,
     },
-    Object22 {
+    PickerFunction {
         identifier: &'a str,
-        kind: &'a str,
     },
-    Object23 {
-        kind: &'a str,
-    },
-    Object24 {
-        kind: &'a str,
-    },
-    Object25 {
-        kind: &'a str,
-    },
-    Object26 {
-        kind: &'a str,
-    },
-    Object27 {
-        kind: &'a str,
+    PickerIcon,
+    Checkmark,
+    GrammarError,
+    SpellingError,
+    Custom {
         name: &'a str,
     },
-    Object28 {
+    CustomFunction {
+        name: &'a str,
         arguments: Vec<'a, TokenOrValue<'a>>,
-        kind: &'a str,
-        name: &'a str,
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WebKitScrollbarPseudoElement {
     Scrollbar,
     Button,
@@ -489,8 +313,8 @@ pub enum WebKitScrollbarPseudoElement {
     Resizer,
 }
 
-pub type ViewTransitionPartName<'a> = &'a str;
-
-pub type Selector<'a> = Vec<'a, SelectorComponent<'a>>;
-
-pub type SelectorList<'a> = Vec<'a, Selector<'a>>;
+#[derive(Debug, PartialEq)]
+pub enum ViewTransitionPartName<'a> {
+    All,
+    Name(&'a str),
+}

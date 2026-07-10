@@ -5,7 +5,7 @@ use rs_css_allocator::{boxed::Box, vec::Vec};
 #[derive(Debug, PartialEq)]
 pub enum Length<'a> {
     Value(Box<'a, LengthValue>),
-    Calc(Box<'a, CalcFor_Length<'a>>),
+    Calc(Box<'a, Calc<'a, Length<'a>>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -62,38 +62,33 @@ pub enum LengthUnit {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CalcFor_Length<'a> {
-    Value(Box<'a, Length<'a>>),
-    Number(f64),
-    Sum((Box<'a, CalcFor_Length<'a>>, Box<'a, CalcFor_Length<'a>>)),
-    Product((f64, Box<'a, CalcFor_Length<'a>>)),
-    Function(Box<'a, MathFunctionFor_Length<'a>>),
+pub enum Calc<'a, V> {
+    Value(Box<'a, V>),
+    Number(f32),
+    Sum((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Product((f32, Box<'a, Calc<'a, V>>)),
+    Function(Box<'a, MathFunction<'a, V>>),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum MathFunctionFor_Length<'a> {
-    Calc(Box<'a, CalcFor_Length<'a>>),
-    Min(Vec<'a, CalcFor_Length<'a>>),
-    Max(Vec<'a, CalcFor_Length<'a>>),
+#[allow(clippy::type_complexity)]
+pub enum MathFunction<'a, V> {
+    Calc(Box<'a, Calc<'a, V>>),
+    Min(Vec<'a, Calc<'a, V>>),
+    Max(Vec<'a, Calc<'a, V>>),
     Clamp(
         (
-            Box<'a, CalcFor_Length<'a>>,
-            Box<'a, CalcFor_Length<'a>>,
-            Box<'a, CalcFor_Length<'a>>,
+            Box<'a, Calc<'a, V>>,
+            Box<'a, Calc<'a, V>>,
+            Box<'a, Calc<'a, V>>,
         ),
     ),
-    Round(
-        (
-            RoundingStrategy,
-            Box<'a, CalcFor_Length<'a>>,
-            Box<'a, CalcFor_Length<'a>>,
-        ),
-    ),
-    Rem((Box<'a, CalcFor_Length<'a>>, Box<'a, CalcFor_Length<'a>>)),
-    Mod((Box<'a, CalcFor_Length<'a>>, Box<'a, CalcFor_Length<'a>>)),
-    Abs(Box<'a, CalcFor_Length<'a>>),
-    Sign(Box<'a, CalcFor_Length<'a>>),
-    Hypot(Vec<'a, CalcFor_Length<'a>>),
+    Round((RoundingStrategy, Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Rem((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Mod((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Abs(Box<'a, Calc<'a, V>>),
+    Sign(Box<'a, Calc<'a, V>>),
+    Hypot(Vec<'a, Calc<'a, V>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -106,24 +101,24 @@ pub enum RoundingStrategy {
 
 #[derive(Debug, PartialEq)]
 pub enum Resolution {
-    Dpi(f64),
-    Dpcm(f64),
-    Dppx(f64),
+    Dpi(f32),
+    Dpcm(f32),
+    Dppx(f32),
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Ratio(pub f64, pub f64);
+pub struct Ratio(pub f32, pub f32);
 
 #[derive(Debug, PartialEq)]
 pub enum Angle {
-    Deg(f64),
-    Rad(f64),
-    Grad(f64),
-    Turn(f64),
+    Deg(f32),
+    Rad(f32),
+    Grad(f32),
+    Turn(f32),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum Time {
-    Seconds(f64),
-    Milliseconds(f64),
+    Seconds(f32),
+    Milliseconds(f32),
 }

@@ -4,7 +4,7 @@ use rs_css_allocator::{boxed::Box, vec::Vec};
 
 #[derive(Debug, PartialEq)]
 pub enum MediaCondition<'a> {
-    Feature(Box<'a, QueryFeatureFor_MediaFeatureId<'a>>),
+    Feature(Box<'a, MediaFeature<'a>>),
     Not(Box<'a, MediaCondition<'a>>),
     Operation {
         conditions: Vec<'a, MediaCondition<'a>>,
@@ -14,34 +14,36 @@ pub enum MediaCondition<'a> {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum QueryFeatureFor_MediaFeatureId<'a> {
+pub enum QueryFeature<'a, FeatureId> {
     Plain {
-        name: Box<'a, MediaFeatureNameFor_MediaFeatureId<'a>>,
+        name: Box<'a, MediaFeatureName<'a, FeatureId>>,
         value: Box<'a, MediaFeatureValue<'a>>,
     },
     Boolean {
-        name: Box<'a, MediaFeatureNameFor_MediaFeatureId<'a>>,
+        name: Box<'a, MediaFeatureName<'a, FeatureId>>,
     },
     Range {
-        name: Box<'a, MediaFeatureNameFor_MediaFeatureId<'a>>,
+        name: Box<'a, MediaFeatureName<'a, FeatureId>>,
         operator: MediaFeatureComparison,
         value: Box<'a, MediaFeatureValue<'a>>,
     },
     Interval {
         end: Box<'a, MediaFeatureValue<'a>>,
         end_operator: MediaFeatureComparison,
-        name: Box<'a, MediaFeatureNameFor_MediaFeatureId<'a>>,
+        name: Box<'a, MediaFeatureName<'a, FeatureId>>,
         start: Box<'a, MediaFeatureValue<'a>>,
         start_operator: MediaFeatureComparison,
     },
 }
 
 #[derive(Debug, PartialEq)]
-pub enum MediaFeatureNameFor_MediaFeatureId<'a> {
-    MediaFeatureId(MediaFeatureId),
-    CssString(&'a str),
-    CssString2(&'a str),
+pub enum MediaFeatureName<'a, FeatureId> {
+    Standard(FeatureId),
+    Custom(&'a str),
+    Unknown(&'a str),
 }
+
+pub type MediaFeature<'a> = QueryFeature<'a, MediaFeatureId>;
 
 #[derive(Debug, PartialEq)]
 pub enum MediaFeatureId {
@@ -89,8 +91,8 @@ pub enum MediaFeatureId {
 #[derive(Debug, PartialEq)]
 pub enum MediaFeatureValue<'a> {
     Length(Box<'a, Length<'a>>),
-    Number(f64),
-    Integer(f64),
+    Number(f32),
+    Integer(i32),
     Boolean(bool),
     Resolution(Box<'a, Resolution>),
     Ratio(Box<'a, Ratio>),
@@ -113,7 +115,13 @@ pub enum Operator {
     Or,
 }
 
-pub type MediaType<'a> = &'a str;
+#[derive(Debug, PartialEq)]
+pub enum MediaType<'a> {
+    All,
+    Print,
+    Screen,
+    Custom(&'a str),
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Qualifier {

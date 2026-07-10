@@ -27,7 +27,42 @@ pub enum CssRule<'a> {
     Scope(Box<'a, ScopeRule<'a>>),
     StartingStyle(Box<'a, StartingStyleRule<'a>>),
     ViewTransition(Box<'a, ViewTransitionRule<'a>>),
+    PositionTry(Box<'a, PositionTryRule<'a>>),
     Ignored,
     Unknown(Box<'a, UnknownAtRule<'a>>),
     Custom(Box<'a, DefaultAtRule>),
+}
+
+impl GetSpan for CssRule<'_> {
+    #[inline]
+    fn span(&self) -> Span {
+        match self {
+            Self::Media(rule) => rule.span(),
+            Self::Import(rule) => rule.span(),
+            Self::Style(rule) => rule.span(),
+            Self::Keyframes(rule) => rule.span(),
+            Self::FontFace(rule) => rule.span(),
+            Self::FontPaletteValues(rule) => rule.span(),
+            Self::FontFeatureValues(rule) => rule.span(),
+            Self::Page(rule) => rule.span(),
+            Self::Supports(rule) => rule.span(),
+            Self::CounterStyle(rule) => rule.span(),
+            Self::Namespace(rule) => rule.span(),
+            Self::MozDocument(rule) => rule.span(),
+            Self::Nesting(rule) => rule.span(),
+            Self::NestedDeclarations(rule) => rule.span(),
+            Self::Viewport(rule) => rule.span(),
+            Self::CustomMedia(rule) => rule.span(),
+            Self::LayerStatement(rule) => rule.span(),
+            Self::LayerBlock(rule) => rule.span(),
+            Self::Property(rule) => rule.span(),
+            Self::Container(rule) => rule.span(),
+            Self::Scope(rule) => rule.span(),
+            Self::StartingStyle(rule) => rule.span(),
+            Self::ViewTransition(rule) => rule.span(),
+            Self::PositionTry(rule) => rule.span(),
+            Self::Unknown(rule) => rule.span(),
+            Self::Ignored | Self::Custom(_) => DUMMY_SP,
+        }
+    }
 }
