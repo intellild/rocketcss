@@ -13,5 +13,6 @@ path = "src/lib.rs"
 rs_css_allocator = { workspace = true }
 rs_css_ast = { workspace = true }
 rs_css_codegen = { workspace = true }
+rs_css_minify = { workspace = true }
 rs_css_parser = { workspace = true }
 rs_css_visitor = { workspace = true }

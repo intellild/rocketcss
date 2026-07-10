@@ -1323,6 +1323,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rs_css_minify"
+version = "0.1.0"
+dependencies = [
+ "rs_css_allocator",
+ "rs_css_ast",
+ "rs_css_codegen",
+ "rs_css_parser",
+ "rs_css_visitor",
+]
+
+[[package]]
 name = "rs_css_parser"
 version = "0.1.0"
 dependencies = [
@@ -1338,6 +1349,7 @@ dependencies = [
  "rs_css_allocator",
  "rs_css_ast",
  "rs_css_codegen",
+ "rs_css_minify",
  "rs_css_parser",
  "rs_css_visitor",
 ]
