@@ -1,0 +1,18 @@
+[package]
+autolib = false
+edition = "2024"
+name = "rs_css_tests"
+publish = false
+version = "0.0.0"
+
+[[test]]
+name = "fixtures"
+path = "src/lib.rs"
+
+[dev-dependencies]
+rs_css_allocator = { workspace = true }
+rs_css_ast = { workspace = true }
+rs_css_codegen = { workspace = true }
+rs_css_parser = { workspace = true }
+rs_css_visitor = { workspace = true }
+rstest = { workspace = true }

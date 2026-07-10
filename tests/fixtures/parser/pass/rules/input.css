@@ -1,0 +1,13 @@
+/*! license */
+@import "theme.css" screen;
+
+.card:hover {
+  color: red;
+  opacity: .8 !important;
+}
+
+@media print {
+  .card {
+    display: none;
+  }
+}
