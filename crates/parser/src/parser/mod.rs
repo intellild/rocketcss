@@ -11,6 +11,20 @@ use rs_css_ast::Token as ValueToken;
 use crate::tokenizer::TokenizerState;
 use crate::{SourceLocation, SourcePosition, Span, Token, TokenAndSpan, Tokenizer};
 
+mod color;
+mod css_rule;
+mod length;
+mod media;
+mod properties;
+mod rules;
+mod selector;
+pub(crate) mod stylesheet;
+mod token;
+mod traits;
+mod values;
+
+pub use traits::{Error, Parse, ParserError, ParserOptions};
+
 /// A capture of the parser position and pending nested-block state.
 #[derive(Debug, Clone)]
 pub struct ParserState {
@@ -533,7 +547,7 @@ impl<'i, 't> Parser<'i, 't> {
                 .tokenizer
                 .next()
                 .map_err(|()| self.new_basic_error(BasicParseErrorKind::EndOfInput))?;
-            let value = crate::value::decode_token(
+            let value = token::decode_token(
                 lexical.token,
                 lexical.span,
                 self.input.source,

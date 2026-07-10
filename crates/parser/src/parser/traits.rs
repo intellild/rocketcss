@@ -2,7 +2,8 @@ use std::fmt;
 
 use rs_css_allocator::Allocator;
 
-use crate::{ParseError, Parser, ParserInput, SourceLocation, TokenAndSpan};
+use super::{ParseError, Parser, ParserInput};
+use crate::{SourceLocation, TokenAndSpan};
 
 /// Grammar-level parser errors, modeled after lightningcss' parser errors.
 #[derive(Clone, Debug, PartialEq, Eq)]

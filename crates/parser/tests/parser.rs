@@ -1,9 +1,4 @@
-use rs_css_allocator::Allocator;
-use rs_css_ast::{
-    Combinator, CssRule, CustomPropertyName, Declaration, FontFaceProperty, MediaType, PseudoClass,
-    SelectorComponent, Token as ValueToken, TokenOrValue,
-};
-use rs_css_parser::{BasicParseErrorKind, Parse, Parser, ParserInput, ParserOptions, Span, parse};
+use rs_css_parser::prelude::*;
 
 #[test]
 fn parser_decodes_values_from_token_spans() {

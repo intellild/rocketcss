@@ -10,19 +10,17 @@ macro_rules! match_byte {
 
 mod escape;
 mod parser;
-mod stylesheet;
+pub mod prelude;
 mod tokenizer;
-mod traits;
-mod value;
 
 pub use escape::unescape;
+pub use parser::stylesheet::parse;
 pub use parser::{
-    BasicParseError, BasicParseErrorKind, Delimiter, Delimiters, ParseError, ParseErrorKind,
-    ParseUntilErrorBehavior, Parser, ParserInput, ParserState,
+    BasicParseError, BasicParseErrorKind, Delimiter, Delimiters, Error, Parse, ParseError,
+    ParseErrorKind, ParseUntilErrorBehavior, Parser, ParserError, ParserInput, ParserOptions,
+    ParserState,
 };
 pub use rs_css_ast::{Span, Token as ValueToken};
-pub use stylesheet::parse;
 pub use tokenizer::{
     SourceLocation, SourcePosition, Token, TokenAndSpan, Tokenizer, TokenizerState,
 };
-pub use traits::{Error, Parse, ParserError, ParserOptions};
