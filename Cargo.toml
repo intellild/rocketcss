@@ -13,6 +13,7 @@ repository  = "https://github.com/intellild/rs-css"
 allocator-api2   = "=0.2.21"
 bitflags         = "2.13.0"
 bumpalo          = "3.20.3"
+cssparser        = "0.37.0"
 either           = "1.16.0"
 hashbrown        = "0.17.1"
 indexmap         = "2.14.0"
@@ -41,6 +42,7 @@ syn          = { version = "2.0.118", default-features = false }
 # Workspace
 rs_css_allocator = { version = "0.1.0", path = "crates/allocator" }
 rs_css_ast       = { version = "0.1.0", path = "crates/ast" }
+rs_css_codegen   = { version = "0.1.0", path = "crates/codegen" }
 rs_css_parser    = { version = "0.1.0", path = "crates/parser" }
 
 # Dev

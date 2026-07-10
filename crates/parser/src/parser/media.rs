@@ -75,6 +75,11 @@ pub(super) fn parse_media_list<'i>(
     source: &'i str,
     allocator: &'i Allocator,
 ) -> Result<MediaList<'i>, ParseError<'i, ParserError<'i>>> {
+    if source.trim().is_empty() {
+        return Ok(MediaList {
+            media_queries: allocator.vec(),
+        });
+    }
     let mut input = ParserInput::new(source, allocator);
     let mut parser = Parser::new(&mut input);
     let parsed = parser.parse_comma_separated(|input| {

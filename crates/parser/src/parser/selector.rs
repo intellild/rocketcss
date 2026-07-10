@@ -160,7 +160,30 @@ pub(super) fn parse_pseudo<'i, 't>(
         }
         ValueToken::Function(name) => {
             let component =
-                if name.eq_ignore_ascii_case("not") {
+                if let Some(kind) = nth_type(name) {
+                    let (data, selectors) = input.parse_nested_block(|input| {
+                        let start = input.position();
+                        input.expect_no_error_token()?;
+                        let raw = input.slice_from(start).trim();
+                        let lower = raw.to_ascii_lowercase();
+                        let (affine, selector_source) = if let Some(index) = lower.find(" of") {
+                            (&raw[..index], Some(raw[index + 3..].trim()))
+                        } else {
+                            (raw, None)
+                        };
+                        let data = parse_nth_affine(affine, kind)
+                            .ok_or_else(|| input.new_custom_error(ParserError::InvalidSelector))?;
+                        let selectors = selector_source
+                            .map(|source| parse_selector_string(source, allocator, depth + 1))
+                            .transpose()?;
+                        Ok::<_, ParseError<'i, ParserError<'i>>>((data, selectors))
+                    })?;
+                    if let Some(selectors) = selectors {
+                        SelectorComponent::NthOf { data, selectors }
+                    } else {
+                        SelectorComponent::Nth(data)
+                    }
+                } else if name.eq_ignore_ascii_case("not") {
                     SelectorComponent::Negation(input.parse_nested_block(|input| {
                         parse_selector_list(input, allocator, depth + 1)
                     })?)
@@ -192,6 +215,57 @@ pub(super) fn parse_pseudo<'i, 't>(
         }
         _ => Err(input.new_custom_error(ParserError::InvalidSelector)),
     }
+}
+
+fn nth_type(name: &str) -> Option<NthType> {
+    Some(if name.eq_ignore_ascii_case("nth-child") {
+        NthType::Child
+    } else if name.eq_ignore_ascii_case("nth-last-child") {
+        NthType::LastChild
+    } else if name.eq_ignore_ascii_case("nth-of-type") {
+        NthType::OfType
+    } else if name.eq_ignore_ascii_case("nth-last-of-type") {
+        NthType::LastOfType
+    } else if name.eq_ignore_ascii_case("nth-col") {
+        NthType::Col
+    } else if name.eq_ignore_ascii_case("nth-last-col") {
+        NthType::LastCol
+    } else {
+        return None;
+    })
+}
+
+fn parse_nth_affine(source: &str, kind: NthType) -> Option<NthSelectorData> {
+    let value: String = source
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect();
+    let (a, b) = if value == "odd" {
+        (2, 1)
+    } else if value == "even" {
+        (2, 0)
+    } else if let Some(index) = value.find('n') {
+        let a = match &value[..index] {
+            "" | "+" => 1,
+            "-" => -1,
+            value => value.parse().ok()?,
+        };
+        let b = if index + 1 == value.len() {
+            0
+        } else {
+            value[index + 1..].parse().ok()?
+        };
+        (a, b)
+    } else {
+        (0, value.parse().ok()?)
+    };
+    Some(NthSelectorData {
+        kind,
+        is_function: true,
+        a,
+        b,
+    })
 }
 
 pub(super) fn parse_attribute<'i, 't>(

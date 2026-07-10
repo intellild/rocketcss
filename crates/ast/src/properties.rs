@@ -2,6 +2,33 @@ use super::*;
 
 use bitflags::bitflags;
 
+macro_rules! property_id_pattern {
+    ($name:path) => {
+        $name
+    };
+    ($name:path, $vendor_prefix:ty) => {
+        $name(_)
+    };
+}
+
+macro_rules! declaration_pattern {
+    ($name:path, $value:ident) => {
+        $name($value)
+    };
+    ($name:path, $value:ident, $binding:ident: $vendor_prefix:ty) => {
+        $name($value, $binding)
+    };
+}
+
+macro_rules! declaration_prefix {
+    () => {
+        VendorPrefix::NONE
+    };
+    ($binding:ident: $vendor_prefix:ty) => {
+        *$binding
+    };
+}
+
 macro_rules! define_properties {
     (
         $(
@@ -45,6 +72,38 @@ macro_rules! define_properties {
                 )+
 
                 Self::Custom(name)
+            }
+
+            /// Returns the canonical CSS property name.
+            pub fn name(&self) -> &str {
+                match self {
+                    $(property_id_pattern!(Self::$property$(, $vp)?) => $name,)+
+                    Self::All => "all",
+                    Self::Unparsed => "",
+                    Self::Custom(name) => name,
+                }
+            }
+        }
+
+        impl Declaration<'_> {
+            /// Returns the canonical CSS property name.
+            pub fn name(&self) -> &str {
+                match self {
+                    $(Self::$property(..) => $name,)+
+                    Self::All(_) => "all",
+                    Self::Unparsed(value) => value.property_id.name(),
+                    Self::Custom(value) => match &*value.name {
+                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                    },
+                }
+            }
+
+            /// Returns the vendor prefix associated with this declaration.
+            pub fn vendor_prefix(&self) -> VendorPrefix {
+                match self {
+                    $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => declaration_prefix!($(vendor_prefix: $vp)?),)+
+                    Self::All(_) | Self::Unparsed(_) | Self::Custom(_) => VendorPrefix::NONE,
+                }
             }
         }
     };
@@ -90,7 +149,10 @@ pub enum BlendMode {
     PlusLighter,
 }
 
-define_properties! {
+#[macro_export]
+macro_rules! for_each_property {
+    ($macro:ident) => {
+        $macro! {
     "background-color": BackgroundColor(Box<'a, CssColor<'a>>),
     "background-image": BackgroundImage(Vec<'a, Image<'a>>),
     "background-position-x": BackgroundPositionX(Vec<'a, PositionComponent<'a, HorizontalPositionKeyword>>),
@@ -440,4 +502,8 @@ define_properties! {
     "view-transition-group": ViewTransitionGroup(Box<'a, ViewTransitionGroup<'a>>),
     "color-scheme": ColorScheme(Box<'a, ColorScheme>),
     "print-color-adjust": PrintColorAdjust(PrintColorAdjust, VendorPrefix),
+        }
+    };
 }
+
+for_each_property!(define_properties);

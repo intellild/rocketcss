@@ -32,19 +32,28 @@ pub(super) fn parse_font_face_contents<'i, 't>(
         let result = match token {
             ValueToken::Ident(name) => {
                 input.expect_colon()?;
+                let value_start = input.position();
                 let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
                     collect_tokens(input, allocator, depth + 1)
                 })?;
+                let raw_value = input.slice(value_start..input.position());
                 let _ = input.try_parse(Parser::expect_semicolon);
                 if remove_important(&mut value) {
                     return Err(input.new_custom_error(ParserError::InvalidDeclaration));
                 }
-                Ok(rs_css_ast::FontFaceProperty::Custom(allocator.boxed(
-                    CustomProperty {
-                        name: allocator.boxed(CustomPropertyName::Unknown(name)),
-                        value,
-                    },
-                )))
+                if name.eq_ignore_ascii_case("unicode-range") {
+                    let ranges = parse_unicode_ranges(raw_value, allocator)
+                        .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
+                    Ok(rs_css_ast::FontFaceProperty::UnicodeRange(ranges))
+                } else {
+                    trim_leading_whitespace(&mut value);
+                    Ok(rs_css_ast::FontFaceProperty::Custom(allocator.boxed(
+                        CustomProperty {
+                            name: allocator.boxed(CustomPropertyName::Unknown(name)),
+                            value,
+                        },
+                    )))
+                }
             }
             _ => Err(input.new_custom_error(ParserError::InvalidDeclaration)),
         };
@@ -56,6 +65,51 @@ pub(super) fn parse_font_face_contents<'i, 't>(
         }
     }
     Ok(properties)
+}
+
+fn parse_unicode_ranges<'i>(
+    source: &str,
+    allocator: &'i Allocator,
+) -> Option<Vec<'i, UnicodeRange>> {
+    let mut ranges = allocator.vec();
+    for value in source.split(',') {
+        let value = value.trim();
+        let body = value
+            .strip_prefix("U+")
+            .or_else(|| value.strip_prefix("u+"))?;
+        let (start, end) = if body.contains('?') {
+            let prefix = body.trim_end_matches('?');
+            let wildcard_digits = body.len().checked_sub(prefix.len())?;
+            if wildcard_digits == 0
+                || wildcard_digits > 6
+                || prefix.contains('?')
+                || prefix.len() + wildcard_digits > 6
+            {
+                return None;
+            }
+            let prefix = if prefix.is_empty() {
+                0
+            } else {
+                u32::from_str_radix(prefix, 16).ok()?
+            };
+            let bits = wildcard_digits * 4;
+            let start = prefix << bits;
+            (start, start | ((1_u32 << bits) - 1))
+        } else if let Some((start, end)) = body.split_once('-') {
+            (
+                u32::from_str_radix(start, 16).ok()?,
+                u32::from_str_radix(end, 16).ok()?,
+            )
+        } else {
+            let value = u32::from_str_radix(body, 16).ok()?;
+            (value, value)
+        };
+        if start > end || end > 0x10ffff {
+            return None;
+        }
+        ranges.push(UnicodeRange { start, end });
+    }
+    (!ranges.is_empty()).then_some(ranges)
 }
 
 pub(super) fn parse_namespace<'i>(

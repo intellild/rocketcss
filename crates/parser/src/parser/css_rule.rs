@@ -533,10 +533,27 @@ pub(super) fn parse_style_contents<'i, 't>(
             ValueToken::Ident(name) => {
                 let has_colon = input.try_parse(Parser::expect_colon).is_ok();
                 let next_delimiter = next_rule_body_delimiter(input);
-                if has_colon && next_delimiter != Some(RuleBodyDelimiter::CurlyBracket) {
+                if has_colon
+                    && (name.starts_with("--")
+                        || next_delimiter != Some(RuleBodyDelimiter::CurlyBracket))
+                {
                     parse_declaration(input, allocator, name, depth).map(
                         |(declaration, important)| {
-                            declarations.push(declaration, important);
+                            if rules.is_empty() {
+                                declarations.push(declaration, important);
+                            } else if let Some(CssRule::NestedDeclarations(rule)) = rules.last_mut()
+                            {
+                                rule.declarations.push(declaration, important);
+                            } else {
+                                let mut nested = DeclarationBlock::new(allocator);
+                                nested.push(declaration, important);
+                                rules.push(CssRule::NestedDeclarations(allocator.boxed(
+                                    NestedDeclarationsRule {
+                                        declarations: allocator.boxed(nested),
+                                        span: DUMMY_SP,
+                                    },
+                                )));
+                            }
                             None
                         },
                     )
@@ -558,7 +575,10 @@ pub(super) fn parse_style_contents<'i, 't>(
         match result {
             Ok(Some((_, rule))) => rules.push(rule),
             Ok(None) => {}
-            Err(_) if options.error_recovery => recover_declaration(input),
+            Err(_) if options.error_recovery => {
+                input.reset(&start);
+                recover_declaration(input);
+            }
             Err(error) => return Err(error),
         }
     }

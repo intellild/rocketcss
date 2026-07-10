@@ -1382,6 +1382,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rs_css_codegen"
+version = "0.1.0"
+dependencies = [
+ "cssparser 0.37.0",
+ "lightningcss",
+ "rs_css_allocator",
+ "rs_css_ast",
+ "rs_css_parser",
+ "serde_json",
+]
+
+[[package]]
 name = "rs_css_parser"
 version = "0.1.0"
 dependencies = [

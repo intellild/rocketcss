@@ -19,22 +19,24 @@ pub(super) fn parse_declaration<'i, 't>(
     })?;
     let _ = input.try_parse(Parser::expect_semicolon);
     let important = remove_important(&mut value);
-    trim_leading_whitespace(&mut value);
 
     let declaration = if name.starts_with("--") {
         Declaration::Custom(allocator.boxed(CustomProperty {
             name: allocator.boxed(CustomPropertyName::Custom(name)),
             value,
         }))
-    } else if let Some(declaration) = parse_typed_declaration(name, &value, allocator) {
-        declaration
-    } else if name.eq_ignore_ascii_case("all") && value.len() == 1 {
-        match token_ident(&value[0]).and_then(css_wide_keyword) {
-            Some(keyword) => Declaration::All(keyword),
-            None => unparsed_declaration(name, value, allocator),
-        }
     } else {
-        unparsed_declaration(name, value, allocator)
+        trim_leading_whitespace(&mut value);
+        if let Some(declaration) = parse_typed_declaration(name, &value, allocator) {
+            declaration
+        } else if name.eq_ignore_ascii_case("all") && value.len() == 1 {
+            match token_ident(&value[0]).and_then(css_wide_keyword) {
+                Some(keyword) => Declaration::All(keyword),
+                None => unparsed_declaration(name, value, allocator),
+            }
+        } else {
+            unparsed_declaration(name, value, allocator)
+        }
     };
 
     Ok((declaration, important))
