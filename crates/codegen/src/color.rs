@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl ToCss for CssColor<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::CurrentColor => dest.write_str("currentColor"),
             Self::Rgba(value) => value.to_css(dest),
@@ -15,7 +15,7 @@ impl ToCss for CssColor<'_> {
 }
 
 impl ToCss for RGBA {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.alpha == u8::MAX {
             let value =
                 (u32::from(self.red) << 16) | (u32::from(self.green) << 8) | u32::from(self.blue);
@@ -95,14 +95,14 @@ fn short_color_name(value: u32) -> Option<&'static str> {
     })
 }
 
-fn write_components<W: Write>(
+fn write_components<PrinterT: PrinterTrait>(
     name: &str,
     first: f32,
     second: f32,
     third: f32,
     alpha: f32,
     first_is_percentage: bool,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     dest.write_str(name)?;
     dest.write_char('(')?;
@@ -122,7 +122,7 @@ fn write_components<W: Write>(
 }
 
 impl ToCss for LABColor {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Lab { a, alpha, b, l } => {
                 write_components("lab", *l / 100.0, *a, *b, *alpha, true, dest)
@@ -141,7 +141,7 @@ impl ToCss for LABColor {
 }
 
 impl ToCss for PredefinedColor {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         let (space, first, second, third, alpha) = match self {
             Self::Srgb { alpha, b, g, r } => ("srgb", *r, *g, *b, *alpha),
             Self::SrgbLinear { alpha, b, g, r } => ("srgb-linear", *r, *g, *b, *alpha),
@@ -167,7 +167,7 @@ impl ToCss for PredefinedColor {
 }
 
 impl ToCss for FloatColor {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Rgb { alpha, b, g, r } => write_components("rgb", *r, *g, *b, *alpha, true, dest),
             Self::Hsl { alpha, h, l, s } => {
@@ -203,7 +203,7 @@ impl ToCss for FloatColor {
 }
 
 impl ToCss for LightDark<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("light-dark(")?;
         self.light.to_css(dest)?;
         dest.delim(',', false)?;
@@ -213,7 +213,7 @@ impl ToCss for LightDark<'_> {
 }
 
 impl ToCss for SystemColor {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::Accentcolor => "AccentColor",
             Self::Accentcolortext => "AccentColorText",
@@ -262,7 +262,7 @@ impl ToCss for SystemColor {
 }
 
 impl ToCss for UnresolvedColor<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Rgb { alpha, b, g, r } => {
                 dest.write_str("rgb(")?;

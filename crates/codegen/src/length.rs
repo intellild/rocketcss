@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl ToCss for LengthValue {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.value == 0.0 && !dest.in_calc() {
             return dest.write_char('0');
         }
@@ -64,13 +64,13 @@ fn length_unit_str(unit: &LengthUnit) -> &'static str {
 }
 
 impl ToCss for LengthUnit {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(length_unit_str(self))
     }
 }
 
 impl ToCss for Length<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Value(value) => value.to_css(dest),
             Self::Calc(calc) => calc.to_css(dest),
@@ -79,7 +79,7 @@ impl ToCss for Length<'_> {
 }
 
 impl<V: ToCss> ToCss for Calc<'_, V> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.with_calc(|dest| match self {
             Self::Value(value) => value.to_css(dest),
             Self::Number(value) => serialize_number(*value, dest),
@@ -98,9 +98,13 @@ impl<V: ToCss> ToCss for Calc<'_, V> {
     }
 }
 
-fn write_function<W: Write, F>(name: &str, dest: &mut Printer<'_, W>, callback: F) -> fmt::Result
+fn write_function<PrinterT: PrinterTrait, F>(
+    name: &str,
+    dest: &mut PrinterT,
+    callback: F,
+) -> fmt::Result
 where
-    F: FnOnce(&mut Printer<'_, W>) -> fmt::Result,
+    F: FnOnce(&mut PrinterT) -> fmt::Result,
 {
     dest.write_str(name)?;
     dest.write_char('(')?;
@@ -108,9 +112,9 @@ where
     dest.write_char(')')
 }
 
-fn write_calc_list<W: Write, V: ToCss>(
+fn write_calc_list<PrinterT: PrinterTrait, V: ToCss>(
     values: &[Calc<'_, V>],
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
@@ -122,7 +126,7 @@ fn write_calc_list<W: Write, V: ToCss>(
 }
 
 impl<V: ToCss> ToCss for MathFunction<'_, V> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Calc(value) => write_function("calc", dest, |dest| value.to_css(dest)),
             Self::Min(values) => write_function("min", dest, |dest| write_calc_list(values, dest)),
@@ -163,7 +167,7 @@ impl<V: ToCss> ToCss for MathFunction<'_, V> {
 }
 
 impl ToCss for RoundingStrategy {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::Nearest => "nearest",
             Self::Up => "up",
@@ -174,7 +178,7 @@ impl ToCss for RoundingStrategy {
 }
 
 impl ToCss for Resolution {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         let (value, unit) = match self {
             Self::Dpi(value) => (*value, "dpi"),
             Self::Dpcm(value) => (*value, "dpcm"),
@@ -185,7 +189,7 @@ impl ToCss for Resolution {
 }
 
 impl ToCss for Ratio {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_number(self.0, dest)?;
         if self.1 != 1.0 {
             dest.write_char('/')?;
@@ -196,7 +200,7 @@ impl ToCss for Ratio {
 }
 
 impl ToCss for Angle {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         let (value, unit) = match self {
             Self::Deg(value) => (*value, "deg"),
             Self::Rad(value) => (*value, "rad"),
@@ -208,7 +212,7 @@ impl ToCss for Angle {
 }
 
 impl ToCss for Time {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Seconds(value) => serialize_dimension(*value, "s", dest),
             Self::Milliseconds(value) => {

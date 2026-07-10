@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl ToCss for MediaList<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.media_queries.is_empty() {
             return dest.write_str("not all");
         }
@@ -16,7 +16,7 @@ impl ToCss for MediaList<'_> {
 }
 
 impl ToCss for MediaQuery<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if let Some(condition) = &self.condition
             && let MediaCondition::Unknown(tokens) = &**condition
         {
@@ -70,15 +70,15 @@ impl ToCss for MediaQuery<'_> {
 }
 
 impl ToCss for MediaCondition<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_media_condition(self, None, dest)
     }
 }
 
-fn write_media_condition<W: Write>(
+fn write_media_condition<PrinterT: PrinterTrait>(
     condition: &MediaCondition<'_>,
     parent: Option<&Operator>,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     match condition {
         MediaCondition::Feature(value) => value.to_css(dest),
@@ -121,7 +121,7 @@ fn write_media_condition<W: Write>(
 }
 
 impl<FeatureId: ToCss> ToCss for QueryFeature<'_, FeatureId> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_char('(')?;
         match self {
             Self::Plain { name, value } => {
@@ -158,7 +158,7 @@ impl<FeatureId: ToCss> ToCss for QueryFeature<'_, FeatureId> {
 }
 
 impl<FeatureId: ToCss> ToCss for MediaFeatureName<'_, FeatureId> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Standard(value) => value.to_css(dest),
             Self::Custom(value) => {
@@ -171,7 +171,7 @@ impl<FeatureId: ToCss> ToCss for MediaFeatureName<'_, FeatureId> {
 }
 
 impl ToCss for MediaFeatureId {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::Width => "width",
             Self::Height => "height",
@@ -217,7 +217,7 @@ impl ToCss for MediaFeatureId {
 }
 
 impl ToCss for MediaFeatureValue<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Length(value) => value.to_css(dest),
             Self::Number(value) => serialize_number(*value, dest),
@@ -232,7 +232,7 @@ impl ToCss for MediaFeatureValue<'_> {
 }
 
 impl ToCss for MediaFeatureComparison {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.whitespace()?;
         dest.write_str(match self {
             Self::Equal => "=",
@@ -246,7 +246,7 @@ impl ToCss for MediaFeatureComparison {
 }
 
 impl ToCss for Operator {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::And => "and",
             Self::Or => "or",
@@ -255,7 +255,7 @@ impl ToCss for Operator {
 }
 
 impl ToCss for MediaType<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::All => dest.write_str("all"),
             Self::Print => dest.write_str("print"),
@@ -266,7 +266,7 @@ impl ToCss for MediaType<'_> {
 }
 
 impl ToCss for Qualifier {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::Only => "only",
             Self::Not => "not",
@@ -275,7 +275,7 @@ impl ToCss for Qualifier {
 }
 
 impl ToCss for SupportsCondition<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Not(value) => {
                 dest.write_str("not ")?;

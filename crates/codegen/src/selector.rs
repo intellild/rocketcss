@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl ToCss for SelectorList<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for (index, selector) in self.iter().enumerate() {
             if index > 0 {
                 dest.delim(',', false)?;
@@ -13,7 +13,7 @@ impl ToCss for SelectorList<'_> {
 }
 
 impl ToCss for Selector<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for component in self {
             component.to_css(dest)?;
         }
@@ -21,9 +21,9 @@ impl ToCss for Selector<'_> {
     }
 }
 
-fn write_selector_list<W: Write>(
+fn write_selector_list<PrinterT: PrinterTrait>(
     selectors: &[Selector<'_>],
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     for (index, selector) in selectors.iter().enumerate() {
         if index > 0 {
@@ -35,7 +35,7 @@ fn write_selector_list<W: Write>(
 }
 
 impl ToCss for SelectorComponent<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Combinator(value) => value.to_css(dest),
             Self::ExplicitAnyNamespace => dest.write_str("*|"),
@@ -160,7 +160,7 @@ impl ToCss for SelectorComponent<'_> {
 }
 
 impl ToCss for Combinator {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Child => dest.write_str(" > "),
             Self::Descendant => dest.write_char(' '),
@@ -174,7 +174,7 @@ impl ToCss for Combinator {
 }
 
 impl ToCss for AttrSelector<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         let namespace = self.namespace.as_ref();
         match &self.operation {
             AttrOperation::Exists => write_attribute(namespace, self.local_name, None, dest),
@@ -192,11 +192,11 @@ impl ToCss for AttrSelector<'_> {
     }
 }
 
-fn write_attribute<W: Write>(
+fn write_attribute<PrinterT: PrinterTrait>(
     namespace: Option<&NamespaceConstraint<'_>>,
     local_name: &str,
     operation: Option<(AttrSelectorOperator, &str, ParsedCaseSensitivity)>,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     dest.write_char('[')?;
     if let Some(namespace) = namespace {
@@ -212,7 +212,7 @@ fn write_attribute<W: Write>(
 }
 
 impl ToCss for NamespaceConstraint<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Any => dest.write_str("*|"),
             Self::Specific { prefix, .. } => {
@@ -224,7 +224,7 @@ impl ToCss for NamespaceConstraint<'_> {
 }
 
 impl ToCss for AttrOperation<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Exists => Ok(()),
             Self::WithValue {
@@ -241,7 +241,7 @@ impl ToCss for AttrOperation<'_> {
 }
 
 impl ToCss for ParsedCaseSensitivity {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::ExplicitCaseSensitive => dest.write_str(" s"),
             Self::AsciiCaseInsensitive => dest.write_str(" i"),
@@ -251,7 +251,7 @@ impl ToCss for ParsedCaseSensitivity {
 }
 
 impl ToCss for AttrSelectorOperator {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::Equal => "=",
             Self::Includes => "~=",
@@ -264,7 +264,7 @@ impl ToCss for AttrSelectorOperator {
 }
 
 impl ToCss for NthSelectorData {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_nth_start(self, self.is_function, dest)?;
         if self.is_function {
             write_nth_affine(self, dest)?;
@@ -275,15 +275,15 @@ impl ToCss for NthSelectorData {
 }
 
 impl ToCss for NthType {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
-fn write_nth_start<W: Write>(
+fn write_nth_start<PrinterT: PrinterTrait>(
     value: &NthSelectorData,
     is_function: bool,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     dest.write_str(match (value.kind, is_function) {
         (NthType::Child, true) => ":nth-child(",
@@ -301,7 +301,10 @@ fn write_nth_start<W: Write>(
     })
 }
 
-fn write_nth_affine<W: Write>(value: &NthSelectorData, dest: &mut Printer<'_, W>) -> fmt::Result {
+fn write_nth_affine<PrinterT: PrinterTrait>(
+    value: &NthSelectorData,
+    dest: &mut PrinterT,
+) -> fmt::Result {
     match (value.a, value.b) {
         (0, 0) => dest.write_char('0'),
         (1, 0) => dest.write_char('n'),
@@ -316,7 +319,7 @@ fn write_nth_affine<W: Write>(value: &NthSelectorData, dest: &mut Printer<'_, W>
 }
 
 impl ToCss for Direction {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::Ltr => "ltr",
             Self::Rtl => "rtl",
@@ -325,7 +328,7 @@ impl ToCss for Direction {
 }
 
 impl ToCss for PseudoClass<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Lang { languages } => {
                 dest.write_str(":lang(")?;
@@ -384,10 +387,10 @@ impl ToCss for PseudoClass<'_> {
     }
 }
 
-fn write_prefixed_pseudo<W: Write>(
+fn write_prefixed_pseudo<PrinterT: PrinterTrait>(
     prefix: &VendorPrefix,
     name: &str,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     dest.write_char(':')?;
     prefix.to_css(dest)?;
@@ -445,7 +448,7 @@ fn pseudo_class_name(value: &PseudoClass<'_>) -> &'static str {
 }
 
 impl ToCss for WebKitScrollbarPseudoClass {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::Horizontal => ":horizontal",
             Self::Vertical => ":vertical",
@@ -463,7 +466,7 @@ impl ToCss for WebKitScrollbarPseudoClass {
 }
 
 impl ToCss for PseudoElement<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Selection(prefix) => write_prefixed_element(prefix, "selection", dest),
             Self::Placeholder(prefix) => write_prefixed_element(prefix, "placeholder", dest),
@@ -508,20 +511,20 @@ impl ToCss for PseudoElement<'_> {
     }
 }
 
-fn write_prefixed_element<W: Write>(
+fn write_prefixed_element<PrinterT: PrinterTrait>(
     prefix: &VendorPrefix,
     name: &str,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     dest.write_str("::")?;
     prefix.to_css(dest)?;
     dest.write_str(name)
 }
 
-fn write_element_function<W: Write>(
+fn write_element_function<PrinterT: PrinterTrait>(
     name: &str,
     value: &str,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     dest.write_str("::")?;
     dest.write_str(name)?;
@@ -530,10 +533,10 @@ fn write_element_function<W: Write>(
     dest.write_char(')')
 }
 
-fn write_selector_function<W: Write>(
+fn write_selector_function<PrinterT: PrinterTrait>(
     name: &str,
     selector: &Selector<'_>,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     dest.write_str("::")?;
     dest.write_str(name)?;
@@ -542,10 +545,10 @@ fn write_selector_function<W: Write>(
     dest.write_char(')')
 }
 
-fn write_part_function<W: Write>(
+fn write_part_function<PrinterT: PrinterTrait>(
     name: &str,
     part: &ViewTransitionPartSelector<'_>,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     dest.write_str("::")?;
     dest.write_str(name)?;
@@ -576,7 +579,7 @@ fn pseudo_element_name(value: &PseudoElement<'_>) -> &'static str {
 }
 
 impl ToCss for WebKitScrollbarPseudoElement {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::Scrollbar => "::-webkit-scrollbar",
             Self::Button => "::-webkit-scrollbar-button",
@@ -590,7 +593,7 @@ impl ToCss for WebKitScrollbarPseudoElement {
 }
 
 impl ToCss for ViewTransitionPartName<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::All => dest.write_char('*'),
             Self::Name(value) => serialize_identifier(value, dest),
@@ -599,7 +602,7 @@ impl ToCss for ViewTransitionPartName<'_> {
 }
 
 impl ToCss for ViewTransitionPartSelector<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if let Some(name) = &self.name {
             name.to_css(dest)?;
         }

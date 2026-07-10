@@ -1,7 +1,14 @@
 use rs_css_ast::*;
-use rs_css_codegen::ToCss;
+use rs_css_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss};
 
 fn assert_to_css<T: ToCss>() {}
+
+fn serialize_with_printer_trait<T: ToCss, PrinterT: PrinterTrait>(
+    value: &T,
+    printer: &mut PrinterT,
+) -> std::fmt::Result {
+    value.to_css(printer)
+}
 
 macro_rules! assert_types {
     ($($ty:ty),+ $(,)?) => {
@@ -120,4 +127,12 @@ fn every_css_ast_node_implements_to_css() {
         ViewTransitionName<'static>, NoneOrCustomIdentList<'static>, ViewTransitionGroup<'static>,
         PrintColorAdjust, CSSWideKeyword, CustomPropertyName<'static>
     }
+}
+
+#[test]
+fn to_css_only_depends_on_the_printer_trait() {
+    let mut output = String::new();
+    let mut printer = Printer::new(&mut output, PrinterOptions::default());
+    serialize_with_printer_trait(&CSSWideKeyword::Initial, &mut printer).unwrap();
+    assert_eq!(output, "initial");
 }

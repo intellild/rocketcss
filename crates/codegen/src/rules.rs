@@ -1,8 +1,8 @@
 use crate::prelude::*;
 
-fn write_space_separated<W: Write, T: ToCss>(
+fn write_space_separated<PrinterT: PrinterTrait, T: ToCss>(
     values: &[&T],
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
@@ -13,9 +13,9 @@ fn write_space_separated<W: Write, T: ToCss>(
     Ok(())
 }
 
-fn write_comma_separated<W: Write, T: ToCss>(
+fn write_comma_separated<PrinterT: PrinterTrait, T: ToCss>(
     values: &[T],
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
@@ -26,10 +26,10 @@ fn write_comma_separated<W: Write, T: ToCss>(
     Ok(())
 }
 
-fn write_pair<W: Write, T: ToCss + PartialEq>(
+fn write_pair<PrinterT: PrinterTrait, T: ToCss + PartialEq>(
     first: &T,
     second: &T,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     first.to_css(dest)?;
     if first != second {
@@ -39,12 +39,12 @@ fn write_pair<W: Write, T: ToCss + PartialEq>(
     Ok(())
 }
 
-fn write_four<W: Write, T: ToCss + PartialEq>(
+fn write_four<PrinterT: PrinterTrait, T: ToCss + PartialEq>(
     top: &T,
     right: &T,
     bottom: &T,
     left: &T,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     top.to_css(dest)?;
     if top == right && top == bottom && top == left {
@@ -65,7 +65,7 @@ fn write_four<W: Write, T: ToCss + PartialEq>(
 }
 
 impl ToCss for Position<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.x.to_css(dest)?;
         dest.write_char(' ')?;
         self.y.to_css(dest)
@@ -73,7 +73,7 @@ impl ToCss for Position<'_> {
 }
 
 impl ToCss for WebKitGradientPoint<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.x.to_css(dest)?;
         dest.write_char(' ')?;
         self.y.to_css(dest)
@@ -81,7 +81,7 @@ impl ToCss for WebKitGradientPoint<'_> {
 }
 
 impl ToCss for WebKitColorStop<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.position == 0.0 {
             dest.write_str("from(")?;
             self.color.to_css(dest)?;
@@ -99,7 +99,7 @@ impl ToCss for WebKitColorStop<'_> {
 }
 
 impl ToCss for ImageSet<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.vendor_prefix.to_css(dest)?;
         dest.write_str("image-set(")?;
         write_comma_separated(&self.options, dest)?;
@@ -108,7 +108,7 @@ impl ToCss for ImageSet<'_> {
 }
 
 impl ToCss for ImageSetOption<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.image.to_css(dest)?;
         dest.write_char(' ')?;
         self.resolution.to_css(dest)?;
@@ -122,7 +122,7 @@ impl ToCss for ImageSetOption<'_> {
 }
 
 impl ToCss for BackgroundPosition<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.x.to_css(dest)?;
         dest.write_char(' ')?;
         self.y.to_css(dest)
@@ -130,13 +130,13 @@ impl ToCss for BackgroundPosition<'_> {
 }
 
 impl ToCss for BackgroundRepeat {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&self.x, &self.y, dest)
     }
 }
 
 impl ToCss for Background<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.image.to_css(dest)?;
         dest.write_char(' ')?;
         self.position.to_css(dest)?;
@@ -164,7 +164,7 @@ impl ToCss for Background<'_> {
 }
 
 impl ToCss for BoxShadow<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.inset {
             dest.write_str("inset ")?;
         }
@@ -178,7 +178,7 @@ impl ToCss for BoxShadow<'_> {
 }
 
 impl ToCss for AspectRatio<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.auto {
             dest.write_str("auto")?;
             if self.ratio.is_some() {
@@ -190,7 +190,7 @@ impl ToCss for AspectRatio<'_> {
 }
 
 impl ToCss for Overflow {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&self.x, &self.y, dest)
     }
 }
@@ -199,7 +199,7 @@ macro_rules! logical_pair {
     ($($ty:ty, $first:ident, $second:ident);+ $(;)?) => {
         $(
             impl ToCss for $ty {
-                fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                     write_pair(&*self.$first, &*self.$second, dest)
                 }
             }
@@ -224,7 +224,7 @@ macro_rules! physical_four {
     ($($ty:ty);+ $(;)?) => {
         $(
             impl ToCss for $ty {
-                fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                     write_four(&*self.top, &*self.right, &*self.bottom, &*self.left, dest)
                 }
             }
@@ -243,13 +243,13 @@ physical_four! {
 }
 
 impl ToCss for BorderStyle {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_four(&self.top, &self.right, &self.bottom, &self.left, dest)
     }
 }
 
 impl ToCss for BorderRadius<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_four(
             &*self.top_left.0,
             &*self.top_right.0,
@@ -278,13 +278,13 @@ impl ToCss for BorderRadius<'_> {
 }
 
 impl ToCss for BorderImageRepeat {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&self.horizontal, &self.vertical, dest)
     }
 }
 
 impl ToCss for BorderImageSlice<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.offsets.to_css(dest)?;
         if self.fill {
             dest.write_str(" fill")?;
@@ -294,7 +294,7 @@ impl ToCss for BorderImageSlice<'_> {
 }
 
 impl ToCss for BorderImage<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.source.to_css(dest)?;
         dest.write_char(' ')?;
         self.slice.to_css(dest)?;
@@ -308,43 +308,43 @@ impl ToCss for BorderImage<'_> {
 }
 
 impl ToCss for BorderBlockColor<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&*self.start, &*self.end, dest)
     }
 }
 
 impl ToCss for BorderBlockStyle {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&self.start, &self.end, dest)
     }
 }
 
 impl ToCss for BorderBlockWidth<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&*self.start, &*self.end, dest)
     }
 }
 
 impl ToCss for BorderInlineColor<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&*self.start, &*self.end, dest)
     }
 }
 
 impl ToCss for BorderInlineStyle {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&self.start, &self.end, dest)
     }
 }
 
 impl ToCss for BorderInlineWidth<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&*self.start, &*self.end, dest)
     }
 }
 
 impl<S: ToCss> ToCss for GenericBorder<'_, S> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.width.to_css(dest)?;
         dest.write_char(' ')?;
         self.style.to_css(dest)?;
@@ -354,7 +354,7 @@ impl<S: ToCss> ToCss for GenericBorder<'_, S> {
 }
 
 impl ToCss for FlexFlow {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.direction.to_css(dest)?;
         dest.write_char(' ')?;
         self.wrap.to_css(dest)
@@ -362,7 +362,7 @@ impl ToCss for FlexFlow {
 }
 
 impl ToCss for Flex<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_number(self.grow, dest)?;
         dest.write_char(' ')?;
         serialize_number(self.shrink, dest)?;
@@ -375,7 +375,7 @@ macro_rules! place_pair {
     ($($ty:ty);+ $(;)?) => {
         $(
             impl ToCss for $ty {
-                fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                     self.align.to_css(dest)?;
                     dest.write_char(' ')?;
                     self.justify.to_css(dest)
@@ -388,13 +388,13 @@ macro_rules! place_pair {
 place_pair! { PlaceContent<'_>; PlaceSelf<'_>; PlaceItems<'_> }
 
 impl ToCss for Gap<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_pair(&*self.row, &*self.column, dest)
     }
 }
 
 impl ToCss for TrackRepeat<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("repeat(")?;
         self.count.to_css(dest)?;
         dest.delim(',', false)?;
@@ -421,7 +421,7 @@ impl ToCss for TrackRepeat<'_> {
 }
 
 impl ToCss for GridAutoFlow {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.direction.to_css(dest)?;
         if self.dense {
             dest.write_str(" dense")?;
@@ -431,7 +431,7 @@ impl ToCss for GridAutoFlow {
 }
 
 impl ToCss for GridTemplate<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.rows.to_css(dest)?;
         dest.write_str(" / ")?;
         self.columns.to_css(dest)?;
@@ -443,7 +443,10 @@ impl ToCss for GridTemplate<'_> {
     }
 }
 
-fn write_track_sizes<W: Write>(values: &[TrackSize<'_>], dest: &mut Printer<'_, W>) -> fmt::Result {
+fn write_track_sizes<PrinterT: PrinterTrait>(
+    values: &[TrackSize<'_>],
+    dest: &mut PrinterT,
+) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
             dest.write_char(' ')?;
@@ -454,7 +457,7 @@ fn write_track_sizes<W: Write>(values: &[TrackSize<'_>], dest: &mut Printer<'_, 
 }
 
 impl ToCss for Grid<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.rows.to_css(dest)?;
         dest.write_str(" / ")?;
         self.columns.to_css(dest)?;
@@ -480,7 +483,7 @@ macro_rules! grid_pair {
     ($($ty:ty);+ $(;)?) => {
         $(
             impl ToCss for $ty {
-                fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                     self.start.to_css(dest)?;
                     dest.write_str(" / ")?;
                     self.end.to_css(dest)
@@ -493,7 +496,7 @@ macro_rules! grid_pair {
 grid_pair! { GridRow<'_>; GridColumn<'_> }
 
 impl ToCss for GridArea<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.row_start.to_css(dest)?;
         dest.write_str(" / ")?;
         self.column_start.to_css(dest)?;
@@ -505,7 +508,7 @@ impl ToCss for GridArea<'_> {
 }
 
 impl ToCss for Font<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.style.to_css(dest)?;
         dest.write_char(' ')?;
         self.variant_caps.to_css(dest)?;
@@ -523,7 +526,7 @@ impl ToCss for Font<'_> {
 }
 
 impl ToCss for Transition<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.property.to_css(dest)?;
         dest.write_char(' ')?;
         self.duration.to_css(dest)?;
@@ -535,7 +538,7 @@ impl ToCss for Transition<'_> {
 }
 
 impl ToCss for ScrollTimeline {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.scroller.to_css(dest)?;
         dest.write_char(' ')?;
         self.axis.to_css(dest)
@@ -543,7 +546,7 @@ impl ToCss for ScrollTimeline {
 }
 
 impl ToCss for ViewTimeline<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.axis.to_css(dest)?;
         dest.write_char(' ')?;
         self.inset.to_css(dest)
@@ -551,7 +554,7 @@ impl ToCss for ViewTimeline<'_> {
 }
 
 impl ToCss for AnimationRange<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.start.to_css(dest)?;
         dest.write_char(' ')?;
         self.end.to_css(dest)
@@ -559,7 +562,7 @@ impl ToCss for AnimationRange<'_> {
 }
 
 impl ToCss for Animation<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.name.to_css(dest)?;
         dest.write_char(' ')?;
         self.duration.to_css(dest)?;
@@ -580,7 +583,7 @@ impl ToCss for Animation<'_> {
     }
 }
 
-fn write_numbers<W: Write>(values: &[f32], dest: &mut Printer<'_, W>) -> fmt::Result {
+fn write_numbers<PrinterT: PrinterTrait>(values: &[f32], dest: &mut PrinterT) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
             dest.delim(',', false)?;
@@ -591,7 +594,7 @@ fn write_numbers<W: Write>(values: &[f32], dest: &mut Printer<'_, W>) -> fmt::Re
 }
 
 impl ToCss for MatrixForFloat {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("matrix(")?;
         write_numbers(&[self.a, self.b, self.c, self.d, self.e, self.f], dest)?;
         dest.write_char(')')
@@ -599,7 +602,7 @@ impl ToCss for MatrixForFloat {
 }
 
 impl ToCss for Matrix3DForFloat {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("matrix3d(")?;
         write_numbers(
             &[
@@ -613,7 +616,7 @@ impl ToCss for Matrix3DForFloat {
 }
 
 impl ToCss for Rotate<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_numbers(&[self.x, self.y, self.z], dest)?;
         dest.write_char(' ')?;
         self.angle.to_css(dest)
@@ -621,7 +624,7 @@ impl ToCss for Rotate<'_> {
 }
 
 impl ToCss for TextTransform {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.case.to_css(dest)?;
         if self.full_width {
             dest.write_str(" full-width")?;
@@ -634,7 +637,7 @@ impl ToCss for TextTransform {
 }
 
 impl ToCss for TextIndent<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.value.to_css(dest)?;
         if self.hanging {
             dest.write_str(" hanging")?;
@@ -647,7 +650,7 @@ impl ToCss for TextIndent<'_> {
 }
 
 impl ToCss for TextDecoration<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.line.to_css(dest)?;
         dest.write_char(' ')?;
         self.thickness.to_css(dest)?;
@@ -659,7 +662,7 @@ impl ToCss for TextDecoration<'_> {
 }
 
 impl ToCss for TextEmphasis<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.style.to_css(dest)?;
         dest.write_char(' ')?;
         self.color.to_css(dest)
@@ -667,7 +670,7 @@ impl ToCss for TextEmphasis<'_> {
 }
 
 impl ToCss for TextEmphasisPosition {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.vertical.to_css(dest)?;
         dest.write_char(' ')?;
         self.horizontal.to_css(dest)
@@ -675,7 +678,7 @@ impl ToCss for TextEmphasisPosition {
 }
 
 impl ToCss for TextShadow<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_space_separated(
             &[&*self.x_offset, &*self.y_offset, &*self.blur, &*self.spread],
             dest,
@@ -686,7 +689,7 @@ impl ToCss for TextShadow<'_> {
 }
 
 impl ToCss for Cursor<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for image in &self.images {
             image.to_css(dest)?;
             dest.delim(',', false)?;
@@ -696,7 +699,7 @@ impl ToCss for Cursor<'_> {
 }
 
 impl ToCss for CursorImage<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.url.to_css(dest)?;
         if let Some((x, y)) = self.hotspot {
             dest.write_char(' ')?;
@@ -709,7 +712,7 @@ impl ToCss for CursorImage<'_> {
 }
 
 impl ToCss for Caret<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.color.to_css(dest)?;
         dest.write_char(' ')?;
         self.shape.to_css(dest)
@@ -717,7 +720,7 @@ impl ToCss for Caret<'_> {
 }
 
 impl ToCss for ListStyle<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.position.to_css(dest)?;
         dest.write_char(' ')?;
         self.image.to_css(dest)?;
@@ -727,7 +730,7 @@ impl ToCss for ListStyle<'_> {
 }
 
 impl ToCss for Composes<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for (index, name) in self.names.iter().enumerate() {
             if index > 0 {
                 dest.write_char(' ')?;
@@ -743,7 +746,7 @@ impl ToCss for Composes<'_> {
 }
 
 impl ToCss for InsetRect<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("inset(")?;
         self.rect.to_css(dest)?;
         dest.write_str(" round ")?;
@@ -753,7 +756,7 @@ impl ToCss for InsetRect<'_> {
 }
 
 impl ToCss for CircleShape<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("circle(")?;
         self.radius.to_css(dest)?;
         dest.write_str(" at ")?;
@@ -763,7 +766,7 @@ impl ToCss for CircleShape<'_> {
 }
 
 impl ToCss for EllipseShape<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("ellipse(")?;
         self.radius_x.to_css(dest)?;
         dest.write_char(' ')?;
@@ -775,7 +778,7 @@ impl ToCss for EllipseShape<'_> {
 }
 
 impl ToCss for Polygon<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("polygon(")?;
         self.fill_rule.to_css(dest)?;
         dest.delim(',', false)?;
@@ -785,7 +788,7 @@ impl ToCss for Polygon<'_> {
 }
 
 impl ToCss for Point<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.x.to_css(dest)?;
         dest.write_char(' ')?;
         self.y.to_css(dest)
@@ -793,7 +796,7 @@ impl ToCss for Point<'_> {
 }
 
 impl ToCss for Mask<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.image.to_css(dest)?;
         dest.write_char(' ')?;
         self.position.to_css(dest)?;
@@ -813,7 +816,7 @@ impl ToCss for Mask<'_> {
 }
 
 impl ToCss for MaskBorder<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.source.to_css(dest)?;
         dest.write_char(' ')?;
         self.slice.to_css(dest)?;
@@ -829,7 +832,7 @@ impl ToCss for MaskBorder<'_> {
 }
 
 impl ToCss for DropShadow<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_space_separated(&[&*self.x_offset, &*self.y_offset, &*self.blur], dest)?;
         dest.write_char(' ')?;
         self.color.to_css(dest)
@@ -837,7 +840,7 @@ impl ToCss for DropShadow<'_> {
 }
 
 impl ToCss for Container<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.name.to_css(dest)?;
         dest.write_str(" / ")?;
         self.container_type.to_css(dest)
@@ -845,7 +848,7 @@ impl ToCss for Container<'_> {
 }
 
 impl ToCss for ColorScheme {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.only {
             dest.write_str("only ")?;
         }
@@ -859,19 +862,19 @@ impl ToCss for ColorScheme {
 }
 
 impl ToCss for UnparsedProperty<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         crate::token::write_token_list(&self.value, dest)
     }
 }
 
 impl ToCss for CustomProperty<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         crate::token::write_token_list(&self.value, dest)
     }
 }
 
 impl ToCss for FamilyName<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if matches!(
             self.0.to_ascii_lowercase().as_str(),
             "initial"
@@ -899,7 +902,7 @@ impl ToCss for FamilyName<'_> {
 }
 
 impl ToCss for KeyframeSelector<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Percentage(value) => {
                 serialize_number(*value * 100.0, dest)?;
@@ -913,7 +916,7 @@ impl ToCss for KeyframeSelector<'_> {
 }
 
 impl ToCss for KeyframesName<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Ident(value) => serialize_identifier(value, dest),
             Self::Custom(value) => serialize_string(value, dest),
@@ -922,7 +925,7 @@ impl ToCss for KeyframesName<'_> {
 }
 
 impl ToCss for FontFaceProperty<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Source(values) => write_comma_separated(values, dest),
             Self::FontFamily(value) => value.to_css(dest),
@@ -956,7 +959,7 @@ impl NamedProperty for FontFaceProperty<'_> {
 }
 
 impl ToCss for Source<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Url(value) => value.to_css(dest),
             Self::Local(value) => {
@@ -969,7 +972,7 @@ impl ToCss for Source<'_> {
 }
 
 impl ToCss for FontFormat<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_string(
             match self {
                 Self::Woff => "woff",
@@ -987,13 +990,13 @@ impl ToCss for FontFormat<'_> {
 }
 
 impl ToCss for FontTechnology {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
 impl ToCss for FontFaceStyle<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
             Self::Italic => dest.write_str("italic"),
@@ -1014,7 +1017,7 @@ impl ToCss for FontFaceStyle<'_> {
 }
 
 impl ToCss for FontPaletteValuesProperty<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::FontFamily(value) => value.to_css(dest),
             Self::BasePalette(value) => value.to_css(dest),
@@ -1038,7 +1041,7 @@ impl NamedProperty for FontPaletteValuesProperty<'_> {
 }
 
 impl ToCss for BasePalette {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Light => dest.write_str("light"),
             Self::Dark => dest.write_str("dark"),
@@ -1048,25 +1051,25 @@ impl ToCss for BasePalette {
 }
 
 impl ToCss for FontFeatureSubruleType {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
 impl ToCss for PageMarginBox {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
 impl ToCss for PagePseudoClass {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
 impl ToCss for ParsedComponent<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Length(value) => value.to_css(dest),
             Self::Number(value) => serialize_number(*value, dest),
@@ -1118,7 +1121,7 @@ impl ToCss for ParsedComponent<'_> {
 }
 
 impl ToCss for Multiplier {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::None => "",
             Self::Space => "+",
@@ -1128,7 +1131,7 @@ impl ToCss for Multiplier {
 }
 
 impl ToCss for SyntaxString<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Universal => dest.write_char('*'),
             Self::Components(values) => {
@@ -1145,7 +1148,7 @@ impl ToCss for SyntaxString<'_> {
 }
 
 impl ToCss for SyntaxComponentKind<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Literal(value) => dest.write_str(value),
             value => {
@@ -1158,26 +1161,26 @@ impl ToCss for SyntaxComponentKind<'_> {
 }
 
 impl ToCss for SyntaxComponent<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.kind.to_css(dest)?;
         self.multiplier.to_css(dest)
     }
 }
 
 impl ToCss for ContainerSizeFeatureId {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
 impl ToCss for ScrollStateFeatureId {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
 impl ToCss for ContainerCondition<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Feature(value) => value.to_css(dest),
             Self::Not(value) => {
@@ -1214,7 +1217,7 @@ impl ToCss for ContainerCondition<'_> {
 }
 
 impl ToCss for StyleQuery<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Declaration(value) => value.to_css(dest),
             Self::Property(value) => value.to_css(dest),
@@ -1241,7 +1244,7 @@ impl ToCss for StyleQuery<'_> {
 }
 
 impl ToCss for ScrollStateQuery<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Feature(value) => value.to_css(dest),
             Self::Not(value) => {
@@ -1267,7 +1270,7 @@ impl ToCss for ScrollStateQuery<'_> {
 }
 
 impl ToCss for ViewTransitionProperty<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Navigation(value) => value.to_css(dest),
             Self::Types(value) => value.to_css(dest),
@@ -1289,20 +1292,20 @@ impl NamedProperty for ViewTransitionProperty<'_> {
 }
 
 impl ToCss for Navigation {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
 impl ToCss for DefaultAtRule {
-    fn to_css<W: Write>(&self, _dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, _dest: &mut PrinterT) -> fmt::Result {
         Ok(())
     }
 }
 
-pub(crate) fn write_rule_list<W: Write>(
+pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
     rules: &[CssRule<'_>],
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     let mut first = true;
     let mut last_without_block = false;
@@ -1331,9 +1334,9 @@ pub(crate) fn write_rule_list<W: Write>(
     Ok(())
 }
 
-fn write_block<W: Write, F>(dest: &mut Printer<'_, W>, callback: F) -> fmt::Result
+fn write_block<PrinterT: PrinterTrait, F>(dest: &mut PrinterT, callback: F) -> fmt::Result
 where
-    F: FnOnce(&mut Printer<'_, W>) -> fmt::Result,
+    F: FnOnce(&mut PrinterT) -> fmt::Result,
 {
     dest.whitespace()?;
     dest.write_char('{')?;
@@ -1345,9 +1348,9 @@ where
     dest.write_char('}')
 }
 
-pub(crate) fn write_declarations<W: Write>(
+pub(crate) fn write_declarations<PrinterT: PrinterTrait>(
     declarations: &DeclarationBlock<'_>,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
     terminate_last: bool,
 ) -> fmt::Result {
     for (index, (declaration, important)) in declarations.iter().enumerate() {
@@ -1366,14 +1369,14 @@ pub(crate) fn write_declarations<W: Write>(
 }
 
 impl ToCss for DeclarationBlock<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_declarations(self, dest, false)
     }
 }
 
-fn write_declaration_block<W: Write>(
+fn write_declaration_block<PrinterT: PrinterTrait>(
     declarations: &DeclarationBlock<'_>,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     write_block(dest, |dest| {
         write_declarations(declarations, dest, !dest.minify())
@@ -1381,7 +1384,7 @@ fn write_declaration_block<W: Write>(
 }
 
 impl ToCss for StyleSheet<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for (index, comment) in self.license_comments.iter().enumerate() {
             dest.write_str("/*")?;
             dest.write_str(comment)?;
@@ -1399,7 +1402,7 @@ impl ToCss for StyleSheet<'_> {
 }
 
 impl ToCss for MediaRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@media ")?;
         self.query.to_css(dest)?;
         write_block(dest, |dest| write_rule_list(&self.rules, dest))
@@ -1407,7 +1410,7 @@ impl ToCss for MediaRule<'_> {
 }
 
 impl ToCss for ImportRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@import ")?;
         serialize_string(self.url, dest)?;
         if let Some(layer) = &self.layer {
@@ -1438,7 +1441,7 @@ impl ToCss for ImportRule<'_> {
 }
 
 impl ToCss for StyleRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.selectors.to_css(dest)?;
         write_block(dest, |dest| {
             write_declarations(
@@ -1456,7 +1459,7 @@ impl ToCss for StyleRule<'_> {
 }
 
 impl ToCss for KeyframesRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_char('@')?;
         self.vendor_prefix.to_css(dest)?;
         dest.write_str("keyframes ")?;
@@ -1481,14 +1484,14 @@ impl ToCss for KeyframesRule<'_> {
 }
 
 impl ToCss for Keyframe<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_comma_separated(&self.selectors, dest)?;
         write_declaration_block(&self.declarations, dest)
     }
 }
 
 impl ToCss for TimelineRangePercentage {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.name.to_css(dest)?;
         dest.write_char(' ')?;
         serialize_number(self.percentage * 100.0, dest)?;
@@ -1496,7 +1499,10 @@ impl ToCss for TimelineRangePercentage {
     }
 }
 
-fn write_named_property_block<W: Write, T>(values: &[T], dest: &mut Printer<'_, W>) -> fmt::Result
+fn write_named_property_block<PrinterT: PrinterTrait, T>(
+    values: &[T],
+    dest: &mut PrinterT,
+) -> fmt::Result
 where
     T: ToCss + NamedProperty,
 {
@@ -1518,14 +1524,14 @@ where
 }
 
 impl ToCss for FontFaceRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@font-face")?;
         write_named_property_block(&self.properties, dest)
     }
 }
 
 impl ToCss for UrlSource<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.url.to_css(dest)?;
         if let Some(format) = &self.format {
             dest.write_str(" format(")?;
@@ -1542,7 +1548,7 @@ impl ToCss for UrlSource<'_> {
 }
 
 impl ToCss for UnicodeRange {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for wildcard_digits in 1..=6 {
             let bits = wildcard_digits * 4;
             let mask = (1_u32 << bits) - 1;
@@ -1563,7 +1569,7 @@ impl ToCss for UnicodeRange {
 }
 
 impl ToCss for FontPaletteValuesRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@font-palette-values ")?;
         serialize_identifier(self.name, dest)?;
         write_named_property_block(&self.properties, dest)
@@ -1571,14 +1577,14 @@ impl ToCss for FontPaletteValuesRule<'_> {
 }
 
 impl ToCss for OverrideColors<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write!(dest, "{} ", self.index)?;
         self.color.to_css(dest)
     }
 }
 
 impl ToCss for FontFeatureValuesRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@font-feature-values ")?;
         write_comma_separated(&self.name, dest)?;
         write_block(dest, |dest| {
@@ -1595,7 +1601,7 @@ impl ToCss for FontFeatureValuesRule<'_> {
 }
 
 impl ToCss for FontFeatureSubrule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_char('@')?;
         self.name.to_css(dest)?;
         write_block(dest, |dest| {
@@ -1612,7 +1618,7 @@ impl ToCss for FontFeatureSubrule<'_> {
 }
 
 impl ToCss for FontFeatureDeclaration<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_identifier(self.name, dest)?;
         dest.delim(':', false)?;
         for (index, value) in self.values.iter().enumerate() {
@@ -1626,7 +1632,7 @@ impl ToCss for FontFeatureDeclaration<'_> {
 }
 
 impl ToCss for PageRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@page")?;
         if !self.selectors.is_empty() {
             dest.write_char(' ')?;
@@ -1655,7 +1661,7 @@ impl ToCss for PageRule<'_> {
 }
 
 impl ToCss for PageMarginRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_char('@')?;
         self.margin_box.to_css(dest)?;
         write_declaration_block(&self.declarations, dest)
@@ -1663,7 +1669,7 @@ impl ToCss for PageMarginRule<'_> {
 }
 
 impl ToCss for PageSelector<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if let Some(name) = self.name {
             serialize_identifier(name, dest)?;
         }
@@ -1676,7 +1682,7 @@ impl ToCss for PageSelector<'_> {
 }
 
 impl ToCss for SupportsRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@supports ")?;
         self.condition.to_css(dest)?;
         write_block(dest, |dest| write_rule_list(&self.rules, dest))
@@ -1684,7 +1690,7 @@ impl ToCss for SupportsRule<'_> {
 }
 
 impl ToCss for CounterStyleRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@counter-style ")?;
         serialize_identifier(self.name, dest)?;
         write_declaration_block(&self.declarations, dest)
@@ -1692,7 +1698,7 @@ impl ToCss for CounterStyleRule<'_> {
 }
 
 impl ToCss for NamespaceRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@namespace ")?;
         if let Some(prefix) = self.prefix {
             serialize_identifier(prefix, dest)?;
@@ -1704,27 +1710,27 @@ impl ToCss for NamespaceRule<'_> {
 }
 
 impl ToCss for MozDocumentRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@-moz-document url-prefix()")?;
         write_block(dest, |dest| write_rule_list(&self.rules, dest))
     }
 }
 
 impl ToCss for NestingRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@nest ")?;
         self.style.to_css(dest)
     }
 }
 
 impl ToCss for NestedDeclarationsRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_declarations(&self.declarations, dest, !dest.minify())
     }
 }
 
 impl ToCss for ViewportRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_char('@')?;
         self.vendor_prefix.to_css(dest)?;
         dest.write_str("viewport")?;
@@ -1733,7 +1739,7 @@ impl ToCss for ViewportRule<'_> {
 }
 
 impl ToCss for CustomMediaRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@custom-media ")?;
         dest.write_str("--")?;
         serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
@@ -1743,7 +1749,7 @@ impl ToCss for CustomMediaRule<'_> {
     }
 }
 
-fn write_layer_name<W: Write>(name: &[&str], dest: &mut Printer<'_, W>) -> fmt::Result {
+fn write_layer_name<PrinterT: PrinterTrait>(name: &[&str], dest: &mut PrinterT) -> fmt::Result {
     for (index, part) in name.iter().enumerate() {
         if index > 0 {
             dest.write_char('.')?;
@@ -1754,7 +1760,7 @@ fn write_layer_name<W: Write>(name: &[&str], dest: &mut Printer<'_, W>) -> fmt::
 }
 
 impl ToCss for LayerStatementRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@layer ")?;
         for (index, name) in self.names.iter().enumerate() {
             if index > 0 {
@@ -1767,7 +1773,7 @@ impl ToCss for LayerStatementRule<'_> {
 }
 
 impl ToCss for LayerBlockRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@layer")?;
         if let Some(name) = &self.name {
             dest.write_char(' ')?;
@@ -1778,7 +1784,7 @@ impl ToCss for LayerBlockRule<'_> {
 }
 
 impl ToCss for PropertyRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@property ")?;
         dest.write_str("--")?;
         serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
@@ -1808,7 +1814,7 @@ impl ToCss for PropertyRule<'_> {
 }
 
 impl ToCss for ContainerRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@container")?;
         if let Some(name) = self.name {
             dest.write_char(' ')?;
@@ -1823,7 +1829,7 @@ impl ToCss for ContainerRule<'_> {
 }
 
 impl ToCss for ScopeRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@scope")?;
         if let Some(start) = &self.scope_start {
             dest.write_str(" (")?;
@@ -1840,21 +1846,21 @@ impl ToCss for ScopeRule<'_> {
 }
 
 impl ToCss for StartingStyleRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@starting-style")?;
         write_block(dest, |dest| write_rule_list(&self.rules, dest))
     }
 }
 
 impl ToCss for ViewTransitionRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@view-transition")?;
         write_named_property_block(&self.properties, dest)
     }
 }
 
 impl ToCss for PositionTryRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@position-try ")?;
         dest.write_str("--")?;
         serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
@@ -1863,7 +1869,7 @@ impl ToCss for PositionTryRule<'_> {
 }
 
 impl ToCss for UnknownAtRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_char('@')?;
         serialize_identifier(self.name, dest)?;
         if !self.prelude.is_empty() {

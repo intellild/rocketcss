@@ -12,4 +12,4 @@ mod selector;
 mod token;
 mod values;
 
-pub use printer::{Printer, PrinterOptions, ToCss};
+pub use printer::{Printer, PrinterOptions, PrinterState, PrinterTrait, ToCss};

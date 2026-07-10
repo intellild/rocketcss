@@ -7,12 +7,18 @@ pub struct PrinterOptions {
     pub minify: bool,
 }
 
+/// Source-map-independent formatting state shared by printer implementations.
+#[derive(Debug, Default)]
+pub struct PrinterState {
+    indent: usize,
+    in_calc: bool,
+}
+
 /// Destination and formatting state used by [`ToCss`] implementations.
 pub struct Printer<'a, W> {
     dest: &'a mut W,
     options: PrinterOptions,
-    indent: usize,
-    in_calc: bool,
+    state: PrinterState,
 }
 
 impl<'a, W: Write> Printer<'a, W> {
@@ -21,8 +27,7 @@ impl<'a, W: Write> Printer<'a, W> {
         Self {
             dest,
             options,
-            indent: 0,
-            in_calc: false,
+            state: PrinterState::default(),
         }
     }
 
@@ -70,7 +75,7 @@ impl<'a, W: Write> Printer<'a, W> {
         }
 
         self.write_char('\n')?;
-        for _ in 0..self.indent {
+        for _ in 0..self.state.indent {
             self.write_char(' ')?;
         }
         Ok(())
@@ -78,28 +83,12 @@ impl<'a, W: Write> Printer<'a, W> {
 
     #[inline]
     pub fn indent(&mut self) {
-        self.indent += 2;
+        self.state.indent += 2;
     }
 
     #[inline]
     pub fn dedent(&mut self) {
-        self.indent -= 2;
-    }
-
-    #[inline]
-    pub(crate) fn in_calc(&self) -> bool {
-        self.in_calc
-    }
-
-    pub(crate) fn with_calc<F>(&mut self, callback: F) -> fmt::Result
-    where
-        F: FnOnce(&mut Self) -> fmt::Result,
-    {
-        let previous = self.in_calc;
-        self.in_calc = true;
-        let result = callback(self);
-        self.in_calc = previous;
-        result
+        self.state.indent -= 2;
     }
 
     #[inline]
@@ -130,9 +119,117 @@ impl<W: Write> Write for Printer<'_, W> {
     }
 }
 
+mod private {
+    pub trait Sealed {}
+}
+
+/// Source-map-independent interface used by CSS serialization implementations.
+///
+/// This trait is sealed so the codegen crate can evolve its concrete writer and
+/// source-map backends without exposing those implementation details to AST
+/// implementations.
+pub trait PrinterTrait: Write + private::Sealed + Sized {
+    fn options(&self) -> PrinterOptions;
+    fn state(&self) -> &PrinterState;
+    fn state_mut(&mut self) -> &mut PrinterState;
+
+    #[inline]
+    fn minify(&self) -> bool {
+        self.options().minify
+    }
+
+    #[inline]
+    fn whitespace(&mut self) -> fmt::Result {
+        if self.minify() {
+            Ok(())
+        } else {
+            self.write_char(' ')
+        }
+    }
+
+    #[inline]
+    fn delim(&mut self, value: char, whitespace_before: bool) -> fmt::Result {
+        if whitespace_before {
+            self.whitespace()?;
+        }
+        self.write_char(value)?;
+        self.whitespace()
+    }
+
+    fn newline(&mut self) -> fmt::Result {
+        if self.minify() {
+            return Ok(());
+        }
+
+        self.write_char('\n')?;
+        let indent = self.state().indent;
+        for _ in 0..indent {
+            self.write_char(' ')?;
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn indent(&mut self) {
+        self.state_mut().indent += 2;
+    }
+
+    #[inline]
+    fn dedent(&mut self) {
+        self.state_mut().indent -= 2;
+    }
+
+    #[inline]
+    fn in_calc(&self) -> bool {
+        self.state().in_calc
+    }
+
+    fn with_calc<T>(&mut self, callback: impl FnOnce(&mut Self) -> T) -> T {
+        let previous = self.state().in_calc;
+        self.state_mut().in_calc = true;
+        let result = callback(self);
+        self.state_mut().in_calc = previous;
+        result
+    }
+
+    #[inline]
+    fn write_ident(&mut self, ident: &str) -> fmt::Result {
+        cssparser::serialize_identifier(ident, self)
+    }
+
+    #[inline]
+    fn write_name(&mut self, name: &str) -> fmt::Result {
+        cssparser::serialize_name(name, self)
+    }
+
+    #[inline]
+    fn write_string(&mut self, value: &str) -> fmt::Result {
+        cssparser::serialize_string(value, self)
+    }
+}
+
+impl<W: Write> private::Sealed for Printer<'_, W> {}
+
+impl<W: Write> PrinterTrait for Printer<'_, W> {
+    #[inline]
+    fn options(&self) -> PrinterOptions {
+        self.options
+    }
+
+    #[inline]
+    fn state(&self) -> &PrinterState {
+        &self.state
+    }
+
+    #[inline]
+    fn state_mut(&mut self) -> &mut PrinterState {
+        &mut self.state
+    }
+}
+
 /// Serializes a syntax-tree node as CSS.
 pub trait ToCss {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result;
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result;
 
     #[inline]
     fn to_css_string(&self, options: PrinterOptions) -> Result<String, fmt::Error> {
@@ -144,14 +241,14 @@ pub trait ToCss {
 
 impl<T: ToCss + ?Sized> ToCss for &T {
     #[inline]
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         (*self).to_css(dest)
     }
 }
 
 impl<T: ToCss> ToCss for Option<T> {
     #[inline]
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if let Some(value) = self {
             value.to_css(dest)?;
         }
@@ -159,7 +256,10 @@ impl<T: ToCss> ToCss for Option<T> {
     }
 }
 
-pub(crate) fn serialize_number<W: Write>(value: f32, dest: &mut Printer<'_, W>) -> fmt::Result {
+pub(crate) fn serialize_number<PrinterT: PrinterTrait>(
+    value: f32,
+    dest: &mut PrinterT,
+) -> fmt::Result {
     let output = value.to_string();
     if value != 0.0 && value.abs() < 1.0 {
         if value.is_sign_negative() {
@@ -173,18 +273,18 @@ pub(crate) fn serialize_number<W: Write>(value: f32, dest: &mut Printer<'_, W>) 
     }
 }
 
-pub(crate) fn serialize_dimension<W: Write>(
+pub(crate) fn serialize_dimension<PrinterT: PrinterTrait>(
     value: f32,
     unit: &str,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     serialize_number(value, dest)?;
     dest.write_str(unit)
 }
 
-pub(crate) fn serialize_debug_keyword<T: fmt::Debug, W: Write>(
+pub(crate) fn serialize_debug_keyword<T: fmt::Debug, PrinterT: PrinterTrait>(
     value: &T,
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     let debug = format!("{value:?}");
     let debug = debug.strip_suffix('_').unwrap_or(&debug);
@@ -207,7 +307,7 @@ pub(crate) fn serialize_debug_keyword<T: fmt::Debug, W: Write>(
 
 impl<'a, T: ToCss> ToCss for rs_css_allocator::boxed::Box<'a, T> {
     #[inline]
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         (**self).to_css(dest)
     }
 }

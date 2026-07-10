@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl ToCss for VendorPrefix {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.contains(Self::WEBKIT) {
             dest.write_str("-webkit-")
         } else if self.contains(Self::MOZ) {
@@ -17,7 +17,7 @@ impl ToCss for VendorPrefix {
 }
 
 impl ToCss for PropertyId<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Custom(value) => serialize_name(value, dest),
             _ => dest.write_str(self.name()),
@@ -26,25 +26,25 @@ impl ToCss for PropertyId<'_> {
 }
 
 impl ToCss for BlendMode {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
     }
 }
 
 impl ToCss for f32 {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_number(*self, dest)
     }
 }
 
 impl ToCss for i32 {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write!(dest, "{self}")
     }
 }
 
 impl ToCss for u16 {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write!(dest, "{self}")
     }
 }
@@ -53,7 +53,7 @@ macro_rules! comma_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl<'a> ToCss for rs_css_allocator::vec::Vec<'a, $ty> {
-                fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
                             dest.delim(',', false)?;
@@ -109,7 +109,7 @@ macro_rules! space_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl<'a> ToCss for rs_css_allocator::vec::Vec<'a, $ty> {
-                fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
                             dest.write_char(' ')?;
@@ -142,7 +142,7 @@ macro_rules! impl_declaration_to_css {
         )+
     ) => {
         impl ToCss for Declaration<'_> {
-            fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+            fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                 self.vendor_prefix().to_css(dest)?;
                 serialize_name(self.name(), dest)?;
                 if matches!(self, Self::Custom(_)) {

@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl ToCss for CssRule<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Media(value) => value.to_css(dest),
             Self::Import(value) => value.to_css(dest),

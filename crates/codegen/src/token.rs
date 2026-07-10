@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl ToCss for Token<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
 
         match self {
@@ -68,9 +68,9 @@ impl ToCss for Token<'_> {
     }
 }
 
-pub(crate) fn write_token_list<W: Write>(
+pub(crate) fn write_token_list<PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     for value in values {
         value.to_css(dest)?;
@@ -78,9 +78,9 @@ pub(crate) fn write_token_list<W: Write>(
     Ok(())
 }
 
-pub(crate) fn write_token_list_trimmed<W: Write>(
+pub(crate) fn write_token_list_trimmed<PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
-    dest: &mut Printer<'_, W>,
+    dest: &mut PrinterT,
 ) -> fmt::Result {
     let start = values
         .iter()
@@ -96,7 +96,7 @@ fn starts_with_whitespace(values: &[TokenOrValue<'_>]) -> bool {
 }
 
 impl ToCss for TokenOrValue<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Token(value) => value.to_css(dest),
             Self::Color(value) => value.to_css(dest),
@@ -169,13 +169,13 @@ fn length_unit(value: &LengthValue) -> &'static str {
     }
 }
 
-fn write_dashed_ident<W: Write>(value: &str, dest: &mut Printer<'_, W>) -> fmt::Result {
+fn write_dashed_ident<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT) -> fmt::Result {
     dest.write_str("--")?;
     serialize_name(value.strip_prefix("--").unwrap_or(value), dest)
 }
 
 impl ToCss for Url<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("url(")?;
         serialize_string(self.url, dest)?;
         dest.write_char(')')
@@ -183,7 +183,7 @@ impl ToCss for Url<'_> {
 }
 
 impl ToCss for Variable<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("var(")?;
         self.name.to_css(dest)?;
         if let Some(fallback) = &self.fallback {
@@ -198,7 +198,7 @@ impl ToCss for Variable<'_> {
 }
 
 impl ToCss for EnvironmentVariable<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("env(")?;
         self.name.to_css(dest)?;
         for index in &self.indices {
@@ -217,7 +217,7 @@ impl ToCss for EnvironmentVariable<'_> {
 }
 
 impl ToCss for EnvironmentVariableName<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::UA(value) => value.to_css(dest),
             Self::Custom(value) => value.to_css(dest),
@@ -227,7 +227,7 @@ impl ToCss for EnvironmentVariableName<'_> {
 }
 
 impl ToCss for UAEnvironmentVariable {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str(match self {
             Self::SafeAreaInsetTop => "safe-area-inset-top",
             Self::SafeAreaInsetRight => "safe-area-inset-right",
@@ -244,7 +244,7 @@ impl ToCss for UAEnvironmentVariable {
 }
 
 impl ToCss for DashedIdentReference<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_dashed_ident(self.ident, dest)?;
         if let Some(from) = &self.from {
             dest.write_str(" from ")?;
@@ -255,7 +255,7 @@ impl ToCss for DashedIdentReference<'_> {
 }
 
 impl ToCss for Specifier<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Global => dest.write_str("global"),
             Self::File(value) => serialize_string(value, dest),
@@ -265,7 +265,7 @@ impl ToCss for Specifier<'_> {
 }
 
 impl ToCss for Function<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_identifier(self.name, dest)?;
         dest.write_char('(')?;
         write_token_list(&self.arguments, dest)?;
@@ -274,7 +274,7 @@ impl ToCss for Function<'_> {
 }
 
 impl ToCss for AnimationName<'_> {
-    fn to_css<W: Write>(&self, dest: &mut Printer<'_, W>) -> fmt::Result {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
             Self::Ident(value) => serialize_identifier(value, dest),
