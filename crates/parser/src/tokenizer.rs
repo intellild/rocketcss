@@ -18,13 +18,13 @@ use std::ops::Range;
 
 /// A capture of the tokenizer state that can be restored with [`Tokenizer::reset`].
 #[derive(Debug, Clone)]
-pub struct ParserState {
+pub struct TokenizerState {
     position: usize,
     current_line_start_position: usize,
     current_line_number: u32,
 }
 
-impl ParserState {
+impl TokenizerState {
     /// The position from the start of the input, counted in UTF-8 bytes.
     #[inline]
     pub fn position(&self) -> SourcePosition {
@@ -241,8 +241,8 @@ impl<'a> Tokenizer<'a> {
     }
 
     #[inline]
-    pub fn state(&self) -> ParserState {
-        ParserState {
+    pub fn state(&self) -> TokenizerState {
+        TokenizerState {
             position: self.position,
             current_line_start_position: self.current_line_start_position,
             current_line_number: self.current_line_number,
@@ -250,7 +250,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     #[inline]
-    pub fn reset(&mut self, state: &ParserState) {
+    pub fn reset(&mut self, state: &TokenizerState) {
         self.position = state.position;
         self.current_line_start_position = state.current_line_start_position;
         self.current_line_number = state.current_line_number;

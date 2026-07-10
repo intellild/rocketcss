@@ -1,0 +1,539 @@
+use rs_css_allocator::Allocator;
+use rs_css_ast::{
+    Combinator, CssRule, CustomPropertyName, Declaration, FontFaceProperty, MediaType, PseudoClass,
+    SelectorComponent, Token as ValueToken, TokenOrValue,
+};
+use rs_css_parser::{BasicParseErrorKind, Parse, Parser, ParserInput, ParserOptions, Span, parse};
+
+#[test]
+fn parser_decodes_values_from_token_spans() {
+    let allocator = Allocator::new();
+    let mut input = ParserInput::new(
+        r#"\66 oo "b\61 r" -1.5e2px 25% url(icon\2e svg)"#,
+        &allocator,
+    );
+    let mut parser = Parser::new(&mut input);
+
+    assert_eq!(parser.expect_ident(), Ok("foo"));
+    assert_eq!(parser.expect_string(), Ok("bar"));
+    assert!(matches!(
+        parser.next(),
+        Ok(ValueToken::Dimension { unit: "px", value }) if *value == -150.0
+    ));
+    assert_eq!(parser.expect_percentage(), Ok(0.25));
+    assert_eq!(parser.expect_url(), Ok("icon.svg"));
+    assert!(parser.is_exhausted());
+}
+
+#[test]
+fn parser_backtracks_and_parses_nested_blocks() {
+    let allocator = Allocator::new();
+    let mut input = ParserInput::new("foo(1, [bar]) tail", &allocator);
+    let mut parser = Parser::new(&mut input);
+
+    let state = parser.state();
+    assert_eq!(parser.expect_function(), Ok("foo"));
+    let values = parser
+        .parse_nested_block(|input| {
+            let first = input.expect_number()?;
+            input.expect_comma()?;
+            input.expect_square_bracket_block()?;
+            let inner = input.parse_nested_block(|input| {
+                Ok::<_, rs_css_parser::ParseError<'_, ()>>(input.expect_ident()?)
+            })?;
+            Ok::<_, rs_css_parser::ParseError<'_, ()>>((first, inner))
+        })
+        .unwrap();
+    assert_eq!(values, (1.0, "bar"));
+    assert_eq!(parser.expect_ident(), Ok("tail"));
+
+    parser.reset(&state);
+    assert_eq!(parser.expect_function(), Ok("foo"));
+}
+
+#[test]
+fn delimited_parse_does_not_stop_inside_nested_blocks() {
+    let allocator = Allocator::new();
+    let mut input = ParserInput::new("one(foo;bar);two", &allocator);
+    let mut parser = Parser::new(&mut input);
+    let raw = parser
+        .parse_until_before(rs_css_parser::Delimiter::Semicolon, |input| {
+            let start = input.position();
+            while input.next().is_ok() {}
+            Ok::<_, rs_css_parser::ParseError<'_, ()>>(input.slice_from(start))
+        })
+        .unwrap();
+
+    assert_eq!(raw, "one(foo;bar)");
+    parser.expect_semicolon().unwrap();
+    assert_eq!(parser.expect_ident(), Ok("two"));
+}
+
+#[test]
+fn parses_style_rule_selectors_and_declarations() {
+    let allocator = Allocator::new();
+    let source =
+        "/*! license */ .Foo, #app > a:hover { color: red; --gap: 1rem; opacity: .5 !important; }";
+    let sheet = parse(
+        source,
+        &allocator,
+        ParserOptions {
+            filename: "input.css",
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(&*sheet.license_comments, ["! license "]);
+    assert_eq!(&*sheet.sources, ["input.css"]);
+    assert_eq!(sheet.rules.len(), 1);
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.span, Span::new(15, source.len() as u32));
+    assert_eq!(rule.selectors.len(), 2);
+    assert!(matches!(
+        &rule.selectors[0][0],
+        SelectorComponent::Class(name) if *name == "Foo"
+    ));
+    assert!(matches!(
+        &rule.selectors[1][1],
+        SelectorComponent::Combinator(Combinator::Child)
+    ));
+    assert!(matches!(
+        &rule.selectors[1][3],
+        SelectorComponent::PseudoClass(value) if matches!(**value, PseudoClass::Hover)
+    ));
+
+    assert_eq!(rule.declarations.declarations.len(), 2);
+    assert_eq!(rule.declarations.important_declarations.len(), 1);
+    assert!(matches!(
+        &rule.declarations.declarations[0],
+        Declaration::Color(value)
+            if matches!(**value, rs_css_ast::CssColor::Rgba(rs_css_ast::RGBA { red: 255, green: 0, blue: 0, alpha: 255 }))
+    ));
+    assert!(matches!(
+        &rule.declarations.declarations[1],
+        Declaration::Custom(value)
+            if matches!(*value.name, CustomPropertyName::Custom("--gap"))
+    ));
+    assert!(matches!(
+        &rule.declarations.important_declarations[0],
+        Declaration::Opacity(0.5)
+    ));
+}
+
+#[test]
+fn escaped_selector_and_function_values_are_decoded_in_ast() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        r#".f\6f o { width: calc(100% - var(--gap)); }"#,
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert!(matches!(
+        &rule.selectors[0][0],
+        SelectorComponent::Class("foo")
+    ));
+
+    let Declaration::Unparsed(width) = &rule.declarations.declarations[0] else {
+        panic!("expected unparsed width")
+    };
+    assert!(matches!(
+        &width.value[0],
+        TokenOrValue::Function(function)
+            if function.name == "calc"
+                && function.arguments.iter().any(|value| matches!(
+                    value,
+                    TokenOrValue::Function(nested) if nested.name == "var"
+                ))
+    ));
+}
+
+#[test]
+fn parses_import_media_unknown_and_font_face_rules() {
+    let allocator = Allocator::new();
+    let source = r#"
+        @import url("a.css") screen;
+        @media only screen and (min-width: 10px) { .a { display: block } }
+        @font-face { font-family: "Demo"; src: url(demo.woff2); }
+        @unknown foo(1) { bar: baz }
+    "#;
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 4);
+
+    let CssRule::Import(rule) = &sheet.rules[0] else {
+        panic!("expected import")
+    };
+    assert_eq!(rule.url, "a.css");
+    assert!(matches!(
+        rule.media
+            .as_ref()
+            .map(|media| &*media.media_queries[0].media_type),
+        Some(MediaType::Screen)
+    ));
+
+    let CssRule::Media(rule) = &sheet.rules[1] else {
+        panic!("expected media")
+    };
+    assert_eq!(rule.rules.len(), 1);
+    assert!(matches!(
+        *rule.query.media_queries[0].media_type,
+        MediaType::Screen
+    ));
+    assert!(rule.query.media_queries[0].condition.is_some());
+
+    let CssRule::FontFace(rule) = &sheet.rules[2] else {
+        panic!("expected font-face")
+    };
+    assert_eq!(rule.properties.len(), 2);
+    assert!(matches!(
+        &rule.properties[0],
+        FontFaceProperty::Custom(value)
+            if matches!(*value.name, CustomPropertyName::Unknown("font-family"))
+    ));
+
+    let CssRule::Unknown(rule) = &sheet.rules[3] else {
+        panic!("expected unknown at-rule")
+    };
+    assert_eq!(rule.name, "unknown");
+    assert!(rule.block.is_some());
+}
+
+#[test]
+fn invalid_selector_reports_source_location() {
+    let allocator = Allocator::new();
+    let error = parse(
+        "a, { color: red }",
+        &allocator,
+        ParserOptions {
+            filename: "broken.css",
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.filename, "broken.css");
+    assert_eq!(error.location.line, 0);
+    assert!(matches!(
+        error.kind,
+        rs_css_parser::ParserError::InvalidSelector
+    ));
+}
+
+#[test]
+fn parser_reports_unmatched_closing_token() {
+    let allocator = Allocator::new();
+    let mut input = ParserInput::new(")", &allocator);
+    let mut parser = Parser::new(&mut input);
+    let error = parser.expect_no_error_token().unwrap_err();
+    assert!(matches!(
+        error.kind,
+        BasicParseErrorKind::UnexpectedToken(token)
+            if token.span == Span::new(0, 1)
+    ));
+}
+
+#[test]
+fn lightningcss_parse_trait_parses_values_from_strings() {
+    let allocator = Allocator::new();
+    let selectors = rs_css_ast::SelectorList::parse_string(".a:is(.b, #c)", &allocator).unwrap();
+    assert_eq!(selectors.len(), 1);
+    assert!(matches!(
+        &selectors[0][1],
+        SelectorComponent::Is(list) if list.len() == 2
+    ));
+}
+
+#[test]
+fn parses_lightningcss_rule_families() {
+    let allocator = Allocator::new();
+    let source = r#"
+        @namespace svg url(http://www.w3.org/2000/svg);
+        @layer reset, theme.base;
+        @layer components { button { color: blue } }
+        @custom-media --narrow (max-width: 30em);
+        @keyframes fade { from { opacity: 0 } 50% { opacity: .5 } to { opacity: 1 } }
+        @counter-style thumbs { system: cyclic; symbols: "👍"; }
+        @viewport { width: device-width; }
+        @position-try --fallback { inset: 1rem; }
+        @container card (width > 30rem) { .item { display: grid } }
+        @-moz-document url-prefix() { a { color: green } }
+    "#;
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 10);
+
+    assert!(matches!(
+        &sheet.rules[0],
+        CssRule::Namespace(rule)
+            if rule.prefix == Some("svg") && rule.url == "http://www.w3.org/2000/svg"
+    ));
+    assert!(matches!(
+        &sheet.rules[1],
+        CssRule::LayerStatement(rule)
+            if rule.names.len() == 2 && rule.names[1].as_slice() == ["theme", "base"]
+    ));
+    assert!(matches!(
+        &sheet.rules[2],
+        CssRule::LayerBlock(rule)
+            if rule.name.is_some() && rule.rules.len() == 1
+    ));
+    assert!(matches!(
+        &sheet.rules[3],
+        CssRule::CustomMedia(rule)
+            if rule.name == "--narrow" && rule.query.media_queries.len() == 1
+    ));
+    assert!(matches!(
+        &sheet.rules[4],
+        CssRule::Keyframes(rule)
+            if matches!(*rule.name, rs_css_ast::KeyframesName::Ident("fade"))
+                && rule.keyframes.len() == 3
+                && matches!(rule.keyframes[1].selectors[0], rs_css_ast::KeyframeSelector::Percentage(0.5))
+    ));
+    assert!(matches!(&sheet.rules[5], CssRule::CounterStyle(_)));
+    assert!(matches!(&sheet.rules[6], CssRule::Viewport(_)));
+    assert!(matches!(
+        &sheet.rules[7],
+        CssRule::PositionTry(rule) if rule.name == "--fallback"
+    ));
+    assert!(matches!(
+        &sheet.rules[8],
+        CssRule::Container(rule) if rule.name == Some("card") && rule.condition.is_some()
+    ));
+    assert!(matches!(
+        &sheet.rules[9],
+        CssRule::MozDocument(rule) if rule.rules.len() == 1
+    ));
+}
+
+#[test]
+fn parses_import_modifiers_scope_and_page() {
+    let allocator = Allocator::new();
+    let source = r#"
+        @import "theme.css" layer(theme.base) supports(display: grid) print;
+        @scope (.card) to (.boundary) { .title { color: red } }
+        @page invoice:first { margin: 1cm; @top-center { content: "Invoice"; } }
+    "#;
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 3);
+
+    let CssRule::Import(import) = &sheet.rules[0] else {
+        panic!("expected import")
+    };
+    assert_eq!(import.layer.as_deref(), Some(&["theme", "base"][..]));
+    assert!(import.supports.is_some());
+    assert!(matches!(
+        import
+            .media
+            .as_ref()
+            .map(|media| &*media.media_queries[0].media_type),
+        Some(MediaType::Print)
+    ));
+
+    assert!(matches!(
+        &sheet.rules[1],
+        CssRule::Scope(rule)
+            if rule.scope_start.is_some() && rule.scope_end.is_some() && rule.rules.len() == 1
+    ));
+    assert!(matches!(
+        &sheet.rules[2],
+        CssRule::Page(rule)
+            if rule.selectors.len() == 1
+                && rule.declarations.declarations.len() == 1
+                && rule.rules.len() == 1
+    ));
+}
+
+#[test]
+fn enforces_import_and_namespace_order_like_lightningcss() {
+    let allocator = Allocator::new();
+    let import_error = parse(
+        "a {} @import 'late.css';",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        import_error.kind,
+        rs_css_parser::ParserError::UnexpectedImportRule
+    ));
+
+    let namespace_error = parse(
+        "a {} @namespace svg 'urn:svg';",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        namespace_error.kind,
+        rs_css_parser::ParserError::UnexpectedNamespaceRule
+    ));
+
+    let valid = parse(
+        "@layer reset; @import 'theme.css'; @namespace svg 'urn:svg'; a {}",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(valid.rules.len(), 4);
+}
+
+#[test]
+fn parses_declarations_inside_nested_group_rules() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        ".card { @media (width > 30rem) { color: red; & .title { opacity: .8 } } }",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    let CssRule::Media(media) = &style.rules[0] else {
+        panic!("expected nested media")
+    };
+    assert!(matches!(
+        &media.rules[0],
+        CssRule::NestedDeclarations(rule)
+            if rule.declarations.declarations.len() == 1
+    ));
+    assert!(matches!(&media.rules[1], CssRule::Style(_)));
+}
+
+#[test]
+fn distinguishes_nested_pseudo_selectors_from_declarations() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        ".card { color: red; button:hover { color: blue } }",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style")
+    };
+    assert_eq!(style.declarations.declarations.len(), 1);
+    assert_eq!(style.rules.len(), 1);
+    assert!(matches!(&style.rules[0], CssRule::Style(_)));
+}
+
+#[test]
+fn declaration_error_recovery_continues_at_semicolon() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        "a { broken value; width: 10px; }",
+        &allocator,
+        ParserOptions {
+            error_recovery: true,
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style")
+    };
+    assert_eq!(style.declarations.declarations.len(), 1);
+    assert!(matches!(
+        &style.declarations.declarations[0],
+        Declaration::Width(_)
+    ));
+}
+
+#[test]
+fn parses_typed_core_property_values() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        "a { color: #0f08; background-color: currentColor; display: inline-flex; visibility: hidden; width: 10rem; height: 25%; }",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style")
+    };
+    let declarations = &style.declarations.declarations;
+    assert!(matches!(
+        &declarations[0],
+        Declaration::Color(color)
+            if matches!(**color, rs_css_ast::CssColor::Rgba(rs_css_ast::RGBA { red: 0, green: 255, blue: 0, alpha: 136 }))
+    ));
+    assert!(matches!(
+        &declarations[1],
+        Declaration::BackgroundColor(color)
+            if matches!(**color, rs_css_ast::CssColor::CurrentColor)
+    ));
+    assert!(matches!(&declarations[2], Declaration::Display(_)));
+    assert!(matches!(
+        &declarations[3],
+        Declaration::Visibility(rs_css_ast::Visibility::Hidden)
+    ));
+    assert!(matches!(&declarations[4], Declaration::Width(_)));
+    assert!(matches!(&declarations[5], Declaration::Height(_)));
+}
+
+#[test]
+fn parses_property_view_transition_palette_and_nest_rules() {
+    let allocator = Allocator::new();
+    let source = r#"
+        @property --brand-color {
+          syntax: "<color>";
+          inherits: false;
+          initial-value: red;
+        }
+        @view-transition { navigation: auto; types: forward backward; }
+        @font-palette-values --dark { font-family: Demo; base-palette: 1; }
+        @font-feature-values "Demo Sans" { @styleset { compact: 1 2; } }
+        .card { @nest & > .title { color: blue; } }
+    "#;
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 5);
+    assert!(matches!(
+        &sheet.rules[0],
+        CssRule::Property(rule)
+            if rule.name == "--brand-color"
+                && !rule.inherits
+                && rule.initial_value.is_some()
+                && matches!(*rule.syntax, rs_css_ast::SyntaxString::Components(_))
+    ));
+    assert!(matches!(
+        &sheet.rules[1],
+        CssRule::ViewTransition(rule) if rule.properties.len() == 2
+    ));
+    assert!(matches!(
+        &sheet.rules[2],
+        CssRule::FontPaletteValues(rule)
+            if rule.name == "--dark" && rule.properties.len() == 2
+    ));
+    assert!(matches!(
+        &sheet.rules[3],
+        CssRule::FontFeatureValues(rule)
+            if rule.name.len() == 1
+                && rule.name[0].0 == "Demo Sans"
+                && rule.rules.len() == 1
+                && rule.rules[0].declarations[0].values.as_slice() == [1, 2]
+    ));
+    let CssRule::Style(style) = &sheet.rules[4] else {
+        panic!("expected style")
+    };
+    assert!(matches!(&style.rules[0], CssRule::Nesting(_)));
+}
+
+#[test]
+fn extracts_source_directives_in_parser_layer() {
+    let allocator = Allocator::new();
+    let source =
+        "a { color: red } /*# sourceURL=original.scss */ /*# sourceMappingURL=style.css.map */";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(&*sheet.source_map_urls, [Some("style.css.map")]);
+
+    let mut input = ParserInput::new(source, &allocator);
+    let mut parser = Parser::new(&mut input);
+    while parser.next_including_whitespace_and_comments().is_ok() {}
+    assert_eq!(parser.current_source_url(), Some("original.scss"));
+    assert_eq!(parser.current_source_map_url(), Some("style.css.map"));
+}

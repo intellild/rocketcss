@@ -9,4 +9,5 @@ repository.workspace  = true
 version               = "0.1.0"
 
 [dependencies]
+rs_css_allocator = { workspace = true }
 rs_css_ast = { workspace = true }

@@ -19,7 +19,7 @@ pub enum TokenOrValue<'a> {
     AnimationName(Box<'a, AnimationName<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Token<'a> {
     Ident(&'a str),
     AtKeyword(&'a str),
