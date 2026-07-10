@@ -160,16 +160,12 @@ fn parse_group_rule_body<'i, 't>(
     }
 
     let start = input.state();
-    let (declarations, important_declarations, mut rules) =
-        parse_style_contents(input, allocator, options, depth)?;
-    if !declarations.is_empty() || !important_declarations.is_empty() {
+    let (declarations, mut rules) = parse_style_contents(input, allocator, options, depth)?;
+    if !declarations.is_empty() {
         rules.insert(
             0,
             CssRule::NestedDeclarations(allocator.boxed(rs_css_ast::NestedDeclarationsRule {
-                declarations: allocator.boxed(DeclarationBlock {
-                    declarations,
-                    important_declarations,
-                }),
+                declarations: allocator.boxed(declarations),
                 span: span_from(&start, input.position()),
             })),
         );
@@ -513,17 +509,14 @@ fn parse_at_rule<'i, 't>(
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
         let selectors = parse_selector_string(raw_prelude, allocator, depth + 1)?;
-        let (declarations, important_declarations, rules) = input.parse_nested_block(|input| {
+        let (declarations, rules) = input.parse_nested_block(|input| {
             parse_style_contents(input, allocator, options, depth + 1)
         })?;
         let span = span_from(start, input.position());
         CssRule::Nesting(allocator.boxed(NestingRule {
             span,
             style: allocator.boxed(StyleRule {
-                declarations: allocator.boxed(DeclarationBlock {
-                    declarations,
-                    important_declarations,
-                }),
+                declarations: allocator.boxed(declarations),
                 span,
                 rules,
                 selectors: allocator.boxed(selectors),
@@ -558,14 +551,11 @@ fn parse_qualified_rule<'i, 't>(
         parse_selector_list(input, allocator, depth + 1)
     })?;
     input.expect_curly_bracket_block()?;
-    let (declarations, important_declarations, rules) = input
+    let (declarations, rules) = input
         .parse_nested_block(|input| parse_style_contents(input, allocator, options, depth + 1))?;
 
     Ok(CssRule::Style(allocator.boxed(StyleRule {
-        declarations: allocator.boxed(DeclarationBlock {
-            declarations,
-            important_declarations,
-        }),
+        declarations: allocator.boxed(declarations),
         span: span_from(start, input.position()),
         rules,
         selectors: allocator.boxed(selectors),
@@ -573,11 +563,7 @@ fn parse_qualified_rule<'i, 't>(
     })))
 }
 
-type StyleContents<'i> = (
-    Vec<'i, Declaration<'i>>,
-    Vec<'i, Declaration<'i>>,
-    Vec<'i, CssRule<'i>>,
-);
+type StyleContents<'i> = (DeclarationBlock<'i>, Vec<'i, CssRule<'i>>);
 
 fn parse_style_contents<'i, 't>(
     input: &mut Parser<'i, 't>,
@@ -586,8 +572,7 @@ fn parse_style_contents<'i, 't>(
     depth: usize,
 ) -> Result<StyleContents<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut declarations = allocator.vec();
-    let mut important_declarations = allocator.vec();
+    let mut declarations = DeclarationBlock::new(allocator);
     let mut rules = allocator.vec();
 
     loop {
@@ -610,11 +595,7 @@ fn parse_style_contents<'i, 't>(
                 if has_colon && next_delimiter != Some(RuleBodyDelimiter::CurlyBracket) {
                     parse_declaration(input, allocator, name, depth).map(
                         |(declaration, important)| {
-                            if important {
-                                important_declarations.push(declaration);
-                            } else {
-                                declarations.push(declaration);
-                            }
+                            declarations.push(declaration, important);
                             None
                         },
                     )
@@ -641,7 +622,7 @@ fn parse_style_contents<'i, 't>(
         }
     }
 
-    Ok((declarations, important_declarations, rules))
+    Ok((declarations, rules))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1521,15 +1502,11 @@ fn parse_declaration_block<'i, 't>(
     options: &ParserOptions<'i>,
     depth: usize,
 ) -> Result<DeclarationBlock<'i>, ParseError<'i, ParserError<'i>>> {
-    let (declarations, important_declarations, rules) =
-        parse_style_contents(input, allocator, options, depth)?;
+    let (declarations, rules) = parse_style_contents(input, allocator, options, depth)?;
     if !rules.is_empty() {
         return Err(input.new_custom_error(ParserError::InvalidDeclaration));
     }
-    Ok(DeclarationBlock {
-        declarations,
-        important_declarations,
-    })
+    Ok(declarations)
 }
 
 fn at_rule_vendor_prefix(name: &str) -> VendorPrefix {
@@ -1688,8 +1665,7 @@ fn parse_page_body<'i, 't>(
     options: &ParserOptions<'i>,
     depth: usize,
 ) -> Result<(DeclarationBlock<'i>, Vec<'i, PageMarginRule<'i>>), ParseError<'i, ParserError<'i>>> {
-    let mut declarations = allocator.vec();
-    let mut important_declarations = allocator.vec();
+    let mut declarations = DeclarationBlock::new(allocator);
     let mut rules = allocator.vec();
 
     loop {
@@ -1708,11 +1684,7 @@ fn parse_page_body<'i, 't>(
                 input.expect_colon()?;
                 let (declaration, important) =
                     parse_declaration(input, allocator, name, depth + 1)?;
-                if important {
-                    important_declarations.push(declaration);
-                } else {
-                    declarations.push(declaration);
-                }
+                declarations.push(declaration, important);
                 Ok(None)
             }
             ValueToken::AtKeyword(name) => {
@@ -1743,13 +1715,7 @@ fn parse_page_body<'i, 't>(
         }
     }
 
-    Ok((
-        DeclarationBlock {
-            declarations,
-            important_declarations,
-        },
-        rules,
-    ))
+    Ok((declarations, rules))
 }
 
 fn parse_selector_string<'i>(

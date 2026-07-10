@@ -73,7 +73,7 @@ fn delimited_parse_does_not_stop_inside_nested_blocks() {
 fn parses_style_rule_selectors_and_declarations() {
     let allocator = Allocator::new();
     let source =
-        "/*! license */ .Foo, #app > a:hover { color: red; --gap: 1rem; opacity: .5 !important; }";
+        "/*! license */ .Foo, #app > a:hover { color: red; opacity: .5 !important; --gap: 1rem; }";
     let sheet = parse(
         source,
         &allocator,
@@ -105,8 +105,8 @@ fn parses_style_rule_selectors_and_declarations() {
         SelectorComponent::PseudoClass(value) if matches!(**value, PseudoClass::Hover)
     ));
 
-    assert_eq!(rule.declarations.declarations.len(), 2);
-    assert_eq!(rule.declarations.important_declarations.len(), 1);
+    assert_eq!(rule.declarations.declarations.len(), 3);
+    assert_eq!(rule.declarations.declarations_importance.len(), 3);
     assert!(matches!(
         &rule.declarations.declarations[0],
         Declaration::Color(value)
@@ -114,13 +114,16 @@ fn parses_style_rule_selectors_and_declarations() {
     ));
     assert!(matches!(
         &rule.declarations.declarations[1],
+        Declaration::Opacity(0.5)
+    ));
+    assert!(matches!(
+        &rule.declarations.declarations[2],
         Declaration::Custom(value)
             if matches!(*value.name, CustomPropertyName::Custom("--gap"))
     ));
-    assert!(matches!(
-        &rule.declarations.important_declarations[0],
-        Declaration::Opacity(0.5)
-    ));
+    assert!(!rule.declarations.is_important(0));
+    assert!(rule.declarations.is_important(1));
+    assert!(!rule.declarations.is_important(2));
 }
 
 #[test]

@@ -7,6 +7,7 @@ pub mod boxed;
 pub mod hash_map;
 pub mod hash_set;
 pub mod raw_vec;
+pub mod small_bit_vec;
 pub mod vec;
 pub mod wtf8;
 

@@ -52,10 +52,7 @@ mod tests {
         let rule = PositionTryRule {
             span: Span::new(4, 42),
             name: "--fallback",
-            declarations: allocator.boxed(DeclarationBlock {
-                declarations: allocator.vec(),
-                important_declarations: allocator.vec(),
-            }),
+            declarations: allocator.boxed(DeclarationBlock::new(&allocator)),
         };
         let rule = CssRule::PositionTry(allocator.boxed(rule));
 
