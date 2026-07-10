@@ -248,6 +248,81 @@ fn lightningcss_parse_trait_parses_values_from_strings() {
 }
 
 #[test]
+fn parses_namespace_deep_and_empty_where_selectors() {
+    let allocator = Allocator::new();
+    let selectors = SelectorList::parse_string(
+        "|e, *|*, svg|circle, [svg|fill=red], .a /deep/ .b, foo:where()",
+        &allocator,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        &selectors[0][..],
+        [
+            SelectorComponent::ExplicitNoNamespace,
+            SelectorComponent::LocalName { name: "e", .. }
+        ]
+    ));
+    assert!(matches!(
+        &selectors[1][..],
+        [
+            SelectorComponent::ExplicitAnyNamespace,
+            SelectorComponent::ExplicitUniversalType
+        ]
+    ));
+    assert!(matches!(
+        &selectors[2][..],
+        [
+            SelectorComponent::Namespace { prefix: "svg", .. },
+            SelectorComponent::LocalName { name: "circle", .. }
+        ]
+    ));
+    assert!(matches!(
+        &selectors[3][0],
+        SelectorComponent::AttributeOther(attribute)
+            if matches!(&attribute.namespace, Some(NamespaceConstraint::Specific { prefix: "svg", .. }))
+    ));
+    assert!(matches!(
+        &selectors[4][..],
+        [
+            SelectorComponent::Class("a"),
+            SelectorComponent::Combinator(Combinator::Deep),
+            SelectorComponent::Class("b")
+        ]
+    ));
+    assert!(matches!(
+        &selectors[5][..],
+        [SelectorComponent::LocalName { name: "foo", .. }, SelectorComponent::Where(list)] if list.is_empty()
+    ));
+}
+
+#[test]
+fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        "@keyframes demo { entry 0% { opacity: 0 } entry to { opacity: .5 } exit 100% { opacity: 1 } }",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Keyframes(rule) = &sheet.rules[0] else {
+        panic!("expected keyframes rule")
+    };
+
+    assert_eq!(rule.keyframes.len(), 2);
+    assert!(matches!(
+        &rule.keyframes[0].selectors[0],
+        KeyframeSelector::TimelineRangePercentage(value)
+            if value.name == TimelineRangeName::Entry && value.percentage == 0.0
+    ));
+    assert!(matches!(
+        &rule.keyframes[1].selectors[0],
+        KeyframeSelector::TimelineRangePercentage(value)
+            if value.name == TimelineRangeName::Exit && value.percentage == 1.0
+    ));
+}
+
+#[test]
 fn parses_lightningcss_rule_families() {
     let allocator = Allocator::new();
     let source = r#"

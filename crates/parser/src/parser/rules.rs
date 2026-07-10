@@ -186,10 +186,17 @@ pub(super) fn parse_keyframe_list<'i, 't>(
         }
         let parsed = input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
             input.parse_comma_separated(parse_keyframe_selector)
-        })?;
-        let mut selectors = allocator.vec();
-        selectors.extend(parsed);
+        });
         input.expect_curly_bracket_block()?;
+        if parsed.is_err() {
+            input.parse_nested_block(|input| {
+                while input.next_including_whitespace_and_comments().is_ok() {}
+                Ok::<_, ParseError<'i, ParserError<'i>>>(())
+            })?;
+            continue;
+        }
+        let mut selectors = allocator.vec();
+        selectors.extend(parsed?);
         let declarations = input.parse_nested_block(|input| {
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
@@ -210,6 +217,29 @@ pub(super) fn parse_keyframe_selector<'i>(
         }
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("from") => Ok(KeyframeSelector::From),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("to") => Ok(KeyframeSelector::To),
+        ValueToken::Ident(name) => {
+            let name = if name.eq_ignore_ascii_case("cover") {
+                TimelineRangeName::Cover
+            } else if name.eq_ignore_ascii_case("contain") {
+                TimelineRangeName::Contain
+            } else if name.eq_ignore_ascii_case("entry") {
+                TimelineRangeName::Entry
+            } else if name.eq_ignore_ascii_case("exit") {
+                TimelineRangeName::Exit
+            } else if name.eq_ignore_ascii_case("entry-crossing") {
+                TimelineRangeName::EntryCrossing
+            } else if name.eq_ignore_ascii_case("exit-crossing") {
+                TimelineRangeName::ExitCrossing
+            } else {
+                return Err(input.new_custom_error(ParserError::InvalidValue));
+            };
+            let percentage = input.expect_percentage()?;
+            Ok(KeyframeSelector::TimelineRangePercentage(
+                input
+                    .allocator()
+                    .boxed(TimelineRangePercentage { name, percentage }),
+            ))
+        }
         _ => Err(input.new_custom_error(ParserError::InvalidValue)),
     }
 }

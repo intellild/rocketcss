@@ -1387,6 +1387,7 @@ version = "0.1.0"
 dependencies = [
  "rs_css_allocator",
  "rs_css_ast",
+ "serde_json",
 ]
 
 [[package]]

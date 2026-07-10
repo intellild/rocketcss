@@ -50,6 +50,16 @@ pub(super) fn parse_selector<'i, 't>(
             ValueToken::Delim(">") => Some(Combinator::Child),
             ValueToken::Delim("+") => Some(Combinator::NextSibling),
             ValueToken::Delim("~") => Some(Combinator::LaterSibling),
+            ValueToken::Delim("/")
+                if input
+                    .try_parse(|input| {
+                        input.expect_ident_matching("deep")?;
+                        input.expect_delim('/')
+                    })
+                    .is_ok() =>
+            {
+                Some(Combinator::Deep)
+            }
             _ => None,
         };
         if let Some(combinator) = explicit_combinator {
@@ -65,12 +75,24 @@ pub(super) fn parse_selector<'i, 't>(
         pending_descendant = false;
 
         let component = match token {
-            ValueToken::Ident(name) => SelectorComponent::LocalName {
-                name,
-                lower_name: ascii_lowercase(name, allocator),
-            },
+            ValueToken::Ident(name) if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
+                selector.push(SelectorComponent::Namespace {
+                    prefix: name,
+                    url: "",
+                });
+                parse_type_selector(input, allocator)?
+            }
+            ValueToken::Ident(name) => local_name(name, allocator),
             ValueToken::IdHash(id) => SelectorComponent::Id(id),
+            ValueToken::Delim("*") if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
+                selector.push(SelectorComponent::ExplicitAnyNamespace);
+                parse_type_selector(input, allocator)?
+            }
             ValueToken::Delim("*") => SelectorComponent::ExplicitUniversalType,
+            ValueToken::Delim("|") => {
+                selector.push(SelectorComponent::ExplicitNoNamespace);
+                parse_type_selector(input, allocator)?
+            }
             ValueToken::Delim("&") => SelectorComponent::Nesting,
             ValueToken::Delim(".") => SelectorComponent::Class(input.expect_ident()?),
             ValueToken::Colon => parse_pseudo(input, allocator, depth + 1)?,
@@ -87,6 +109,24 @@ pub(super) fn parse_selector<'i, 't>(
         return Err(input.new_custom_error(ParserError::InvalidSelector));
     }
     Ok(selector)
+}
+
+fn local_name<'i>(name: &'i str, allocator: &'i Allocator) -> SelectorComponent<'i> {
+    SelectorComponent::LocalName {
+        name,
+        lower_name: ascii_lowercase(name, allocator),
+    }
+}
+
+fn parse_type_selector<'i>(
+    input: &mut Parser<'i, '_>,
+    allocator: &'i Allocator,
+) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
+    match input.next()? {
+        ValueToken::Ident(name) => Ok(local_name(name, allocator)),
+        ValueToken::Delim("*") => Ok(SelectorComponent::ExplicitUniversalType),
+        _ => Err(input.new_custom_error(ParserError::InvalidSelector)),
+    }
 }
 
 pub(super) fn parse_pseudo<'i, 't>(
@@ -130,7 +170,12 @@ pub(super) fn parse_pseudo<'i, 't>(
                     })?)
                 } else if name.eq_ignore_ascii_case("where") {
                     SelectorComponent::Where(input.parse_nested_block(|input| {
-                        parse_selector_list(input, allocator, depth + 1)
+                        input.skip_whitespace();
+                        if input.is_exhausted() {
+                            Ok(allocator.vec())
+                        } else {
+                            parse_selector_list(input, allocator, depth + 1)
+                        }
                     })?)
                 } else if name.eq_ignore_ascii_case("has") {
                     SelectorComponent::Has(input.parse_nested_block(|input| {
@@ -153,12 +198,34 @@ pub(super) fn parse_attribute<'i, 't>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
-    let name = input.expect_ident()?;
+    let first = input.next()?.clone();
+    let (namespace, name) = match first {
+        ValueToken::Delim("|") => (None, input.expect_ident()?),
+        ValueToken::Delim("*") => {
+            input.expect_delim('|')?;
+            (Some(NamespaceConstraint::Any), input.expect_ident()?)
+        }
+        ValueToken::Ident(prefix) if input.try_parse(|input| input.expect_delim('|')).is_ok() => (
+            Some(NamespaceConstraint::Specific { prefix, url: "" }),
+            input.expect_ident()?,
+        ),
+        ValueToken::Ident(name) => (None, name),
+        _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
+    };
     let lower_name = ascii_lowercase(name, allocator);
     if input.is_exhausted() {
-        return Ok(SelectorComponent::AttributeInNoNamespaceExists {
-            local_name: name,
-            local_name_lower: lower_name,
+        return Ok(match namespace {
+            None => SelectorComponent::AttributeInNoNamespaceExists {
+                local_name: name,
+                local_name_lower: lower_name,
+            },
+            Some(namespace) => SelectorComponent::AttributeOther(allocator.boxed(AttrSelector {
+                namespace: Some(namespace),
+                local_name: name,
+                local_name_lower: lower_name,
+                operation: AttrOperation::Exists,
+                never_matches: false,
+            })),
         });
     }
 
@@ -185,12 +252,25 @@ pub(super) fn parse_attribute<'i, 't>(
     };
     input.expect_exhausted()?;
 
-    Ok(SelectorComponent::AttributeInNoNamespace {
-        local_name: name,
-        operator,
-        value,
-        case_sensitivity,
-        never_matches: false,
+    Ok(match namespace {
+        None => SelectorComponent::AttributeInNoNamespace {
+            local_name: name,
+            operator,
+            value,
+            case_sensitivity,
+            never_matches: false,
+        },
+        Some(namespace) => SelectorComponent::AttributeOther(allocator.boxed(AttrSelector {
+            namespace: Some(namespace),
+            local_name: name,
+            local_name_lower: lower_name,
+            operation: AttrOperation::WithValue {
+                operator,
+                case_sensitivity,
+                expected_value: value,
+            },
+            never_matches: false,
+        })),
     })
 }
 
