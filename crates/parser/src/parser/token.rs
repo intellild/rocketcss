@@ -1,9 +1,11 @@
 use std::borrow::Cow;
 
 use rs_css_allocator::Allocator;
-use rs_css_ast::Token as ValueToken;
+use rs_css_ast::{Token as ValueToken, Unit};
 
 use crate::{Span, Token};
+
+use super::length::parse_length_unit_name;
 
 pub(crate) fn decode_token<'i>(
     kind: Token,
@@ -24,9 +26,12 @@ pub(crate) fn decode_token<'i>(
         Token::Percentage => ValueToken::Percentage(parse_number(&raw[..raw.len() - 1]) / 100.0),
         Token::Dimension => {
             let number_end = numeric_prefix_len(raw);
-            ValueToken::Dimension {
-                unit: decode_name(&raw[number_end..], allocator),
-                value: parse_number(&raw[..number_end]),
+            let unit = decode_name(&raw[number_end..], allocator);
+            let value = parse_number(&raw[..number_end]);
+            if let Some(unit) = parse_unit(unit) {
+                ValueToken::Dimension { unit, value }
+            } else {
+                ValueToken::UnknownDimension { unit, value }
             }
         }
         Token::WhiteSpace => ValueToken::WhiteSpace(raw),
@@ -57,6 +62,30 @@ pub(crate) fn decode_token<'i>(
         Token::CloseParenthesis => ValueToken::CloseParenthesis,
         Token::CloseSquareBracket => ValueToken::CloseSquareBracket,
         Token::CloseCurlyBracket => ValueToken::CloseCurlyBracket,
+    }
+}
+
+fn parse_unit(unit: &str) -> Option<Unit> {
+    if let Some(unit) = parse_length_unit_name(unit) {
+        Some(Unit::Length(unit))
+    } else {
+        match_ignore_ascii_case!(
+            unit,
+            "deg" => Some(Unit::Deg),
+            "rad" => Some(Unit::Rad),
+            "grad" => Some(Unit::Grad),
+            "turn" => Some(Unit::Turn),
+            "s" => Some(Unit::Seconds),
+            "ms" => Some(Unit::Milliseconds),
+            "hz" => Some(Unit::Hertz),
+            "khz" => Some(Unit::Kilohertz),
+            "dpi" => Some(Unit::Dpi),
+            "dpcm" => Some(Unit::Dpcm),
+            "dppx" => Some(Unit::Dppx),
+            "x" => Some(Unit::ResolutionX),
+            "fr" => Some(Unit::Flex),
+            _ => None,
+        )
     }
 }
 

@@ -85,11 +85,14 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "css-module-lexer",
+ "hashbrown",
  "lightningcss",
  "mimalloc",
  "rs_css_allocator",
  "rs_css_codegen",
+ "rs_css_minify",
  "rs_css_parser",
+ "rustc-hash",
  "stylo",
  "url",
 ]
@@ -240,23 +243,9 @@ checksum = "baf0a07a401f374238ab8e2f11a104d2851bf9ce711ec69804834de8af45c7af"
 
 [[package]]
 name = "const-str"
-version = "0.3.2"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21077772762a1002bb421c3af42ac1725fa56066bfc53d9a55bb79905df2aaf3"
-dependencies = [
- "const-str-proc-macro",
-]
-
-[[package]]
-name = "const-str-proc-macro"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e1e0fdd2e5d3041e530e1b21158aeeef8b5d0e306bc5c1e3d6cf0930d10e25a"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
+checksum = "18f12cc9948ed9604230cdddc7c86e270f9401ccbe3c2e98a4378c5e7632212f"
 
 [[package]]
 name = "convert_case"
@@ -321,24 +310,11 @@ dependencies = [
 
 [[package]]
 name = "cssparser"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9be934d936a0fbed5bcdc01042b770de1398bf79d0e192f49fa7faea0e99281e"
-dependencies = [
- "cssparser-macros 0.6.1",
- "dtoa-short",
- "itoa",
- "phf 0.11.3",
- "smallvec",
-]
-
-[[package]]
-name = "cssparser"
 version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98"
 dependencies = [
- "cssparser-macros 0.7.0",
+ "cssparser-macros",
  "dtoa-short",
  "itoa",
  "phf 0.13.1",
@@ -348,21 +324,11 @@ dependencies = [
 
 [[package]]
 name = "cssparser-color"
-version = "0.1.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "556c099a61d85989d7af52b692e35a8d68a57e7df8c6d07563dc0778b3960c9f"
+checksum = "bbaa233e1dcd9c13a5d3e3a8a2c0f5a727bac380398345dbcb31db4597edc86b"
 dependencies = [
- "cssparser 0.33.0",
-]
-
-[[package]]
-name = "cssparser-macros"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13b588ba4ac1a99f7f2964d24b3d896ddc6bf847ee3855dbd4366f058cfcd331"
-dependencies = [
- "quote",
- "syn 2.0.118",
+ "cssparser",
 ]
 
 [[package]]
@@ -820,13 +786,12 @@ dependencies = [
 [[package]]
 name = "lightningcss"
 version = "1.0.0-alpha.71"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb6314c2f0590ac93c86099b98bb7ba8abcf759bfd89604ffca906472bb54937"
+source = "git+https://github.com/parcel-bundler/lightningcss.git?rev=171fa5d4e804e7d25b583ee79c268f2c80723f73#171fa5d4e804e7d25b583ee79c268f2c80723f73"
 dependencies = [
  "ahash",
  "bitflags",
  "const-str",
- "cssparser 0.33.0",
+ "cssparser",
  "cssparser-color",
  "data-encoding",
  "getrandom 0.3.4",
@@ -843,8 +808,7 @@ dependencies = [
 [[package]]
 name = "lightningcss-derive"
 version = "1.0.0-alpha.43"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84c12744d1279367caed41739ef094c325d53fb0ffcd4f9b84a368796f870252"
+source = "git+https://github.com/parcel-bundler/lightningcss.git?rev=171fa5d4e804e7d25b583ee79c268f2c80723f73#171fa5d4e804e7d25b583ee79c268f2c80723f73"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro2",
@@ -977,11 +941,10 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 [[package]]
 name = "parcel_selectors"
 version = "0.28.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54fd03f1ad26cb6b3ec1b7414fa78a3bd639e7dbb421b1a60513c96ce886a196"
+source = "git+https://github.com/parcel-bundler/lightningcss.git?rev=171fa5d4e804e7d25b583ee79c268f2c80723f73#171fa5d4e804e7d25b583ee79c268f2c80723f73"
 dependencies = [
  "bitflags",
- "cssparser 0.33.0",
+ "cssparser",
  "log",
  "phf 0.11.3",
  "phf_codegen 0.11.3",
@@ -1037,7 +1000,6 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd6780a80ae0c52cc120a26a1a42c1ae51b247a253e4e06113d23d2c2edd078"
 dependencies = [
- "phf_macros 0.11.3",
  "phf_shared 0.11.3",
 ]
 
@@ -1047,7 +1009,7 @@ version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1562dc717473dbaa4c1f85a36410e03c047b2e7df7f45ee938fbef64ae7fadf"
 dependencies = [
- "phf_macros 0.13.1",
+ "phf_macros",
  "phf_shared 0.13.1",
  "serde",
 ]
@@ -1090,19 +1052,6 @@ checksum = "135ace3a761e564ec88c03a77317a7c6b80bb7f7135ef2544dbe054243b89737"
 dependencies = [
  "fastrand",
  "phf_shared 0.13.1",
-]
-
-[[package]]
-name = "phf_macros"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f84ac04429c13a7ff43785d75ad27569f2951ce0ffd30a3321230db2fc727216"
-dependencies = [
- "phf_generator 0.11.3",
- "phf_shared 0.11.3",
- "proc-macro2",
- "quote",
- "syn 2.0.118",
 ]
 
 [[package]]
@@ -1314,12 +1263,23 @@ dependencies = [
 name = "rs_css_codegen"
 version = "0.1.0"
 dependencies = [
- "cssparser 0.37.0",
+ "cssparser",
  "lightningcss",
  "rs_css_allocator",
  "rs_css_ast",
  "rs_css_parser",
  "serde_json",
+]
+
+[[package]]
+name = "rs_css_minify"
+version = "0.1.0"
+dependencies = [
+ "rs_css_allocator",
+ "rs_css_ast",
+ "rs_css_codegen",
+ "rs_css_parser",
+ "rs_css_visitor",
 ]
 
 [[package]]
@@ -1338,6 +1298,7 @@ dependencies = [
  "rs_css_allocator",
  "rs_css_ast",
  "rs_css_codegen",
+ "rs_css_minify",
  "rs_css_parser",
  "rs_css_visitor",
 ]
@@ -1401,7 +1362,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bad7c25c97cc59c4858df8724a3789caa6ee509b628dfe6df34e8a8084c8a84e"
 dependencies = [
  "bitflags",
- "cssparser 0.37.0",
+ "cssparser",
  "derive_more",
  "log",
  "new_debug_unreachable",
@@ -1583,7 +1544,7 @@ dependencies = [
  "atomic_refcell",
  "bitflags",
  "byteorder",
- "cssparser 0.37.0",
+ "cssparser",
  "derive_more",
  "encoding_rs",
  "euclid",
@@ -1669,7 +1630,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5634944bf69cf6b6900d3f0116c3b2530cf55706b1044ddf5d0da45d5d09a527"
 dependencies = [
  "app_units",
- "cssparser 0.37.0",
+ "cssparser",
  "euclid",
  "selectors",
  "servo_arc",
@@ -1697,7 +1658,7 @@ checksum = "dd00a0e8c8becc53b3a87e31f28836e7467147d6e463a7e69c37fdd97f4e09c0"
 dependencies = [
  "app_units",
  "bitflags",
- "cssparser 0.37.0",
+ "cssparser",
  "euclid",
  "malloc_size_of_derive",
  "selectors",
@@ -1777,7 +1738,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8c81cee0d28327337a94f3f32a1a77c03bbfd926510f3b42956f9d914e7810c"
 dependencies = [
- "cssparser 0.37.0",
+ "cssparser",
  "servo_arc",
  "smallbitvec",
  "smallvec",

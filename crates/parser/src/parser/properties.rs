@@ -75,15 +75,13 @@ pub(super) fn parse_typed_declaration<'i>(
     }
     if name.eq_ignore_ascii_case("visibility") {
         let value = token_ident(value.first()?)?;
-        let visibility = if value.eq_ignore_ascii_case("visible") {
-            Visibility::Visible
-        } else if value.eq_ignore_ascii_case("hidden") {
-            Visibility::Hidden
-        } else if value.eq_ignore_ascii_case("collapse") {
-            Visibility::Collapse
-        } else {
-            return None;
-        };
+        let visibility = match_ignore_ascii_case!(
+            value,
+            "visible" => Visibility::Visible,
+            "hidden" => Visibility::Hidden,
+            "collapse" => Visibility::Collapse,
+            _ => return None,
+        );
         return Some(Declaration::Visibility(visibility));
     }
     if name.eq_ignore_ascii_case("display") {
@@ -93,25 +91,18 @@ pub(super) fn parse_typed_declaration<'i>(
 
     let size = parse_size(value, allocator)?;
     let size = allocator.boxed(size);
-    if name.eq_ignore_ascii_case("width") {
-        Some(Declaration::Width(size))
-    } else if name.eq_ignore_ascii_case("height") {
-        Some(Declaration::Height(size))
-    } else if name.eq_ignore_ascii_case("min-width") {
-        Some(Declaration::MinWidth(size))
-    } else if name.eq_ignore_ascii_case("min-height") {
-        Some(Declaration::MinHeight(size))
-    } else if name.eq_ignore_ascii_case("block-size") {
-        Some(Declaration::BlockSize(size))
-    } else if name.eq_ignore_ascii_case("inline-size") {
-        Some(Declaration::InlineSize(size))
-    } else if name.eq_ignore_ascii_case("min-block-size") {
-        Some(Declaration::MinBlockSize(size))
-    } else if name.eq_ignore_ascii_case("min-inline-size") {
-        Some(Declaration::MinInlineSize(size))
-    } else {
-        None
-    }
+    match_ignore_ascii_case!(
+        name,
+        "width" => Some(Declaration::Width(size)),
+        "height" => Some(Declaration::Height(size)),
+        "min-width" => Some(Declaration::MinWidth(size)),
+        "min-height" => Some(Declaration::MinHeight(size)),
+        "block-size" => Some(Declaration::BlockSize(size)),
+        "inline-size" => Some(Declaration::InlineSize(size)),
+        "min-block-size" => Some(Declaration::MinBlockSize(size)),
+        "min-inline-size" => Some(Declaration::MinInlineSize(size)),
+        _ => None,
+    )
 }
 
 pub(super) fn parse_display<'i>(
@@ -122,44 +113,32 @@ pub(super) fn parse_display<'i>(
     if value.len() != 1 {
         return None;
     }
-    if ident.eq_ignore_ascii_case("none") {
-        return Some(Display::Keyword(DisplayKeyword::None));
-    }
-    if ident.eq_ignore_ascii_case("contents") {
-        return Some(Display::Keyword(DisplayKeyword::Contents));
-    }
-
-    let (outside, inside, is_list_item) = if ident.eq_ignore_ascii_case("block") {
-        (DisplayOutside::Block, DisplayInside::Flow, false)
-    } else if ident.eq_ignore_ascii_case("inline") {
-        (DisplayOutside::Inline, DisplayInside::Flow, false)
-    } else if ident.eq_ignore_ascii_case("flow-root") {
-        (DisplayOutside::Block, DisplayInside::FlowRoot, false)
-    } else if ident.eq_ignore_ascii_case("flex") {
-        (
+    let (outside, inside, is_list_item) = match_ignore_ascii_case!(
+        ident,
+        "none" => return Some(Display::Keyword(DisplayKeyword::None)),
+        "contents" => return Some(Display::Keyword(DisplayKeyword::Contents)),
+        "block" => (DisplayOutside::Block, DisplayInside::Flow, false),
+        "inline" => (DisplayOutside::Inline, DisplayInside::Flow, false),
+        "flow-root" => (DisplayOutside::Block, DisplayInside::FlowRoot, false),
+        "flex" => (
             DisplayOutside::Block,
             DisplayInside::Flex {
                 vendor_prefix: VendorPrefix::NONE,
             },
             false,
-        )
-    } else if ident.eq_ignore_ascii_case("inline-flex") {
-        (
+        ),
+        "inline-flex" => (
             DisplayOutside::Inline,
             DisplayInside::Flex {
                 vendor_prefix: VendorPrefix::NONE,
             },
             false,
-        )
-    } else if ident.eq_ignore_ascii_case("grid") {
-        (DisplayOutside::Block, DisplayInside::Grid, false)
-    } else if ident.eq_ignore_ascii_case("inline-grid") {
-        (DisplayOutside::Inline, DisplayInside::Grid, false)
-    } else if ident.eq_ignore_ascii_case("list-item") {
-        (DisplayOutside::Block, DisplayInside::Flow, true)
-    } else {
-        return None;
-    };
+        ),
+        "grid" => (DisplayOutside::Block, DisplayInside::Grid, false),
+        "inline-grid" => (DisplayOutside::Inline, DisplayInside::Grid, false),
+        "list-item" => (DisplayOutside::Block, DisplayInside::Flow, true),
+        _ => return None,
+    );
     Some(Display::Pair {
         inside: allocator.boxed(inside),
         is_list_item,

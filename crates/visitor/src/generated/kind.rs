@@ -203,6 +203,7 @@ pub enum AstType {
     ViewTransitionPartName,
     Span,
     TokenOrValue,
+    Unit,
     Token,
     Specifier,
     AnimationName,

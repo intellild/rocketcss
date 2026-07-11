@@ -848,6 +848,10 @@ pub trait Visit<'a> {
         token::walk_token_or_value(self, node);
     }
     #[inline]
+    fn visit_unit(&mut self, node: &Unit) {
+        token::walk_unit(self, node);
+    }
+    #[inline]
     fn visit_token(&mut self, node: &Token<'a>) {
         token::walk_token(self, node);
     }
@@ -3508,6 +3512,15 @@ where
     #[inline]
     fn visit_node(&self, visitor: &mut VisitorT) {
         visitor.visit_token_or_value(self);
+    }
+}
+impl<'a, VisitorT> VisitNode<'a, VisitorT> for Unit
+where
+    VisitorT: ?Sized + Visit<'a>,
+{
+    #[inline]
+    fn visit_node(&self, visitor: &mut VisitorT) {
+        visitor.visit_unit(self);
     }
 }
 impl<'a, VisitorT> VisitNode<'a, VisitorT> for Token<'a>

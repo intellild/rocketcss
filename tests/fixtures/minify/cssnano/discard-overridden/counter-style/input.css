@@ -1,0 +1,1 @@
+@counter-style alpha{system:fixed;symbols:A B}@supports(display:grid){@counter-style alpha{system:cyclic;symbols:C}}@counter-style alpha{system:fixed;symbols:X Y}

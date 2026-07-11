@@ -846,7 +846,7 @@ impl ToCss for TrackBreadth<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Length(value) => value.to_css(dest),
-            Self::Flex(value) => serialize_dimension(*value, "fr", dest),
+            Self::Flex(value) => serialize_dimension(*value, &Unit::Flex, dest),
             Self::MinContent => dest.write_str("min-content"),
             Self::MaxContent => dest.write_str("max-content"),
             Self::Auto => dest.write_str("auto"),

@@ -28,13 +28,14 @@ syn          = { version = "2.0.118", default-features = false }
 rs_css_allocator = { version = "0.1.0", path = "crates/allocator" }
 rs_css_ast       = { version = "0.1.0", path = "crates/ast" }
 rs_css_codegen   = { version = "0.1.0", path = "crates/codegen" }
+rs_css_minify    = { version = "0.1.0", path = "crates/minify" }
 rs_css_parser    = { version = "0.1.0", path = "crates/parser" }
 rs_css_visitor   = { version = "0.1.0", path = "crates/visitor" }
 
 # Dev
 css-module-lexer = "0.1.0"
 divan            = { package = "codspeed-divan-compat", version = "5.0.1" }
-lightningcss     = { version = "=1.0.0-alpha.71", default-features = false }
+lightningcss     = { git = "https://github.com/parcel-bundler/lightningcss.git", rev = "171fa5d4e804e7d25b583ee79c268f2c80723f73", default-features = false }
 mimalloc         = "0.1.52"
 serde_json       = "1.0"
 stylo            = { version = "0.19.0", default-features = false, features = ["servo"] }

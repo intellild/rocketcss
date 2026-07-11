@@ -19,48 +19,32 @@ pub(super) fn parse_color<'i>(
 }
 
 pub(super) fn named_color(name: &str) -> Option<RGBA> {
-    Some(if name.eq_ignore_ascii_case("transparent") {
-        RGBA {
+    match_ignore_ascii_case!(
+        name,
+        "transparent" => Some(RGBA {
             red: 0,
             green: 0,
             blue: 0,
             alpha: 0,
-        }
-    } else if name.eq_ignore_ascii_case("black") {
-        rgba(0, 0, 0)
-    } else if name.eq_ignore_ascii_case("silver") {
-        rgba(192, 192, 192)
-    } else if name.eq_ignore_ascii_case("gray") {
-        rgba(128, 128, 128)
-    } else if name.eq_ignore_ascii_case("white") {
-        rgba(255, 255, 255)
-    } else if name.eq_ignore_ascii_case("maroon") {
-        rgba(128, 0, 0)
-    } else if name.eq_ignore_ascii_case("red") {
-        rgba(255, 0, 0)
-    } else if name.eq_ignore_ascii_case("purple") {
-        rgba(128, 0, 128)
-    } else if name.eq_ignore_ascii_case("fuchsia") {
-        rgba(255, 0, 255)
-    } else if name.eq_ignore_ascii_case("green") {
-        rgba(0, 128, 0)
-    } else if name.eq_ignore_ascii_case("lime") {
-        rgba(0, 255, 0)
-    } else if name.eq_ignore_ascii_case("olive") {
-        rgba(128, 128, 0)
-    } else if name.eq_ignore_ascii_case("yellow") {
-        rgba(255, 255, 0)
-    } else if name.eq_ignore_ascii_case("navy") {
-        rgba(0, 0, 128)
-    } else if name.eq_ignore_ascii_case("blue") {
-        rgba(0, 0, 255)
-    } else if name.eq_ignore_ascii_case("teal") {
-        rgba(0, 128, 128)
-    } else if name.eq_ignore_ascii_case("aqua") {
-        rgba(0, 255, 255)
-    } else {
-        return None;
-    })
+        }),
+        "black" => Some(rgba(0, 0, 0)),
+        "silver" => Some(rgba(192, 192, 192)),
+        "gray" => Some(rgba(128, 128, 128)),
+        "white" => Some(rgba(255, 255, 255)),
+        "maroon" => Some(rgba(128, 0, 0)),
+        "red" => Some(rgba(255, 0, 0)),
+        "purple" => Some(rgba(128, 0, 128)),
+        "fuchsia" => Some(rgba(255, 0, 255)),
+        "green" => Some(rgba(0, 128, 0)),
+        "lime" => Some(rgba(0, 255, 0)),
+        "olive" => Some(rgba(128, 128, 0)),
+        "yellow" => Some(rgba(255, 255, 0)),
+        "navy" => Some(rgba(0, 0, 128)),
+        "blue" => Some(rgba(0, 0, 255)),
+        "teal" => Some(rgba(0, 128, 128)),
+        "aqua" => Some(rgba(0, 255, 255)),
+        _ => None,
+    )
 }
 
 const fn rgba(red: u8, green: u8, blue: u8) -> RGBA {

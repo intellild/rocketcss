@@ -5,6 +5,7 @@ use std::{
 };
 
 mod codegen;
+mod minify;
 mod parser;
 mod visitor;
 

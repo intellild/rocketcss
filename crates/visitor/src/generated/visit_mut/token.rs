@@ -55,6 +55,31 @@ where
     }
     visitor.leave_node(AstType::TokenOrValue);
 }
+pub fn walk_unit<'a, VisitorT>(visitor: &mut VisitorT, node: &mut Unit)
+where
+    VisitorT: ?Sized + VisitMut<'a>,
+{
+    visitor.enter_node(AstType::Unit);
+    match node {
+        Unit::Length(field_0) => {
+            visitor.visit_length_unit(field_0);
+        }
+        Unit::Deg => {}
+        Unit::Rad => {}
+        Unit::Grad => {}
+        Unit::Turn => {}
+        Unit::Seconds => {}
+        Unit::Milliseconds => {}
+        Unit::Hertz => {}
+        Unit::Kilohertz => {}
+        Unit::Dpi => {}
+        Unit::Dpcm => {}
+        Unit::Dppx => {}
+        Unit::ResolutionX => {}
+        Unit::Flex => {}
+    }
+    visitor.leave_node(AstType::Unit);
+}
 pub fn walk_token<'a, VisitorT>(visitor: &mut VisitorT, node: &mut Token<'a>)
 where
     VisitorT: ?Sized + VisitMut<'a>,
@@ -85,6 +110,9 @@ where
         Token::Number(field_0) => {}
         Token::Percentage(field_0) => {}
         Token::Dimension { unit, value } => {
+            visitor.visit_unit(unit);
+        }
+        Token::UnknownDimension { unit, value } => {
             visitor.visit_str(unit);
         }
         Token::WhiteSpace(field_0) => {

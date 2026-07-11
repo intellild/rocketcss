@@ -1,0 +1,13 @@
+[package]
+edition = "2024"
+name    = "rs_css_minify"
+version = "0.1.0"
+
+[dependencies]
+rs_css_allocator = { workspace = true }
+rs_css_ast       = { workspace = true }
+rs_css_visitor   = { workspace = true }
+
+[dev-dependencies]
+rs_css_codegen = { workspace = true }
+rs_css_parser  = { workspace = true }

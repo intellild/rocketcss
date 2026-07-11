@@ -19,6 +19,37 @@ pub enum TokenOrValue<'a> {
     AnimationName(Box<'a, AnimationName<'a>>),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unit {
+    Length(LengthUnit),
+    Deg,
+    Rad,
+    Grad,
+    Turn,
+    Seconds,
+    Milliseconds,
+    Hertz,
+    Kilohertz,
+    Dpi,
+    Dpcm,
+    Dppx,
+    ResolutionX,
+    Flex,
+}
+
+impl Unit {
+    pub const fn length(self) -> Option<LengthUnit> {
+        match self {
+            Self::Length(unit) => Some(unit),
+            _ => None,
+        }
+    }
+
+    pub const fn is_length(self) -> bool {
+        matches!(self, Self::Length(_))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token<'a> {
     Ident(&'a str),
@@ -30,7 +61,8 @@ pub enum Token<'a> {
     Delim(&'a str),
     Number(f32),
     Percentage(f32),
-    Dimension { unit: &'a str, value: f32 },
+    Dimension { unit: Unit, value: f32 },
+    UnknownDimension { unit: &'a str, value: f32 },
     WhiteSpace(&'a str),
     Comment(&'a str),
     Colon,

@@ -373,13 +373,13 @@ pub(crate) fn serialize_number<PrinterT: PrinterTrait>(
     }
 }
 
-pub(crate) fn serialize_dimension<PrinterT: PrinterTrait>(
+pub(crate) fn serialize_dimension<UnitT: ToCss, PrinterT: PrinterTrait>(
     value: f32,
-    unit: &str,
+    unit: &UnitT,
     dest: &mut PrinterT,
 ) -> fmt::Result {
     serialize_number(value, dest)?;
-    dest.write_str(unit)
+    unit.to_css(dest)
 }
 
 pub(crate) fn serialize_debug_keyword<T: fmt::Debug, PrinterT: PrinterTrait>(
