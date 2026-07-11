@@ -1,57 +1,60 @@
 use rs_css_allocator::vec::Vec;
 use rs_css_ast::{Token, TokenOrValue};
 
-use crate::{MinifyContext, context::PropertyContext, length};
+use crate::{Minify, MinifyContext, context::PropertyContext, length};
 
-/// Normalizes one token node in place. The surrounding `TokenOrValue` variant
-/// and its arena allocation are preserved.
-pub(crate) fn minify_token_or_value(value: &mut TokenOrValue<'_>, context: &mut MinifyContext) {
-    if context.value_context.skip_value_transforms {
-        return;
-    }
+impl Minify for TokenOrValue<'_> {
+    /// Normalizes one token node in place. The surrounding `TokenOrValue`
+    /// variant and its arena allocation are preserved.
+    fn minify(&mut self, context: &mut MinifyContext) {
+        if !context.options().normalize_values || context.value_context.skip_value_transforms {
+            return;
+        }
 
-    let TokenOrValue::Token(token) = value else {
-        return;
-    };
-    match &mut **token {
-        Token::Dimension { unit, value } => {
-            if *value == 0.0 && context.value_context.allow_unitless_zero && unit.is_length() {
+        let TokenOrValue::Token(token) = self else {
+            return;
+        };
+        match &mut **token {
+            Token::Dimension { unit, value } => {
+                if *value == 0.0 && context.value_context.allow_unitless_zero && unit.is_length() {
+                    **token = Token::Number(0.0);
+                    context.record_value_normalized();
+                } else if let Some((number, normalized_unit)) =
+                    length::minify_dimension(*value, *unit, context)
+                    && (number != *value || normalized_unit != *unit)
+                {
+                    *value = number;
+                    *unit = normalized_unit;
+                }
+            }
+            Token::Percentage(value)
+                if *value == 0.0 && context.value_context.allow_unitless_zero =>
+            {
                 **token = Token::Number(0.0);
                 context.record_value_normalized();
-            } else if let Some((number, normalized_unit)) = length::minify_dimension(*value, *unit)
-                && (number != *value || normalized_unit != *unit)
-            {
-                *value = number;
-                *unit = normalized_unit;
-                context.record_value_normalized();
             }
+            _ => {}
         }
-        Token::Percentage(value) if *value == 0.0 && context.value_context.allow_unitless_zero => {
-            **token = Token::Number(0.0);
-            context.record_value_normalized();
-        }
-        _ => {}
     }
 }
 
-/// Removes comments and redundant whitespace by compacting the existing arena
-/// vector. Separator tokens are reused rather than allocated again.
-pub(crate) fn minify_token_list<'a>(
-    values: &mut Vec<'a, TokenOrValue<'a>>,
-    context: &mut MinifyContext,
-) {
-    if context.options().normalize_tokens {
-        normalize_separators(values, context);
-    }
-    if !context.options().normalize_values || context.value_context.skip_value_transforms {
-        return;
-    }
+impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
+    /// Removes comments and redundant whitespace by compacting the existing
+    /// arena vector. Separator tokens are reused rather than allocated again.
+    fn minify(&mut self, context: &mut MinifyContext) {
+        if context.options().normalize_tokens {
+            normalize_separators(self, context);
+        }
+        if !context.options().normalize_values || context.value_context.skip_value_transforms {
+            return;
+        }
 
-    match context.value_context.property {
-        PropertyContext::Box => minify_box_sides(values, context),
-        PropertyContext::FontWeight => minify_font_weight(values, context),
-        PropertyContext::Repeat => minify_repeat_style(values, context),
-        PropertyContext::Generic => {}
+        match context.value_context.property {
+            PropertyContext::Box => minify_box_sides(self, context),
+            PropertyContext::FontWeight => minify_font_weight(self, context),
+            PropertyContext::Repeat => minify_repeat_style(self, context),
+            PropertyContext::Generic => {}
+        }
     }
 }
 

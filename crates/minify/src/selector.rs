@@ -1,44 +1,46 @@
 use rs_css_ast::{NthType, SelectorComponent, SelectorList};
 
-use crate::MinifyContext;
+use crate::{Minify, MinifyContext};
 
-pub(crate) fn minify_selector_list<'a>(
-    selectors: &mut SelectorList<'a>,
-    context: &mut MinifyContext,
-) {
-    if context.options().normalize_values {
-        for selector in selectors.iter_mut() {
-            remove_qualified_universal(selector);
-            for component in selector.iter_mut() {
-                if let SelectorComponent::Nth(data) = component
-                    && data.a == 0
-                    && data.b == 1
-                    && matches!(
-                        data.kind,
-                        NthType::Child | NthType::LastChild | NthType::OfType | NthType::LastOfType
-                    )
-                {
-                    data.is_function = false;
+impl Minify for SelectorList<'_> {
+    fn minify(&mut self, context: &mut MinifyContext) {
+        if context.options().normalize_values {
+            for selector in self.iter_mut() {
+                remove_qualified_universal(selector);
+                for component in selector.iter_mut() {
+                    if let SelectorComponent::Nth(data) = component
+                        && data.a == 0
+                        && data.b == 1
+                        && matches!(
+                            data.kind,
+                            NthType::Child
+                                | NthType::LastChild
+                                | NthType::OfType
+                                | NthType::LastOfType
+                        )
+                    {
+                        data.is_function = false;
+                    }
                 }
             }
         }
-    }
 
-    if context.options().deduplicate_lists {
-        let before = selectors.len();
-        let mut index = 0;
-        while index < selectors.len() {
-            if selectors[..index]
-                .iter()
-                .any(|selector| selector == &selectors[index])
-            {
-                selectors.remove(index);
-            } else {
-                index += 1;
+        if context.options().deduplicate_lists {
+            let before = self.len();
+            let mut index = 0;
+            while index < self.len() {
+                if self[..index]
+                    .iter()
+                    .any(|selector| selector == &self[index])
+                {
+                    self.remove(index);
+                } else {
+                    index += 1;
+                }
             }
-        }
-        if before != selectors.len() {
-            context.record_value_normalized();
+            if before != self.len() {
+                context.record_value_normalized();
+            }
         }
     }
 }

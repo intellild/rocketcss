@@ -1,113 +1,135 @@
 use rs_css_ast::{Angle, LengthUnit, LengthValue, Resolution, Time, Unit};
 
-pub(crate) fn minify_length(value: &mut LengthValue) -> bool {
-    if value.value == 0.0 {
-        return false;
-    }
-    let original_value = value.value;
-    let Some(px) = to_px(value.value, value.unit) else {
-        return false;
-    };
-    let original_unit = value.unit;
+use crate::{Minify, MinifyContext};
 
-    let candidates = [
-        (px, LengthUnit::Px),
-        (px / 96.0, LengthUnit::In),
-        (px * 2.54 / 96.0, LengthUnit::Cm),
-        (px * 25.4 / 96.0, LengthUnit::Mm),
-        (px * 101.6 / 96.0, LengthUnit::Q),
-        (px * 72.0 / 96.0, LengthUnit::Pt),
-        (px / 16.0, LengthUnit::Pc),
-    ];
-    let original_len = dimension_len(value.value, Unit::Length(value.unit));
-    let Some((candidate_value, candidate_unit)) = candidates
-        .into_iter()
-        .filter(|(number, _)| number.is_finite())
-        .min_by_key(|(number, unit)| dimension_len(*number, Unit::Length(*unit)))
-    else {
-        return false;
-    };
+impl Minify for LengthValue {
+    fn minify(&mut self, context: &mut MinifyContext) {
+        if !context.options().normalize_values || self.value == 0.0 {
+            return;
+        }
+        let original_value = self.value;
+        let Some(px) = to_px(self.value, self.unit) else {
+            return;
+        };
+        let original_unit = self.unit;
 
-    if dimension_len(candidate_value, Unit::Length(candidate_unit)) < original_len {
-        value.value = clean_float(candidate_value);
-        value.unit = candidate_unit;
-    }
-    value.value != original_value || value.unit != original_unit
-}
+        let candidates = [
+            (px, LengthUnit::Px),
+            (px / 96.0, LengthUnit::In),
+            (px * 2.54 / 96.0, LengthUnit::Cm),
+            (px * 25.4 / 96.0, LengthUnit::Mm),
+            (px * 101.6 / 96.0, LengthUnit::Q),
+            (px * 72.0 / 96.0, LengthUnit::Pt),
+            (px / 16.0, LengthUnit::Pc),
+        ];
+        let original_len = dimension_len(self.value, Unit::Length(self.unit));
+        let Some((candidate_value, candidate_unit)) = candidates
+            .into_iter()
+            .filter(|(number, _)| number.is_finite())
+            .min_by_key(|(number, unit)| dimension_len(*number, Unit::Length(*unit)))
+        else {
+            return;
+        };
 
-pub(crate) fn minify_angle(value: &mut Angle) -> bool {
-    let degrees = match *value {
-        Angle::Deg(number) => number,
-        Angle::Rad(number) => number.to_degrees(),
-        Angle::Grad(number) => number * 0.9,
-        Angle::Turn(number) => number * 360.0,
-    };
-    let candidates = [
-        Angle::Deg(clean_float(degrees)),
-        Angle::Turn(clean_float(degrees / 360.0)),
-        Angle::Grad(clean_float(degrees / 0.9)),
-        Angle::Rad(clean_float(degrees.to_radians())),
-    ];
-    let original_len = dimension_len(angle_number(value), angle_unit(value));
-    let candidate = candidates
-        .into_iter()
-        .min_by_key(|candidate| dimension_len(angle_number(candidate), angle_unit(candidate)))
-        .expect("angle candidates are non-empty");
-    let candidate_len = dimension_len(angle_number(&candidate), angle_unit(&candidate));
-    if candidate_len < original_len {
-        *value = candidate;
-        true
-    } else {
-        false
+        if dimension_len(candidate_value, Unit::Length(candidate_unit)) < original_len {
+            self.value = clean_float(candidate_value);
+            self.unit = candidate_unit;
+        }
+        if self.value != original_value || self.unit != original_unit {
+            context.record_value_normalized();
+        }
     }
 }
 
-pub(crate) fn minify_time(value: &mut Time) -> bool {
-    let milliseconds = match *value {
-        Time::Seconds(number) => number * 1000.0,
-        Time::Milliseconds(number) => number,
-    };
-    let seconds = clean_float(milliseconds / 1000.0);
-    let milliseconds = clean_float(milliseconds);
-    let seconds_len = dimension_len(seconds, Unit::Seconds);
-    let milliseconds_len = dimension_len(milliseconds, Unit::Milliseconds);
-    let candidate = if seconds_len < milliseconds_len {
-        Time::Seconds(seconds)
-    } else {
-        Time::Milliseconds(milliseconds)
-    };
-    if &candidate != value {
-        *value = candidate;
-        true
-    } else {
-        false
+impl Minify for Angle {
+    fn minify(&mut self, context: &mut MinifyContext) {
+        if !context.options().normalize_values {
+            return;
+        }
+
+        let degrees = match *self {
+            Angle::Deg(number) => number,
+            Angle::Rad(number) => number.to_degrees(),
+            Angle::Grad(number) => number * 0.9,
+            Angle::Turn(number) => number * 360.0,
+        };
+        let candidates = [
+            Angle::Deg(clean_float(degrees)),
+            Angle::Turn(clean_float(degrees / 360.0)),
+            Angle::Grad(clean_float(degrees / 0.9)),
+            Angle::Rad(clean_float(degrees.to_radians())),
+        ];
+        let original_len = dimension_len(angle_number(self), angle_unit(self));
+        let candidate = candidates
+            .into_iter()
+            .min_by_key(|candidate| dimension_len(angle_number(candidate), angle_unit(candidate)))
+            .expect("angle candidates are non-empty");
+        let candidate_len = dimension_len(angle_number(&candidate), angle_unit(&candidate));
+        if candidate_len < original_len {
+            *self = candidate;
+            context.record_value_normalized();
+        }
     }
 }
 
-pub(crate) fn minify_resolution(value: &mut Resolution) -> bool {
-    let dpi = match *value {
-        Resolution::Dpi(number) => number,
-        Resolution::Dpcm(number) => number * 2.54,
-        Resolution::Dppx(number) => number * 96.0,
-    };
-    let candidates = [
-        Resolution::Dpi(clean_float(dpi)),
-        Resolution::Dpcm(clean_float(dpi / 2.54)),
-        Resolution::Dppx(clean_float(dpi / 96.0)),
-    ];
-    let candidate = candidates
-        .into_iter()
-        .min_by_key(resolution_len)
-        .expect("resolution candidates are non-empty");
-    if &candidate != value {
-        *value = candidate;
-        true
-    } else {
-        false
+impl Minify for Time {
+    fn minify(&mut self, context: &mut MinifyContext) {
+        if !context.options().normalize_values {
+            return;
+        }
+
+        let milliseconds = match *self {
+            Time::Seconds(number) => number * 1000.0,
+            Time::Milliseconds(number) => number,
+        };
+        let seconds = clean_float(milliseconds / 1000.0);
+        let milliseconds = clean_float(milliseconds);
+        let seconds_len = dimension_len(seconds, Unit::Seconds);
+        let milliseconds_len = dimension_len(milliseconds, Unit::Milliseconds);
+        let candidate = if seconds_len < milliseconds_len {
+            Time::Seconds(seconds)
+        } else {
+            Time::Milliseconds(milliseconds)
+        };
+        if *self != candidate {
+            *self = candidate;
+            context.record_value_normalized();
+        }
     }
 }
 
-pub(crate) fn minify_dimension(value: f32, unit: Unit) -> Option<(f32, Unit)> {
+impl Minify for Resolution {
+    fn minify(&mut self, context: &mut MinifyContext) {
+        if !context.options().normalize_values {
+            return;
+        }
+
+        let dpi = match *self {
+            Resolution::Dpi(number) => number,
+            Resolution::Dpcm(number) => number * 2.54,
+            Resolution::Dppx(number) => number * 96.0,
+        };
+        let candidates = [
+            Resolution::Dpi(clean_float(dpi)),
+            Resolution::Dpcm(clean_float(dpi / 2.54)),
+            Resolution::Dppx(clean_float(dpi / 96.0)),
+        ];
+        let candidate = candidates
+            .into_iter()
+            .min_by_key(resolution_len)
+            .expect("resolution candidates are non-empty");
+        if *self != candidate {
+            *self = candidate;
+            context.record_value_normalized();
+        }
+    }
+}
+
+pub(crate) fn minify_dimension(
+    value: f32,
+    unit: Unit,
+    context: &mut MinifyContext,
+) -> Option<(f32, Unit)> {
     if let Unit::Length(length_unit) = unit
         && to_px(value, length_unit).is_some()
     {
@@ -115,7 +137,7 @@ pub(crate) fn minify_dimension(value: f32, unit: Unit) -> Option<(f32, Unit)> {
             value,
             unit: length_unit,
         };
-        minify_length(&mut length);
+        length.minify(context);
         return Some((length.value, Unit::Length(length.unit)));
     }
     if matches!(unit, Unit::Milliseconds | Unit::Seconds) {
@@ -124,7 +146,7 @@ pub(crate) fn minify_dimension(value: f32, unit: Unit) -> Option<(f32, Unit)> {
             Unit::Seconds => Time::Seconds(value),
             _ => unreachable!("time units were checked above"),
         };
-        minify_time(&mut time);
+        time.minify(context);
         return Some(match time {
             Time::Seconds(number) => (number, Unit::Seconds),
             Time::Milliseconds(number) => (number, Unit::Milliseconds),
@@ -138,7 +160,7 @@ pub(crate) fn minify_dimension(value: f32, unit: Unit) -> Option<(f32, Unit)> {
             Unit::Turn => Angle::Turn(value),
             _ => unreachable!("angle units were checked above"),
         };
-        minify_angle(&mut angle);
+        angle.minify(context);
         return Some(match angle {
             Angle::Deg(number) => (number, Unit::Deg),
             Angle::Rad(number) => (number, Unit::Rad),
