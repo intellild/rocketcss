@@ -89,6 +89,7 @@ dependencies = [
  "mimalloc",
  "rs_css_allocator",
  "rs_css_codegen",
+ "rs_css_minify",
  "rs_css_parser",
  "stylo",
  "url",
