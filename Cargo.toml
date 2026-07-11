@@ -35,7 +35,7 @@ rs_css_visitor   = { version = "0.1.0", path = "crates/visitor" }
 # Dev
 css-module-lexer = "0.1.0"
 divan            = { package = "codspeed-divan-compat", version = "5.0.1" }
-lightningcss     = { version = "=1.0.0-alpha.71", default-features = false }
+lightningcss     = { git = "https://github.com/parcel-bundler/lightningcss.git", rev = "171fa5d4e804e7d25b583ee79c268f2c80723f73", default-features = false }
 mimalloc         = "0.1.52"
 serde_json       = "1.0"
 stylo            = { version = "0.19.0", default-features = false, features = ["servo"] }

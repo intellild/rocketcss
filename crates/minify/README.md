@@ -1,8 +1,10 @@
 # rs_css_minify
 
-`rs_css_minify` mutates an arena-backed `rs_css_ast::StyleSheet` in place. It
-performs semantic minification passes; compact whitespace output is selected
-separately with `rs_css_codegen::PrinterOptions { minify: true }`.
+`rs_css_minify` walks an arena-backed `rs_css_ast::StyleSheet` and applies only
+simple, node-local normalization in place. It does not merge or remove rules,
+deduplicate declarations, combine longhands, or allocate replacement AST
+nodes. Compact output formatting is selected separately with
+`rs_css_codegen::PrinterOptions { minify: true }`.
 
 ```rust
 use rs_css_allocator::Allocator;
@@ -12,14 +14,14 @@ use rs_css_parser::{ParserOptions, parse};
 
 let allocator = Allocator::new();
 let mut stylesheet = parse(
-    "a { color: yellow; width: 16px }",
+    "a { width: 16px; margin: 1px 1px }",
     &allocator,
     ParserOptions::default(),
 )?;
 
-let stats = minify(&mut stylesheet, &allocator, MinifyOptions::default());
+let stats = minify(&mut stylesheet, MinifyOptions::default());
 let css = stylesheet.to_css_string(PrinterOptions { minify: true })?;
-assert_eq!(css, "a{color:#ff0;width:1pc}");
+assert_eq!(css, "a{width:1pc;margin:1px}");
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 

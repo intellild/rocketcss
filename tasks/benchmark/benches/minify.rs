@@ -25,11 +25,7 @@ fn bench_rs_css(b: &mut Bencher<'_>) {
             },
         )
         .unwrap();
-        rs_css_minify::minify(
-            &mut stylesheet,
-            &allocator,
-            rs_css_minify::MinifyOptions::default(),
-        );
+        rs_css_minify::minify(&mut stylesheet, rs_css_minify::MinifyOptions::default());
         let output = stylesheet
             .to_css_string(PrinterOptions { minify: true })
             .unwrap();

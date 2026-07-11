@@ -34,6 +34,10 @@ minification, and serialization. cssnano runs in a persistent Node.js process;
 its processor is initialized once, and timing is measured inside that process so
 Node startup and Rust/Node IPC are excluded.
 
+`rs-css` currently runs only node-local, in-place normalization, while the other
+tools include broader cross-rule passes. Treat this as an implementation-cost
+comparison rather than feature-equivalent minifier throughput.
+
 By default, the benchmark loads cssnano from a sibling `cssnano` checkout. Set
 `CSSNANO_DIR` when it lives elsewhere, and set `NODE` to override the Node.js
 executable:

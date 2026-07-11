@@ -4,7 +4,7 @@ use crate::MinifyContext;
 
 pub(crate) fn minify_selector_list<'a>(
     selectors: &mut SelectorList<'a>,
-    context: &mut MinifyContext<'a>,
+    context: &mut MinifyContext,
 ) {
     if context.options().normalize_values {
         for selector in selectors.iter_mut() {
@@ -24,7 +24,7 @@ pub(crate) fn minify_selector_list<'a>(
         }
     }
 
-    if context.options().discard_duplicates {
+    if context.options().deduplicate_lists {
         let before = selectors.len();
         let mut index = 0;
         while index < selectors.len() {

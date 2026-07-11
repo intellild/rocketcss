@@ -118,8 +118,7 @@ pub(crate) fn minify_resolution(value: &mut Resolution) -> bool {
 }
 
 pub(crate) fn minify_dimension(value: f32, unit: &str) -> Option<(f32, &'static str)> {
-    let lower = unit.to_ascii_lowercase();
-    if let Some(length_unit) = parse_absolute_length_unit(&lower) {
+    if let Some(length_unit) = parse_absolute_length_unit(unit) {
         let mut length = LengthValue {
             value,
             unit: length_unit,
@@ -127,8 +126,8 @@ pub(crate) fn minify_dimension(value: f32, unit: &str) -> Option<(f32, &'static 
         minify_length(&mut length);
         return Some((length.value, length_unit_name(&length.unit)));
     }
-    if lower == "ms" || lower == "s" {
-        let mut time = if lower == "ms" {
+    if unit.eq_ignore_ascii_case("ms") || unit.eq_ignore_ascii_case("s") {
+        let mut time = if unit.eq_ignore_ascii_case("ms") {
             Time::Milliseconds(value)
         } else {
             Time::Seconds(value)
@@ -139,13 +138,7 @@ pub(crate) fn minify_dimension(value: f32, unit: &str) -> Option<(f32, &'static 
             Time::Milliseconds(number) => (number, "ms"),
         });
     }
-    if matches!(lower.as_str(), "deg" | "rad" | "grad" | "turn") {
-        let mut angle = match lower.as_str() {
-            "deg" => Angle::Deg(value),
-            "rad" => Angle::Rad(value),
-            "grad" => Angle::Grad(value),
-            _ => Angle::Turn(value),
-        };
+    if let Some(mut angle) = parse_angle(value, unit) {
         minify_angle(&mut angle);
         return Some(match angle {
             Angle::Deg(number) => (number, "deg"),
@@ -158,58 +151,47 @@ pub(crate) fn minify_dimension(value: f32, unit: &str) -> Option<(f32, &'static 
 }
 
 pub(crate) fn is_length_unit(unit: &str) -> bool {
-    matches!(
-        unit.to_ascii_lowercase().as_str(),
-        "px" | "in"
-            | "cm"
-            | "mm"
-            | "q"
-            | "pt"
-            | "pc"
-            | "em"
-            | "rem"
-            | "ex"
-            | "rex"
-            | "ch"
-            | "rch"
-            | "cap"
-            | "rcap"
-            | "ic"
-            | "ric"
-            | "lh"
-            | "rlh"
-            | "vw"
-            | "vh"
-            | "vi"
-            | "vb"
-            | "vmin"
-            | "vmax"
-            | "svw"
-            | "svh"
-            | "lvw"
-            | "lvh"
-            | "dvw"
-            | "dvh"
-            | "cqw"
-            | "cqh"
-            | "cqi"
-            | "cqb"
-            | "cqmin"
-            | "cqmax"
-    )
+    [
+        "px", "in", "cm", "mm", "q", "pt", "pc", "em", "rem", "ex", "rex", "ch", "rch", "cap",
+        "rcap", "ic", "ric", "lh", "rlh", "vw", "vh", "vi", "vb", "vmin", "vmax", "svw", "svh",
+        "lvw", "lvh", "dvw", "dvh", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax",
+    ]
+    .into_iter()
+    .any(|candidate| unit.eq_ignore_ascii_case(candidate))
 }
 
 fn parse_absolute_length_unit(unit: &str) -> Option<LengthUnit> {
-    Some(match unit {
-        "px" => LengthUnit::Px,
-        "in" => LengthUnit::In,
-        "cm" => LengthUnit::Cm,
-        "mm" => LengthUnit::Mm,
-        "q" => LengthUnit::Q,
-        "pt" => LengthUnit::Pt,
-        "pc" => LengthUnit::Pc,
-        _ => return None,
-    })
+    if unit.eq_ignore_ascii_case("px") {
+        Some(LengthUnit::Px)
+    } else if unit.eq_ignore_ascii_case("in") {
+        Some(LengthUnit::In)
+    } else if unit.eq_ignore_ascii_case("cm") {
+        Some(LengthUnit::Cm)
+    } else if unit.eq_ignore_ascii_case("mm") {
+        Some(LengthUnit::Mm)
+    } else if unit.eq_ignore_ascii_case("q") {
+        Some(LengthUnit::Q)
+    } else if unit.eq_ignore_ascii_case("pt") {
+        Some(LengthUnit::Pt)
+    } else if unit.eq_ignore_ascii_case("pc") {
+        Some(LengthUnit::Pc)
+    } else {
+        None
+    }
+}
+
+fn parse_angle(value: f32, unit: &str) -> Option<Angle> {
+    if unit.eq_ignore_ascii_case("deg") {
+        Some(Angle::Deg(value))
+    } else if unit.eq_ignore_ascii_case("rad") {
+        Some(Angle::Rad(value))
+    } else if unit.eq_ignore_ascii_case("grad") {
+        Some(Angle::Grad(value))
+    } else if unit.eq_ignore_ascii_case("turn") {
+        Some(Angle::Turn(value))
+    } else {
+        None
+    }
 }
 
 fn to_px(value: f32, unit: &LengthUnit) -> Option<f32> {
