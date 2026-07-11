@@ -1,0 +1,5 @@
+# Parser fixtures intentionally include invalid and minified CSS.
+tests/fixtures/
+
+# Benchmark inputs preserve their upstream formatting.
+tasks/benchmark/files/

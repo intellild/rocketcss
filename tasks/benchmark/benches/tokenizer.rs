@@ -1,14 +1,14 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
+use benchmark::{BENCH_CASES, BenchCase};
 use css_module_lexer::{Mode, collect_dependencies};
+use divan::{Bencher, black_box, counter::BytesCount};
 use rs_css_parser::Tokenizer;
 
-const BENCH_CASES: &[(&str, &str)] = &[
-    ("bootstrap", include_str!("../files/bootstrap.css")),
-    ("bootstrap.min", include_str!("../files/bootstrap.min.css")),
-];
+fn main() {
+    divan::main();
+}
 
 fn tokenize(source: &str) -> usize {
     let mut tokenizer = Tokenizer::new(source);
@@ -20,22 +20,21 @@ fn tokenize(source: &str) -> usize {
     token_count
 }
 
-fn bench_files(c: &mut Criterion) {
-    for &(name, source) in BENCH_CASES {
-        let mut group = c.benchmark_group(format!("{name}/tokenizer"));
-        group.throughput(Throughput::Bytes(source.len() as u64));
-
-        // This follows css-module-lexer's own benchmark. It includes dependency
-        // collection in addition to lexical scanning because its raw Visitor
-        // interface is not public.
-        group.bench_function("css-module-lexer", |b| {
-            b.iter(|| collect_dependencies(black_box(source), Mode::Local))
+#[divan::bench(args = BENCH_CASES)]
+fn css_module_lexer(bencher: Bencher<'_, '_>, case: BenchCase) {
+    // This follows css-module-lexer's own benchmark. It includes dependency
+    // collection in addition to lexical scanning because its raw Visitor
+    // interface is not public.
+    bencher
+        .counter(BytesCount::of_str(case.source))
+        .bench_local(|| {
+            black_box(collect_dependencies(black_box(case.source), Mode::Local));
         });
-        group.bench_function("rs-css", |b| b.iter(|| tokenize(black_box(source))));
-
-        group.finish();
-    }
 }
 
-criterion_group!(benches, bench_files);
-criterion_main!(benches);
+#[divan::bench(args = BENCH_CASES)]
+fn rs_css(bencher: Bencher<'_, '_>, case: BenchCase) {
+    bencher
+        .counter(BytesCount::of_str(case.source))
+        .bench_local(|| tokenize(black_box(case.source)));
+}

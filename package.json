@@ -3,10 +3,13 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "format-ci:prettier": "prettier --check .",
     "format-ci:toml": "taplo format --check",
+    "format:prettier": "prettier --write .",
     "format:toml": "taplo format"
   },
   "devDependencies": {
-    "@taplo/cli": "^0.7.0"
+    "@taplo/cli": "^0.7.0",
+    "prettier": "^3.6.2"
   }
 }

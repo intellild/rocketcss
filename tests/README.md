@@ -1,7 +1,7 @@
 # Repository test suite
 
-This workspace crate contains cross-crate fixture tests. `rstest` discovers each
-`input.css` file at compile time and exposes it as an individual Rust test case.
+This workspace crate contains cross-crate fixture tests. The standard Rust tests
+discover each `input.css` file recursively and validate it against the relevant stage.
 
 Fixtures are grouped by the stage under test:
 

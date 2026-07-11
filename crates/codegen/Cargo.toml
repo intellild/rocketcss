@@ -14,6 +14,6 @@ rs_css_allocator = { workspace = true }
 rs_css_ast       = { workspace = true }
 
 [dev-dependencies]
-lightningcss = { workspace = true }
+lightningcss  = { workspace = true }
 rs_css_parser = { workspace = true }
 serde_json    = { workspace = true }

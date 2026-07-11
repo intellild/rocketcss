@@ -1,5 +1,9 @@
 # Benchmarks
 
+The benchmark targets use CodSpeed's recommended Divan compatibility layer,
+installed as the `divan` crate. They continue to run locally with `cargo bench`
+and can be measured by CodSpeed with `cargo codspeed build` and `cargo codspeed run`.
+
 Run the tokenizer comparison with:
 
 ```sh

@@ -15,4 +15,3 @@ rs_css_ast = { workspace = true }
 rs_css_codegen = { workspace = true }
 rs_css_parser = { workspace = true }
 rs_css_visitor = { workspace = true }
-rstest = { workspace = true }
