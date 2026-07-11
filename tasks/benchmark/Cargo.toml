@@ -7,12 +7,14 @@ version = "0.1.0"
 [dev-dependencies]
 css-module-lexer = { workspace = true }
 divan            = { workspace = true }
+hashbrown        = { workspace = true }
 lightningcss     = { workspace = true }
 mimalloc         = { workspace = true }
 rs_css_allocator = { workspace = true }
 rs_css_codegen   = { workspace = true }
 rs_css_minify    = { workspace = true }
 rs_css_parser    = { workspace = true }
+rustc-hash       = { workspace = true }
 stylo            = { workspace = true }
 url              = { workspace = true }
 
@@ -31,3 +33,7 @@ name    = "codegen"
 [[bench]]
 harness = false
 name    = "minify"
+
+[[bench]]
+harness = false
+name    = "deduplicate"

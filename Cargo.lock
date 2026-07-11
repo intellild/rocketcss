@@ -85,12 +85,14 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "css-module-lexer",
+ "hashbrown",
  "lightningcss",
  "mimalloc",
  "rs_css_allocator",
  "rs_css_codegen",
  "rs_css_minify",
  "rs_css_parser",
+ "rustc-hash",
  "stylo",
  "url",
 ]
