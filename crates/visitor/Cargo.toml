@@ -1,16 +1,16 @@
 [package]
 description.workspace = true
-edition = "2024"
-homepage.workspace = true
-keywords.workspace = true
-license.workspace = true
-name = "rs_css_visitor"
-repository.workspace = true
-version = "0.1.0"
+edition               = "2024"
+homepage.workspace    = true
+keywords.workspace    = true
+license.workspace     = true
+name                  = "rs_css_visitor"
+repository.workspace  = true
+version               = "0.1.0"
 
 [dependencies]
 rs_css_allocator = { workspace = true }
-rs_css_ast = { workspace = true }
+rs_css_ast       = { workspace = true }
 
 [dev-dependencies]
 rs_css_parser = { workspace = true }

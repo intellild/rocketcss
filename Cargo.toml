@@ -47,21 +47,21 @@ rs_css_parser    = { version = "0.1.0", path = "crates/parser" }
 rs_css_visitor   = { version = "0.1.0", path = "crates/visitor" }
 
 # Dev
-colored       = "3.1.1"
-criterion     = { package = "codspeed-criterion-compat", version = "5.0.0" }
+colored          = "3.1.1"
+criterion        = { package = "codspeed-criterion-compat", version = "5.0.0" }
 css-module-lexer = "0.1.0"
-jwalk         = "0.8.1"
-lightningcss  = { version = "=1.0.0-alpha.71", default-features = false }
-mimalloc      = "0.1.52"
-oxc           = { version = "0.137.0", features = ["ast_visit", "semantic"] }
-oxc_allocator = "0.137.0"
-pico-args     = "0.5.0"
-rstest        = "0.26.1"
-serde_json    = "1.0"
-saphyr        = "0.0.6"
-stylo         = { version = "0.19.0", default-features = false, features = ["servo"] }
-tracy-client  = { version = "=0.18.1", features = ["enable", "sampling", "demangle", "system-tracing"] }
-url           = "2.5.4"
+jwalk            = "0.8.1"
+lightningcss     = { version = "=1.0.0-alpha.71", default-features = false }
+mimalloc         = "0.1.52"
+oxc              = { version = "0.137.0", features = ["ast_visit", "semantic"] }
+oxc_allocator    = "0.137.0"
+pico-args        = "0.5.0"
+rstest           = "0.26.1"
+saphyr           = "0.0.6"
+serde_json       = "1.0"
+stylo            = { version = "0.19.0", default-features = false, features = ["servo"] }
+tracy-client     = { version = "=0.18.1", features = ["enable", "sampling", "demangle", "system-tracing"] }
+url              = "2.5.4"
 
 [profile.bench]
 codegen-units = 1
