@@ -1,20 +1,23 @@
-'use strict';
+"use strict";
 
-const fs = require('node:fs');
-const path = require('node:path');
-const readline = require('node:readline');
+const fs = require("node:fs");
+const path = require("node:path");
+const readline = require("node:readline");
 
 const cssnanoDir = process.env.CSSNANO_DIR
   ? path.resolve(process.env.CSSNANO_DIR)
-  : path.resolve(__dirname, '../../../../cssnano');
-const cssnano = require(path.join(cssnanoDir, 'packages/cssnano/src/index.js'));
-const source = fs.readFileSync(process.argv[2], 'utf8');
-const processor = cssnano({ preset: 'default' });
-const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  : path.resolve(__dirname, "../../../../cssnano");
+const cssnano = require(path.join(cssnanoDir, "packages/cssnano/src/index.js"));
+const source = fs.readFileSync(process.argv[2], "utf8");
+const processor = cssnano({ preset: "default" });
+const lines = readline.createInterface({
+  input: process.stdin,
+  crlfDelay: Infinity,
+});
 
-process.stdout.write('ready\n');
+process.stdout.write("ready\n");
 
-lines.on('line', async (line) => {
+lines.on("line", async (line) => {
   try {
     const iterations = Number(line);
     if (!Number.isSafeInteger(iterations) || iterations < 1) {
