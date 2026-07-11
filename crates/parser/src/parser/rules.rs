@@ -272,21 +272,16 @@ pub(super) fn parse_keyframe_selector<'i>(
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("from") => Ok(KeyframeSelector::From),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("to") => Ok(KeyframeSelector::To),
         ValueToken::Ident(name) => {
-            let name = if name.eq_ignore_ascii_case("cover") {
-                TimelineRangeName::Cover
-            } else if name.eq_ignore_ascii_case("contain") {
-                TimelineRangeName::Contain
-            } else if name.eq_ignore_ascii_case("entry") {
-                TimelineRangeName::Entry
-            } else if name.eq_ignore_ascii_case("exit") {
-                TimelineRangeName::Exit
-            } else if name.eq_ignore_ascii_case("entry-crossing") {
-                TimelineRangeName::EntryCrossing
-            } else if name.eq_ignore_ascii_case("exit-crossing") {
-                TimelineRangeName::ExitCrossing
-            } else {
-                return Err(input.new_custom_error(ParserError::InvalidValue));
-            };
+            let name = match_ignore_ascii_case!(
+                name,
+                "cover" => TimelineRangeName::Cover,
+                "contain" => TimelineRangeName::Contain,
+                "entry" => TimelineRangeName::Entry,
+                "exit" => TimelineRangeName::Exit,
+                "entry-crossing" => TimelineRangeName::EntryCrossing,
+                "exit-crossing" => TimelineRangeName::ExitCrossing,
+                _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
+            );
             let percentage = input.expect_percentage()?;
             Ok(KeyframeSelector::TimelineRangePercentage(
                 input
@@ -433,19 +428,15 @@ pub(super) fn parse_page_selectors<'i>(
         let mut pseudo_classes = allocator.vec();
         while input.try_parse(Parser::expect_colon).is_ok() {
             let pseudo = input.expect_ident()?;
-            pseudo_classes.push(if pseudo.eq_ignore_ascii_case("left") {
-                PagePseudoClass::Left
-            } else if pseudo.eq_ignore_ascii_case("right") {
-                PagePseudoClass::Right
-            } else if pseudo.eq_ignore_ascii_case("first") {
-                PagePseudoClass::First
-            } else if pseudo.eq_ignore_ascii_case("last") {
-                PagePseudoClass::Last
-            } else if pseudo.eq_ignore_ascii_case("blank") {
-                PagePseudoClass::Blank
-            } else {
-                return Err(input.new_custom_error(ParserError::InvalidSelector));
-            });
+            pseudo_classes.push(match_ignore_ascii_case!(
+                pseudo,
+                "left" => PagePseudoClass::Left,
+                "right" => PagePseudoClass::Right,
+                "first" => PagePseudoClass::First,
+                "last" => PagePseudoClass::Last,
+                "blank" => PagePseudoClass::Blank,
+                _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
+            ));
         }
         if name.is_none() && pseudo_classes.is_empty() {
             return Err(input.new_custom_error(ParserError::InvalidSelector));
@@ -624,23 +615,17 @@ pub(super) fn parse_font_feature_declarations<'i, 't>(
 }
 
 pub(super) fn font_feature_subrule_type(name: &str) -> Option<FontFeatureSubruleType> {
-    Some(if name.eq_ignore_ascii_case("stylistic") {
-        FontFeatureSubruleType::Stylistic
-    } else if name.eq_ignore_ascii_case("historical-forms") {
-        FontFeatureSubruleType::HistoricalForms
-    } else if name.eq_ignore_ascii_case("styleset") {
-        FontFeatureSubruleType::Styleset
-    } else if name.eq_ignore_ascii_case("character-variant") {
-        FontFeatureSubruleType::CharacterVariant
-    } else if name.eq_ignore_ascii_case("swash") {
-        FontFeatureSubruleType::Swash
-    } else if name.eq_ignore_ascii_case("ornaments") {
-        FontFeatureSubruleType::Ornaments
-    } else if name.eq_ignore_ascii_case("annotation") {
-        FontFeatureSubruleType::Annotation
-    } else {
-        return None;
-    })
+    match_ignore_ascii_case!(
+        name,
+        "stylistic" => Some(FontFeatureSubruleType::Stylistic),
+        "historical-forms" => Some(FontFeatureSubruleType::HistoricalForms),
+        "styleset" => Some(FontFeatureSubruleType::Styleset),
+        "character-variant" => Some(FontFeatureSubruleType::CharacterVariant),
+        "swash" => Some(FontFeatureSubruleType::Swash),
+        "ornaments" => Some(FontFeatureSubruleType::Ornaments),
+        "annotation" => Some(FontFeatureSubruleType::Annotation),
+        _ => None,
+    )
 }
 
 pub(super) fn parse_font_palette_contents<'i, 't>(
@@ -729,13 +714,12 @@ pub(super) fn parse_property_rule<'i, 't>(
                 let Some(value) = value.first().and_then(token_ident) else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 };
-                if value.eq_ignore_ascii_case("true") {
-                    inherits = Some(true);
-                } else if value.eq_ignore_ascii_case("false") {
-                    inherits = Some(false);
-                } else {
-                    return Err(input.new_custom_error(ParserError::InvalidValue));
-                }
+                inherits = Some(match_ignore_ascii_case!(
+                    value,
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
+                ));
             } else if descriptor.eq_ignore_ascii_case("initial-value") {
                 initial_value = Some(allocator.boxed(ParsedComponent::TokenList(value)));
             }
@@ -782,47 +766,35 @@ pub(super) fn parse_syntax_string<'i>(
         } else {
             (raw_component, Multiplier::None)
         };
-        let kind = if component.eq_ignore_ascii_case("<length>") {
-            SyntaxComponentKind::Length
-        } else if component.eq_ignore_ascii_case("<number>") {
-            SyntaxComponentKind::Number
-        } else if component.eq_ignore_ascii_case("<percentage>") {
-            SyntaxComponentKind::Percentage
-        } else if component.eq_ignore_ascii_case("<length-percentage>") {
-            SyntaxComponentKind::LengthPercentage
-        } else if component.eq_ignore_ascii_case("<string>") {
-            SyntaxComponentKind::String
-        } else if component.eq_ignore_ascii_case("<color>") {
-            SyntaxComponentKind::Color
-        } else if component.eq_ignore_ascii_case("<image>") {
-            SyntaxComponentKind::Image
-        } else if component.eq_ignore_ascii_case("<url>") {
-            SyntaxComponentKind::Url
-        } else if component.eq_ignore_ascii_case("<integer>") {
-            SyntaxComponentKind::Integer
-        } else if component.eq_ignore_ascii_case("<angle>") {
-            SyntaxComponentKind::Angle
-        } else if component.eq_ignore_ascii_case("<time>") {
-            SyntaxComponentKind::Time
-        } else if component.eq_ignore_ascii_case("<resolution>") {
-            SyntaxComponentKind::Resolution
-        } else if component.eq_ignore_ascii_case("<transform-function>") {
-            SyntaxComponentKind::TransformFunction
-        } else if component.eq_ignore_ascii_case("<transform-list>") {
-            SyntaxComponentKind::TransformList
-        } else if component.eq_ignore_ascii_case("<custom-ident>") {
-            SyntaxComponentKind::CustomIdent
-        } else if !component.is_empty()
-            && component
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-        {
-            SyntaxComponentKind::Literal(component)
-        } else {
-            return Err(
-                crate::SourceLocation::default().new_custom_error(ParserError::InvalidValue)
-            );
-        };
+        let kind = match_ignore_ascii_case!(
+            component,
+            "<length>" => SyntaxComponentKind::Length,
+            "<number>" => SyntaxComponentKind::Number,
+            "<percentage>" => SyntaxComponentKind::Percentage,
+            "<length-percentage>" => SyntaxComponentKind::LengthPercentage,
+            "<string>" => SyntaxComponentKind::String,
+            "<color>" => SyntaxComponentKind::Color,
+            "<image>" => SyntaxComponentKind::Image,
+            "<url>" => SyntaxComponentKind::Url,
+            "<integer>" => SyntaxComponentKind::Integer,
+            "<angle>" => SyntaxComponentKind::Angle,
+            "<time>" => SyntaxComponentKind::Time,
+            "<resolution>" => SyntaxComponentKind::Resolution,
+            "<transform-function>" => SyntaxComponentKind::TransformFunction,
+            "<transform-list>" => SyntaxComponentKind::TransformList,
+            "<custom-ident>" => SyntaxComponentKind::CustomIdent,
+            _ => if !component.is_empty()
+                && component
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            {
+                SyntaxComponentKind::Literal(component)
+            } else {
+                return Err(
+                    crate::SourceLocation::default().new_custom_error(ParserError::InvalidValue)
+                );
+            },
+        );
         components.push(SyntaxComponent {
             kind: allocator.boxed(kind),
             multiplier,
@@ -866,13 +838,12 @@ pub(super) fn parse_view_transition_contents<'i, 't>(
                     .first()
                     .and_then(token_ident)
                     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
-                ViewTransitionProperty::Navigation(if value.eq_ignore_ascii_case("auto") {
-                    Navigation::Auto
-                } else if value.eq_ignore_ascii_case("none") {
-                    Navigation::None
-                } else {
-                    return Err(input.new_custom_error(ParserError::InvalidValue));
-                })
+                ViewTransitionProperty::Navigation(match_ignore_ascii_case!(
+                    value,
+                    "auto" => Navigation::Auto,
+                    "none" => Navigation::None,
+                    _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
+                ))
             } else if descriptor.eq_ignore_ascii_case("types") {
                 let mut idents = allocator.vec();
                 for token in &value {
@@ -910,39 +881,24 @@ pub(super) fn parse_view_transition_contents<'i, 't>(
 }
 
 pub(super) fn page_margin_box(name: &str) -> Option<PageMarginBox> {
-    Some(if name.eq_ignore_ascii_case("top-left-corner") {
-        PageMarginBox::TopLeftCorner
-    } else if name.eq_ignore_ascii_case("top-left") {
-        PageMarginBox::TopLeft
-    } else if name.eq_ignore_ascii_case("top-center") {
-        PageMarginBox::TopCenter
-    } else if name.eq_ignore_ascii_case("top-right") {
-        PageMarginBox::TopRight
-    } else if name.eq_ignore_ascii_case("top-right-corner") {
-        PageMarginBox::TopRightCorner
-    } else if name.eq_ignore_ascii_case("left-top") {
-        PageMarginBox::LeftTop
-    } else if name.eq_ignore_ascii_case("left-middle") {
-        PageMarginBox::LeftMiddle
-    } else if name.eq_ignore_ascii_case("left-bottom") {
-        PageMarginBox::LeftBottom
-    } else if name.eq_ignore_ascii_case("right-top") {
-        PageMarginBox::RightTop
-    } else if name.eq_ignore_ascii_case("right-middle") {
-        PageMarginBox::RightMiddle
-    } else if name.eq_ignore_ascii_case("right-bottom") {
-        PageMarginBox::RightBottom
-    } else if name.eq_ignore_ascii_case("bottom-left-corner") {
-        PageMarginBox::BottomLeftCorner
-    } else if name.eq_ignore_ascii_case("bottom-left") {
-        PageMarginBox::BottomLeft
-    } else if name.eq_ignore_ascii_case("bottom-center") {
-        PageMarginBox::BottomCenter
-    } else if name.eq_ignore_ascii_case("bottom-right") {
-        PageMarginBox::BottomRight
-    } else if name.eq_ignore_ascii_case("bottom-right-corner") {
-        PageMarginBox::BottomRightCorner
-    } else {
-        return None;
-    })
+    match_ignore_ascii_case!(
+        name,
+        "top-left-corner" => Some(PageMarginBox::TopLeftCorner),
+        "top-left" => Some(PageMarginBox::TopLeft),
+        "top-center" => Some(PageMarginBox::TopCenter),
+        "top-right" => Some(PageMarginBox::TopRight),
+        "top-right-corner" => Some(PageMarginBox::TopRightCorner),
+        "left-top" => Some(PageMarginBox::LeftTop),
+        "left-middle" => Some(PageMarginBox::LeftMiddle),
+        "left-bottom" => Some(PageMarginBox::LeftBottom),
+        "right-top" => Some(PageMarginBox::RightTop),
+        "right-middle" => Some(PageMarginBox::RightMiddle),
+        "right-bottom" => Some(PageMarginBox::RightBottom),
+        "bottom-left-corner" => Some(PageMarginBox::BottomLeftCorner),
+        "bottom-left" => Some(PageMarginBox::BottomLeft),
+        "bottom-center" => Some(PageMarginBox::BottomCenter),
+        "bottom-right" => Some(PageMarginBox::BottomRight),
+        "bottom-right-corner" => Some(PageMarginBox::BottomRightCorner),
+        _ => None,
+    )
 }

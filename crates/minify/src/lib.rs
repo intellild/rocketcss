@@ -1,11 +1,3 @@
-//! Local, in-place AST minification for rs-css.
-//!
-//! Each pass mutates one existing node or its existing child buffer without
-//! allocating a replacement AST node. Cross-rule and cross-declaration
-//! rewrites are intentionally outside this crate's current scope. Compact
-//! whitespace serialization remains the code generator's responsibility
-//! through `PrinterOptions::minify`.
-
 mod context;
 mod length;
 mod media;

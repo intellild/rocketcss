@@ -1,5 +1,26 @@
 use crate::prelude::*;
 
+impl ToCss for Unit {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        match self {
+            Self::Length(unit) => unit.to_css(dest),
+            Self::Deg => dest.write_str("deg"),
+            Self::Rad => dest.write_str("rad"),
+            Self::Grad => dest.write_str("grad"),
+            Self::Turn => dest.write_str("turn"),
+            Self::Seconds => dest.write_str("s"),
+            Self::Milliseconds => dest.write_str("ms"),
+            Self::Hertz => dest.write_str("hz"),
+            Self::Kilohertz => dest.write_str("khz"),
+            Self::Dpi => dest.write_str("dpi"),
+            Self::Dpcm => dest.write_str("dpcm"),
+            Self::Dppx => dest.write_str("dppx"),
+            Self::ResolutionX => dest.write_str("x"),
+            Self::Flex => dest.write_str("fr"),
+        }
+    }
+}
+
 impl ToCss for Token<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
@@ -23,6 +44,10 @@ impl ToCss for Token<'_> {
                 dest.write_char('%')
             }
             Self::Dimension { unit, value } => serialize_dimension(*value, unit, dest),
+            Self::UnknownDimension { unit, value } => {
+                serialize_number(*value, dest)?;
+                dest.write_str(unit)
+            }
             Self::WhiteSpace(value) => {
                 if dest.prettify() {
                     dest.write_str(value)
@@ -104,67 +129,13 @@ impl ToCss for TokenOrValue<'_> {
             Self::Var(value) => value.to_css(dest),
             Self::Env(value) => value.to_css(dest),
             Self::Function(value) => value.to_css(dest),
-            Self::Length(value) => serialize_dimension(value.value, length_unit(value), dest),
+            Self::Length(value) => serialize_dimension(value.value, &value.unit, dest),
             Self::Angle(value) => value.to_css(dest),
             Self::Time(value) => value.to_css(dest),
             Self::Resolution(value) => value.to_css(dest),
             Self::DashedIdent(value) => write_dashed_ident(value, dest),
             Self::AnimationName(value) => value.to_css(dest),
         }
-    }
-}
-
-fn length_unit(value: &LengthValue) -> &'static str {
-    match value.unit {
-        LengthUnit::Px => "px",
-        LengthUnit::In => "in",
-        LengthUnit::Cm => "cm",
-        LengthUnit::Mm => "mm",
-        LengthUnit::Q => "q",
-        LengthUnit::Pt => "pt",
-        LengthUnit::Pc => "pc",
-        LengthUnit::Em => "em",
-        LengthUnit::Rem => "rem",
-        LengthUnit::Ex => "ex",
-        LengthUnit::Rex => "rex",
-        LengthUnit::Ch => "ch",
-        LengthUnit::Rch => "rch",
-        LengthUnit::Cap => "cap",
-        LengthUnit::Rcap => "rcap",
-        LengthUnit::Ic => "ic",
-        LengthUnit::Ric => "ric",
-        LengthUnit::Lh => "lh",
-        LengthUnit::Rlh => "rlh",
-        LengthUnit::Vw => "vw",
-        LengthUnit::Lvw => "lvw",
-        LengthUnit::Svw => "svw",
-        LengthUnit::Dvw => "dvw",
-        LengthUnit::Cqw => "cqw",
-        LengthUnit::Vh => "vh",
-        LengthUnit::Lvh => "lvh",
-        LengthUnit::Svh => "svh",
-        LengthUnit::Dvh => "dvh",
-        LengthUnit::Cqh => "cqh",
-        LengthUnit::Vi => "vi",
-        LengthUnit::Svi => "svi",
-        LengthUnit::Lvi => "lvi",
-        LengthUnit::Dvi => "dvi",
-        LengthUnit::Cqi => "cqi",
-        LengthUnit::Vb => "vb",
-        LengthUnit::Svb => "svb",
-        LengthUnit::Lvb => "lvb",
-        LengthUnit::Dvb => "dvb",
-        LengthUnit::Cqb => "cqb",
-        LengthUnit::Vmin => "vmin",
-        LengthUnit::Svmin => "svmin",
-        LengthUnit::Lvmin => "lvmin",
-        LengthUnit::Dvmin => "dvmin",
-        LengthUnit::Cqmin => "cqmin",
-        LengthUnit::Vmax => "vmax",
-        LengthUnit::Svmax => "svmax",
-        LengthUnit::Lvmax => "lvmax",
-        LengthUnit::Dvmax => "dvmax",
-        LengthUnit::Cqmax => "cqmax",
     }
 }
 

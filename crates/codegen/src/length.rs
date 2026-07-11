@@ -5,67 +5,63 @@ impl ToCss for LengthValue {
         if self.value == 0.0 && !dest.in_calc() {
             return dest.write_char('0');
         }
-        serialize_dimension(self.value, length_unit_str(&self.unit), dest)
-    }
-}
-
-fn length_unit_str(unit: &LengthUnit) -> &'static str {
-    match unit {
-        LengthUnit::Px => "px",
-        LengthUnit::In => "in",
-        LengthUnit::Cm => "cm",
-        LengthUnit::Mm => "mm",
-        LengthUnit::Q => "q",
-        LengthUnit::Pt => "pt",
-        LengthUnit::Pc => "pc",
-        LengthUnit::Em => "em",
-        LengthUnit::Rem => "rem",
-        LengthUnit::Ex => "ex",
-        LengthUnit::Rex => "rex",
-        LengthUnit::Ch => "ch",
-        LengthUnit::Rch => "rch",
-        LengthUnit::Cap => "cap",
-        LengthUnit::Rcap => "rcap",
-        LengthUnit::Ic => "ic",
-        LengthUnit::Ric => "ric",
-        LengthUnit::Lh => "lh",
-        LengthUnit::Rlh => "rlh",
-        LengthUnit::Vw => "vw",
-        LengthUnit::Lvw => "lvw",
-        LengthUnit::Svw => "svw",
-        LengthUnit::Dvw => "dvw",
-        LengthUnit::Cqw => "cqw",
-        LengthUnit::Vh => "vh",
-        LengthUnit::Lvh => "lvh",
-        LengthUnit::Svh => "svh",
-        LengthUnit::Dvh => "dvh",
-        LengthUnit::Cqh => "cqh",
-        LengthUnit::Vi => "vi",
-        LengthUnit::Svi => "svi",
-        LengthUnit::Lvi => "lvi",
-        LengthUnit::Dvi => "dvi",
-        LengthUnit::Cqi => "cqi",
-        LengthUnit::Vb => "vb",
-        LengthUnit::Svb => "svb",
-        LengthUnit::Lvb => "lvb",
-        LengthUnit::Dvb => "dvb",
-        LengthUnit::Cqb => "cqb",
-        LengthUnit::Vmin => "vmin",
-        LengthUnit::Svmin => "svmin",
-        LengthUnit::Lvmin => "lvmin",
-        LengthUnit::Dvmin => "dvmin",
-        LengthUnit::Cqmin => "cqmin",
-        LengthUnit::Vmax => "vmax",
-        LengthUnit::Svmax => "svmax",
-        LengthUnit::Lvmax => "lvmax",
-        LengthUnit::Dvmax => "dvmax",
-        LengthUnit::Cqmax => "cqmax",
+        serialize_dimension(self.value, &self.unit, dest)
     }
 }
 
 impl ToCss for LengthUnit {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        dest.write_str(length_unit_str(self))
+        dest.write_str(match self {
+            Self::Px => "px",
+            Self::In => "in",
+            Self::Cm => "cm",
+            Self::Mm => "mm",
+            Self::Q => "q",
+            Self::Pt => "pt",
+            Self::Pc => "pc",
+            Self::Em => "em",
+            Self::Rem => "rem",
+            Self::Ex => "ex",
+            Self::Rex => "rex",
+            Self::Ch => "ch",
+            Self::Rch => "rch",
+            Self::Cap => "cap",
+            Self::Rcap => "rcap",
+            Self::Ic => "ic",
+            Self::Ric => "ric",
+            Self::Lh => "lh",
+            Self::Rlh => "rlh",
+            Self::Vw => "vw",
+            Self::Lvw => "lvw",
+            Self::Svw => "svw",
+            Self::Dvw => "dvw",
+            Self::Cqw => "cqw",
+            Self::Vh => "vh",
+            Self::Lvh => "lvh",
+            Self::Svh => "svh",
+            Self::Dvh => "dvh",
+            Self::Cqh => "cqh",
+            Self::Vi => "vi",
+            Self::Svi => "svi",
+            Self::Lvi => "lvi",
+            Self::Dvi => "dvi",
+            Self::Cqi => "cqi",
+            Self::Vb => "vb",
+            Self::Svb => "svb",
+            Self::Lvb => "lvb",
+            Self::Dvb => "dvb",
+            Self::Cqb => "cqb",
+            Self::Vmin => "vmin",
+            Self::Svmin => "svmin",
+            Self::Lvmin => "lvmin",
+            Self::Dvmin => "dvmin",
+            Self::Cqmin => "cqmin",
+            Self::Vmax => "vmax",
+            Self::Svmax => "svmax",
+            Self::Lvmax => "lvmax",
+            Self::Dvmax => "dvmax",
+            Self::Cqmax => "cqmax",
+        })
     }
 }
 
@@ -180,11 +176,11 @@ impl ToCss for RoundingStrategy {
 impl ToCss for Resolution {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         let (value, unit) = match self {
-            Self::Dpi(value) => (*value, "dpi"),
-            Self::Dpcm(value) => (*value, "dpcm"),
-            Self::Dppx(value) => (*value, "dppx"),
+            Self::Dpi(value) => (*value, Unit::Dpi),
+            Self::Dpcm(value) => (*value, Unit::Dpcm),
+            Self::Dppx(value) => (*value, Unit::Dppx),
         };
-        serialize_dimension(value, unit, dest)
+        serialize_dimension(value, &unit, dest)
     }
 }
 
@@ -202,30 +198,30 @@ impl ToCss for Ratio {
 impl ToCss for Angle {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         let (value, unit) = match self {
-            Self::Deg(value) => (*value, "deg"),
-            Self::Rad(value) => (*value, "rad"),
-            Self::Grad(value) => (*value, "grad"),
-            Self::Turn(value) => (*value, "turn"),
+            Self::Deg(value) => (*value, Unit::Deg),
+            Self::Rad(value) => (*value, Unit::Rad),
+            Self::Grad(value) => (*value, Unit::Grad),
+            Self::Turn(value) => (*value, Unit::Turn),
         };
-        serialize_dimension(value, unit, dest)
+        serialize_dimension(value, &unit, dest)
     }
 }
 
 impl ToCss for Time {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
-            Self::Seconds(value) => serialize_dimension(*value, "s", dest),
+            Self::Seconds(value) => serialize_dimension(*value, &Unit::Seconds, dest),
             Self::Milliseconds(value) => {
                 let mut milliseconds = String::new();
                 serialize_dimension(
                     *value,
-                    "ms",
+                    &Unit::Milliseconds,
                     &mut Printer::new(&mut milliseconds, dest.options()),
                 )?;
                 let mut seconds = String::new();
                 serialize_dimension(
                     *value / 1000.0,
-                    "s",
+                    &Unit::Seconds,
                     &mut Printer::new(&mut seconds, dest.options()),
                 )?;
                 dest.write_str(if seconds.len() < milliseconds.len() {

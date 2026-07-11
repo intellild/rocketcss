@@ -78,7 +78,7 @@ fn every_css_ast_node_implements_to_css() {
         ParsedCaseSensitivity, AttrSelectorOperator, NthType, NthSelectorData, Direction,
         PseudoClass<'static>, WebKitScrollbarPseudoClass, PseudoElement<'static>,
         WebKitScrollbarPseudoElement, ViewTransitionPartName<'static>, TokenOrValue<'static>,
-        Token<'static>, Specifier<'static>, AnimationName<'static>,
+        Unit, Token<'static>, Specifier<'static>, AnimationName<'static>,
         EnvironmentVariableName<'static>, UAEnvironmentVariable,
 
         Image<'static>, Gradient<'static>, WebKitGradient<'static>, LineDirection<'static>,

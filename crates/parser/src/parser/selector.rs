@@ -218,21 +218,16 @@ pub(super) fn parse_pseudo<'i, 't>(
 }
 
 fn nth_type(name: &str) -> Option<NthType> {
-    Some(if name.eq_ignore_ascii_case("nth-child") {
-        NthType::Child
-    } else if name.eq_ignore_ascii_case("nth-last-child") {
-        NthType::LastChild
-    } else if name.eq_ignore_ascii_case("nth-of-type") {
-        NthType::OfType
-    } else if name.eq_ignore_ascii_case("nth-last-of-type") {
-        NthType::LastOfType
-    } else if name.eq_ignore_ascii_case("nth-col") {
-        NthType::Col
-    } else if name.eq_ignore_ascii_case("nth-last-col") {
-        NthType::LastCol
-    } else {
-        return None;
-    })
+    match_ignore_ascii_case!(
+        name,
+        "nth-child" => Some(NthType::Child),
+        "nth-last-child" => Some(NthType::LastChild),
+        "nth-of-type" => Some(NthType::OfType),
+        "nth-last-of-type" => Some(NthType::LastOfType),
+        "nth-col" => Some(NthType::Col),
+        "nth-last-col" => Some(NthType::LastCol),
+        _ => None,
+    )
 }
 
 fn parse_nth_affine(source: &str, kind: NthType) -> Option<NthSelectorData> {
@@ -314,13 +309,12 @@ pub(super) fn parse_attribute<'i, 't>(
     };
     let value = input.expect_ident_or_string()?;
     let case_sensitivity = if let Ok(flag) = input.try_parse(Parser::expect_ident) {
-        if flag.eq_ignore_ascii_case("i") {
-            ParsedCaseSensitivity::AsciiCaseInsensitive
-        } else if flag.eq_ignore_ascii_case("s") {
-            ParsedCaseSensitivity::ExplicitCaseSensitive
-        } else {
-            return Err(input.new_custom_error(ParserError::InvalidSelector));
-        }
+        match_ignore_ascii_case!(
+            flag,
+            "i" => ParsedCaseSensitivity::AsciiCaseInsensitive,
+            "s" => ParsedCaseSensitivity::ExplicitCaseSensitive,
+            _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
+        )
     } else {
         ParsedCaseSensitivity::CaseSensitive
     };
@@ -349,47 +343,33 @@ pub(super) fn parse_attribute<'i, 't>(
 }
 
 pub(super) fn pseudo_class(name: &str) -> PseudoClass<'_> {
-    if name.eq_ignore_ascii_case("hover") {
-        PseudoClass::Hover
-    } else if name.eq_ignore_ascii_case("active") {
-        PseudoClass::Active
-    } else if name.eq_ignore_ascii_case("focus") {
-        PseudoClass::Focus
-    } else if name.eq_ignore_ascii_case("focus-visible") {
-        PseudoClass::FocusVisible
-    } else if name.eq_ignore_ascii_case("focus-within") {
-        PseudoClass::FocusWithin
-    } else if name.eq_ignore_ascii_case("visited") {
-        PseudoClass::Visited
-    } else if name.eq_ignore_ascii_case("link") {
-        PseudoClass::Link
-    } else if name.eq_ignore_ascii_case("checked") {
-        PseudoClass::Checked
-    } else if name.eq_ignore_ascii_case("disabled") {
-        PseudoClass::Disabled
-    } else if name.eq_ignore_ascii_case("enabled") {
-        PseudoClass::Enabled
-    } else {
-        PseudoClass::Custom { name }
-    }
+    match_ignore_ascii_case!(
+        name,
+        "hover" => PseudoClass::Hover,
+        "active" => PseudoClass::Active,
+        "focus" => PseudoClass::Focus,
+        "focus-visible" => PseudoClass::FocusVisible,
+        "focus-within" => PseudoClass::FocusWithin,
+        "visited" => PseudoClass::Visited,
+        "link" => PseudoClass::Link,
+        "checked" => PseudoClass::Checked,
+        "disabled" => PseudoClass::Disabled,
+        "enabled" => PseudoClass::Enabled,
+        _ => PseudoClass::Custom { name },
+    )
 }
 
 pub(super) fn pseudo_element(name: &str) -> PseudoElement<'_> {
-    if name.eq_ignore_ascii_case("before") {
-        PseudoElement::Before
-    } else if name.eq_ignore_ascii_case("after") {
-        PseudoElement::After
-    } else if name.eq_ignore_ascii_case("first-line") {
-        PseudoElement::FirstLine
-    } else if name.eq_ignore_ascii_case("first-letter") {
-        PseudoElement::FirstLetter
-    } else if name.eq_ignore_ascii_case("marker") {
-        PseudoElement::Marker
-    } else if name.eq_ignore_ascii_case("placeholder") {
-        PseudoElement::Placeholder(VendorPrefix::NONE)
-    } else {
-        PseudoElement::Custom { name }
-    }
+    match_ignore_ascii_case!(
+        name,
+        "before" => PseudoElement::Before,
+        "after" => PseudoElement::After,
+        "first-line" => PseudoElement::FirstLine,
+        "first-letter" => PseudoElement::FirstLetter,
+        "marker" => PseudoElement::Marker,
+        "placeholder" => PseudoElement::Placeholder(VendorPrefix::NONE),
+        _ => PseudoElement::Custom { name },
+    )
 }
 
 pub(super) fn parse_selector_string<'i>(

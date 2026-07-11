@@ -130,19 +130,15 @@ pub(super) fn token_ident<'i>(value: &TokenOrValue<'i>) -> Option<&'i str> {
 }
 
 pub(super) fn css_wide_keyword(value: &str) -> Option<CSSWideKeyword> {
-    if value.eq_ignore_ascii_case("initial") {
-        Some(CSSWideKeyword::Initial)
-    } else if value.eq_ignore_ascii_case("inherit") {
-        Some(CSSWideKeyword::Inherit)
-    } else if value.eq_ignore_ascii_case("unset") {
-        Some(CSSWideKeyword::Unset)
-    } else if value.eq_ignore_ascii_case("revert") {
-        Some(CSSWideKeyword::Revert)
-    } else if value.eq_ignore_ascii_case("revert-layer") {
-        Some(CSSWideKeyword::RevertLayer)
-    } else {
-        None
-    }
+    match_ignore_ascii_case!(
+        value,
+        "initial" => Some(CSSWideKeyword::Initial),
+        "inherit" => Some(CSSWideKeyword::Inherit),
+        "unset" => Some(CSSWideKeyword::Unset),
+        "revert" => Some(CSSWideKeyword::Revert),
+        "revert-layer" => Some(CSSWideKeyword::RevertLayer),
+        _ => None,
+    )
 }
 
 pub(super) fn ascii_lowercase<'i>(value: &'i str, allocator: &'i Allocator) -> &'i str {

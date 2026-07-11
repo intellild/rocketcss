@@ -15,14 +15,11 @@ pub(crate) fn minify_token_or_value(value: &mut TokenOrValue<'_>, context: &mut 
     };
     match &mut **token {
         Token::Dimension { unit, value } => {
-            if *value == 0.0
-                && context.value_context.allow_unitless_zero
-                && length::is_length_unit(unit)
-            {
+            if *value == 0.0 && context.value_context.allow_unitless_zero && unit.is_length() {
                 **token = Token::Number(0.0);
                 context.record_value_normalized();
-            } else if let Some((number, normalized_unit)) = length::minify_dimension(*value, unit)
-                && (number != *value || !unit.eq_ignore_ascii_case(normalized_unit))
+            } else if let Some((number, normalized_unit)) = length::minify_dimension(*value, *unit)
+                && (number != *value || normalized_unit != *unit)
             {
                 *value = number;
                 *unit = normalized_unit;

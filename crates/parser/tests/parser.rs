@@ -4,7 +4,7 @@ use rs_css_parser::prelude::*;
 fn parser_decodes_values_from_token_spans() {
     let allocator = Allocator::new();
     let mut input = ParserInput::new(
-        r#"\66 oo "b\61 r" -1.5e2px 25% url(icon\2e svg)"#,
+        r#"\66 oo "b\61 r" -1.5e2PX 2furlong 25% url(icon\2e svg)"#,
         &allocator,
     );
     let mut parser = Parser::new(&mut input);
@@ -13,7 +13,14 @@ fn parser_decodes_values_from_token_spans() {
     assert_eq!(parser.expect_string(), Ok("bar"));
     assert!(matches!(
         parser.next(),
-        Ok(ValueToken::Dimension { unit: "px", value }) if *value == -150.0
+        Ok(ValueToken::Dimension {
+            unit: Unit::Length(LengthUnit::Px),
+            value,
+        }) if *value == -150.0
+    ));
+    assert!(matches!(
+        parser.next(),
+        Ok(ValueToken::UnknownDimension { unit: "furlong", value }) if *value == 2.0
     ));
     assert_eq!(parser.expect_percentage(), Ok(0.25));
     assert_eq!(parser.expect_url(), Ok("icon.svg"));

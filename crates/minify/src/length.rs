@@ -1,14 +1,14 @@
-use rs_css_ast::{Angle, LengthUnit, LengthValue, Resolution, Time};
+use rs_css_ast::{Angle, LengthUnit, LengthValue, Resolution, Time, Unit};
 
 pub(crate) fn minify_length(value: &mut LengthValue) -> bool {
     if value.value == 0.0 {
         return false;
     }
     let original_value = value.value;
-    let Some(px) = to_px(value.value, &value.unit) else {
+    let Some(px) = to_px(value.value, value.unit) else {
         return false;
     };
-    let original_unit = length_unit_name(&value.unit);
+    let original_unit = value.unit;
 
     let candidates = [
         (px, LengthUnit::Px),
@@ -19,20 +19,20 @@ pub(crate) fn minify_length(value: &mut LengthValue) -> bool {
         (px * 72.0 / 96.0, LengthUnit::Pt),
         (px / 16.0, LengthUnit::Pc),
     ];
-    let original_len = dimension_len(value.value, length_unit_name(&value.unit));
+    let original_len = dimension_len(value.value, Unit::Length(value.unit));
     let Some((candidate_value, candidate_unit)) = candidates
         .into_iter()
         .filter(|(number, _)| number.is_finite())
-        .min_by_key(|(number, unit)| dimension_len(*number, length_unit_name(unit)))
+        .min_by_key(|(number, unit)| dimension_len(*number, Unit::Length(*unit)))
     else {
         return false;
     };
 
-    if dimension_len(candidate_value, length_unit_name(&candidate_unit)) < original_len {
+    if dimension_len(candidate_value, Unit::Length(candidate_unit)) < original_len {
         value.value = clean_float(candidate_value);
         value.unit = candidate_unit;
     }
-    value.value != original_value || length_unit_name(&value.unit) != original_unit
+    value.value != original_value || value.unit != original_unit
 }
 
 pub(crate) fn minify_angle(value: &mut Angle) -> bool {
@@ -43,27 +43,17 @@ pub(crate) fn minify_angle(value: &mut Angle) -> bool {
         Angle::Turn(number) => number * 360.0,
     };
     let candidates = [
-        (Angle::Deg(clean_float(degrees)), "deg"),
-        (Angle::Turn(clean_float(degrees / 360.0)), "turn"),
-        (Angle::Grad(clean_float(degrees / 0.9)), "grad"),
-        (Angle::Rad(clean_float(degrees.to_radians())), "rad"),
+        Angle::Deg(clean_float(degrees)),
+        Angle::Turn(clean_float(degrees / 360.0)),
+        Angle::Grad(clean_float(degrees / 0.9)),
+        Angle::Rad(clean_float(degrees.to_radians())),
     ];
-    let original_len = match *value {
-        Angle::Deg(number) => dimension_len(number, "deg"),
-        Angle::Rad(number) => dimension_len(number, "rad"),
-        Angle::Grad(number) => dimension_len(number, "grad"),
-        Angle::Turn(number) => dimension_len(number, "turn"),
-    };
-    let (candidate, _) = candidates
+    let original_len = dimension_len(angle_number(value), angle_unit(value));
+    let candidate = candidates
         .into_iter()
-        .min_by_key(|(candidate, unit)| dimension_len(angle_number(candidate), unit))
+        .min_by_key(|candidate| dimension_len(angle_number(candidate), angle_unit(candidate)))
         .expect("angle candidates are non-empty");
-    let candidate_len = match candidate {
-        Angle::Deg(number) => dimension_len(number, "deg"),
-        Angle::Rad(number) => dimension_len(number, "rad"),
-        Angle::Grad(number) => dimension_len(number, "grad"),
-        Angle::Turn(number) => dimension_len(number, "turn"),
-    };
+    let candidate_len = dimension_len(angle_number(&candidate), angle_unit(&candidate));
     if candidate_len < original_len {
         *value = candidate;
         true
@@ -79,8 +69,8 @@ pub(crate) fn minify_time(value: &mut Time) -> bool {
     };
     let seconds = clean_float(milliseconds / 1000.0);
     let milliseconds = clean_float(milliseconds);
-    let seconds_len = dimension_len(seconds, "s");
-    let milliseconds_len = dimension_len(milliseconds, "ms");
+    let seconds_len = dimension_len(seconds, Unit::Seconds);
+    let milliseconds_len = dimension_len(milliseconds, Unit::Milliseconds);
     let candidate = if seconds_len < milliseconds_len {
         Time::Seconds(seconds)
     } else {
@@ -117,84 +107,49 @@ pub(crate) fn minify_resolution(value: &mut Resolution) -> bool {
     }
 }
 
-pub(crate) fn minify_dimension(value: f32, unit: &str) -> Option<(f32, &'static str)> {
-    if let Some(length_unit) = parse_absolute_length_unit(unit) {
+pub(crate) fn minify_dimension(value: f32, unit: Unit) -> Option<(f32, Unit)> {
+    if let Unit::Length(length_unit) = unit
+        && to_px(value, length_unit).is_some()
+    {
         let mut length = LengthValue {
             value,
             unit: length_unit,
         };
         minify_length(&mut length);
-        return Some((length.value, length_unit_name(&length.unit)));
+        return Some((length.value, Unit::Length(length.unit)));
     }
-    if unit.eq_ignore_ascii_case("ms") || unit.eq_ignore_ascii_case("s") {
-        let mut time = if unit.eq_ignore_ascii_case("ms") {
-            Time::Milliseconds(value)
-        } else {
-            Time::Seconds(value)
+    if matches!(unit, Unit::Milliseconds | Unit::Seconds) {
+        let mut time = match unit {
+            Unit::Milliseconds => Time::Milliseconds(value),
+            Unit::Seconds => Time::Seconds(value),
+            _ => unreachable!("time units were checked above"),
         };
         minify_time(&mut time);
         return Some(match time {
-            Time::Seconds(number) => (number, "s"),
-            Time::Milliseconds(number) => (number, "ms"),
+            Time::Seconds(number) => (number, Unit::Seconds),
+            Time::Milliseconds(number) => (number, Unit::Milliseconds),
         });
     }
-    if let Some(mut angle) = parse_angle(value, unit) {
+    if matches!(unit, Unit::Deg | Unit::Rad | Unit::Grad | Unit::Turn) {
+        let mut angle = match unit {
+            Unit::Deg => Angle::Deg(value),
+            Unit::Rad => Angle::Rad(value),
+            Unit::Grad => Angle::Grad(value),
+            Unit::Turn => Angle::Turn(value),
+            _ => unreachable!("angle units were checked above"),
+        };
         minify_angle(&mut angle);
         return Some(match angle {
-            Angle::Deg(number) => (number, "deg"),
-            Angle::Rad(number) => (number, "rad"),
-            Angle::Grad(number) => (number, "grad"),
-            Angle::Turn(number) => (number, "turn"),
+            Angle::Deg(number) => (number, Unit::Deg),
+            Angle::Rad(number) => (number, Unit::Rad),
+            Angle::Grad(number) => (number, Unit::Grad),
+            Angle::Turn(number) => (number, Unit::Turn),
         });
     }
     None
 }
 
-pub(crate) fn is_length_unit(unit: &str) -> bool {
-    [
-        "px", "in", "cm", "mm", "q", "pt", "pc", "em", "rem", "ex", "rex", "ch", "rch", "cap",
-        "rcap", "ic", "ric", "lh", "rlh", "vw", "vh", "vi", "vb", "vmin", "vmax", "svw", "svh",
-        "lvw", "lvh", "dvw", "dvh", "cqw", "cqh", "cqi", "cqb", "cqmin", "cqmax",
-    ]
-    .into_iter()
-    .any(|candidate| unit.eq_ignore_ascii_case(candidate))
-}
-
-fn parse_absolute_length_unit(unit: &str) -> Option<LengthUnit> {
-    if unit.eq_ignore_ascii_case("px") {
-        Some(LengthUnit::Px)
-    } else if unit.eq_ignore_ascii_case("in") {
-        Some(LengthUnit::In)
-    } else if unit.eq_ignore_ascii_case("cm") {
-        Some(LengthUnit::Cm)
-    } else if unit.eq_ignore_ascii_case("mm") {
-        Some(LengthUnit::Mm)
-    } else if unit.eq_ignore_ascii_case("q") {
-        Some(LengthUnit::Q)
-    } else if unit.eq_ignore_ascii_case("pt") {
-        Some(LengthUnit::Pt)
-    } else if unit.eq_ignore_ascii_case("pc") {
-        Some(LengthUnit::Pc)
-    } else {
-        None
-    }
-}
-
-fn parse_angle(value: f32, unit: &str) -> Option<Angle> {
-    if unit.eq_ignore_ascii_case("deg") {
-        Some(Angle::Deg(value))
-    } else if unit.eq_ignore_ascii_case("rad") {
-        Some(Angle::Rad(value))
-    } else if unit.eq_ignore_ascii_case("grad") {
-        Some(Angle::Grad(value))
-    } else if unit.eq_ignore_ascii_case("turn") {
-        Some(Angle::Turn(value))
-    } else {
-        None
-    }
-}
-
-fn to_px(value: f32, unit: &LengthUnit) -> Option<f32> {
+fn to_px(value: f32, unit: LengthUnit) -> Option<f32> {
     Some(match unit {
         LengthUnit::Px => value,
         LengthUnit::In => value * 96.0,
@@ -207,19 +162,6 @@ fn to_px(value: f32, unit: &LengthUnit) -> Option<f32> {
     })
 }
 
-fn length_unit_name(unit: &LengthUnit) -> &'static str {
-    match unit {
-        LengthUnit::Px => "px",
-        LengthUnit::In => "in",
-        LengthUnit::Cm => "cm",
-        LengthUnit::Mm => "mm",
-        LengthUnit::Q => "q",
-        LengthUnit::Pt => "pt",
-        LengthUnit::Pc => "pc",
-        _ => unreachable!("only absolute length units are normalized"),
-    }
-}
-
 fn angle_number(value: &Angle) -> f32 {
     match value {
         Angle::Deg(number) | Angle::Rad(number) | Angle::Grad(number) | Angle::Turn(number) => {
@@ -228,16 +170,87 @@ fn angle_number(value: &Angle) -> f32 {
     }
 }
 
-fn resolution_len(value: &Resolution) -> usize {
+fn angle_unit(value: &Angle) -> Unit {
     match value {
-        Resolution::Dpi(number) => dimension_len(*number, "dpi"),
-        Resolution::Dpcm(number) => dimension_len(*number, "dpcm"),
-        Resolution::Dppx(number) => dimension_len(*number, "dppx"),
+        Angle::Deg(_) => Unit::Deg,
+        Angle::Rad(_) => Unit::Rad,
+        Angle::Grad(_) => Unit::Grad,
+        Angle::Turn(_) => Unit::Turn,
     }
 }
 
-fn dimension_len(value: f32, unit: &str) -> usize {
-    number_len(value) + unit.len()
+fn resolution_len(value: &Resolution) -> usize {
+    match value {
+        Resolution::Dpi(number) => dimension_len(*number, Unit::Dpi),
+        Resolution::Dpcm(number) => dimension_len(*number, Unit::Dpcm),
+        Resolution::Dppx(number) => dimension_len(*number, Unit::Dppx),
+    }
+}
+
+fn dimension_len(value: f32, unit: Unit) -> usize {
+    number_len(value) + unit_len(unit)
+}
+
+const fn unit_len(unit: Unit) -> usize {
+    match unit {
+        Unit::Length(unit) => length_unit_len(unit),
+        Unit::Seconds | Unit::ResolutionX => 1,
+        Unit::Milliseconds | Unit::Hertz | Unit::Flex => 2,
+        Unit::Deg | Unit::Rad | Unit::Kilohertz | Unit::Dpi => 3,
+        Unit::Grad | Unit::Turn | Unit::Dpcm | Unit::Dppx => 4,
+    }
+}
+
+const fn length_unit_len(unit: LengthUnit) -> usize {
+    match unit {
+        LengthUnit::Q => 1,
+        LengthUnit::Px
+        | LengthUnit::In
+        | LengthUnit::Cm
+        | LengthUnit::Mm
+        | LengthUnit::Pt
+        | LengthUnit::Pc
+        | LengthUnit::Em
+        | LengthUnit::Ex
+        | LengthUnit::Ch
+        | LengthUnit::Ic
+        | LengthUnit::Lh
+        | LengthUnit::Vw
+        | LengthUnit::Vh
+        | LengthUnit::Vi
+        | LengthUnit::Vb => 2,
+        LengthUnit::Rem
+        | LengthUnit::Rex
+        | LengthUnit::Rch
+        | LengthUnit::Cap
+        | LengthUnit::Ric
+        | LengthUnit::Rlh
+        | LengthUnit::Lvw
+        | LengthUnit::Svw
+        | LengthUnit::Dvw
+        | LengthUnit::Cqw
+        | LengthUnit::Lvh
+        | LengthUnit::Svh
+        | LengthUnit::Dvh
+        | LengthUnit::Cqh
+        | LengthUnit::Svi
+        | LengthUnit::Lvi
+        | LengthUnit::Dvi
+        | LengthUnit::Cqi
+        | LengthUnit::Svb
+        | LengthUnit::Lvb
+        | LengthUnit::Dvb
+        | LengthUnit::Cqb => 3,
+        LengthUnit::Rcap | LengthUnit::Vmin | LengthUnit::Vmax => 4,
+        LengthUnit::Svmin
+        | LengthUnit::Lvmin
+        | LengthUnit::Dvmin
+        | LengthUnit::Cqmin
+        | LengthUnit::Svmax
+        | LengthUnit::Lvmax
+        | LengthUnit::Dvmax
+        | LengthUnit::Cqmax => 5,
+    }
 }
 
 fn number_len(value: f32) -> usize {

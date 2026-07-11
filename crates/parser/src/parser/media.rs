@@ -86,25 +86,29 @@ pub(super) fn parse_media_list<'i>(
         let qualifier = input
             .try_parse(|input| {
                 let name = input.expect_ident()?;
-                if name.eq_ignore_ascii_case("only") {
-                    Ok::<_, ParseError<'i, ParserError<'i>>>(Qualifier::Only)
-                } else if name.eq_ignore_ascii_case("not") {
-                    Ok(Qualifier::Not)
-                } else {
-                    Err(input.new_custom_error(ParserError::InvalidValue))
-                }
+                match_ignore_ascii_case!(
+                    name,
+                    "only" => Ok::<_, ParseError<'i, ParserError<'i>>>(Qualifier::Only),
+                    "not" => Ok(Qualifier::Not),
+                    _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+                )
             })
             .ok();
 
         let type_state = input.state();
         let media_type = match input.try_parse(Parser::expect_ident) {
-            Ok(name) if name.eq_ignore_ascii_case("all") => MediaType::All,
-            Ok(name) if name.eq_ignore_ascii_case("print") => MediaType::Print,
-            Ok(name) if name.eq_ignore_ascii_case("screen") => MediaType::Screen,
-            Ok(name) if !name.eq_ignore_ascii_case("and") && !name.eq_ignore_ascii_case("or") => {
-                MediaType::Custom(name)
-            }
-            Ok(_) | Err(_) => {
+            Ok(name) => match_ignore_ascii_case!(
+                name,
+                "all" => MediaType::All,
+                "print" => MediaType::Print,
+                "screen" => MediaType::Screen,
+                "and" | "or" => {
+                    input.reset(&type_state);
+                    MediaType::All
+                },
+                _ => MediaType::Custom(name),
+            ),
+            Err(_) => {
                 input.reset(&type_state);
                 MediaType::All
             }

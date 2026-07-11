@@ -63,6 +63,28 @@ fn compact_stylesheet_omits_optional_whitespace() {
 }
 
 #[test]
+fn serializes_typed_and_unknown_dimension_units() {
+    assert_eq!(
+        Token::Dimension {
+            value: 2.0,
+            unit: Unit::Length(LengthUnit::Px),
+        }
+        .to_css_string(PrinterOptions::default())
+        .unwrap(),
+        "2px"
+    );
+    assert_eq!(
+        Token::UnknownDimension {
+            value: 2.0,
+            unit: "furlong",
+        }
+        .to_css_string(PrinterOptions::default())
+        .unwrap(),
+        "2furlong"
+    );
+}
+
+#[test]
 fn declaration_block_preserves_importance_bits() {
     let stylesheet = parse_stylesheet(".foo { color: red !important; opacity: .5 }");
     let CssRule::Style(style) = &stylesheet.rules[0] else {
