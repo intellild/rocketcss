@@ -4,7 +4,7 @@ impl ToCss for SelectorList<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for (index, selector) in self.iter().enumerate() {
             if index > 0 {
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
             }
             selector.to_css(dest)?;
         }
@@ -27,7 +27,7 @@ fn write_selector_list<PrinterT: PrinterTrait>(
 ) -> fmt::Result {
     for (index, selector) in selectors.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         selector.to_css(dest)?;
     }
@@ -162,10 +162,10 @@ impl ToCss for SelectorComponent<'_> {
 impl ToCss for Combinator {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
-            Self::Child => dest.write_str(" > "),
+            Self::Child => dest.delim(Delimiter::ChildCombinator),
             Self::Descendant => dest.write_char(' '),
-            Self::NextSibling => dest.write_str(" + "),
-            Self::LaterSibling => dest.write_str(" ~ "),
+            Self::NextSibling => dest.delim(Delimiter::NextSiblingCombinator),
+            Self::LaterSibling => dest.delim(Delimiter::LaterSiblingCombinator),
             Self::PseudoElement | Self::SlotAssignment | Self::Part => Ok(()),
             Self::DeepDescendant => dest.write_str(" >>> "),
             Self::Deep => dest.write_str(" /deep/ "),
@@ -205,7 +205,19 @@ fn write_attribute<PrinterT: PrinterTrait>(
     serialize_identifier(local_name, dest)?;
     if let Some((operator, value, case_sensitivity)) = operation {
         operator.to_css(dest)?;
-        serialize_string(value, dest)?;
+        if !dest.prettify() && !value.is_empty() {
+            let mut identifier = String::new();
+            serialize_identifier(value, &mut identifier)?;
+            let mut string = String::new();
+            serialize_string(value, &mut string)?;
+            if identifier.len() < string.len() {
+                dest.write_str(&identifier)?;
+            } else {
+                dest.write_str(&string)?;
+            }
+        } else {
+            serialize_string(value, dest)?;
+        }
         case_sensitivity.to_css(dest)?;
     }
     dest.write_char(']')
@@ -334,7 +346,7 @@ impl ToCss for PseudoClass<'_> {
                 dest.write_str(":lang(")?;
                 for (index, language) in languages.iter().enumerate() {
                     if index > 0 {
-                        dest.delim(',', false)?;
+                        dest.delim(Delimiter::Comma)?;
                     }
                     serialize_identifier(language, dest)?;
                 }
@@ -357,7 +369,7 @@ impl ToCss for PseudoClass<'_> {
                 dest.write_str(":active-view-transition-type(")?;
                 for (index, kind) in kinds.iter().enumerate() {
                     if index > 0 {
-                        dest.delim(',', false)?;
+                        dest.delim(Delimiter::Comma)?;
                     }
                     serialize_identifier(kind, dest)?;
                 }

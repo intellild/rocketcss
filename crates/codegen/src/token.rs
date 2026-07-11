@@ -24,20 +24,19 @@ impl ToCss for Token<'_> {
             }
             Self::Dimension { unit, value } => serialize_dimension(*value, unit, dest),
             Self::WhiteSpace(value) => {
-                if dest.minify() {
-                    dest.write_char(' ')
-                } else {
+                if dest.prettify() {
                     dest.write_str(value)
+                } else {
+                    dest.write_char(' ')
                 }
             }
             Self::Comment(value) => {
-                if dest.minify() {
-                    Ok(())
-                } else {
-                    dest.write_str("/*")?;
-                    dest.write_str(value)?;
-                    dest.write_str("*/")
+                if !dest.prettify() {
+                    return Ok(());
                 }
+                dest.write_str("/*")?;
+                dest.write_str(value)?;
+                dest.write_str("*/")
             }
             Self::Colon => dest.write_char(':'),
             Self::Semicolon => dest.write_char(';'),
@@ -176,6 +175,20 @@ fn write_dashed_ident<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT) 
 
 impl ToCss for Url<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        if !dest.prettify() {
+            use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
+
+            let mut unquoted = String::new();
+            CssToken::UnquotedUrl(CowRcStr::from(self.url)).to_css(&mut unquoted)?;
+            let mut quoted = String::from("url(");
+            cssparser::serialize_string(self.url, &mut quoted)?;
+            quoted.push(')');
+            return dest.write_str(if unquoted.len() <= quoted.len() {
+                &unquoted
+            } else {
+                &quoted
+            });
+        }
         dest.write_str("url(")?;
         serialize_string(self.url, dest)?;
         dest.write_char(')')

@@ -19,7 +19,7 @@ fn write_comma_separated<PrinterT: PrinterTrait, T: ToCss>(
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         value.to_css(dest)?;
     }
@@ -91,7 +91,7 @@ impl ToCss for WebKitColorStop<'_> {
         } else {
             dest.write_str("color-stop(")?;
             serialize_number(self.position, dest)?;
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
             self.color.to_css(dest)?;
         }
         dest.write_char(')')
@@ -397,7 +397,7 @@ impl ToCss for TrackRepeat<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("repeat(")?;
         self.count.to_css(dest)?;
-        dest.delim(',', false)?;
+        dest.delim(Delimiter::Comma)?;
         for (index, track_size) in self.track_sizes.iter().enumerate() {
             if let Some(names) = self.line_names.get(index)
                 && !names.is_empty()
@@ -586,7 +586,7 @@ impl ToCss for Animation<'_> {
 fn write_numbers<PrinterT: PrinterTrait>(values: &[f32], dest: &mut PrinterT) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         serialize_number(*value, dest)?;
     }
@@ -692,7 +692,7 @@ impl ToCss for Cursor<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for image in &self.images {
             image.to_css(dest)?;
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         self.keyword.to_css(dest)
     }
@@ -781,7 +781,7 @@ impl ToCss for Polygon<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("polygon(")?;
         self.fill_rule.to_css(dest)?;
-        dest.delim(',', false)?;
+        dest.delim(Delimiter::Comma)?;
         write_comma_separated(&self.points, dest)?;
         dest.write_char(')')
     }
@@ -1320,9 +1320,10 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
                     CssRule::Import(_) | CssRule::Namespace(_) | CssRule::LayerStatement(_)
                 )
             {
-                dest.write_char('\n')?;
+                dest.blank_line()?;
+            } else {
+                dest.new_line()?;
             }
-            dest.newline()?;
         }
         first = false;
         rule.to_css(dest)?;
@@ -1341,28 +1342,42 @@ where
     dest.whitespace()?;
     dest.write_char('{')?;
     dest.indent();
-    dest.newline()?;
+    dest.new_line()?;
     callback(dest)?;
     dest.dedent();
-    dest.newline()?;
+    dest.new_line()?;
     dest.write_char('}')
 }
 
-pub(crate) fn write_declarations<PrinterT: PrinterTrait>(
+#[derive(Clone, Copy)]
+enum LastSemicolon {
+    Omit,
+    Optional,
+    Required,
+}
+
+fn write_declarations<PrinterT: PrinterTrait>(
     declarations: &DeclarationBlock<'_>,
     dest: &mut PrinterT,
-    terminate_last: bool,
+    last_semicolon: LastSemicolon,
 ) -> fmt::Result {
     for (index, (declaration, important)) in declarations.iter().enumerate() {
         declaration.to_css(dest)?;
         if important {
             dest.write_str(" !important")?;
         }
-        if terminate_last || index + 1 < declarations.len() {
+        let has_next = index + 1 < declarations.len();
+        if has_next {
             dest.write_char(';')?;
+        } else {
+            match last_semicolon {
+                LastSemicolon::Omit => {}
+                LastSemicolon::Optional => dest.semicolon(false)?,
+                LastSemicolon::Required => dest.write_char(';')?,
+            }
         }
-        if index + 1 < declarations.len() {
-            dest.newline()?;
+        if has_next {
+            dest.new_line()?;
         }
     }
     Ok(())
@@ -1370,7 +1385,7 @@ pub(crate) fn write_declarations<PrinterT: PrinterTrait>(
 
 impl ToCss for DeclarationBlock<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_declarations(self, dest, false)
+        write_declarations(self, dest, LastSemicolon::Omit)
     }
 }
 
@@ -1379,7 +1394,7 @@ fn write_declaration_block<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
 ) -> fmt::Result {
     write_block(dest, |dest| {
-        write_declarations(declarations, dest, !dest.minify())
+        write_declarations(declarations, dest, LastSemicolon::Optional)
     })
 }
 
@@ -1390,12 +1405,12 @@ impl ToCss for StyleSheet<'_> {
             dest.write_str(comment)?;
             dest.write_str("*/")?;
             if index + 1 < self.license_comments.len() || !self.rules.is_empty() {
-                dest.newline()?;
+                dest.new_line()?;
             }
         }
         write_rule_list(&self.rules, dest)?;
         if !self.rules.is_empty() {
-            dest.newline()?;
+            dest.new_line()?;
         }
         Ok(())
     }
@@ -1447,11 +1462,14 @@ impl ToCss for StyleRule<'_> {
             write_declarations(
                 &self.declarations,
                 dest,
-                !dest.minify() || !self.rules.is_empty(),
+                if self.rules.is_empty() {
+                    LastSemicolon::Optional
+                } else {
+                    LastSemicolon::Required
+                },
             )?;
             if !self.declarations.is_empty() && !self.rules.is_empty() {
-                dest.write_char('\n')?;
-                dest.newline()?;
+                dest.blank_line()?;
             }
             write_rule_list(&self.rules, dest)
         })
@@ -1467,14 +1485,13 @@ impl ToCss for KeyframesRule<'_> {
         if self.keyframes.is_empty() {
             dest.whitespace()?;
             dest.write_char('{')?;
-            dest.newline()?;
+            dest.new_line()?;
             return dest.write_char('}');
         }
         write_block(dest, |dest| {
             for (index, keyframe) in self.keyframes.iter().enumerate() {
                 if index > 0 {
-                    dest.write_char('\n')?;
-                    dest.newline()?;
+                    dest.blank_line()?;
                 }
                 keyframe.to_css(dest)?;
             }
@@ -1512,11 +1529,9 @@ where
             dest.write_char(':')?;
             dest.whitespace()?;
             value.to_css(dest)?;
-            if !dest.minify() || index + 1 < values.len() {
-                dest.write_char(';')?;
-            }
+            dest.semicolon(index + 1 < values.len())?;
             if index + 1 < values.len() {
-                dest.newline()?;
+                dest.new_line()?;
             }
         }
         Ok(())
@@ -1590,8 +1605,7 @@ impl ToCss for FontFeatureValuesRule<'_> {
         write_block(dest, |dest| {
             for (index, rule) in self.rules.iter().enumerate() {
                 if index > 0 {
-                    dest.write_char('\n')?;
-                    dest.newline()?;
+                    dest.blank_line()?;
                 }
                 rule.to_css(dest)?;
             }
@@ -1609,7 +1623,7 @@ impl ToCss for FontFeatureSubrule<'_> {
                 value.to_css(dest)?;
                 if index + 1 < self.declarations.len() {
                     dest.write_char(';')?;
-                    dest.newline()?;
+                    dest.new_line()?;
                 }
             }
             Ok(())
@@ -1620,7 +1634,7 @@ impl ToCss for FontFeatureSubrule<'_> {
 impl ToCss for FontFeatureDeclaration<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_identifier(self.name, dest)?;
-        dest.delim(':', false)?;
+        dest.delim(Delimiter::Colon)?;
         for (index, value) in self.values.iter().enumerate() {
             if index > 0 {
                 dest.write_char(' ')?;
@@ -1642,16 +1656,18 @@ impl ToCss for PageRule<'_> {
             write_declarations(
                 &self.declarations,
                 dest,
-                !dest.minify() || !self.rules.is_empty(),
+                if self.rules.is_empty() {
+                    LastSemicolon::Optional
+                } else {
+                    LastSemicolon::Required
+                },
             )?;
             if !self.declarations.is_empty() && !self.rules.is_empty() {
-                dest.write_char('\n')?;
-                dest.newline()?;
+                dest.blank_line()?;
             }
             for (index, rule) in self.rules.iter().enumerate() {
                 if index > 0 {
-                    dest.write_char('\n')?;
-                    dest.newline()?;
+                    dest.blank_line()?;
                 }
                 rule.to_css(dest)?;
             }
@@ -1725,7 +1741,7 @@ impl ToCss for NestingRule<'_> {
 
 impl ToCss for NestedDeclarationsRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_declarations(&self.declarations, dest, !dest.minify())
+        write_declarations(&self.declarations, dest, LastSemicolon::Optional)
     }
 }
 
@@ -1764,7 +1780,7 @@ impl ToCss for LayerStatementRule<'_> {
         dest.write_str("@layer ")?;
         for (index, name) in self.names.iter().enumerate() {
             if index > 0 {
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
             }
             write_layer_name(name, dest)?;
         }
@@ -1790,25 +1806,22 @@ impl ToCss for PropertyRule<'_> {
         serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
         write_block(dest, |dest| {
             dest.write_str("syntax")?;
-            dest.delim(':', false)?;
+            dest.delim(Delimiter::Colon)?;
             let syntax = self.syntax.to_css_string(dest.options())?;
             serialize_string(&syntax, dest)?;
             dest.write_char(';')?;
-            dest.newline()?;
+            dest.new_line()?;
             dest.write_str("inherits")?;
-            dest.delim(':', false)?;
+            dest.delim(Delimiter::Colon)?;
             dest.write_str(if self.inherits { "true" } else { "false" })?;
             if let Some(initial_value) = &self.initial_value {
                 dest.write_char(';')?;
-                dest.newline()?;
+                dest.new_line()?;
                 dest.write_str("initial-value")?;
-                dest.delim(':', false)?;
+                dest.delim(Delimiter::Colon)?;
                 initial_value.to_css(dest)?;
             }
-            if !dest.minify() {
-                dest.write_char(';')?;
-            }
-            Ok(())
+            dest.semicolon(false)
         })
     }
 }

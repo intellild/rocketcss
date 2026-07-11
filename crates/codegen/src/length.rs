@@ -118,7 +118,7 @@ fn write_calc_list<PrinterT: PrinterTrait, V: ToCss>(
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         value.to_css(dest)?;
     }
@@ -133,28 +133,28 @@ impl<V: ToCss> ToCss for MathFunction<'_, V> {
             Self::Max(values) => write_function("max", dest, |dest| write_calc_list(values, dest)),
             Self::Clamp((min, value, max)) => write_function("clamp", dest, |dest| {
                 min.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 value.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 max.to_css(dest)
             }),
             Self::Round((strategy, value, interval)) => write_function("round", dest, |dest| {
                 if !matches!(strategy, RoundingStrategy::Nearest) {
                     strategy.to_css(dest)?;
-                    dest.delim(',', false)?;
+                    dest.delim(Delimiter::Comma)?;
                 }
                 value.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 interval.to_css(dest)
             }),
             Self::Rem((left, right)) => write_function("rem", dest, |dest| {
                 left.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 right.to_css(dest)
             }),
             Self::Mod((left, right)) => write_function("mod", dest, |dest| {
                 left.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 right.to_css(dest)
             }),
             Self::Abs(value) => write_function("abs", dest, |dest| value.to_css(dest)),

@@ -7,7 +7,7 @@ impl ToCss for MediaList<'_> {
         }
         for (index, query) in self.media_queries.iter().enumerate() {
             if index > 0 {
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
             }
             query.to_css(dest)?;
         }
@@ -126,7 +126,7 @@ impl<FeatureId: ToCss> ToCss for QueryFeature<'_, FeatureId> {
         match self {
             Self::Plain { name, value } => {
                 name.to_css(dest)?;
-                dest.delim(':', false)?;
+                dest.delim(Delimiter::Colon)?;
                 value.to_css(dest)?;
             }
             Self::Boolean { name } => name.to_css(dest)?,
@@ -316,7 +316,7 @@ impl ToCss for SupportsCondition<'_> {
             Self::Declaration { property_id, value } => {
                 dest.write_char('(')?;
                 property_id.to_css(dest)?;
-                dest.delim(':', false)?;
+                dest.delim(Delimiter::Colon)?;
                 dest.write_str(value)?;
                 dest.write_char(')')
             }

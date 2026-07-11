@@ -206,7 +206,7 @@ impl ToCss for LightDark<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("light-dark(")?;
         self.light.to_css(dest)?;
-        dest.delim(',', false)?;
+        dest.delim(Delimiter::Comma)?;
         self.dark.to_css(dest)?;
         dest.write_char(')')
     }
@@ -289,7 +289,7 @@ impl ToCss for UnresolvedColor<'_> {
             Self::LightDark { dark, light } => {
                 dest.write_str("light-dark(")?;
                 crate::token::write_token_list(light, dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 crate::token::write_token_list(dark, dest)?;
                 dest.write_char(')')
             }

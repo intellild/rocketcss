@@ -56,7 +56,7 @@ macro_rules! comma_vec {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
-                            dest.delim(',', false)?;
+                            dest.delim(Delimiter::Comma)?;
                         }
                         value.to_css(dest)?;
                     }
@@ -144,11 +144,19 @@ macro_rules! impl_declaration_to_css {
         impl ToCss for Declaration<'_> {
             fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                 self.vendor_prefix().to_css(dest)?;
-                serialize_name(self.name(), dest)?;
+                match self {
+                    Self::Custom(_) => serialize_name(self.name(), dest)?,
+                    Self::Unparsed(value)
+                        if matches!(&*value.property_id, PropertyId::Custom(_)) =>
+                    {
+                        serialize_name(self.name(), dest)?;
+                    }
+                    _ => dest.write_str(self.name())?,
+                }
                 if matches!(self, Self::Custom(_)) {
                     dest.write_char(':')?;
                 } else {
-                    dest.delim(':', false)?;
+                    dest.delim(Delimiter::Colon)?;
                 }
                 match self {
                     $(

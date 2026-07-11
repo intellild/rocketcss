@@ -1,10 +1,52 @@
 use std::fmt::{self, Write};
 
 /// Options controlling CSS serialization.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrinterOptions {
-    /// Omit optional whitespace and line breaks.
-    pub minify: bool,
+    /// Emit optional whitespace, indentation, and line breaks.
+    pub prettify: bool,
+}
+
+impl Default for PrinterOptions {
+    fn default() -> Self {
+        Self { prettify: true }
+    }
+}
+
+/// A delimiter and its surrounding whitespace behavior.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Delimiter {
+    /// `,`, followed by optional whitespace.
+    Comma,
+    /// `:`, followed by optional whitespace.
+    Colon,
+    /// `>`, surrounded by optional whitespace.
+    ChildCombinator,
+    /// `+`, surrounded by optional whitespace.
+    NextSiblingCombinator,
+    /// `~`, surrounded by optional whitespace.
+    LaterSiblingCombinator,
+}
+
+impl Delimiter {
+    #[inline]
+    const fn value(self) -> char {
+        match self {
+            Self::Comma => ',',
+            Self::Colon => ':',
+            Self::ChildCombinator => '>',
+            Self::NextSiblingCombinator => '+',
+            Self::LaterSiblingCombinator => '~',
+        }
+    }
+
+    #[inline]
+    const fn whitespace_before(self) -> bool {
+        matches!(
+            self,
+            Self::ChildCombinator | Self::NextSiblingCombinator | Self::LaterSiblingCombinator
+        )
+    }
 }
 
 /// Source-map-independent formatting state shared by printer implementations.
@@ -37,8 +79,8 @@ impl<'a, W: Write> Printer<'a, W> {
     }
 
     #[inline]
-    pub fn minify(&self) -> bool {
-        self.options.minify
+    pub fn prettify(&self) -> bool {
+        self.options.prettify
     }
 
     #[inline]
@@ -53,24 +95,29 @@ impl<'a, W: Write> Printer<'a, W> {
 
     #[inline]
     pub fn whitespace(&mut self) -> fmt::Result {
-        if self.options.minify {
-            Ok(())
-        } else {
+        if self.options.prettify {
             self.write_char(' ')
+        } else {
+            Ok(())
         }
     }
 
     #[inline]
-    pub fn delim(&mut self, value: char, whitespace_before: bool) -> fmt::Result {
-        if whitespace_before {
-            self.whitespace()?;
+    pub fn delim(&mut self, delimiter: Delimiter) -> fmt::Result {
+        if self.options.prettify {
+            if delimiter.whitespace_before() {
+                self.write_char(' ')?;
+            }
+            self.write_char(delimiter.value())?;
+            self.write_char(' ')
+        } else {
+            self.write_char(delimiter.value())
         }
-        self.write_char(value)?;
-        self.whitespace()
     }
 
-    pub fn newline(&mut self) -> fmt::Result {
-        if self.options.minify {
+    #[inline]
+    pub fn new_line(&mut self) -> fmt::Result {
+        if !self.options.prettify {
             return Ok(());
         }
 
@@ -79,6 +126,25 @@ impl<'a, W: Write> Printer<'a, W> {
             self.write_char(' ')?;
         }
         Ok(())
+    }
+
+    #[inline]
+    pub fn blank_line(&mut self) -> fmt::Result {
+        if !self.options.prettify {
+            return Ok(());
+        }
+
+        self.write_char('\n')?;
+        self.new_line()
+    }
+
+    #[inline]
+    pub fn semicolon(&mut self, required: bool) -> fmt::Result {
+        if required || self.options.prettify {
+            self.write_char(';')
+        } else {
+            Ok(())
+        }
     }
 
     #[inline]
@@ -134,30 +200,35 @@ pub trait PrinterTrait: Write + private::Sealed + Sized {
     fn state_mut(&mut self) -> &mut PrinterState;
 
     #[inline]
-    fn minify(&self) -> bool {
-        self.options().minify
+    fn prettify(&self) -> bool {
+        self.options().prettify
     }
 
     #[inline]
     fn whitespace(&mut self) -> fmt::Result {
-        if self.minify() {
-            Ok(())
-        } else {
+        if self.prettify() {
             self.write_char(' ')
+        } else {
+            Ok(())
         }
     }
 
     #[inline]
-    fn delim(&mut self, value: char, whitespace_before: bool) -> fmt::Result {
-        if whitespace_before {
-            self.whitespace()?;
+    fn delim(&mut self, delimiter: Delimiter) -> fmt::Result {
+        if self.prettify() {
+            if delimiter.whitespace_before() {
+                self.write_char(' ')?;
+            }
+            self.write_char(delimiter.value())?;
+            self.write_char(' ')
+        } else {
+            self.write_char(delimiter.value())
         }
-        self.write_char(value)?;
-        self.whitespace()
     }
 
-    fn newline(&mut self) -> fmt::Result {
-        if self.minify() {
+    #[inline]
+    fn new_line(&mut self) -> fmt::Result {
+        if !self.prettify() {
             return Ok(());
         }
 
@@ -167,6 +238,25 @@ pub trait PrinterTrait: Write + private::Sealed + Sized {
             self.write_char(' ')?;
         }
         Ok(())
+    }
+
+    #[inline]
+    fn blank_line(&mut self) -> fmt::Result {
+        if !self.prettify() {
+            return Ok(());
+        }
+
+        self.write_char('\n')?;
+        self.new_line()
+    }
+
+    #[inline]
+    fn semicolon(&mut self, required: bool) -> fmt::Result {
+        if required || self.prettify() {
+            self.write_char(';')
+        } else {
+            Ok(())
+        }
     }
 
     #[inline]
@@ -260,8 +350,18 @@ pub(crate) fn serialize_number<PrinterT: PrinterTrait>(
     value: f32,
     dest: &mut PrinterT,
 ) -> fmt::Result {
-    let output = value.to_string();
+    // Percentages and unit conversions can introduce a tiny f32 error (for
+    // example, `30%` is stored as `0.3` and multiplied back to `30.000002`).
+    // Snap values that are extremely close to a non-zero integer without
+    // erasing genuinely small fractional values.
+    let rounded = value.round();
+    let value = if rounded != 0.0 && (value - rounded).abs() < 0.000_01 {
+        rounded
+    } else {
+        value
+    };
     if value != 0.0 && value.abs() < 1.0 {
+        let output = value.to_string();
         if value.is_sign_negative() {
             dest.write_char('-')?;
             dest.write_str(output.trim_start_matches('-').trim_start_matches('0'))
@@ -269,7 +369,7 @@ pub(crate) fn serialize_number<PrinterT: PrinterTrait>(
             dest.write_str(output.trim_start_matches('0'))
         }
     } else {
-        dest.write_str(&output)
+        write!(dest, "{value}")
     }
 }
 
