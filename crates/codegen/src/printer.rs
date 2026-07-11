@@ -68,14 +68,19 @@ impl<'a, W: Write> Printer<'a, W> {
 
     #[inline]
     pub fn delim(&mut self, value: char, whitespace_before: bool) -> fmt::Result {
-        if whitespace_before {
-            self.whitespace()?;
+        if self.options.prettify {
+            if whitespace_before {
+                self.write_char(' ')?;
+            }
+            self.write_char(value)?;
+            self.write_char(' ')
+        } else {
+            self.write_char(value)
         }
-        self.write_char(value)?;
-        self.whitespace()
     }
 
-    pub fn newline(&mut self) -> fmt::Result {
+    #[inline]
+    pub fn new_line(&mut self) -> fmt::Result {
         if !self.options.prettify {
             return Ok(());
         }
@@ -85,6 +90,25 @@ impl<'a, W: Write> Printer<'a, W> {
             self.write_char(' ')?;
         }
         Ok(())
+    }
+
+    #[inline]
+    pub fn blank_line(&mut self) -> fmt::Result {
+        if !self.options.prettify {
+            return Ok(());
+        }
+
+        self.write_char('\n')?;
+        self.new_line()
+    }
+
+    #[inline]
+    pub fn semicolon(&mut self, required: bool) -> fmt::Result {
+        if required || self.options.prettify {
+            self.write_char(';')
+        } else {
+            Ok(())
+        }
     }
 
     #[inline]
@@ -155,14 +179,19 @@ pub trait PrinterTrait: Write + private::Sealed + Sized {
 
     #[inline]
     fn delim(&mut self, value: char, whitespace_before: bool) -> fmt::Result {
-        if whitespace_before {
-            self.whitespace()?;
+        if self.prettify() {
+            if whitespace_before {
+                self.write_char(' ')?;
+            }
+            self.write_char(value)?;
+            self.write_char(' ')
+        } else {
+            self.write_char(value)
         }
-        self.write_char(value)?;
-        self.whitespace()
     }
 
-    fn newline(&mut self) -> fmt::Result {
+    #[inline]
+    fn new_line(&mut self) -> fmt::Result {
         if !self.prettify() {
             return Ok(());
         }
@@ -173,6 +202,25 @@ pub trait PrinterTrait: Write + private::Sealed + Sized {
             self.write_char(' ')?;
         }
         Ok(())
+    }
+
+    #[inline]
+    fn blank_line(&mut self) -> fmt::Result {
+        if !self.prettify() {
+            return Ok(());
+        }
+
+        self.write_char('\n')?;
+        self.new_line()
+    }
+
+    #[inline]
+    fn semicolon(&mut self, required: bool) -> fmt::Result {
+        if required || self.prettify() {
+            self.write_char(';')
+        } else {
+            Ok(())
+        }
     }
 
     #[inline]

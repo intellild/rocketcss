@@ -31,13 +31,12 @@ impl ToCss for Token<'_> {
                 }
             }
             Self::Comment(value) => {
-                if dest.prettify() {
-                    dest.write_str("/*")?;
-                    dest.write_str(value)?;
-                    dest.write_str("*/")
-                } else {
-                    Ok(())
+                if !dest.prettify() {
+                    return Ok(());
                 }
+                dest.write_str("/*")?;
+                dest.write_str(value)?;
+                dest.write_str("*/")
             }
             Self::Colon => dest.write_char(':'),
             Self::Semicolon => dest.write_char(';'),

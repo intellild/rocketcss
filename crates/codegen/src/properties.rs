@@ -25,19 +25,6 @@ impl ToCss for PropertyId<'_> {
     }
 }
 
-fn write_declaration_name<PrinterT: PrinterTrait>(
-    declaration: &Declaration<'_>,
-    dest: &mut PrinterT,
-) -> fmt::Result {
-    match declaration {
-        Declaration::Custom(_) => serialize_name(declaration.name(), dest),
-        Declaration::Unparsed(value) if matches!(&*value.property_id, PropertyId::Custom(_)) => {
-            serialize_name(declaration.name(), dest)
-        }
-        _ => dest.write_str(declaration.name()),
-    }
-}
-
 impl ToCss for BlendMode {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_debug_keyword(self, dest)
@@ -157,7 +144,15 @@ macro_rules! impl_declaration_to_css {
         impl ToCss for Declaration<'_> {
             fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                 self.vendor_prefix().to_css(dest)?;
-                write_declaration_name(self, dest)?;
+                match self {
+                    Self::Custom(_) => serialize_name(self.name(), dest)?,
+                    Self::Unparsed(value)
+                        if matches!(&*value.property_id, PropertyId::Custom(_)) =>
+                    {
+                        serialize_name(self.name(), dest)?;
+                    }
+                    _ => dest.write_str(self.name())?,
+                }
                 if matches!(self, Self::Custom(_)) {
                     dest.write_char(':')?;
                 } else {

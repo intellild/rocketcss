@@ -162,13 +162,10 @@ impl ToCss for SelectorComponent<'_> {
 impl ToCss for Combinator {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
-            Self::Child if !dest.prettify() => dest.write_char('>'),
-            Self::Child => dest.write_str(" > "),
+            Self::Child => dest.delim('>', true),
             Self::Descendant => dest.write_char(' '),
-            Self::NextSibling if !dest.prettify() => dest.write_char('+'),
-            Self::NextSibling => dest.write_str(" + "),
-            Self::LaterSibling if !dest.prettify() => dest.write_char('~'),
-            Self::LaterSibling => dest.write_str(" ~ "),
+            Self::NextSibling => dest.delim('+', true),
+            Self::LaterSibling => dest.delim('~', true),
             Self::PseudoElement | Self::SlotAssignment | Self::Part => Ok(()),
             Self::DeepDescendant => dest.write_str(" >>> "),
             Self::Deep => dest.write_str(" /deep/ "),
