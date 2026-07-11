@@ -10,6 +10,7 @@ css-module-lexer = { workspace = true }
 lightningcss     = { workspace = true }
 mimalloc         = { workspace = true }
 rs_css_allocator = { workspace = true }
+rs_css_codegen   = { workspace = true }
 rs_css_parser    = { workspace = true }
 stylo            = { workspace = true }
 url              = { workspace = true }
@@ -21,3 +22,7 @@ name    = "tokenizer"
 [[bench]]
 harness = false
 name    = "parser"
+
+[[bench]]
+harness = false
+name    = "codegen"
