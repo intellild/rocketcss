@@ -31,8 +31,9 @@ cargo bench -p benchmark --bench minify
 The minifier benchmark compares `rs-css`, Lightning CSS, and cssnano using the
 same unminified `bootstrap.css` input. Each measured iteration includes parsing,
 minification, and serialization. cssnano runs in a persistent Node.js process;
-its processor is initialized once, and timing is measured inside that process so
-Node startup and Rust/Node IPC are excluded.
+its processor is initialized once, so Node startup is excluded. The cssnano
+measurement includes the Rust/Node IPC round trip because Divan measures the
+worker request from the Rust side.
 
 `rs-css` currently runs only node-local, in-place normalization, while the other
 tools include broader cross-rule passes. Treat this as an implementation-cost

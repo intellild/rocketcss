@@ -1,47 +1,39 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use rs_css_allocator::Allocator;
 use rs_css_codegen::{PrinterOptions, ToCss};
 use rs_css_minify::{MinifyOptions, minify};
 use rs_css_parser::{ParserOptions, parse};
-use rstest::rstest;
 
-use crate::{expected_path, read_fixture};
+use crate::{expected_path, fixture_paths, read_fixture};
 
-#[rstest]
-// The glob expands every upstream input/output pair into an independent case.
-// Keep this source as the single runner when adding new upstream fixtures and
-// their original input/output semantics; changing this comment also makes
-// Cargo re-expand the compile-time fixture glob after new files are added. The
-// fixture path itself records the upstream package or Lightning CSS area, so
-// failures identify both the pass and its source suite. Fixtures that require
-// cross-node analysis or replacement AST allocation remain in the corpus but
-// are skipped until those features are redesigned around the local-only pass.
-fn minifies_upstream_fixture(
-    #[base_dir = "fixtures"]
-    #[files("minify/**/input.css")]
-    input: PathBuf,
-) {
-    if requires_nonlocal_or_rebuilding_transform(&input) {
-        eprintln!(
-            "skipped non-local or rebuilding minify fixture: {}",
-            input.display()
-        );
-        return;
+// Fixtures that require cross-node analysis or replacement AST allocation
+// remain in the corpus but are skipped until those features are redesigned
+// around the local-only pass.
+#[test]
+fn minifies_upstream_fixtures() {
+    for input in fixture_paths("minify") {
+        if requires_nonlocal_or_rebuilding_transform(&input) {
+            eprintln!(
+                "skipped non-local or rebuilding minify fixture: {}",
+                input.display()
+            );
+            continue;
+        }
+
+        let source = read_fixture(&input);
+        let expected = read_fixture(&expected_path(&input));
+        let allocator = Allocator::new();
+        let mut stylesheet = parse(&source, &allocator, ParserOptions::default())
+            .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
+
+        minify(&mut stylesheet, MinifyOptions::default());
+        let actual = stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
+
+        assert_eq!(actual, expected.trim_end(), "fixture: {}", input.display());
     }
-
-    let source = read_fixture(&input);
-    let expected = read_fixture(&expected_path(&input));
-    let allocator = Allocator::new();
-    let mut stylesheet = parse(&source, &allocator, ParserOptions::default())
-        .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
-
-    minify(&mut stylesheet, MinifyOptions::default());
-    let actual = stylesheet
-        .to_css_string(PrinterOptions { minify: true })
-        .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
-
-    assert_eq!(actual, expected.trim_end(), "fixture: {}", input.display());
 }
 
 fn requires_nonlocal_or_rebuilding_transform(input: &Path) -> bool {

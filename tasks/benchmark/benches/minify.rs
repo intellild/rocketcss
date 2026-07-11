@@ -7,47 +7,57 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
-use criterion::{Bencher, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use divan::{Bencher, black_box, counter::BytesCount};
 use rs_css_allocator::Allocator;
 use rs_css_codegen::{PrinterOptions, ToCss};
 
 const BOOTSTRAP: &str = include_str!("../files/bootstrap.css");
 
-fn bench_rs_css(b: &mut Bencher<'_>) {
-    b.iter(|| {
-        let allocator = Allocator::new();
-        let mut stylesheet = rs_css_parser::parse(
-            black_box(BOOTSTRAP),
-            &allocator,
-            rs_css_parser::ParserOptions {
-                error_recovery: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        rs_css_minify::minify(&mut stylesheet, rs_css_minify::MinifyOptions::default());
-        let output = stylesheet
-            .to_css_string(PrinterOptions { minify: true })
-            .unwrap();
-        black_box(output);
-    });
+fn main() {
+    divan::main();
 }
 
-fn bench_lightningcss(b: &mut Bencher<'_>) {
+#[divan::bench]
+fn rs_css(bencher: Bencher<'_, '_>) {
+    bencher
+        .counter(BytesCount::of_str(BOOTSTRAP))
+        .bench_local(|| {
+            let allocator = Allocator::new();
+            let mut stylesheet = rs_css_parser::parse(
+                black_box(BOOTSTRAP),
+                &allocator,
+                rs_css_parser::ParserOptions {
+                    error_recovery: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            rs_css_minify::minify(&mut stylesheet, rs_css_minify::MinifyOptions::default());
+            let output = stylesheet
+                .to_css_string(PrinterOptions { prettify: false })
+                .unwrap();
+            black_box(output);
+        });
+}
+
+#[divan::bench]
+fn lightningcss(bencher: Bencher<'_, '_>) {
     use lightningcss::stylesheet::{MinifyOptions, ParserOptions, PrinterOptions, StyleSheet};
 
-    b.iter(|| {
-        let mut stylesheet =
-            StyleSheet::parse(black_box(BOOTSTRAP), ParserOptions::default()).unwrap();
-        stylesheet.minify(MinifyOptions::default()).unwrap();
-        let output = stylesheet
-            .to_css(PrinterOptions {
-                minify: true,
-                ..PrinterOptions::default()
-            })
-            .unwrap();
-        black_box(output);
-    });
+    bencher
+        .counter(BytesCount::of_str(BOOTSTRAP))
+        .bench_local(|| {
+            let mut stylesheet =
+                StyleSheet::parse(black_box(BOOTSTRAP), ParserOptions::default()).unwrap();
+            stylesheet.minify(MinifyOptions::default()).unwrap();
+            let output = stylesheet
+                .to_css(PrinterOptions {
+                    minify: true,
+                    ..PrinterOptions::default()
+                })
+                .unwrap();
+            black_box(output);
+        });
 }
 
 struct CssnanoWorker {
@@ -118,19 +128,10 @@ impl Drop for CssnanoWorker {
     }
 }
 
-fn bench_bootstrap(c: &mut Criterion) {
+#[divan::bench]
+fn cssnano(bencher: Bencher<'_, '_>) {
     let mut cssnano = CssnanoWorker::spawn();
-    let mut group = c.benchmark_group("bootstrap/minify");
-    group.throughput(Throughput::Bytes(BOOTSTRAP.len() as u64));
-
-    group.bench_function("rs-css", bench_rs_css);
-    group.bench_function("lightningcss", bench_lightningcss);
-    group.bench_function("cssnano", |b| {
-        b.iter_custom(|iterations| cssnano.run(iterations));
-    });
-
-    group.finish();
+    bencher
+        .counter(BytesCount::of_str(BOOTSTRAP))
+        .bench_local(|| black_box(cssnano.run(1)));
 }
-
-criterion_group!(benches, bench_bootstrap);
-criterion_main!(benches);

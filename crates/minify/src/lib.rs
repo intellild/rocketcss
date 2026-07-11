@@ -207,7 +207,7 @@ mod tests {
         let mut stylesheet = parse(source, &allocator, ParserOptions::default()).unwrap();
         minify(&mut stylesheet, MinifyOptions::default());
         stylesheet
-            .to_css_string(PrinterOptions { minify: true })
+            .to_css_string(PrinterOptions { prettify: false })
             .unwrap()
     }
 
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(token_after, token_before);
         assert_eq!(
             stylesheet
-                .to_css_string(PrinterOptions { minify: true })
+                .to_css_string(PrinterOptions { prettify: false })
                 .unwrap(),
             "a{margin:1px}"
         );
@@ -279,7 +279,7 @@ mod tests {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(PrinterOptions { minify: true })
+                .to_css_string(PrinterOptions { prettify: false })
                 .unwrap(),
             "a{--color:rgb(0 0 0);--size:calc(3px * 2)}"
         );
