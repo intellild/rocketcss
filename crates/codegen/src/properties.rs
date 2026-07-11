@@ -56,7 +56,7 @@ macro_rules! comma_vec {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
-                            dest.delim(',', false)?;
+                            dest.delim(Delimiter::Comma)?;
                         }
                         value.to_css(dest)?;
                     }
@@ -156,7 +156,7 @@ macro_rules! impl_declaration_to_css {
                 if matches!(self, Self::Custom(_)) {
                     dest.write_char(':')?;
                 } else {
-                    dest.delim(':', false)?;
+                    dest.delim(Delimiter::Colon)?;
                 }
                 match self {
                     $(

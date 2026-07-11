@@ -19,7 +19,7 @@ fn write_comma_separated<PrinterT: PrinterTrait, T: ToCss>(
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         value.to_css(dest)?;
     }
@@ -91,7 +91,7 @@ impl ToCss for WebKitColorStop<'_> {
         } else {
             dest.write_str("color-stop(")?;
             serialize_number(self.position, dest)?;
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
             self.color.to_css(dest)?;
         }
         dest.write_char(')')
@@ -397,7 +397,7 @@ impl ToCss for TrackRepeat<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("repeat(")?;
         self.count.to_css(dest)?;
-        dest.delim(',', false)?;
+        dest.delim(Delimiter::Comma)?;
         for (index, track_size) in self.track_sizes.iter().enumerate() {
             if let Some(names) = self.line_names.get(index)
                 && !names.is_empty()
@@ -586,7 +586,7 @@ impl ToCss for Animation<'_> {
 fn write_numbers<PrinterT: PrinterTrait>(values: &[f32], dest: &mut PrinterT) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         serialize_number(*value, dest)?;
     }
@@ -692,7 +692,7 @@ impl ToCss for Cursor<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for image in &self.images {
             image.to_css(dest)?;
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         self.keyword.to_css(dest)
     }
@@ -781,7 +781,7 @@ impl ToCss for Polygon<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("polygon(")?;
         self.fill_rule.to_css(dest)?;
-        dest.delim(',', false)?;
+        dest.delim(Delimiter::Comma)?;
         write_comma_separated(&self.points, dest)?;
         dest.write_char(')')
     }
@@ -1634,7 +1634,7 @@ impl ToCss for FontFeatureSubrule<'_> {
 impl ToCss for FontFeatureDeclaration<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         serialize_identifier(self.name, dest)?;
-        dest.delim(':', false)?;
+        dest.delim(Delimiter::Colon)?;
         for (index, value) in self.values.iter().enumerate() {
             if index > 0 {
                 dest.write_char(' ')?;
@@ -1780,7 +1780,7 @@ impl ToCss for LayerStatementRule<'_> {
         dest.write_str("@layer ")?;
         for (index, name) in self.names.iter().enumerate() {
             if index > 0 {
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
             }
             write_layer_name(name, dest)?;
         }
@@ -1806,19 +1806,19 @@ impl ToCss for PropertyRule<'_> {
         serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
         write_block(dest, |dest| {
             dest.write_str("syntax")?;
-            dest.delim(':', false)?;
+            dest.delim(Delimiter::Colon)?;
             let syntax = self.syntax.to_css_string(dest.options())?;
             serialize_string(&syntax, dest)?;
             dest.write_char(';')?;
             dest.new_line()?;
             dest.write_str("inherits")?;
-            dest.delim(':', false)?;
+            dest.delim(Delimiter::Colon)?;
             dest.write_str(if self.inherits { "true" } else { "false" })?;
             if let Some(initial_value) = &self.initial_value {
                 dest.write_char(';')?;
                 dest.new_line()?;
                 dest.write_str("initial-value")?;
-                dest.delim(':', false)?;
+                dest.delim(Delimiter::Colon)?;
                 initial_value.to_css(dest)?;
             }
             dest.semicolon(false)

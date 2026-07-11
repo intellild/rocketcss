@@ -4,7 +4,7 @@ impl ToCss for SelectorList<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         for (index, selector) in self.iter().enumerate() {
             if index > 0 {
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
             }
             selector.to_css(dest)?;
         }
@@ -27,7 +27,7 @@ fn write_selector_list<PrinterT: PrinterTrait>(
 ) -> fmt::Result {
     for (index, selector) in selectors.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         selector.to_css(dest)?;
     }
@@ -162,10 +162,10 @@ impl ToCss for SelectorComponent<'_> {
 impl ToCss for Combinator {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
-            Self::Child => dest.delim('>', true),
+            Self::Child => dest.delim(Delimiter::ChildCombinator),
             Self::Descendant => dest.write_char(' '),
-            Self::NextSibling => dest.delim('+', true),
-            Self::LaterSibling => dest.delim('~', true),
+            Self::NextSibling => dest.delim(Delimiter::NextSiblingCombinator),
+            Self::LaterSibling => dest.delim(Delimiter::LaterSiblingCombinator),
             Self::PseudoElement | Self::SlotAssignment | Self::Part => Ok(()),
             Self::DeepDescendant => dest.write_str(" >>> "),
             Self::Deep => dest.write_str(" /deep/ "),
@@ -346,7 +346,7 @@ impl ToCss for PseudoClass<'_> {
                 dest.write_str(":lang(")?;
                 for (index, language) in languages.iter().enumerate() {
                     if index > 0 {
-                        dest.delim(',', false)?;
+                        dest.delim(Delimiter::Comma)?;
                     }
                     serialize_identifier(language, dest)?;
                 }
@@ -369,7 +369,7 @@ impl ToCss for PseudoClass<'_> {
                 dest.write_str(":active-view-transition-type(")?;
                 for (index, kind) in kinds.iter().enumerate() {
                     if index > 0 {
-                        dest.delim(',', false)?;
+                        dest.delim(Delimiter::Comma)?;
                     }
                     serialize_identifier(kind, dest)?;
                 }

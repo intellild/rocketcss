@@ -13,6 +13,42 @@ impl Default for PrinterOptions {
     }
 }
 
+/// A delimiter and its surrounding whitespace behavior.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Delimiter {
+    /// `,`, followed by optional whitespace.
+    Comma,
+    /// `:`, followed by optional whitespace.
+    Colon,
+    /// `>`, surrounded by optional whitespace.
+    ChildCombinator,
+    /// `+`, surrounded by optional whitespace.
+    NextSiblingCombinator,
+    /// `~`, surrounded by optional whitespace.
+    LaterSiblingCombinator,
+}
+
+impl Delimiter {
+    #[inline]
+    const fn value(self) -> char {
+        match self {
+            Self::Comma => ',',
+            Self::Colon => ':',
+            Self::ChildCombinator => '>',
+            Self::NextSiblingCombinator => '+',
+            Self::LaterSiblingCombinator => '~',
+        }
+    }
+
+    #[inline]
+    const fn whitespace_before(self) -> bool {
+        matches!(
+            self,
+            Self::ChildCombinator | Self::NextSiblingCombinator | Self::LaterSiblingCombinator
+        )
+    }
+}
+
 /// Source-map-independent formatting state shared by printer implementations.
 #[derive(Debug, Default)]
 pub struct PrinterState {
@@ -67,15 +103,15 @@ impl<'a, W: Write> Printer<'a, W> {
     }
 
     #[inline]
-    pub fn delim(&mut self, value: char, whitespace_before: bool) -> fmt::Result {
+    pub fn delim(&mut self, delimiter: Delimiter) -> fmt::Result {
         if self.options.prettify {
-            if whitespace_before {
+            if delimiter.whitespace_before() {
                 self.write_char(' ')?;
             }
-            self.write_char(value)?;
+            self.write_char(delimiter.value())?;
             self.write_char(' ')
         } else {
-            self.write_char(value)
+            self.write_char(delimiter.value())
         }
     }
 
@@ -178,15 +214,15 @@ pub trait PrinterTrait: Write + private::Sealed + Sized {
     }
 
     #[inline]
-    fn delim(&mut self, value: char, whitespace_before: bool) -> fmt::Result {
+    fn delim(&mut self, delimiter: Delimiter) -> fmt::Result {
         if self.prettify() {
-            if whitespace_before {
+            if delimiter.whitespace_before() {
                 self.write_char(' ')?;
             }
-            self.write_char(value)?;
+            self.write_char(delimiter.value())?;
             self.write_char(' ')
         } else {
-            self.write_char(value)
+            self.write_char(delimiter.value())
         }
     }
 

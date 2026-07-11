@@ -127,7 +127,7 @@ fn write_gradient_items<PrinterT: PrinterTrait, D: ToCss>(
 ) -> fmt::Result {
     for (index, item) in items.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         item.to_css(dest)?;
     }
@@ -154,7 +154,7 @@ impl ToCss for Gradient<'_> {
                     "linear-gradient("
                 })?;
                 direction.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 write_gradient_items(items, dest)?;
                 dest.write_char(')')
             }
@@ -179,7 +179,7 @@ impl ToCss for Gradient<'_> {
                 shape.to_css(dest)?;
                 dest.write_str(" at ")?;
                 position.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 write_gradient_items(items, dest)?;
                 dest.write_char(')')
             }
@@ -201,7 +201,7 @@ impl ToCss for Gradient<'_> {
                 angle.to_css(dest)?;
                 dest.write_str(" at ")?;
                 position.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 write_gradient_items(items, dest)?;
                 dest.write_char(')')
             }
@@ -217,10 +217,10 @@ impl ToCss for WebKitGradient<'_> {
             Self::Linear { from, to, stops } => {
                 dest.write_str("linear, ")?;
                 from.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 to.to_css(dest)?;
                 for stop in stops {
-                    dest.delim(',', false)?;
+                    dest.delim(Delimiter::Comma)?;
                     stop.to_css(dest)?;
                 }
             }
@@ -233,14 +233,14 @@ impl ToCss for WebKitGradient<'_> {
             } => {
                 dest.write_str("radial, ")?;
                 from.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 serialize_number(*start_radius, dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 to.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 serialize_number(*end_radius, dest)?;
                 for stop in stops {
-                    dest.delim(',', false)?;
+                    dest.delim(Delimiter::Comma)?;
                     stop.to_css(dest)?;
                 }
             }
@@ -829,7 +829,7 @@ impl ToCss for TrackSize<'_> {
             Self::MinMax { max, min } => {
                 dest.write_str("minmax(")?;
                 min.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 max.to_css(dest)?;
                 dest.write_char(')')
             }
@@ -1032,7 +1032,7 @@ impl ToCss for EasingFunction {
                 dest.write_str("cubic-bezier(")?;
                 for (index, value) in [x1, y1, x2, y2].into_iter().enumerate() {
                     if index > 0 {
-                        dest.delim(',', false)?;
+                        dest.delim(Delimiter::Comma)?;
                     }
                     serialize_number(*value, dest)?;
                 }
@@ -1041,7 +1041,7 @@ impl ToCss for EasingFunction {
             Self::Steps { count, position } => {
                 dest.write_str("steps(")?;
                 write!(dest, "{count}")?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 position.to_css(dest)?;
                 dest.write_char(')')
             }
@@ -1115,7 +1115,7 @@ fn write_comma_values<PrinterT: PrinterTrait, T: ToCss>(
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
-            dest.delim(',', false)?;
+            dest.delim(Delimiter::Comma)?;
         }
         value.to_css(dest)?;
     }
@@ -1139,9 +1139,9 @@ impl ToCss for Transform<'_> {
             }
             Self::Translate3d((x, y, z)) => write_function_values("translate3d", dest, |dest| {
                 x.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 y.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 z.to_css(dest)
             }),
             Self::Scale((x, y)) => {
@@ -1152,9 +1152,9 @@ impl ToCss for Transform<'_> {
             Self::ScaleZ(value) => write_function_values("scaleZ", dest, |dest| value.to_css(dest)),
             Self::Scale3d((x, y, z)) => write_function_values("scale3d", dest, |dest| {
                 x.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 y.to_css(dest)?;
-                dest.delim(',', false)?;
+                dest.delim(Delimiter::Comma)?;
                 z.to_css(dest)
             }),
             Self::Rotate(value) => write_function_values("rotate", dest, |dest| value.to_css(dest)),
@@ -1170,7 +1170,7 @@ impl ToCss for Transform<'_> {
             Self::Rotate3d((x, y, z, angle)) => write_function_values("rotate3d", dest, |dest| {
                 for value in [x, y, z] {
                     serialize_number(*value, dest)?;
-                    dest.delim(',', false)?;
+                    dest.delim(Delimiter::Comma)?;
                 }
                 angle.to_css(dest)
             }),
@@ -1388,7 +1388,7 @@ impl ToCss for StrokeDasharray<'_> {
             Self::Values(values) => {
                 for (index, value) in values.iter().enumerate() {
                     if index > 0 {
-                        dest.delim(',', false)?;
+                        dest.delim(Delimiter::Comma)?;
                     }
                     value.to_css(dest)?;
                 }
