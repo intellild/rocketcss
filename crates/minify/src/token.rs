@@ -1,5 +1,5 @@
-use rs_css_allocator::vec::Vec;
-use rs_css_ast::{Token, TokenOrValue};
+use rocketcss_allocator::vec::Vec;
+use rocketcss_ast::{Token, TokenOrValue};
 
 use crate::{Minify, MinifyContext, context::PropertyContext, length};
 

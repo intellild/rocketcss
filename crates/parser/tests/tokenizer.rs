@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use rs_css_parser::{SourceLocation, Span, Token, TokenAndSpan, Tokenizer, unescape};
+use rocketcss_parser::{SourceLocation, Span, Token, TokenAndSpan, Tokenizer, unescape};
 
 fn tokenize(input: &str) -> Vec<TokenAndSpan> {
     let mut tokenizer = Tokenizer::new(input);

@@ -1,4 +1,4 @@
-use rs_css_ast::{
+use rocketcss_ast::{
     CustomProperty, EnvironmentVariable, Function, KeyframeSelector, StyleSheet, UnknownAtRule,
     UnparsedProperty, Variable,
 };

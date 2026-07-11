@@ -80,24 +80,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
-name = "benchmark"
-version = "0.1.0"
-dependencies = [
- "codspeed-divan-compat",
- "css-module-lexer",
- "hashbrown",
- "lightningcss",
- "mimalloc",
- "rs_css_allocator",
- "rs_css_codegen",
- "rs_css_minify",
- "rs_css_parser",
- "rustc-hash",
- "stylo",
- "url",
-]
-
-[[package]]
 name = "bitflags"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1231,7 +1213,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
-name = "rs_css_allocator"
+name = "rocketcss_allocator"
 version = "0.1.0"
 dependencies = [
  "allocator-api2",
@@ -1241,15 +1223,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "rs_css_ast"
+name = "rocketcss_ast"
 version = "0.1.0"
 dependencies = [
  "bitflags",
- "rs_css_allocator",
+ "rocketcss_allocator",
 ]
 
 [[package]]
-name = "rs_css_ast_tools"
+name = "rocketcss_ast_tools"
 version = "0.0.0"
 dependencies = [
  "convert_case 0.11.0",
@@ -1260,56 +1242,74 @@ dependencies = [
 ]
 
 [[package]]
-name = "rs_css_codegen"
+name = "rocketcss_benchmark"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "css-module-lexer",
+ "hashbrown",
+ "lightningcss",
+ "mimalloc",
+ "rocketcss_allocator",
+ "rocketcss_codegen",
+ "rocketcss_minify",
+ "rocketcss_parser",
+ "rustc-hash",
+ "stylo",
+ "url",
+]
+
+[[package]]
+name = "rocketcss_codegen"
 version = "0.1.0"
 dependencies = [
  "cssparser",
  "lightningcss",
- "rs_css_allocator",
- "rs_css_ast",
- "rs_css_parser",
+ "rocketcss_allocator",
+ "rocketcss_ast",
+ "rocketcss_parser",
  "serde_json",
 ]
 
 [[package]]
-name = "rs_css_minify"
+name = "rocketcss_minify"
 version = "0.1.0"
 dependencies = [
- "rs_css_allocator",
- "rs_css_ast",
- "rs_css_codegen",
- "rs_css_parser",
- "rs_css_visitor",
+ "rocketcss_allocator",
+ "rocketcss_ast",
+ "rocketcss_codegen",
+ "rocketcss_parser",
+ "rocketcss_visitor",
 ]
 
 [[package]]
-name = "rs_css_parser"
+name = "rocketcss_parser"
 version = "0.1.0"
 dependencies = [
- "rs_css_allocator",
- "rs_css_ast",
+ "rocketcss_allocator",
+ "rocketcss_ast",
  "serde_json",
 ]
 
 [[package]]
-name = "rs_css_tests"
+name = "rocketcss_tests"
 version = "0.0.0"
 dependencies = [
- "rs_css_allocator",
- "rs_css_ast",
- "rs_css_codegen",
- "rs_css_minify",
- "rs_css_parser",
- "rs_css_visitor",
+ "rocketcss_allocator",
+ "rocketcss_ast",
+ "rocketcss_codegen",
+ "rocketcss_minify",
+ "rocketcss_parser",
+ "rocketcss_visitor",
 ]
 
 [[package]]
-name = "rs_css_visitor"
+name = "rocketcss_visitor"
 version = "0.1.0"
 dependencies = [
- "rs_css_allocator",
- "rs_css_ast",
- "rs_css_parser",
+ "rocketcss_allocator",
+ "rocketcss_ast",
+ "rocketcss_parser",
 ]
 
 [[package]]

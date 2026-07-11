@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-use rs_css_visitor::prelude::*;
+use rocketcss_visitor::prelude::*;
 
 struct Rename {
     from: &'static str,
@@ -41,10 +41,10 @@ impl<'a> Plugin<'a> for RecordPlugin {
 #[test]
 fn plugins_run_in_registration_order_and_share_context() {
     let allocator = Allocator::new();
-    let mut sheet = rs_css_parser::parse(
+    let mut sheet = rocketcss_parser::parse(
         ".first {}",
         &allocator,
-        rs_css_parser::ParserOptions::default(),
+        rocketcss_parser::ParserOptions::default(),
     )
     .unwrap();
     let mut context = PluginContext::new(&allocator);
@@ -112,8 +112,12 @@ impl<'a> Plugin<'a> for FailingPlugin {
 #[test]
 fn plugin_errors_include_the_plugin_name() {
     let allocator = Allocator::new();
-    let mut sheet =
-        rs_css_parser::parse("a {}", &allocator, rs_css_parser::ParserOptions::default()).unwrap();
+    let mut sheet = rocketcss_parser::parse(
+        "a {}",
+        &allocator,
+        rocketcss_parser::ParserOptions::default(),
+    )
+    .unwrap();
     let mut context = PluginContext::new(&allocator);
     let mut plugins = Plugins::new();
     plugins.add(FailingPlugin);

@@ -1,4 +1,4 @@
-use rs_css_ast::PropertyId;
+use rocketcss_ast::PropertyId;
 
 use crate::{
     MinifyContext,

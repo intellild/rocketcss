@@ -4,13 +4,13 @@ edition               = "2024"
 homepage.workspace    = true
 keywords.workspace    = true
 license               = "MPL-2.0"
-name                  = "rs_css_parser"
+name                  = "rocketcss_parser"
 repository.workspace  = true
 version               = "0.1.0"
 
 [dependencies]
-rs_css_allocator = { workspace = true }
-rs_css_ast       = { workspace = true }
+rocketcss_allocator = { workspace = true }
+rocketcss_ast       = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

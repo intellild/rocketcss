@@ -6,7 +6,7 @@
 )]
 use super::{Visit, VisitNode};
 use crate::AstType;
-use rs_css_ast::*;
+use rocketcss_ast::*;
 pub fn walk_media_condition<'a, VisitorT>(visitor: &mut VisitorT, node: &MediaCondition<'a>)
 where
     VisitorT: ?Sized + Visit<'a>,

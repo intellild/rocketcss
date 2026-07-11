@@ -1,3 +1,3 @@
 pub use crate::{Minify, MinifyContext, MinifyOptions, MinifyPlugin, MinifyStats, minify};
-pub use rs_css_allocator::Allocator;
-pub use rs_css_ast::prelude::*;
+pub use rocketcss_allocator::Allocator;
+pub use rocketcss_ast::prelude::*;

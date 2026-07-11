@@ -5,8 +5,8 @@ use std::{
     fmt,
 };
 
-use rs_css_allocator::Allocator;
-use rs_css_ast::StyleSheet;
+use rocketcss_allocator::Allocator;
+use rocketcss_ast::StyleSheet;
 
 use crate::VisitMut;
 

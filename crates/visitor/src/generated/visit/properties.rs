@@ -6,7 +6,7 @@
 )]
 use super::{Visit, VisitNode};
 use crate::AstType;
-use rs_css_ast::*;
+use rocketcss_ast::*;
 pub fn walk_blend_mode<'a, VisitorT>(visitor: &mut VisitorT, node: &BlendMode)
 where
     VisitorT: ?Sized + Visit<'a>,

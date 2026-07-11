@@ -7,35 +7,35 @@ and can be measured by CodSpeed with `cargo codspeed build` and `cargo codspeed 
 Run the tokenizer comparison with:
 
 ```sh
-cargo bench -p benchmark --bench tokenizer
+cargo bench -p rocketcss_benchmark --bench tokenizer
 ```
 
 Run the parser comparison with:
 
 ```sh
-cargo bench -p benchmark --bench parser
+cargo bench -p rocketcss_benchmark --bench parser
 ```
 
 Run the code generator comparison with:
 
 ```sh
-cargo bench -p benchmark --bench codegen
+cargo bench -p rocketcss_benchmark --bench codegen
 ```
 
 Run the Bootstrap minifier comparison with:
 
 ```sh
-cargo bench -p benchmark --bench minify
+cargo bench -p rocketcss_benchmark --bench minify
 ```
 
-The minifier benchmark compares `rs-css`, Lightning CSS, and cssnano using the
+The minifier benchmark compares `rocketcss`, Lightning CSS, and cssnano using the
 same unminified `bootstrap.css` input. Each measured iteration includes parsing,
 minification, and serialization. cssnano runs in a persistent Node.js process;
 its processor is initialized once, so Node startup is excluded. The cssnano
 measurement includes the Rust/Node IPC round trip because Divan measures the
 worker request from the Rust side.
 
-`rs-css` currently runs only node-local, in-place normalization, while the other
+`rocketcss` currently runs only node-local, in-place normalization, while the other
 tools include broader cross-rule passes. Treat this as an implementation-cost
 comparison rather than feature-equivalent minifier throughput.
 
@@ -45,10 +45,10 @@ executable:
 
 ```sh
 CSSNANO_DIR=/path/to/cssnano NODE=/path/to/node \
-  cargo bench -p benchmark --bench minify
+  cargo bench -p rocketcss_benchmark --bench minify
 ```
 
-The tokenizer benchmark compares `rs_css_parser::Tokenizer` with
+The tokenizer benchmark compares `rocketcss_parser::Tokenizer` with
 `css_module_lexer::collect_dependencies`, matching css-module-lexer's own
 benchmark entry point. The latter also performs CSS module dependency analysis
 because the crate does not expose its raw lexer visitor API.

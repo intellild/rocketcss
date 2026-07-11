@@ -10,8 +10,8 @@ mod values;
 
 pub mod prelude;
 
-use rs_css_ast::*;
-use rs_css_visitor::{BoxError, Plugin, PluginContext, VisitMut, walk_mut};
+use rocketcss_ast::*;
+use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, walk_mut};
 
 pub use context::{MinifyContext, MinifyStats};
 pub use options::MinifyOptions;
@@ -172,10 +172,10 @@ fn is_math_function(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use rs_css_allocator::Allocator;
-    use rs_css_codegen::{PrinterOptions, ToCss};
-    use rs_css_parser::{ParserOptions, parse};
-    use rs_css_visitor::{PluginContext, Plugins};
+    use rocketcss_allocator::Allocator;
+    use rocketcss_codegen::{PrinterOptions, ToCss};
+    use rocketcss_parser::{ParserOptions, parse};
+    use rocketcss_visitor::{PluginContext, Plugins};
 
     use super::*;
 

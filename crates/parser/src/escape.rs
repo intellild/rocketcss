@@ -13,7 +13,7 @@ pub(crate) struct Escape {
 /// Returns the original slice when it contains no escapes or null characters.
 ///
 /// ```
-/// use rs_css_parser::unescape;
+/// use rocketcss_parser::unescape;
 ///
 /// assert_eq!(unescape(r"fo\6f "), "foo");
 /// ```

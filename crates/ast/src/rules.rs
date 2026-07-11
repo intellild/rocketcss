@@ -335,15 +335,17 @@ pub struct StyleRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, Declaration<'a>>,
-    pub declarations_importance: rs_css_allocator::small_bit_vec::SmallBitVec<'a>,
+    pub declarations_importance: rocketcss_allocator::small_bit_vec::SmallBitVec<'a>,
 }
 
 impl<'a> DeclarationBlock<'a> {
     #[inline]
-    pub fn new(allocator: &'a rs_css_allocator::Allocator) -> Self {
+    pub fn new(allocator: &'a rocketcss_allocator::Allocator) -> Self {
         Self {
             declarations: allocator.vec(),
-            declarations_importance: rs_css_allocator::small_bit_vec::SmallBitVec::new(allocator),
+            declarations_importance: rocketcss_allocator::small_bit_vec::SmallBitVec::new(
+                allocator,
+            ),
         }
     }
 

@@ -38,7 +38,7 @@ pub use parser::{
     ParseErrorKind, ParseUntilErrorBehavior, Parser, ParserError, ParserInput, ParserOptions,
     ParserState,
 };
-pub use rs_css_ast::{Span, Token as ValueToken};
+pub use rocketcss_ast::{Span, Token as ValueToken};
 pub use tokenizer::{
     SourceLocation, SourcePosition, Token, TokenAndSpan, Tokenizer, TokenizerState,
 };

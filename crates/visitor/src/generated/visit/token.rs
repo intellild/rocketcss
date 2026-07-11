@@ -6,7 +6,7 @@
 )]
 use super::{Visit, VisitNode};
 use crate::AstType;
-use rs_css_ast::*;
+use rocketcss_ast::*;
 pub fn walk_token_or_value<'a, VisitorT>(visitor: &mut VisitorT, node: &TokenOrValue<'a>)
 where
     VisitorT: ?Sized + Visit<'a>,

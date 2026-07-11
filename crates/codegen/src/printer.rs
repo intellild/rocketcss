@@ -405,7 +405,7 @@ pub(crate) fn serialize_debug_keyword<T: fmt::Debug, PrinterT: PrinterTrait>(
     Ok(())
 }
 
-impl<'a, T: ToCss> ToCss for rs_css_allocator::boxed::Box<'a, T> {
+impl<'a, T: ToCss> ToCss for rocketcss_allocator::boxed::Box<'a, T> {
     #[inline]
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         (**self).to_css(dest)

@@ -1,5 +1,5 @@
-use rs_css_ast::*;
-use rs_css_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss};
+use rocketcss_ast::*;
+use rocketcss_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss};
 
 fn assert_to_css<T: ToCss>() {}
 

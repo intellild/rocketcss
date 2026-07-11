@@ -1,5 +1,5 @@
-use rs_css_allocator::Allocator;
-use rs_css_parser::{ParserOptions, parse};
+use rocketcss_allocator::Allocator;
+use rocketcss_parser::{ParserOptions, parse};
 
 use crate::{fixture_paths, read_fixture};
 

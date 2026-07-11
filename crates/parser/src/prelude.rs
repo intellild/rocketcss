@@ -10,5 +10,5 @@ pub use crate::parser::{
 pub use crate::tokenizer::{
     SourceLocation, SourcePosition, Token as LexicalToken, TokenAndSpan, Tokenizer, TokenizerState,
 };
-pub use rs_css_ast::Token as ValueToken;
-pub use rs_css_ast::prelude::*;
+pub use rocketcss_ast::Token as ValueToken;
+pub use rocketcss_ast::prelude::*;

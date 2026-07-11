@@ -2,8 +2,8 @@ use lightningcss::stylesheet::{
     ParserOptions as LightningParserOptions, PrinterOptions as LightningPrinterOptions,
     StyleSheet as LightningStyleSheet,
 };
-use rs_css_codegen::{PrinterOptions, ToCss};
-use rs_css_parser::prelude::*;
+use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_parser::prelude::*;
 use serde_json::Value;
 
 const CORPUS: &str = include_str!("../../parser/tests/upstream/corpus.json");
@@ -55,7 +55,7 @@ fn lightningcss_stylesheet_ast_to_css_corpus() {
         });
         let actual = stylesheet
             .to_css_string(PrinterOptions::default())
-            .expect("rs-css AST should serialize");
+            .expect("rocketcss AST should serialize");
         compared += 1;
 
         let canonical_actual = LightningStyleSheet::parse(
@@ -69,7 +69,7 @@ fn lightningcss_stylesheet_ast_to_css_corpus() {
         .and_then(|stylesheet| stylesheet.to_css(LightningPrinterOptions::default()).ok());
         let Some(canonical_actual) = canonical_actual else {
             failures.push(format!(
-                "{name}\nsource:\n{source}\nrs-css output could not be reparsed:\n{actual}"
+                "{name}\nsource:\n{source}\nrocketcss output could not be reparsed:\n{actual}"
             ));
             if failures.len() == 50 {
                 break;
@@ -79,7 +79,7 @@ fn lightningcss_stylesheet_ast_to_css_corpus() {
 
         if canonical_actual.code != expected {
             failures.push(format!(
-                "{name}\nsource:\n{source}\nexpected canonical CSS:\n{expected}\nrs-css output:\n{actual}\ncanonical rs-css output:\n{}",
+                "{name}\nsource:\n{source}\nexpected canonical CSS:\n{expected}\nrocketcss output:\n{actual}\ncanonical rocketcss output:\n{}",
                 canonical_actual.code
             ));
             if failures.len() == 50 {

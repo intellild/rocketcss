@@ -386,7 +386,7 @@ def extract_lightning_runtime(path: Path, log_path: Path) -> dict[str, object]:
 
     cases: list[dict[str, object]] = []
     pattern = re.compile(
-        r"RS_CSS_CORPUS\|(\d+)\|(true|false)\|(true|false)\|(true|false)\|(\d+)\|(.*?)\|RS_CSS_CORPUS_END"
+        r"ROCKETCSS_CORPUS\|(\d+)\|(true|false)\|(true|false)\|(true|false)\|(\d+)\|(.*?)\|ROCKETCSS_CORPUS_END"
     )
     for match in pattern.finditer(log_path.read_text()):
         line, ok, recovery, css_modules, flags, debug_source = match.groups()

@@ -1,16 +1,16 @@
-# rs_css_minify
+# rocketcss_minify
 
-`rs_css_minify` walks an arena-backed `rs_css_ast::StyleSheet` and applies only
+`rocketcss_minify` walks an arena-backed `rocketcss_ast::StyleSheet` and applies only
 simple, node-local normalization in place. It does not merge or remove rules,
 deduplicate declarations, combine longhands, or allocate replacement AST
 nodes. Compact output formatting is selected separately with
-`rs_css_codegen::PrinterOptions { minify: true }`.
+`rocketcss_codegen::PrinterOptions { minify: true }`.
 
 ```rust
-use rs_css_allocator::Allocator;
-use rs_css_codegen::{PrinterOptions, ToCss};
-use rs_css_minify::{MinifyOptions, minify};
-use rs_css_parser::{ParserOptions, parse};
+use rocketcss_allocator::Allocator;
+use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_minify::{MinifyOptions, minify};
+use rocketcss_parser::{ParserOptions, parse};
 
 let allocator = Allocator::new();
 let mut stylesheet = parse(
@@ -25,5 +25,5 @@ assert_eq!(css, "a{width:1pc;margin:1px}");
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
-`MinifyPlugin` provides the same transform for a `rs_css_visitor::Plugins`
+`MinifyPlugin` provides the same transform for a `rocketcss_visitor::Plugins`
 pipeline and stores `MinifyStats` in the shared plugin context.

@@ -1,4 +1,4 @@
-use rs_css_parser::prelude::*;
+use rocketcss_parser::prelude::*;
 
 #[test]
 fn parser_decodes_values_from_token_spans() {
@@ -41,9 +41,9 @@ fn parser_backtracks_and_parses_nested_blocks() {
             input.expect_comma()?;
             input.expect_square_bracket_block()?;
             let inner = input.parse_nested_block(|input| {
-                Ok::<_, rs_css_parser::ParseError<'_, ()>>(input.expect_ident()?)
+                Ok::<_, rocketcss_parser::ParseError<'_, ()>>(input.expect_ident()?)
             })?;
-            Ok::<_, rs_css_parser::ParseError<'_, ()>>((first, inner))
+            Ok::<_, rocketcss_parser::ParseError<'_, ()>>((first, inner))
         })
         .unwrap();
     assert_eq!(values, (1.0, "bar"));
@@ -59,10 +59,10 @@ fn delimited_parse_does_not_stop_inside_nested_blocks() {
     let mut input = ParserInput::new("one(foo;bar);two", &allocator);
     let mut parser = Parser::new(&mut input);
     let raw = parser
-        .parse_until_before(rs_css_parser::Delimiter::Semicolon, |input| {
+        .parse_until_before(rocketcss_parser::Delimiter::Semicolon, |input| {
             let start = input.position();
             while input.next().is_ok() {}
-            Ok::<_, rs_css_parser::ParseError<'_, ()>>(input.slice_from(start))
+            Ok::<_, rocketcss_parser::ParseError<'_, ()>>(input.slice_from(start))
         })
         .unwrap();
 
@@ -112,7 +112,7 @@ fn parses_style_rule_selectors_and_declarations() {
     assert!(matches!(
         &rule.declarations.declarations[0],
         Declaration::Color(value)
-            if matches!(**value, rs_css_ast::CssColor::Rgba(rs_css_ast::RGBA { red: 255, green: 0, blue: 0, alpha: 255 }))
+            if matches!(**value, rocketcss_ast::CssColor::Rgba(rocketcss_ast::RGBA { red: 255, green: 0, blue: 0, alpha: 255 }))
     ));
     assert!(matches!(
         &rule.declarations.declarations[1],
@@ -226,7 +226,7 @@ fn invalid_selector_reports_source_location() {
     assert_eq!(error.location.line, 0);
     assert!(matches!(
         error.kind,
-        rs_css_parser::ParserError::InvalidSelector
+        rocketcss_parser::ParserError::InvalidSelector
     ));
 }
 
@@ -246,7 +246,7 @@ fn parser_reports_unmatched_closing_token() {
 #[test]
 fn lightningcss_parse_trait_parses_values_from_strings() {
     let allocator = Allocator::new();
-    let selectors = rs_css_ast::SelectorList::parse_string(".a:is(.b, #c)", &allocator).unwrap();
+    let selectors = rocketcss_ast::SelectorList::parse_string(".a:is(.b, #c)", &allocator).unwrap();
     assert_eq!(selectors.len(), 1);
     assert!(matches!(
         &selectors[0][1],
@@ -370,9 +370,9 @@ fn parses_lightningcss_rule_families() {
     assert!(matches!(
         &sheet.rules[4],
         CssRule::Keyframes(rule)
-            if matches!(*rule.name, rs_css_ast::KeyframesName::Ident("fade"))
+            if matches!(*rule.name, rocketcss_ast::KeyframesName::Ident("fade"))
                 && rule.keyframes.len() == 3
-                && matches!(rule.keyframes[1].selectors[0], rs_css_ast::KeyframeSelector::Percentage(0.5))
+                && matches!(rule.keyframes[1].selectors[0], rocketcss_ast::KeyframeSelector::Percentage(0.5))
     ));
     assert!(matches!(&sheet.rules[5], CssRule::CounterStyle(_)));
     assert!(matches!(&sheet.rules[6], CssRule::Viewport(_)));
@@ -439,7 +439,7 @@ fn enforces_import_and_namespace_order_like_lightningcss() {
     .unwrap_err();
     assert!(matches!(
         import_error.kind,
-        rs_css_parser::ParserError::UnexpectedImportRule
+        rocketcss_parser::ParserError::UnexpectedImportRule
     ));
 
     let namespace_error = parse(
@@ -450,7 +450,7 @@ fn enforces_import_and_namespace_order_like_lightningcss() {
     .unwrap_err();
     assert!(matches!(
         namespace_error.kind,
-        rs_css_parser::ParserError::UnexpectedNamespaceRule
+        rocketcss_parser::ParserError::UnexpectedNamespaceRule
     ));
 
     let valid = parse(
@@ -540,17 +540,17 @@ fn parses_typed_core_property_values() {
     assert!(matches!(
         &declarations[0],
         Declaration::Color(color)
-            if matches!(**color, rs_css_ast::CssColor::Rgba(rs_css_ast::RGBA { red: 0, green: 255, blue: 0, alpha: 136 }))
+            if matches!(**color, rocketcss_ast::CssColor::Rgba(rocketcss_ast::RGBA { red: 0, green: 255, blue: 0, alpha: 136 }))
     ));
     assert!(matches!(
         &declarations[1],
         Declaration::BackgroundColor(color)
-            if matches!(**color, rs_css_ast::CssColor::CurrentColor)
+            if matches!(**color, rocketcss_ast::CssColor::CurrentColor)
     ));
     assert!(matches!(&declarations[2], Declaration::Display(_)));
     assert!(matches!(
         &declarations[3],
-        Declaration::Visibility(rs_css_ast::Visibility::Hidden)
+        Declaration::Visibility(rocketcss_ast::Visibility::Hidden)
     ));
     assert!(matches!(&declarations[4], Declaration::Width(_)));
     assert!(matches!(&declarations[5], Declaration::Height(_)));
@@ -578,7 +578,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
             if rule.name == "--brand-color"
                 && !rule.inherits
                 && rule.initial_value.is_some()
-                && matches!(*rule.syntax, rs_css_ast::SyntaxString::Components(_))
+                && matches!(*rule.syntax, rocketcss_ast::SyntaxString::Components(_))
     ));
     assert!(matches!(
         &sheet.rules[1],

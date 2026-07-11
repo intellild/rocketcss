@@ -15,7 +15,7 @@ serialization, source-map, or cascade assertions.
   stylesheet AST. This includes the two custom-at-rule parser cases and the
   serde test's parse phase.
 - Excluded: 117 parser-error inputs, because they do not produce an AST.
-- Recorded options: error recovery, CSS modules, and parser flags. The rs-css
+- Recorded options: error recovery, CSS modules, and parser flags. The rocketcss
   harness currently maps the shared error-recovery option and still checks the
   upstream AST-producing outcome for every case.
 

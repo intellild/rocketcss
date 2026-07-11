@@ -1,6 +1,6 @@
 [package]
 edition = "2024"
-name    = "rs_css_ast_tools"
+name    = "rocketcss_ast_tools"
 publish = false
 version = "0.0.0"
 

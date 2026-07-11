@@ -1,4 +1,4 @@
-use rs_css_ast::Ratio;
+use rocketcss_ast::Ratio;
 
 use crate::{Minify, MinifyContext};
 

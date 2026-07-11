@@ -12,7 +12,7 @@ The instrumentation wraps each `StyleSheet::parse` call without changing its
 result, and writes one line in this form:
 
 ```text
-RS_CSS_CORPUS|<source-line>|<ok>|<error-recovery>|<css-modules>|<flags>|<debug-source>|RS_CSS_CORPUS_END
+ROCKETCSS_CORPUS|<source-line>|<ok>|<error-recovery>|<css-modules>|<flags>|<debug-source>|ROCKETCSS_CORPUS_END
 ```
 
 The wrapper is `#[track_caller]`; the three parser-error/recovery helper

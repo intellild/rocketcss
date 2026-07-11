@@ -16,7 +16,7 @@ pub(super) fn parse_font_face_contents<'i, 't>(
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, rs_css_ast::FontFaceProperty<'i>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, rocketcss_ast::FontFaceProperty<'i>>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut properties = allocator.vec();
     loop {
@@ -44,10 +44,10 @@ pub(super) fn parse_font_face_contents<'i, 't>(
                 if name.eq_ignore_ascii_case("unicode-range") {
                     let ranges = parse_unicode_ranges(raw_value, allocator)
                         .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
-                    Ok(rs_css_ast::FontFaceProperty::UnicodeRange(ranges))
+                    Ok(rocketcss_ast::FontFaceProperty::UnicodeRange(ranges))
                 } else {
                     trim_leading_whitespace(&mut value);
-                    Ok(rs_css_ast::FontFaceProperty::Custom(allocator.boxed(
+                    Ok(rocketcss_ast::FontFaceProperty::Custom(allocator.boxed(
                         CustomProperty {
                             name: allocator.boxed(CustomPropertyName::Unknown(name)),
                             value,
@@ -352,7 +352,7 @@ pub(super) fn validate_moz_document_prelude<'i>(
 
 type ContainerPrelude<'i> = (
     Option<&'i str>,
-    Option<rs_css_allocator::boxed::Box<'i, rs_css_ast::ContainerCondition<'i>>>,
+    Option<rocketcss_allocator::boxed::Box<'i, rocketcss_ast::ContainerCondition<'i>>>,
 );
 
 pub(super) fn parse_container_prelude<'i>(
@@ -366,7 +366,7 @@ pub(super) fn parse_container_prelude<'i>(
         None
     } else {
         Some(
-            allocator.boxed(rs_css_ast::ContainerCondition::Unknown(collect_tokens(
+            allocator.boxed(rocketcss_ast::ContainerCondition::Unknown(collect_tokens(
                 &mut parser,
                 allocator,
                 0,
@@ -380,8 +380,8 @@ pub(super) fn parse_container_prelude<'i>(
 }
 
 type ScopePrelude<'i> = (
-    Option<rs_css_allocator::boxed::Box<'i, SelectorList<'i>>>,
-    Option<rs_css_allocator::boxed::Box<'i, SelectorList<'i>>>,
+    Option<rocketcss_allocator::boxed::Box<'i, SelectorList<'i>>>,
+    Option<rocketcss_allocator::boxed::Box<'i, SelectorList<'i>>>,
 );
 
 pub(super) fn parse_scope_prelude<'i>(

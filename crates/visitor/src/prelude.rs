@@ -4,5 +4,5 @@ pub use crate::{
     AstType, BoxError, Plugin, PluginContext, PluginError, Plugins, Visit, VisitMut, VisitorPlugin,
     walk, walk_mut,
 };
-pub use rs_css_allocator::Allocator;
-pub use rs_css_ast::prelude::*;
+pub use rocketcss_allocator::Allocator;
+pub use rocketcss_ast::prelude::*;

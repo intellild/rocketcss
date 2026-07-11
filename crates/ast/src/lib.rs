@@ -5,7 +5,7 @@
 
 #![allow(non_camel_case_types)]
 
-use rs_css_allocator::{boxed::Box, vec::Vec};
+use rocketcss_allocator::{boxed::Box, vec::Vec};
 
 mod color;
 mod css_rule;
@@ -45,7 +45,7 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rs_css_allocator::Allocator;
+    use rocketcss_allocator::Allocator;
 
     #[test]
     fn position_try_rule_uses_span() {

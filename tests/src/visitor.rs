@@ -1,8 +1,8 @@
-use rs_css_allocator::Allocator;
-use rs_css_ast::SelectorComponent;
-use rs_css_codegen::{PrinterOptions, ToCss};
-use rs_css_parser::{ParserOptions, parse};
-use rs_css_visitor::{PluginContext, Plugins, VisitMut, walk_mut};
+use rocketcss_allocator::Allocator;
+use rocketcss_ast::SelectorComponent;
+use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_parser::{ParserOptions, parse};
+use rocketcss_visitor::{PluginContext, Plugins, VisitMut, walk_mut};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 

@@ -1,4 +1,4 @@
-use rs_css_visitor::prelude::*;
+use rocketcss_visitor::prelude::*;
 
 #[derive(Default)]
 struct Recorder {
@@ -36,10 +36,10 @@ impl<'a> Visit<'a> for Recorder {
 #[test]
 fn immutable_visitor_walks_the_complete_tree_with_balanced_events() {
     let allocator = Allocator::new();
-    let sheet = rs_css_parser::parse(
+    let sheet = rocketcss_parser::parse(
         ".a { color: red; background: linear-gradient(red, blue); }",
         &allocator,
-        rs_css_parser::ParserOptions::default(),
+        rocketcss_parser::ParserOptions::default(),
     )
     .unwrap();
     let mut recorder = Recorder::default();
@@ -71,10 +71,10 @@ impl<'a> VisitMut<'a> for RenameAndRecolor {
 #[test]
 fn mutable_visitor_can_transform_typed_nodes() {
     let allocator = Allocator::new();
-    let mut sheet = rs_css_parser::parse(
+    let mut sheet = rocketcss_parser::parse(
         ".before { color: red }",
         &allocator,
-        rs_css_parser::ParserOptions::default(),
+        rocketcss_parser::ParserOptions::default(),
     )
     .unwrap();
 

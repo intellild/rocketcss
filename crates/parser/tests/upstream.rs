@@ -1,4 +1,4 @@
-use rs_css_parser::prelude::*;
+use rocketcss_parser::prelude::*;
 use serde_json::Value;
 
 const CORPUS: &str = include_str!("upstream/corpus.json");

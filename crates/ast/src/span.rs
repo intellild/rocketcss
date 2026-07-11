@@ -1,4 +1,4 @@
-use rs_css_allocator::boxed::Box;
+use rocketcss_allocator::boxed::Box;
 
 pub const DUMMY_SP: Span = Span { start: 0, end: 0 };
 

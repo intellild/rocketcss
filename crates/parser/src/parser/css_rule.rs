@@ -105,7 +105,7 @@ pub(super) fn parse_group_rule_body<'i, 't>(
     if !declarations.is_empty() {
         rules.insert(
             0,
-            CssRule::NestedDeclarations(allocator.boxed(rs_css_ast::NestedDeclarationsRule {
+            CssRule::NestedDeclarations(allocator.boxed(rocketcss_ast::NestedDeclarationsRule {
                 declarations: allocator.boxed(declarations),
                 span: span_from(&start, input.position()),
             })),
@@ -221,7 +221,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         let properties = input.parse_nested_block(|input| {
             parse_font_face_contents(input, allocator, options, depth + 1)
         })?;
-        CssRule::FontFace(allocator.boxed(rs_css_ast::FontFaceRule {
+        CssRule::FontFace(allocator.boxed(rocketcss_ast::FontFaceRule {
             span: span_from(start, input.position()),
             properties,
         }))
@@ -270,7 +270,7 @@ pub(super) fn parse_at_rule<'i, 't>(
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
         let (custom_name, query) = parse_custom_media(raw_prelude, allocator)?;
-        CssRule::CustomMedia(allocator.boxed(rs_css_ast::CustomMediaRule {
+        CssRule::CustomMedia(allocator.boxed(rocketcss_ast::CustomMediaRule {
             span: span_from(start, input.position()),
             name: custom_name,
             query: allocator.boxed(query),
@@ -306,7 +306,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         let declarations = input.parse_nested_block(|input| {
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
-        CssRule::CounterStyle(allocator.boxed(rs_css_ast::CounterStyleRule {
+        CssRule::CounterStyle(allocator.boxed(rocketcss_ast::CounterStyleRule {
             declarations: allocator.boxed(declarations),
             span: span_from(start, input.position()),
             name: counter_name,
@@ -318,7 +318,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         let declarations = input.parse_nested_block(|input| {
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
-        CssRule::Viewport(allocator.boxed(rs_css_ast::ViewportRule {
+        CssRule::Viewport(allocator.boxed(rocketcss_ast::ViewportRule {
             declarations: allocator.boxed(declarations),
             span: span_from(start, input.position()),
             vendor_prefix: at_rule_vendor_prefix(name),
@@ -334,7 +334,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         let declarations = input.parse_nested_block(|input| {
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
-        CssRule::PositionTry(allocator.boxed(rs_css_ast::PositionTryRule {
+        CssRule::PositionTry(allocator.boxed(rocketcss_ast::PositionTryRule {
             span: span_from(start, input.position()),
             name: position_name,
             declarations: allocator.boxed(declarations),
@@ -347,7 +347,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         let rules = input.parse_nested_block(|input| {
             parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
         })?;
-        CssRule::MozDocument(allocator.boxed(rs_css_ast::MozDocumentRule {
+        CssRule::MozDocument(allocator.boxed(rocketcss_ast::MozDocumentRule {
             span: span_from(start, input.position()),
             rules,
         }))
@@ -359,7 +359,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         let rules = input.parse_nested_block(|input| {
             parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
         })?;
-        CssRule::Container(allocator.boxed(rs_css_ast::ContainerRule {
+        CssRule::Container(allocator.boxed(rocketcss_ast::ContainerRule {
             condition,
             span: span_from(start, input.position()),
             name: container_name,

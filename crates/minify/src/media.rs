@@ -1,4 +1,4 @@
-use rs_css_ast::MediaList;
+use rocketcss_ast::MediaList;
 
 use crate::{Minify, MinifyContext};
 

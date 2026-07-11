@@ -1,4 +1,4 @@
-//! Generated typed visitor API. Regenerate with `cargo run -p rs_css_ast_tools`.
+//! Generated typed visitor API. Regenerate with `cargo run -p rocketcss_ast_tools`.
 #![allow(
     clippy::match_same_arms,
     clippy::needless_borrow,
@@ -6,7 +6,7 @@
     unused_variables
 )]
 use crate::AstType;
-use rs_css_ast::*;
+use rocketcss_ast::*;
 pub mod color;
 pub mod css_rule;
 pub mod length;
@@ -1658,7 +1658,7 @@ macro_rules! impl_leaf_visit_mut_node {
     };
 }
 impl_leaf_visit_mut_node!(bool, char, f32, i32, u8, u16, u32, usize);
-impl<'a, VisitorT, T> VisitMutNode<'a, VisitorT> for rs_css_allocator::boxed::Box<'a, T>
+impl<'a, VisitorT, T> VisitMutNode<'a, VisitorT> for rocketcss_allocator::boxed::Box<'a, T>
 where
     VisitorT: ?Sized + VisitMut<'a>,
     T: ?Sized + VisitMutNode<'a, VisitorT>,
@@ -1667,7 +1667,7 @@ where
         self.as_mut().visit_node(visitor);
     }
 }
-impl<'a, VisitorT, T> VisitMutNode<'a, VisitorT> for rs_css_allocator::vec::Vec<'a, T>
+impl<'a, VisitorT, T> VisitMutNode<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
 where
     VisitorT: ?Sized + VisitMut<'a>,
     T: VisitMutNode<'a, VisitorT>,

@@ -1,6 +1,6 @@
 use super::*;
 
-use rs_css_allocator::{boxed::Box, vec::Vec};
+use rocketcss_allocator::{boxed::Box, vec::Vec};
 
 #[derive(Debug, PartialEq)]
 pub enum MediaCondition<'a> {

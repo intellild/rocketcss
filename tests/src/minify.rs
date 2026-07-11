@@ -1,9 +1,9 @@
 use std::path::Path;
 
-use rs_css_allocator::Allocator;
-use rs_css_codegen::{PrinterOptions, ToCss};
-use rs_css_minify::{MinifyOptions, minify};
-use rs_css_parser::{ParserOptions, parse};
+use rocketcss_allocator::Allocator;
+use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_minify::{MinifyOptions, minify};
+use rocketcss_parser::{ParserOptions, parse};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 

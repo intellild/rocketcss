@@ -1,4 +1,4 @@
-use rs_css_ast::{NthType, SelectorComponent, SelectorList};
+use rocketcss_ast::{NthType, SelectorComponent, SelectorList};
 
 use crate::{Minify, MinifyContext};
 
@@ -45,7 +45,7 @@ impl Minify for SelectorList<'_> {
     }
 }
 
-fn remove_qualified_universal(selector: &mut rs_css_ast::Selector<'_>) {
+fn remove_qualified_universal(selector: &mut rocketcss_ast::Selector<'_>) {
     let mut index = 0;
     while index < selector.len() {
         if !matches!(selector[index], SelectorComponent::ExplicitUniversalType) {

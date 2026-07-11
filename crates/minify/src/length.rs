@@ -1,4 +1,4 @@
-use rs_css_ast::{Angle, LengthUnit, LengthValue, Resolution, Time, Unit};
+use rocketcss_ast::{Angle, LengthUnit, LengthValue, Resolution, Time, Unit};
 
 use crate::{Minify, MinifyContext};
 

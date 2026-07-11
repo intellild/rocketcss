@@ -4,7 +4,7 @@ edition               = "2024"
 homepage.workspace    = true
 keywords.workspace    = true
 license.workspace     = true
-name                  = "rs_css_allocator"
+name                  = "rocketcss_allocator"
 repository.workspace  = true
 version               = "0.1.0"
 

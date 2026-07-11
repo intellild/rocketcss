@@ -1,6 +1,6 @@
 [package]
 edition = "2024"
-name    = "benchmark"
+name    = "rocketcss_benchmark"
 publish = false
 version = "0.1.0"
 
@@ -10,10 +10,10 @@ divan            = { workspace = true }
 hashbrown        = { workspace = true }
 lightningcss     = { workspace = true }
 mimalloc         = { workspace = true }
-rs_css_allocator = { workspace = true }
-rs_css_codegen   = { workspace = true }
-rs_css_minify    = { workspace = true }
-rs_css_parser    = { workspace = true }
+rocketcss_allocator = { workspace = true }
+rocketcss_codegen   = { workspace = true }
+rocketcss_minify    = { workspace = true }
+rocketcss_parser    = { workspace = true }
 rustc-hash       = { workspace = true }
 stylo            = { workspace = true }
 url              = { workspace = true }

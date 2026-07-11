@@ -1,10 +1,10 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use benchmark::{BENCH_CASES, BenchCase};
 use css_module_lexer::{Mode, collect_dependencies};
 use divan::{Bencher, black_box, counter::BytesCount};
-use rs_css_parser::Tokenizer;
+use rocketcss_benchmark::{BENCH_CASES, BenchCase};
+use rocketcss_parser::Tokenizer;
 
 fn main() {
     divan::main();
@@ -33,7 +33,7 @@ fn css_module_lexer(bencher: Bencher<'_, '_>, case: BenchCase) {
 }
 
 #[divan::bench(args = BENCH_CASES)]
-fn rs_css(bencher: Bencher<'_, '_>, case: BenchCase) {
+fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
     bencher
         .counter(BytesCount::of_str(case.source))
         .bench_local(|| tokenize(black_box(case.source)));

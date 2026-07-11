@@ -8,8 +8,8 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
 use divan::{Bencher, black_box, counter::BytesCount};
-use rs_css_allocator::Allocator;
-use rs_css_codegen::{PrinterOptions, ToCss};
+use rocketcss_allocator::Allocator;
+use rocketcss_codegen::{PrinterOptions, ToCss};
 
 const BOOTSTRAP: &str = include_str!("../files/bootstrap.css");
 
@@ -18,21 +18,21 @@ fn main() {
 }
 
 #[divan::bench]
-fn rs_css(bencher: Bencher<'_, '_>) {
+fn rocketcss(bencher: Bencher<'_, '_>) {
     bencher
         .counter(BytesCount::of_str(BOOTSTRAP))
         .bench_local(|| {
             let allocator = Allocator::new();
-            let mut stylesheet = rs_css_parser::parse(
+            let mut stylesheet = rocketcss_parser::parse(
                 black_box(BOOTSTRAP),
                 &allocator,
-                rs_css_parser::ParserOptions {
+                rocketcss_parser::ParserOptions {
                     error_recovery: true,
                     ..Default::default()
                 },
             )
             .unwrap();
-            rs_css_minify::minify(&mut stylesheet, rs_css_minify::MinifyOptions::default());
+            rocketcss_minify::minify(&mut stylesheet, rocketcss_minify::MinifyOptions::default());
             let output = stylesheet
                 .to_css_string(PrinterOptions { prettify: false })
                 .unwrap();

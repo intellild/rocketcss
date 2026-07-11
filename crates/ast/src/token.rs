@@ -1,6 +1,6 @@
 use super::*;
 
-use rs_css_allocator::boxed::Box;
+use rocketcss_allocator::boxed::Box;
 
 #[derive(Debug, PartialEq)]
 pub enum TokenOrValue<'a> {

@@ -1,5 +1,5 @@
-use rs_css_codegen::{PrinterOptions, ToCss};
-use rs_css_parser::prelude::*;
+use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_parser::prelude::*;
 
 fn parse_stylesheet(source: &str) -> StyleSheet<'static> {
     let source = std::boxed::Box::leak(source.to_owned().into_boxed_str());

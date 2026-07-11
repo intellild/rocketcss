@@ -15,5 +15,5 @@ Fixtures are grouped by the stage under test:
 Run only this suite with:
 
 ```sh
-cargo test -p rs_css_tests
+cargo test -p rocketcss_tests
 ```

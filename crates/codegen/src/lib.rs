@@ -1,4 +1,4 @@
-//! CSS serialization for [`rs_css_ast`] syntax trees.
+//! CSS serialization for [`rocketcss_ast`] syntax trees.
 
 mod color;
 mod css_rule;

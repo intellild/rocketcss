@@ -365,11 +365,11 @@ fn generate_visitor(
     let walk_exports = modules.iter();
 
     quote! {
-        //! Generated typed visitor API. Regenerate with `cargo run -p rs_css_ast_tools`.
+        //! Generated typed visitor API. Regenerate with `cargo run -p rocketcss_ast_tools`.
 
         #![allow(clippy::match_same_arms, clippy::needless_borrow, unused_imports, unused_variables)]
 
-        use rs_css_ast::*;
+        use rocketcss_ast::*;
         use crate::AstType;
 
         #(pub mod #modules;)*
@@ -470,11 +470,11 @@ fn container_impls(mode: Mode) -> TokenStream {
             }
             impl_leaf_visit_node!(bool, char, f32, i32, u8, u16, u32, usize);
 
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rs_css_allocator::boxed::Box<'a, T>
+            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::boxed::Box<'a, T>
             where VisitorT: ?Sized + #visitor_trait<'a>, T: ?Sized + #node_trait<'a, VisitorT> {
                 fn visit_node(&self, visitor: &mut VisitorT) { self.as_ref().visit_node(visitor); }
             }
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rs_css_allocator::vec::Vec<'a, T>
+            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
             where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> {
                 fn visit_node(&self, visitor: &mut VisitorT) { for value in self { value.visit_node(visitor); } }
             }
@@ -497,11 +497,11 @@ fn container_impls(mode: Mode) -> TokenStream {
             }
             impl_leaf_visit_mut_node!(bool, char, f32, i32, u8, u16, u32, usize);
 
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rs_css_allocator::boxed::Box<'a, T>
+            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::boxed::Box<'a, T>
             where VisitorT: ?Sized + #visitor_trait<'a>, T: ?Sized + #node_trait<'a, VisitorT> {
                 fn visit_node(&mut self, visitor: &mut VisitorT) { self.as_mut().visit_node(visitor); }
             }
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rs_css_allocator::vec::Vec<'a, T>
+            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
             where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> {
                 fn visit_node(&mut self, visitor: &mut VisitorT) { for value in self { value.visit_node(visitor); } }
             }
@@ -634,7 +634,7 @@ fn generate_walk_module(
 
         use super::{#visitor_trait, #node_trait};
         use crate::AstType;
-        use rs_css_ast::*;
+        use rocketcss_ast::*;
 
         #(#walkers)*
         #(#alias_walkers)*
