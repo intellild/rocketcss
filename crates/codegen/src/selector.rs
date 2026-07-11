@@ -162,9 +162,12 @@ impl ToCss for SelectorComponent<'_> {
 impl ToCss for Combinator {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
+            Self::Child if !dest.prettify() => dest.write_char('>'),
             Self::Child => dest.write_str(" > "),
             Self::Descendant => dest.write_char(' '),
+            Self::NextSibling if !dest.prettify() => dest.write_char('+'),
             Self::NextSibling => dest.write_str(" + "),
+            Self::LaterSibling if !dest.prettify() => dest.write_char('~'),
             Self::LaterSibling => dest.write_str(" ~ "),
             Self::PseudoElement | Self::SlotAssignment | Self::Part => Ok(()),
             Self::DeepDescendant => dest.write_str(" >>> "),
@@ -205,7 +208,19 @@ fn write_attribute<PrinterT: PrinterTrait>(
     serialize_identifier(local_name, dest)?;
     if let Some((operator, value, case_sensitivity)) = operation {
         operator.to_css(dest)?;
-        serialize_string(value, dest)?;
+        if !dest.prettify() && !value.is_empty() {
+            let mut identifier = String::new();
+            serialize_identifier(value, &mut identifier)?;
+            let mut string = String::new();
+            serialize_string(value, &mut string)?;
+            if identifier.len() < string.len() {
+                dest.write_str(&identifier)?;
+            } else {
+                dest.write_str(&string)?;
+            }
+        } else {
+            serialize_string(value, dest)?;
+        }
         case_sensitivity.to_css(dest)?;
     }
     dest.write_char(']')

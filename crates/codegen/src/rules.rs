@@ -1314,11 +1314,12 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
             continue;
         }
         if !first {
-            if !last_without_block
+            if (!last_without_block
                 || !matches!(
                     rule,
                     CssRule::Import(_) | CssRule::Namespace(_) | CssRule::LayerStatement(_)
-                )
+                ))
+                && dest.prettify()
             {
                 dest.write_char('\n')?;
             }
@@ -1379,7 +1380,7 @@ fn write_declaration_block<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
 ) -> fmt::Result {
     write_block(dest, |dest| {
-        write_declarations(declarations, dest, !dest.minify())
+        write_declarations(declarations, dest, dest.prettify())
     })
 }
 
@@ -1447,10 +1448,12 @@ impl ToCss for StyleRule<'_> {
             write_declarations(
                 &self.declarations,
                 dest,
-                !dest.minify() || !self.rules.is_empty(),
+                dest.prettify() || !self.rules.is_empty(),
             )?;
             if !self.declarations.is_empty() && !self.rules.is_empty() {
-                dest.write_char('\n')?;
+                if dest.prettify() {
+                    dest.write_char('\n')?;
+                }
                 dest.newline()?;
             }
             write_rule_list(&self.rules, dest)
@@ -1473,7 +1476,9 @@ impl ToCss for KeyframesRule<'_> {
         write_block(dest, |dest| {
             for (index, keyframe) in self.keyframes.iter().enumerate() {
                 if index > 0 {
-                    dest.write_char('\n')?;
+                    if dest.prettify() {
+                        dest.write_char('\n')?;
+                    }
                     dest.newline()?;
                 }
                 keyframe.to_css(dest)?;
@@ -1512,7 +1517,7 @@ where
             dest.write_char(':')?;
             dest.whitespace()?;
             value.to_css(dest)?;
-            if !dest.minify() || index + 1 < values.len() {
+            if dest.prettify() || index + 1 < values.len() {
                 dest.write_char(';')?;
             }
             if index + 1 < values.len() {
@@ -1590,7 +1595,9 @@ impl ToCss for FontFeatureValuesRule<'_> {
         write_block(dest, |dest| {
             for (index, rule) in self.rules.iter().enumerate() {
                 if index > 0 {
-                    dest.write_char('\n')?;
+                    if dest.prettify() {
+                        dest.write_char('\n')?;
+                    }
                     dest.newline()?;
                 }
                 rule.to_css(dest)?;
@@ -1642,15 +1649,19 @@ impl ToCss for PageRule<'_> {
             write_declarations(
                 &self.declarations,
                 dest,
-                !dest.minify() || !self.rules.is_empty(),
+                dest.prettify() || !self.rules.is_empty(),
             )?;
             if !self.declarations.is_empty() && !self.rules.is_empty() {
-                dest.write_char('\n')?;
+                if dest.prettify() {
+                    dest.write_char('\n')?;
+                }
                 dest.newline()?;
             }
             for (index, rule) in self.rules.iter().enumerate() {
                 if index > 0 {
-                    dest.write_char('\n')?;
+                    if dest.prettify() {
+                        dest.write_char('\n')?;
+                    }
                     dest.newline()?;
                 }
                 rule.to_css(dest)?;
@@ -1725,7 +1736,7 @@ impl ToCss for NestingRule<'_> {
 
 impl ToCss for NestedDeclarationsRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_declarations(&self.declarations, dest, !dest.minify())
+        write_declarations(&self.declarations, dest, dest.prettify())
     }
 }
 
@@ -1805,7 +1816,7 @@ impl ToCss for PropertyRule<'_> {
                 dest.delim(':', false)?;
                 initial_value.to_css(dest)?;
             }
-            if !dest.minify() {
+            if dest.prettify() {
                 dest.write_char(';')?;
             }
             Ok(())

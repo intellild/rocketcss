@@ -52,11 +52,11 @@ fn stylesheet_implements_to_css() {
 }
 
 #[test]
-fn minified_stylesheet_omits_optional_whitespace() {
+fn compact_stylesheet_omits_optional_whitespace() {
     let stylesheet = parse_stylesheet(".foo { color: #ff00ff }");
     assert_eq!(
         stylesheet
-            .to_css_string(PrinterOptions { minify: true })
+            .to_css_string(PrinterOptions { prettify: false })
             .unwrap(),
         ".foo{color:#f0f}"
     );

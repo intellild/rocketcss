@@ -1,10 +1,16 @@
 use std::fmt::{self, Write};
 
 /// Options controlling CSS serialization.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrinterOptions {
-    /// Omit optional whitespace and line breaks.
-    pub minify: bool,
+    /// Emit optional whitespace, indentation, and line breaks.
+    pub prettify: bool,
+}
+
+impl Default for PrinterOptions {
+    fn default() -> Self {
+        Self { prettify: true }
+    }
 }
 
 /// Source-map-independent formatting state shared by printer implementations.
@@ -37,8 +43,8 @@ impl<'a, W: Write> Printer<'a, W> {
     }
 
     #[inline]
-    pub fn minify(&self) -> bool {
-        self.options.minify
+    pub fn prettify(&self) -> bool {
+        self.options.prettify
     }
 
     #[inline]
@@ -53,10 +59,10 @@ impl<'a, W: Write> Printer<'a, W> {
 
     #[inline]
     pub fn whitespace(&mut self) -> fmt::Result {
-        if self.options.minify {
-            Ok(())
-        } else {
+        if self.options.prettify {
             self.write_char(' ')
+        } else {
+            Ok(())
         }
     }
 
@@ -70,7 +76,7 @@ impl<'a, W: Write> Printer<'a, W> {
     }
 
     pub fn newline(&mut self) -> fmt::Result {
-        if self.options.minify {
+        if !self.options.prettify {
             return Ok(());
         }
 
@@ -134,16 +140,16 @@ pub trait PrinterTrait: Write + private::Sealed + Sized {
     fn state_mut(&mut self) -> &mut PrinterState;
 
     #[inline]
-    fn minify(&self) -> bool {
-        self.options().minify
+    fn prettify(&self) -> bool {
+        self.options().prettify
     }
 
     #[inline]
     fn whitespace(&mut self) -> fmt::Result {
-        if self.minify() {
-            Ok(())
-        } else {
+        if self.prettify() {
             self.write_char(' ')
+        } else {
+            Ok(())
         }
     }
 
@@ -157,7 +163,7 @@ pub trait PrinterTrait: Write + private::Sealed + Sized {
     }
 
     fn newline(&mut self) -> fmt::Result {
-        if self.minify() {
+        if !self.prettify() {
             return Ok(());
         }
 
@@ -260,8 +266,18 @@ pub(crate) fn serialize_number<PrinterT: PrinterTrait>(
     value: f32,
     dest: &mut PrinterT,
 ) -> fmt::Result {
-    let output = value.to_string();
+    // Percentages and unit conversions can introduce a tiny f32 error (for
+    // example, `30%` is stored as `0.3` and multiplied back to `30.000002`).
+    // Snap values that are extremely close to a non-zero integer without
+    // erasing genuinely small fractional values.
+    let rounded = value.round();
+    let value = if rounded != 0.0 && (value - rounded).abs() < 0.000_01 {
+        rounded
+    } else {
+        value
+    };
     if value != 0.0 && value.abs() < 1.0 {
+        let output = value.to_string();
         if value.is_sign_negative() {
             dest.write_char('-')?;
             dest.write_str(output.trim_start_matches('-').trim_start_matches('0'))
@@ -269,7 +285,7 @@ pub(crate) fn serialize_number<PrinterT: PrinterTrait>(
             dest.write_str(output.trim_start_matches('0'))
         }
     } else {
-        dest.write_str(&output)
+        write!(dest, "{value}")
     }
 }
 
