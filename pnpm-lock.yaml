@@ -14,6 +14,12 @@ importers:
         specifier: ^3.6.2
         version: 3.9.5
 
+  skills/sync-upstream-css-tests:
+    dependencies:
+      zx:
+        specifier: ^8.8.5
+        version: 8.8.5
+
 packages:
   "@taplo/cli@0.7.0":
     resolution:
@@ -30,7 +36,17 @@ packages:
     engines: { node: ">=14" }
     hasBin: true
 
+  zx@8.8.5:
+    resolution:
+      {
+        integrity: sha512-SNgDF5L0gfN7FwVOdEFguY3orU5AkfFZm9B5YSHog/UDHv+lvmd82ZAsOenOkQixigwH2+yyH198AwNdKhj+RA==,
+      }
+    engines: { node: ">= 12.17.0" }
+    hasBin: true
+
 snapshots:
   "@taplo/cli@0.7.0": {}
 
   prettier@3.9.5: {}
+
+  zx@8.8.5: {}

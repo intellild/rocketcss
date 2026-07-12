@@ -6,7 +6,9 @@
     "format-ci:prettier": "prettier --check .",
     "format-ci:toml": "taplo format --check",
     "format:prettier": "prettier --write .",
-    "format:toml": "taplo format"
+    "format:toml": "taplo format",
+    "parser-test-corpus": "pnpm --filter @rocketcss/sync-upstream-css-tests generate-parser-corpus",
+    "upstream-tests": "pnpm --filter @rocketcss/sync-upstream-css-tests upstream-tests"
   },
   "devDependencies": {
     "@taplo/cli": "^0.7.0",
