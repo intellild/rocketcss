@@ -1265,11 +1265,13 @@ name = "rocketcss_codegen"
 version = "0.1.0"
 dependencies = [
  "cssparser",
+ "itoa",
  "lightningcss",
  "rocketcss_allocator",
  "rocketcss_ast",
  "rocketcss_parser",
  "serde_json",
+ "zmij",
 ]
 
 [[package]]
@@ -1281,6 +1283,7 @@ dependencies = [
  "rocketcss_codegen",
  "rocketcss_parser",
  "rocketcss_visitor",
+ "zmij",
 ]
 
 [[package]]

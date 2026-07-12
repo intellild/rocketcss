@@ -10,8 +10,10 @@ version               = "0.1.0"
 
 [dependencies]
 cssparser        = { workspace = true }
+itoa             = { workspace = true }
 rocketcss_allocator = { workspace = true }
 rocketcss_ast       = { workspace = true }
+zmij                = { workspace = true }
 
 [dev-dependencies]
 lightningcss  = { workspace = true }

@@ -187,7 +187,7 @@ impl ToCss for EnvironmentVariable<'_> {
         self.name.to_css(dest)?;
         for index in &self.indices {
             dest.write_char(' ')?;
-            write!(dest, "{index}")?;
+            serialize_integer(*index, dest)?;
         }
         if let Some(fallback) = &self.fallback {
             dest.write_char(',')?;

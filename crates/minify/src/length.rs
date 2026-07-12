@@ -7,7 +7,6 @@ impl Minify for LengthValue {
         if !context.options().normalize_values || self.value == 0.0 {
             return;
         }
-        let original_value = self.value;
         let Some(px) = to_px(self.value, self.unit) else {
             return;
         };
@@ -23,19 +22,31 @@ impl Minify for LengthValue {
             (px / 16.0, LengthUnit::Pc),
         ];
         let original_len = dimension_len(self.value, Unit::Length(self.unit));
-        let Some((candidate_value, candidate_unit)) = candidates
-            .into_iter()
-            .filter(|(number, _)| number.is_finite())
-            .min_by_key(|(number, unit)| dimension_len(*number, Unit::Length(*unit)))
-        else {
+        if original_len <= 2 {
             return;
-        };
-
-        if dimension_len(candidate_value, Unit::Length(candidate_unit)) < original_len {
-            self.value = clean_float(candidate_value);
-            self.unit = candidate_unit;
         }
-        if self.value != original_value || self.unit != original_unit {
+
+        let mut best = None;
+        let mut best_len = original_len;
+        for (candidate_value, candidate_unit) in candidates {
+            if !candidate_value.is_finite()
+                || candidate_unit == original_unit
+                || 1 + length_unit_len(candidate_unit) >= best_len
+            {
+                continue;
+            }
+
+            let candidate_value = clean_float(candidate_value);
+            let candidate_len = dimension_len(candidate_value, Unit::Length(candidate_unit));
+            if candidate_len < best_len {
+                best = Some((candidate_value, candidate_unit));
+                best_len = candidate_len;
+            }
+        }
+
+        if let Some((candidate_value, candidate_unit)) = best {
+            self.value = candidate_value;
+            self.unit = candidate_unit;
             context.record_value_normalized();
         }
     }
@@ -60,12 +71,23 @@ impl Minify for Angle {
             Angle::Rad(clean_float(degrees.to_radians())),
         ];
         let original_len = dimension_len(angle_number(self), angle_unit(self));
-        let candidate = candidates
-            .into_iter()
-            .min_by_key(|candidate| dimension_len(angle_number(candidate), angle_unit(candidate)))
-            .expect("angle candidates are non-empty");
-        let candidate_len = dimension_len(angle_number(&candidate), angle_unit(&candidate));
-        if candidate_len < original_len {
+        let original_unit = angle_unit(self);
+        let mut best = None;
+        let mut best_len = original_len;
+        for candidate in candidates {
+            let candidate_unit = angle_unit(&candidate);
+            if candidate_unit == original_unit || 1 + unit_len(candidate_unit) >= best_len {
+                continue;
+            }
+
+            let candidate_len = dimension_len(angle_number(&candidate), candidate_unit);
+            if candidate_len < best_len {
+                best = Some(candidate);
+                best_len = candidate_len;
+            }
+        }
+
+        if let Some(candidate) = best {
             *self = candidate;
             context.record_value_normalized();
         }
@@ -277,7 +299,9 @@ const fn length_unit_len(unit: LengthUnit) -> usize {
 
 fn number_len(value: f32) -> usize {
     let value = clean_float(value);
-    let output = value.to_string();
+    let mut buffer = zmij::Buffer::new();
+    let output = buffer.format(value);
+    let output = output.strip_suffix(".0").unwrap_or(output);
     if value != 0.0 && value.abs() < 1.0 {
         output.len().saturating_sub(1)
     } else {

@@ -7,6 +7,7 @@ version = "0.1.0"
 rocketcss_allocator = { workspace = true }
 rocketcss_ast       = { workspace = true }
 rocketcss_visitor   = { workspace = true }
+zmij                = { workspace = true }
 
 [dev-dependencies]
 rocketcss_codegen = { workspace = true }

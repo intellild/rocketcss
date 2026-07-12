@@ -26,34 +26,30 @@ impl ToCss for RGBA {
                 .iter()
                 .all(|value| value >> 4 == value & 0x0f)
             {
-                write!(
-                    dest,
-                    "#{:x}{:x}{:x}",
-                    self.red & 0x0f,
-                    self.green & 0x0f,
-                    self.blue & 0x0f
-                )
+                dest.write_char('#')?;
+                serialize_hex(u32::from(self.red & 0x0f), 1, false, dest)?;
+                serialize_hex(u32::from(self.green & 0x0f), 1, false, dest)?;
+                serialize_hex(u32::from(self.blue & 0x0f), 1, false, dest)
             } else {
-                write!(dest, "#{value:06x}")
+                dest.write_char('#')?;
+                serialize_hex(value, 6, false, dest)
             }
         } else if [self.red, self.green, self.blue, self.alpha]
             .iter()
             .all(|value| value >> 4 == value & 0x0f)
         {
-            write!(
-                dest,
-                "#{:x}{:x}{:x}{:x}",
-                self.red & 0x0f,
-                self.green & 0x0f,
-                self.blue & 0x0f,
-                self.alpha & 0x0f
-            )
+            dest.write_char('#')?;
+            serialize_hex(u32::from(self.red & 0x0f), 1, false, dest)?;
+            serialize_hex(u32::from(self.green & 0x0f), 1, false, dest)?;
+            serialize_hex(u32::from(self.blue & 0x0f), 1, false, dest)?;
+            serialize_hex(u32::from(self.alpha & 0x0f), 1, false, dest)
         } else {
             let value = (u32::from(self.red) << 24)
                 | (u32::from(self.green) << 16)
                 | (u32::from(self.blue) << 8)
                 | u32::from(self.alpha);
-            write!(dest, "#{value:08x}")
+            dest.write_char('#')?;
+            serialize_hex(value, 8, false, dest)
         }
     }
 }

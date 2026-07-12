@@ -1045,7 +1045,7 @@ impl ToCss for BasePalette {
         match self {
             Self::Light => dest.write_str("light"),
             Self::Dark => dest.write_str("dark"),
-            Self::Integer(value) => write!(dest, "{value}"),
+            Self::Integer(value) => serialize_integer(*value, dest),
         }
     }
 }
@@ -1082,7 +1082,7 @@ impl ToCss for ParsedComponent<'_> {
             Self::Color(value) => value.to_css(dest),
             Self::Image(value) => value.to_css(dest),
             Self::Url(value) => value.to_css(dest),
-            Self::Integer(value) => write!(dest, "{value}"),
+            Self::Integer(value) => serialize_integer(*value, dest),
             Self::Angle(value) => value.to_css(dest),
             Self::Time(value) => value.to_css(dest),
             Self::Resolution(value) => value.to_css(dest),
@@ -1583,16 +1583,19 @@ impl ToCss for UnicodeRange {
             let bits = wildcard_digits * 4;
             let mask = (1_u32 << bits) - 1;
             if self.start & mask == 0 && self.end == self.start | mask {
-                write!(dest, "U+{:X}", self.start >> bits)?;
+                dest.write_str("U+")?;
+                serialize_hex(self.start >> bits, 1, true, dest)?;
                 for _ in 0..wildcard_digits {
                     dest.write_char('?')?;
                 }
                 return Ok(());
             }
         }
-        write!(dest, "U+{:X}", self.start)?;
+        dest.write_str("U+")?;
+        serialize_hex(self.start, 1, true, dest)?;
         if self.start != self.end {
-            write!(dest, "-{:X}", self.end)?;
+            dest.write_char('-')?;
+            serialize_hex(self.end, 1, true, dest)?;
         }
         Ok(())
     }
@@ -1608,7 +1611,8 @@ impl ToCss for FontPaletteValuesRule<'_> {
 
 impl ToCss for OverrideColors<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write!(dest, "{} ", self.index)?;
+        serialize_integer(self.index, dest)?;
+        dest.write_char(' ')?;
         self.color.to_css(dest)
     }
 }
@@ -1654,7 +1658,7 @@ impl ToCss for FontFeatureDeclaration<'_> {
             if index > 0 {
                 dest.write_char(' ')?;
             }
-            write!(dest, "{value}")?;
+            serialize_integer(*value, dest)?;
         }
         Ok(())
     }

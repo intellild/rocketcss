@@ -39,13 +39,13 @@ impl ToCss for f32 {
 
 impl ToCss for i32 {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write!(dest, "{self}")
+        serialize_integer(*self, dest)
     }
 }
 
 impl ToCss for u16 {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write!(dest, "{self}")
+        serialize_integer(*self, dest)
     }
 }
 

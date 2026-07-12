@@ -899,7 +899,7 @@ impl ToCss for GridLine<'_> {
             Self::Area { name } => serialize_identifier(name, dest),
             Self::Line { index, name } => {
                 if *index != 0 {
-                    write!(dest, "{index}")?;
+                    serialize_integer(*index, dest)?;
                     if name.is_some() {
                         dest.write_char(' ')?;
                     }
@@ -912,7 +912,8 @@ impl ToCss for GridLine<'_> {
             Self::Span { index, name } => {
                 dest.write_str("span")?;
                 if *index != 0 {
-                    write!(dest, " {index}")?;
+                    dest.write_char(' ')?;
+                    serialize_integer(*index, dest)?;
                 }
                 if let Some(name) = name {
                     dest.write_char(' ')?;
@@ -1040,7 +1041,7 @@ impl ToCss for EasingFunction {
             }
             Self::Steps { count, position } => {
                 dest.write_str("steps(")?;
-                write!(dest, "{count}")?;
+                serialize_integer(*count, dest)?;
                 dest.delim(Delimiter::Comma)?;
                 position.to_css(dest)?;
                 dest.write_char(')')
@@ -1508,7 +1509,7 @@ impl ToCss for ZIndex {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
-            Self::Integer(value) => write!(dest, "{value}"),
+            Self::Integer(value) => serialize_integer(*value, dest),
         }
     }
 }

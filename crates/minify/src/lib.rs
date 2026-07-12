@@ -197,6 +197,14 @@ mod tests {
             "a{color:#ff0;width:1pc}"
         );
         assert_eq!(
+            run("a{width:1px;color:red;width:1px}"),
+            "a{color:red;width:1px}"
+        );
+        assert_eq!(
+            run("a{width:1px;width:2px;width:1px}"),
+            "a{width:1px;width:2px;width:1px}"
+        );
+        assert_eq!(
             run("a{transition-duration:500ms;transform:rotate(.25turn)}"),
             "a{transition-duration:.5s;transform:rotate(90deg)}"
         );

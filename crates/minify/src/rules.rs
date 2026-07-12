@@ -3,7 +3,7 @@ use std::ptr::NonNull;
 use rocketcss_allocator::{hash_map::HashMap, vec::Vec};
 use rocketcss_ast::{
     CssRule, CustomProperty, DeclarationBlock, EnvironmentVariable, Function, KeyframeSelector,
-    StyleSheet, UnknownAtRule, UnparsedProperty, Variable, VendorPrefix,
+    StyleRule, StyleSheet, UnknownAtRule, UnparsedProperty, Variable, VendorPrefix,
 };
 
 use crate::{Minify, MinifyContext};
@@ -180,6 +180,15 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
         }
     }
 
+    if !has_mergeable_style_run(rules) {
+        for rule in rules.iter_mut() {
+            if let CssRule::Style(rule) = rule {
+                deduplicate_declarations(&mut rule.declarations, context);
+            }
+        }
+        return;
+    }
+
     let allocator = rules.bump();
     let mut declarations = HashMap::new_in(allocator);
     let mut previous_style = None;
@@ -204,10 +213,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
             let CssRule::Style(current) = &rules[index] else {
                 return false;
             };
-            previous.rules.is_empty()
-                && current.rules.is_empty()
-                && previous.vendor_prefix == current.vendor_prefix
-                && previous.selectors == current.selectors
+            style_rules_are_mergeable(previous, current)
         });
 
         if can_merge {
@@ -237,6 +243,50 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
         };
         process_declarations(&mut current.declarations, &mut declarations, context);
         previous_style = current.rules.is_empty().then_some(index);
+    }
+}
+
+fn has_mergeable_style_run(rules: &[CssRule<'_>]) -> bool {
+    let mut previous_style = None;
+    for rule in rules {
+        match rule {
+            CssRule::Ignored => continue,
+            CssRule::Style(current) => {
+                if previous_style
+                    .is_some_and(|previous| style_rules_are_mergeable(previous, current))
+                {
+                    return true;
+                }
+                previous_style = current.rules.is_empty().then_some(current.as_ref());
+            }
+            _ => previous_style = None,
+        }
+    }
+    false
+}
+
+#[inline]
+fn style_rules_are_mergeable(previous: &StyleRule<'_>, current: &StyleRule<'_>) -> bool {
+    previous.rules.is_empty()
+        && current.rules.is_empty()
+        && previous.vendor_prefix == current.vendor_prefix
+        && previous.selectors == current.selectors
+}
+
+fn deduplicate_declarations(block: &mut DeclarationBlock<'_>, context: &mut MinifyContext) {
+    for index in 1..block.declarations.len() {
+        let previous = (0..index).rev().find(|&previous| {
+            block.is_important(previous) == block.is_important(index)
+                && block.declarations[previous].name() == block.declarations[index].name()
+                && block.declarations[previous].vendor_prefix()
+                    == block.declarations[index].vendor_prefix()
+        });
+        if let Some(previous) = previous
+            && block.declarations[previous] == block.declarations[index]
+        {
+            block.mark_invalid(previous);
+            context.record_declaration_removed();
+        }
     }
 }
 
