@@ -1,5 +1,7 @@
 use super::*;
 
+use std::ptr::NonNull;
+
 #[derive(Debug, PartialEq)]
 pub enum KeyframeSelector<'a> {
     Percentage(f32),
@@ -335,15 +337,21 @@ pub struct StyleRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, Declaration<'a>>,
-    pub declarations_importance: rocketcss_allocator::bit_vec::BitVec<'a>,
+    pub declarations_importance: BitVec<'a>,
+    declarations_invalid: BitVec<'a>,
+    previous: Option<NonNull<DeclarationBlock<'a>>>,
+    next: Option<NonNull<DeclarationBlock<'a>>>,
 }
 
 impl<'a> DeclarationBlock<'a> {
     #[inline]
-    pub fn new(allocator: &'a rocketcss_allocator::Allocator) -> Self {
+    pub fn new(allocator: &'a Allocator) -> Self {
         Self {
             declarations: allocator.vec(),
-            declarations_importance: rocketcss_allocator::bit_vec::BitVec::new(allocator),
+            declarations_importance: BitVec::new(allocator),
+            declarations_invalid: BitVec::new(allocator),
+            previous: None,
+            next: None,
         }
     }
 
@@ -351,11 +359,13 @@ impl<'a> DeclarationBlock<'a> {
     pub fn push(&mut self, declaration: Declaration<'a>, important: bool) {
         self.declarations.push(declaration);
         self.declarations_importance.push(important);
+        self.declarations_invalid.push(false);
     }
 
     #[inline]
     pub fn len(&self) -> usize {
         debug_assert_eq!(self.declarations.len(), self.declarations_importance.len());
+        debug_assert_eq!(self.declarations.len(), self.declarations_invalid.len());
         self.declarations.len()
     }
 
@@ -371,8 +381,71 @@ impl<'a> DeclarationBlock<'a> {
     }
 
     #[inline]
+    pub fn is_invalid(&self, index: usize) -> bool {
+        debug_assert_eq!(self.declarations.len(), self.declarations_invalid.len());
+        self.declarations_invalid.is_set(index)
+    }
+
+    #[inline]
+    pub fn mark_invalid(&mut self, index: usize) {
+        debug_assert_eq!(self.declarations.len(), self.declarations_invalid.len());
+        self.declarations_invalid.set(index, true);
+    }
+
+    /// Links this block after `previous` without moving either block.
+    ///
+    /// # Safety
+    ///
+    /// Both pointers must remain valid for the lifetime of the stylesheet,
+    /// refer to different arena-allocated blocks, and `previous` must be the
+    /// current tail of its chain.
+    #[inline]
+    pub unsafe fn link_previous(&mut self, mut previous: NonNull<DeclarationBlock<'a>>) {
+        let current = NonNull::from(&mut *self);
+        debug_assert_ne!(current, previous);
+        debug_assert!(self.previous.is_none());
+        debug_assert!(unsafe { previous.as_ref() }.next.is_none());
+        self.previous = Some(previous);
+        unsafe { previous.as_mut() }.next = Some(current);
+    }
+
+    #[inline]
+    pub fn first(&self) -> &Self {
+        let mut block = self;
+        while let Some(previous) = block.previous {
+            block = unsafe { previous.as_ref() };
+        }
+        block
+    }
+
+    #[inline]
+    pub fn next(&self) -> Option<&Self> {
+        self.next.map(|next| unsafe { next.as_ref() })
+    }
+
+    pub fn output_len(&self) -> usize {
+        let mut count = 0;
+        let mut block = self.first();
+        loop {
+            count += (0..block.len())
+                .filter(|&index| !block.is_invalid(index))
+                .count();
+            let Some(next) = block.next() else {
+                return count;
+            };
+            block = next;
+        }
+    }
+
+    #[inline]
+    pub fn is_output_empty(&self) -> bool {
+        self.output_len() == 0
+    }
+
+    #[inline]
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = (&Declaration<'a>, bool)> {
         debug_assert_eq!(self.declarations.len(), self.declarations_importance.len());
+        debug_assert_eq!(self.declarations.len(), self.declarations_invalid.len());
         self.declarations
             .iter()
             .zip(self.declarations_importance.iter())

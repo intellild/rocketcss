@@ -2,9 +2,11 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use std::ffi::OsString;
+use std::fmt::Write as _;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use divan::{Bencher, black_box, counter::BytesCount};
@@ -12,9 +14,53 @@ use rocketcss_allocator::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss};
 
 const BOOTSTRAP: &str = include_str!("../files/bootstrap.css");
+static CONDITIONAL_RUN: OnceLock<String> = OnceLock::new();
 
 fn main() {
     divan::main();
+}
+
+fn conditional_run() -> &'static str {
+    CONDITIONAL_RUN.get_or_init(|| conditional_run_fixture(256))
+}
+
+#[divan::bench]
+fn rocketcss_parse(bencher: Bencher<'_, '_>) {
+    bencher
+        .counter(BytesCount::of_str(BOOTSTRAP))
+        .bench_local(|| {
+            let allocator = Allocator::new();
+            let stylesheet = rocketcss_parser::parse(
+                black_box(BOOTSTRAP),
+                &allocator,
+                rocketcss_parser::ParserOptions {
+                    error_recovery: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            black_box(stylesheet);
+        });
+}
+
+#[divan::bench]
+fn rocketcss_parse_minify(bencher: Bencher<'_, '_>) {
+    bencher
+        .counter(BytesCount::of_str(BOOTSTRAP))
+        .bench_local(|| {
+            let allocator = Allocator::new();
+            let mut stylesheet = rocketcss_parser::parse(
+                black_box(BOOTSTRAP),
+                &allocator,
+                rocketcss_parser::ParserOptions {
+                    error_recovery: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            rocketcss_minify::minify(&mut stylesheet, rocketcss_minify::MinifyOptions::default());
+            black_box(stylesheet);
+        });
 }
 
 #[divan::bench]
@@ -41,6 +87,28 @@ fn rocketcss(bencher: Bencher<'_, '_>) {
 }
 
 #[divan::bench]
+fn rocketcss_conditional_run(bencher: Bencher<'_, '_>) {
+    let source = conditional_run();
+    bencher.counter(BytesCount::of_str(source)).bench_local(|| {
+        let allocator = Allocator::new();
+        let mut stylesheet = rocketcss_parser::parse(
+            black_box(source),
+            &allocator,
+            rocketcss_parser::ParserOptions {
+                error_recovery: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        rocketcss_minify::minify(&mut stylesheet, rocketcss_minify::MinifyOptions::default());
+        let output = stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap();
+        black_box(output);
+    });
+}
+
+#[divan::bench]
 fn lightningcss(bencher: Bencher<'_, '_>) {
     use lightningcss::stylesheet::{MinifyOptions, ParserOptions, PrinterOptions, StyleSheet};
 
@@ -58,6 +126,86 @@ fn lightningcss(bencher: Bencher<'_, '_>) {
                 .unwrap();
             black_box(output);
         });
+}
+
+#[divan::bench]
+fn lightningcss_conditional_run(bencher: Bencher<'_, '_>) {
+    use lightningcss::stylesheet::{MinifyOptions, ParserOptions, PrinterOptions, StyleSheet};
+
+    let source = conditional_run();
+    bencher.counter(BytesCount::of_str(source)).bench_local(|| {
+        let mut stylesheet =
+            StyleSheet::parse(black_box(source), ParserOptions::default()).unwrap();
+        stylesheet.minify(MinifyOptions::default()).unwrap();
+        let output = stylesheet
+            .to_css(PrinterOptions {
+                minify: true,
+                ..PrinterOptions::default()
+            })
+            .unwrap();
+        black_box(output);
+    });
+}
+
+// Copied from Lightning CSS's `stylesheet/transform[conditional-run]`
+// benchmark, introduced by parcel-bundler/lightningcss#1271 and optimized by
+// parcel-bundler/lightningcss#1263.
+fn conditional_run_fixture(rule_count: usize) -> String {
+    let mut css = String::with_capacity(rule_count * 720);
+
+    for i in 0..rule_count {
+        let hue = (i * 17) % 360;
+        writeln!(
+            css,
+            r#"
+@media (min-width: 768px) {{
+  .media-card-{i} {{
+    color: hsl({hue}deg 52% 28%);
+    display: grid;
+    gap: {gap}px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }}
+}}
+"#,
+            gap = 8 + (i % 12),
+        )
+        .unwrap();
+    }
+
+    for i in 0..rule_count {
+        let width = 420 + (i % 24);
+        writeln!(
+            css,
+            r#"
+
+@supports (container-type: inline-size) {{
+  .supports-card-{i} {{
+    container-type: inline-size;
+    inline-size: min(100%, {width}px);
+  }}
+}}
+"#,
+        )
+        .unwrap();
+    }
+
+    for i in 0..rule_count {
+        writeln!(
+            css,
+            r#"
+
+@container (min-width: 32rem) {{
+  .container-card-{i} {{
+    padding: {padding}px;
+  }}
+}}
+"#,
+            padding = 12 + (i % 10),
+        )
+        .unwrap();
+    }
+
+    css
 }
 
 struct CssnanoWorker {

@@ -75,25 +75,25 @@ macro_rules! define_properties {
             }
 
             /// Returns the canonical CSS property name.
-            pub fn name(&self) -> &str {
+            pub fn name(&self) -> &'a str {
                 match self {
                     $(property_id_pattern!(Self::$property$(, $vp)?) => $name,)+
                     Self::All => "all",
                     Self::Unparsed => "",
-                    Self::Custom(name) => name,
+                    Self::Custom(name) => *name,
                 }
             }
         }
 
-        impl Declaration<'_> {
+        impl<'a> Declaration<'a> {
             /// Returns the canonical CSS property name.
-            pub fn name(&self) -> &str {
+            pub fn name(&self) -> &'a str {
                 match self {
                     $(Self::$property(..) => $name,)+
                     Self::All(_) => "all",
                     Self::Unparsed(value) => value.property_id.name(),
                     Self::Custom(value) => match &*value.name {
-                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => *name,
                     },
                 }
             }

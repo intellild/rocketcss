@@ -63,7 +63,9 @@ impl<'a> Plugin<'a> for MinifyPlugin {
 }
 
 pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, context: &mut MinifyContext) {
+    rules::coalesce_conditional_rules(&mut stylesheet.rules, context);
     Minifier { context }.visit_style_sheet(stylesheet);
+    rules::minify_rule_list(&mut stylesheet.rules, context);
 }
 
 struct Minifier<'context> {
@@ -189,10 +191,10 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_values_without_rewriting_siblings() {
+    fn normalizes_values_and_removes_exact_duplicate_declarations() {
         assert_eq!(
             run("a{color:yellow;width:16px;width:16px}"),
-            "a{color:#ff0;width:1pc;width:1pc}"
+            "a{color:#ff0;width:1pc}"
         );
         assert_eq!(
             run("a{transition-duration:500ms;transform:rotate(.25turn)}"),
@@ -201,12 +203,63 @@ mod tests {
     }
 
     #[test]
-    fn preserves_rule_structure() {
+    fn merges_adjacent_style_rules() {
         assert_eq!(
             run("a{}a{color:red}a{color:red} @media print{a{}}"),
-            "a{}a{color:red}a{color:red}@media print{a{}}"
+            "a{color:red}@media print{a{}}"
         );
         assert_eq!(run("a{color:red}b{color:red}"), "a{color:red}b{color:red}");
+        assert_eq!(
+            run("a{padding-left:1px}a{padding-right:2px}"),
+            "a{padding-left:1px;padding-right:2px}"
+        );
+    }
+
+    #[test]
+    fn treats_at_rules_as_style_merge_barriers() {
+        assert_eq!(
+            run("a{padding-left:1px}@media print{a{padding-left:3px}}a{padding-right:2px}"),
+            "a{padding-left:1px}@media print{a{padding-left:3px}}a{padding-right:2px}"
+        );
+    }
+
+    #[test]
+    fn coalesces_adjacent_conditional_rules_before_minifying_children() {
+        assert_eq!(
+            run("@media print{a{padding-left:1px}}@media print{a{padding-right:2px}}"),
+            "@media print{a{padding-left:1px;padding-right:2px}}"
+        );
+        assert_eq!(
+            run("@media print{a{color:red}}@media screen{a{color:red}}"),
+            "@media print{a{color:red}}@media screen{a{color:red}}"
+        );
+        assert_eq!(
+            run(
+                "@media print{a{padding-top:1px}}@media print{a{padding-right:2px}}@media print{a{padding-bottom:3px}}"
+            ),
+            "@media print{a{padding-top:1px;padding-right:2px;padding-bottom:3px}}"
+        );
+    }
+
+    #[test]
+    fn repeated_minification_keeps_block_links_stable() {
+        let allocator = Allocator::new();
+        let mut stylesheet = parse(
+            "a{color:red}a{color:red;padding-left:1px}a{padding-right:2px}",
+            &allocator,
+            ParserOptions::default(),
+        )
+        .unwrap();
+
+        minify(&mut stylesheet, MinifyOptions::default());
+        minify(&mut stylesheet, MinifyOptions::default());
+
+        assert_eq!(
+            stylesheet
+                .to_css_string(PrinterOptions { prettify: false })
+                .unwrap(),
+            "a{color:red;padding-left:1px;padding-right:2px}"
+        );
     }
 
     #[test]

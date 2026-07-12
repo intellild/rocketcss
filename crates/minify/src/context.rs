@@ -3,6 +3,9 @@ use crate::MinifyOptions;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MinifyStats {
     pub values_normalized: usize,
+    pub declarations_removed: usize,
+    pub style_rules_merged: usize,
+    pub conditional_rules_merged: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -50,5 +53,20 @@ impl MinifyContext {
     #[inline]
     pub(crate) fn record_value_normalized(&mut self) {
         self.stats.values_normalized += 1;
+    }
+
+    #[inline]
+    pub(crate) fn record_declaration_removed(&mut self) {
+        self.stats.declarations_removed += 1;
+    }
+
+    #[inline]
+    pub(crate) fn record_style_rule_merged(&mut self) {
+        self.stats.style_rules_merged += 1;
+    }
+
+    #[inline]
+    pub(crate) fn record_conditional_rule_merged(&mut self) {
+        self.stats.conditional_rules_merged += 1;
     }
 }

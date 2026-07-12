@@ -729,33 +729,42 @@ fn walk_fields(
     match fields {
         Fields::Unit => quote!(),
         Fields::Named(fields) => {
-            let visits = fields.named.iter().map(|field| {
-                let ident = field.ident.as_ref().unwrap();
-                visit_type(
-                    mode,
-                    &field.ty,
-                    quote!(#reference #base.#ident),
-                    known,
-                    aliases,
-                    generics,
-                    counter,
-                )
-            });
+            let visits = fields
+                .named
+                .iter()
+                .filter(|field| is_public(&field.vis))
+                .map(|field| {
+                    let ident = field.ident.as_ref().unwrap();
+                    visit_type(
+                        mode,
+                        &field.ty,
+                        quote!(#reference #base.#ident),
+                        known,
+                        aliases,
+                        generics,
+                        counter,
+                    )
+                });
             quote!(#(#visits)*)
         }
         Fields::Unnamed(fields) => {
-            let visits = fields.unnamed.iter().enumerate().map(|(index, field)| {
-                let index = syn::Index::from(index);
-                visit_type(
-                    mode,
-                    &field.ty,
-                    quote!(#reference #base.#index),
-                    known,
-                    aliases,
-                    generics,
-                    counter,
-                )
-            });
+            let visits = fields
+                .unnamed
+                .iter()
+                .enumerate()
+                .filter(|(_, field)| is_public(&field.vis))
+                .map(|(index, field)| {
+                    let index = syn::Index::from(index);
+                    visit_type(
+                        mode,
+                        &field.ty,
+                        quote!(#reference #base.#index),
+                        known,
+                        aliases,
+                        generics,
+                        counter,
+                    )
+                });
             quote!(#(#visits)*)
         }
     }

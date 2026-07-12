@@ -1361,24 +1361,39 @@ fn write_declarations<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
 ) -> fmt::Result {
-    for (index, (declaration, important)) in declarations.iter().enumerate() {
-        declaration.to_css(dest)?;
-        if important {
-            dest.write_str(" !important")?;
-        }
-        let has_next = index + 1 < declarations.len();
-        if has_next {
-            dest.write_char(';')?;
-        } else {
-            match last_semicolon {
-                LastSemicolon::Omit => {}
-                LastSemicolon::Optional => dest.semicolon(false)?,
-                LastSemicolon::Required => dest.write_char(';')?,
+    let declaration_count = declarations.output_len();
+    let mut written = 0;
+    let mut block = declarations.first();
+    loop {
+        for (index, (declaration, important)) in block.iter().enumerate() {
+            if block.is_invalid(index) {
+                continue;
+            }
+
+            declaration.to_css(dest)?;
+            if important {
+                dest.write_str(" !important")?;
+            }
+            written += 1;
+            let has_next = written < declaration_count;
+            if has_next {
+                dest.write_char(';')?;
+            } else {
+                match last_semicolon {
+                    LastSemicolon::Omit => {}
+                    LastSemicolon::Optional => dest.semicolon(false)?,
+                    LastSemicolon::Required => dest.write_char(';')?,
+                }
+            }
+            if has_next {
+                dest.new_line()?;
             }
         }
-        if has_next {
-            dest.new_line()?;
-        }
+
+        let Some(next) = block.next() else {
+            break;
+        };
+        block = next;
     }
     Ok(())
 }
@@ -1468,7 +1483,7 @@ impl ToCss for StyleRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_empty() && !self.rules.is_empty() {
+            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             write_rule_list(&self.rules, dest)
@@ -1662,7 +1677,7 @@ impl ToCss for PageRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_empty() && !self.rules.is_empty() {
+            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             for (index, rule) in self.rules.iter().enumerate() {
