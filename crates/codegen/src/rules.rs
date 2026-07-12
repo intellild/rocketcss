@@ -869,6 +869,9 @@ impl ToCss for UnparsedProperty<'_> {
 
 impl ToCss for CustomProperty<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        if self.value.is_empty() {
+            return dest.write_char(' ');
+        }
         crate::token::write_token_list(&self.value, dest)
     }
 }
@@ -1472,7 +1475,19 @@ impl ToCss for ImportRule<'_> {
 
 impl ToCss for StyleRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        self.selectors.to_css(dest)?;
+        if let Some(selectors) = self.selector_ir() {
+            for (index, selector) in selectors.iter().enumerate() {
+                if index > 0 {
+                    dest.delim(Delimiter::Comma)?;
+                }
+                // SAFETY: selector IR is installed only after selector AST
+                // mutation is complete and arena-backed selector storage does
+                // not move before code generation.
+                unsafe { selector.as_ref() }.to_css(dest)?;
+            }
+        } else {
+            self.selectors.to_css(dest)?;
+        }
         write_block(dest, |dest| {
             write_declarations(
                 &self.declarations,

@@ -98,7 +98,13 @@ where
         Token::IdHash(field_0) => {
             visitor.visit_str(field_0);
         }
+        Token::MinifiedHash(field_0) => {
+            visitor.visit_str(field_0);
+        }
         Token::String(field_0) => {
+            visitor.visit_str(field_0);
+        }
+        Token::UnquotedFont(field_0) => {
             visitor.visit_str(field_0);
         }
         Token::UnquotedUrl(field_0) => {

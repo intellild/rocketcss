@@ -4,7 +4,21 @@ use crate::{Minify, MinifyContext};
 
 impl Minify for LengthValue {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values || self.value == 0.0 {
+        if self.unit == LengthUnit::Px
+            && let Some(precision) = context.options().length_precision
+        {
+            let factor = 10_f32.powi(i32::from(precision));
+            let rounded = (self.value * factor).round() / factor;
+            if self.value != rounded {
+                self.value = rounded;
+                context.record_value_normalized();
+            }
+            return;
+        }
+        if !context.options().normalize_values
+            || !context.options().convert_length_units
+            || self.value == 0.0
+        {
             return;
         }
         let Some(px) = to_px(self.value, self.unit) else {
@@ -15,11 +29,11 @@ impl Minify for LengthValue {
         let candidates = [
             (px, LengthUnit::Px),
             (px / 96.0, LengthUnit::In),
+            (px * 72.0 / 96.0, LengthUnit::Pt),
+            (px / 16.0, LengthUnit::Pc),
             (px * 2.54 / 96.0, LengthUnit::Cm),
             (px * 25.4 / 96.0, LengthUnit::Mm),
             (px * 101.6 / 96.0, LengthUnit::Q),
-            (px * 72.0 / 96.0, LengthUnit::Pt),
-            (px / 16.0, LengthUnit::Pc),
         ];
         let original_len = dimension_len(self.value, Unit::Length(self.unit));
         if original_len <= 2 {
@@ -31,6 +45,11 @@ impl Minify for LengthValue {
         for (candidate_value, candidate_unit) in candidates {
             if !candidate_value.is_finite()
                 || candidate_unit == original_unit
+                || (!context.options().convert_extended_length_units
+                    && matches!(
+                        candidate_unit,
+                        LengthUnit::Cm | LengthUnit::Mm | LengthUnit::Q
+                    ))
                 || 1 + length_unit_len(candidate_unit) >= best_len
             {
                 continue;
@@ -64,6 +83,9 @@ impl Minify for Angle {
             Angle::Grad(number) => number * 0.9,
             Angle::Turn(number) => number * 360.0,
         };
+        if degrees == 0.0 {
+            return;
+        }
         let candidates = [
             Angle::Deg(clean_float(degrees)),
             Angle::Turn(clean_float(degrees / 360.0)),
@@ -311,7 +333,7 @@ fn number_len(value: f32) -> usize {
 
 fn clean_float(value: f32) -> f32 {
     let rounded = value.round();
-    if (value - rounded).abs() < 0.000_01 {
+    if (value - rounded).abs() <= f32::EPSILON * value.abs().max(1.0) * 2.0 {
         rounded
     } else {
         (value * 1_000_000.0).round() / 1_000_000.0

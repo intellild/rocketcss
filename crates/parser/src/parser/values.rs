@@ -29,9 +29,13 @@ pub(super) fn collect_tokens<'i, 't>(
             ValueToken::Function(name) => {
                 let arguments = input
                     .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
-                tokens.push(TokenOrValue::Function(
-                    allocator.boxed(Function { arguments, name }),
-                ));
+                tokens.push(TokenOrValue::Function(allocator.boxed(Function {
+                    arguments,
+                    is_identifier: false,
+                    name,
+                    replacement: None,
+                    unquoted_url: false,
+                })));
             }
             ValueToken::UnquotedUrl(url) => {
                 tokens.push(TokenOrValue::Url(allocator.boxed(Url {

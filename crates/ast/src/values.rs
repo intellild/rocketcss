@@ -97,6 +97,8 @@ pub enum GradientItem<'a, D> {
 pub enum DimensionPercentage<'a, D> {
     Dimension(Box<'a, D>),
     Percentage(f32),
+    /// A unitless zero produced by target-aware minification.
+    Zero,
     Calc(Box<'a, Calc<'a, DimensionPercentage<'a, D>>>),
 }
 

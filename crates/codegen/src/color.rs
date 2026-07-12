@@ -3,6 +3,7 @@ use crate::prelude::*;
 impl ToCss for CssColor<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
+            Self::Initial => dest.write_str("initial"),
             Self::CurrentColor => dest.write_str("currentColor"),
             Self::Rgba(value) => value.to_css(dest),
             Self::Lab(value) => value.to_css(dest),

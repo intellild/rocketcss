@@ -4,6 +4,7 @@ use rocketcss_allocator::{boxed::Box, vec::Vec};
 
 #[derive(Debug, PartialEq)]
 pub enum CssColor<'a> {
+    Initial,
     CurrentColor,
     Rgba(RGBA),
     Lab(Box<'a, LABColor>),

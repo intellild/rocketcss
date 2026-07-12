@@ -313,7 +313,42 @@ pub struct DashedIdentReference<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Function<'a> {
     pub arguments: Vec<'a, TokenOrValue<'a>>,
+    /// Whether this node was reduced to an identifier during minification.
+    ///
+    /// Keeping the replacement in the existing function allocation avoids
+    /// allocating a new token solely to change the surrounding enum variant.
+    pub is_identifier: bool,
     pub name: &'a str,
+    /// A simple `calc()` result serialized from this existing node.
+    pub replacement: Option<FunctionReplacement>,
+    /// Emit a quoted `url()` argument directly when it is safe to unquote.
+    pub unquoted_url: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FunctionReplacement {
+    GrayAlpha {
+        alpha: f32,
+        lightness: f32,
+    },
+    Number(f32),
+    Dimension {
+        unit: Unit,
+        value: f32,
+    },
+    Percentage(f32),
+    Rgb {
+        blue: u8,
+        green: u8,
+        red: u8,
+    },
+    Rgba {
+        alpha: f32,
+        blue: u8,
+        green: u8,
+        red: u8,
+        use_hex: bool,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -325,13 +360,64 @@ pub struct ImportRule<'a> {
     pub url: &'a str,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct StyleRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
     pub span: Span,
     pub rules: Vec<'a, CssRule<'a>>,
     pub selectors: Box<'a, SelectorList<'a>>,
     pub vendor_prefix: VendorPrefix,
+    selector_ir: Option<Vec<'a, NonNull<Selector<'a>>>>,
+}
+
+impl<'a> StyleRule<'a> {
+    pub fn new(
+        declarations: Box<'a, DeclarationBlock<'a>>,
+        span: Span,
+        rules: Vec<'a, CssRule<'a>>,
+        selectors: Box<'a, SelectorList<'a>>,
+        vendor_prefix: VendorPrefix,
+    ) -> Self {
+        Self {
+            declarations,
+            span,
+            rules,
+            selectors,
+            vendor_prefix,
+            selector_ir: None,
+        }
+    }
+
+    #[inline]
+    pub fn selector_ir(&self) -> Option<&[NonNull<Selector<'a>>]> {
+        self.selector_ir.as_deref()
+    }
+
+    #[inline]
+    pub fn take_selector_ir(&mut self) -> Option<Vec<'a, NonNull<Selector<'a>>>> {
+        self.selector_ir.take()
+    }
+
+    /// Installs an output-only selector IR after all selector AST mutations.
+    ///
+    /// # Safety
+    ///
+    /// Every pointer must remain valid for the lifetime of this rule and no
+    /// pointed-to selector may be mutated while the IR is installed.
+    #[inline]
+    pub unsafe fn set_selector_ir(&mut self, selectors: Vec<'a, NonNull<Selector<'a>>>) {
+        self.selector_ir = Some(selectors);
+    }
+}
+
+impl PartialEq for StyleRule<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.declarations == other.declarations
+            && self.span == other.span
+            && self.rules == other.rules
+            && self.selectors == other.selectors
+            && self.vendor_prefix == other.vendor_prefix
+    }
 }
 
 #[derive(Debug, PartialEq)]

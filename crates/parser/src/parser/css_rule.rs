@@ -456,13 +456,13 @@ pub(super) fn parse_at_rule<'i, 't>(
         let span = span_from(start, input.position());
         CssRule::Nesting(allocator.boxed(NestingRule {
             span,
-            style: allocator.boxed(StyleRule {
-                declarations: allocator.boxed(declarations),
+            style: allocator.boxed(StyleRule::new(
+                allocator.boxed(declarations),
                 span,
                 rules,
-                selectors: allocator.boxed(selectors),
-                vendor_prefix: VendorPrefix::NONE,
-            }),
+                allocator.boxed(selectors),
+                VendorPrefix::NONE,
+            )),
         }))
     } else {
         let block = if matches!(ending, Ending::Block) {
@@ -495,13 +495,13 @@ pub(super) fn parse_qualified_rule<'i, 't>(
     let (declarations, rules) = input
         .parse_nested_block(|input| parse_style_contents(input, allocator, options, depth + 1))?;
 
-    Ok(CssRule::Style(allocator.boxed(StyleRule {
-        declarations: allocator.boxed(declarations),
-        span: span_from(start, input.position()),
+    Ok(CssRule::Style(allocator.boxed(StyleRule::new(
+        allocator.boxed(declarations),
+        span_from(start, input.position()),
         rules,
-        selectors: allocator.boxed(selectors),
-        vendor_prefix: VendorPrefix::NONE,
-    })))
+        allocator.boxed(selectors),
+        VendorPrefix::NONE,
+    ))))
 }
 
 type StyleContents<'i> = (DeclarationBlock<'i>, Vec<'i, CssRule<'i>>);

@@ -13,6 +13,7 @@ where
 {
     visitor.enter_node(AstType::CssColor);
     match node {
+        CssColor::Initial => {}
         CssColor::CurrentColor => {}
         CssColor::Rgba(field_0) => {
             visitor.visit_rgba(field_0);

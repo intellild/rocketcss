@@ -10,18 +10,48 @@ pub struct MinifyStats {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum PropertyContext {
+    Animation,
+    Border,
     Box,
+    BoxShadow,
+    Columns,
+    Display,
+    FlexFlow,
+    Font,
     FontWeight,
+    GridAutoFlow,
+    GridGap,
+    GridLine,
+    ListStyle,
+    Outline,
+    Position,
     Repeat,
+    TimingFunction,
+    Transition,
+    Transform,
     #[default]
     Generic,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ValueContext {
-    pub allow_unitless_zero: bool,
+    pub allow_unitless_zero_length: bool,
+    pub allow_unitless_zero_percentage: bool,
+    pub minify_colors: bool,
     pub property: PropertyContext,
     pub skip_value_transforms: bool,
+}
+
+impl Default for ValueContext {
+    fn default() -> Self {
+        Self {
+            allow_unitless_zero_length: false,
+            allow_unitless_zero_percentage: false,
+            minify_colors: true,
+            property: PropertyContext::Generic,
+            skip_value_transforms: false,
+        }
+    }
 }
 
 /// Shared state for local, in-place node minification.

@@ -298,6 +298,7 @@ impl<D: ToCss> ToCss for DimensionPercentage<'_, D> {
                 serialize_number(*value * 100.0, dest)?;
                 dest.write_char('%')
             }
+            Self::Zero => dest.write_char('0'),
             Self::Calc(value) => value.to_css(dest),
         }
     }
@@ -995,7 +996,12 @@ impl ToCss for LineHeight<'_> {
         match self {
             Self::Normal => dest.write_str("normal"),
             Self::Number(value) => serialize_number(*value, dest),
-            Self::Length(value) => value.to_css(dest),
+            Self::Length(value) => match &**value {
+                DimensionPercentage::Dimension(value) if value.value == 0.0 => {
+                    serialize_dimension(value.value, &value.unit, dest)
+                }
+                _ => value.to_css(dest),
+            },
         }
     }
 }

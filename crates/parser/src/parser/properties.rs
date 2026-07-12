@@ -88,6 +88,20 @@ pub(super) fn parse_typed_declaration<'i>(
         return parse_display(value, allocator)
             .map(|display| Declaration::Display(allocator.boxed(display)));
     }
+    if name.eq_ignore_ascii_case("z-index") {
+        let z_index = match single_token(value)? {
+            ValueToken::Ident(value) if value.eq_ignore_ascii_case("auto") => ZIndex::Auto,
+            ValueToken::Number(value)
+                if value.fract() == 0.0
+                    && *value >= i32::MIN as f32
+                    && *value < -(i32::MIN as f32) =>
+            {
+                ZIndex::Integer(*value as i32)
+            }
+            _ => return None,
+        };
+        return Some(Declaration::ZIndex(allocator.boxed(z_index)));
+    }
 
     let size = parse_size(value, allocator)?;
     let size = allocator.boxed(size);

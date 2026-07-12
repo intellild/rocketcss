@@ -1,6 +1,79 @@
-use rocketcss_ast::Ratio;
+use rocketcss_ast::{Ratio, StyleSheet, ZIndex};
+use rocketcss_visitor::VisitMut;
 
 use crate::{Minify, MinifyContext};
+
+pub(crate) fn reduce_z_indices<'a>(stylesheet: &mut StyleSheet<'a>, context: &mut MinifyContext) {
+    if !context.options().reduce_z_indices {
+        return;
+    }
+
+    let mut collector = ZIndexCollector::default();
+    collector.visit_style_sheet(stylesheet);
+    if collector.has_negative || collector.values.is_empty() {
+        return;
+    }
+
+    collector.values.sort_unstable();
+    collector.values.dedup();
+    ZIndexRewriter {
+        values: &collector.values,
+        start: context.options().z_index_start,
+        context,
+    }
+    .visit_style_sheet(stylesheet);
+}
+
+#[derive(Default)]
+struct ZIndexCollector {
+    values: std::vec::Vec<i32>,
+    has_negative: bool,
+}
+
+impl<'a> VisitMut<'a> for ZIndexCollector {
+    fn visit_z_index(&mut self, node: &mut ZIndex) {
+        let ZIndex::Integer(value) = node else {
+            return;
+        };
+        if *value < 0 {
+            self.has_negative = true;
+        } else if *value > 0 {
+            self.values.push(*value);
+        }
+    }
+}
+
+struct ZIndexRewriter<'values, 'context> {
+    values: &'values [i32],
+    start: i32,
+    context: &'context mut MinifyContext,
+}
+
+impl<'a> VisitMut<'a> for ZIndexRewriter<'_, '_> {
+    fn visit_z_index(&mut self, node: &mut ZIndex) {
+        let ZIndex::Integer(value) = node else {
+            return;
+        };
+        let Ok(index) = self.values.binary_search(value) else {
+            return;
+        };
+        let Ok(offset) = i32::try_from(index) else {
+            debug_assert!(
+                false,
+                "z-index IR cannot contain more than i32::MAX entries"
+            );
+            return;
+        };
+        let Some(rebased) = self.start.checked_add(offset) else {
+            debug_assert!(false, "rebased z-index must fit in i32");
+            return;
+        };
+        if *value != rebased {
+            *value = rebased;
+            self.context.record_value_normalized();
+        }
+    }
+}
 
 impl Minify for Ratio {
     fn minify(&mut self, context: &mut MinifyContext) {

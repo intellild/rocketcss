@@ -63,8 +63,18 @@ impl<'a> Plugin<'a> for MinifyPlugin {
 }
 
 pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, context: &mut MinifyContext) {
+    if context.options().discard_license_comments {
+        stylesheet.license_comments.clear();
+    }
     rules::coalesce_conditional_rules(&mut stylesheet.rules, context);
     Minifier { context }.visit_style_sheet(stylesheet);
+    rules::merge_identical_identifier_rules(stylesheet, context);
+    rules::discard_unused_definitions(stylesheet, context);
+    rules::reduce_keyframe_identifiers(stylesheet, context);
+    rules::reduce_counter_style_identifiers(stylesheet, context);
+    rules::reduce_counter_identifiers(stylesheet, context);
+    rules::reduce_grid_identifiers(stylesheet, context);
+    values::reduce_z_indices(stylesheet, context);
     rules::minify_rule_list(&mut stylesheet.rules, context);
 }
 
@@ -73,6 +83,16 @@ struct Minifier<'context> {
 }
 
 impl<'a> VisitMut<'a> for Minifier<'_> {
+    fn visit_font_face_property(&mut self, node: &mut FontFaceProperty<'a>) {
+        walk_mut::walk_font_face_property(self, node);
+        rules::minify_font_face_property(node, self.context);
+    }
+
+    fn visit_declaration(&mut self, node: &mut Declaration<'a>) {
+        walk_mut::walk_declaration(self, node);
+        node.minify(self.context);
+    }
+
     fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
         walk_mut::walk_keyframe_selector(self, node);
         node.minify(self.context);
@@ -80,7 +100,11 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
 
     fn visit_unparsed_property(&mut self, node: &mut UnparsedProperty<'a>) {
         let previous = self.context.value_context;
-        self.context.value_context = properties::value_context(&node.property_id);
+        self.context.value_context = properties::value_context(
+            &node.property_id,
+            self.context.options().order_values,
+            self.context.options().convert_zero_percentages,
+        );
         walk_mut::walk_unparsed_property(self, node);
         node.minify(self.context);
         self.context.value_context = previous;
@@ -89,6 +113,12 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
     fn visit_custom_property(&mut self, node: &mut CustomProperty<'a>) {
         let previous = self.context.value_context;
         self.context.value_context = properties::custom_property_context(self.context);
+        let name = match &*node.name {
+            CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => *name,
+        };
+        if name.eq_ignore_ascii_case("--font-family") {
+            self.context.value_context.property = context::PropertyContext::Font;
+        }
         walk_mut::walk_custom_property(self, node);
         node.minify(self.context);
         self.context.value_context = previous;
@@ -97,7 +127,22 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
     fn visit_function(&mut self, node: &mut Function<'a>) {
         let previous = self.context.value_context;
         if is_math_function(node.name) {
-            self.context.value_context.allow_unitless_zero = false;
+            self.context.value_context.allow_unitless_zero_length = false;
+            self.context.value_context.allow_unitless_zero_percentage = false;
+            self.context.value_context.property = context::PropertyContext::Generic;
+        }
+        if node.name.eq_ignore_ascii_case("hwb") {
+            self.context.value_context.allow_unitless_zero_length = false;
+            self.context.value_context.allow_unitless_zero_percentage = false;
+        }
+        if node.name.eq_ignore_ascii_case("color-mix") || node.name.eq_ignore_ascii_case("linear") {
+            self.context.value_context.allow_unitless_zero_percentage = false;
+        }
+        if rules::is_gradient_function(node.name) {
+            self.context.value_context.property = context::PropertyContext::Generic;
+        }
+        if node.name.eq_ignore_ascii_case("local") {
+            self.context.value_context.minify_colors = false;
         }
         walk_mut::walk_function(self, node);
         node.minify(self.context);
@@ -158,6 +203,13 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
         node.minify(self.context);
     }
 
+    fn visit_selector(&mut self, node: &mut Selector<'a>) {
+        walk_mut::walk_selector(self, node);
+        if selector::minify_selector(node) {
+            self.context.record_value_normalized();
+        }
+    }
+
     fn visit_media_list(&mut self, node: &mut MediaList<'a>) {
         walk_mut::walk_media_list(self, node);
         node.minify(self.context);
@@ -165,6 +217,10 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
 }
 
 fn is_math_function(name: &str) -> bool {
+    let name = name
+        .strip_prefix('-')
+        .and_then(|name| name.split_once('-').map(|(_, name)| name))
+        .unwrap_or(name);
     [
         "calc", "min", "max", "clamp", "round", "rem", "mod", "abs", "sign", "hypot",
     ]
@@ -182,9 +238,13 @@ mod tests {
     use super::*;
 
     fn run(source: &str) -> String {
+        run_with_options(source, MinifyOptions::default())
+    }
+
+    fn run_with_options(source: &str, options: MinifyOptions) -> String {
         let allocator = Allocator::new();
         let mut stylesheet = parse(source, &allocator, ParserOptions::default()).unwrap();
-        minify(&mut stylesheet, MinifyOptions::default());
+        minify(&mut stylesheet, options);
         stylesheet
             .to_css_string(PrinterOptions { prettify: false })
             .unwrap()
@@ -214,9 +274,9 @@ mod tests {
     fn merges_adjacent_style_rules() {
         assert_eq!(
             run("a{}a{color:red}a{color:red} @media print{a{}}"),
-            "a{color:red}@media print{a{}}"
+            "a{color:red}"
         );
-        assert_eq!(run("a{color:red}b{color:red}"), "a{color:red}b{color:red}");
+        assert_eq!(run("a{color:red}b{color:red}"), "a,b{color:red}");
         assert_eq!(
             run("a{padding-left:1px}a{padding-right:2px}"),
             "a{padding-left:1px;padding-right:2px}"
@@ -297,6 +357,38 @@ mod tests {
     #[test]
     fn preserves_typed_zero_in_calc() {
         assert_eq!(run("a{width:calc(0px + 1em)}"), "a{width:calc(0px + 1em)}");
+    }
+
+    #[test]
+    fn rebases_positive_z_indices_in_place() {
+        let options = MinifyOptions {
+            reduce_z_indices: true,
+            ..MinifyOptions::default()
+        };
+        assert_eq!(
+            run_with_options(
+                "a{z-index:600}b{z-index:350}c{z-index:150}d{z-index:0}e{z-index:auto}",
+                options,
+            ),
+            "a{z-index:3}b{z-index:2}c{z-index:1}d{z-index:0}e{z-index:auto}"
+        );
+        assert_eq!(
+            run_with_options(
+                "a{z-index:8}b{z-index:-2}c{z-index:10}d{z-index:6}",
+                options,
+            ),
+            "a{z-index:8}b{z-index:-2}c{z-index:10}d{z-index:6}"
+        );
+        assert_eq!(
+            run_with_options(
+                "a{z-index:20}",
+                MinifyOptions {
+                    z_index_start: 15,
+                    ..options
+                },
+            ),
+            "a{z-index:15}"
+        );
     }
 
     #[test]

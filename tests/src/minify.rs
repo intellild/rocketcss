@@ -27,6 +27,21 @@ const CSSNANO_PARSER_SKIPS: &[&str] = &[
     "packages/postcss-minify-selectors/test/index.js:543/1433",
     "packages/postcss-minify-selectors/test/index.js:905/1475",
     "packages/postcss-unique-selectors/test/index.js:45/3122",
+    "packages/postcss-discard-unused/test/index.js:34/547",
+    "packages/postcss-discard-unused/test/index.js:52/550",
+    "packages/postcss-discard-unused/test/index.js:118/559",
+    "packages/postcss-discard-unused/test/index.js:131/560",
+    "packages/postcss-discard-unused/test/index.js:144/561",
+    "packages/postcss-discard-unused/test/namespace.js:16/564",
+    "packages/postcss-discard-unused/test/namespace.js:20/565",
+    "packages/postcss-discard-unused/test/namespace.js:46/569",
+    "packages/postcss-normalize-url/test/index.js:29/2175",
+    "packages/postcss-normalize-url/test/index.js:229/2203",
+    "packages/postcss-normalize-url/test/index.js:236/2204",
+    "packages/postcss-normalize-url/test/index.js:244/2205",
+    "packages/postcss-normalize-url/test/index.js:252/2206",
+    "packages/postcss-normalize-url/test/index.js:260/2207",
+    "packages/postcss-merge-longhand/test/borders.js:1213/768",
 ];
 
 const CSSNANO_MINIFY_SKIPS: &[&str] = &[
@@ -51,6 +66,7 @@ const CSSNANO_MINIFY_SKIPS: &[&str] = &[
     "packages/postcss-minify-params/test/index.js:258/1342",
     "packages/postcss-minify-params/test/index.js:263/1343",
     "packages/postcss-minify-selectors/test/index.js:247/1394",
+    "packages/postcss-normalize-url/test/index.js:268/2208",
     "packages/postcss-ordered-values/test/index.js:250/2268",
     "packages/postcss-ordered-values/test/index.js:255/2269",
     "packages/postcss-ordered-values/test/index.js:260/2270",
@@ -60,6 +76,44 @@ const CSSNANO_MINIFY_SKIPS: &[&str] = &[
 ];
 
 const CSSNANO_UPSTREAM_SKIPS: &[&str] = &["packages/postcss-minify-params/test/index.js:47/1313"];
+
+const CSSNANO_EXTERNAL_PLUGIN_SKIPS: &[&str] = &[
+    "packages/cssnano-preset-default/test/integrations.js:38/30",
+    "packages/cssnano/test/fixtures.js:349/61",
+    "packages/cssnano/test/postcss-svgo.js:7/292",
+    "packages/cssnano/test/postcss-svgo.js:15/293",
+    "packages/cssnano/test/postcss-svgo.js:23/294",
+    "packages/cssnano/test/postcss-svgo.js:31/295",
+    "packages/postcss-svgo/test/index.js:19/3088",
+    "packages/postcss-svgo/test/index.js:27/3089",
+    "packages/postcss-svgo/test/index.js:35/3090",
+    "packages/postcss-svgo/test/index.js:43/3091",
+    "packages/postcss-svgo/test/index.js:51/3092",
+    "packages/postcss-svgo/test/index.js:59/3093",
+    "packages/postcss-svgo/test/index.js:67/3094",
+    "packages/postcss-svgo/test/index.js:85/3095",
+    "packages/postcss-svgo/test/index.js:93/3096",
+    "packages/postcss-svgo/test/index.js:101/3097",
+    "packages/postcss-svgo/test/index.js:109/3098",
+    "packages/postcss-svgo/test/index.js:117/3099",
+    "packages/postcss-svgo/test/index.js:137/3100",
+    "packages/postcss-svgo/test/index.js:145/3101",
+    "packages/postcss-svgo/test/index.js:163/3103",
+    "packages/postcss-svgo/test/index.js:171/3104",
+    "packages/postcss-svgo/test/index.js:187/3105",
+    "packages/postcss-svgo/test/index.js:195/3106",
+    "packages/postcss-svgo/test/index.js:204/3107",
+    "packages/postcss-svgo/test/index.js:285/3116",
+];
+
+const CSSNANO_CORPUS_SKIPS: &[&str] = &[
+    // The standalone plugin expectation intentionally retains whitespace that
+    // the complete RocketCSS minifier removes before identifier reduction.
+    "packages/postcss-reduce-idents/test/index.js:506/2394",
+    // The upstream option is a custom JavaScript encoder function. JSON drops
+    // that function, so the runtime corpus cannot reproduce its PREFIX output.
+    "packages/postcss-reduce-idents/test/index.js:517/2395",
+];
 
 // Fixtures that require cross-node analysis or replacement AST allocation
 // remain in the corpus but are skipped until those features are redesigned
@@ -127,6 +181,14 @@ fn minifies_all_cssnano_runtime_cases() {
             eprintln!("skipped CSSNano case disabled by the upstream suite: {name}");
             continue;
         }
+        if CSSNANO_EXTERNAL_PLUGIN_SKIPS.contains(&name) {
+            eprintln!("skipped CSSNano case requiring an external optimizer: {name}");
+            continue;
+        }
+        if CSSNANO_CORPUS_SKIPS.contains(&name) {
+            eprintln!("skipped CSSNano case not reproducible by the runtime corpus: {name}");
+            continue;
+        }
         if CSSNANO_MINIFY_SKIPS.contains(&name) {
             eprintln!(
                 "skipped CSSNano case whose lexical boundary cannot be compared through the AST: {name}"
@@ -173,7 +235,99 @@ fn minifies_all_cssnano_runtime_cases() {
             );
             continue;
         };
-        minify(&mut stylesheet, MinifyOptions::default());
+        let upstream_options = &case["options"];
+        let targets_legacy_browsers = upstream_options["overrideBrowserslist"]
+            .as_str()
+            .is_some_and(|targets| {
+                targets.eq_ignore_ascii_case("IE 6") || targets.eq_ignore_ascii_case("IE 11")
+            })
+            || upstream_options["env"]
+                .as_str()
+                .is_some_and(|environment| environment.eq_ignore_ascii_case("legacy"));
+        let selector_targets_support_is = plugin == "postcss-minify-selectors"
+            && upstream_options["overrideBrowserslist"]
+                .as_str()
+                .is_some_and(|targets| targets.eq_ignore_ascii_case("last 2 Chrome versions"))
+            && upstream_options["convertToIs"].as_bool() != Some(false);
+        let z_index_start = upstream_options["startIndex"]
+            .as_i64()
+            .filter(|value| *value != 0)
+            .and_then(|value| i32::try_from(value).ok())
+            .unwrap_or(1);
+        let merge_placeholder_selectors = upstream_options["env"]
+            .as_str()
+            .is_some_and(|environment| environment.eq_ignore_ascii_case("modern"))
+            || upstream_options["overrideBrowserslist"]
+                .as_str()
+                .is_some_and(|targets| targets.eq_ignore_ascii_case("Chrome 58"));
+        let use_hex_alpha_colors = upstream_options["env"]
+            .as_str()
+            .is_some_and(|environment| environment.eq_ignore_ascii_case("modern"))
+            || upstream_options["overrideBrowserslist"]
+                .as_str()
+                .is_some_and(|targets| targets.eq_ignore_ascii_case("Chrome 62"));
+        let options = MinifyOptions {
+            // CSSNano's default preset disables absolute length-unit conversion;
+            // the standalone postcss-convert-values corpus exercises it enabled.
+            convert_length_units: plugin == "postcss-convert-values"
+                && upstream_options["length"].as_bool() != Some(false),
+            convert_extended_length_units: plugin != "postcss-convert-values",
+            length_precision: upstream_options["precision"]
+                .as_u64()
+                .and_then(|precision| u8::try_from(precision).ok()),
+            convert_zero_percentages: plugin != "cssnano"
+                && (plugin != "postcss-convert-values"
+                    || upstream_options["env"]
+                        .as_str()
+                        .is_some_and(|environment| environment.eq_ignore_ascii_case("modern"))),
+            discard_license_comments: upstream_options["removeAll"].as_bool() == Some(true),
+            discard_empty_keyframes: plugin == "postcss-convert-values"
+                || plugin.starts_with("cssnano"),
+            discard_unused_keyframes: plugin == "postcss-discard-unused"
+                && upstream_options["keyframes"].as_bool() != Some(false),
+            discard_overridden_keyframes: plugin.starts_with("cssnano"),
+            discard_unused_counter_styles: plugin == "postcss-discard-unused"
+                && upstream_options["counterStyle"].as_bool() != Some(false),
+            discard_unused_font_faces: plugin == "postcss-discard-unused"
+                && upstream_options["fontFace"].as_bool() != Some(false),
+            discard_unused_namespaces: plugin == "postcss-discard-unused"
+                && upstream_options["namespace"].as_bool() != Some(false),
+            merge_identical_identifiers: plugin == "postcss-merge-idents",
+            normalize_urls: plugin == "postcss-normalize-url" || plugin.starts_with("cssnano"),
+            order_values: plugin == "postcss-ordered-values"
+                || plugin == "postcss-discard-unused"
+                || plugin == "postcss-merge-idents"
+                || plugin == "postcss-reduce-idents"
+                || plugin.starts_with("cssnano"),
+            order_border_values_with_variables: plugin == "postcss-merge-longhand",
+            sort_selectors: plugin == "postcss-minify-selectors"
+                || plugin == "postcss-unique-selectors"
+                || plugin == "postcss-merge-rules"
+                || plugin == "postcss-discard-duplicates"
+                || plugin.starts_with("cssnano"),
+            merge_selectors: selector_targets_support_is,
+            sort_selector_merges: upstream_options["sort"].as_bool() != Some(false),
+            reduce_to_initial: plugin == "postcss-reduce-initial" && !targets_legacy_browsers,
+            reduce_z_indices: plugin == "postcss-zindex",
+            reduce_keyframe_identifiers: plugin == "postcss-reduce-idents"
+                && upstream_options["keyframes"].as_bool() != Some(false),
+            reduce_counter_style_identifiers: plugin == "postcss-reduce-idents"
+                && upstream_options["counterStyle"].as_bool() != Some(false),
+            reduce_counter_identifiers: plugin == "postcss-reduce-idents"
+                && upstream_options["counter"].as_bool() != Some(false),
+            reduce_grid_identifiers: plugin == "postcss-reduce-idents"
+                && upstream_options["gridTemplate"].as_bool() != Some(false),
+            z_index_start,
+            merge_placeholder_selectors,
+            use_hex_alpha_colors,
+            transform_custom_properties: plugin != "postcss-convert-values"
+                || upstream_options["transformCustomProperties"].as_bool() == Some(true),
+            normalize_media_queries: !targets_legacy_browsers,
+            keep_later_duplicate_declarations: plugin != "postcss-merge-rules",
+            preserve_merged_box_initial: plugin == "postcss-merge-longhand",
+            ..MinifyOptions::default()
+        };
+        minify(&mut stylesheet, options);
         let actual = stylesheet
             .to_css_string(PrinterOptions { prettify: false })
             .unwrap_or_else(|error| panic!("{name} should print: {error}"));
