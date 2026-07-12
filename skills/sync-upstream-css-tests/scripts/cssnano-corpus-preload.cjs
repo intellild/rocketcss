@@ -38,6 +38,13 @@ function record(plugin, source, expected, options) {
   if (!output || typeof source !== "string" || typeof expected !== "string") {
     return;
   }
+  // A few upstream passthrough helpers accidentally interpolate an omitted
+  // second argument as the literal word `undefined`. The Node tests never
+  // execute those returned assertions. They are not runtime behavior and
+  // cannot provide a trustworthy expected result, so exclude them.
+  if (expected.includes("undefined") && !source.includes("undefined")) {
+    return;
+  }
   const location = caller();
   const packageName = location.file.match(/^packages\/([^/]+)\/test\//)?.[1];
   const resolvedPlugin =
