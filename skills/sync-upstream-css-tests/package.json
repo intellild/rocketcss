@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "collect-cssnano-corpus": "zx scripts/collect-cssnano-corpus.mjs",
     "generate-parser-corpus": "zx scripts/generate-parser-test-corpus.mjs",
     "upstream-tests": "zx scripts/upstream-tests.mjs"
   },

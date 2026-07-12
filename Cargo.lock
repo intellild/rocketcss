@@ -1305,6 +1305,7 @@ dependencies = [
  "rocketcss_minify",
  "rocketcss_parser",
  "rocketcss_visitor",
+ "serde_json",
 ]
 
 [[package]]

@@ -49,6 +49,22 @@ rules broad enough to include `test`, `tests`, and `__tests__` directories,
 JavaScript `*.test.*`/`*.spec.*` files, CSSNano test helpers, and Rust files
 containing inline tests.
 
+## CSSNano runtime corpus
+
+Run the complete CSSNano test suite and record every CSS input/output pair that
+passes through its shared plugin and integration helpers:
+
+```sh
+pnpm cssnano-test-corpus
+```
+
+Use `--cssnano` to select another checkout and `--output` to write an isolated
+corpus. The collector runs Node tests sequentially so large integration cases
+cannot interleave their NDJSON records. It deduplicates identical
+plugin/input/output/options tuples and records the upstream revision and call
+site. Commit the generated corpus separately from implementation fixes when
+the user wants a test-first workflow.
+
 ## Parser corpus
 
 Use the bundled zx lexer when the checked-in text-to-AST corpus must be

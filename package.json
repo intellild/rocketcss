@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
+    "cssnano-test-corpus": "pnpm --filter @rocketcss/sync-upstream-css-tests collect-cssnano-corpus",
     "format-ci:prettier": "prettier --check .",
     "format-ci:toml": "taplo format --check",
     "format:prettier": "prettier --write .",

@@ -4,8 +4,11 @@ use rocketcss_allocator::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss};
 use rocketcss_minify::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
+use serde_json::Value;
 
 use crate::{expected_path, fixture_paths, read_fixture};
+
+const CSSNANO_CORPUS: &str = include_str!("../fixtures/minify/cssnano/corpus.json");
 
 // Fixtures that require cross-node analysis or replacement AST allocation
 // remain in the corpus but are skipped until those features are redesigned
@@ -36,34 +39,106 @@ fn minifies_upstream_fixtures() {
     }
 }
 
+#[test]
+fn minifies_all_cssnano_runtime_cases() {
+    let corpus: Value =
+        serde_json::from_str(CSSNANO_CORPUS).expect("CSSNano corpus must be valid JSON");
+    let cases = corpus["cases"]
+        .as_array()
+        .expect("CSSNano corpus must contain cases");
+    assert_eq!(cases.len(), 3_359, "the audited CSSNano corpus changed");
+
+    let mut failure_count = 0usize;
+    let mut failures = std::vec::Vec::new();
+    for case in cases {
+        let name = case["name"].as_str().expect("case name must be a string");
+        let source = case["source"]
+            .as_str()
+            .expect("case source must be a string");
+        let expected = case["expected"]
+            .as_str()
+            .expect("case expected output must be a string");
+
+        let allocator = Allocator::new();
+        let Ok(mut stylesheet) = parse(source, &allocator, ParserOptions::default()) else {
+            record_failure(
+                &mut failure_count,
+                &mut failures,
+                format!(
+                    "{name}: RocketCSS could not parse source\n{}",
+                    preview(source)
+                ),
+            );
+            continue;
+        };
+        minify(&mut stylesheet, MinifyOptions::default());
+        let actual = stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap_or_else(|error| panic!("{name} should print: {error}"));
+
+        let expected_allocator = Allocator::new();
+        let Ok(expected_stylesheet) =
+            parse(expected, &expected_allocator, ParserOptions::default())
+        else {
+            record_failure(
+                &mut failure_count,
+                &mut failures,
+                format!(
+                    "{name}: RocketCSS could not parse CSSNano output\n{}",
+                    preview(expected)
+                ),
+            );
+            continue;
+        };
+        let canonical_expected = expected_stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap_or_else(|error| panic!("{name} expected output should print: {error}"));
+
+        if actual != canonical_expected {
+            record_failure(
+                &mut failure_count,
+                &mut failures,
+                format!(
+                    "{name}\nsource: {}\nexpected: {}\nactual: {}",
+                    preview(source),
+                    preview(&canonical_expected),
+                    preview(&actual)
+                ),
+            );
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "{failure_count} CSSNano cases disagreed (showing at most 50):\n\n{}",
+        failures.join("\n\n")
+    );
+}
+
+fn record_failure(
+    failure_count: &mut usize,
+    failures: &mut std::vec::Vec<String>,
+    failure: String,
+) {
+    *failure_count += 1;
+    if failures.len() < 50 {
+        failures.push(failure);
+    }
+}
+
+fn preview(value: &str) -> String {
+    const LIMIT: usize = 500;
+    let mut preview: String = value.chars().take(LIMIT).collect();
+    if value.chars().count() > LIMIT {
+        preview.push('…');
+    }
+    preview
+}
+
 fn requires_nonlocal_or_rebuilding_transform(input: &Path) -> bool {
     let path = input.to_string_lossy();
-    let unsupported_groups = [
-        "/cssnano/custom-properties/",
-        "/cssnano/discard-duplicates/",
-        "/cssnano/discard-empty/",
-        "/cssnano/discard-overridden/",
-        "/cssnano/minify-gradients/",
-        "/cssnano/normalize-display/",
-        "/cssnano/normalize-positions/",
-        "/cssnano/normalize-timing/",
-        "/cssnano/reduce-transforms/",
-        "/lightningcss/math/",
-    ];
+    let unsupported_groups = ["/lightningcss/math/"];
     let unsupported_cases = [
-        "/cssnano/colormin/gradient/",
-        "/cssnano/colormin/hex-name/",
-        "/cssnano/colormin/hsl/",
-        "/cssnano/colormin/rgb/",
-        "/cssnano/colormin/text-shadow/",
-        "/cssnano/merge-longhand/important/",
-        "/cssnano/merge-longhand/margin/",
-        "/cssnano/merge-longhand/padding-order/",
-        "/cssnano/minify-font-values/family-deduplicate/",
-        "/cssnano/minify-font-values/family-unquote/",
-        "/cssnano/normalize-repeat/collapse/",
-        "/cssnano/normalize-url/double-quote/",
-        "/cssnano/normalize-url/single-quote/",
         "/lightningcss/declarations/important/",
         "/lightningcss/rules/keyframe-merge/",
         "/lightningcss/rules/merge-layer/",

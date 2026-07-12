@@ -16,3 +16,4 @@ rocketcss_codegen = { workspace = true }
 rocketcss_minify = { workspace = true }
 rocketcss_parser = { workspace = true }
 rocketcss_visitor = { workspace = true }
+serde_json = { workspace = true }
