@@ -1251,6 +1251,7 @@ dependencies = [
  "lightningcss",
  "mimalloc",
  "rocketcss_allocator",
+ "rocketcss_ast",
  "rocketcss_codegen",
  "rocketcss_minify",
  "rocketcss_parser",

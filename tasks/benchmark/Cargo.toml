@@ -11,6 +11,7 @@ hashbrown        = { workspace = true }
 lightningcss     = { workspace = true }
 mimalloc         = { workspace = true }
 rocketcss_allocator = { workspace = true }
+rocketcss_ast       = { workspace = true }
 rocketcss_codegen   = { workspace = true }
 rocketcss_minify    = { workspace = true }
 rocketcss_parser    = { workspace = true }

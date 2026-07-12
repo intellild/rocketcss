@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_allocator::Allocator;
+use rocketcss_ast::StyleSheet as RocketStyleSheet;
 use rocketcss_codegen::{PrinterOptions, ToCss};
 
 const BOOTSTRAP: &str = include_str!("../files/bootstrap.css");
@@ -22,6 +23,35 @@ fn main() {
 
 fn conditional_run() -> &'static str {
     CONDITIONAL_RUN.get_or_init(|| conditional_run_fixture(256))
+}
+
+struct RocketMinifyInput {
+    stylesheet: RocketStyleSheet<'static>,
+    _allocator: Box<Allocator>,
+}
+
+impl RocketMinifyInput {
+    fn parse(source: &'static str) -> Self {
+        let allocator = Box::new(Allocator::new());
+
+        // The allocator has a stable heap address and is kept alive by this
+        // input until after the stylesheet is dropped.
+        let allocator_ref: &'static Allocator = unsafe { &*std::ptr::from_ref(&*allocator) };
+        let stylesheet = rocketcss_parser::parse(
+            source,
+            allocator_ref,
+            rocketcss_parser::ParserOptions {
+                error_recovery: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        Self {
+            stylesheet,
+            _allocator: allocator,
+        }
+    }
 }
 
 #[divan::bench]
@@ -60,6 +90,19 @@ fn rocketcss_parse_minify(bencher: Bencher<'_, '_>) {
             .unwrap();
             rocketcss_minify::minify(&mut stylesheet, rocketcss_minify::MinifyOptions::default());
             black_box(stylesheet);
+        });
+}
+
+#[divan::bench]
+fn rocketcss_minify_only(bencher: Bencher<'_, '_>) {
+    bencher
+        .counter(BytesCount::of_str(BOOTSTRAP))
+        .with_inputs(|| RocketMinifyInput::parse(BOOTSTRAP))
+        .bench_local_refs(|input| {
+            black_box(rocketcss_minify::minify(
+                &mut input.stylesheet,
+                rocketcss_minify::MinifyOptions::default(),
+            ));
         });
 }
 
@@ -109,6 +152,20 @@ fn rocketcss_conditional_run(bencher: Bencher<'_, '_>) {
 }
 
 #[divan::bench]
+fn rocketcss_conditional_run_minify_only(bencher: Bencher<'_, '_>) {
+    let source = conditional_run();
+    bencher
+        .counter(BytesCount::of_str(source))
+        .with_inputs(|| RocketMinifyInput::parse(source))
+        .bench_local_refs(|input| {
+            black_box(rocketcss_minify::minify(
+                &mut input.stylesheet,
+                rocketcss_minify::MinifyOptions::default(),
+            ));
+        });
+}
+
+#[divan::bench]
 fn lightningcss(bencher: Bencher<'_, '_>) {
     use lightningcss::stylesheet::{MinifyOptions, ParserOptions, PrinterOptions, StyleSheet};
 
@@ -145,6 +202,33 @@ fn lightningcss_conditional_run(bencher: Bencher<'_, '_>) {
             .unwrap();
         black_box(output);
     });
+}
+
+#[divan::bench]
+fn lightningcss_minify_only(bencher: Bencher<'_, '_>) {
+    use lightningcss::stylesheet::{MinifyOptions, ParserOptions, StyleSheet};
+
+    bencher
+        .counter(BytesCount::of_str(BOOTSTRAP))
+        .with_inputs(|| StyleSheet::parse(BOOTSTRAP, ParserOptions::default()).unwrap())
+        .bench_local_refs(|stylesheet| {
+            stylesheet.minify(MinifyOptions::default()).unwrap();
+            black_box(stylesheet);
+        });
+}
+
+#[divan::bench]
+fn lightningcss_conditional_run_minify_only(bencher: Bencher<'_, '_>) {
+    use lightningcss::stylesheet::{MinifyOptions, ParserOptions, StyleSheet};
+
+    let source = conditional_run();
+    bencher
+        .counter(BytesCount::of_str(source))
+        .with_inputs(|| StyleSheet::parse(source, ParserOptions::default()).unwrap())
+        .bench_local_refs(|stylesheet| {
+            stylesheet.minify(MinifyOptions::default()).unwrap();
+            black_box(stylesheet);
+        });
 }
 
 // Copied from Lightning CSS's `stylesheet/transform[conditional-run]`
