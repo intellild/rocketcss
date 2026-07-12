@@ -32,7 +32,8 @@ impl<'a> BitVec<'a> {
     #[inline]
     pub fn push(&mut self, value: bool) {
         let index = self.len as usize;
-        self.len = self.len.checked_add(1).expect("BitVec length overflow");
+        debug_assert!(self.len < u32::MAX, "BitVec length overflow");
+        self.len += 1;
 
         if index.is_multiple_of(BITS_PER_WORD) {
             self.words.push(0);
