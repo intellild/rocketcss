@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{borrow::Cow, collections::BTreeMap, path::Path};
 
 use rocketcss_allocator::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss};
@@ -48,25 +48,58 @@ fn minifies_all_cssnano_runtime_cases() {
         .expect("CSSNano corpus must contain cases");
     assert_eq!(cases.len(), 3_359, "the audited CSSNano corpus changed");
 
+    let plugin_filter = std::env::var("ROCKETCSS_CSSNANO_PLUGIN").ok();
+    let case_offset = corpus_position("ROCKETCSS_CSSNANO_OFFSET", 0);
+    let case_limit = corpus_position("ROCKETCSS_CSSNANO_LIMIT", usize::MAX);
     let mut failure_count = 0usize;
+    let mut executed = 0usize;
     let mut failures = std::vec::Vec::new();
-    for case in cases {
+    let mut failures_by_plugin = BTreeMap::new();
+    let selected_cases = cases
+        .iter()
+        .filter(|case| {
+            plugin_filter.as_ref().is_none_or(|filter| {
+                case["plugin"]
+                    .as_str()
+                    .is_some_and(|plugin| plugin == filter)
+            })
+        })
+        .skip(case_offset)
+        .take(case_limit);
+    for case in selected_cases {
+        executed += 1;
         let name = case["name"].as_str().expect("case name must be a string");
-        let source = case["source"]
+        let plugin = case["plugin"]
+            .as_str()
+            .expect("case plugin must be a string");
+        let original_source = case["source"]
             .as_str()
             .expect("case source must be a string");
-        let expected = case["expected"]
+        let original_expected = case["expected"]
             .as_str()
             .expect("case expected output must be a string");
+        let is_declaration = !original_source.contains('{') && original_source.contains(':');
+        let source = if is_declaration {
+            Cow::Owned(format!("a{{{original_source}}}"))
+        } else {
+            Cow::Borrowed(original_source)
+        };
+        let expected = if is_declaration {
+            Cow::Owned(format!("a{{{original_expected}}}"))
+        } else {
+            Cow::Borrowed(original_expected)
+        };
 
         let allocator = Allocator::new();
-        let Ok(mut stylesheet) = parse(source, &allocator, ParserOptions::default()) else {
+        let Ok(mut stylesheet) = parse(&source, &allocator, ParserOptions::default()) else {
             record_failure(
+                plugin,
                 &mut failure_count,
                 &mut failures,
+                &mut failures_by_plugin,
                 format!(
                     "{name}: RocketCSS could not parse source\n{}",
-                    preview(source)
+                    preview(&source)
                 ),
             );
             continue;
@@ -78,14 +111,16 @@ fn minifies_all_cssnano_runtime_cases() {
 
         let expected_allocator = Allocator::new();
         let Ok(expected_stylesheet) =
-            parse(expected, &expected_allocator, ParserOptions::default())
+            parse(&expected, &expected_allocator, ParserOptions::default())
         else {
             record_failure(
+                plugin,
                 &mut failure_count,
                 &mut failures,
+                &mut failures_by_plugin,
                 format!(
                     "{name}: RocketCSS could not parse CSSNano output\n{}",
-                    preview(expected)
+                    preview(&expected)
                 ),
             );
             continue;
@@ -96,11 +131,13 @@ fn minifies_all_cssnano_runtime_cases() {
 
         if actual != canonical_expected {
             record_failure(
+                plugin,
                 &mut failure_count,
                 &mut failures,
+                &mut failures_by_plugin,
                 format!(
                     "{name}\nsource: {}\nexpected: {}\nactual: {}",
-                    preview(source),
+                    preview(&source),
                     preview(&canonical_expected),
                     preview(&actual)
                 ),
@@ -110,17 +147,34 @@ fn minifies_all_cssnano_runtime_cases() {
 
     assert!(
         failures.is_empty(),
-        "{failure_count} CSSNano cases disagreed (showing at most 50):\n\n{}",
+        "{failure_count} of {executed} selected CSSNano cases disagreed by plugin:\n{}\n\nshowing at most 50:\n\n{}",
+        failures_by_plugin
+            .into_iter()
+            .map(|(plugin, count)| format!("{plugin}: {count}"))
+            .collect::<std::vec::Vec<_>>()
+            .join("\n"),
         failures.join("\n\n")
     );
 }
 
+fn corpus_position(variable: &str, default: usize) -> usize {
+    let Ok(value) = std::env::var(variable) else {
+        return default;
+    };
+    value
+        .parse()
+        .unwrap_or_else(|_| panic!("{variable} must be a non-negative integer, got {value:?}"))
+}
+
 fn record_failure(
+    plugin: &str,
     failure_count: &mut usize,
     failures: &mut std::vec::Vec<String>,
+    failures_by_plugin: &mut BTreeMap<String, usize>,
     failure: String,
 ) {
     *failure_count += 1;
+    *failures_by_plugin.entry(plugin.to_owned()).or_default() += 1;
     if failures.len() < 50 {
         failures.push(failure);
     }

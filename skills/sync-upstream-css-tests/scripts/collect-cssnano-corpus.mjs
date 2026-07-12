@@ -1,6 +1,7 @@
 #!/usr/bin/env zx
 
 import { readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -93,6 +94,22 @@ async function main() {
     seen.add(key);
     return true;
   });
+  const upstreamRequire = createRequire(
+    path.join(options.cssnano, "package.json"),
+  );
+  const postcss = upstreamRequire("postcss");
+  const cssnano = upstreamRequire("./packages/cssnano");
+  let canonicalizationFailures = 0;
+  for (const item of uniqueCases) {
+    try {
+      const result = await postcss([cssnano()]).process(item.expected, {
+        from: undefined,
+      });
+      item.expected = result.css;
+    } catch {
+      canonicalizationFailures += 1;
+    }
+  }
   uniqueCases.forEach((item, index) => {
     item.name = `${item.upstream_file}:${item.line}/${index + 1}`;
   });
@@ -102,6 +119,9 @@ async function main() {
     revision: await gitRevision(options.cssnano),
     extraction:
       "runtime calls to CSSNano processCSSFactory and cssnano integration helpers",
+    canonicalization:
+      "each plugin expectation passed through the CSSNano default preset",
+    canonicalization_failures: canonicalizationFailures,
     cases: uniqueCases,
   };
   await writeFile(options.output, `${JSON.stringify(corpus, null, 2)}\n`);

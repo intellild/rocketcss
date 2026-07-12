@@ -23,3 +23,14 @@ complete upstream Node test suite through the repository's zx collector. It
 contains all CSS input/output transformations observed through CSSNano's shared
 plugin and integration test helpers and is executed without skips by
 `tests/src/minify.rs`.
+
+During failure triage, limit the corpus to a small window without changing what
+the default CI run covers:
+
+```sh
+ROCKETCSS_CSSNANO_LIMIT=10 cargo test -p rocketcss_tests minifies_all_cssnano_runtime_cases -- --nocapture
+ROCKETCSS_CSSNANO_OFFSET=10 ROCKETCSS_CSSNANO_LIMIT=10 cargo test -p rocketcss_tests minifies_all_cssnano_runtime_cases -- --nocapture
+```
+
+`ROCKETCSS_CSSNANO_PLUGIN` can be combined with the offset and limit; offset is
+applied after plugin filtering.
