@@ -423,23 +423,64 @@ pub(crate) fn serialize_debug_keyword<T: fmt::Debug, PrinterT: PrinterTrait>(
     value: &T,
     dest: &mut PrinterT,
 ) -> fmt::Result {
-    let debug = format!("{value:?}");
-    let debug = debug.strip_suffix('_').unwrap_or(&debug);
-    let characters: Vec<_> = debug.chars().collect();
-    for (index, character) in characters.iter().copied().enumerate() {
-        if character.is_ascii_uppercase()
-            && index > 0
-            && (characters[index - 1].is_ascii_lowercase()
-                || characters[index - 1].is_ascii_digit()
-                || characters
-                    .get(index + 1)
-                    .is_some_and(char::is_ascii_lowercase))
-        {
-            dest.write_char('-')?;
+    let mut writer = DebugKeywordWriter::new(dest);
+    fmt::write(&mut writer, format_args!("{value:?}"))?;
+    writer.finish()
+}
+
+struct DebugKeywordWriter<'a, PrinterT> {
+    dest: &'a mut PrinterT,
+    pending: Option<char>,
+    previous: Option<char>,
+    index: usize,
+}
+
+impl<'a, PrinterT: PrinterTrait> DebugKeywordWriter<'a, PrinterT> {
+    #[inline]
+    fn new(dest: &'a mut PrinterT) -> Self {
+        Self {
+            dest,
+            pending: None,
+            previous: None,
+            index: 0,
         }
-        dest.write_char(character.to_ascii_lowercase())?;
     }
-    Ok(())
+
+    fn flush_pending(&mut self, next: Option<char>) -> fmt::Result {
+        let Some(character) = self.pending.take() else {
+            return Ok(());
+        };
+        if character == '_' && next.is_none() {
+            return Ok(());
+        }
+        if character.is_ascii_uppercase()
+            && self.index > 0
+            && (self
+                .previous
+                .is_some_and(|previous| previous.is_ascii_lowercase() || previous.is_ascii_digit())
+                || next.is_some_and(|next| next.is_ascii_lowercase()))
+        {
+            self.dest.write_char('-')?;
+        }
+        self.dest.write_char(character.to_ascii_lowercase())?;
+        self.previous = Some(character);
+        self.index += 1;
+        Ok(())
+    }
+
+    fn finish(mut self) -> fmt::Result {
+        self.flush_pending(None)
+    }
+}
+
+impl<PrinterT: PrinterTrait> Write for DebugKeywordWriter<'_, PrinterT> {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        for character in value.chars() {
+            self.flush_pending(Some(character))?;
+            self.pending = Some(character);
+        }
+        Ok(())
+    }
 }
 
 impl<'a, T: ToCss> ToCss for rocketcss_allocator::boxed::Box<'a, T> {

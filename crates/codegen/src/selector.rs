@@ -321,13 +321,33 @@ fn write_nth_affine<PrinterT: PrinterTrait>(
         (0, 0) => dest.write_char('0'),
         (1, 0) => dest.write_char('n'),
         (-1, 0) => dest.write_str("-n"),
-        (a, 0) => write!(dest, "{a}n"),
+        (a, 0) => {
+            serialize_int(a, dest)?;
+            dest.write_char('n')
+        }
         (2, 1) => dest.write_str("odd"),
-        (0, b) => write!(dest, "{b}"),
-        (1, b) => write!(dest, "n{b:+}"),
-        (-1, b) => write!(dest, "-n{b:+}"),
-        (a, b) => write!(dest, "{a}n{b:+}"),
+        (0, b) => serialize_int(b, dest),
+        (1, b) => {
+            dest.write_char('n')?;
+            write_nth_offset(b, dest)
+        }
+        (-1, b) => {
+            dest.write_str("-n")?;
+            write_nth_offset(b, dest)
+        }
+        (a, b) => {
+            serialize_int(a, dest)?;
+            dest.write_char('n')?;
+            write_nth_offset(b, dest)
+        }
     }
+}
+
+fn write_nth_offset<PrinterT: PrinterTrait>(value: i32, dest: &mut PrinterT) -> fmt::Result {
+    if value >= 0 {
+        dest.write_char('+')?;
+    }
+    serialize_int(value, dest)
 }
 
 impl ToCss for Direction {
