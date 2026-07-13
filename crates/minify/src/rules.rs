@@ -5278,51 +5278,195 @@ fn canonicalize_auto(value: &mut Vec<'_, TokenOrValue<'_>>) {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+enum BoxPropertyFamily {
+    Border,
+    Margin,
+    Padding,
+}
+
+impl BoxPropertyFamily {
+    const COUNT: usize = 3;
+
+    #[inline]
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct BoxPropertyFamilyIr {
+    first: Option<usize>,
+    last: Option<usize>,
+}
+
+impl BoxPropertyFamilyIr {
+    #[inline]
+    fn record(&mut self, index: usize) {
+        self.first.get_or_insert(index);
+        self.last = Some(index);
+    }
+
+    #[inline]
+    fn has_merge_candidates(self) -> bool {
+        self.first != self.last
+    }
+}
+
+#[derive(Debug, Default)]
+struct BoxPropertyIr {
+    by_importance: [[BoxPropertyFamilyIr; BoxPropertyFamily::COUNT]; 2],
+}
+
+impl BoxPropertyIr {
+    /// Classifies box declarations in one pass without materializing names or
+    /// rebuilding the declaration list. The first/last indices are sufficient
+    /// to prove that an importance bucket cannot contain a merge candidate.
+    fn collect(block: &DeclarationBlock<'_>) -> Self {
+        let mut ir = Self::default();
+        for index in 0..block.len() {
+            if block.is_invalid(index) {
+                continue;
+            }
+            let Some(family) = box_property_family(&block.declarations[index]) else {
+                continue;
+            };
+            ir.by_importance[usize::from(block.is_important(index))][family.index()].record(index);
+        }
+        ir
+    }
+
+    #[inline]
+    fn has_merge_candidates(&self, family: BoxPropertyFamily, important: bool) -> bool {
+        self.by_importance[usize::from(important)][family.index()].has_merge_candidates()
+    }
+}
+
+#[inline]
+fn box_property_family(declaration: &Declaration<'_>) -> Option<BoxPropertyFamily> {
+    match declaration {
+        Declaration::Border(..)
+        | Declaration::BorderWidth(..)
+        | Declaration::BorderStyle(..)
+        | Declaration::BorderColor(..)
+        | Declaration::BorderTop(..)
+        | Declaration::BorderRight(..)
+        | Declaration::BorderBottom(..)
+        | Declaration::BorderLeft(..)
+        | Declaration::BorderTopWidth(..)
+        | Declaration::BorderRightWidth(..)
+        | Declaration::BorderBottomWidth(..)
+        | Declaration::BorderLeftWidth(..)
+        | Declaration::BorderTopStyle(..)
+        | Declaration::BorderRightStyle(..)
+        | Declaration::BorderBottomStyle(..)
+        | Declaration::BorderLeftStyle(..)
+        | Declaration::BorderTopColor(..)
+        | Declaration::BorderRightColor(..)
+        | Declaration::BorderBottomColor(..)
+        | Declaration::BorderLeftColor(..) => Some(BoxPropertyFamily::Border),
+        Declaration::Margin(..)
+        | Declaration::MarginTop(..)
+        | Declaration::MarginRight(..)
+        | Declaration::MarginBottom(..)
+        | Declaration::MarginLeft(..) => Some(BoxPropertyFamily::Margin),
+        Declaration::Padding(..)
+        | Declaration::PaddingTop(..)
+        | Declaration::PaddingRight(..)
+        | Declaration::PaddingBottom(..)
+        | Declaration::PaddingLeft(..) => Some(BoxPropertyFamily::Padding),
+        Declaration::Unparsed(value) => match &*value.property_id {
+            PropertyId::Border
+            | PropertyId::BorderWidth
+            | PropertyId::BorderStyle
+            | PropertyId::BorderColor
+            | PropertyId::BorderTop
+            | PropertyId::BorderRight
+            | PropertyId::BorderBottom
+            | PropertyId::BorderLeft
+            | PropertyId::BorderTopWidth
+            | PropertyId::BorderRightWidth
+            | PropertyId::BorderBottomWidth
+            | PropertyId::BorderLeftWidth
+            | PropertyId::BorderTopStyle
+            | PropertyId::BorderRightStyle
+            | PropertyId::BorderBottomStyle
+            | PropertyId::BorderLeftStyle
+            | PropertyId::BorderTopColor
+            | PropertyId::BorderRightColor
+            | PropertyId::BorderBottomColor
+            | PropertyId::BorderLeftColor => Some(BoxPropertyFamily::Border),
+            PropertyId::Margin
+            | PropertyId::MarginTop
+            | PropertyId::MarginRight
+            | PropertyId::MarginBottom
+            | PropertyId::MarginLeft => Some(BoxPropertyFamily::Margin),
+            PropertyId::Padding
+            | PropertyId::PaddingTop
+            | PropertyId::PaddingRight
+            | PropertyId::PaddingBottom
+            | PropertyId::PaddingLeft => Some(BoxPropertyFamily::Padding),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn merge_box_longhands<'a>(block: &mut DeclarationBlock<'a>, cx: &mut MinifyContext) {
+    let ir = BoxPropertyIr::collect(block);
     for important in [false, true] {
-        merge_border_longhands(block, important, cx);
-        fold_margin_side_overrides(block, important, cx);
-        fold_border_component_overrides(
-            block,
-            important,
-            ["margin-top", "margin-right", "margin-bottom", "margin-left"],
-            "margin",
-            cx,
-        );
-        merge_unparsed_box_groups(
-            block,
-            important,
-            ["margin-top", "margin-right", "margin-bottom", "margin-left"],
-            "margin",
-            cx,
-        );
-        merge_margin_longhands(block, important, cx);
-        fold_padding_side_overrides(block, important, cx);
-        fold_border_component_overrides(
-            block,
-            important,
-            [
-                "padding-top",
-                "padding-right",
-                "padding-bottom",
-                "padding-left",
-            ],
-            "padding",
-            cx,
-        );
-        merge_unparsed_box_groups(
-            block,
-            important,
-            [
-                "padding-top",
-                "padding-right",
-                "padding-bottom",
-                "padding-left",
-            ],
-            "padding",
-            cx,
-        );
-        merge_padding_longhands(block, important, cx);
+        // Complex candidate groups retain the existing in-place rewrite and
+        // tombstone logic. Families absent from the IR never enter those
+        // multi-pass compatibility paths.
+        if ir.has_merge_candidates(BoxPropertyFamily::Border, important) {
+            merge_border_longhands(block, important, cx);
+        }
+        if ir.has_merge_candidates(BoxPropertyFamily::Margin, important) {
+            fold_margin_side_overrides(block, important, cx);
+            fold_border_component_overrides(
+                block,
+                important,
+                ["margin-top", "margin-right", "margin-bottom", "margin-left"],
+                "margin",
+                cx,
+            );
+            merge_unparsed_box_groups(
+                block,
+                important,
+                ["margin-top", "margin-right", "margin-bottom", "margin-left"],
+                "margin",
+                cx,
+            );
+            merge_margin_longhands(block, important, cx);
+        }
+        if ir.has_merge_candidates(BoxPropertyFamily::Padding, important) {
+            fold_padding_side_overrides(block, important, cx);
+            fold_border_component_overrides(
+                block,
+                important,
+                [
+                    "padding-top",
+                    "padding-right",
+                    "padding-bottom",
+                    "padding-left",
+                ],
+                "padding",
+                cx,
+            );
+            merge_unparsed_box_groups(
+                block,
+                important,
+                [
+                    "padding-top",
+                    "padding-right",
+                    "padding-bottom",
+                    "padding-left",
+                ],
+                "padding",
+                cx,
+            );
+            merge_padding_longhands(block, important, cx);
+        }
     }
 }
 
@@ -7813,7 +7957,6 @@ fn process_declarations<'a>(
     // SAFETY: this pass mutates fields but never moves the pinned block.
     let block = unsafe { block.as_mut().get_unchecked_mut() };
     discard_empty_declarations(block, cx);
-    merge_box_longhands(block, cx);
     for index in 0..block.declarations.len() {
         if block.is_invalid(index) {
             continue;
