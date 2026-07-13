@@ -1,18 +1,16 @@
 use rocketcss_ast::{MediaCondition, MediaList, MediaType, SupportsCondition, Token, TokenOrValue};
 
-use crate::{Minify, MinifyContext, Options};
+use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for MediaList<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
         for query in &mut self.media_queries {
             if let Some(condition) = &mut query.condition
                 && let MediaCondition::Unknown(tokens) = &mut **condition
             {
-                tokens.minify(context);
-                minify_ratios(tokens, context);
-                if context
-                    .options()
-                    .is_enabled(Options::NORMALIZE_MEDIA_QUERIES)
+                tokens.minify(cx);
+                minify_ratios(tokens, cx);
+                if cx.is_enabled(Options::NORMALIZE_MEDIA_QUERIES, OptionsOp::Any)
                     && matches!(*query.media_type, MediaType::All)
                     && query.qualifier.is_none()
                     && matches!(tokens.first(), Some(TokenOrValue::Token(token))
@@ -24,22 +22,20 @@ impl Minify for MediaList<'_> {
                     {
                         tokens.remove(0);
                     }
-                    context.record_value_normalized();
+                    cx.record_value_normalized();
                 }
             }
         }
-        if context
-            .options()
-            .is_enabled(Options::NORMALIZE_MEDIA_QUERIES)
+        if cx.is_enabled(Options::NORMALIZE_MEDIA_QUERIES, OptionsOp::Any)
             && self.media_queries.len() == 1
             && matches!(*self.media_queries[0].media_type, MediaType::All)
             && self.media_queries[0].qualifier.is_none()
             && self.media_queries[0].condition.is_none()
         {
             self.media_queries.clear();
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
-        if context.options().is_enabled(Options::DEDUPLICATE_LISTS) {
+        if cx.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
             let before = self.media_queries.len();
             let mut index = 0;
             while index < self.media_queries.len() {
@@ -53,20 +49,20 @@ impl Minify for MediaList<'_> {
                 }
             }
             if self.media_queries.len() != before {
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
         }
     }
 }
 
 impl Minify for SupportsCondition<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
         match self {
             Self::Declaration { value, .. } => {
                 let normalized = value.trim();
                 if normalized.len() != value.len() {
                     *value = normalized;
-                    context.record_value_normalized();
+                    cx.record_value_normalized();
                 }
             }
             Self::Unknown(value)
@@ -75,7 +71,7 @@ impl Minify for SupportsCondition<'_> {
                     .is_some_and(|(_, value)| value.starts_with(char::is_whitespace)) =>
             {
                 *self = Self::MinifiedUnknown(value);
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             _ => {}
         }
@@ -84,9 +80,9 @@ impl Minify for SupportsCondition<'_> {
 
 fn minify_ratios(
     values: &mut rocketcss_allocator::vec::Vec<'_, TokenOrValue<'_>>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    if !context.options().is_enabled(Options::NORMALIZE_VALUES) || values.len() < 5 {
+    if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) || values.len() < 5 {
         return;
     }
     for index in 2..values.len() - 2 {
@@ -134,7 +130,7 @@ fn minify_ratios(
             unreachable!()
         };
         **right_token = Token::Number(reduced_right);
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 

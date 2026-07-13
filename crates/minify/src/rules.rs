@@ -17,7 +17,9 @@ use rocketcss_ast::{
 use rocketcss_visitor::{VisitMut, walk_mut};
 use rustc_hash::FxHasher;
 
-use crate::{BrowserHackTarget, Minify, MinifyContext, Options};
+use crate::{
+    BrowserHackTarget, Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlags,
+};
 
 const SHORT_IDENTIFIERS: [&str; 52] = [
     "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
@@ -26,19 +28,16 @@ const SHORT_IDENTIFIERS: [&str; 52] = [
 ];
 
 impl Minify for StyleSheet<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        crate::minify_style_sheet(self, context);
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        crate::minify_style_sheet(self, cx);
     }
 }
 
 pub(crate) fn reduce_keyframe_identifiers<'a>(
     stylesheet: &mut StyleSheet<'a>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    if !context
-        .options()
-        .is_enabled(Options::REDUCE_KEYFRAME_IDENTIFIERS)
-    {
+    if cx.is_enabled(Options::REDUCE_KEYFRAME_IDENTIFIERS, OptionsOp::None) {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -58,12 +57,9 @@ pub(crate) fn reduce_keyframe_identifiers<'a>(
 
 pub(crate) fn reduce_counter_style_identifiers<'a>(
     stylesheet: &mut StyleSheet<'a>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    if !context
-        .options()
-        .is_enabled(Options::REDUCE_COUNTER_STYLE_IDENTIFIERS)
-    {
+    if cx.is_enabled(Options::REDUCE_COUNTER_STYLE_IDENTIFIERS, OptionsOp::None) {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -83,12 +79,9 @@ pub(crate) fn reduce_counter_style_identifiers<'a>(
 
 pub(crate) fn reduce_counter_identifiers<'a>(
     stylesheet: &mut StyleSheet<'a>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    if !context
-        .options()
-        .is_enabled(Options::REDUCE_COUNTER_IDENTIFIERS)
-    {
+    if cx.is_enabled(Options::REDUCE_COUNTER_IDENTIFIERS, OptionsOp::None) {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -113,33 +106,35 @@ pub(crate) fn reduce_counter_identifiers<'a>(
 
 pub(crate) fn discard_unused_definitions<'a>(
     stylesheet: &mut StyleSheet<'a>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    let options = context.options();
-    if !options.is_enabled(Options::DISCARD_UNUSED_KEYFRAMES)
-        && !options.is_enabled(Options::DISCARD_UNUSED_COUNTER_STYLES)
-        && !options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES)
-        && !options.is_enabled(Options::DISCARD_UNUSED_NAMESPACES)
-    {
+    let options = cx.options();
+    if options.is_enabled(
+        Options::DISCARD_UNUSED_KEYFRAMES
+            | Options::DISCARD_UNUSED_COUNTER_STYLES
+            | Options::DISCARD_UNUSED_FONT_FACES
+            | Options::DISCARD_UNUSED_NAMESPACES,
+        OptionsOp::None,
+    ) {
         return;
     }
     let allocator = stylesheet.rules.bump();
     let mut keyframes = HashMap::new_in(allocator);
-    if options.is_enabled(Options::DISCARD_UNUSED_KEYFRAMES) {
+    if options.is_enabled(Options::DISCARD_UNUSED_KEYFRAMES, OptionsOp::Any) {
         KeyframeReferenceCollector {
             references: &mut keyframes,
         }
         .visit_style_sheet(stylesheet);
     }
     let mut counter_styles = HashMap::new_in(allocator);
-    if options.is_enabled(Options::DISCARD_UNUSED_COUNTER_STYLES) {
+    if options.is_enabled(Options::DISCARD_UNUSED_COUNTER_STYLES, OptionsOp::Any) {
         CounterStyleReferenceCollector {
             references: &mut counter_styles,
         }
         .visit_style_sheet(stylesheet);
     }
     let mut font_families = HashMap::new_in(allocator);
-    if options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES) {
+    if options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES, OptionsOp::Any) {
         FontReferenceCollector {
             references: &mut font_families,
         }
@@ -147,7 +142,7 @@ pub(crate) fn discard_unused_definitions<'a>(
     }
     let mut namespace_prefixes = HashMap::new_in(allocator);
     let mut uses_any_namespace = false;
-    if options.is_enabled(Options::DISCARD_UNUSED_NAMESPACES) {
+    if options.is_enabled(Options::DISCARD_UNUSED_NAMESPACES, OptionsOp::Any) {
         NamespaceReferenceCollector {
             prefixes: &mut namespace_prefixes,
             uses_any: &mut uses_any_namespace,
@@ -167,12 +162,9 @@ pub(crate) fn discard_unused_definitions<'a>(
 
 pub(crate) fn merge_identical_identifier_rules<'a>(
     stylesheet: &mut StyleSheet<'a>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    if !context
-        .options()
-        .is_enabled(Options::MERGE_IDENTICAL_IDENTIFIERS)
-    {
+    if cx.is_enabled(Options::MERGE_IDENTICAL_IDENTIFIERS, OptionsOp::None) {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -488,7 +480,9 @@ impl<'a> VisitMut<'a> for UnusedDefinitionDiscarder<'_, 'a> {
     fn visit_css_rule(&mut self, node: &mut CssRule<'a>) {
         let remove = match node {
             CssRule::Keyframes(rule)
-                if self.options.is_enabled(Options::DISCARD_UNUSED_KEYFRAMES) =>
+                if self
+                    .options
+                    .is_enabled(Options::DISCARD_UNUSED_KEYFRAMES, OptionsOp::Any) =>
             {
                 let name = match &*rule.name {
                     KeyframesName::Ident(name) | KeyframesName::Custom(name) => *name,
@@ -498,12 +492,14 @@ impl<'a> VisitMut<'a> for UnusedDefinitionDiscarder<'_, 'a> {
             CssRule::CounterStyle(rule)
                 if self
                     .options
-                    .is_enabled(Options::DISCARD_UNUSED_COUNTER_STYLES) =>
+                    .is_enabled(Options::DISCARD_UNUSED_COUNTER_STYLES, OptionsOp::Any) =>
             {
                 !self.counter_styles.contains_key(rule.name)
             }
             CssRule::FontFace(rule)
-                if self.options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES) =>
+                if self
+                    .options
+                    .is_enabled(Options::DISCARD_UNUSED_FONT_FACES, OptionsOp::Any) =>
             {
                 font_face_family(rule).is_none_or(|family| {
                     !self
@@ -513,7 +509,9 @@ impl<'a> VisitMut<'a> for UnusedDefinitionDiscarder<'_, 'a> {
                 })
             }
             CssRule::Namespace(rule)
-                if self.options.is_enabled(Options::DISCARD_UNUSED_NAMESPACES) =>
+                if self
+                    .options
+                    .is_enabled(Options::DISCARD_UNUSED_NAMESPACES, OptionsOp::Any) =>
             {
                 rule.prefix.is_some_and(|prefix| {
                     !self.uses_any_namespace && !self.namespace_prefixes.contains_key(prefix)
@@ -526,7 +524,9 @@ impl<'a> VisitMut<'a> for UnusedDefinitionDiscarder<'_, 'a> {
             return;
         }
         if let CssRule::FontFace(rule) = node
-            && self.options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES)
+            && self
+                .options
+                .is_enabled(Options::DISCARD_UNUSED_FONT_FACES, OptionsOp::Any)
         {
             unquote_font_face_family(rule);
         }
@@ -590,7 +590,7 @@ fn unquote_font_face_family(rule: &mut rocketcss_ast::FontFaceRule<'_>) {
 
 pub(crate) fn minify_font_face_property(
     property: &mut FontFaceProperty<'_>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     if let FontFaceProperty::FontWeight(value) = property {
         let rocketcss_ast::Size2D(first, second) = &mut **value;
@@ -600,7 +600,7 @@ pub(crate) fn minify_font_face_property(
                 let absolute: &mut rocketcss_ast::AbsoluteFontWeight = absolute;
                 if matches!(absolute, rocketcss_ast::AbsoluteFontWeight::Normal) {
                     *absolute = rocketcss_ast::AbsoluteFontWeight::Weight(400.0);
-                    context.record_value_normalized();
+                    cx.record_value_normalized();
                 }
             }
         }
@@ -623,7 +623,7 @@ pub(crate) fn minify_font_face_property(
             {
                 let name = *name;
                 **token = Token::UnquotedFont(name);
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
         }
     } else if name.eq_ignore_ascii_case("font-weight")
@@ -631,18 +631,12 @@ pub(crate) fn minify_font_face_property(
         && matches!(&**token, Token::Ident(value) if value.eq_ignore_ascii_case("normal"))
     {
         **token = Token::Number(400.0);
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
-pub(crate) fn reduce_grid_identifiers<'a>(
-    stylesheet: &mut StyleSheet<'a>,
-    context: &mut MinifyContext,
-) {
-    if !context
-        .options()
-        .is_enabled(Options::REDUCE_GRID_IDENTIFIERS)
-    {
+pub(crate) fn reduce_grid_identifiers<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
+    if cx.is_enabled(Options::REDUCE_GRID_IDENTIFIERS, OptionsOp::None) {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -1299,8 +1293,8 @@ fn reduce_animation_name<'a>(name: &mut AnimationName<'a>, names: &HashMap<'a, &
 }
 
 impl Minify for KeyframeSelector<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
@@ -1316,17 +1310,14 @@ impl Minify for KeyframeSelector<'_> {
             _ => false,
         };
         if changed {
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
 
 impl Minify for Declaration<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if context
-            .options()
-            .is_enabled(Options::CONVERT_ZERO_PERCENTAGES)
-        {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any) {
             let size = match self {
                 Declaration::Width(value)
                 | Declaration::Height(value)
@@ -1339,24 +1330,24 @@ impl Minify for Declaration<'_> {
                 _ => None,
             };
             if size.is_some_and(minify_size_percentage_zero) {
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
         }
         if let Declaration::Opacity(value) = self {
             let clamped = value.clamp(0.0, 1.0);
             if *value != clamped {
                 *value = clamped;
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
         }
-        if !context.options().is_enabled(Options::REDUCE_TO_INITIAL) {
+        if cx.is_enabled(Options::REDUCE_TO_INITIAL, OptionsOp::None) {
             return;
         }
         if let Declaration::BackgroundColor(color) = self
             && matches!(&**color, CssColor::Rgba(value) if value.red == 0 && value.green == 0 && value.blue == 0 && value.alpha == 0)
         {
             **color = CssColor::Initial;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
@@ -1374,8 +1365,8 @@ fn minify_size_percentage_zero(size: &mut Size<'_>) -> bool {
 }
 
 impl Minify for UnparsedProperty<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        self.value.minify(context);
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        self.value.minify(cx);
         if self
             .property_id
             .name()
@@ -1386,10 +1377,10 @@ impl Minify for UnparsedProperty<'_> {
             let clamped = value.clamp(0.0, 1.0);
             if *value != clamped {
                 *value = clamped;
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
         }
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
         if self.property_id.name().eq_ignore_ascii_case("columns") {
@@ -1400,7 +1391,7 @@ impl Minify for UnparsedProperty<'_> {
             && minify_columns(&mut self.value)
         {
             *self.property_id = PropertyId::from_name("column-count");
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
         let property_name = self.property_id.name();
         if property_name
@@ -1412,14 +1403,12 @@ impl Minify for UnparsedProperty<'_> {
                 .iter()
                 .filter(|value| token_or_value_contains_variable(value))
                 .count();
-            if context
-                .options()
-                .is_enabled(Options::ORDER_BORDER_VALUES_WITH_VARIABLES)
+            if cx.is_enabled(Options::ORDER_BORDER_VALUES_WITH_VARIABLES, OptionsOp::Any)
                 && variable_count == 1
                 && is_border_shorthand(property_name)
                 && order_border_with_trailing_variable(&mut self.value)
             {
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             if variable_count < 2 {
                 canonicalize_border_keywords(&mut self.value);
@@ -1428,10 +1417,10 @@ impl Minify for UnparsedProperty<'_> {
                 }
             }
             if property_name.eq_ignore_ascii_case("border") {
-                minify_default_border(&mut self.value, context);
+                minify_default_border(&mut self.value, cx);
             }
         }
-        if context.options().is_enabled(Options::REDUCE_TO_INITIAL)
+        if cx.is_enabled(Options::REDUCE_TO_INITIAL, OptionsOp::Any)
             && is_multi_token_initial_value(self.property_id.name(), &self.value)
         {
             let TokenOrValue::Token(token) = &mut self.value[0] else {
@@ -1439,7 +1428,7 @@ impl Minify for UnparsedProperty<'_> {
             };
             **token = Token::Ident("initial");
             self.value.truncate(1);
-            context.record_value_normalized();
+            cx.record_value_normalized();
             return;
         }
         if self.value.len() != 1 {
@@ -1452,19 +1441,17 @@ impl Minify for UnparsedProperty<'_> {
         let Token::Ident(value) = &**token else {
             return;
         };
-        if context.options().is_enabled(Options::REDUCE_TO_INITIAL)
+        if cx.is_enabled(Options::REDUCE_TO_INITIAL, OptionsOp::Any)
             && crate::properties::is_initial_value(self.property_id.name(), value)
         {
             **token = Token::Ident("initial");
-            context.record_value_normalized();
+            cx.record_value_normalized();
             return;
         }
         if !value.eq_ignore_ascii_case("initial") {
             return;
         }
-        if context
-            .options()
-            .is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL)
+        if cx.is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL, OptionsOp::Any)
             && is_margin_or_padding_longhand(self.property_id.name())
         {
             return;
@@ -1478,7 +1465,7 @@ impl Minify for UnparsedProperty<'_> {
                 .push(TokenOrValue::Token(allocator.boxed(Token::WhiteSpace(" "))));
             self.value
                 .push(TokenOrValue::Token(allocator.boxed(Token::Number(0.0))));
-            context.record_value_normalized();
+            cx.record_value_normalized();
             return;
         }
         let Some(replacement) = crate::properties::initial_value(self.property_id.name()) else {
@@ -1505,9 +1492,9 @@ impl Minify for UnparsedProperty<'_> {
             },
             _ => Token::Ident(replacement),
         };
-        context.record_value_normalized();
-        self.value[0].minify(context);
-        self.value.minify(context);
+        cx.record_value_normalized();
+        self.value[0].minify(cx);
+        self.value.minify(cx);
     }
 }
 
@@ -1578,7 +1565,7 @@ fn canonical_border_keyword(value: &str) -> Option<&'static str> {
     .find(|keyword| value.eq_ignore_ascii_case(keyword))
 }
 
-fn minify_default_border(value: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_default_border(value: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [first, space_1, second, space_2, third] = value.as_slice() else {
         return;
     };
@@ -1596,7 +1583,7 @@ fn minify_default_border(value: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Mi
     **token = Token::Ident("none");
     value.swap(0, 2);
     value.truncate(1);
-    context.record_value_normalized();
+    cx.record_value_normalized();
 }
 
 fn minify_columns(value: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
@@ -1655,14 +1642,17 @@ fn token_matches(value: &TokenOrValue<'_>, expected: &str) -> bool {
 }
 
 impl Minify for CustomProperty<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        self.value.minify(context);
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        self.value.minify(cx);
     }
 }
 
 impl Minify for Function<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if context.value_context.skip_value_transforms {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx
+            .value_context
+            .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+        {
             return;
         }
         if let Some(canonical) = ["rgb", "rgba", "hsl", "hsla", "hwb"]
@@ -1678,55 +1668,63 @@ impl Minify for Function<'_> {
         if gradient_contains_variable {
             rollback_gradient_color_replacements(&mut self.arguments);
         }
-        let preserve_space_after_comma = context.value_context.preserve_space_after_comma;
-        context.value_context.preserve_space_after_comma = context
-            .options()
-            .is_enabled(Options::PRESERVE_VARIABLE_FALLBACK_SPACE)
-            && ["var", "env", "constant"]
-                .iter()
-                .any(|name| self.name.eq_ignore_ascii_case(name));
-        self.arguments.minify(context);
-        context.value_context.preserve_space_after_comma = preserve_space_after_comma;
+        let preserve_space_after_comma = cx
+            .value_context
+            .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
+        cx.value_context.set_enabled(
+            ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA,
+            cx.is_enabled(Options::PRESERVE_VARIABLE_FALLBACK_SPACE, OptionsOp::Any)
+                && ["var", "env", "constant"]
+                    .iter()
+                    .any(|name| self.name.eq_ignore_ascii_case(name)),
+        );
+        self.arguments.minify(cx);
+        cx.value_context.set_enabled(
+            ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA,
+            preserve_space_after_comma,
+        );
         if is_gradient
             && !gradient_contains_variable
             && (minify_gradient_direction(&mut self.arguments)
                 | minify_gradient_stops(&mut self.arguments))
         {
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
-        if context.value_context.minify_colors
+        if cx
+            .value_context
+            .is_enabled(ValueContextFlags::MINIFY_COLORS)
             && let Some(color) =
-                minify_rgb_function(self, context).or_else(|| minify_hsl_function(self, context))
+                minify_rgb_function(self, cx).or_else(|| minify_hsl_function(self, cx))
         {
             self.replacement = Some(color);
-            context.record_value_normalized();
+            cx.record_value_normalized();
             return;
         }
         if self.name.eq_ignore_ascii_case("calc") {
             if let Some(linear) = calc_linear_expression(&self.arguments)
-                .map(|linear| linear.round(context.options().calc_precision))
+                .map(|linear| linear.round(cx.options().calc_precision))
                 && linear.write_to(self)
             {
-                context.record_value_normalized();
+                cx.record_value_normalized();
                 if self.replacement.is_some() {
                     return;
                 }
             }
             if remove_redundant_calc_parentheses(&mut self.arguments) {
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             if minify_flat_calc_operations(&mut self.arguments) {
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             if let Some(value) = simple_calc_value(&self.arguments) {
                 self.replacement = Some(value);
                 self.arguments.clear();
-                context.record_value_normalized();
+                cx.record_value_normalized();
                 return;
             }
         }
         if self.name.eq_ignore_ascii_case("url") {
-            if context.options().is_enabled(Options::NORMALIZE_URLS) {
+            if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) {
                 self.name = "url";
                 let allocator = self.arguments.bump();
                 if let [TokenOrValue::Token(token)] = self.arguments.as_mut_slice()
@@ -1734,7 +1732,7 @@ impl Minify for Function<'_> {
                 {
                     if let Some(normalized) = normalize_url_text(value) {
                         *value = allocator.alloc_str(&normalized);
-                        context.record_value_normalized();
+                        cx.record_value_normalized();
                     }
                     self.unquoted_url = !value
                         .get(..5)
@@ -1747,16 +1745,16 @@ impl Minify for Function<'_> {
                         && can_unquote_url(value)))
             {
                 self.unquoted_url = true;
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
         }
-        if context.value_context.property == crate::context::PropertyContext::Transform
+        if cx.value_context.property == crate::context::PropertyContext::Transform
             && minify_transform_function(self)
         {
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
         if !matches!(
-            context.value_context.property,
+            cx.value_context.property,
             crate::context::PropertyContext::TimingFunction
                 | crate::context::PropertyContext::Animation
                 | crate::context::PropertyContext::Transition
@@ -1775,7 +1773,7 @@ impl Minify for Function<'_> {
             self.name = replacement;
             self.arguments.clear();
             self.is_identifier = true;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
@@ -2093,10 +2091,7 @@ fn is_color_value(value: &TokenOrValue<'_>) -> bool {
             if matches!(**token, Token::Ident(_) | Token::Hash(_) | Token::IdHash(_) | Token::MinifiedHash(_)))
 }
 
-fn minify_hsl_function(
-    function: &Function<'_>,
-    context: &MinifyContext,
-) -> Option<FunctionReplacement> {
+fn minify_hsl_function(function: &Function<'_>, cx: &MinifyContext) -> Option<FunctionReplacement> {
     let is_hsl = function.name.eq_ignore_ascii_case("hsl");
     let is_hsla = function.name.eq_ignore_ascii_case("hsla");
     if !is_hsl && !is_hsla {
@@ -2145,7 +2140,7 @@ fn minify_hsl_function(
             red,
             green,
             blue,
-            use_hex: context.options().is_enabled(Options::USE_HEX_ALPHA_COLORS),
+            use_hex: cx.is_enabled(Options::USE_HEX_ALPHA_COLORS, OptionsOp::Any),
         }
     })
 }
@@ -2171,10 +2166,7 @@ fn color_percentage(value: &TokenOrValue<'_>) -> Option<f32> {
     }
 }
 
-fn minify_rgb_function(
-    function: &Function<'_>,
-    context: &MinifyContext,
-) -> Option<FunctionReplacement> {
+fn minify_rgb_function(function: &Function<'_>, cx: &MinifyContext) -> Option<FunctionReplacement> {
     let is_rgb = function.name.eq_ignore_ascii_case("rgb");
     let is_rgba = function.name.eq_ignore_ascii_case("rgba");
     if !is_rgb && !is_rgba {
@@ -2214,7 +2206,7 @@ fn minify_rgb_function(
                     red,
                     green,
                     blue,
-                    use_hex: context.options().is_enabled(Options::USE_HEX_ALPHA_COLORS),
+                    use_hex: cx.is_enabled(Options::USE_HEX_ALPHA_COLORS, OptionsOp::Any),
                 }
             },
         );
@@ -3184,26 +3176,26 @@ fn is_comma(value: &TokenOrValue<'_>) -> bool {
 }
 
 impl Minify for Variable<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
         if let Some(fallback) = &mut self.fallback {
-            fallback.minify(context);
+            fallback.minify(cx);
         }
     }
 }
 
 impl Minify for EnvironmentVariable<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
         if let Some(fallback) = &mut self.fallback {
-            fallback.minify(context);
+            fallback.minify(cx);
         }
     }
 }
 
 impl Minify for UnknownAtRule<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        self.prelude.minify(context);
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        self.prelude.minify(cx);
         if let Some(block) = &mut self.block {
-            block.minify(context);
+            block.minify(cx);
         }
     }
 }
@@ -3214,7 +3206,7 @@ impl Minify for UnknownAtRule<'_> {
 /// rather than repeatedly minifying a growing accumulated rule list.
 pub(crate) fn coalesce_conditional_rules<'a>(
     rules: &mut Vec<'a, CssRule<'a>>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let mut previous_live = None;
     for index in 0..rules.len() {
@@ -3255,22 +3247,22 @@ pub(crate) fn coalesce_conditional_rules<'a>(
             }
             _ => unreachable!("conditional rule kind changed after comparison"),
         }
-        context.record_conditional_rule_merged();
+        cx.record_conditional_rule_merged();
     }
 
     for rule in rules.iter_mut() {
         match rule {
-            CssRule::Style(rule) => coalesce_conditional_rules(&mut rule.rules, context),
-            CssRule::Media(rule) => coalesce_conditional_rules(&mut rule.rules, context),
-            CssRule::Supports(rule) => coalesce_conditional_rules(&mut rule.rules, context),
-            CssRule::MozDocument(rule) => coalesce_conditional_rules(&mut rule.rules, context),
+            CssRule::Style(rule) => coalesce_conditional_rules(&mut rule.rules, cx),
+            CssRule::Media(rule) => coalesce_conditional_rules(&mut rule.rules, cx),
+            CssRule::Supports(rule) => coalesce_conditional_rules(&mut rule.rules, cx),
+            CssRule::MozDocument(rule) => coalesce_conditional_rules(&mut rule.rules, cx),
             CssRule::Nesting(rule) => {
-                coalesce_conditional_rules(&mut rule.style.rules, context);
+                coalesce_conditional_rules(&mut rule.style.rules, cx);
             }
-            CssRule::LayerBlock(rule) => coalesce_conditional_rules(&mut rule.rules, context),
-            CssRule::Container(rule) => coalesce_conditional_rules(&mut rule.rules, context),
-            CssRule::Scope(rule) => coalesce_conditional_rules(&mut rule.rules, context),
-            CssRule::StartingStyle(rule) => coalesce_conditional_rules(&mut rule.rules, context),
+            CssRule::LayerBlock(rule) => coalesce_conditional_rules(&mut rule.rules, cx),
+            CssRule::Container(rule) => coalesce_conditional_rules(&mut rule.rules, cx),
+            CssRule::Scope(rule) => coalesce_conditional_rules(&mut rule.rules, cx),
+            CssRule::StartingStyle(rule) => coalesce_conditional_rules(&mut rule.rules, cx),
             _ => {}
         }
     }
@@ -3292,35 +3284,35 @@ struct DeclarationLocation<'a> {
 /// Merges adjacent compatible style rules within one rule list. Every at-rule
 /// ends the current IR segment, so block links never cross a conditional or
 /// other at-rule boundary. Nested rule lists are minified in their own scope.
-pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut MinifyContext) {
+pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut MinifyContext) {
     for rule in rules.iter_mut() {
         match rule {
-            CssRule::Style(rule) => minify_rule_list(&mut rule.rules, context),
-            CssRule::Media(rule) => minify_rule_list(&mut rule.rules, context),
-            CssRule::Supports(rule) => minify_rule_list(&mut rule.rules, context),
-            CssRule::MozDocument(rule) => minify_rule_list(&mut rule.rules, context),
-            CssRule::Nesting(rule) => minify_rule_list(&mut rule.style.rules, context),
-            CssRule::LayerBlock(rule) => minify_rule_list(&mut rule.rules, context),
-            CssRule::Container(rule) => minify_rule_list(&mut rule.rules, context),
-            CssRule::Scope(rule) => minify_rule_list(&mut rule.rules, context),
-            CssRule::StartingStyle(rule) => minify_rule_list(&mut rule.rules, context),
+            CssRule::Style(rule) => minify_rule_list(&mut rule.rules, cx),
+            CssRule::Media(rule) => minify_rule_list(&mut rule.rules, cx),
+            CssRule::Supports(rule) => minify_rule_list(&mut rule.rules, cx),
+            CssRule::MozDocument(rule) => minify_rule_list(&mut rule.rules, cx),
+            CssRule::Nesting(rule) => minify_rule_list(&mut rule.style.rules, cx),
+            CssRule::LayerBlock(rule) => minify_rule_list(&mut rule.rules, cx),
+            CssRule::Container(rule) => minify_rule_list(&mut rule.rules, cx),
+            CssRule::Scope(rule) => minify_rule_list(&mut rule.rules, cx),
+            CssRule::StartingStyle(rule) => minify_rule_list(&mut rule.rules, cx),
             _ => {}
         }
     }
 
-    discard_overridden_keyframes(rules, context);
+    discard_overridden_keyframes(rules, cx);
 
     for rule in rules.iter_mut() {
         if let CssRule::Style(rule) = rule {
-            deduplicate_declarations(&mut rule.declarations, context);
+            deduplicate_declarations(&mut rule.declarations, cx);
         }
     }
 
-    factor_style_output_runs(rules, context);
+    factor_style_output_runs(rules, cx);
 
-    if !has_mergeable_style_run(rules, context) {
-        discard_empty_rules(rules, context);
-        deduplicate_style_rules(rules, context);
+    if !has_mergeable_style_run(rules, cx) {
+        discard_empty_rules(rules, cx);
+        deduplicate_style_rules(rules, cx);
         return;
     }
 
@@ -3354,7 +3346,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
             let CssRule::Style(current) = &rules[index] else {
                 return None;
             };
-            style_rule_merge_kind(previous, current, context)
+            style_rule_merge_kind(previous, current, cx)
         });
 
         if let Some(merge_kind) = merge_kind {
@@ -3380,7 +3372,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
                         tombstone_matching_declarations(
                             &mut current.declarations,
                             &previous.declarations,
-                            context,
+                            cx,
                         );
                     }
                     StyleRuleMergeKind::CurrentDeclarationsAreSubset => {
@@ -3391,14 +3383,14 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
                         tombstone_matching_declarations(
                             &mut previous.declarations,
                             &current.declarations,
-                            context,
+                            cx,
                         );
                     }
                     _ => unreachable!(),
                 }
                 declarations.clear();
-                process_declarations(&mut current.declarations, &mut declarations, context);
-                context.record_style_rule_merged();
+                process_declarations(&mut current.declarations, &mut declarations, cx);
+                cx.record_style_rule_merged();
                 previous_style = Some(index);
                 continue;
             }
@@ -3416,7 +3408,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
                     // SAFETY: declaration blocks are arena boxed and never move. The
                     // previous rule is the live tail of this adjacent merge chain.
                     unsafe { current.declarations.link_previous(previous_block) };
-                    process_declarations(&mut current.declarations, &mut declarations, context);
+                    process_declarations(&mut current.declarations, &mut declarations, cx);
                 }
                 StyleRuleMergeKind::SameDeclarations => {
                     std::mem::swap(&mut previous.declarations, &mut current.declarations);
@@ -3425,12 +3417,12 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
                     // vectors that are no longer mutated after this rule pass.
                     unsafe { current.set_selector_ir(selector_ir) };
                     declarations.clear();
-                    process_declarations(&mut current.declarations, &mut declarations, context);
+                    process_declarations(&mut current.declarations, &mut declarations, cx);
                 }
                 StyleRuleMergeKind::PreviousDeclarationsAreSubset
                 | StyleRuleMergeKind::CurrentDeclarationsAreSubset => unreachable!(),
             }
-            context.record_style_rule_merged();
+            cx.record_style_rule_merged();
             previous_style = Some(index);
             continue;
         }
@@ -3439,15 +3431,15 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
         let CssRule::Style(current) = &mut rules[index] else {
             unreachable!()
         };
-        process_declarations(&mut current.declarations, &mut declarations, context);
+        process_declarations(&mut current.declarations, &mut declarations, cx);
         previous_style = current.rules.is_empty().then_some(index);
     }
-    discard_empty_rules(rules, context);
-    deduplicate_style_rules(rules, context);
+    discard_empty_rules(rules, cx);
+    deduplicate_style_rules(rules, cx);
 }
 
-fn factor_style_output_runs<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut MinifyContext) {
-    if !context.options().is_enabled(Options::MERGE_STYLE_RULES) {
+fn factor_style_output_runs<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut MinifyContext) {
+    if cx.is_enabled(Options::MERGE_STYLE_RULES, OptionsOp::None) {
         return;
     }
     let allocator = rules.bump();
@@ -3462,7 +3454,7 @@ fn factor_style_output_runs<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut 
             };
             if !rule.rules.is_empty()
                 || rule.output_ir().is_some()
-                || !style_rule_selectors_are_compatible(rule, rule, context)
+                || !style_rule_selectors_are_compatible(rule, rule, cx)
             {
                 return None;
             }
@@ -3479,7 +3471,7 @@ fn factor_style_output_runs<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut 
             continue;
         }
 
-        factor_style_output_run(rules, &run, allocator, context);
+        factor_style_output_run(rules, &run, allocator, cx);
         run.clear();
         run_vendor = None;
         run_selector_vendor = None;
@@ -3495,7 +3487,7 @@ fn factor_style_output_run<'a>(
     rules: &mut [CssRule<'a>],
     indices: &[usize],
     allocator: &'a Allocator,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     if indices.len() < 2 {
         return;
@@ -3575,7 +3567,7 @@ fn factor_style_output_run<'a>(
     for &index in &indices[1..] {
         if !matches!(rules[index], CssRule::Ignored) {
             rules[index] = CssRule::Ignored;
-            context.record_style_rule_merged();
+            cx.record_style_rule_merged();
         }
     }
 }
@@ -3942,8 +3934,8 @@ fn output_selector_weight(selectors: &[NonNull<rocketcss_ast::Selector<'_>>]) ->
             .sum::<usize>()
 }
 
-pub(crate) fn discard_browser_hacks(rules: &mut Vec<'_, CssRule<'_>>, context: &mut MinifyContext) {
-    let Some(target) = context.options().browser_hack_target else {
+pub(crate) fn discard_browser_hacks(rules: &mut Vec<'_, CssRule<'_>>, cx: &mut MinifyContext) {
+    let Some(target) = cx.options().browser_hack_target else {
         return;
     };
     for rule in rules.iter_mut() {
@@ -3957,50 +3949,50 @@ pub(crate) fn discard_browser_hacks(rules: &mut Vec<'_, CssRule<'_>>, context: &
                         .is_some_and(|required| required != target)
                     {
                         rule.declarations.mark_invalid(index);
-                        context.record_declaration_removed();
+                        cx.record_declaration_removed();
                     }
                 }
-                discard_browser_hacks(&mut rule.rules, context);
+                discard_browser_hacks(&mut rule.rules, cx);
                 style_rule_browser_hack_target(rule)
             }
             CssRule::Media(rule) => {
                 let required = media_browser_hack_target(&rule.query);
-                discard_browser_hacks(&mut rule.rules, context);
+                discard_browser_hacks(&mut rule.rules, cx);
                 required
             }
             CssRule::Supports(rule) => {
-                discard_browser_hacks(&mut rule.rules, context);
+                discard_browser_hacks(&mut rule.rules, cx);
                 None
             }
             CssRule::MozDocument(rule) => {
-                discard_browser_hacks(&mut rule.rules, context);
+                discard_browser_hacks(&mut rule.rules, cx);
                 None
             }
             CssRule::Nesting(rule) => {
-                discard_browser_hacks(&mut rule.style.rules, context);
+                discard_browser_hacks(&mut rule.style.rules, cx);
                 None
             }
             CssRule::LayerBlock(rule) => {
-                discard_browser_hacks(&mut rule.rules, context);
+                discard_browser_hacks(&mut rule.rules, cx);
                 None
             }
             CssRule::Container(rule) => {
-                discard_browser_hacks(&mut rule.rules, context);
+                discard_browser_hacks(&mut rule.rules, cx);
                 None
             }
             CssRule::Scope(rule) => {
-                discard_browser_hacks(&mut rule.rules, context);
+                discard_browser_hacks(&mut rule.rules, cx);
                 None
             }
             CssRule::StartingStyle(rule) => {
-                discard_browser_hacks(&mut rule.rules, context);
+                discard_browser_hacks(&mut rule.rules, cx);
                 None
             }
             _ => None,
         };
         if required_target.is_some_and(|required| required != target) {
             *rule = CssRule::Ignored;
-            context.record_style_rule_merged();
+            cx.record_style_rule_merged();
         }
     }
 }
@@ -4114,11 +4106,8 @@ fn contains_ignore_ascii_case(value: &str, needle: &str) -> bool {
         .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
-fn discard_overridden_keyframes<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut MinifyContext) {
-    if !context
-        .options()
-        .is_enabled(Options::DISCARD_OVERRIDDEN_KEYFRAMES)
-    {
+fn discard_overridden_keyframes<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut MinifyContext) {
+    if cx.is_enabled(Options::DISCARD_OVERRIDDEN_KEYFRAMES, OptionsOp::None) {
         return;
     }
     let allocator = rules.bump();
@@ -4133,7 +4122,7 @@ fn discard_overridden_keyframes<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &
         let key = (name, rule.vendor_prefix.bits());
         if names.insert(key, ()).is_some() {
             rules[index] = CssRule::Ignored;
-            context.record_style_rule_merged();
+            cx.record_style_rule_merged();
         }
     }
 }
@@ -4172,8 +4161,8 @@ fn merged_selector_ir<'a>(
     selectors
 }
 
-fn deduplicate_style_rules(rules: &mut Vec<'_, CssRule<'_>>, context: &mut MinifyContext) {
-    if !context.options().is_enabled(Options::DEDUPLICATE_RULES) {
+fn deduplicate_style_rules(rules: &mut Vec<'_, CssRule<'_>>, cx: &mut MinifyContext) {
+    if cx.is_enabled(Options::DEDUPLICATE_RULES, OptionsOp::None) {
         return;
     }
 
@@ -4211,7 +4200,7 @@ fn deduplicate_style_rules(rules: &mut Vec<'_, CssRule<'_>>, context: &mut Minif
 
         if duplicate {
             rules[index] = CssRule::Ignored;
-            context.record_style_rule_merged();
+            cx.record_style_rule_merged();
             continue;
         }
         if let Some(head) = bucket_heads.insert(bucket, index) {
@@ -4308,8 +4297,8 @@ impl<'block, 'a> Iterator for OutputDeclarations<'block, 'a> {
     }
 }
 
-fn discard_empty_rules(rules: &mut [CssRule<'_>], context: &MinifyContext) {
-    if !context.options().is_enabled(Options::DISCARD_EMPTY) {
+fn discard_empty_rules(rules: &mut [CssRule<'_>], cx: &MinifyContext) {
+    if cx.is_enabled(Options::DISCARD_EMPTY, OptionsOp::None) {
         return;
     }
     for rule in rules {
@@ -4349,9 +4338,7 @@ fn discard_empty_rules(rules: &mut [CssRule<'_>], context: &MinifyContext) {
             CssRule::FontFeatureValues(rule) => rule.rules.is_empty(),
             CssRule::CounterStyle(rule) => rule.declarations.is_output_empty(),
             CssRule::Keyframes(rule) => {
-                context
-                    .options()
-                    .is_enabled(Options::DISCARD_EMPTY_KEYFRAMES)
+                cx.is_enabled(Options::DISCARD_EMPTY_KEYFRAMES, OptionsOp::Any)
                     && rule.keyframes.is_empty()
             }
             CssRule::Viewport(rule) => rule.declarations.is_output_empty(),
@@ -4364,15 +4351,15 @@ fn discard_empty_rules(rules: &mut [CssRule<'_>], context: &MinifyContext) {
     }
 }
 
-fn has_mergeable_style_run(rules: &[CssRule<'_>], context: &MinifyContext) -> bool {
+fn has_mergeable_style_run(rules: &[CssRule<'_>], cx: &MinifyContext) -> bool {
     let mut previous_style = None;
     for rule in rules {
         match rule {
             CssRule::Ignored => continue,
             CssRule::Style(current) => {
-                if previous_style.is_some_and(|previous| {
-                    style_rule_merge_kind(previous, current, context).is_some()
-                }) {
+                if previous_style
+                    .is_some_and(|previous| style_rule_merge_kind(previous, current, cx).is_some())
+                {
                     return true;
                 }
                 previous_style = current.rules.is_empty().then_some(current.as_ref());
@@ -4394,7 +4381,7 @@ enum StyleRuleMergeKind {
 fn style_rule_merge_kind(
     previous: &StyleRule<'_>,
     current: &StyleRule<'_>,
-    context: &MinifyContext,
+    cx: &MinifyContext,
 ) -> Option<StyleRuleMergeKind> {
     if !previous.rules.is_empty()
         || !current.rules.is_empty()
@@ -4402,11 +4389,11 @@ fn style_rule_merge_kind(
     {
         return None;
     }
-    let selectors_are_compatible = style_rule_selectors_are_compatible(previous, current, context);
+    let selectors_are_compatible = style_rule_selectors_are_compatible(previous, current, cx);
     if previous.selectors == current.selectors && selectors_are_compatible {
         return Some(StyleRuleMergeKind::SameSelectors);
     }
-    if !context.options().is_enabled(Options::MERGE_STYLE_RULES) || !selectors_are_compatible {
+    if cx.is_enabled(Options::MERGE_STYLE_RULES, OptionsOp::None) || !selectors_are_compatible {
         return None;
     }
     if style_rule_declarations_are_equivalent(previous, current) {
@@ -4544,7 +4531,7 @@ fn split_property(property: &str) -> PropertyParts<'_> {
 fn tombstone_matching_declarations(
     target: &mut DeclarationBlock<'_>,
     common: &DeclarationBlock<'_>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     for index in 0..target.len() {
         if target.is_invalid(index) {
@@ -4553,7 +4540,7 @@ fn tombstone_matching_declarations(
         let declaration = (&target.declarations[index], target.is_important(index));
         if OutputDeclarations::new(common).any(|candidate| candidate == declaration) {
             target.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
@@ -4561,7 +4548,7 @@ fn tombstone_matching_declarations(
 fn style_rule_selectors_are_compatible(
     left: &StyleRule<'_>,
     right: &StyleRule<'_>,
-    context: &MinifyContext,
+    cx: &MinifyContext,
 ) -> bool {
     let Some(left_vendor) = style_rule_selector_vendor(left) else {
         return false;
@@ -4579,9 +4566,7 @@ fn style_rule_selectors_are_compatible(
             selector.iter().all(|component| {
                 selector_component_is_merge_compatible(
                     component,
-                    context
-                        .options()
-                        .is_enabled(Options::MERGE_PLACEHOLDER_SELECTORS),
+                    cx.is_enabled(Options::MERGE_PLACEHOLDER_SELECTORS, OptionsOp::Any),
                 )
             })
         })
@@ -4744,14 +4729,14 @@ fn selector_component_is_merge_compatible(
     }
 }
 
-fn deduplicate_declarations(block: &mut DeclarationBlock<'_>, context: &mut MinifyContext) {
-    discard_empty_declarations(block, context);
-    prepare_box_initial_values(block, context);
-    discard_overridden_columns(block, context);
-    discard_box_longhands_before_shorthand(block, context);
-    discard_obsolete_prefixed_declarations(block, context);
-    discard_overridden_same_properties(block, context);
-    merge_box_longhands(block, context);
+fn deduplicate_declarations(block: &mut DeclarationBlock<'_>, cx: &mut MinifyContext) {
+    discard_empty_declarations(block, cx);
+    prepare_box_initial_values(block, cx);
+    discard_overridden_columns(block, cx);
+    discard_box_longhands_before_shorthand(block, cx);
+    discard_obsolete_prefixed_declarations(block, cx);
+    discard_overridden_same_properties(block, cx);
+    merge_box_longhands(block, cx);
     for index in 1..block.declarations.len() {
         if block.is_invalid(index) {
             continue;
@@ -4767,20 +4752,17 @@ fn deduplicate_declarations(block: &mut DeclarationBlock<'_>, context: &mut Mini
             && block.declarations[previous] == block.declarations[index]
         {
             block.mark_invalid(previous);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
-    sort_declarations(block, context);
+    sort_declarations(block, cx);
 }
 
 fn discard_obsolete_prefixed_declarations(
     block: &mut DeclarationBlock<'_>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    if !context
-        .options()
-        .is_enabled(Options::DISCARD_OBSOLETE_PREFIXES)
-    {
+    if cx.is_enabled(Options::DISCARD_OBSOLETE_PREFIXES, OptionsOp::None) {
         return;
     }
     for current in 0..block.len() {
@@ -4803,13 +4785,13 @@ fn discard_obsolete_prefixed_declarations(
                 continue;
             }
             block.mark_invalid(previous);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
 
-fn sort_declarations(block: &mut DeclarationBlock<'_>, context: &mut MinifyContext) {
-    if !context.options().is_enabled(Options::SORT_DECLARATIONS) {
+fn sort_declarations(block: &mut DeclarationBlock<'_>, cx: &mut MinifyContext) {
+    if cx.is_enabled(Options::SORT_DECLARATIONS, OptionsOp::None) {
         return;
     }
     let mut changed = false;
@@ -4837,7 +4819,7 @@ fn sort_declarations(block: &mut DeclarationBlock<'_>, context: &mut MinifyConte
         }
     }
     if changed {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
@@ -4867,9 +4849,9 @@ fn declaration_is_unsortable(declaration: &Declaration<'_>) -> bool {
 
 pub(crate) fn sort_font_face_properties(
     properties: &mut Vec<'_, FontFaceProperty<'_>>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    if !context.options().is_enabled(Options::SORT_DECLARATIONS) {
+    if cx.is_enabled(Options::SORT_DECLARATIONS, OptionsOp::None) {
         return;
     }
     let mut changed = false;
@@ -4885,7 +4867,7 @@ pub(crate) fn sort_font_face_properties(
         }
     }
     if changed {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
@@ -4906,7 +4888,7 @@ fn font_face_property_name<'a>(property: &FontFaceProperty<'a>) -> &'a str {
 
 fn discard_box_longhands_before_shorthand(
     block: &mut DeclarationBlock<'_>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     for shorthand in 1..block.len() {
         if block.is_invalid(shorthand) {
@@ -4943,7 +4925,7 @@ fn discard_box_longhands_before_shorthand(
                 continue;
             }
             block.mark_invalid(previous);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
@@ -4976,11 +4958,8 @@ fn is_margin_or_padding_longhand(name: &str) -> bool {
     .any(|property| name.eq_ignore_ascii_case(property))
 }
 
-fn prepare_box_initial_values(block: &mut DeclarationBlock<'_>, context: &MinifyContext) {
-    if !context
-        .options()
-        .is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL)
-    {
+fn prepare_box_initial_values(block: &mut DeclarationBlock<'_>, cx: &MinifyContext) {
+    if cx.is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL, OptionsOp::None) {
         return;
     }
     let allocator = block.declarations.bump();
@@ -5034,10 +5013,7 @@ fn prepare_box_initial_values(block: &mut DeclarationBlock<'_>, context: &Minify
     }
 }
 
-fn discard_overridden_same_properties(
-    block: &mut DeclarationBlock<'_>,
-    context: &mut MinifyContext,
-) {
+fn discard_overridden_same_properties(block: &mut DeclarationBlock<'_>, cx: &mut MinifyContext) {
     for current in 1..block.len() {
         if block.is_invalid(current) {
             continue;
@@ -5060,7 +5036,7 @@ fn discard_overridden_same_properties(
                 continue;
             }
             block.mark_invalid(previous);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
@@ -5084,7 +5060,7 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     }
 }
 
-fn discard_overridden_columns(block: &mut DeclarationBlock<'_>, context: &mut MinifyContext) {
+fn discard_overridden_columns(block: &mut DeclarationBlock<'_>, cx: &mut MinifyContext) {
     for important in [false, true] {
         let Some(last_shorthand) = (0..block.declarations.len()).rev().find(|&index| {
             !block.is_invalid(index)
@@ -5093,7 +5069,7 @@ fn discard_overridden_columns(block: &mut DeclarationBlock<'_>, context: &mut Mi
                     .name()
                     .eq_ignore_ascii_case("columns")
         }) else {
-            merge_column_longhands(block, important, 0, context);
+            merge_column_longhands(block, important, 0, cx);
             continue;
         };
         for index in 0..last_shorthand {
@@ -5102,11 +5078,11 @@ fn discard_overridden_columns(block: &mut DeclarationBlock<'_>, context: &mut Mi
                 && is_column_property(block.declarations[index].name())
             {
                 block.mark_invalid(index);
-                context.record_declaration_removed();
+                cx.record_declaration_removed();
             }
         }
-        fold_column_override(block, important, last_shorthand, context);
-        merge_column_longhands(block, important, last_shorthand + 1, context);
+        fold_column_override(block, important, last_shorthand, cx);
+        merge_column_longhands(block, important, last_shorthand + 1, cx);
     }
 }
 
@@ -5120,7 +5096,7 @@ fn merge_column_longhands(
     block: &mut DeclarationBlock<'_>,
     important: bool,
     start: usize,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let mut width = None;
     let mut count = None;
@@ -5199,14 +5175,14 @@ fn merge_column_longhands(
     target_value.value = value;
     let removed = width.min(count);
     block.mark_invalid(removed);
-    context.record_declaration_removed();
+    cx.record_declaration_removed();
 }
 
 fn fold_column_override(
     block: &mut DeclarationBlock<'_>,
     important: bool,
     shorthand: usize,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let mut override_index = None;
     let mut override_is_width = false;
@@ -5239,7 +5215,7 @@ fn fold_column_override(
     *override_value.property_id = PropertyId::from_name("columns");
     canonicalize_auto(&mut override_value.value);
     block.mark_invalid(shorthand);
-    context.record_declaration_removed();
+    cx.record_declaration_removed();
 }
 
 fn column_other_component_is_auto(value: &[TokenOrValue<'_>], override_is_width: bool) -> bool {
@@ -5295,26 +5271,26 @@ fn canonicalize_auto(value: &mut Vec<'_, TokenOrValue<'_>>) {
     }
 }
 
-fn merge_box_longhands<'a>(block: &mut DeclarationBlock<'a>, context: &mut MinifyContext) {
+fn merge_box_longhands<'a>(block: &mut DeclarationBlock<'a>, cx: &mut MinifyContext) {
     for important in [false, true] {
-        merge_border_longhands(block, important, context);
-        fold_margin_side_overrides(block, important, context);
+        merge_border_longhands(block, important, cx);
+        fold_margin_side_overrides(block, important, cx);
         fold_border_component_overrides(
             block,
             important,
             ["margin-top", "margin-right", "margin-bottom", "margin-left"],
             "margin",
-            context,
+            cx,
         );
         merge_unparsed_box_groups(
             block,
             important,
             ["margin-top", "margin-right", "margin-bottom", "margin-left"],
             "margin",
-            context,
+            cx,
         );
-        merge_margin_longhands(block, important, context);
-        fold_padding_side_overrides(block, important, context);
+        merge_margin_longhands(block, important, cx);
+        fold_padding_side_overrides(block, important, cx);
         fold_border_component_overrides(
             block,
             important,
@@ -5325,7 +5301,7 @@ fn merge_box_longhands<'a>(block: &mut DeclarationBlock<'a>, context: &mut Minif
                 "padding-left",
             ],
             "padding",
-            context,
+            cx,
         );
         merge_unparsed_box_groups(
             block,
@@ -5337,16 +5313,16 @@ fn merge_box_longhands<'a>(block: &mut DeclarationBlock<'a>, context: &mut Minif
                 "padding-left",
             ],
             "padding",
-            context,
+            cx,
         );
-        merge_padding_longhands(block, important, context);
+        merge_padding_longhands(block, important, cx);
     }
 }
 
 fn fold_margin_side_overrides(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let mut shorthand = None;
     for index in 0..block.len() {
@@ -5390,7 +5366,7 @@ fn fold_margin_side_overrides(
         };
         if folded {
             block.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
@@ -5398,7 +5374,7 @@ fn fold_margin_side_overrides(
 fn fold_padding_side_overrides(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let mut shorthand = None;
     for index in 0..block.len() {
@@ -5442,7 +5418,7 @@ fn fold_padding_side_overrides(
         };
         if folded {
             block.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
@@ -5452,7 +5428,7 @@ fn merge_unparsed_box_groups<'a>(
     important: bool,
     names: [&str; 4],
     shorthand: &'a str,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let allocator = block.declarations.bump();
     let last_shorthand = (0..block.len()).rev().find(|&index| {
@@ -5493,7 +5469,7 @@ fn merge_unparsed_box_groups<'a>(
             continue;
         };
         let indices = [top, right, bottom, left];
-        if merge_unparsed_box_longhands(block, indices, shorthand, context) {
+        if merge_unparsed_box_longhands(block, indices, shorthand, cx) {
             for index in indices {
                 candidates.set(index, false);
             }
@@ -5506,13 +5482,13 @@ fn merge_unparsed_box_groups<'a>(
 fn merge_border_longhands<'a>(
     block: &mut DeclarationBlock<'a>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    discard_redundant_border_side_overrides(block, important, context);
-    merge_border_side_shorthands(block, important, context);
-    factor_border_side_shorthand_override(block, important, context);
-    fold_border_side_components_around_variable_border(block, important, context);
-    fold_border_shorthand_component_overrides(block, important, context);
+    discard_redundant_border_side_overrides(block, important, cx);
+    merge_border_side_shorthands(block, important, cx);
+    factor_border_side_shorthand_override(block, important, cx);
+    fold_border_side_components_around_variable_border(block, important, cx);
+    fold_border_shorthand_component_overrides(block, important, cx);
     for (component, output) in [
         ("width", "border-width"),
         ("style", "border-style"),
@@ -5524,17 +5500,17 @@ fn merge_border_longhands<'a>(
             border_name("bottom", component),
             border_name("left", component),
         ];
-        fold_majority_border_component_shorthand(block, important, names, output, context);
-        fold_three_equal_border_side_component_overrides(block, important, names, output, context);
-        factor_border_side_component_overrides(block, important, names, output, context);
-        fold_border_component_overrides(block, important, names, output, context);
-        merge_unparsed_border_component_groups(block, important, names, output, context);
+        fold_majority_border_component_shorthand(block, important, names, output, cx);
+        fold_three_equal_border_side_component_overrides(block, important, names, output, cx);
+        factor_border_side_component_overrides(block, important, names, output, cx);
+        fold_border_component_overrides(block, important, names, output, cx);
+        merge_unparsed_border_component_groups(block, important, names, output, cx);
         if let Some(indices) = declaration_indices(block, important, names, output) {
-            merge_unparsed_values(block, indices, output, true, context);
+            merge_unparsed_values(block, indices, output, true, cx);
         }
     }
-    fold_border_shorthand_component_overrides(block, important, context);
-    fold_border_color_after_width_shorthand(block, important, context);
+    fold_border_shorthand_component_overrides(block, important, cx);
+    fold_border_color_after_width_shorthand(block, important, cx);
 
     for side in ["top", "right", "bottom", "left"] {
         let output = border_side_name(side);
@@ -5544,7 +5520,7 @@ fn merge_border_longhands<'a>(
             border_name(side, "color"),
         ];
         if let Some(indices) = declaration_indices(block, important, names, output) {
-            merge_unparsed_values(block, indices, output, false, context);
+            merge_unparsed_values(block, indices, output, false, cx);
         }
         if let Some(indices) = declaration_indices(
             block,
@@ -5554,7 +5530,7 @@ fn merge_border_longhands<'a>(
         ) && can_merge_without_color(block, border_name(side, "color"), important, &indices)
         {
             let target = *indices.iter().max().expect("two side components");
-            if merge_unparsed_values(block, indices, output, false, context) {
+            if merge_unparsed_values(block, indices, output, false, cx) {
                 move_border_side_before_earlier_color(
                     block,
                     target,
@@ -5571,13 +5547,13 @@ fn merge_border_longhands<'a>(
         ["border-width", "border-style", "border-color"],
         "border",
     ) {
-        merge_unparsed_values(block, indices, "border", false, context);
+        merge_unparsed_values(block, indices, "border", false, cx);
     }
     if let Some(indices) =
         declaration_indices(block, important, ["border-width", "border-style"], "border")
         && can_merge_without_color(block, "border-color", important, &indices)
     {
-        merge_unparsed_values(block, indices, "border", false, context);
+        merge_unparsed_values(block, indices, "border", false, cx);
     }
 
     if let Some(indices) = declaration_indices(
@@ -5586,10 +5562,10 @@ fn merge_border_longhands<'a>(
         ["border-top", "border-right", "border-bottom", "border-left"],
         "border",
     ) {
-        merge_equal_unparsed_values(block, indices, "border", context);
+        merge_equal_unparsed_values(block, indices, "border", cx);
     }
-    promote_two_equal_border_sides(block, important, context);
-    merge_common_border_sides(block, important, context);
+    promote_two_equal_border_sides(block, important, cx);
+    merge_common_border_sides(block, important, cx);
     canonicalize_border_side_declaration_order(block, important);
     canonicalize_border_component_declaration_order(block, important);
     canonicalize_standalone_border_style(block);
@@ -5598,7 +5574,7 @@ fn merge_border_longhands<'a>(
 fn fold_border_side_components_around_variable_border(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let Some(border) = (0..block.len()).find(|&index| {
         !block.is_invalid(index)
@@ -5677,15 +5653,15 @@ fn fold_border_side_components_around_variable_border(
         *target_value.property_id = PropertyId::from_name(border_side_name(side));
         canonicalize_full_border_keywords(&mut target_value.value);
         block.mark_invalid(removed);
-        context.record_declaration_removed();
-        minify_unparsed_declaration(block, target, context);
+        cx.record_declaration_removed();
+        minify_unparsed_declaration(block, target, cx);
     }
 }
 
 fn fold_border_color_after_width_shorthand(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let Some(border) = (0..block.len()).rev().find(|&index| {
         !block.is_invalid(index)
@@ -5760,14 +5736,14 @@ fn fold_border_color_after_width_shorthand(
     *color_value.property_id =
         PropertyId::from_name(["border-top", "border-right", "border-bottom", "border-left"][side]);
     canonicalize_full_border_keywords(&mut color_value.value);
-    minify_unparsed_declaration(block, color, context);
+    minify_unparsed_declaration(block, color, cx);
     block.declarations.swap(width, color);
 }
 
 fn discard_redundant_border_side_overrides(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let mut border = None;
     for index in 0..block.len() {
@@ -5820,7 +5796,7 @@ fn discard_redundant_border_side_overrides(
             };
         if redundant {
             block.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
@@ -5828,7 +5804,7 @@ fn discard_redundant_border_side_overrides(
 fn factor_border_side_shorthand_override(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let allocator = block.declarations.bump();
     let mut border = None;
@@ -5934,8 +5910,8 @@ fn factor_border_side_shorthand_override(
             BorderComponent::Color => "border-color",
         });
         side_value.value = values;
-        minify_unparsed_declaration(block, index, context);
-        minify_border_declaration(block, border_index, context);
+        minify_unparsed_declaration(block, index, cx);
+        minify_border_declaration(block, border_index, cx);
     }
 }
 
@@ -5944,7 +5920,7 @@ fn fold_majority_border_component_shorthand<'a>(
     important: bool,
     names: [&'a str; 4],
     shorthand: &'a str,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) -> bool {
     let Some(border) = (0..block.len()).rev().find(|&index| {
         !block.is_invalid(index)
@@ -5961,7 +5937,7 @@ fn fold_majority_border_component_shorthand<'a>(
         return false;
     };
     if shorthand == "border-color"
-        && fold_typed_majority_border_color(block, border, component_index, context)
+        && fold_typed_majority_border_color(block, border, component_index, cx)
     {
         return true;
     }
@@ -6048,8 +6024,8 @@ fn fold_majority_border_component_shorthand<'a>(
             .push(TokenOrValue::Token(allocator.boxed(Token::WhiteSpace(" "))));
     }
     border_value.value.push(common);
-    minify_border_declaration(block, border, context);
-    minify_unparsed_declaration(block, component_index, context);
+    minify_border_declaration(block, border, cx);
+    minify_unparsed_declaration(block, component_index, cx);
     true
 }
 
@@ -6057,7 +6033,7 @@ fn fold_typed_majority_border_color(
     block: &mut DeclarationBlock<'_>,
     border: usize,
     component_index: usize,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) -> bool {
     let Declaration::BorderColor(colors) = &block.declarations[component_index] else {
         return false;
@@ -6115,7 +6091,7 @@ fn fold_typed_majority_border_color(
             .push(TokenOrValue::Token(allocator.boxed(Token::WhiteSpace(" "))));
     }
     border_value.value.push(TokenOrValue::Color(common));
-    minify_border_declaration(block, border, context);
+    minify_border_declaration(block, border, cx);
     true
 }
 
@@ -6124,7 +6100,7 @@ fn fold_three_equal_border_side_component_overrides<'a>(
     important: bool,
     names: [&'a str; 4],
     shorthand: &str,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let Some(border) = (0..block.len()).rev().find(|&index| {
         !block.is_invalid(index)
@@ -6211,16 +6187,16 @@ fn fold_three_equal_border_side_component_overrides<'a>(
     for index in present {
         if index != target {
             block.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
-    minify_border_declaration(block, border, context);
+    minify_border_declaration(block, border, cx);
 }
 
 fn promote_two_equal_border_sides(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let names = ["border-top", "border-right", "border-bottom", "border-left"];
     let Some(border) = (0..block.len()).rev().find(|&index| {
@@ -6299,15 +6275,15 @@ fn promote_two_equal_border_sides(
     *second_exception.property_id = PropertyId::from_name(names[missing[1]]);
     second_exception.value.clear();
     second_exception.value.push(fallback);
-    minify_border_declaration(block, border, context);
-    minify_unparsed_declaration(block, present[0], context);
-    minify_unparsed_declaration(block, present[1], context);
+    minify_border_declaration(block, border, cx);
+    minify_unparsed_declaration(block, present[0], cx);
+    minify_unparsed_declaration(block, present[1], cx);
 }
 
 fn merge_common_border_sides(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let names = ["border-top", "border-right", "border-bottom", "border-left"];
     let Some(indices) = declaration_indices(block, important, names, "border") else {
@@ -6383,10 +6359,10 @@ fn merge_common_border_sides(
     for (side, remove) in remove.into_iter().enumerate() {
         if remove {
             block.mark_invalid(indices[side]);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
-    minify_border_declaration(block, target, context);
+    minify_border_declaration(block, target, cx);
 }
 
 fn canonicalize_border_side_declaration_order(block: &mut DeclarationBlock<'_>, important: bool) {
@@ -6492,7 +6468,7 @@ fn factor_border_side_component_overrides<'a>(
     important: bool,
     names: [&str; 4],
     shorthand: &'a str,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let allocator = block.declarations.bump();
     let mut border = None;
@@ -6522,7 +6498,7 @@ fn factor_border_side_component_overrides<'a>(
             _ => unreachable!(),
         };
         if component == BorderComponent::Style
-            && fold_none_border_style_side_override(block, border_index, index, side, context)
+            && fold_none_border_style_side_override(block, border_index, index, side, cx)
         {
             continue;
         }
@@ -6611,8 +6587,8 @@ fn factor_border_side_component_overrides<'a>(
         if shorthand == "border-style" {
             canonicalize_full_border_keywords(&mut override_value.value);
         }
-        minify_unparsed_declaration(block, index, context);
-        minify_border_declaration(block, border_index, context);
+        minify_unparsed_declaration(block, index, cx);
+        minify_border_declaration(block, border_index, cx);
     }
 }
 
@@ -6632,7 +6608,7 @@ fn fold_none_border_style_side_override(
     border_index: usize,
     override_index: usize,
     side: usize,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) -> bool {
     let allocator = block.declarations.bump();
     let width = match &block.declarations[border_index] {
@@ -6676,8 +6652,8 @@ fn fold_none_border_style_side_override(
     *override_value.property_id =
         PropertyId::from_name(border_side_name(["top", "right", "bottom", "left"][side]));
     canonicalize_full_border_keywords(&mut override_value.value);
-    minify_border_declaration(block, border_index, context);
-    minify_unparsed_declaration(block, override_index, context);
+    minify_border_declaration(block, border_index, cx);
+    minify_unparsed_declaration(block, override_index, cx);
     true
 }
 
@@ -6702,7 +6678,7 @@ fn take_border_component<'a>(
 fn fold_border_shorthand_component_overrides(
     block: &mut DeclarationBlock<'_>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let mut border = None;
     for index in 0..block.len() {
@@ -6746,14 +6722,14 @@ fn fold_border_shorthand_component_overrides(
                 .is_some_and(is_css_wide_value);
         if item_count != 1 || single_is_css_wide {
             if remove_border_component(block, border_index, component) {
-                minify_border_declaration(block, border_index, context);
+                minify_border_declaration(block, border_index, cx);
             }
             continue;
         }
         if fold_single_border_component(block, border_index, index, component) {
             block.mark_invalid(index);
-            context.record_declaration_removed();
-            minify_border_declaration(block, border_index, context);
+            cx.record_declaration_removed();
+            minify_border_declaration(block, border_index, cx);
         }
     }
 }
@@ -6915,23 +6891,21 @@ fn is_css_wide_value(value: &TokenOrValue<'_>) -> bool {
 fn minify_border_declaration(
     block: &mut DeclarationBlock<'_>,
     index: usize,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let Declaration::Unparsed(value) = &mut block.declarations[index] else {
         return;
     };
-    let previous = context.value_context;
-    context.value_context = crate::properties::value_context(
+    let previous = cx.value_context;
+    cx.value_context = crate::properties::value_context(
         &value.property_id,
-        context.options().is_enabled(Options::ORDER_VALUES),
-        context
-            .options()
-            .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
+        cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
+        cx.is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
     );
     canonicalize_border_keywords(&mut value.value);
     canonicalize_full_border_keywords(&mut value.value);
-    value.value.minify(context);
-    context.value_context = previous;
+    value.value.minify(cx);
+    cx.value_context = previous;
 }
 
 fn fold_border_component_overrides(
@@ -6939,7 +6913,7 @@ fn fold_border_component_overrides(
     important: bool,
     names: [&str; 4],
     shorthand: &str,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let mut shorthand_index = None;
     for index in 0..block.len() {
@@ -6959,7 +6933,7 @@ fn fold_border_component_overrides(
         };
         if fold_box_side_value(block, target, index, side, true) {
             block.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
             if shorthand == "border-width"
                 && let Declaration::Unparsed(value) = &mut block.declarations[target]
             {
@@ -6971,7 +6945,7 @@ fn fold_border_component_overrides(
                     }
                 }
             }
-            minify_unparsed_declaration(block, target, context);
+            minify_unparsed_declaration(block, target, cx);
         }
     }
 }
@@ -6979,21 +6953,19 @@ fn fold_border_component_overrides(
 fn minify_unparsed_declaration(
     block: &mut DeclarationBlock<'_>,
     index: usize,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let Declaration::Unparsed(value) = &mut block.declarations[index] else {
         return;
     };
-    let previous = context.value_context;
-    context.value_context = crate::properties::value_context(
+    let previous = cx.value_context;
+    cx.value_context = crate::properties::value_context(
         &value.property_id,
-        context.options().is_enabled(Options::ORDER_VALUES),
-        context
-            .options()
-            .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
+        cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
+        cx.is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
     );
-    value.value.minify(context);
-    context.value_context = previous;
+    value.value.minify(cx);
+    cx.value_context = previous;
 }
 
 fn fold_box_side_value(
@@ -7159,7 +7131,7 @@ fn merge_unparsed_border_component_groups<'a>(
     important: bool,
     names: [&str; 4],
     shorthand: &'a str,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let allocator = block.declarations.bump();
     let last_shorthand = (0..block.len()).rev().find(|&index| {
@@ -7199,7 +7171,7 @@ fn merge_unparsed_border_component_groups<'a>(
             continue;
         };
         let indices = [top, right, bottom, left];
-        if merge_unparsed_values(block, indices, shorthand, true, context) {
+        if merge_unparsed_values(block, indices, shorthand, true, cx) {
             for index in indices {
                 candidates.set(index, false);
             }
@@ -7212,7 +7184,7 @@ fn merge_unparsed_border_component_groups<'a>(
 fn merge_border_side_shorthands<'a>(
     block: &mut DeclarationBlock<'a>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let Some(indices) = declaration_indices(
         block,
@@ -7302,19 +7274,17 @@ fn merge_border_side_shorthands<'a>(
         };
         *target_value.property_id = PropertyId::from_name(name);
         target_value.value = values;
-        let previous = context.value_context;
-        context.value_context = crate::properties::value_context(
+        let previous = cx.value_context;
+        cx.value_context = crate::properties::value_context(
             &target_value.property_id,
-            context.options().is_enabled(Options::ORDER_VALUES),
-            context
-                .options()
-                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
+            cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
+            cx.is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
-        target_value.value.minify(context);
-        context.value_context = previous;
+        target_value.value.minify(cx);
+        cx.value_context = previous;
     }
     block.mark_invalid(targets[3]);
-    context.record_declaration_removed();
+    cx.record_declaration_removed();
 }
 
 fn can_merge_without_color(
@@ -7438,7 +7408,7 @@ fn merge_unparsed_values<'a, const N: usize>(
     indices: [usize; N],
     shorthand: &'a str,
     minify_as_box: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) -> bool {
     if indices.iter().any(|&index| {
         !matches!(&block.declarations[index], Declaration::Unparsed(value) if value.value.len() == 1)
@@ -7498,18 +7468,16 @@ fn merge_unparsed_values<'a, const N: usize>(
         canonicalize_full_border_keywords(&mut target_value.value);
     }
     if minify_as_box {
-        let previous = context.value_context;
-        context.value_context = crate::properties::value_context(
+        let previous = cx.value_context;
+        cx.value_context = crate::properties::value_context(
             &target_value.property_id,
-            context.options().is_enabled(Options::ORDER_VALUES),
-            context
-                .options()
-                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
+            cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
+            cx.is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
-        target_value.value.minify(context);
-        context.value_context = previous;
+        target_value.value.minify(cx);
+        cx.value_context = previous;
     }
-    mark_merged_indices(block, &indices, target, context);
+    mark_merged_indices(block, &indices, target, cx);
     true
 }
 
@@ -7538,7 +7506,7 @@ fn merge_equal_unparsed_values<'a, const N: usize>(
     block: &mut DeclarationBlock<'a>,
     indices: [usize; N],
     shorthand: &'a str,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) -> bool {
     let mut values = indices
         .iter()
@@ -7557,7 +7525,7 @@ fn merge_equal_unparsed_values<'a, const N: usize>(
         return false;
     };
     *target_value.property_id = PropertyId::from_name(shorthand);
-    mark_merged_indices(block, &indices, target, context);
+    mark_merged_indices(block, &indices, target, cx);
     true
 }
 
@@ -7565,12 +7533,12 @@ fn mark_merged_indices(
     block: &mut DeclarationBlock<'_>,
     indices: &[usize],
     target: usize,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     for &index in indices {
         if index != target {
             block.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
@@ -7578,7 +7546,7 @@ fn mark_merged_indices(
 fn merge_margin_longhands<'a>(
     block: &mut DeclarationBlock<'a>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let Some([top, right, bottom, left]) = box_longhand_indices(
         block,
@@ -7588,7 +7556,7 @@ fn merge_margin_longhands<'a>(
     ) else {
         return;
     };
-    if merge_unparsed_box_longhands(block, [top, right, bottom, left], "margin", context) {
+    if merge_unparsed_box_longhands(block, [top, right, bottom, left], "margin", cx) {
         return;
     }
     if !matches!(block.declarations[top], Declaration::MarginTop(_))
@@ -7637,13 +7605,13 @@ fn merge_margin_longhands<'a>(
         bottom: bottom_value,
         left: left_value,
     }));
-    mark_merged_longhands(block, [top, right, bottom, left], target, context);
+    mark_merged_longhands(block, [top, right, bottom, left], target, cx);
 }
 
 fn merge_padding_longhands<'a>(
     block: &mut DeclarationBlock<'a>,
     important: bool,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     let Some([top, right, bottom, left]) = box_longhand_indices(
         block,
@@ -7658,7 +7626,7 @@ fn merge_padding_longhands<'a>(
     ) else {
         return;
     };
-    if merge_unparsed_box_longhands(block, [top, right, bottom, left], "padding", context) {
+    if merge_unparsed_box_longhands(block, [top, right, bottom, left], "padding", cx) {
         return;
     }
     if !matches!(block.declarations[top], Declaration::PaddingTop(_))
@@ -7707,14 +7675,14 @@ fn merge_padding_longhands<'a>(
         bottom: bottom_value,
         left: left_value,
     }));
-    mark_merged_longhands(block, [top, right, bottom, left], target, context);
+    mark_merged_longhands(block, [top, right, bottom, left], target, cx);
 }
 
 fn merge_unparsed_box_longhands<'a>(
     block: &mut DeclarationBlock<'a>,
     indices: [usize; 4],
     shorthand: &'a str,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) -> bool {
     if indices.iter().any(|&index| {
         !matches!(&block.declarations[index], Declaration::Unparsed(value) if value.value.len() == 1)
@@ -7735,9 +7703,7 @@ fn merge_unparsed_box_longhands<'a>(
     let all_equal = indices[1..].iter().all(|&index| {
         matches!(&block.declarations[index], Declaration::Unparsed(value) if value.value == *first_value)
     });
-    let preserve_initial = context
-        .options()
-        .is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL)
+    let preserve_initial = cx.is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL, OptionsOp::Any)
         && all_equal
         && matches!(first_value.as_slice(), [TokenOrValue::Token(token)]
             if matches!(&**token, Token::Ident(keyword)
@@ -7778,18 +7744,16 @@ fn merge_unparsed_box_longhands<'a>(
     }
 
     if !preserve_initial {
-        let previous = context.value_context;
-        context.value_context = crate::properties::value_context(
+        let previous = cx.value_context;
+        cx.value_context = crate::properties::value_context(
             &target_value.property_id,
-            context.options().is_enabled(Options::ORDER_VALUES),
-            context
-                .options()
-                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
+            cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
+            cx.is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
-        target_value.minify(context);
-        context.value_context = previous;
+        target_value.minify(cx);
+        cx.value_context = previous;
     }
-    mark_merged_longhands(block, indices, target, context);
+    mark_merged_longhands(block, indices, target, cx);
     true
 }
 
@@ -7823,12 +7787,12 @@ fn mark_merged_longhands(
     block: &mut DeclarationBlock<'_>,
     indices: [usize; 4],
     target: usize,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
     for index in indices {
         if index != target {
             block.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }
@@ -7836,10 +7800,10 @@ fn mark_merged_longhands(
 fn process_declarations<'a>(
     block: &mut DeclarationBlock<'a>,
     declarations: &mut HashMap<'a, DeclarationKey<'a>, DeclarationLocation<'a>>,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) {
-    discard_empty_declarations(block, context);
-    merge_box_longhands(block, context);
+    discard_empty_declarations(block, cx);
+    merge_box_longhands(block, cx);
     let block_pointer = NonNull::from(&mut *block);
     for index in 0..block.declarations.len() {
         if block.is_invalid(index) {
@@ -7861,20 +7825,17 @@ fn process_declarations<'a>(
                     == block_pointer.as_ref().declarations[index]
             };
             if duplicate {
-                if context
-                    .options()
-                    .is_enabled(Options::KEEP_LATER_DUPLICATE_DECLARATIONS)
-                {
+                if cx.is_enabled(Options::KEEP_LATER_DUPLICATE_DECLARATIONS, OptionsOp::Any) {
                     // Keep the later declaration and tombstone the earlier
                     // one. Besides matching cascade order, this lets the IR
                     // map point at the live tail declaration block.
                     unsafe { previous.block.as_mut().mark_invalid(previous.index) };
                 } else {
                     block.mark_invalid(index);
-                    context.record_declaration_removed();
+                    cx.record_declaration_removed();
                     continue;
                 }
-                context.record_declaration_removed();
+                cx.record_declaration_removed();
             }
         }
 
@@ -7888,7 +7849,7 @@ fn process_declarations<'a>(
     }
 }
 
-fn discard_empty_declarations(block: &mut DeclarationBlock<'_>, context: &mut MinifyContext) {
+fn discard_empty_declarations(block: &mut DeclarationBlock<'_>, cx: &mut MinifyContext) {
     for index in 0..block.declarations.len() {
         if block.is_invalid(index) {
             continue;
@@ -7896,7 +7857,7 @@ fn discard_empty_declarations(block: &mut DeclarationBlock<'_>, context: &mut Mi
         if matches!(&block.declarations[index], rocketcss_ast::Declaration::Unparsed(value) if value.value.is_empty())
         {
             block.mark_invalid(index);
-            context.record_declaration_removed();
+            cx.record_declaration_removed();
         }
     }
 }

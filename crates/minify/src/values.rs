@@ -1,10 +1,10 @@
 use rocketcss_ast::{Ratio, StyleSheet, ZIndex};
 use rocketcss_visitor::VisitMut;
 
-use crate::{Minify, MinifyContext, Options};
+use crate::{Minify, MinifyContext, Options, OptionsOp};
 
-pub(crate) fn reduce_z_indices<'a>(stylesheet: &mut StyleSheet<'a>, context: &mut MinifyContext) {
-    if !context.options().is_enabled(Options::REDUCE_Z_INDICES) {
+pub(crate) fn reduce_z_indices<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
+    if cx.is_enabled(Options::REDUCE_Z_INDICES, OptionsOp::None) {
         return;
     }
 
@@ -18,8 +18,8 @@ pub(crate) fn reduce_z_indices<'a>(stylesheet: &mut StyleSheet<'a>, context: &mu
     collector.values.dedup();
     ZIndexRewriter {
         values: &collector.values,
-        start: context.options().z_index_start,
-        context,
+        start: cx.options().z_index_start,
+        cx,
     }
     .visit_style_sheet(stylesheet);
 }
@@ -43,10 +43,10 @@ impl<'a> VisitMut<'a> for ZIndexCollector {
     }
 }
 
-struct ZIndexRewriter<'values, 'context> {
+struct ZIndexRewriter<'values, 'cx> {
     values: &'values [i32],
     start: i32,
-    context: &'context mut MinifyContext,
+    cx: &'cx mut MinifyContext,
 }
 
 impl<'a> VisitMut<'a> for ZIndexRewriter<'_, '_> {
@@ -70,14 +70,14 @@ impl<'a> VisitMut<'a> for ZIndexRewriter<'_, '_> {
         };
         if *value != rebased {
             *value = rebased;
-            self.context.record_value_normalized();
+            self.cx.record_value_normalized();
         }
     }
 }
 
 impl Minify for Ratio {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES)
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
             || self.0 <= 0.0
             || self.1 <= 0.0
         {
@@ -93,7 +93,7 @@ impl Minify for Ratio {
         }
         self.0 /= divisor as f32;
         self.1 /= divisor as f32;
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 

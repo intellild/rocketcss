@@ -1,8 +1,8 @@
 use rocketcss_ast::PropertyId;
 
 use crate::{
-    MinifyContext, Options,
-    context::{PropertyContext, ValueContext},
+    MinifyContext, Options, OptionsOp,
+    context::{PropertyContext, ValueContext, ValueContextFlags},
 };
 
 pub(crate) fn value_context(
@@ -11,67 +11,71 @@ pub(crate) fn value_context(
     convert_zero_percentages: bool,
 ) -> ValueContext {
     let name = property_id.name();
-    ValueContext {
-        allow_unitless_zero_length: !name.eq_ignore_ascii_case("line-height"),
-        allow_unitless_zero_percentage: !matches!(property_id, PropertyId::Custom(_))
+    let property = if order_values && is_animation_shorthand(name) {
+        PropertyContext::Animation
+    } else if order_values && is_transition_shorthand(name) {
+        PropertyContext::Transition
+    } else if order_values && is_ordered_border(name) {
+        PropertyContext::Border
+    } else if order_values
+        && (name.eq_ignore_ascii_case("outline") || name.eq_ignore_ascii_case("column-rule"))
+    {
+        PropertyContext::Outline
+    } else if order_values
+        && (name.eq_ignore_ascii_case("box-shadow") || name.ends_with("-box-shadow"))
+    {
+        PropertyContext::BoxShadow
+    } else if order_values && name.eq_ignore_ascii_case("flex-flow") {
+        PropertyContext::FlexFlow
+    } else if order_values && name.eq_ignore_ascii_case("columns") {
+        PropertyContext::Columns
+    } else if order_values && name.eq_ignore_ascii_case("grid-auto-flow") {
+        PropertyContext::GridAutoFlow
+    } else if order_values
+        && (name.eq_ignore_ascii_case("grid-column-gap")
+            || name.eq_ignore_ascii_case("grid-row-gap"))
+    {
+        PropertyContext::GridGap
+    } else if order_values && is_grid_line(name) {
+        PropertyContext::GridLine
+    } else if order_values && name.eq_ignore_ascii_case("list-style") {
+        PropertyContext::ListStyle
+    } else if name.eq_ignore_ascii_case("display") {
+        PropertyContext::Display
+    } else if name.eq_ignore_ascii_case("font") || name.eq_ignore_ascii_case("font-family") {
+        PropertyContext::Font
+    } else if name.eq_ignore_ascii_case("font-weight") {
+        PropertyContext::FontWeight
+    } else if is_position_value(name) {
+        PropertyContext::Position
+    } else if name.eq_ignore_ascii_case("background-repeat")
+        || name.eq_ignore_ascii_case("mask-repeat")
+    {
+        PropertyContext::Repeat
+    } else if is_timing_function_value(name) {
+        PropertyContext::TimingFunction
+    } else if name
+        .get(name.len().saturating_sub("transform".len())..)
+        .is_some_and(|suffix| suffix.eq_ignore_ascii_case("transform"))
+    {
+        PropertyContext::Transform
+    } else if is_box_value(name) {
+        PropertyContext::Box
+    } else {
+        PropertyContext::Generic
+    };
+    let mut cx = ValueContext::new(property);
+    cx.set_enabled(
+        ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH,
+        !name.eq_ignore_ascii_case("line-height"),
+    );
+    cx.set_enabled(
+        ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
+        !matches!(property_id, PropertyId::Custom(_))
             && (convert_zero_percentages || !zero_percentage_requires_target_support(name)),
-        minify_colors: should_minify_colors(name),
-        preserve_space_after_comma: false,
-        skip_value_transforms: false,
-        property: if order_values && is_animation_shorthand(name) {
-            PropertyContext::Animation
-        } else if order_values && is_transition_shorthand(name) {
-            PropertyContext::Transition
-        } else if order_values && is_ordered_border(name) {
-            PropertyContext::Border
-        } else if order_values
-            && (name.eq_ignore_ascii_case("outline") || name.eq_ignore_ascii_case("column-rule"))
-        {
-            PropertyContext::Outline
-        } else if order_values
-            && (name.eq_ignore_ascii_case("box-shadow") || name.ends_with("-box-shadow"))
-        {
-            PropertyContext::BoxShadow
-        } else if order_values && name.eq_ignore_ascii_case("flex-flow") {
-            PropertyContext::FlexFlow
-        } else if order_values && name.eq_ignore_ascii_case("columns") {
-            PropertyContext::Columns
-        } else if order_values && name.eq_ignore_ascii_case("grid-auto-flow") {
-            PropertyContext::GridAutoFlow
-        } else if order_values
-            && (name.eq_ignore_ascii_case("grid-column-gap")
-                || name.eq_ignore_ascii_case("grid-row-gap"))
-        {
-            PropertyContext::GridGap
-        } else if order_values && is_grid_line(name) {
-            PropertyContext::GridLine
-        } else if order_values && name.eq_ignore_ascii_case("list-style") {
-            PropertyContext::ListStyle
-        } else if name.eq_ignore_ascii_case("display") {
-            PropertyContext::Display
-        } else if name.eq_ignore_ascii_case("font") || name.eq_ignore_ascii_case("font-family") {
-            PropertyContext::Font
-        } else if name.eq_ignore_ascii_case("font-weight") {
-            PropertyContext::FontWeight
-        } else if is_position_value(name) {
-            PropertyContext::Position
-        } else if name.eq_ignore_ascii_case("background-repeat")
-            || name.eq_ignore_ascii_case("mask-repeat")
-        {
-            PropertyContext::Repeat
-        } else if is_timing_function_value(name) {
-            PropertyContext::TimingFunction
-        } else if name
-            .get(name.len().saturating_sub("transform".len())..)
-            .is_some_and(|suffix| suffix.eq_ignore_ascii_case("transform"))
-        {
-            PropertyContext::Transform
-        } else if is_box_value(name) {
-            PropertyContext::Box
-        } else {
-            PropertyContext::Generic
-        },
-    }
+    );
+    cx.set_enabled(ValueContextFlags::MINIFY_COLORS, should_minify_colors(name));
+    cx
 }
 
 fn is_grid_line(name: &str) -> bool {
@@ -164,17 +168,13 @@ fn is_timing_function_value(name: &str) -> bool {
     })
 }
 
-pub(crate) fn custom_property_context(context: &MinifyContext) -> ValueContext {
-    ValueContext {
-        allow_unitless_zero_length: false,
-        allow_unitless_zero_percentage: false,
-        minify_colors: true,
-        preserve_space_after_comma: false,
-        property: PropertyContext::Generic,
-        skip_value_transforms: !context
-            .options()
-            .is_enabled(Options::TRANSFORM_CUSTOM_PROPERTIES),
-    }
+pub(crate) fn custom_property_context(cx: &MinifyContext) -> ValueContext {
+    let mut value_context = ValueContext::default();
+    value_context.set_enabled(
+        ValueContextFlags::SKIP_VALUE_TRANSFORMS,
+        cx.is_enabled(Options::TRANSFORM_CUSTOM_PROPERTIES, OptionsOp::None),
+    );
+    value_context
 }
 
 fn zero_percentage_requires_target_support(name: &str) -> bool {

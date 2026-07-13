@@ -14,18 +14,18 @@ use rocketcss_ast::*;
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, walk_mut};
 
 pub use context::{MinifyContext, MinifyStats};
-pub use options::{BrowserHackTarget, MinifyOptions, Options};
+pub use options::{BrowserHackTarget, MinifyOptions, Options, OptionsOp};
 
 /// Minifies a syntax-tree node in place.
 pub trait Minify {
-    fn minify(&mut self, context: &mut MinifyContext);
+    fn minify(&mut self, cx: &mut MinifyContext);
 }
 
 /// Minifies a stylesheet in place and returns transformation statistics.
 pub fn minify<'a>(stylesheet: &mut StyleSheet<'a>, options: MinifyOptions) -> MinifyStats {
-    let mut context = MinifyContext::new(options);
-    stylesheet.minify(&mut context);
-    context.stats()
+    let mut cx = MinifyContext::new(options);
+    stylesheet.minify(&mut cx);
+    cx.stats()
 }
 
 /// Adapter for running minification in a visitor plugin pipeline.
@@ -54,181 +54,190 @@ impl<'a> Plugin<'a> for MinifyPlugin {
     fn transform(
         &mut self,
         stylesheet: &mut StyleSheet<'a>,
-        context: &mut PluginContext<'a>,
+        cx: &mut PluginContext<'a>,
     ) -> Result<(), BoxError> {
         let stats = minify(stylesheet, self.options);
-        context.insert(stats);
+        cx.insert(stats);
         Ok(())
     }
 }
 
-pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, context: &mut MinifyContext) {
-    if context
-        .options()
-        .is_enabled(Options::DISCARD_LICENSE_COMMENTS)
-    {
+pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
+    if cx.is_enabled(Options::DISCARD_LICENSE_COMMENTS, OptionsOp::Any) {
         stylesheet.license_comments.clear();
     }
-    rules::coalesce_conditional_rules(&mut stylesheet.rules, context);
-    Minifier { context }.visit_style_sheet(stylesheet);
-    rules::discard_browser_hacks(&mut stylesheet.rules, context);
-    rules::merge_identical_identifier_rules(stylesheet, context);
-    rules::discard_unused_definitions(stylesheet, context);
-    rules::reduce_keyframe_identifiers(stylesheet, context);
-    rules::reduce_counter_style_identifiers(stylesheet, context);
-    rules::reduce_counter_identifiers(stylesheet, context);
-    rules::reduce_grid_identifiers(stylesheet, context);
-    values::reduce_z_indices(stylesheet, context);
-    rules::minify_rule_list(&mut stylesheet.rules, context);
+    rules::coalesce_conditional_rules(&mut stylesheet.rules, cx);
+    Minifier { cx }.visit_style_sheet(stylesheet);
+    rules::discard_browser_hacks(&mut stylesheet.rules, cx);
+    rules::merge_identical_identifier_rules(stylesheet, cx);
+    rules::discard_unused_definitions(stylesheet, cx);
+    rules::reduce_keyframe_identifiers(stylesheet, cx);
+    rules::reduce_counter_style_identifiers(stylesheet, cx);
+    rules::reduce_counter_identifiers(stylesheet, cx);
+    rules::reduce_grid_identifiers(stylesheet, cx);
+    values::reduce_z_indices(stylesheet, cx);
+    rules::minify_rule_list(&mut stylesheet.rules, cx);
 }
 
-struct Minifier<'context> {
-    context: &'context mut MinifyContext,
+struct Minifier<'cx> {
+    cx: &'cx mut MinifyContext,
 }
 
 impl<'a> VisitMut<'a> for Minifier<'_> {
     fn visit_font_face_property(&mut self, node: &mut FontFaceProperty<'a>) {
         walk_mut::walk_font_face_property(self, node);
-        rules::minify_font_face_property(node, self.context);
+        rules::minify_font_face_property(node, self.cx);
     }
 
     fn visit_font_face_rule(&mut self, node: &mut FontFaceRule<'a>) {
         walk_mut::walk_font_face_rule(self, node);
-        rules::sort_font_face_properties(&mut node.properties, self.context);
+        rules::sort_font_face_properties(&mut node.properties, self.cx);
     }
 
     fn visit_declaration(&mut self, node: &mut Declaration<'a>) {
         walk_mut::walk_declaration(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
         walk_mut::walk_keyframe_selector(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_unparsed_property(&mut self, node: &mut UnparsedProperty<'a>) {
-        let previous = self.context.value_context;
-        self.context.value_context = properties::value_context(
+        let previous = self.cx.value_context;
+        self.cx.value_context = properties::value_context(
             &node.property_id,
-            self.context.options().is_enabled(Options::ORDER_VALUES),
-            self.context
-                .options()
-                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
+            self.cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
+            self.cx
+                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
         walk_mut::walk_unparsed_property(self, node);
-        node.minify(self.context);
-        self.context.value_context = previous;
+        node.minify(self.cx);
+        self.cx.value_context = previous;
     }
 
     fn visit_custom_property(&mut self, node: &mut CustomProperty<'a>) {
-        let previous = self.context.value_context;
-        self.context.value_context = properties::custom_property_context(self.context);
+        let previous = self.cx.value_context;
+        self.cx.value_context = properties::custom_property_context(self.cx);
         let name = match &*node.name {
             CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => *name,
         };
         if name.eq_ignore_ascii_case("--font-family") {
-            self.context.value_context.property = context::PropertyContext::Font;
+            self.cx.value_context.property = context::PropertyContext::Font;
         }
         walk_mut::walk_custom_property(self, node);
-        node.minify(self.context);
-        self.context.value_context = previous;
+        node.minify(self.cx);
+        self.cx.value_context = previous;
     }
 
     fn visit_function(&mut self, node: &mut Function<'a>) {
-        let previous = self.context.value_context;
+        let previous = self.cx.value_context;
         if is_math_function(node.name) {
-            self.context.value_context.allow_unitless_zero_length = false;
-            self.context.value_context.allow_unitless_zero_percentage = false;
-            self.context.value_context.property = context::PropertyContext::Generic;
+            self.cx.value_context.set_enabled(
+                context::ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH
+                    | context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
+                false,
+            );
+            self.cx.value_context.property = context::PropertyContext::Generic;
         }
         if node.name.eq_ignore_ascii_case("hwb") {
-            self.context.value_context.allow_unitless_zero_length = false;
-            self.context.value_context.allow_unitless_zero_percentage = false;
+            self.cx.value_context.set_enabled(
+                context::ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH
+                    | context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
+                false,
+            );
         }
         if node.name.eq_ignore_ascii_case("color-mix") || node.name.eq_ignore_ascii_case("linear") {
-            self.context.value_context.allow_unitless_zero_percentage = false;
+            self.cx.value_context.set_enabled(
+                context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
+                false,
+            );
         }
         if rules::is_gradient_function(node.name) {
-            self.context.value_context.property = context::PropertyContext::Generic;
+            self.cx.value_context.property = context::PropertyContext::Generic;
         }
         if node.name.eq_ignore_ascii_case("local") {
-            self.context.value_context.minify_colors = false;
+            self.cx
+                .value_context
+                .set_enabled(context::ValueContextFlags::MINIFY_COLORS, false);
         }
         walk_mut::walk_function(self, node);
-        node.minify(self.context);
-        self.context.value_context = previous;
+        node.minify(self.cx);
+        self.cx.value_context = previous;
     }
 
     fn visit_variable(&mut self, node: &mut Variable<'a>) {
         walk_mut::walk_variable(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_environment_variable(&mut self, node: &mut EnvironmentVariable<'a>) {
         walk_mut::walk_environment_variable(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_unknown_at_rule(&mut self, node: &mut UnknownAtRule<'a>) {
-        let previous = self.context.value_context;
-        self.context.value_context = Default::default();
-        self.context.value_context.skip_value_transforms = true;
+        let previous = self.cx.value_context;
+        self.cx.value_context = Default::default();
+        self.cx
+            .value_context
+            .set_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS, true);
         walk_mut::walk_unknown_at_rule(self, node);
-        node.minify(self.context);
-        self.context.value_context = previous;
+        node.minify(self.cx);
+        self.cx.value_context = previous;
     }
 
     fn visit_token_or_value(&mut self, node: &mut TokenOrValue<'a>) {
         walk_mut::walk_token_or_value(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_length_value(&mut self, node: &mut LengthValue) {
         walk_mut::walk_length_value(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_angle(&mut self, node: &mut Angle) {
         walk_mut::walk_angle(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_time(&mut self, node: &mut Time) {
         walk_mut::walk_time(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_resolution(&mut self, node: &mut Resolution) {
         walk_mut::walk_resolution(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_ratio(&mut self, node: &mut Ratio) {
         walk_mut::walk_ratio(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_selector_list(&mut self, node: &mut SelectorList<'a>) {
         walk_mut::walk_selector_list(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_selector(&mut self, node: &mut Selector<'a>) {
         walk_mut::walk_selector(self, node);
         if selector::minify_selector(node) {
-            self.context.record_value_normalized();
+            self.cx.record_value_normalized();
         }
     }
 
     fn visit_media_list(&mut self, node: &mut MediaList<'a>) {
         walk_mut::walk_media_list(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 
     fn visit_supports_condition(&mut self, node: &mut SupportsCondition<'a>) {
         walk_mut::walk_supports_condition(self, node);
-        node.minify(self.context);
+        node.minify(self.cx);
     }
 }
 
@@ -511,6 +520,23 @@ mod tests {
             run_with_options("@keyframes x{}", discard_empty_keyframes),
             ""
         );
+    }
+
+    #[test]
+    fn checks_multiple_options_with_explicit_operations() {
+        let cx = MinifyContext::new(MinifyOptions::default());
+        assert!(cx.is_enabled(
+            Options::NORMALIZE_VALUES | Options::ORDER_VALUES,
+            OptionsOp::And,
+        ));
+        assert!(cx.is_enabled(
+            Options::NORMALIZE_VALUES | Options::REDUCE_Z_INDICES,
+            OptionsOp::Any,
+        ));
+        assert!(cx.is_enabled(
+            Options::REDUCE_TO_INITIAL | Options::REDUCE_Z_INDICES,
+            OptionsOp::None,
+        ));
     }
 
     #[test]

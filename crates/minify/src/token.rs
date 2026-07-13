@@ -1,14 +1,20 @@
 use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{Token, TokenOrValue, Unit};
 
-use crate::{Minify, MinifyContext, Options, context::PropertyContext, length};
+use crate::{
+    Minify, MinifyContext, Options, OptionsOp,
+    context::{PropertyContext, ValueContextFlags},
+    length,
+};
 
 impl Minify for TokenOrValue<'_> {
     /// Normalizes one token node in place. The surrounding `TokenOrValue`
     /// variant and its arena allocation are preserved.
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES)
-            || context.value_context.skip_value_transforms
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
+            || cx
+                .value_context
+                .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
         {
             return;
         }
@@ -18,34 +24,43 @@ impl Minify for TokenOrValue<'_> {
         };
         match &mut **token {
             Token::String(value)
-                if context.value_context.property == PropertyContext::Font
+                if cx.value_context.property == PropertyContext::Font
                     && can_unquote_font(value) =>
             {
                 **token = Token::UnquotedFont(value);
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             Token::Hash(value) | Token::IdHash(value)
-                if context.value_context.minify_colors && is_hex_color(value) =>
+                if cx
+                    .value_context
+                    .is_enabled(ValueContextFlags::MINIFY_COLORS)
+                    && is_hex_color(value) =>
             {
                 **token = minify_hex_color(value);
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
-            Token::Ident(value) if context.value_context.minify_colors => {
+            Token::Ident(value)
+                if cx
+                    .value_context
+                    .is_enabled(ValueContextFlags::MINIFY_COLORS) =>
+            {
                 let Some(replacement) = minify_color_keyword(value) else {
                     return;
                 };
                 **token = replacement;
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             Token::Dimension { unit, value } => {
                 if *value == 0.0
-                    && context.value_context.allow_unitless_zero_length
+                    && cx
+                        .value_context
+                        .is_enabled(ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH)
                     && unit.is_length()
                 {
                     **token = Token::Number(0.0);
-                    context.record_value_normalized();
+                    cx.record_value_normalized();
                 } else if let Some((number, normalized_unit)) =
-                    length::minify_dimension(*value, *unit, context)
+                    length::minify_dimension(*value, *unit, cx)
                     && (number != *value || normalized_unit != *unit)
                 {
                     *value = number;
@@ -53,14 +68,17 @@ impl Minify for TokenOrValue<'_> {
                 }
             }
             Token::Percentage(value)
-                if *value == 0.0 && context.value_context.allow_unitless_zero_percentage =>
+                if *value == 0.0
+                    && cx
+                        .value_context
+                        .is_enabled(ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE) =>
             {
                 **token = Token::Number(0.0);
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             Token::UnknownDimension { unit: ".", value } => {
                 **token = Token::Number(*value);
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             Token::UnknownDimension { unit, value }
                 if unit
@@ -71,7 +89,7 @@ impl Minify for TokenOrValue<'_> {
                     unit: Unit::Length(rocketcss_ast::LengthUnit::Px),
                     value: *value,
                 };
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             _ => {}
         }
@@ -172,51 +190,51 @@ fn is_generic_font_family(value: &str) -> bool {
 impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
     /// Removes comments and redundant whitespace by compacting the existing
     /// arena vector. Separator tokens are reused rather than allocated again.
-    fn minify(&mut self, context: &mut MinifyContext) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
         protect_adjacent_function_replacements(self);
-        if context.options().is_enabled(Options::DISCARD_COMMENTS) {
-            discard_comments(self, context);
+        if cx.is_enabled(Options::DISCARD_COMMENTS, OptionsOp::Any) {
+            discard_comments(self, cx);
         }
-        if context.options().is_enabled(Options::NORMALIZE_WHITESPACE) {
-            normalize_whitespace(self, context);
+        if cx.is_enabled(Options::NORMALIZE_WHITESPACE, OptionsOp::Any) {
+            normalize_whitespace(self, cx);
         }
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES)
-            || context.value_context.skip_value_transforms
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
+            || cx
+                .value_context
+                .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
         {
             return;
         }
 
         if minify_broken_decimal_tokens(self) {
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
-        if context.options().is_enabled(Options::NORMALIZE_URLS) && normalize_url_values(self) {
-            context.record_value_normalized();
+        if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) && normalize_url_values(self) {
+            cx.record_value_normalized();
         }
 
-        match context.value_context.property {
-            PropertyContext::Animation => minify_animation(self, context),
-            PropertyContext::Border | PropertyContext::Outline => {
-                minify_ordered_border(self, context)
-            }
-            PropertyContext::Box => minify_box_sides(self, context),
-            PropertyContext::BoxShadow => minify_box_shadow(self, context),
-            PropertyContext::Columns => minify_ordered_columns(self, context),
-            PropertyContext::Display => minify_display(self, context),
-            PropertyContext::FlexFlow => minify_flex_flow(self, context),
-            PropertyContext::Font => minify_font(self, context),
-            PropertyContext::FontWeight => minify_font_weight(self, context),
-            PropertyContext::GridAutoFlow => minify_grid_auto_flow(self, context),
-            PropertyContext::GridGap => minify_grid_gap(self, context),
-            PropertyContext::GridLine => minify_grid_line(self, context),
-            PropertyContext::ListStyle => minify_list_style(self, context),
+        match cx.value_context.property {
+            PropertyContext::Animation => minify_animation(self, cx),
+            PropertyContext::Border | PropertyContext::Outline => minify_ordered_border(self, cx),
+            PropertyContext::Box => minify_box_sides(self, cx),
+            PropertyContext::BoxShadow => minify_box_shadow(self, cx),
+            PropertyContext::Columns => minify_ordered_columns(self, cx),
+            PropertyContext::Display => minify_display(self, cx),
+            PropertyContext::FlexFlow => minify_flex_flow(self, cx),
+            PropertyContext::Font => minify_font(self, cx),
+            PropertyContext::FontWeight => minify_font_weight(self, cx),
+            PropertyContext::GridAutoFlow => minify_grid_auto_flow(self, cx),
+            PropertyContext::GridGap => minify_grid_gap(self, cx),
+            PropertyContext::GridLine => minify_grid_line(self, cx),
+            PropertyContext::ListStyle => minify_list_style(self, cx),
             PropertyContext::Position => {
-                minify_positions(self, context);
-                minify_repeat_style(self, context);
+                minify_positions(self, cx);
+                minify_repeat_style(self, cx);
             }
-            PropertyContext::Repeat => minify_repeat_style(self, context),
+            PropertyContext::Repeat => minify_repeat_style(self, cx),
             PropertyContext::TimingFunction => {}
             PropertyContext::Transform => {}
-            PropertyContext::Transition => minify_transition(self, context),
+            PropertyContext::Transition => minify_transition(self, cx),
             PropertyContext::Generic => {}
         }
     }
@@ -297,7 +315,7 @@ fn protect_adjacent_function_replacements(values: &mut Vec<'_, TokenOrValue<'_>>
     }
 }
 
-fn minify_display(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_display(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let replacement = match values.as_slice() {
         [first, space, second]
             if is_whitespace(space) && ident_pair(first, second, "block", "flow") =>
@@ -392,7 +410,7 @@ fn minify_display(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyCo
             };
             **token = Token::Ident("list-item");
             values.truncate(3);
-            context.record_value_normalized();
+            cx.record_value_normalized();
             return;
         }
         _ => None,
@@ -405,7 +423,7 @@ fn minify_display(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyCo
     };
     **token = Token::Ident(replacement);
     values.truncate(1);
-    context.record_value_normalized();
+    cx.record_value_normalized();
 }
 
 fn ident_pair(
@@ -418,7 +436,7 @@ fn ident_pair(
         && token_ident(second).is_some_and(|value| value.eq_ignore_ascii_case(expected_second))
 }
 
-fn minify_positions(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_positions(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut layer_start = 0;
     while layer_start < values.len() {
         let layer_end = values[layer_start..]
@@ -426,7 +444,7 @@ fn minify_positions(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minify
             .position(is_comma)
             .map_or(values.len(), |index| layer_start + index);
         if minify_position_layer(values, layer_start, layer_end) {
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
         let Some(comma) = values[layer_start..].iter().position(is_comma) else {
             break;
@@ -608,7 +626,7 @@ fn is_slash(value: &TokenOrValue<'_>) -> bool {
     matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::Delim("/")))
 }
 
-fn discard_comments(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn discard_comments(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut index = 0;
     while index < values.len() {
         if !matches!(&values[index], TokenOrValue::Token(token) if matches!(**token, Token::Comment(_)))
@@ -631,11 +649,11 @@ fn discard_comments(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minify
         } else {
             values.remove(index);
         }
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
-fn normalize_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn normalize_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut index = 0;
     while index < values.len() {
         if !is_whitespace(&values[index]) {
@@ -653,7 +671,9 @@ fn normalize_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Mi
             && end < values.len()
             && (whitespace_is_required(&values[start - 1], &values[end])
                 || multiplication_before_parentheses(values, start, end)
-                || (context.value_context.preserve_space_after_comma
+                || (cx
+                    .value_context
+                    .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA)
                     && is_comma(&values[start - 1])));
         if keep_space {
             let TokenOrValue::Token(token) = &mut values[start] else {
@@ -663,14 +683,14 @@ fn normalize_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Mi
             **token = Token::WhiteSpace(" ");
             if end > start + 1 {
                 drop(values.drain(start + 1..end));
-                context.record_value_normalized();
+                cx.record_value_normalized();
             } else if !was_normalized_space {
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             index = start + 1;
         } else {
             drop(values.drain(start..end));
-            context.record_value_normalized();
+            cx.record_value_normalized();
             index = start;
         }
     }
@@ -701,7 +721,7 @@ fn is_open_parenthesis(value: &TokenOrValue<'_>) -> bool {
     matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::ParenthesisBlock))
 }
 
-fn minify_transition(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_transition(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut start = 0;
     let mut changed = false;
     loop {
@@ -716,7 +736,7 @@ fn minify_transition(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minif
         start = end + 1;
     }
     if changed {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
@@ -746,7 +766,7 @@ fn sort_transition_layer(values: &mut Vec<'_, TokenOrValue<'_>>, start: usize, e
     sort_items_with_ranks(values, items, ranks, count)
 }
 
-fn minify_animation(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_animation(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut start = 0;
     let mut changed = false;
     loop {
@@ -761,7 +781,7 @@ fn minify_animation(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minify
         start = end + 1;
     }
     if changed {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
@@ -897,7 +917,7 @@ fn sort_items_with_ranks(
     changed
 }
 
-fn minify_grid_auto_flow(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_grid_auto_flow(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [first, space, second] = values.as_slice() else {
         return;
     };
@@ -908,11 +928,11 @@ fn minify_grid_auto_flow(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut M
         })
     {
         values.swap(0, 2);
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
-fn minify_grid_gap(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_grid_gap(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [first, space, second] = values.as_slice() else {
         return;
     };
@@ -921,11 +941,11 @@ fn minify_grid_gap(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyC
         && token_ident(second).is_some_and(|value| value.eq_ignore_ascii_case("normal"))
     {
         values.swap(0, 2);
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
-fn minify_grid_line(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_grid_line(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut changed = false;
     let mut index = 0;
     while index + 2 < values.len() {
@@ -940,13 +960,13 @@ fn minify_grid_line(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minify
         index += 1;
     }
     if changed {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
-fn minify_list_style(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_list_style(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     if sort_layer_by_rank(values, 0, values.len(), list_style_rank) {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
@@ -966,7 +986,7 @@ fn list_style_rank(value: &TokenOrValue<'_>) -> Option<u8> {
     }
 }
 
-fn minify_ordered_columns(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_ordered_columns(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let Some((items, count)) = collect_layer_items(values, 0, values.len()) else {
         return;
     };
@@ -975,7 +995,7 @@ fn minify_ordered_columns(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut 
         && token_ident(&values[items[1]]).is_some_and(|value| value.eq_ignore_ascii_case("auto"))
     {
         values.truncate(items[0] + 1);
-        context.record_value_normalized();
+        cx.record_value_normalized();
         return;
     }
     let mut changed = false;
@@ -990,7 +1010,7 @@ fn minify_ordered_columns(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut 
         changed = true;
     }
     if changed {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
@@ -1007,7 +1027,7 @@ fn columns_rank(value: &TokenOrValue<'_>) -> Option<u8> {
     }
 }
 
-fn minify_ordered_border(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_ordered_border(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut changed = sort_layer_by_rank(values, 0, values.len(), border_value_rank);
     loop {
         let mut items = values
@@ -1046,7 +1066,7 @@ fn minify_ordered_border(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut M
         changed = true;
     }
     if changed {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
@@ -1095,7 +1115,7 @@ fn border_value_rank(value: &TokenOrValue<'_>) -> Option<u8> {
     }
 }
 
-fn minify_flex_flow(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_flex_flow(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [first, space, second] = values.as_slice() else {
         return;
     };
@@ -1106,7 +1126,7 @@ fn minify_flex_flow(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minify
         return;
     }
     values.swap(0, 2);
-    context.record_value_normalized();
+    cx.record_value_normalized();
 }
 
 fn is_flex_wrap(value: &str) -> bool {
@@ -1121,7 +1141,7 @@ fn is_flex_direction(value: &str) -> bool {
         .any(|keyword| value.eq_ignore_ascii_case(keyword))
 }
 
-fn minify_box_shadow(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_box_shadow(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut start = 0;
     let mut changed = false;
     loop {
@@ -1136,7 +1156,7 @@ fn minify_box_shadow(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minif
         start = end + 1;
     }
     if changed {
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
@@ -1203,7 +1223,7 @@ fn sort_layer_by_rank(
     changed
 }
 
-fn minify_box_sides(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_box_sides(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let count = match values.len() {
         1 => 1,
         3 if is_whitespace(&values[1]) => 2,
@@ -1232,11 +1252,11 @@ fn minify_box_sides(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minify
     };
     if keep < count {
         values.truncate(keep * 2 - 1);
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 
-fn minify_font_weight(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_font_weight(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [TokenOrValue::Token(token)] = values.as_mut_slice() else {
         return;
     };
@@ -1251,17 +1271,17 @@ fn minify_font_weight(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Mini
         return;
     };
     **token = Token::Number(weight);
-    context.record_value_normalized();
+    cx.record_value_normalized();
 }
 
-fn minify_font(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_font(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     for value in values.iter_mut() {
         let TokenOrValue::Token(token) = value else {
             continue;
         };
         if matches!(&**token, Token::Ident(value) if value.eq_ignore_ascii_case("bold")) {
             **token = Token::Number(700.0);
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 
@@ -1272,7 +1292,7 @@ fn minify_font(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyConte
         && values[..generic].iter().any(is_comma)
     {
         values.truncate(generic + 1);
-        context.record_value_normalized();
+        cx.record_value_normalized();
         return;
     }
 
@@ -1297,14 +1317,14 @@ fn minify_font(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyConte
             });
         if duplicate {
             drop(values.drain(current - 1..=current));
-            context.record_value_normalized();
+            cx.record_value_normalized();
         } else {
             current += 2;
         }
     }
 }
 
-fn minify_repeat_style(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_repeat_style(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut index = 0;
     while index + 2 < values.len() {
         let Some(left) = token_ident(&values[index]) else {
@@ -1341,7 +1361,7 @@ fn minify_repeat_style(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Min
         };
         **token = Token::Ident(replacement);
         drop(values.drain(index + 1..=index + 2));
-        context.record_value_normalized();
+        cx.record_value_normalized();
     }
 }
 

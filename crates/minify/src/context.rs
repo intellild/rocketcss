@@ -1,11 +1,13 @@
-use crate::MinifyOptions;
+use bitflags::bitflags;
+
+use crate::{MinifyOptions, Options, OptionsOp};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MinifyStats {
-    pub values_normalized: usize,
-    pub declarations_removed: usize,
-    pub style_rules_merged: usize,
-    pub conditional_rules_merged: usize,
+    pub values_normalized: u32,
+    pub declarations_removed: u32,
+    pub style_rules_merged: u32,
+    pub conditional_rules_merged: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -33,26 +35,46 @@ pub(crate) enum PropertyContext {
     Generic,
 }
 
+bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(crate) struct ValueContextFlags: u8 {
+        const ALLOW_UNITLESS_ZERO_LENGTH = 1 << 0;
+        const ALLOW_UNITLESS_ZERO_PERCENTAGE = 1 << 1;
+        const MINIFY_COLORS = 1 << 2;
+        const PRESERVE_SPACE_AFTER_COMMA = 1 << 3;
+        const SKIP_VALUE_TRANSFORMS = 1 << 4;
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ValueContext {
-    pub allow_unitless_zero_length: bool,
-    pub allow_unitless_zero_percentage: bool,
-    pub minify_colors: bool,
-    pub preserve_space_after_comma: bool,
+    flags: ValueContextFlags,
     pub property: PropertyContext,
-    pub skip_value_transforms: bool,
+}
+
+impl ValueContext {
+    #[inline]
+    pub(crate) const fn new(property: PropertyContext) -> Self {
+        Self {
+            flags: ValueContextFlags::MINIFY_COLORS,
+            property,
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn is_enabled(&self, option: ValueContextFlags) -> bool {
+        self.flags.contains(option)
+    }
+
+    #[inline]
+    pub(crate) fn set_enabled(&mut self, option: ValueContextFlags, enabled: bool) {
+        self.flags.set(option, enabled);
+    }
 }
 
 impl Default for ValueContext {
     fn default() -> Self {
-        Self {
-            allow_unitless_zero_length: false,
-            allow_unitless_zero_percentage: false,
-            minify_colors: true,
-            preserve_space_after_comma: false,
-            property: PropertyContext::Generic,
-            skip_value_transforms: false,
-        }
+        Self::new(PropertyContext::Generic)
     }
 }
 
@@ -75,6 +97,11 @@ impl MinifyContext {
     #[inline]
     pub fn options(&self) -> MinifyOptions {
         self.options
+    }
+
+    #[inline]
+    pub fn is_enabled(&self, options: Options, op: OptionsOp) -> bool {
+        self.options.is_enabled(options, op)
     }
 
     #[inline]

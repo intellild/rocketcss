@@ -98,6 +98,16 @@ bitflags! {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OptionsOp {
+    /// Every requested option must be enabled.
+    And,
+    /// At least one requested option must be enabled.
+    Any,
+    /// None of the requested options may be enabled.
+    None,
+}
+
 /// Options controlling local, in-place syntax-tree minification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MinifyOptions {
@@ -115,8 +125,12 @@ pub struct MinifyOptions {
 
 impl MinifyOptions {
     #[inline]
-    pub const fn is_enabled(&self, option: Options) -> bool {
-        self.flags.contains(option)
+    pub const fn is_enabled(&self, options: Options, op: OptionsOp) -> bool {
+        match op {
+            OptionsOp::And => self.flags.contains(options),
+            OptionsOp::Any => self.flags.intersects(options),
+            OptionsOp::None => !self.flags.intersects(options),
+        }
     }
 }
 

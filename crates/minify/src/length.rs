@@ -1,23 +1,24 @@
 use rocketcss_ast::{Angle, LengthUnit, LengthValue, Resolution, Time, Unit};
 
-use crate::{Minify, MinifyContext, Options};
+use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for LengthValue {
-    fn minify(&mut self, context: &mut MinifyContext) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
         if self.unit == LengthUnit::Px
-            && let Some(precision) = context.options().length_precision
+            && let Some(precision) = cx.options().length_precision
         {
             let factor = 10_f32.powi(i32::from(precision));
             let rounded = (self.value * factor).round() / factor;
             if self.value != rounded {
                 self.value = rounded;
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
             return;
         }
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES)
-            || !context.options().is_enabled(Options::CONVERT_LENGTH_UNITS)
-            || self.value == 0.0
+        if !cx.is_enabled(
+            Options::NORMALIZE_VALUES | Options::CONVERT_LENGTH_UNITS,
+            OptionsOp::And,
+        ) || self.value == 0.0
         {
             return;
         }
@@ -45,9 +46,7 @@ impl Minify for LengthValue {
         for (candidate_value, candidate_unit) in candidates {
             if !candidate_value.is_finite()
                 || candidate_unit == original_unit
-                || (!context
-                    .options()
-                    .is_enabled(Options::CONVERT_EXTENDED_LENGTH_UNITS)
+                || (cx.is_enabled(Options::CONVERT_EXTENDED_LENGTH_UNITS, OptionsOp::None)
                     && matches!(
                         candidate_unit,
                         LengthUnit::Cm | LengthUnit::Mm | LengthUnit::Q
@@ -68,14 +67,14 @@ impl Minify for LengthValue {
         if let Some((candidate_value, candidate_unit)) = best {
             self.value = candidate_value;
             self.unit = candidate_unit;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
 
 impl Minify for Angle {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
@@ -113,14 +112,14 @@ impl Minify for Angle {
 
         if let Some(candidate) = best {
             *self = candidate;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
 
 impl Minify for Time {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
@@ -139,14 +138,14 @@ impl Minify for Time {
         };
         if *self != candidate {
             *self = candidate;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
 
 impl Minify for Resolution {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
@@ -166,7 +165,7 @@ impl Minify for Resolution {
             .expect("resolution candidates are non-empty");
         if *self != candidate {
             *self = candidate;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
@@ -174,7 +173,7 @@ impl Minify for Resolution {
 pub(crate) fn minify_dimension(
     value: f32,
     unit: Unit,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) -> Option<(f32, Unit)> {
     if let Unit::Length(length_unit) = unit
         && to_px(value, length_unit).is_some()
@@ -183,7 +182,7 @@ pub(crate) fn minify_dimension(
             value,
             unit: length_unit,
         };
-        length.minify(context);
+        length.minify(cx);
         return Some((length.value, Unit::Length(length.unit)));
     }
     if matches!(unit, Unit::Milliseconds | Unit::Seconds) {
@@ -192,7 +191,7 @@ pub(crate) fn minify_dimension(
             Unit::Seconds => Time::Seconds(value),
             _ => unreachable!("time units were checked above"),
         };
-        time.minify(context);
+        time.minify(cx);
         return Some(match time {
             Time::Seconds(number) => (number, Unit::Seconds),
             Time::Milliseconds(number) => (number, Unit::Milliseconds),
@@ -206,7 +205,7 @@ pub(crate) fn minify_dimension(
             Unit::Turn => Angle::Turn(value),
             _ => unreachable!("angle units were checked above"),
         };
-        angle.minify(context);
+        angle.minify(cx);
         return Some(match angle {
             Angle::Deg(number) => (number, Unit::Deg),
             Angle::Rad(number) => (number, Unit::Rad),

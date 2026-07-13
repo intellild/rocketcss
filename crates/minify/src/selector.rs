@@ -2,11 +2,11 @@ use std::cmp::Ordering;
 
 use rocketcss_ast::{Combinator, NthType, PseudoClass, Selector, SelectorComponent, SelectorList};
 
-use crate::{Minify, MinifyContext, Options};
+use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for SelectorList<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if context.options().is_enabled(Options::NORMALIZE_VALUES) {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
             for selector in self.iter_mut() {
                 remove_qualified_universal(selector);
                 for component in selector.iter_mut() {
@@ -28,29 +28,29 @@ impl Minify for SelectorList<'_> {
         }
 
         let mut deduplicated = false;
-        if context.options().is_enabled(Options::DEDUPLICATE_LISTS) {
+        if cx.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
             deduplicated = deduplicate_selectors(self);
             if deduplicated {
-                context.record_value_normalized();
+                cx.record_value_normalized();
             }
         }
-        if context.options().is_enabled(Options::MERGE_SELECTORS)
+        if cx.is_enabled(Options::MERGE_SELECTORS, OptionsOp::Any)
             && merge_common_selector_parts(
                 self,
-                context.options().is_enabled(Options::SORT_SELECTOR_MERGES),
+                cx.is_enabled(Options::SORT_SELECTOR_MERGES, OptionsOp::Any),
                 deduplicated,
             )
         {
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
-        if context.options().is_enabled(Options::SORT_SELECTORS)
+        if cx.is_enabled(Options::SORT_SELECTORS, OptionsOp::Any)
             && self.iter().all(selector_is_sortable)
             && self
                 .windows(2)
                 .any(|pair| compare_selectors(&pair[0], &pair[1]).is_gt())
         {
             self.sort_unstable_by(compare_selectors);
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
