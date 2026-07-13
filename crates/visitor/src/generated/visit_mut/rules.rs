@@ -7,6 +7,7 @@
 use super::{VisitMut, VisitMutNode};
 use crate::AstType;
 use rocketcss_ast::*;
+use std::pin::Pin;
 pub fn walk_keyframe_selector<'a, VisitorT>(visitor: &mut VisitorT, node: &mut KeyframeSelector<'a>)
 where
     VisitorT: ?Sized + VisitMut<'a>,
@@ -707,11 +708,14 @@ where
     visitor.visit_vendor_prefix(&mut node.vendor_prefix);
     visitor.leave_node(AstType::StyleRule);
 }
-pub fn walk_declaration_block<'a, VisitorT>(visitor: &mut VisitorT, node: &mut DeclarationBlock<'a>)
-where
+pub fn walk_declaration_block<'a, VisitorT>(
+    visitor: &mut VisitorT,
+    mut node: Pin<&mut DeclarationBlock<'a>>,
+) where
     VisitorT: ?Sized + VisitMut<'a>,
 {
     visitor.enter_node(AstType::DeclarationBlock);
+    let node = unsafe { node.as_mut().get_unchecked_mut() };
     for value_0 in (&mut node.declarations).iter_mut() {
         visitor.visit_declaration(value_0);
     }

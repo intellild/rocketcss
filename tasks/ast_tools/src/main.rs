@@ -296,6 +296,13 @@ fn generate_visitor(
 ) -> TokenStream {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
+    let pin_import = (matches!(mode, Mode::Mut)
+        && nodes.iter().any(|node| node.ident == "DeclarationBlock"))
+    .then(|| {
+        quote!(
+            use std::pin::Pin;
+        )
+    });
     let reference = mode.reference();
     let modules = AST_FILES
         .iter()
@@ -308,10 +315,19 @@ fn generate_visitor(
         let walk = walk_method(&node.ident);
         let (method_generics, ty, bounds) =
             signature_parts(&node.ident, &node.generics, &node_trait, quote!(Self));
-        quote! {
-            #[inline]
-            fn #method #method_generics (&mut self, node: #reference #ty) #bounds {
-                #module::#walk(self, node);
+        if matches!(mode, Mode::Mut) && node.ident == "DeclarationBlock" {
+            quote! {
+                #[inline]
+                fn #method #method_generics (&mut self, node: Pin<&mut #ty>) #bounds {
+                    #module::#walk(self, node);
+                }
+            }
+        } else {
+            quote! {
+                #[inline]
+                fn #method #method_generics (&mut self, node: #reference #ty) #bounds {
+                    #module::#walk(self, node);
+                }
             }
         }
     });
@@ -328,28 +344,31 @@ fn generate_visitor(
             }
         }
     });
-    let node_impls = nodes.iter().map(|node| {
+    let node_impls = nodes.iter().filter_map(|node| {
+        if matches!(mode, Mode::Mut) && node.ident == "DeclarationBlock" {
+            return None;
+        }
         let method = visit_method(&node.ident);
         let (impl_generics, ty, bounds) =
             impl_parts(&node.ident, &node.generics, &visitor_trait, &node_trait);
         if matches!(mode, Mode::Read) {
-            quote! {
+            Some(quote! {
                 impl #impl_generics #node_trait<'a, VisitorT> for #ty #bounds {
                     #[inline]
                     fn visit_node(&self, visitor: &mut VisitorT) {
                         visitor.#method(self);
                     }
                 }
-            }
+            })
         } else {
-            quote! {
+            Some(quote! {
                 impl #impl_generics #node_trait<'a, VisitorT> for #ty #bounds {
                     #[inline]
                     fn visit_node(&mut self, visitor: &mut VisitorT) {
                         visitor.#method(self);
                     }
                 }
-            }
+            })
         }
     });
 
@@ -371,6 +390,7 @@ fn generate_visitor(
 
         use rocketcss_ast::*;
         use crate::AstType;
+        #pin_import
 
         #(pub mod #modules;)*
 
@@ -475,7 +495,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn visit_node(&self, visitor: &mut VisitorT) { self.as_ref().visit_node(visitor); }
             }
             impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
-            where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> {
+            where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> + Unpin {
                 fn visit_node(&self, visitor: &mut VisitorT) { for value in self { value.visit_node(visitor); } }
             }
             impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for Option<T>
@@ -502,7 +522,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn visit_node(&mut self, visitor: &mut VisitorT) { self.as_mut().visit_node(visitor); }
             }
             impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
-            where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> {
+            where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> + Unpin {
                 fn visit_node(&mut self, visitor: &mut VisitorT) { for value in self { value.visit_node(visitor); } }
             }
             impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for Option<T>
@@ -594,6 +614,13 @@ fn generate_walk_module(
 ) -> TokenStream {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
+    let pin_import = (matches!(mode, Mode::Mut)
+        && nodes.iter().any(|node| node.ident == "DeclarationBlock"))
+    .then(|| {
+        quote!(
+            use std::pin::Pin;
+        )
+    });
     let walkers = nodes.iter().map(|node| {
         let walk = walk_method(&node.ident);
         let variant = &node.ident;
@@ -601,11 +628,23 @@ fn generate_walk_module(
             function_parts(&node.ident, &node.generics, &visitor_trait, &node_trait);
         let body = walk_data(mode, node, known, alias_names);
         let reference = mode.reference();
-        quote! {
-            pub fn #walk #function_generics (visitor: &mut VisitorT, node: #reference #ty) #bounds {
-                visitor.enter_node(AstType::#variant);
-                #body
-                visitor.leave_node(AstType::#variant);
+        if matches!(mode, Mode::Mut) && node.ident == "DeclarationBlock" {
+            quote! {
+                pub fn #walk #function_generics (visitor: &mut VisitorT, mut node: Pin<&mut #ty>) #bounds {
+                    visitor.enter_node(AstType::#variant);
+                    // SAFETY: the walker only mutates fields and never moves the pinned block.
+                    let node = unsafe { node.as_mut().get_unchecked_mut() };
+                    #body
+                    visitor.leave_node(AstType::#variant);
+                }
+            }
+        } else {
+            quote! {
+                pub fn #walk #function_generics (visitor: &mut VisitorT, node: #reference #ty) #bounds {
+                    visitor.enter_node(AstType::#variant);
+                    #body
+                    visitor.leave_node(AstType::#variant);
+                }
             }
         }
     });
@@ -640,6 +679,7 @@ fn generate_walk_module(
         use super::{#visitor_trait, #node_trait};
         use crate::AstType;
         use rocketcss_ast::*;
+        #pin_import
 
         #(#walkers)*
         #(#alias_walkers)*
@@ -824,7 +864,34 @@ fn visit_type(
                 return quote!();
             };
             let name = segment.ident.to_string();
-            if matches!(name.as_str(), "Box" | "Option") {
+            if name == "Pin" {
+                // Keep binding numbering stable with the Box traversal this
+                // wrapper replaces.
+                let _ = fresh_binding(counter);
+                let Some(Type::Path(box_path)) = first_type_argument(&segment.arguments) else {
+                    return quote!();
+                };
+                let Some(box_segment) = box_path.path.segments.last() else {
+                    return quote!();
+                };
+                let Some(inner_ty) = first_type_argument(&box_segment.arguments) else {
+                    return quote!();
+                };
+                let inner_expression = if matches!(mode, Mode::Read) {
+                    quote!((#expression).as_ref().get_ref())
+                } else {
+                    quote!((#expression).as_mut())
+                };
+                visit_type(
+                    mode,
+                    inner_ty,
+                    inner_expression,
+                    known,
+                    aliases,
+                    generics,
+                    counter,
+                )
+            } else if matches!(name.as_str(), "Box" | "Option") {
                 let Some(inner_ty) = first_type_argument(&segment.arguments) else {
                     return quote!();
                 };

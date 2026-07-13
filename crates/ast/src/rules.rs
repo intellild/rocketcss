@@ -1,6 +1,7 @@
 use super::*;
 
 use bitflags::bitflags;
+use std::{marker::PhantomPinned, pin::Pin};
 
 #[derive(Debug, PartialEq)]
 pub enum KeyframeSelector<'a> {
@@ -406,7 +407,7 @@ pub struct ImportRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct StyleRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub rules: Vec<'a, CssRule<'a>>,
     pub selectors: Box<'a, SelectorList<'a>>,
@@ -417,6 +418,7 @@ pub struct StyleRule<'a> {
 pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, Declaration<'a>>,
     pub declarations_importance: rocketcss_allocator::small_bit_vec::SmallBitVec<'a>,
+    _pin: PhantomPinned,
 }
 
 impl<'a> DeclarationBlock<'a> {
@@ -427,6 +429,7 @@ impl<'a> DeclarationBlock<'a> {
             declarations_importance: rocketcss_allocator::small_bit_vec::SmallBitVec::new(
                 allocator,
             ),
+            _pin: PhantomPinned,
         }
     }
 
@@ -434,6 +437,12 @@ impl<'a> DeclarationBlock<'a> {
     pub fn push(&mut self, declaration: Declaration<'a>, important: bool) {
         self.declarations.push(declaration);
         self.declarations_importance.push(important);
+    }
+
+    #[inline]
+    pub fn push_pinned(mut self: Pin<&mut Self>, declaration: Declaration<'a>, important: bool) {
+        // SAFETY: pushing into the declaration vector does not move the block.
+        unsafe { self.as_mut().get_unchecked_mut() }.push(declaration, important);
     }
 
     #[inline]
@@ -1087,7 +1096,7 @@ pub struct KeyframesRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Keyframe<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub selectors: Vec<'a, KeyframeSelector<'a>>,
 }
 
@@ -1154,7 +1163,7 @@ pub struct FamilyName<'a>(pub &'a str);
 
 #[derive(Debug, PartialEq)]
 pub struct PageRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub rules: Vec<'a, PageMarginRule<'a>>,
     pub selectors: Vec<'a, PageSelector<'a>>,
@@ -1162,7 +1171,7 @@ pub struct PageRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct PageMarginRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub margin_box: PageMarginBox,
 }
@@ -1182,7 +1191,7 @@ pub struct SupportsRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct CounterStyleRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub name: &'a str,
 }
@@ -1208,13 +1217,13 @@ pub struct NestingRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct NestedDeclarationsRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ViewportRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
@@ -1286,7 +1295,7 @@ pub struct ViewTransitionRule<'a> {
 pub struct PositionTryRule<'a> {
     pub span: Span,
     pub name: &'a str,
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]

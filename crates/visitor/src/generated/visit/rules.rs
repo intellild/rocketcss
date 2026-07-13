@@ -690,7 +690,7 @@ where
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::StyleRule);
-    visitor.visit_declaration_block((&node.declarations).as_ref());
+    visitor.visit_declaration_block((&node.declarations).as_ref().get_ref());
     visitor.visit_span(&node.span);
     for value_1 in (&node.rules).iter() {
         visitor.visit_css_rule(value_1);
@@ -1608,7 +1608,7 @@ where
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::Keyframe);
-    visitor.visit_declaration_block((&node.declarations).as_ref());
+    visitor.visit_declaration_block((&node.declarations).as_ref().get_ref());
     for value_1 in (&node.selectors).iter() {
         visitor.visit_keyframe_selector(value_1);
     }
@@ -1732,7 +1732,7 @@ where
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::PageRule);
-    visitor.visit_declaration_block((&node.declarations).as_ref());
+    visitor.visit_declaration_block((&node.declarations).as_ref().get_ref());
     visitor.visit_span(&node.span);
     for value_1 in (&node.rules).iter() {
         visitor.visit_page_margin_rule(value_1);
@@ -1747,7 +1747,7 @@ where
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::PageMarginRule);
-    visitor.visit_declaration_block((&node.declarations).as_ref());
+    visitor.visit_declaration_block((&node.declarations).as_ref().get_ref());
     visitor.visit_span(&node.span);
     visitor.visit_page_margin_box(&node.margin_box);
     visitor.leave_node(AstType::PageMarginRule);
@@ -1782,7 +1782,7 @@ where
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::CounterStyleRule);
-    visitor.visit_declaration_block((&node.declarations).as_ref());
+    visitor.visit_declaration_block((&node.declarations).as_ref().get_ref());
     visitor.visit_span(&node.span);
     visitor.visit_str(&node.name);
     visitor.leave_node(AstType::CounterStyleRule);
@@ -1826,7 +1826,7 @@ pub fn walk_nested_declarations_rule<'a, VisitorT>(
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::NestedDeclarationsRule);
-    visitor.visit_declaration_block((&node.declarations).as_ref());
+    visitor.visit_declaration_block((&node.declarations).as_ref().get_ref());
     visitor.visit_span(&node.span);
     visitor.leave_node(AstType::NestedDeclarationsRule);
 }
@@ -1835,7 +1835,7 @@ where
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::ViewportRule);
-    visitor.visit_declaration_block((&node.declarations).as_ref());
+    visitor.visit_declaration_block((&node.declarations).as_ref().get_ref());
     visitor.visit_span(&node.span);
     visitor.visit_vendor_prefix(&node.vendor_prefix);
     visitor.leave_node(AstType::ViewportRule);
@@ -1968,7 +1968,7 @@ where
     visitor.enter_node(AstType::PositionTryRule);
     visitor.visit_span(&node.span);
     visitor.visit_str(&node.name);
-    visitor.visit_declaration_block((&node.declarations).as_ref());
+    visitor.visit_declaration_block((&node.declarations).as_ref().get_ref());
     visitor.leave_node(AstType::PositionTryRule);
 }
 pub fn walk_unknown_at_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &UnknownAtRule<'a>)

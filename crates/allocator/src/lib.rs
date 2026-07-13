@@ -1,5 +1,5 @@
 use bumpalo::Bump;
-use std::cell::Cell;
+use std::{cell::Cell, pin::Pin};
 
 mod allocator_api;
 pub mod atom;
@@ -7,9 +7,12 @@ pub mod boxed;
 pub mod hash_map;
 pub mod hash_set;
 pub mod raw_vec;
+pub mod reference;
 pub mod small_bit_vec;
 pub mod vec;
 pub mod wtf8;
+
+pub use reference::Ref;
 
 pub trait CloneIn<'a>: Sized {
     type Cloned;
@@ -43,7 +46,7 @@ where
     }
 }
 
-impl<'a, 'src, C: 'a, T> CloneIn<'a> for vec::Vec<'src, T>
+impl<'a, 'src, C: 'a + Unpin, T: Unpin> CloneIn<'a> for vec::Vec<'src, T>
 where
     T: CloneIn<'a, Cloned = C>,
 {
@@ -160,7 +163,11 @@ impl Allocator {
         boxed::Box::new_in(value, self)
     }
 
-    pub fn vec<T>(&self) -> vec::Vec<'_, T> {
+    pub fn pinned<T>(&self, value: T) -> Pin<boxed::Box<'_, T>> {
+        boxed::Box::pin_in(value, self)
+    }
+
+    pub fn vec<T: Unpin>(&self) -> vec::Vec<'_, T> {
         vec::Vec::new_in(self)
     }
 }
