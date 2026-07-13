@@ -5,7 +5,7 @@
 use std::fmt;
 use std::ops::{BitOr, Range};
 
-use rocketcss_allocator::Allocator;
+use rocketcss_allocator::{Allocator, atom::Atom};
 use rocketcss_ast::Token as ValueToken;
 
 use crate::tokenizer::TokenizerState;
@@ -649,10 +649,10 @@ impl<'i, 't> Parser<'i, 't> {
         parse_until_after(self, delimiters, ParseUntilErrorBehavior::Consume, parse)
     }
 
-    pub fn expect_whitespace(&mut self) -> Result<&'i str, BasicParseError<'i>> {
+    pub fn expect_whitespace(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
         let location = self.current_source_location();
         match self.next_including_whitespace()? {
-            ValueToken::WhiteSpace(value) => Ok(value),
+            ValueToken::WhiteSpace(value) => Ok(*value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
                     self.input.cached_lexical(),
@@ -661,10 +661,10 @@ impl<'i, 't> Parser<'i, 't> {
         }
     }
 
-    pub fn expect_ident(&mut self) -> Result<&'i str, BasicParseError<'i>> {
+    pub fn expect_ident(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
         let location = self.current_source_location();
         match self.next()? {
-            ValueToken::Ident(value) => Ok(value),
+            ValueToken::Ident(value) => Ok(*value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
                     self.input.cached_lexical(),
@@ -685,10 +685,10 @@ impl<'i, 't> Parser<'i, 't> {
         }
     }
 
-    pub fn expect_string(&mut self) -> Result<&'i str, BasicParseError<'i>> {
+    pub fn expect_string(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
         let location = self.current_source_location();
         match self.next()? {
-            ValueToken::String(value) => Ok(value),
+            ValueToken::String(value) => Ok(*value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
                     self.input.cached_lexical(),
@@ -697,10 +697,10 @@ impl<'i, 't> Parser<'i, 't> {
         }
     }
 
-    pub fn expect_ident_or_string(&mut self) -> Result<&'i str, BasicParseError<'i>> {
+    pub fn expect_ident_or_string(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
         let location = self.current_source_location();
         match self.next()? {
-            ValueToken::Ident(value) | ValueToken::String(value) => Ok(value),
+            ValueToken::Ident(value) | ValueToken::String(value) => Ok(*value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
                     self.input.cached_lexical(),
@@ -709,10 +709,10 @@ impl<'i, 't> Parser<'i, 't> {
         }
     }
 
-    pub fn expect_url(&mut self) -> Result<&'i str, BasicParseError<'i>> {
+    pub fn expect_url(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
         let location = self.current_source_location();
         match self.next()? {
-            ValueToken::UnquotedUrl(value) => Ok(value),
+            ValueToken::UnquotedUrl(value) => Ok(*value),
             ValueToken::Function(name) if name.eq_ignore_ascii_case("url") => self
                 .parse_nested_block(|input| {
                     let value = input.expect_string()?;
@@ -728,7 +728,7 @@ impl<'i, 't> Parser<'i, 't> {
         }
     }
 
-    pub fn expect_url_or_string(&mut self) -> Result<&'i str, BasicParseError<'i>> {
+    pub fn expect_url_or_string(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
         let state = self.state();
         match self.expect_url() {
             Ok(value) => Ok(value),
@@ -817,10 +817,10 @@ impl<'i, 't> Parser<'i, 't> {
         self.expect_token(|token| matches!(token, ValueToken::ParenthesisBlock))
     }
 
-    pub fn expect_function(&mut self) -> Result<&'i str, BasicParseError<'i>> {
+    pub fn expect_function(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
         let location = self.current_source_location();
         match self.next()? {
-            ValueToken::Function(name) => Ok(name),
+            ValueToken::Function(name) => Ok(*name),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
                     self.input.cached_lexical(),

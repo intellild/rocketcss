@@ -1120,7 +1120,7 @@ where
             }
             for value_1 in (line_names).iter() {
                 for value_2 in (value_1).iter() {
-                    visitor.visit_str(value_2);
+                    visitor.visit_atom(value_2);
                 }
             }
         }
@@ -1210,7 +1210,7 @@ where
         GridTemplateAreas::Areas { areas, columns } => {
             for value_0 in (areas).iter() {
                 if let Some(value_1) = (value_0).as_ref() {
-                    visitor.visit_str(value_1);
+                    visitor.visit_atom(value_1);
                 }
             }
         }
@@ -1225,16 +1225,16 @@ where
     match node {
         GridLine::Auto => {}
         GridLine::Area { name } => {
-            visitor.visit_str(name);
+            visitor.visit_atom(name);
         }
         GridLine::Line { index, name } => {
             if let Some(value_0) = (name).as_ref() {
-                visitor.visit_str(value_0);
+                visitor.visit_atom(value_0);
             }
         }
         GridLine::Span { index, name } => {
             if let Some(value_1) = (name).as_ref() {
-                visitor.visit_str(value_1);
+                visitor.visit_atom(value_1);
             }
         }
     }
@@ -1566,7 +1566,7 @@ where
         AnimationTimeline::Auto => {}
         AnimationTimeline::None => {}
         AnimationTimeline::DashedIdent(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         AnimationTimeline::Scroll(field_0) => {
             visitor.visit_scroll_timeline((field_0).as_ref());
@@ -2039,7 +2039,7 @@ where
             }
         }
         TextEmphasisStyle::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::TextEmphasisStyle);
@@ -2269,7 +2269,7 @@ where
         Appearance::SquareButton => {}
         Appearance::Textarea => {}
         Appearance::NonStandard(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::Appearance);
@@ -2282,7 +2282,7 @@ where
     match node {
         ListStyleType::None => {}
         ListStyleType::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         ListStyleType::CounterStyle(field_0) => {
             visitor.visit_counter_style((field_0).as_ref());
@@ -2300,7 +2300,7 @@ where
             visitor.visit_predefined_counter_style(field_0);
         }
         CounterStyle::Name(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         CounterStyle::Symbols { symbols, system } => {
             for value_0 in (symbols).iter() {
@@ -2397,7 +2397,7 @@ where
     visitor.enter_node(AstType::Symbol);
     match node {
         Symbol::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Symbol::Image(field_0) => {
             visitor.visit_image((field_0).as_ref());
@@ -2846,7 +2846,7 @@ where
         ContainerNameList::None => {}
         ContainerNameList::Names(field_0) => {
             for value_0 in (field_0).iter() {
-                visitor.visit_str(value_0);
+                visitor.visit_atom(value_0);
             }
         }
     }
@@ -2863,7 +2863,7 @@ pub fn walk_view_transition_name<'a, VisitorT>(
         ViewTransitionName::None => {}
         ViewTransitionName::Auto => {}
         ViewTransitionName::Custom(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::ViewTransitionName);
@@ -2879,7 +2879,7 @@ pub fn walk_none_or_custom_ident_list<'a, VisitorT>(
         NoneOrCustomIdentList::None => {}
         NoneOrCustomIdentList::Idents(field_0) => {
             for value_0 in (field_0).iter() {
-                visitor.visit_str(value_0);
+                visitor.visit_atom(value_0);
             }
         }
     }
@@ -2897,7 +2897,7 @@ pub fn walk_view_transition_group<'a, VisitorT>(
         ViewTransitionGroup::Contain => {}
         ViewTransitionGroup::Nearest => {}
         ViewTransitionGroup::Custom(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::ViewTransitionGroup);
@@ -2936,10 +2936,10 @@ pub fn walk_custom_property_name<'a, VisitorT>(
     visitor.enter_node(AstType::CustomPropertyName);
     match node {
         CustomPropertyName::Custom(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         CustomPropertyName::Unknown(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::CustomPropertyName);

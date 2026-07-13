@@ -2,8 +2,8 @@ use rocketcss_ast::{Angle, LengthUnit, LengthValue, Resolution, Time, Unit};
 
 use crate::{Minify, MinifyContext};
 
-impl Minify for LengthValue {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for LengthValue {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if !context.options().normalize_values || self.value == 0.0 {
             return;
         }
@@ -41,8 +41,8 @@ impl Minify for LengthValue {
     }
 }
 
-impl Minify for Angle {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for Angle {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if !context.options().normalize_values {
             return;
         }
@@ -72,8 +72,8 @@ impl Minify for Angle {
     }
 }
 
-impl Minify for Time {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for Time {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if !context.options().normalize_values {
             return;
         }
@@ -98,8 +98,8 @@ impl Minify for Time {
     }
 }
 
-impl Minify for Resolution {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for Resolution {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if !context.options().normalize_values {
             return;
         }
@@ -125,10 +125,10 @@ impl Minify for Resolution {
     }
 }
 
-pub(crate) fn minify_dimension(
+pub(crate) fn minify_dimension<'a>(
     value: f32,
     unit: Unit,
-    context: &mut MinifyContext,
+    context: &mut MinifyContext<'a>,
 ) -> Option<(f32, Unit)> {
     if let Unit::Length(length_unit) = unit
         && to_px(value, length_unit).is_some()

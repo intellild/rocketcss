@@ -32,11 +32,11 @@ pub mod prelude;
 mod tokenizer;
 
 pub use escape::unescape;
-pub use parser::stylesheet::parse;
+pub use parser::stylesheet::{Compiler, parse};
 pub use parser::{
     BasicParseError, BasicParseErrorKind, Delimiter, Delimiters, Error, Parse, ParseError,
-    ParseErrorKind, ParseUntilErrorBehavior, Parser, ParserError, ParserInput, ParserOptions,
-    ParserState,
+    ParseErrorKind, ParseUntilErrorBehavior, Parser as TokenParser, ParserError, ParserInput,
+    ParserOptions, ParserState,
 };
 pub use rocketcss_ast::{Span, Token as ValueToken};
 pub use tokenizer::{

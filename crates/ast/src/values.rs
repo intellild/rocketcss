@@ -594,7 +594,7 @@ pub enum TrackSizing<'a> {
     None,
     TrackList {
         items: Vec<'a, TrackListItem<'a>>,
-        line_names: Vec<'a, Vec<'a, &'a str>>,
+        line_names: Vec<'a, Vec<'a, Atom<'a>>>,
     },
 }
 
@@ -640,7 +640,7 @@ pub enum AutoFlowDirection {
 pub enum GridTemplateAreas<'a> {
     None,
     Areas {
-        areas: Vec<'a, Option<&'a str>>,
+        areas: Vec<'a, Option<Atom<'a>>>,
         columns: u32,
     },
 }
@@ -648,9 +648,9 @@ pub enum GridTemplateAreas<'a> {
 #[derive(Debug, PartialEq)]
 pub enum GridLine<'a> {
     Auto,
-    Area { name: &'a str },
-    Line { index: i32, name: Option<&'a str> },
-    Span { index: i32, name: Option<&'a str> },
+    Area { name: Atom<'a> },
+    Line { index: i32, name: Option<Atom<'a>> },
+    Span { index: i32, name: Option<Atom<'a>> },
 }
 
 #[derive(Debug, PartialEq)]
@@ -841,7 +841,7 @@ pub enum AnimationComposition {
 pub enum AnimationTimeline<'a> {
     Auto,
     None,
-    DashedIdent(&'a str),
+    DashedIdent(Atom<'a>),
     Scroll(Box<'a, ScrollTimeline>),
     View(Box<'a, ViewTimeline<'a>>),
 }
@@ -1107,7 +1107,7 @@ pub enum TextEmphasisStyle<'a> {
         fill: TextEmphasisFillMode,
         shape: Option<TextEmphasisShape>,
     },
-    String(&'a str),
+    String(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -1257,20 +1257,20 @@ pub enum Appearance<'a> {
     SliderHorizontal,
     SquareButton,
     Textarea,
-    NonStandard(&'a str),
+    NonStandard(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ListStyleType<'a> {
     None,
-    String(&'a str),
+    String(Atom<'a>),
     CounterStyle(Box<'a, CounterStyle<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum CounterStyle<'a> {
     Predefined(PredefinedCounterStyle),
-    Name(&'a str),
+    Name(Atom<'a>),
     Symbols {
         symbols: Vec<'a, Symbol<'a>>,
         system: SymbolsType,
@@ -1347,7 +1347,7 @@ pub enum PredefinedCounterStyle {
 
 #[derive(Debug, PartialEq)]
 pub enum Symbol<'a> {
-    String(&'a str),
+    String(Atom<'a>),
     Image(Box<'a, Image<'a>>),
 }
 
@@ -1582,20 +1582,20 @@ pub enum ContainerType {
 #[derive(Debug, PartialEq)]
 pub enum ContainerNameList<'a> {
     None,
-    Names(Vec<'a, &'a str>),
+    Names(Vec<'a, Atom<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ViewTransitionName<'a> {
     None,
     Auto,
-    Custom(&'a str),
+    Custom(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum NoneOrCustomIdentList<'a> {
     None,
-    Idents(Vec<'a, &'a str>),
+    Idents(Vec<'a, Atom<'a>>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -1603,7 +1603,7 @@ pub enum ViewTransitionGroup<'a> {
     Normal,
     Contain,
     Nearest,
-    Custom(&'a str),
+    Custom(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -1623,6 +1623,6 @@ pub enum CSSWideKeyword {
 
 #[derive(Debug, PartialEq)]
 pub enum CustomPropertyName<'a> {
-    Custom(&'a str),
-    Unknown(&'a str),
+    Custom(Atom<'a>),
+    Unknown(Atom<'a>),
 }

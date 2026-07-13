@@ -64,6 +64,7 @@ fn compact_stylesheet_omits_optional_whitespace() {
 
 #[test]
 fn serializes_typed_and_unknown_dimension_units() {
+    let allocator = Allocator::new();
     assert_eq!(
         Token::Dimension {
             value: 2.0,
@@ -76,7 +77,7 @@ fn serializes_typed_and_unknown_dimension_units() {
     assert_eq!(
         Token::UnknownDimension {
             value: 2.0,
-            unit: "furlong",
+            unit: allocator.alloc_str("furlong"),
         }
         .to_css_string(PrinterOptions::default())
         .unwrap(),
@@ -101,6 +102,7 @@ fn declaration_block_preserves_importance_bits() {
 
 #[test]
 fn ports_lightningcss_typed_value_serialization_cases() {
+    let allocator = Allocator::new();
     assert_eq!(
         Time::Milliseconds(100.0)
             .to_css_string(PrinterOptions::default())
@@ -134,7 +136,7 @@ fn ports_lightningcss_typed_value_serialization_cases() {
         "\"woff\""
     );
     assert_eq!(
-        FamilyName("Fancy Font Name")
+        FamilyName(allocator.alloc_str("Fancy Font Name"))
             .to_css_string(PrinterOptions::default())
             .unwrap(),
         "Fancy Font Name"

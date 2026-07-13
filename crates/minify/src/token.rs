@@ -1,12 +1,12 @@
-use rocketcss_allocator::vec::Vec;
+use rocketcss_allocator::{atom::Atom, vec::Vec};
 use rocketcss_ast::{Token, TokenOrValue};
 
 use crate::{Minify, MinifyContext, context::PropertyContext, length};
 
-impl Minify for TokenOrValue<'_> {
+impl<'a> Minify<'a> for TokenOrValue<'a> {
     /// Normalizes one token node in place. The surrounding `TokenOrValue`
     /// variant and its arena allocation are preserved.
-    fn minify(&mut self, context: &mut MinifyContext) {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if !context.options().normalize_values || context.value_context.skip_value_transforms {
             return;
         }
@@ -38,10 +38,10 @@ impl Minify for TokenOrValue<'_> {
     }
 }
 
-impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
+impl<'a> Minify<'a> for Vec<'a, TokenOrValue<'a>> {
     /// Removes comments and redundant whitespace by compacting the existing
     /// arena vector. Separator tokens are reused rather than allocated again.
-    fn minify(&mut self, context: &mut MinifyContext) {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if context.options().normalize_tokens {
             normalize_separators(self, context);
         }
@@ -58,7 +58,10 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
     }
 }
 
-fn normalize_separators(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn normalize_separators<'a>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    context: &mut MinifyContext<'a>,
+) {
     let mut index = 0;
     while index < values.len() {
         if !is_whitespace_or_comment(&values[index]) {
@@ -79,8 +82,8 @@ fn normalize_separators(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Mi
             let TokenOrValue::Token(token) = &mut values[start] else {
                 unreachable!("separator nodes are tokens")
             };
-            let was_normalized_space = matches!(**token, Token::WhiteSpace(" "));
-            **token = Token::WhiteSpace(" ");
+            let was_normalized_space = matches!(**token, Token::WhiteSpace(value) if value == " ");
+            **token = Token::WhiteSpace(context.alloc_str(" "));
             if end > start + 1 {
                 drop(values.drain(start + 1..end));
                 context.record_value_normalized();
@@ -96,7 +99,7 @@ fn normalize_separators(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Mi
     }
 }
 
-fn minify_box_sides(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_box_sides<'a>(values: &mut Vec<'a, TokenOrValue<'a>>, context: &mut MinifyContext<'a>) {
     let count = match values.len() {
         1 => 1,
         3 if is_whitespace(&values[1]) => 2,
@@ -129,7 +132,7 @@ fn minify_box_sides(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Minify
     }
 }
 
-fn minify_font_weight(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_font_weight<'a>(values: &mut Vec<'a, TokenOrValue<'a>>, context: &mut MinifyContext<'a>) {
     let [TokenOrValue::Token(token)] = values.as_mut_slice() else {
         return;
     };
@@ -147,7 +150,10 @@ fn minify_font_weight(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Mini
     context.record_value_normalized();
 }
 
-fn minify_repeat_style(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn minify_repeat_style<'a>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    context: &mut MinifyContext<'a>,
+) {
     let mut index = 0;
     while index + 2 < values.len() {
         let Some(left) = token_ident(&values[index]) else {
@@ -166,11 +172,11 @@ fn minify_repeat_style(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Min
         let replacement = if left.eq_ignore_ascii_case("repeat")
             && right.eq_ignore_ascii_case("no-repeat")
         {
-            Some("repeat-x")
+            Some(context.alloc_str("repeat-x"))
         } else if left.eq_ignore_ascii_case("no-repeat") && right.eq_ignore_ascii_case("repeat") {
-            Some("repeat-y")
-        } else if left.eq_ignore_ascii_case(right) {
-            canonical_repeat(left)
+            Some(context.alloc_str("repeat-y"))
+        } else if left.eq_ignore_ascii_case(right.as_str()) {
+            canonical_repeat(&left).map(|replacement| context.alloc_str(replacement))
         } else {
             None
         };
@@ -194,7 +200,7 @@ fn canonical_repeat(value: &str) -> Option<&'static str> {
         .find(|candidate| value.eq_ignore_ascii_case(candidate))
 }
 
-fn token_ident<'a>(value: &TokenOrValue<'a>) -> Option<&'a str> {
+fn token_ident<'a>(value: &TokenOrValue<'a>) -> Option<Atom<'a>> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
@@ -232,7 +238,7 @@ fn ends_with_open_punctuation(value: &TokenOrValue<'_>) -> bool {
                     | Token::ParenthesisBlock
                     | Token::SquareBracketBlock
                     | Token::CurlyBracketBlock
-            ) || matches!(**token, Token::Delim("/"))
+            ) || matches!(**token, Token::Delim(value) if value == "/")
     )
 }
 
@@ -248,6 +254,6 @@ fn starts_with_close_punctuation(value: &TokenOrValue<'_>) -> bool {
                     | Token::CloseParenthesis
                     | Token::CloseSquareBracket
                     | Token::CloseCurlyBracket
-            ) || matches!(**token, Token::Delim("/"))
+            ) || matches!(**token, Token::Delim(value) if value == "/")
     )
 }

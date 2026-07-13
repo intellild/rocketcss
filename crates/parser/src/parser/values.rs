@@ -89,7 +89,7 @@ pub(super) fn remove_important(value: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
         trim_trailing_whitespace(value);
         return false;
     };
-    if !matches!(&value[bang_index], TokenOrValue::Token(token) if matches!(**token, ValueToken::Delim("!")))
+    if !matches!(&value[bang_index], TokenOrValue::Token(token) if matches!(**token, ValueToken::Delim(delimiter) if delimiter == "!"))
     {
         trim_trailing_whitespace(value);
         return false;
@@ -119,7 +119,7 @@ pub(super) fn trim_leading_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
     }
 }
 
-pub(super) fn token_ident<'i>(value: &TokenOrValue<'i>) -> Option<&'i str> {
+pub(super) fn token_ident<'i>(value: &TokenOrValue<'i>) -> Option<Atom<'i>> {
     match value {
         TokenOrValue::Token(token) => match **token {
             ValueToken::Ident(name) => Some(name),
@@ -129,7 +129,7 @@ pub(super) fn token_ident<'i>(value: &TokenOrValue<'i>) -> Option<&'i str> {
     }
 }
 
-pub(super) fn css_wide_keyword(value: &str) -> Option<CSSWideKeyword> {
+pub(super) fn css_wide_keyword(value: Atom<'_>) -> Option<CSSWideKeyword> {
     match_ignore_ascii_case!(
         value,
         "initial" => Some(CSSWideKeyword::Initial),
@@ -141,7 +141,7 @@ pub(super) fn css_wide_keyword(value: &str) -> Option<CSSWideKeyword> {
     )
 }
 
-pub(super) fn ascii_lowercase<'i>(value: &'i str, allocator: &'i Allocator) -> &'i str {
+pub(super) fn ascii_lowercase<'i>(value: Atom<'i>, allocator: &'i Allocator) -> Atom<'i> {
     if value.bytes().all(|byte| !byte.is_ascii_uppercase()) {
         value
     } else {

@@ -358,6 +358,11 @@ fn generate_visitor(
     } else {
         quote! { fn visit_str(&mut self, _value: &mut &'a str) {} }
     };
+    let atom_method = if matches!(mode, Mode::Read) {
+        quote! { fn visit_atom(&mut self, _value: &rocketcss_allocator::atom::Atom<'a>) {} }
+    } else {
+        quote! { fn visit_atom(&mut self, _value: &mut rocketcss_allocator::atom::Atom<'a>) {} }
+    };
     let manual_methods = manual_methods(mode);
     let manual_impls = manual_impls(mode);
     let container_impls = container_impls(mode);
@@ -383,6 +388,9 @@ fn generate_visitor(
 
             #[inline]
             #str_method
+
+            #[inline]
+            #atom_method
 
             #(#methods)*
             #(#alias_methods)*
@@ -485,6 +493,9 @@ fn container_impls(mode: Mode) -> TokenStream {
             impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for &'a str {
                 fn visit_node(&self, visitor: &mut VisitorT) { visitor.visit_str(self); }
             }
+            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for rocketcss_allocator::atom::Atom<'a> {
+                fn visit_node(&self, visitor: &mut VisitorT) { visitor.visit_atom(self); }
+            }
         }
     } else {
         quote! {
@@ -511,6 +522,9 @@ fn container_impls(mode: Mode) -> TokenStream {
             }
             impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for &'a str {
                 fn visit_node(&mut self, visitor: &mut VisitorT) { visitor.visit_str(self); }
+            }
+            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for rocketcss_allocator::atom::Atom<'a> {
+                fn visit_node(&mut self, visitor: &mut VisitorT) { visitor.visit_atom(self); }
             }
         }
     }
@@ -565,7 +579,7 @@ fn manual_walkers(mode: Mode, properties: &[Property]) -> TokenStream {
             match node {
                 #(#property_id_arms)*
                 PropertyId::All | PropertyId::Unparsed => {}
-                PropertyId::Custom(value) => visitor.visit_str(value),
+                PropertyId::Custom(value) => visitor.visit_atom(value),
             }
             visitor.leave_node(AstType::PropertyId);
         }
@@ -819,7 +833,9 @@ fn visit_type(
                 return quote!();
             };
             let name = segment.ident.to_string();
-            if matches!(name.as_str(), "Box" | "Option") {
+            if name == "Atom" {
+                quote!(visitor.visit_atom(#expression);)
+            } else if matches!(name.as_str(), "Box" | "Option") {
                 let Some(inner_ty) = first_type_argument(&segment.arguments) else {
                     return quote!();
                 };

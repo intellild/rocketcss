@@ -47,7 +47,7 @@ where
             visitor.visit_resolution((field_0).as_ref());
         }
         TokenOrValue::DashedIdent(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         TokenOrValue::AnimationName(field_0) => {
             visitor.visit_animation_name((field_0).as_ref());
@@ -87,25 +87,25 @@ where
     visitor.enter_node(AstType::Token);
     match node {
         Token::Ident(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::AtKeyword(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::Hash(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::IdHash(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::UnquotedUrl(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::Delim(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::Number(field_0) => {}
         Token::Percentage(field_0) => {}
@@ -113,13 +113,13 @@ where
             visitor.visit_unit(unit);
         }
         Token::UnknownDimension { unit, value } => {
-            visitor.visit_str(unit);
+            visitor.visit_atom(unit);
         }
         Token::WhiteSpace(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::Comment(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::Colon => {}
         Token::Semicolon => {}
@@ -132,16 +132,16 @@ where
         Token::Cdo => {}
         Token::Cdc => {}
         Token::Function(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::ParenthesisBlock => {}
         Token::SquareBracketBlock => {}
         Token::CurlyBracketBlock => {}
         Token::BadUrl(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::BadString(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Token::CloseParenthesis => {}
         Token::CloseSquareBracket => {}
@@ -157,7 +157,7 @@ where
     match node {
         Specifier::Global => {}
         Specifier::File(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         Specifier::SourceIndex(field_0) => {}
     }
@@ -171,10 +171,10 @@ where
     match node {
         AnimationName::None => {}
         AnimationName::Ident(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         AnimationName::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::AnimationName);
@@ -194,7 +194,7 @@ pub fn walk_environment_variable_name<'a, VisitorT>(
             visitor.visit_dashed_ident_reference((field_0).as_ref());
         }
         EnvironmentVariableName::Unknown(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::EnvironmentVariableName);

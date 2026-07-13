@@ -177,14 +177,14 @@ impl ToCss for AttrSelector<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         let namespace = self.namespace.as_ref();
         match &self.operation {
-            AttrOperation::Exists => write_attribute(namespace, self.local_name, None, dest),
+            AttrOperation::Exists => write_attribute(namespace, &self.local_name, None, dest),
             AttrOperation::WithValue {
                 operator,
                 case_sensitivity,
                 expected_value,
             } => write_attribute(
                 namespace,
-                self.local_name,
+                &self.local_name,
                 Some((*operator, expected_value, *case_sensitivity)),
                 dest,
             ),

@@ -27,7 +27,7 @@ fn minifies_upstream_fixtures() {
         let mut stylesheet = parse(&source, &allocator, ParserOptions::default())
             .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
 
-        minify(&mut stylesheet, MinifyOptions::default());
+        minify(&mut stylesheet, &allocator, MinifyOptions::default());
         let actual = stylesheet
             .to_css_string(PrinterOptions { prettify: false })
             .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));

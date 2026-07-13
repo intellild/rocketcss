@@ -1,6 +1,25 @@
 use rocketcss_parser::prelude::*;
 
 #[test]
+fn compiler_binds_source_allocator_and_options() {
+    let allocator = Allocator::new();
+    let source = "a { color: red }";
+    let options = ParserOptions {
+        filename: "input.css",
+        ..ParserOptions::default()
+    };
+    let mut compiler = rocketcss_parser::Compiler::new(source, &allocator, options);
+
+    assert_eq!(compiler.source(), source);
+    assert!(std::ptr::eq(compiler.allocator(), &allocator));
+    assert_eq!(compiler.options().filename, "input.css");
+
+    let stylesheet = compiler.parse().unwrap();
+    assert_eq!(stylesheet.rules.len(), 1);
+    assert_eq!(compiler.source_map_url(), None);
+}
+
+#[test]
 fn parser_decodes_values_from_token_spans() {
     let allocator = Allocator::new();
     let mut input = ParserInput::new(
@@ -9,8 +28,11 @@ fn parser_decodes_values_from_token_spans() {
     );
     let mut parser = Parser::new(&mut input);
 
-    assert_eq!(parser.expect_ident(), Ok("foo"));
-    assert_eq!(parser.expect_string(), Ok("bar"));
+    assert_eq!(parser.expect_ident().map(|value| value.as_str()), Ok("foo"));
+    assert_eq!(
+        parser.expect_string().map(|value| value.as_str()),
+        Ok("bar")
+    );
     assert!(matches!(
         parser.next(),
         Ok(ValueToken::Dimension {
@@ -20,10 +42,13 @@ fn parser_decodes_values_from_token_spans() {
     ));
     assert!(matches!(
         parser.next(),
-        Ok(ValueToken::UnknownDimension { unit: "furlong", value }) if *value == 2.0
+        Ok(ValueToken::UnknownDimension { unit, value }) if unit == "furlong" && *value == 2.0
     ));
     assert_eq!(parser.expect_percentage(), Ok(0.25));
-    assert_eq!(parser.expect_url(), Ok("icon.svg"));
+    assert_eq!(
+        parser.expect_url().map(|value| value.as_str()),
+        Ok("icon.svg")
+    );
     assert!(parser.is_exhausted());
 }
 
@@ -34,7 +59,10 @@ fn parser_backtracks_and_parses_nested_blocks() {
     let mut parser = Parser::new(&mut input);
 
     let state = parser.state();
-    assert_eq!(parser.expect_function(), Ok("foo"));
+    assert_eq!(
+        parser.expect_function().map(|value| value.as_str()),
+        Ok("foo")
+    );
     let values = parser
         .parse_nested_block(|input| {
             let first = input.expect_number()?;
@@ -46,11 +74,18 @@ fn parser_backtracks_and_parses_nested_blocks() {
             Ok::<_, rocketcss_parser::ParseError<'_, ()>>((first, inner))
         })
         .unwrap();
-    assert_eq!(values, (1.0, "bar"));
-    assert_eq!(parser.expect_ident(), Ok("tail"));
+    assert_eq!(values.0, 1.0);
+    assert_eq!(values.1, "bar");
+    assert_eq!(
+        parser.expect_ident().map(|value| value.as_str()),
+        Ok("tail")
+    );
 
     parser.reset(&state);
-    assert_eq!(parser.expect_function(), Ok("foo"));
+    assert_eq!(
+        parser.expect_function().map(|value| value.as_str()),
+        Ok("foo")
+    );
 }
 
 #[test]
@@ -68,7 +103,7 @@ fn delimited_parse_does_not_stop_inside_nested_blocks() {
 
     assert_eq!(raw, "one(foo;bar)");
     parser.expect_semicolon().unwrap();
-    assert_eq!(parser.expect_ident(), Ok("two"));
+    assert_eq!(parser.expect_ident().map(|value| value.as_str()), Ok("two"));
 }
 
 #[test]
@@ -87,7 +122,6 @@ fn parses_style_rule_selectors_and_declarations() {
     .unwrap();
 
     assert_eq!(&*sheet.license_comments, ["! license "]);
-    assert_eq!(&*sheet.sources, ["input.css"]);
     assert_eq!(sheet.rules.len(), 1);
     let CssRule::Style(rule) = &sheet.rules[0] else {
         panic!("expected style rule")
@@ -121,7 +155,7 @@ fn parses_style_rule_selectors_and_declarations() {
     assert!(matches!(
         &rule.declarations.declarations[2],
         Declaration::Custom(value)
-            if matches!(*value.name, CustomPropertyName::Custom("--gap"))
+            if matches!(*value.name, CustomPropertyName::Custom(name) if name == "--gap")
     ));
     assert!(!rule.declarations.is_important(0));
     assert!(rule.declarations.is_important(1));
@@ -142,7 +176,7 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
     };
     assert!(matches!(
         &rule.selectors[0][0],
-        SelectorComponent::Class("foo")
+        SelectorComponent::Class(name) if name == "foo"
     ));
 
     let Declaration::Unparsed(width) = &rule.declarations.declarations[0] else {
@@ -199,7 +233,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
     assert!(matches!(
         &rule.properties[0],
         FontFaceProperty::Custom(value)
-            if matches!(*value.name, CustomPropertyName::Unknown("font-family"))
+            if matches!(*value.name, CustomPropertyName::Unknown(name) if name == "font-family")
     ));
 
     let CssRule::Unknown(rule) = &sheet.rules[3] else {
@@ -267,8 +301,8 @@ fn parses_namespace_deep_and_empty_where_selectors() {
         &selectors[0][..],
         [
             SelectorComponent::ExplicitNoNamespace,
-            SelectorComponent::LocalName { name: "e", .. }
-        ]
+            SelectorComponent::LocalName { name, .. }
+        ] if name == "e"
     ));
     assert!(matches!(
         &selectors[1][..],
@@ -280,26 +314,27 @@ fn parses_namespace_deep_and_empty_where_selectors() {
     assert!(matches!(
         &selectors[2][..],
         [
-            SelectorComponent::Namespace { prefix: "svg", .. },
-            SelectorComponent::LocalName { name: "circle", .. }
-        ]
+            SelectorComponent::Namespace { prefix, .. },
+            SelectorComponent::LocalName { name, .. }
+        ] if prefix == "svg" && name == "circle"
     ));
     assert!(matches!(
         &selectors[3][0],
         SelectorComponent::AttributeOther(attribute)
-            if matches!(&attribute.namespace, Some(NamespaceConstraint::Specific { prefix: "svg", .. }))
+            if matches!(&attribute.namespace, Some(NamespaceConstraint::Specific { prefix, .. }) if prefix == "svg")
     ));
     assert!(matches!(
         &selectors[4][..],
         [
-            SelectorComponent::Class("a"),
+            SelectorComponent::Class(first),
             SelectorComponent::Combinator(Combinator::Deep),
-            SelectorComponent::Class("b")
-        ]
+            SelectorComponent::Class(second)
+        ] if first == "a" && second == "b"
     ));
     assert!(matches!(
         &selectors[5][..],
-        [SelectorComponent::LocalName { name: "foo", .. }, SelectorComponent::Where(list)] if list.is_empty()
+        [SelectorComponent::LocalName { name, .. }, SelectorComponent::Where(list)]
+            if name == "foo" && list.is_empty()
     ));
 }
 
@@ -350,7 +385,8 @@ fn parses_lightningcss_rule_families() {
     assert!(matches!(
         &sheet.rules[0],
         CssRule::Namespace(rule)
-            if rule.prefix == Some("svg") && rule.url == "http://www.w3.org/2000/svg"
+            if rule.prefix.as_ref().is_some_and(|prefix| prefix == "svg")
+                && rule.url == "http://www.w3.org/2000/svg"
     ));
     assert!(matches!(
         &sheet.rules[1],
@@ -370,7 +406,7 @@ fn parses_lightningcss_rule_families() {
     assert!(matches!(
         &sheet.rules[4],
         CssRule::Keyframes(rule)
-            if matches!(*rule.name, rocketcss_ast::KeyframesName::Ident("fade"))
+            if matches!(*rule.name, rocketcss_ast::KeyframesName::Ident(name) if name == "fade")
                 && rule.keyframes.len() == 3
                 && matches!(rule.keyframes[1].selectors[0], rocketcss_ast::KeyframeSelector::Percentage(0.5))
     ));
@@ -382,7 +418,9 @@ fn parses_lightningcss_rule_families() {
     ));
     assert!(matches!(
         &sheet.rules[8],
-        CssRule::Container(rule) if rule.name == Some("card") && rule.condition.is_some()
+        CssRule::Container(rule)
+            if rule.name.as_ref().is_some_and(|name| name == "card")
+                && rule.condition.is_some()
     ));
     assert!(matches!(
         &sheet.rules[9],
@@ -404,7 +442,12 @@ fn parses_import_modifiers_scope_and_page() {
     let CssRule::Import(import) = &sheet.rules[0] else {
         panic!("expected import")
     };
-    assert_eq!(import.layer.as_deref(), Some(&["theme", "base"][..]));
+    assert!(
+        import
+            .layer
+            .as_ref()
+            .is_some_and(|names| { names.iter().map(|name| name.as_str()).eq(["theme", "base"]) })
+    );
     assert!(import.supports.is_some());
     assert!(matches!(
         import
@@ -608,8 +651,10 @@ fn extracts_source_directives_in_parser_layer() {
     let allocator = Allocator::new();
     let source =
         "a { color: red } /*# sourceURL=original.scss */ /*# sourceMappingURL=style.css.map */";
-    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
-    assert_eq!(&*sheet.source_map_urls, [Some("style.css.map")]);
+    let mut compiler =
+        rocketcss_parser::Compiler::new(source, &allocator, ParserOptions::default());
+    let _sheet = compiler.parse().unwrap();
+    assert_eq!(compiler.source_map_url(), Some("style.css.map"));
 
     let mut input = ParserInput::new(source, &allocator);
     let mut parser = Parser::new(&mut input);
