@@ -45,13 +45,13 @@ impl<'a> BitVec<'a> {
 
     #[inline]
     pub fn is_set(&self, index: usize) -> bool {
-        assert!(index < self.len(), "BitVec index out of bounds");
+        debug_assert!(index < self.len(), "BitVec index out of bounds");
         self.words[index / BITS_PER_WORD] & (1 << (index % BITS_PER_WORD)) != 0
     }
 
     #[inline]
     pub fn set(&mut self, index: usize, value: bool) {
-        assert!(index < self.len(), "BitVec index out of bounds");
+        debug_assert!(index < self.len(), "BitVec index out of bounds");
 
         let word = &mut self.words[index / BITS_PER_WORD];
         let mask = 1 << (index % BITS_PER_WORD);
