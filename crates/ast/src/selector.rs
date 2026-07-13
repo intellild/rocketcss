@@ -125,7 +125,7 @@ pub enum AttrSelectorOperator {
     Suffix,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum NthType {
     Child,
     LastChild,
@@ -145,7 +145,7 @@ pub struct NthSelectorData {
     pub b: i32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     Ltr,
     Rtl,

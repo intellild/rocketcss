@@ -5,6 +5,6 @@ pub(crate) use rocketcss_ast::match_ignore_ascii_case;
 pub use rocketcss_ast::prelude::*;
 
 pub(crate) use crate::printer::{
-    serialize_debug_keyword, serialize_dimension, serialize_hex, serialize_int, serialize_number,
+    serialize_dimension, serialize_hex, serialize_int, serialize_number,
 };
 pub use crate::{Delimiter, Printer, PrinterOptions, PrinterState, PrinterTrait, ToCss};

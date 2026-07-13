@@ -973,25 +973,22 @@ impl ToCss for Source<'_> {
 
 impl ToCss for FontFormat<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_string(
-            match self {
-                Self::Woff => "woff",
-                Self::Woff2 => "woff2",
-                Self::Truetype => "truetype",
-                Self::Opentype => "opentype",
-                Self::EmbeddedOpentype => "embedded-opentype",
-                Self::Collection => "collection",
-                Self::Svg => "svg",
-                Self::String(value) => value,
-            },
-            dest,
-        )
+        let value = match self {
+            Self::String(value) => value,
+            value => value
+                .as_css_str()
+                .expect("custom font format handled separately"),
+        };
+        serialize_string(value, dest)
     }
 }
 
 impl ToCss for FontTechnology {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(
+            self.as_css_str()
+                .expect("font technologies are static keywords"),
+        )
     }
 }
 
@@ -1052,19 +1049,28 @@ impl ToCss for BasePalette {
 
 impl ToCss for FontFeatureSubruleType {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(
+            self.as_css_str()
+                .expect("font feature subrule types are static keywords"),
+        )
     }
 }
 
 impl ToCss for PageMarginBox {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(
+            self.as_css_str()
+                .expect("page margin boxes are static keywords"),
+        )
     }
 }
 
 impl ToCss for PagePseudoClass {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(
+            self.as_css_str()
+                .expect("page pseudo classes are static keywords"),
+        )
     }
 }
 
@@ -1153,7 +1159,11 @@ impl ToCss for SyntaxComponentKind<'_> {
             Self::Literal(value) => dest.write_str(value),
             value => {
                 dest.write_char('<')?;
-                serialize_debug_keyword(value, dest)?;
+                dest.write_str(
+                    value
+                        .as_css_str()
+                        .expect("literal syntax component handled separately"),
+                )?;
                 dest.write_char('>')
             }
         }
@@ -1169,13 +1179,19 @@ impl ToCss for SyntaxComponent<'_> {
 
 impl ToCss for ContainerSizeFeatureId {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(
+            self.as_css_str()
+                .expect("container size features are static keywords"),
+        )
     }
 }
 
 impl ToCss for ScrollStateFeatureId {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(
+            self.as_css_str()
+                .expect("scroll state features are static keywords"),
+        )
     }
 }
 
@@ -1293,7 +1309,10 @@ impl NamedProperty for ViewTransitionProperty<'_> {
 
 impl ToCss for Navigation {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(
+            self.as_css_str()
+                .expect("navigation values are static keywords"),
+        )
     }
 }
 

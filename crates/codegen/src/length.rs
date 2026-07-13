@@ -11,57 +11,7 @@ impl ToCss for LengthValue {
 
 impl ToCss for LengthUnit {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        dest.write_str(match self {
-            Self::Px => "px",
-            Self::In => "in",
-            Self::Cm => "cm",
-            Self::Mm => "mm",
-            Self::Q => "q",
-            Self::Pt => "pt",
-            Self::Pc => "pc",
-            Self::Em => "em",
-            Self::Rem => "rem",
-            Self::Ex => "ex",
-            Self::Rex => "rex",
-            Self::Ch => "ch",
-            Self::Rch => "rch",
-            Self::Cap => "cap",
-            Self::Rcap => "rcap",
-            Self::Ic => "ic",
-            Self::Ric => "ric",
-            Self::Lh => "lh",
-            Self::Rlh => "rlh",
-            Self::Vw => "vw",
-            Self::Lvw => "lvw",
-            Self::Svw => "svw",
-            Self::Dvw => "dvw",
-            Self::Cqw => "cqw",
-            Self::Vh => "vh",
-            Self::Lvh => "lvh",
-            Self::Svh => "svh",
-            Self::Dvh => "dvh",
-            Self::Cqh => "cqh",
-            Self::Vi => "vi",
-            Self::Svi => "svi",
-            Self::Lvi => "lvi",
-            Self::Dvi => "dvi",
-            Self::Cqi => "cqi",
-            Self::Vb => "vb",
-            Self::Svb => "svb",
-            Self::Lvb => "lvb",
-            Self::Dvb => "dvb",
-            Self::Cqb => "cqb",
-            Self::Vmin => "vmin",
-            Self::Svmin => "svmin",
-            Self::Lvmin => "lvmin",
-            Self::Dvmin => "dvmin",
-            Self::Cqmin => "cqmin",
-            Self::Vmax => "vmax",
-            Self::Svmax => "svmax",
-            Self::Lvmax => "lvmax",
-            Self::Dvmax => "dvmax",
-            Self::Cqmax => "cqmax",
-        })
+        dest.write_str(self.as_css_str().expect("length units are static strings"))
     }
 }
 
@@ -164,12 +114,10 @@ impl<V: ToCss> ToCss for MathFunction<'_, V> {
 
 impl ToCss for RoundingStrategy {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        dest.write_str(match self {
-            Self::Nearest => "nearest",
-            Self::Up => "up",
-            Self::Down => "down",
-            Self::ToZero => "to-zero",
-        })
+        dest.write_str(
+            self.as_css_str()
+                .expect("rounding strategies are static keywords"),
+        )
     }
 }
 

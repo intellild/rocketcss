@@ -34,7 +34,7 @@ pub enum Source<'a> {
     Local(Box<'a, FontFamily<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FontFormat<'a> {
     Woff,
     Woff2,
@@ -46,7 +46,7 @@ pub enum FontFormat<'a> {
     String(&'a str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FontTechnology {
     FeaturesOpentype,
     FeaturesAat,
@@ -83,7 +83,7 @@ pub enum BasePalette {
     Integer(u16),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FontFeatureSubruleType {
     Stylistic,
     HistoricalForms,
@@ -94,7 +94,7 @@ pub enum FontFeatureSubruleType {
     Annotation,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum PageMarginBox {
     TopLeftCorner,
     TopLeft,
@@ -114,7 +114,7 @@ pub enum PageMarginBox {
     BottomRightCorner,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum PagePseudoClass {
     Left,
     Right,
@@ -161,7 +161,7 @@ pub enum SyntaxString<'a> {
     Universal,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum SyntaxComponentKind<'a> {
     Length,
     Number,
@@ -196,7 +196,7 @@ pub enum ContainerCondition<'a> {
 
 pub type ContainerSizeFeature<'a> = QueryFeature<'a, ContainerSizeFeatureId>;
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ContainerSizeFeatureId {
     Width,
     Height,
@@ -229,7 +229,7 @@ pub enum ScrollStateQuery<'a> {
 
 pub type ScrollStateFeature<'a> = QueryFeature<'a, ScrollStateFeatureId>;
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ScrollStateFeatureId {
     Stuck,
     Snapped,
@@ -244,7 +244,7 @@ pub enum ViewTransitionProperty<'a> {
     Custom(Box<'a, CustomProperty<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum Navigation {
     None,
     Auto,

@@ -117,7 +117,7 @@ pub enum EnvironmentVariableName<'a> {
     Unknown(&'a str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum UAEnvironmentVariable {
     SafeAreaInsetTop,
     SafeAreaInsetRight,

@@ -8,7 +8,7 @@ pub enum Length<'a> {
     Calc(Box<'a, Calc<'a, Length<'a>>>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LengthUnit {
     Px,
     In,
@@ -91,7 +91,7 @@ pub enum MathFunction<'a, V> {
     Hypot(Vec<'a, Calc<'a, V>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum RoundingStrategy {
     Nearest,
     Up,

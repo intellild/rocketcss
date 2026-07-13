@@ -288,7 +288,7 @@ impl ToCss for NthSelectorData {
 
 impl ToCss for NthType {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(self.as_css_str().expect("nth types are static keywords"))
     }
 }
 
@@ -352,10 +352,7 @@ fn write_nth_offset<PrinterT: PrinterTrait>(value: i32, dest: &mut PrinterT) -> 
 
 impl ToCss for Direction {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        dest.write_str(match self {
-            Self::Ltr => "ltr",
-            Self::Rtl => "rtl",
-        })
+        dest.write_str(self.as_css_str().expect("directions are static keywords"))
     }
 }
 
