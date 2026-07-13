@@ -289,6 +289,10 @@ pub trait VisitMut<'a> {
         rules::walk_function(self, node);
     }
     #[inline]
+    fn visit_function_replacement(&mut self, node: &mut FunctionReplacement) {
+        rules::walk_function_replacement(self, node);
+    }
+    #[inline]
     fn visit_import_rule(&mut self, node: &mut ImportRule<'a>) {
         rules::walk_import_rule(self, node);
     }
@@ -2263,6 +2267,15 @@ where
     #[inline]
     fn visit_node(&mut self, visitor: &mut VisitorT) {
         visitor.visit_function(self);
+    }
+}
+impl<'a, VisitorT> VisitMutNode<'a, VisitorT> for FunctionReplacement
+where
+    VisitorT: ?Sized + VisitMut<'a>,
+{
+    #[inline]
+    fn visit_node(&mut self, visitor: &mut VisitorT) {
+        visitor.visit_function_replacement(self);
     }
 }
 impl<'a, VisitorT> VisitMutNode<'a, VisitorT> for ImportRule<'a>
@@ -6168,7 +6181,12 @@ pub fn walk_property_id<'a, VisitorT: ?Sized + VisitMut<'a>>(
         PropertyId::ViewTransitionGroup => {}
         PropertyId::ColorScheme => {}
         PropertyId::PrintColorAdjust(value) => VisitMutNode::visit_node(value, visitor),
-        PropertyId::All | PropertyId::Unparsed => {}
+        PropertyId::ColumnRule
+        | PropertyId::Columns
+        | PropertyId::GridColumnGap
+        | PropertyId::GridRowGap
+        | PropertyId::All
+        | PropertyId::Unparsed => {}
         PropertyId::Custom(value) => visitor.visit_str(value),
     }
     visitor.leave_node(AstType::PropertyId);

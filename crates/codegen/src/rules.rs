@@ -1045,7 +1045,7 @@ impl ToCss for BasePalette {
         match self {
             Self::Light => dest.write_str("light"),
             Self::Dark => dest.write_str("dark"),
-            Self::Integer(value) => write!(dest, "{value}"),
+            Self::Integer(value) => serialize_int(*value, dest),
         }
     }
 }
@@ -1082,7 +1082,7 @@ impl ToCss for ParsedComponent<'_> {
             Self::Color(value) => value.to_css(dest),
             Self::Image(value) => value.to_css(dest),
             Self::Url(value) => value.to_css(dest),
-            Self::Integer(value) => write!(dest, "{value}"),
+            Self::Integer(value) => serialize_int(*value, dest),
             Self::Angle(value) => value.to_css(dest),
             Self::Time(value) => value.to_css(dest),
             Self::Resolution(value) => value.to_css(dest),
@@ -1593,7 +1593,8 @@ impl ToCss for FontPaletteValuesRule<'_> {
 
 impl ToCss for OverrideColors<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write!(dest, "{} ", self.index)?;
+        serialize_int(self.index, dest)?;
+        dest.write_char(' ')?;
         self.color.to_css(dest)
     }
 }
@@ -1639,7 +1640,7 @@ impl ToCss for FontFeatureDeclaration<'_> {
             if index > 0 {
                 dest.write_char(' ')?;
             }
-            write!(dest, "{value}")?;
+            serialize_int(*value, dest)?;
         }
         Ok(())
     }

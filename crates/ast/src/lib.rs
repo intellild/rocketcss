@@ -5,6 +5,26 @@
 
 #![allow(non_camel_case_types)]
 
+/// Matches a value against ASCII case-insensitive string literal arms.
+#[macro_export]
+macro_rules! match_ignore_ascii_case {
+    (
+        $value:expr,
+        $($($expected:literal)|+ => $result:expr,)+
+        _ => $fallback:expr $(,)?
+    ) => {{
+        let value = $value;
+        $(
+            if $(value.eq_ignore_ascii_case($expected))||+ {
+                $result
+            } else
+        )+
+        {
+            $fallback
+        }
+    }};
+}
+
 use rocketcss_allocator::{boxed::Box, vec::Vec};
 
 mod color;
@@ -79,5 +99,20 @@ mod tests {
             selector[1],
             SelectorComponent::PseudoClass(ref value) if matches!(**value, PseudoClass::Hover)
         ));
+    }
+
+    #[test]
+    fn function_state_is_accessed_through_flags() {
+        let allocator = Allocator::new();
+        let mut function = Function::new("url", allocator.vec());
+
+        assert!(!function.is_identifier());
+        assert!(!function.is_unquoted_url());
+
+        function.set_identifier(true);
+        function.set_unquoted_url(true);
+
+        assert!(function.is_identifier());
+        assert!(function.is_unquoted_url());
     }
 }

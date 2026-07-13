@@ -11,4 +11,5 @@ pub use crate::tokenizer::{
     SourceLocation, SourcePosition, Token as LexicalToken, TokenAndSpan, Tokenizer, TokenizerState,
 };
 pub use rocketcss_ast::Token as ValueToken;
+pub(crate) use rocketcss_ast::match_ignore_ascii_case;
 pub use rocketcss_ast::prelude::*;

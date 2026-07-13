@@ -63,6 +63,53 @@ fn compact_stylesheet_omits_optional_whitespace() {
 }
 
 #[test]
+fn serializes_packed_rgb_and_rgba_hex_values() {
+    for (color, expected) in [
+        (
+            RGBA {
+                red: 0xaa,
+                green: 0xbb,
+                blue: 0xcc,
+                alpha: 0xff,
+            },
+            "#abc",
+        ),
+        (
+            RGBA {
+                red: 0x12,
+                green: 0x34,
+                blue: 0x56,
+                alpha: 0xff,
+            },
+            "#123456",
+        ),
+        (
+            RGBA {
+                red: 0xaa,
+                green: 0xbb,
+                blue: 0xcc,
+                alpha: 0xdd,
+            },
+            "#abcd",
+        ),
+        (
+            RGBA {
+                red: 0x12,
+                green: 0x34,
+                blue: 0x56,
+                alpha: 0x78,
+            },
+            "#12345678",
+        ),
+    ] {
+        assert_eq!(
+            color.to_css_string(PrinterOptions::default()).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn serializes_typed_and_unknown_dimension_units() {
     assert_eq!(
         Token::Dimension {

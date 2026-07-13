@@ -15,7 +15,9 @@ bitflags       = "2.13.0"
 bumpalo        = "3.20.3"
 cssparser      = "0.37.0"
 hashbrown      = "0.17.1"
+itoa           = "1.0.17"
 rustc-hash     = "2.1.2"
+zmij           = "1.0.21"
 
 # Ast tool
 convert_case = "0.11.0"

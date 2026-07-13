@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use rocketcss_allocator::Allocator;
-use rocketcss_ast::{Token as ValueToken, Unit};
+use rocketcss_ast::{Token as ValueToken, Unit, match_ignore_ascii_case};
 
 use crate::{Span, Token};
 

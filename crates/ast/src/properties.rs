@@ -11,6 +11,33 @@ macro_rules! property_id_pattern {
     };
 }
 
+macro_rules! property_id_prefix_pattern {
+    ($name:path, $binding:ident) => {
+        $name
+    };
+    ($name:path, $vendor_prefix:ty, $binding:ident) => {
+        $name($binding)
+    };
+}
+
+macro_rules! property_id_prefix {
+    () => {
+        VendorPrefix::NONE
+    };
+    ($prefix:ident: $vendor_prefix:ty) => {
+        *$prefix
+    };
+}
+
+macro_rules! property_id_with_vendor_prefix {
+    ($name:path, $prefix:expr) => {
+        None
+    };
+    ($name:path, $prefix:expr, $vendor_prefix:ty) => {
+        Some($name($prefix))
+    };
+}
+
 macro_rules! declaration_pattern {
     ($name:path, $value:ident) => {
         $name($value)
@@ -42,6 +69,10 @@ macro_rules! define_properties {
                 $(#[$meta])*
                 $property$(($vp))?,
             )+
+            ColumnRule,
+            Columns,
+            GridColumnGap,
+            GridRowGap,
             All,
             Unparsed,
             Custom(&'a str),
@@ -61,15 +92,30 @@ macro_rules! define_properties {
         impl<'a> PropertyId<'a> {
             /// Resolves a property name while retaining unknown names for lossless parsing.
             pub fn from_name(name: &'a str) -> Self {
-                if name.eq_ignore_ascii_case("all") {
-                    return Self::All;
+                let property_id = match_ignore_ascii_case!(
+                    name,
+                    "all" => Some(Self::All),
+                    $($name => Some(Self::$property$( (<$vp>::default()) )?),)+
+                    "column-rule" => Some(Self::ColumnRule),
+                    "columns" => Some(Self::Columns),
+                    "grid-column-gap" => Some(Self::GridColumnGap),
+                    "grid-row-gap" => Some(Self::GridRowGap),
+                    _ => None,
+                );
+                if let Some(property_id) = property_id {
+                    return property_id;
                 }
 
-                $(
-                    if name.eq_ignore_ascii_case($name) {
-                        return Self::$property$( (<$vp>::default()) )?;
+                if let Some((prefix, unprefixed_name)) = VendorPrefix::split_from_name(name) {
+                    let property_id = match_ignore_ascii_case!(
+                        unprefixed_name,
+                        $($name => property_id_with_vendor_prefix!(Self::$property, prefix$(, $vp)?),)+
+                        _ => None,
+                    );
+                    if let Some(property_id) = property_id {
+                        return property_id;
                     }
-                )+
+                }
 
                 Self::Custom(name)
             }
@@ -78,9 +124,27 @@ macro_rules! define_properties {
             pub fn name(&self) -> &str {
                 match self {
                     $(property_id_pattern!(Self::$property$(, $vp)?) => $name,)+
+                    Self::ColumnRule => "column-rule",
+                    Self::Columns => "columns",
+                    Self::GridColumnGap => "grid-column-gap",
+                    Self::GridRowGap => "grid-row-gap",
                     Self::All => "all",
                     Self::Unparsed => "",
                     Self::Custom(name) => name,
+                }
+            }
+
+            /// Returns the vendor prefix associated with this property identifier.
+            pub fn vendor_prefix(&self) -> VendorPrefix {
+                match self {
+                    $(property_id_prefix_pattern!(Self::$property$(, $vp)?, prefix) => property_id_prefix!($(prefix: $vp)?),)+
+                    Self::ColumnRule
+                    | Self::Columns
+                    | Self::GridColumnGap
+                    | Self::GridRowGap
+                    | Self::All
+                    | Self::Unparsed
+                    | Self::Custom(_) => VendorPrefix::NONE,
                 }
             }
         }
@@ -102,7 +166,8 @@ macro_rules! define_properties {
             pub fn vendor_prefix(&self) -> VendorPrefix {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => declaration_prefix!($(vendor_prefix: $vp)?),)+
-                    Self::All(_) | Self::Unparsed(_) | Self::Custom(_) => VendorPrefix::NONE,
+                    Self::Unparsed(value) => value.property_id.vendor_prefix(),
+                    Self::All(_) | Self::Custom(_) => VendorPrefix::NONE,
                 }
             }
         }
@@ -125,6 +190,28 @@ impl Default for VendorPrefix {
     fn default() -> Self {
         Self::NONE
     }
+}
+
+impl VendorPrefix {
+    fn split_from_name(name: &str) -> Option<(Self, &str)> {
+        [
+            (Self::WEBKIT, "-webkit-"),
+            (Self::MOZ, "-moz-"),
+            (Self::MS, "-ms-"),
+            (Self::O, "-o-"),
+        ]
+        .into_iter()
+        .find_map(|(prefix, value)| {
+            strip_prefix_ignore_ascii_case(name, value).map(|name| (prefix, name))
+        })
+    }
+}
+
+fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    value
+        .get(..prefix.len())
+        .filter(|value| value.eq_ignore_ascii_case(prefix))?;
+    value.get(prefix.len()..)
 }
 
 #[derive(Debug, PartialEq)]
