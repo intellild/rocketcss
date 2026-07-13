@@ -45,17 +45,17 @@ pub use tokenizer::{
     SourceLocation, SourcePosition, Token, TokenAndSpan, Tokenizer, TokenizerState,
 };
 
-/// A stylesheet parser whose inputs share one lifetime.
+/// A CSS compiler context whose inputs share one lifetime.
 ///
 /// Keeping the source, allocator, and options together makes it possible for
 /// every reference in the returned AST to use the same lifetime.
-pub struct Parser<'a> {
+pub struct Compiler<'a> {
     source: &'a str,
     allocator: &'a Allocator,
     options: ParserOptions<'a>,
 }
 
-impl<'a> Parser<'a> {
+impl<'a> Compiler<'a> {
     pub fn new(source: &'a str, allocator: &'a Allocator, options: ParserOptions<'a>) -> Self {
         Self {
             source,
@@ -81,13 +81,13 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Parses a stylesheet using a temporary [`Parser`].
+/// Parses a stylesheet using a temporary [`Compiler`].
 pub fn parse<'a>(
     source: &'a str,
     allocator: &'a Allocator,
     options: ParserOptions<'a>,
 ) -> Result<StyleSheet<'a>, Error<'a>> {
-    Parser::new(source, allocator, options).parse()
+    Compiler::new(source, allocator, options).parse()
 }
 
 #[cfg(test)]
