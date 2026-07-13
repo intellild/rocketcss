@@ -1,6 +1,24 @@
 use rocketcss_parser::prelude::*;
 
 #[test]
+fn stylesheet_parser_binds_source_allocator_and_options() {
+    let allocator = Allocator::new();
+    let source = "a { color: red }";
+    let options = ParserOptions {
+        filename: "input.css",
+        ..ParserOptions::default()
+    };
+    let parser = rocketcss_parser::Parser::new(source, &allocator, options);
+
+    assert_eq!(parser.source(), source);
+    assert!(std::ptr::eq(parser.allocator(), &allocator));
+    assert_eq!(parser.options().filename, "input.css");
+
+    let stylesheet = parser.parse().unwrap();
+    assert_eq!(&*stylesheet.sources, ["input.css"]);
+}
+
+#[test]
 fn parser_decodes_values_from_token_spans() {
     let allocator = Allocator::new();
     let mut input = ParserInput::new(
