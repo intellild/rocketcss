@@ -9,11 +9,11 @@ repository.workspace  = true
 version               = "0.1.0"
 
 [dependencies]
-cssparser        = { workspace = true }
+cssparser           = { workspace = true }
 rocketcss_allocator = { workspace = true }
 rocketcss_ast       = { workspace = true }
 
 [dev-dependencies]
-lightningcss  = { workspace = true }
+lightningcss     = { workspace = true }
 rocketcss_parser = { workspace = true }
-serde_json    = { workspace = true }
+serde_json       = { workspace = true }

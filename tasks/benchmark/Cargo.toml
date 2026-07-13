@@ -5,18 +5,18 @@ publish = false
 version = "0.1.0"
 
 [dev-dependencies]
-css-module-lexer = { workspace = true }
-divan            = { workspace = true }
-hashbrown        = { workspace = true }
-lightningcss     = { workspace = true }
-mimalloc         = { workspace = true }
+css-module-lexer    = { workspace = true }
+divan               = { workspace = true }
+hashbrown           = { workspace = true }
+lightningcss        = { workspace = true }
+mimalloc            = { workspace = true }
 rocketcss_allocator = { workspace = true }
 rocketcss_codegen   = { workspace = true }
 rocketcss_minify    = { workspace = true }
 rocketcss_parser    = { workspace = true }
-rustc-hash       = { workspace = true }
-stylo            = { workspace = true }
-url              = { workspace = true }
+rustc-hash          = { workspace = true }
+stylo               = { workspace = true }
+url                 = { workspace = true }
 
 [[bench]]
 harness = false
