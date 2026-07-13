@@ -2,6 +2,7 @@
   "name": "rocketcss",
   "version": "0.0.0",
   "private": true,
+  "packageManager": "pnpm@11.12.0",
   "scripts": {
     "format-ci:prettier": "prettier --check .",
     "format-ci:toml": "taplo format --check",
