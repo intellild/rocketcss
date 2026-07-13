@@ -523,14 +523,6 @@ where
     for value_1 in (&node.rules).iter() {
         visitor.visit_css_rule(value_1);
     }
-    for value_2 in (&node.source_map_urls).iter() {
-        if let Some(value_3) = (value_2).as_ref() {
-            visitor.visit_str(value_3);
-        }
-    }
-    for value_4 in (&node.sources).iter() {
-        visitor.visit_str(value_4);
-    }
     visitor.leave_node(AstType::StyleSheet);
 }
 pub fn walk_media_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &MediaRule<'a>)

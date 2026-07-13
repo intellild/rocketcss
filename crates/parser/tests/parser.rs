@@ -8,14 +8,15 @@ fn compiler_binds_source_allocator_and_options() {
         filename: "input.css",
         ..ParserOptions::default()
     };
-    let compiler = rocketcss_parser::Compiler::new(source, &allocator, options);
+    let mut compiler = rocketcss_parser::Compiler::new(source, &allocator, options);
 
     assert_eq!(compiler.source(), source);
     assert!(std::ptr::eq(compiler.allocator(), &allocator));
     assert_eq!(compiler.options().filename, "input.css");
 
     let stylesheet = compiler.parse().unwrap();
-    assert_eq!(&*stylesheet.sources, ["input.css"]);
+    assert_eq!(stylesheet.rules.len(), 1);
+    assert_eq!(compiler.source_map_url(), None);
 }
 
 #[test]
@@ -105,7 +106,6 @@ fn parses_style_rule_selectors_and_declarations() {
     .unwrap();
 
     assert_eq!(&*sheet.license_comments, ["! license "]);
-    assert_eq!(&*sheet.sources, ["input.css"]);
     assert_eq!(sheet.rules.len(), 1);
     let CssRule::Style(rule) = &sheet.rules[0] else {
         panic!("expected style rule")
@@ -626,8 +626,10 @@ fn extracts_source_directives_in_parser_layer() {
     let allocator = Allocator::new();
     let source =
         "a { color: red } /*# sourceURL=original.scss */ /*# sourceMappingURL=style.css.map */";
-    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
-    assert_eq!(&*sheet.source_map_urls, [Some("style.css.map")]);
+    let mut compiler =
+        rocketcss_parser::Compiler::new(source, &allocator, ParserOptions::default());
+    let _sheet = compiler.parse().unwrap();
+    assert_eq!(compiler.source_map_url(), Some("style.css.map"));
 
     let mut input = ParserInput::new(source, &allocator);
     let mut parser = Parser::new(&mut input);

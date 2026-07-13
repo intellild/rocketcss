@@ -31,10 +31,8 @@ mod parser;
 pub mod prelude;
 mod tokenizer;
 
-use rocketcss_allocator::Allocator;
-use rocketcss_ast::StyleSheet;
-
 pub use escape::unescape;
+pub use parser::stylesheet::{Compiler, parse};
 pub use parser::{
     BasicParseError, BasicParseErrorKind, Delimiter, Delimiters, Error, Parse, ParseError,
     ParseErrorKind, ParseUntilErrorBehavior, Parser as TokenParser, ParserError, ParserInput,
@@ -44,51 +42,6 @@ pub use rocketcss_ast::{Span, Token as ValueToken};
 pub use tokenizer::{
     SourceLocation, SourcePosition, Token, TokenAndSpan, Tokenizer, TokenizerState,
 };
-
-/// A CSS compiler context whose inputs share one lifetime.
-///
-/// Keeping the source, allocator, and options together makes it possible for
-/// every reference in the returned AST to use the same lifetime.
-pub struct Compiler<'a> {
-    source: &'a str,
-    allocator: &'a Allocator,
-    options: ParserOptions<'a>,
-}
-
-impl<'a> Compiler<'a> {
-    pub fn new(source: &'a str, allocator: &'a Allocator, options: ParserOptions<'a>) -> Self {
-        Self {
-            source,
-            allocator,
-            options,
-        }
-    }
-
-    pub fn parse(&self) -> Result<StyleSheet<'a>, Error<'a>> {
-        parser::stylesheet::parse(self.source, self.allocator, self.options)
-    }
-
-    pub fn source(&self) -> &'a str {
-        self.source
-    }
-
-    pub fn allocator(&self) -> &'a Allocator {
-        self.allocator
-    }
-
-    pub fn options(&self) -> &ParserOptions<'a> {
-        &self.options
-    }
-}
-
-/// Parses a stylesheet using a temporary [`Compiler`].
-pub fn parse<'a>(
-    source: &'a str,
-    allocator: &'a Allocator,
-    options: ParserOptions<'a>,
-) -> Result<StyleSheet<'a>, Error<'a>> {
-    Compiler::new(source, allocator, options).parse()
-}
 
 #[cfg(test)]
 mod tests {

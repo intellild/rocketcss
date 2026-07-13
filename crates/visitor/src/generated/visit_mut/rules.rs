@@ -529,14 +529,6 @@ where
     for value_1 in (&mut node.rules).iter_mut() {
         visitor.visit_css_rule(value_1);
     }
-    for value_2 in (&mut node.source_map_urls).iter_mut() {
-        if let Some(value_3) = (value_2).as_mut() {
-            visitor.visit_str(value_3);
-        }
-    }
-    for value_4 in (&mut node.sources).iter_mut() {
-        visitor.visit_str(value_4);
-    }
     visitor.leave_node(AstType::StyleSheet);
 }
 pub fn walk_media_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &mut MediaRule<'a>)
