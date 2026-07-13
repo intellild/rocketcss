@@ -5,7 +5,7 @@
 
 #![allow(non_camel_case_types)]
 
-use rocketcss_allocator::{boxed::Box, vec::Vec};
+use rocketcss_allocator::{atom::Atom, boxed::Box, vec::Vec};
 
 mod color;
 mod css_rule;
@@ -52,7 +52,7 @@ mod tests {
         let allocator = Allocator::new();
         let rule = PositionTryRule {
             span: Span::new(4, 42),
-            name: "--fallback",
+            name: allocator.alloc_str("--fallback"),
             declarations: allocator.boxed(DeclarationBlock::new(&allocator)),
         };
         let rule = CssRule::PositionTry(allocator.boxed(rule));

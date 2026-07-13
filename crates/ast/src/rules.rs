@@ -10,8 +10,8 @@ pub enum KeyframeSelector<'a> {
 
 #[derive(Debug, PartialEq)]
 pub enum KeyframesName<'a> {
-    Ident(&'a str),
-    Custom(&'a str),
+    Ident(Atom<'a>),
+    Custom(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -40,7 +40,7 @@ pub enum FontFormat<'a> {
     EmbeddedOpentype,
     Collection,
     Svg,
-    String(&'a str),
+    String(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -126,7 +126,7 @@ pub enum ParsedComponent<'a> {
     Number(f32),
     Percentage(f32),
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
-    String(&'a str),
+    String(Atom<'a>),
     Color(Box<'a, CssColor<'a>>),
     Image(Box<'a, Image<'a>>),
     Url(Box<'a, Url<'a>>),
@@ -136,8 +136,8 @@ pub enum ParsedComponent<'a> {
     Resolution(Box<'a, Resolution>),
     TransformFunction(Box<'a, Transform<'a>>),
     TransformList(Vec<'a, Transform<'a>>),
-    CustomIdent(&'a str),
-    Literal(&'a str),
+    CustomIdent(Atom<'a>),
+    Literal(Atom<'a>),
     Repeated {
         components: Vec<'a, ParsedComponent<'a>>,
         multiplier: Multiplier,
@@ -175,7 +175,7 @@ pub enum SyntaxComponentKind<'a> {
     TransformFunction,
     TransformList,
     CustomIdent,
-    Literal(&'a str),
+    Literal(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -252,7 +252,7 @@ pub struct DefaultAtRule;
 
 #[derive(Debug, PartialEq)]
 pub struct StyleSheet<'a> {
-    pub license_comments: Vec<'a, &'a str>,
+    pub license_comments: Vec<'a, Atom<'a>>,
     pub rules: Vec<'a, CssRule<'a>>,
 }
 
@@ -291,7 +291,7 @@ pub struct EnvironmentVariable<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Url<'a> {
     pub span: Span,
-    pub url: &'a str,
+    pub url: Atom<'a>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -303,22 +303,22 @@ pub struct Variable<'a> {
 #[derive(Debug, PartialEq)]
 pub struct DashedIdentReference<'a> {
     pub from: Option<Box<'a, Specifier<'a>>>,
-    pub ident: &'a str,
+    pub ident: Atom<'a>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Function<'a> {
     pub arguments: Vec<'a, TokenOrValue<'a>>,
-    pub name: &'a str,
+    pub name: Atom<'a>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ImportRule<'a> {
-    pub layer: Option<Vec<'a, &'a str>>,
+    pub layer: Option<Vec<'a, Atom<'a>>>,
     pub span: Span,
     pub media: Option<Box<'a, MediaList<'a>>>,
     pub supports: Option<Box<'a, SupportsCondition<'a>>>,
-    pub url: &'a str,
+    pub url: Atom<'a>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -405,7 +405,7 @@ pub struct ImageSet<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct ImageSetOption<'a> {
-    pub file_type: Option<&'a str>,
+    pub file_type: Option<Atom<'a>>,
     pub image: Box<'a, Image<'a>>,
     pub resolution: Box<'a, Resolution>,
 }
@@ -612,7 +612,7 @@ pub struct Gap<'a> {
 #[derive(Debug, PartialEq)]
 pub struct TrackRepeat<'a> {
     pub count: Box<'a, RepeatCount>,
-    pub line_names: Vec<'a, Vec<'a, &'a str>>,
+    pub line_names: Vec<'a, Vec<'a, Atom<'a>>>,
     pub track_sizes: Vec<'a, TrackSize<'a>>,
 }
 
@@ -899,7 +899,7 @@ pub struct ListStyle<'a> {
 pub struct Composes<'a> {
     pub from: Option<Box<'a, Specifier<'a>>>,
     pub span: Span,
-    pub names: Vec<'a, &'a str>,
+    pub names: Vec<'a, Atom<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -990,7 +990,7 @@ pub struct CustomProperty<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct ViewTransitionPartSelector<'a> {
-    pub classes: Vec<'a, &'a str>,
+    pub classes: Vec<'a, Atom<'a>>,
     pub name: Option<Box<'a, ViewTransitionPartName<'a>>>,
 }
 
@@ -1036,7 +1036,7 @@ pub struct UnicodeRange {
 #[derive(Debug, PartialEq)]
 pub struct FontPaletteValuesRule<'a> {
     pub span: Span,
-    pub name: &'a str,
+    pub name: Atom<'a>,
     pub properties: Vec<'a, FontPaletteValuesProperty<'a>>,
 }
 
@@ -1062,12 +1062,12 @@ pub struct FontFeatureSubrule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct FontFeatureDeclaration<'a> {
-    pub name: &'a str,
+    pub name: Atom<'a>,
     pub values: Vec<'a, i32>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FamilyName<'a>(pub &'a str);
+pub struct FamilyName<'a>(pub Atom<'a>);
 
 #[derive(Debug, PartialEq)]
 pub struct PageRule<'a> {
@@ -1086,7 +1086,7 @@ pub struct PageMarginRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct PageSelector<'a> {
-    pub name: Option<&'a str>,
+    pub name: Option<Atom<'a>>,
     pub pseudo_classes: Vec<'a, PagePseudoClass>,
 }
 
@@ -1101,14 +1101,14 @@ pub struct SupportsRule<'a> {
 pub struct CounterStyleRule<'a> {
     pub declarations: Box<'a, DeclarationBlock<'a>>,
     pub span: Span,
-    pub name: &'a str,
+    pub name: Atom<'a>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct NamespaceRule<'a> {
     pub span: Span,
-    pub prefix: Option<&'a str>,
-    pub url: &'a str,
+    pub prefix: Option<Atom<'a>>,
+    pub url: Atom<'a>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1139,20 +1139,20 @@ pub struct ViewportRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct CustomMediaRule<'a> {
     pub span: Span,
-    pub name: &'a str,
+    pub name: Atom<'a>,
     pub query: Box<'a, MediaList<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct LayerStatementRule<'a> {
     pub span: Span,
-    pub names: Vec<'a, Vec<'a, &'a str>>,
+    pub names: Vec<'a, Vec<'a, Atom<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct LayerBlockRule<'a> {
     pub span: Span,
-    pub name: Option<Vec<'a, &'a str>>,
+    pub name: Option<Vec<'a, Atom<'a>>>,
     pub rules: Vec<'a, CssRule<'a>>,
 }
 
@@ -1161,7 +1161,7 @@ pub struct PropertyRule<'a> {
     pub inherits: bool,
     pub initial_value: Option<Box<'a, ParsedComponent<'a>>>,
     pub span: Span,
-    pub name: &'a str,
+    pub name: Atom<'a>,
     pub syntax: Box<'a, SyntaxString<'a>>,
 }
 
@@ -1175,7 +1175,7 @@ pub struct SyntaxComponent<'a> {
 pub struct ContainerRule<'a> {
     pub condition: Option<Box<'a, ContainerCondition<'a>>>,
     pub span: Span,
-    pub name: Option<&'a str>,
+    pub name: Option<Atom<'a>>,
     pub rules: Vec<'a, CssRule<'a>>,
 }
 
@@ -1202,7 +1202,7 @@ pub struct ViewTransitionRule<'a> {
 #[derive(Debug, PartialEq)]
 pub struct PositionTryRule<'a> {
     pub span: Span,
-    pub name: &'a str,
+    pub name: Atom<'a>,
     pub declarations: Box<'a, DeclarationBlock<'a>>,
 }
 
@@ -1210,7 +1210,7 @@ pub struct PositionTryRule<'a> {
 pub struct UnknownAtRule<'a> {
     pub block: Option<Vec<'a, TokenOrValue<'a>>>,
     pub span: Span,
-    pub name: &'a str,
+    pub name: Atom<'a>,
     pub prelude: Vec<'a, TokenOrValue<'a>>,
 }
 

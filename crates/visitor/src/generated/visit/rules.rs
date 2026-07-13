@@ -29,10 +29,10 @@ where
     visitor.enter_node(AstType::KeyframesName);
     match node {
         KeyframesName::Ident(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         KeyframesName::Custom(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::KeyframesName);
@@ -100,7 +100,7 @@ where
         FontFormat::Collection => {}
         FontFormat::Svg => {}
         FontFormat::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::FontFormat);
@@ -248,7 +248,7 @@ where
             visitor.visit_length_percentage((field_0).as_ref());
         }
         ParsedComponent::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         ParsedComponent::Color(field_0) => {
             visitor.visit_css_color((field_0).as_ref());
@@ -278,10 +278,10 @@ where
             }
         }
         ParsedComponent::CustomIdent(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         ParsedComponent::Literal(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         ParsedComponent::Repeated {
             components,
@@ -351,7 +351,7 @@ pub fn walk_syntax_component_kind<'a, VisitorT>(
         SyntaxComponentKind::TransformList => {}
         SyntaxComponentKind::CustomIdent => {}
         SyntaxComponentKind::Literal(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::SyntaxComponentKind);
@@ -518,7 +518,7 @@ where
 {
     visitor.enter_node(AstType::StyleSheet);
     for value_0 in (&node.license_comments).iter() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
     for value_1 in (&node.rules).iter() {
         visitor.visit_css_rule(value_1);
@@ -591,7 +591,7 @@ where
 {
     visitor.enter_node(AstType::Url);
     visitor.visit_span(&node.span);
-    visitor.visit_str(&node.url);
+    visitor.visit_atom(&node.url);
     visitor.leave_node(AstType::Url);
 }
 pub fn walk_variable<'a, VisitorT>(visitor: &mut VisitorT, node: &Variable<'a>)
@@ -617,7 +617,7 @@ pub fn walk_dashed_ident_reference<'a, VisitorT>(
     if let Some(value_0) = (&node.from).as_ref() {
         visitor.visit_specifier((value_0).as_ref());
     }
-    visitor.visit_str(&node.ident);
+    visitor.visit_atom(&node.ident);
     visitor.leave_node(AstType::DashedIdentReference);
 }
 pub fn walk_function<'a, VisitorT>(visitor: &mut VisitorT, node: &Function<'a>)
@@ -628,7 +628,7 @@ where
     for value_0 in (&node.arguments).iter() {
         visitor.visit_token_or_value(value_0);
     }
-    visitor.visit_str(&node.name);
+    visitor.visit_atom(&node.name);
     visitor.leave_node(AstType::Function);
 }
 pub fn walk_import_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &ImportRule<'a>)
@@ -638,7 +638,7 @@ where
     visitor.enter_node(AstType::ImportRule);
     if let Some(value_0) = (&node.layer).as_ref() {
         for value_1 in (value_0).iter() {
-            visitor.visit_str(value_1);
+            visitor.visit_atom(value_1);
         }
     }
     visitor.visit_span(&node.span);
@@ -648,7 +648,7 @@ where
     if let Some(value_4) = (&node.supports).as_ref() {
         visitor.visit_supports_condition((value_4).as_ref());
     }
-    visitor.visit_str(&node.url);
+    visitor.visit_atom(&node.url);
     visitor.leave_node(AstType::ImportRule);
 }
 pub fn walk_style_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &StyleRule<'a>)
@@ -720,7 +720,7 @@ where
 {
     visitor.enter_node(AstType::ImageSetOption);
     if let Some(value_0) = (&node.file_type).as_ref() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
     visitor.visit_image((&node.image).as_ref());
     visitor.visit_resolution((&node.resolution).as_ref());
@@ -1018,7 +1018,7 @@ where
     visitor.visit_repeat_count((&node.count).as_ref());
     for value_1 in (&node.line_names).iter() {
         for value_2 in (value_1).iter() {
-            visitor.visit_str(value_2);
+            visitor.visit_atom(value_2);
         }
     }
     for value_3 in (&node.track_sizes).iter() {
@@ -1412,7 +1412,7 @@ where
     }
     visitor.visit_span(&node.span);
     for value_2 in (&node.names).iter() {
-        visitor.visit_str(value_2);
+        visitor.visit_atom(value_2);
     }
     visitor.leave_node(AstType::Composes);
 }
@@ -1549,7 +1549,7 @@ pub fn walk_view_transition_part_selector<'a, VisitorT>(
 {
     visitor.enter_node(AstType::ViewTransitionPartSelector);
     for value_0 in (&node.classes).iter() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
     if let Some(value_1) = (&node.name).as_ref() {
         visitor.visit_view_transition_part_name((value_1).as_ref());
@@ -1630,7 +1630,7 @@ pub fn walk_font_palette_values_rule<'a, VisitorT>(
 {
     visitor.enter_node(AstType::FontPaletteValuesRule);
     visitor.visit_span(&node.span);
-    visitor.visit_str(&node.name);
+    visitor.visit_atom(&node.name);
     for value_0 in (&node.properties).iter() {
         visitor.visit_font_palette_values_property(value_0);
     }
@@ -1681,7 +1681,7 @@ pub fn walk_font_feature_declaration<'a, VisitorT>(
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::FontFeatureDeclaration);
-    visitor.visit_str(&node.name);
+    visitor.visit_atom(&node.name);
     for value_0 in (&node.values).iter() {}
     visitor.leave_node(AstType::FontFeatureDeclaration);
 }
@@ -1690,7 +1690,7 @@ where
     VisitorT: ?Sized + Visit<'a>,
 {
     visitor.enter_node(AstType::FamilyName);
-    visitor.visit_str(&node.0);
+    visitor.visit_atom(&node.0);
     visitor.leave_node(AstType::FamilyName);
 }
 pub fn walk_page_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &PageRule<'a>)
@@ -1724,7 +1724,7 @@ where
 {
     visitor.enter_node(AstType::PageSelector);
     if let Some(value_0) = (&node.name).as_ref() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
     for value_1 in (&node.pseudo_classes).iter() {
         visitor.visit_page_pseudo_class(value_1);
@@ -1750,7 +1750,7 @@ where
     visitor.enter_node(AstType::CounterStyleRule);
     visitor.visit_declaration_block((&node.declarations).as_ref());
     visitor.visit_span(&node.span);
-    visitor.visit_str(&node.name);
+    visitor.visit_atom(&node.name);
     visitor.leave_node(AstType::CounterStyleRule);
 }
 pub fn walk_namespace_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &NamespaceRule<'a>)
@@ -1760,9 +1760,9 @@ where
     visitor.enter_node(AstType::NamespaceRule);
     visitor.visit_span(&node.span);
     if let Some(value_0) = (&node.prefix).as_ref() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
-    visitor.visit_str(&node.url);
+    visitor.visit_atom(&node.url);
     visitor.leave_node(AstType::NamespaceRule);
 }
 pub fn walk_moz_document_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &MozDocumentRule<'a>)
@@ -1812,7 +1812,7 @@ where
 {
     visitor.enter_node(AstType::CustomMediaRule);
     visitor.visit_span(&node.span);
-    visitor.visit_str(&node.name);
+    visitor.visit_atom(&node.name);
     visitor.visit_media_list((&node.query).as_ref());
     visitor.leave_node(AstType::CustomMediaRule);
 }
@@ -1826,7 +1826,7 @@ pub fn walk_layer_statement_rule<'a, VisitorT>(
     visitor.visit_span(&node.span);
     for value_0 in (&node.names).iter() {
         for value_1 in (value_0).iter() {
-            visitor.visit_str(value_1);
+            visitor.visit_atom(value_1);
         }
     }
     visitor.leave_node(AstType::LayerStatementRule);
@@ -1839,7 +1839,7 @@ where
     visitor.visit_span(&node.span);
     if let Some(value_0) = (&node.name).as_ref() {
         for value_1 in (value_0).iter() {
-            visitor.visit_str(value_1);
+            visitor.visit_atom(value_1);
         }
     }
     for value_2 in (&node.rules).iter() {
@@ -1856,7 +1856,7 @@ where
         visitor.visit_parsed_component((value_0).as_ref());
     }
     visitor.visit_span(&node.span);
-    visitor.visit_str(&node.name);
+    visitor.visit_atom(&node.name);
     visitor.visit_syntax_string((&node.syntax).as_ref());
     visitor.leave_node(AstType::PropertyRule);
 }
@@ -1879,7 +1879,7 @@ where
     }
     visitor.visit_span(&node.span);
     if let Some(value_2) = (&node.name).as_ref() {
-        visitor.visit_str(value_2);
+        visitor.visit_atom(value_2);
     }
     for value_3 in (&node.rules).iter() {
         visitor.visit_css_rule(value_3);
@@ -1933,7 +1933,7 @@ where
 {
     visitor.enter_node(AstType::PositionTryRule);
     visitor.visit_span(&node.span);
-    visitor.visit_str(&node.name);
+    visitor.visit_atom(&node.name);
     visitor.visit_declaration_block((&node.declarations).as_ref());
     visitor.leave_node(AstType::PositionTryRule);
 }
@@ -1948,7 +1948,7 @@ where
         }
     }
     visitor.visit_span(&node.span);
-    visitor.visit_str(&node.name);
+    visitor.visit_atom(&node.name);
     for value_2 in (&node.prelude).iter() {
         visitor.visit_token_or_value(value_2);
     }

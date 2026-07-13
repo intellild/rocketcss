@@ -2,12 +2,12 @@ use std::{error::Error, fmt};
 
 use rocketcss_visitor::prelude::*;
 
-struct Rename {
-    from: &'static str,
-    to: &'static str,
+struct Rename<'a> {
+    from: Atom<'a>,
+    to: Atom<'a>,
 }
 
-impl<'a> VisitMut<'a> for Rename {
+impl<'a> VisitMut<'a> for Rename<'a> {
     fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
         if let SelectorComponent::Class(name) = component
             && *name == self.from
@@ -48,22 +48,25 @@ fn plugins_run_in_registration_order_and_share_context() {
     )
     .unwrap();
     let mut context = PluginContext::new(&allocator);
+    let first = allocator.alloc_str("first");
+    let middle = allocator.alloc_str("middle");
+    let last = allocator.alloc_str("last");
     context.insert(std::vec::Vec::<&'static str>::new());
     let mut plugins = Plugins::new();
     plugins.add(RecordPlugin("one"));
     plugins.add_visitor(
         "first-rename",
         Rename {
-            from: "first",
-            to: "middle",
+            from: first,
+            to: middle,
         },
     );
     plugins.add(RecordPlugin("two"));
     plugins.add_visitor(
         "second-rename",
         Rename {
-            from: "middle",
-            to: "last",
+            from: middle,
+            to: last,
         },
     );
 
@@ -78,7 +81,7 @@ fn plugins_run_in_registration_order_and_share_context() {
     };
     assert!(matches!(
         rule.selectors[0][0],
-        SelectorComponent::Class("last")
+        SelectorComponent::Class(name) if name == "last"
     ));
 }
 

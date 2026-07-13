@@ -2,8 +2,8 @@ use rocketcss_ast::{NthType, SelectorComponent, SelectorList};
 
 use crate::{Minify, MinifyContext};
 
-impl Minify for SelectorList<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for SelectorList<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if context.options().normalize_values {
             for selector in self.iter_mut() {
                 remove_qualified_universal(selector);

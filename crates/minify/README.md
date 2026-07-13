@@ -19,7 +19,7 @@ let mut stylesheet = parse(
     ParserOptions::default(),
 )?;
 
-let stats = minify(&mut stylesheet, MinifyOptions::default());
+let stats = minify(&mut stylesheet, &allocator, MinifyOptions::default());
 let css = stylesheet.to_css_string(PrinterOptions { minify: true })?;
 assert_eq!(css, "a{width:1pc;margin:1px}");
 # Ok::<(), Box<dyn std::error::Error>>(())

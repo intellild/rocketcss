@@ -1,3 +1,5 @@
+use rocketcss_allocator::{Allocator, atom::Atom};
+
 use crate::MinifyOptions;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -22,15 +24,17 @@ pub(crate) struct ValueContext {
 }
 
 /// Shared state for local, in-place node minification.
-pub struct MinifyContext {
+pub struct MinifyContext<'a> {
+    allocator: &'a Allocator,
     options: MinifyOptions,
     stats: MinifyStats,
     pub(crate) value_context: ValueContext,
 }
 
-impl MinifyContext {
-    pub fn new(options: MinifyOptions) -> Self {
+impl<'a> MinifyContext<'a> {
+    pub fn new(allocator: &'a Allocator, options: MinifyOptions) -> Self {
         Self {
+            allocator,
             options,
             stats: MinifyStats::default(),
             value_context: ValueContext::default(),
@@ -40,6 +44,16 @@ impl MinifyContext {
     #[inline]
     pub fn options(&self) -> MinifyOptions {
         self.options
+    }
+
+    #[inline]
+    pub fn allocator(&self) -> &'a Allocator {
+        self.allocator
+    }
+
+    #[inline]
+    pub(crate) fn alloc_str(&self, value: &str) -> Atom<'a> {
+        self.allocator.alloc_str(value)
     }
 
     #[inline]

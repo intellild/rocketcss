@@ -761,7 +761,7 @@ impl ToCss for GapValue<'_> {
 }
 
 pub(crate) fn write_line_names<PrinterT: PrinterTrait>(
-    names: &[&str],
+    names: &[Atom<'_>],
     dest: &mut PrinterT,
 ) -> fmt::Result {
     if names.is_empty() {
@@ -882,7 +882,7 @@ impl ToCss for GridTemplateAreas<'_> {
                         if column > 0 {
                             output.push(' ');
                         }
-                        output.push_str(value.unwrap_or("."));
+                        output.push_str(value.as_ref().map(Atom::as_str).unwrap_or("."));
                     }
                     serialize_string(&output, dest)?;
                 }
@@ -1522,7 +1522,10 @@ impl ToCss for ContainerNameList<'_> {
     }
 }
 
-fn write_ident_list<PrinterT: PrinterTrait>(values: &[&str], dest: &mut PrinterT) -> fmt::Result {
+fn write_ident_list<PrinterT: PrinterTrait>(
+    values: &[Atom<'_>],
+    dest: &mut PrinterT,
+) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
             dest.write_char(' ')?;

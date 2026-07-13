@@ -52,12 +52,14 @@ fn immutable_visitor_walks_the_complete_tree_with_balanced_events() {
     assert_eq!(recorder.colors, 1);
 }
 
-struct RenameAndRecolor;
+struct RenameAndRecolor<'a> {
+    renamed: Atom<'a>,
+}
 
-impl<'a> VisitMut<'a> for RenameAndRecolor {
+impl<'a> VisitMut<'a> for RenameAndRecolor<'a> {
     fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
         if let SelectorComponent::Class(name) = component {
-            *name = "renamed";
+            *name = self.renamed;
         }
         walk_mut::walk_selector_component(self, component);
     }
@@ -78,14 +80,17 @@ fn mutable_visitor_can_transform_typed_nodes() {
     )
     .unwrap();
 
-    RenameAndRecolor.visit_style_sheet(&mut sheet);
+    RenameAndRecolor {
+        renamed: allocator.alloc_str("renamed"),
+    }
+    .visit_style_sheet(&mut sheet);
 
     let CssRule::Style(rule) = &sheet.rules[0] else {
         panic!("expected style rule")
     };
     assert!(matches!(
         rule.selectors[0][0],
-        SelectorComponent::Class("renamed")
+        SelectorComponent::Class(name) if name == "renamed"
     ));
     assert!(matches!(
         rule.declarations.declarations[0],

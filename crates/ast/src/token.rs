@@ -15,7 +15,7 @@ pub enum TokenOrValue<'a> {
     Angle(Box<'a, Angle>),
     Time(Box<'a, Time>),
     Resolution(Box<'a, Resolution>),
-    DashedIdent(&'a str),
+    DashedIdent(Atom<'a>),
     AnimationName(Box<'a, AnimationName<'a>>),
 }
 
@@ -52,19 +52,19 @@ impl Unit {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Token<'a> {
-    Ident(&'a str),
-    AtKeyword(&'a str),
-    Hash(&'a str),
-    IdHash(&'a str),
-    String(&'a str),
-    UnquotedUrl(&'a str),
-    Delim(&'a str),
+    Ident(Atom<'a>),
+    AtKeyword(Atom<'a>),
+    Hash(Atom<'a>),
+    IdHash(Atom<'a>),
+    String(Atom<'a>),
+    UnquotedUrl(Atom<'a>),
+    Delim(Atom<'a>),
     Number(f32),
     Percentage(f32),
     Dimension { unit: Unit, value: f32 },
-    UnknownDimension { unit: &'a str, value: f32 },
-    WhiteSpace(&'a str),
-    Comment(&'a str),
+    UnknownDimension { unit: Atom<'a>, value: f32 },
+    WhiteSpace(Atom<'a>),
+    Comment(Atom<'a>),
     Colon,
     Semicolon,
     Comma,
@@ -75,12 +75,12 @@ pub enum Token<'a> {
     SubstringMatch,
     Cdo,
     Cdc,
-    Function(&'a str),
+    Function(Atom<'a>),
     ParenthesisBlock,
     SquareBracketBlock,
     CurlyBracketBlock,
-    BadUrl(&'a str),
-    BadString(&'a str),
+    BadUrl(Atom<'a>),
+    BadString(Atom<'a>),
     CloseParenthesis,
     CloseSquareBracket,
     CloseCurlyBracket,
@@ -89,22 +89,22 @@ pub enum Token<'a> {
 #[derive(Debug, PartialEq)]
 pub enum Specifier<'a> {
     Global,
-    File(&'a str),
+    File(Atom<'a>),
     SourceIndex(u32),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum AnimationName<'a> {
     None,
-    Ident(&'a str),
-    String(&'a str),
+    Ident(Atom<'a>),
+    String(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum EnvironmentVariableName<'a> {
     UA(UAEnvironmentVariable),
     Custom(Box<'a, DashedIdentReference<'a>>),
-    Unknown(&'a str),
+    Unknown(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]

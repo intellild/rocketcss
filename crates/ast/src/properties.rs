@@ -44,7 +44,7 @@ macro_rules! define_properties {
             )+
             All,
             Unparsed,
-            Custom(&'a str),
+            Custom(Atom<'a>),
         }
 
         #[derive(Debug, PartialEq)]
@@ -60,7 +60,7 @@ macro_rules! define_properties {
 
         impl<'a> PropertyId<'a> {
             /// Resolves a property name while retaining unknown names for lossless parsing.
-            pub fn from_name(name: &'a str) -> Self {
+            pub fn from_name(name: Atom<'a>) -> Self {
                 if name.eq_ignore_ascii_case("all") {
                     return Self::All;
                 }

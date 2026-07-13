@@ -10,4 +10,4 @@ pub use crate::selector::*;
 pub use crate::span::*;
 pub use crate::token::*;
 pub use crate::values::*;
-pub use rocketcss_allocator::{Allocator, boxed::Box, vec::Vec};
+pub use rocketcss_allocator::{Allocator, atom::Atom, boxed::Box, vec::Vec};

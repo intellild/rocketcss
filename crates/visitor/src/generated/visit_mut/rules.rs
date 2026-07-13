@@ -29,10 +29,10 @@ where
     visitor.enter_node(AstType::KeyframesName);
     match node {
         KeyframesName::Ident(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         KeyframesName::Custom(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::KeyframesName);
@@ -102,7 +102,7 @@ where
         FontFormat::Collection => {}
         FontFormat::Svg => {}
         FontFormat::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::FontFormat);
@@ -250,7 +250,7 @@ where
             visitor.visit_length_percentage((field_0).as_mut());
         }
         ParsedComponent::String(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         ParsedComponent::Color(field_0) => {
             visitor.visit_css_color((field_0).as_mut());
@@ -280,10 +280,10 @@ where
             }
         }
         ParsedComponent::CustomIdent(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         ParsedComponent::Literal(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         ParsedComponent::Repeated {
             components,
@@ -353,7 +353,7 @@ pub fn walk_syntax_component_kind<'a, VisitorT>(
         SyntaxComponentKind::TransformList => {}
         SyntaxComponentKind::CustomIdent => {}
         SyntaxComponentKind::Literal(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::SyntaxComponentKind);
@@ -524,7 +524,7 @@ where
 {
     visitor.enter_node(AstType::StyleSheet);
     for value_0 in (&mut node.license_comments).iter_mut() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
     for value_1 in (&mut node.rules).iter_mut() {
         visitor.visit_css_rule(value_1);
@@ -597,7 +597,7 @@ where
 {
     visitor.enter_node(AstType::Url);
     visitor.visit_span(&mut node.span);
-    visitor.visit_str(&mut node.url);
+    visitor.visit_atom(&mut node.url);
     visitor.leave_node(AstType::Url);
 }
 pub fn walk_variable<'a, VisitorT>(visitor: &mut VisitorT, node: &mut Variable<'a>)
@@ -623,7 +623,7 @@ pub fn walk_dashed_ident_reference<'a, VisitorT>(
     if let Some(value_0) = (&mut node.from).as_mut() {
         visitor.visit_specifier((value_0).as_mut());
     }
-    visitor.visit_str(&mut node.ident);
+    visitor.visit_atom(&mut node.ident);
     visitor.leave_node(AstType::DashedIdentReference);
 }
 pub fn walk_function<'a, VisitorT>(visitor: &mut VisitorT, node: &mut Function<'a>)
@@ -634,7 +634,7 @@ where
     for value_0 in (&mut node.arguments).iter_mut() {
         visitor.visit_token_or_value(value_0);
     }
-    visitor.visit_str(&mut node.name);
+    visitor.visit_atom(&mut node.name);
     visitor.leave_node(AstType::Function);
 }
 pub fn walk_import_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &mut ImportRule<'a>)
@@ -644,7 +644,7 @@ where
     visitor.enter_node(AstType::ImportRule);
     if let Some(value_0) = (&mut node.layer).as_mut() {
         for value_1 in (value_0).iter_mut() {
-            visitor.visit_str(value_1);
+            visitor.visit_atom(value_1);
         }
     }
     visitor.visit_span(&mut node.span);
@@ -654,7 +654,7 @@ where
     if let Some(value_4) = (&mut node.supports).as_mut() {
         visitor.visit_supports_condition((value_4).as_mut());
     }
-    visitor.visit_str(&mut node.url);
+    visitor.visit_atom(&mut node.url);
     visitor.leave_node(AstType::ImportRule);
 }
 pub fn walk_style_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &mut StyleRule<'a>)
@@ -726,7 +726,7 @@ where
 {
     visitor.enter_node(AstType::ImageSetOption);
     if let Some(value_0) = (&mut node.file_type).as_mut() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
     visitor.visit_image((&mut node.image).as_mut());
     visitor.visit_resolution((&mut node.resolution).as_mut());
@@ -1036,7 +1036,7 @@ where
     visitor.visit_repeat_count((&mut node.count).as_mut());
     for value_1 in (&mut node.line_names).iter_mut() {
         for value_2 in (value_1).iter_mut() {
-            visitor.visit_str(value_2);
+            visitor.visit_atom(value_2);
         }
     }
     for value_3 in (&mut node.track_sizes).iter_mut() {
@@ -1432,7 +1432,7 @@ where
     }
     visitor.visit_span(&mut node.span);
     for value_2 in (&mut node.names).iter_mut() {
-        visitor.visit_str(value_2);
+        visitor.visit_atom(value_2);
     }
     visitor.leave_node(AstType::Composes);
 }
@@ -1569,7 +1569,7 @@ pub fn walk_view_transition_part_selector<'a, VisitorT>(
 {
     visitor.enter_node(AstType::ViewTransitionPartSelector);
     for value_0 in (&mut node.classes).iter_mut() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
     if let Some(value_1) = (&mut node.name).as_mut() {
         visitor.visit_view_transition_part_name((value_1).as_mut());
@@ -1650,7 +1650,7 @@ pub fn walk_font_palette_values_rule<'a, VisitorT>(
 {
     visitor.enter_node(AstType::FontPaletteValuesRule);
     visitor.visit_span(&mut node.span);
-    visitor.visit_str(&mut node.name);
+    visitor.visit_atom(&mut node.name);
     for value_0 in (&mut node.properties).iter_mut() {
         visitor.visit_font_palette_values_property(value_0);
     }
@@ -1701,7 +1701,7 @@ pub fn walk_font_feature_declaration<'a, VisitorT>(
     VisitorT: ?Sized + VisitMut<'a>,
 {
     visitor.enter_node(AstType::FontFeatureDeclaration);
-    visitor.visit_str(&mut node.name);
+    visitor.visit_atom(&mut node.name);
     for value_0 in (&mut node.values).iter_mut() {}
     visitor.leave_node(AstType::FontFeatureDeclaration);
 }
@@ -1710,7 +1710,7 @@ where
     VisitorT: ?Sized + VisitMut<'a>,
 {
     visitor.enter_node(AstType::FamilyName);
-    visitor.visit_str(&mut node.0);
+    visitor.visit_atom(&mut node.0);
     visitor.leave_node(AstType::FamilyName);
 }
 pub fn walk_page_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &mut PageRule<'a>)
@@ -1744,7 +1744,7 @@ where
 {
     visitor.enter_node(AstType::PageSelector);
     if let Some(value_0) = (&mut node.name).as_mut() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
     for value_1 in (&mut node.pseudo_classes).iter_mut() {
         visitor.visit_page_pseudo_class(value_1);
@@ -1772,7 +1772,7 @@ pub fn walk_counter_style_rule<'a, VisitorT>(
     visitor.enter_node(AstType::CounterStyleRule);
     visitor.visit_declaration_block((&mut node.declarations).as_mut());
     visitor.visit_span(&mut node.span);
-    visitor.visit_str(&mut node.name);
+    visitor.visit_atom(&mut node.name);
     visitor.leave_node(AstType::CounterStyleRule);
 }
 pub fn walk_namespace_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &mut NamespaceRule<'a>)
@@ -1782,9 +1782,9 @@ where
     visitor.enter_node(AstType::NamespaceRule);
     visitor.visit_span(&mut node.span);
     if let Some(value_0) = (&mut node.prefix).as_mut() {
-        visitor.visit_str(value_0);
+        visitor.visit_atom(value_0);
     }
-    visitor.visit_str(&mut node.url);
+    visitor.visit_atom(&mut node.url);
     visitor.leave_node(AstType::NamespaceRule);
 }
 pub fn walk_moz_document_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &mut MozDocumentRule<'a>)
@@ -1834,7 +1834,7 @@ where
 {
     visitor.enter_node(AstType::CustomMediaRule);
     visitor.visit_span(&mut node.span);
-    visitor.visit_str(&mut node.name);
+    visitor.visit_atom(&mut node.name);
     visitor.visit_media_list((&mut node.query).as_mut());
     visitor.leave_node(AstType::CustomMediaRule);
 }
@@ -1848,7 +1848,7 @@ pub fn walk_layer_statement_rule<'a, VisitorT>(
     visitor.visit_span(&mut node.span);
     for value_0 in (&mut node.names).iter_mut() {
         for value_1 in (value_0).iter_mut() {
-            visitor.visit_str(value_1);
+            visitor.visit_atom(value_1);
         }
     }
     visitor.leave_node(AstType::LayerStatementRule);
@@ -1861,7 +1861,7 @@ where
     visitor.visit_span(&mut node.span);
     if let Some(value_0) = (&mut node.name).as_mut() {
         for value_1 in (value_0).iter_mut() {
-            visitor.visit_str(value_1);
+            visitor.visit_atom(value_1);
         }
     }
     for value_2 in (&mut node.rules).iter_mut() {
@@ -1878,7 +1878,7 @@ where
         visitor.visit_parsed_component((value_0).as_mut());
     }
     visitor.visit_span(&mut node.span);
-    visitor.visit_str(&mut node.name);
+    visitor.visit_atom(&mut node.name);
     visitor.visit_syntax_string((&mut node.syntax).as_mut());
     visitor.leave_node(AstType::PropertyRule);
 }
@@ -1901,7 +1901,7 @@ where
     }
     visitor.visit_span(&mut node.span);
     if let Some(value_2) = (&mut node.name).as_mut() {
-        visitor.visit_str(value_2);
+        visitor.visit_atom(value_2);
     }
     for value_3 in (&mut node.rules).iter_mut() {
         visitor.visit_css_rule(value_3);
@@ -1957,7 +1957,7 @@ where
 {
     visitor.enter_node(AstType::PositionTryRule);
     visitor.visit_span(&mut node.span);
-    visitor.visit_str(&mut node.name);
+    visitor.visit_atom(&mut node.name);
     visitor.visit_declaration_block((&mut node.declarations).as_mut());
     visitor.leave_node(AstType::PositionTryRule);
 }
@@ -1972,7 +1972,7 @@ where
         }
     }
     visitor.visit_span(&mut node.span);
-    visitor.visit_str(&mut node.name);
+    visitor.visit_atom(&mut node.name);
     for value_2 in (&mut node.prelude).iter_mut() {
         visitor.visit_token_or_value(value_2);
     }

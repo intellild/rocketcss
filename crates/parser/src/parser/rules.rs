@@ -115,7 +115,7 @@ fn parse_unicode_ranges<'i>(
 pub(super) fn parse_namespace<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
-) -> Result<(Option<&'i str>, &'i str), ParseError<'i, ParserError<'i>>> {
+) -> Result<(Option<Atom<'i>>, Atom<'i>), ParseError<'i, ParserError<'i>>> {
     let mut input = ParserInput::new(prelude, allocator);
     let mut parser = Parser::new(&mut input);
     let state = parser.state();
@@ -145,7 +145,7 @@ pub(super) fn validate_charset<'i>(
 pub(super) fn parse_layer_names<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
-) -> Result<Vec<'i, Vec<'i, &'i str>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, Vec<'i, Atom<'i>>>, ParseError<'i, ParserError<'i>>> {
     if prelude.is_empty() {
         return Ok(allocator.vec());
     }
@@ -168,7 +168,7 @@ pub(super) fn parse_layer_names<'i>(
 pub(super) fn parse_custom_media<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
-) -> Result<(&'i str, MediaList<'i>), ParseError<'i, ParserError<'i>>> {
+) -> Result<(Atom<'i>, MediaList<'i>), ParseError<'i, ParserError<'i>>> {
     let mut input = ParserInput::new(prelude, allocator);
     let mut parser = Parser::new(&mut input);
     let name = parser.expect_ident()?;
@@ -187,7 +187,7 @@ pub(super) fn parse_custom_media<'i>(
 pub(super) fn parse_single_ident<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
-) -> Result<&'i str, ParseError<'i, ParserError<'i>>> {
+) -> Result<Atom<'i>, ParseError<'i, ParserError<'i>>> {
     let mut input = ParserInput::new(prelude, allocator);
     let mut parser = Parser::new(&mut input);
     let name = parser.expect_ident()?;
@@ -216,9 +216,9 @@ pub(super) fn parse_keyframes_name<'i>(
                 ],
             ) =>
         {
-            KeyframesName::Ident(name)
+            KeyframesName::Ident(*name)
         }
-        ValueToken::String(name) => KeyframesName::Custom(name),
+        ValueToken::String(name) => KeyframesName::Custom(*name),
         _ => return Err(parser.new_custom_error(ParserError::InvalidValue)),
     };
     parser.expect_exhausted()?;
@@ -351,7 +351,7 @@ pub(super) fn validate_moz_document_prelude<'i>(
 }
 
 type ContainerPrelude<'i> = (
-    Option<&'i str>,
+    Option<Atom<'i>>,
     Option<rocketcss_allocator::boxed::Box<'i, rocketcss_ast::ContainerCondition<'i>>>,
 );
 
@@ -481,8 +481,9 @@ pub(super) fn parse_page_body<'i, 't>(
                 Ok(None)
             }
             ValueToken::AtKeyword(name) => {
-                let margin_box = page_margin_box(name)
-                    .ok_or_else(|| input.new_custom_error(ParserError::InvalidAtRule(name)))?;
+                let margin_box = page_margin_box(&name).ok_or_else(|| {
+                    input.new_custom_error(ParserError::InvalidAtRule(name.as_str()))
+                })?;
                 input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
                     input.expect_exhausted()?;
                     Ok::<_, ParseError<'i, ParserError<'i>>>(())
@@ -527,7 +528,7 @@ pub(super) fn parse_family_names<'i>(
             if !name.is_empty() {
                 name.push(' ');
             }
-            name.push_str(input.expect_ident()?);
+            name.push_str(&input.expect_ident()?);
         }
         if name.is_empty() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
@@ -555,8 +556,8 @@ pub(super) fn parse_font_feature_subrules<'i, 't>(
             Ok(_) => return Err(input.new_custom_error(ParserError::InvalidRule)),
             Err(error) => return Err(error.into()),
         };
-        let kind = font_feature_subrule_type(name)
-            .ok_or_else(|| input.new_custom_error(ParserError::InvalidAtRule(name)))?;
+        let kind = font_feature_subrule_type(&name)
+            .ok_or_else(|| input.new_custom_error(ParserError::InvalidAtRule(name.as_str())))?;
         input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
             input.expect_exhausted()?;
             Ok::<_, ParseError<'i, ParserError<'i>>>(())
@@ -679,7 +680,7 @@ pub(super) fn parse_property_rule<'i, 't>(
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-    name: &'i str,
+    name: Atom<'i>,
 ) -> Result<PropertyRule<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut syntax = None;
@@ -709,7 +710,7 @@ pub(super) fn parse_property_rule<'i, 't>(
                 let Some(ValueToken::String(value)) = single_token(&value) else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 };
-                syntax = Some(parse_syntax_string(value, allocator)?);
+                syntax = Some(parse_syntax_string(*value, allocator)?);
             } else if descriptor.eq_ignore_ascii_case("inherits") {
                 let Some(value) = value.first().and_then(token_ident) else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
@@ -750,7 +751,7 @@ pub(super) fn parse_property_rule<'i, 't>(
 }
 
 pub(super) fn parse_syntax_string<'i>(
-    value: &'i str,
+    value: Atom<'i>,
     allocator: &'i Allocator,
 ) -> Result<SyntaxString<'i>, ParseError<'i, ParserError<'i>>> {
     if value == "*" {
@@ -788,7 +789,7 @@ pub(super) fn parse_syntax_string<'i>(
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
             {
-                SyntaxComponentKind::Literal(component)
+                SyntaxComponentKind::Literal(allocator.alloc_str(component))
             } else {
                 return Err(
                     crate::SourceLocation::default().new_custom_error(ParserError::InvalidValue)

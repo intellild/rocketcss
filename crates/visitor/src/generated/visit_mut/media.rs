@@ -90,10 +90,10 @@ pub fn walk_media_feature_name<'a, FeatureId, VisitorT>(
             VisitMutNode::visit_node(field_0, visitor);
         }
         MediaFeatureName::Custom(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         MediaFeatureName::Unknown(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::MediaFeatureName);
@@ -167,7 +167,7 @@ pub fn walk_media_feature_value<'a, VisitorT>(
             visitor.visit_ratio((field_0).as_mut());
         }
         MediaFeatureValue::Ident(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         MediaFeatureValue::Env(field_0) => {
             visitor.visit_environment_variable((field_0).as_mut());
@@ -212,7 +212,7 @@ where
         MediaType::Print => {}
         MediaType::Screen => {}
         MediaType::Custom(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::MediaType);
@@ -251,13 +251,13 @@ pub fn walk_supports_condition<'a, VisitorT>(
         }
         SupportsCondition::Declaration { property_id, value } => {
             visitor.visit_property_id((property_id).as_mut());
-            visitor.visit_str(value);
+            visitor.visit_atom(value);
         }
         SupportsCondition::Selector(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         SupportsCondition::Unknown(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::SupportsCondition);

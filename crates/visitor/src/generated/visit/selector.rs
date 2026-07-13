@@ -19,29 +19,29 @@ where
         SelectorComponent::ExplicitAnyNamespace => {}
         SelectorComponent::ExplicitNoNamespace => {}
         SelectorComponent::DefaultNamespace(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         SelectorComponent::Namespace { prefix, url } => {
-            visitor.visit_str(prefix);
-            visitor.visit_str(url);
+            visitor.visit_atom(prefix);
+            visitor.visit_atom(url);
         }
         SelectorComponent::ExplicitUniversalType => {}
         SelectorComponent::LocalName { name, lower_name } => {
-            visitor.visit_str(name);
-            visitor.visit_str(lower_name);
+            visitor.visit_atom(name);
+            visitor.visit_atom(lower_name);
         }
         SelectorComponent::Id(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         SelectorComponent::Class(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
         SelectorComponent::AttributeInNoNamespaceExists {
             local_name,
             local_name_lower,
         } => {
-            visitor.visit_str(local_name);
-            visitor.visit_str(local_name_lower);
+            visitor.visit_atom(local_name);
+            visitor.visit_atom(local_name_lower);
         }
         SelectorComponent::AttributeInNoNamespace {
             local_name,
@@ -50,9 +50,9 @@ where
             case_sensitivity,
             never_matches,
         } => {
-            visitor.visit_str(local_name);
+            visitor.visit_atom(local_name);
             visitor.visit_attr_selector_operator(operator);
-            visitor.visit_str(value);
+            visitor.visit_atom(value);
             visitor.visit_parsed_case_sensitivity(case_sensitivity);
         }
         SelectorComponent::AttributeOther(field_0) => {
@@ -83,7 +83,7 @@ where
         }
         SelectorComponent::Part(field_0) => {
             for value_5 in (field_0).iter() {
-                visitor.visit_str(value_5);
+                visitor.visit_atom(value_5);
             }
         }
         SelectorComponent::Host(field_0) => {
@@ -148,8 +148,8 @@ where
     if let Some(value_0) = (&node.namespace).as_ref() {
         visitor.visit_namespace_constraint(value_0);
     }
-    visitor.visit_str(&node.local_name);
-    visitor.visit_str(&node.local_name_lower);
+    visitor.visit_atom(&node.local_name);
+    visitor.visit_atom(&node.local_name_lower);
     visitor.visit_attr_operation(&node.operation);
     visitor.leave_node(AstType::AttrSelector);
 }
@@ -163,8 +163,8 @@ pub fn walk_namespace_constraint<'a, VisitorT>(
     match node {
         NamespaceConstraint::Any => {}
         NamespaceConstraint::Specific { prefix, url } => {
-            visitor.visit_str(prefix);
-            visitor.visit_str(url);
+            visitor.visit_atom(prefix);
+            visitor.visit_atom(url);
         }
     }
     visitor.leave_node(AstType::NamespaceConstraint);
@@ -183,7 +183,7 @@ where
         } => {
             visitor.visit_attr_selector_operator(operator);
             visitor.visit_parsed_case_sensitivity(case_sensitivity);
-            visitor.visit_str(expected_value);
+            visitor.visit_atom(expected_value);
         }
     }
     visitor.leave_node(AstType::AttrOperation);
@@ -264,7 +264,7 @@ where
     match node {
         PseudoClass::Lang { languages } => {
             for value_0 in (languages).iter() {
-                visitor.visit_str(value_0);
+                visitor.visit_atom(value_0);
             }
         }
         PseudoClass::Dir { direction } => {
@@ -334,11 +334,11 @@ where
         PseudoClass::ActiveViewTransition => {}
         PseudoClass::ActiveViewTransitionType { kinds } => {
             for value_1 in (kinds).iter() {
-                visitor.visit_str(value_1);
+                visitor.visit_atom(value_1);
             }
         }
         PseudoClass::State { state } => {
-            visitor.visit_str(state);
+            visitor.visit_atom(state);
         }
         PseudoClass::Local { selector } => {
             visitor.visit_selector((selector).as_ref());
@@ -350,10 +350,10 @@ where
             visitor.visit_web_kit_scrollbar_pseudo_class(field_0);
         }
         PseudoClass::Custom { name } => {
-            visitor.visit_str(name);
+            visitor.visit_atom(name);
         }
         PseudoClass::CustomFunction { name, arguments } => {
-            visitor.visit_str(name);
+            visitor.visit_atom(name);
             for value_4 in (arguments).iter() {
                 visitor.visit_token_or_value(value_4);
             }
@@ -403,7 +403,7 @@ where
             visitor.visit_vendor_prefix(field_0);
         }
         PseudoElement::HighlightFunction { name } => {
-            visitor.visit_str(name);
+            visitor.visit_atom(name);
         }
         PseudoElement::Marker => {}
         PseudoElement::Backdrop(field_0) => {
@@ -437,17 +437,17 @@ where
             visitor.visit_view_transition_part_selector((part).as_ref());
         }
         PseudoElement::PickerFunction { identifier } => {
-            visitor.visit_str(identifier);
+            visitor.visit_atom(identifier);
         }
         PseudoElement::PickerIcon => {}
         PseudoElement::Checkmark => {}
         PseudoElement::GrammarError => {}
         PseudoElement::SpellingError => {}
         PseudoElement::Custom { name } => {
-            visitor.visit_str(name);
+            visitor.visit_atom(name);
         }
         PseudoElement::CustomFunction { name, arguments } => {
-            visitor.visit_str(name);
+            visitor.visit_atom(name);
             for value_6 in (arguments).iter() {
                 visitor.visit_token_or_value(value_6);
             }
@@ -483,7 +483,7 @@ pub fn walk_view_transition_part_name<'a, VisitorT>(
     match node {
         ViewTransitionPartName::All => {}
         ViewTransitionPartName::Name(field_0) => {
-            visitor.visit_str(field_0);
+            visitor.visit_atom(field_0);
         }
     }
     visitor.leave_node(AstType::ViewTransitionPartName);

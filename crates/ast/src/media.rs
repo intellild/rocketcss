@@ -39,8 +39,8 @@ pub enum QueryFeature<'a, FeatureId> {
 #[derive(Debug, PartialEq)]
 pub enum MediaFeatureName<'a, FeatureId> {
     Standard(FeatureId),
-    Custom(&'a str),
-    Unknown(&'a str),
+    Custom(Atom<'a>),
+    Unknown(Atom<'a>),
 }
 
 pub type MediaFeature<'a> = QueryFeature<'a, MediaFeatureId>;
@@ -96,7 +96,7 @@ pub enum MediaFeatureValue<'a> {
     Boolean(bool),
     Resolution(Box<'a, Resolution>),
     Ratio(Box<'a, Ratio>),
-    Ident(&'a str),
+    Ident(Atom<'a>),
     Env(Box<'a, EnvironmentVariable<'a>>),
 }
 
@@ -120,7 +120,7 @@ pub enum MediaType<'a> {
     All,
     Print,
     Screen,
-    Custom(&'a str),
+    Custom(Atom<'a>),
 }
 
 #[derive(Debug, PartialEq)]
@@ -136,8 +136,8 @@ pub enum SupportsCondition<'a> {
     Or(Vec<'a, SupportsCondition<'a>>),
     Declaration {
         property_id: Box<'a, PropertyId<'a>>,
-        value: &'a str,
+        value: Atom<'a>,
     },
-    Selector(&'a str),
-    Unknown(&'a str),
+    Selector(Atom<'a>),
+    Unknown(Atom<'a>),
 }

@@ -11,7 +11,7 @@ use crate::prelude::*;
 pub(super) fn parse_declaration<'i, 't>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
-    name: &'i str,
+    name: Atom<'i>,
     depth: usize,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
     let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
@@ -27,7 +27,7 @@ pub(super) fn parse_declaration<'i, 't>(
         }))
     } else {
         trim_leading_whitespace(&mut value);
-        if let Some(declaration) = parse_typed_declaration(name, &value, allocator) {
+        if let Some(declaration) = parse_typed_declaration(&name, &value, allocator) {
             declaration
         } else if name.eq_ignore_ascii_case("all") && value.len() == 1 {
             match token_ident(&value[0]).and_then(css_wide_keyword) {
@@ -43,7 +43,7 @@ pub(super) fn parse_declaration<'i, 't>(
 }
 
 pub(super) fn unparsed_declaration<'i>(
-    name: &'i str,
+    name: Atom<'i>,
     value: Vec<'i, TokenOrValue<'i>>,
     allocator: &'i Allocator,
 ) -> Declaration<'i> {

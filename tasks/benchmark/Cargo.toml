@@ -5,6 +5,7 @@ publish = false
 version = "0.1.0"
 
 [dev-dependencies]
+bumpalo          = { workspace = true }
 css-module-lexer = { workspace = true }
 divan            = { workspace = true }
 hashbrown        = { workspace = true }

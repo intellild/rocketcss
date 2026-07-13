@@ -5,14 +5,14 @@ use rocketcss_ast::{
 
 use crate::{Minify, MinifyContext};
 
-impl Minify for StyleSheet<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for StyleSheet<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         crate::minify_style_sheet(self, context);
     }
 }
 
-impl Minify for KeyframeSelector<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for KeyframeSelector<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if !context.options().normalize_values {
             return;
         }
@@ -34,42 +34,42 @@ impl Minify for KeyframeSelector<'_> {
     }
 }
 
-impl Minify for UnparsedProperty<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for UnparsedProperty<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         self.value.minify(context);
     }
 }
 
-impl Minify for CustomProperty<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for CustomProperty<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         self.value.minify(context);
     }
 }
 
-impl Minify for Function<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for Function<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         self.arguments.minify(context);
     }
 }
 
-impl Minify for Variable<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for Variable<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if let Some(fallback) = &mut self.fallback {
             fallback.minify(context);
         }
     }
 }
 
-impl Minify for EnvironmentVariable<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for EnvironmentVariable<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if let Some(fallback) = &mut self.fallback {
             fallback.minify(context);
         }
     }
 }
 
-impl Minify for UnknownAtRule<'_> {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for UnknownAtRule<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         self.prelude.minify(context);
         if let Some(block) = &mut self.block {
             block.minify(context);

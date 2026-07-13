@@ -32,7 +32,11 @@ fn rocketcss(bencher: Bencher<'_, '_>) {
                 },
             )
             .unwrap();
-            rocketcss_minify::minify(&mut stylesheet, rocketcss_minify::MinifyOptions::default());
+            rocketcss_minify::minify(
+                &mut stylesheet,
+                &allocator,
+                rocketcss_minify::MinifyOptions::default(),
+            );
             let output = stylesheet
                 .to_css_string(PrinterOptions { prettify: false })
                 .unwrap();

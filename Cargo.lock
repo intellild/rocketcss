@@ -1245,6 +1245,7 @@ dependencies = [
 name = "rocketcss_benchmark"
 version = "0.1.0"
 dependencies = [
+ "bumpalo",
  "codspeed-divan-compat",
  "css-module-lexer",
  "hashbrown",

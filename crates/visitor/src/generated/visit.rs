@@ -25,6 +25,8 @@ pub trait Visit<'a> {
     #[inline]
     fn visit_str(&mut self, _value: &&'a str) {}
     #[inline]
+    fn visit_atom(&mut self, _value: &rocketcss_allocator::atom::Atom<'a>) {}
+    #[inline]
     fn visit_css_color(&mut self, node: &CssColor<'a>) {
         color::walk_css_color(self, node);
     }
@@ -1689,6 +1691,13 @@ where
 impl<'a, VisitorT: ?Sized + Visit<'a>> VisitNode<'a, VisitorT> for &'a str {
     fn visit_node(&self, visitor: &mut VisitorT) {
         visitor.visit_str(self);
+    }
+}
+impl<'a, VisitorT: ?Sized + Visit<'a>> VisitNode<'a, VisitorT>
+    for rocketcss_allocator::atom::Atom<'a>
+{
+    fn visit_node(&self, visitor: &mut VisitorT) {
+        visitor.visit_atom(self);
     }
 }
 impl<'a, VisitorT> VisitNode<'a, VisitorT> for CssColor<'a>
@@ -6166,7 +6175,7 @@ pub fn walk_property_id<'a, VisitorT: ?Sized + Visit<'a>>(
         PropertyId::ColorScheme => {}
         PropertyId::PrintColorAdjust(value) => VisitNode::visit_node(value, visitor),
         PropertyId::All | PropertyId::Unparsed => {}
-        PropertyId::Custom(value) => visitor.visit_str(value),
+        PropertyId::Custom(value) => visitor.visit_atom(value),
     }
     visitor.leave_node(AstType::PropertyId);
 }

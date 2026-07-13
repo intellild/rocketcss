@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use rocketcss_allocator::Allocator;
+use rocketcss_allocator::{Allocator, atom::Atom};
 use rocketcss_ast::{Token as ValueToken, Unit};
 
 use crate::{Span, Token};
@@ -21,24 +21,26 @@ pub(crate) fn decode_token<'i>(
         Token::IDHash => ValueToken::IdHash(decode_name(&raw[1..], allocator)),
         Token::QuotedString => ValueToken::String(decode_string(raw, allocator)),
         Token::UnquotedUrl => ValueToken::UnquotedUrl(decode_url(raw, allocator)),
-        Token::Delim => ValueToken::Delim(raw),
+        Token::Delim => ValueToken::Delim(allocator.alloc_str(raw)),
         Token::Number => ValueToken::Number(parse_number(raw)),
         Token::Percentage => ValueToken::Percentage(parse_number(&raw[..raw.len() - 1]) / 100.0),
         Token::Dimension => {
             let number_end = numeric_prefix_len(raw);
             let unit = decode_name(&raw[number_end..], allocator);
             let value = parse_number(&raw[..number_end]);
-            if let Some(unit) = parse_unit(unit) {
+            if let Some(unit) = parse_unit(&unit) {
                 ValueToken::Dimension { unit, value }
             } else {
                 ValueToken::UnknownDimension { unit, value }
             }
         }
-        Token::WhiteSpace => ValueToken::WhiteSpace(raw),
+        Token::WhiteSpace => ValueToken::WhiteSpace(allocator.alloc_str(raw)),
         Token::Comment => ValueToken::Comment(
-            raw.strip_prefix("/*")
-                .and_then(|value| value.strip_suffix("*/"))
-                .unwrap_or_else(|| raw.strip_prefix("/*").unwrap_or(raw)),
+            allocator.alloc_str(
+                raw.strip_prefix("/*")
+                    .and_then(|value| value.strip_suffix("*/"))
+                    .unwrap_or_else(|| raw.strip_prefix("/*").unwrap_or(raw)),
+            ),
         ),
         Token::Colon => ValueToken::Colon,
         Token::Semicolon => ValueToken::Semicolon,
@@ -89,13 +91,13 @@ fn parse_unit(unit: &str) -> Option<Unit> {
     }
 }
 
-fn decode_name<'i>(raw: &'i str, allocator: &'i Allocator) -> &'i str {
+fn decode_name<'i>(raw: &str, allocator: &'i Allocator) -> Atom<'i> {
     store(crate::unescape(raw), allocator)
 }
 
-fn decode_string<'i>(raw: &'i str, allocator: &'i Allocator) -> &'i str {
+fn decode_string<'i>(raw: &str, allocator: &'i Allocator) -> Atom<'i> {
     let Some(quote) = raw.as_bytes().first().copied() else {
-        return raw;
+        return allocator.alloc_str(raw);
     };
     let mut value = &raw[1..];
     if value.as_bytes().last() == Some(&quote) {
@@ -104,7 +106,7 @@ fn decode_string<'i>(raw: &'i str, allocator: &'i Allocator) -> &'i str {
     decode_name(value, allocator)
 }
 
-fn decode_url<'i>(raw: &'i str, allocator: &'i Allocator) -> &'i str {
+fn decode_url<'i>(raw: &str, allocator: &'i Allocator) -> Atom<'i> {
     let open = function_opening(raw);
     let mut value = raw[open + 1..].trim_matches(css_whitespace);
     if let Some(without_close) = value.strip_suffix(')') {
@@ -167,11 +169,8 @@ fn parse_number(raw: &str) -> f32 {
         .expect("the tokenizer produced a valid CSS number")
 }
 
-fn store<'i>(value: Cow<'i, str>, allocator: &'i Allocator) -> &'i str {
-    match value {
-        Cow::Borrowed(value) => value,
-        Cow::Owned(value) => allocator.alloc_str(&value),
-    }
+fn store<'i>(value: Cow<'_, str>, allocator: &'i Allocator) -> Atom<'i> {
+    allocator.alloc_str(value.as_ref())
 }
 
 fn css_whitespace(value: char) -> bool {

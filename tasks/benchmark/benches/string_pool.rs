@@ -3,6 +3,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use std::fmt;
 
+use bumpalo::Bump;
 use divan::{Bencher, black_box, counter::ItemsCount};
 use rocketcss_allocator::{Allocator, hash_map::HashMap, hash_set::HashSet, vec::Vec as ArenaVec};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase};
@@ -33,15 +34,15 @@ impl Eq for PointerAtom<'_> {}
 
 /// Stores one copy of each string in a Vec and uses its index as the Atom.
 struct IndexStringPool<'a> {
-    allocator: &'a Allocator,
+    arena: &'a Bump,
     strings: ArenaVec<'a, &'a str>,
     indices: HashMap<'a, &'a str, u32>,
 }
 
 impl<'a> IndexStringPool<'a> {
-    fn new(allocator: &'a Allocator) -> Self {
+    fn new(arena: &'a Bump, allocator: &'a Allocator) -> Self {
         Self {
-            allocator,
+            arena,
             strings: allocator.vec(),
             indices: HashMap::new_in(allocator),
         }
@@ -54,7 +55,7 @@ impl<'a> IndexStringPool<'a> {
         }
 
         let index = u32::try_from(self.strings.len()).expect("string pool exceeds u32 capacity");
-        let stored = self.allocator.alloc_str(value);
+        let stored = self.arena.alloc_str(value);
         self.strings.push(stored);
         self.indices.insert(stored, index);
         IndexAtom(index)
@@ -69,14 +70,14 @@ impl<'a> IndexStringPool<'a> {
 /// Stores interned strings directly in a set and uses their stable arena
 /// addresses as Atoms, so no side Vec is needed for resolution.
 struct PointerStringPool<'a> {
-    allocator: &'a Allocator,
+    arena: &'a Bump,
     strings: HashSet<'a, &'a str>,
 }
 
 impl<'a> PointerStringPool<'a> {
-    fn new(allocator: &'a Allocator) -> Self {
+    fn new(arena: &'a Bump, allocator: &'a Allocator) -> Self {
         Self {
-            allocator,
+            arena,
             strings: HashSet::new_in(allocator),
         }
     }
@@ -87,7 +88,7 @@ impl<'a> PointerStringPool<'a> {
             return PointerAtom(stored);
         }
 
-        let stored = self.allocator.alloc_str(value);
+        let stored = self.arena.alloc_str(value);
         self.strings.insert(stored);
         PointerAtom(stored)
     }
@@ -100,7 +101,8 @@ fn intern_index_u32(bencher: Bencher<'_, '_>, case: BenchCase) {
         .counter(ItemsCount::new(values.len()))
         .bench_local(|| {
             let allocator = Allocator::new();
-            let mut pool = IndexStringPool::new(&allocator);
+            let arena = Bump::new();
+            let mut pool = IndexStringPool::new(&arena, &allocator);
             let mut atoms = ArenaVec::with_capacity_in(values.len(), &allocator);
             for value in black_box(&values) {
                 atoms.push(pool.intern(black_box(value)));
@@ -117,7 +119,8 @@ fn intern_pointer(bencher: Bencher<'_, '_>, case: BenchCase) {
         .counter(ItemsCount::new(values.len()))
         .bench_local(|| {
             let allocator = Allocator::new();
-            let mut pool = PointerStringPool::new(&allocator);
+            let arena = Bump::new();
+            let mut pool = PointerStringPool::new(&arena, &allocator);
             let mut atoms = ArenaVec::with_capacity_in(values.len(), &allocator);
             for value in black_box(&values) {
                 atoms.push(pool.intern(black_box(value)));
@@ -131,7 +134,8 @@ fn intern_pointer(bencher: Bencher<'_, '_>, case: BenchCase) {
 fn resolve_index_u32(bencher: Bencher<'_, '_>, case: BenchCase) {
     let values = string_tokens(case.source);
     let allocator = Allocator::new();
-    let mut pool = IndexStringPool::new(&allocator);
+    let arena = Bump::new();
+    let mut pool = IndexStringPool::new(&arena, &allocator);
     let atoms = values
         .iter()
         .map(|value| pool.intern(value))
@@ -152,7 +156,8 @@ fn resolve_index_u32(bencher: Bencher<'_, '_>, case: BenchCase) {
 fn resolve_pointer(bencher: Bencher<'_, '_>, case: BenchCase) {
     let values = string_tokens(case.source);
     let allocator = Allocator::new();
-    let mut pool = PointerStringPool::new(&allocator);
+    let arena = Bump::new();
+    let mut pool = PointerStringPool::new(&arena, &allocator);
     let atoms = values
         .iter()
         .map(|value| pool.intern(value))
@@ -173,7 +178,8 @@ fn resolve_pointer(bencher: Bencher<'_, '_>, case: BenchCase) {
 fn compare_index_u32(bencher: Bencher<'_, '_>, case: BenchCase) {
     let values = string_tokens(case.source);
     let allocator = Allocator::new();
-    let mut pool = IndexStringPool::new(&allocator);
+    let arena = Bump::new();
+    let mut pool = IndexStringPool::new(&arena, &allocator);
     let atoms = values
         .iter()
         .map(|value| pool.intern(value))
@@ -188,7 +194,8 @@ fn compare_index_u32(bencher: Bencher<'_, '_>, case: BenchCase) {
 fn compare_pointer(bencher: Bencher<'_, '_>, case: BenchCase) {
     let values = string_tokens(case.source);
     let allocator = Allocator::new();
-    let mut pool = PointerStringPool::new(&allocator);
+    let arena = Bump::new();
+    let mut pool = PointerStringPool::new(&arena, &allocator);
     let atoms = values
         .iter()
         .map(|value| pool.intern(value))

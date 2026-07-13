@@ -10,6 +10,7 @@ mod values;
 
 pub mod prelude;
 
+use rocketcss_allocator::Allocator;
 use rocketcss_ast::*;
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, walk_mut};
 
@@ -17,13 +18,17 @@ pub use context::{MinifyContext, MinifyStats};
 pub use options::MinifyOptions;
 
 /// Minifies a syntax-tree node in place.
-pub trait Minify {
-    fn minify(&mut self, context: &mut MinifyContext);
+pub trait Minify<'a> {
+    fn minify(&mut self, context: &mut MinifyContext<'a>);
 }
 
 /// Minifies a stylesheet in place and returns transformation statistics.
-pub fn minify<'a>(stylesheet: &mut StyleSheet<'a>, options: MinifyOptions) -> MinifyStats {
-    let mut context = MinifyContext::new(options);
+pub fn minify<'a>(
+    stylesheet: &mut StyleSheet<'a>,
+    allocator: &'a Allocator,
+    options: MinifyOptions,
+) -> MinifyStats {
+    let mut context = MinifyContext::new(allocator, options);
     stylesheet.minify(&mut context);
     context.stats()
 }
@@ -56,21 +61,24 @@ impl<'a> Plugin<'a> for MinifyPlugin {
         stylesheet: &mut StyleSheet<'a>,
         context: &mut PluginContext<'a>,
     ) -> Result<(), BoxError> {
-        let stats = minify(stylesheet, self.options);
+        let stats = minify(stylesheet, context.allocator(), self.options);
         context.insert(stats);
         Ok(())
     }
 }
 
-pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, context: &mut MinifyContext) {
+pub(crate) fn minify_style_sheet<'a>(
+    stylesheet: &mut StyleSheet<'a>,
+    context: &mut MinifyContext<'a>,
+) {
     Minifier { context }.visit_style_sheet(stylesheet);
 }
 
-struct Minifier<'context> {
-    context: &'context mut MinifyContext,
+struct Minifier<'context, 'a> {
+    context: &'context mut MinifyContext<'a>,
 }
 
-impl<'a> VisitMut<'a> for Minifier<'_> {
+impl<'a> VisitMut<'a> for Minifier<'_, 'a> {
     fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
         walk_mut::walk_keyframe_selector(self, node);
         node.minify(self.context);
@@ -94,7 +102,7 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
 
     fn visit_function(&mut self, node: &mut Function<'a>) {
         let previous = self.context.value_context;
-        if is_math_function(node.name) {
+        if is_math_function(&node.name) {
             self.context.value_context.allow_unitless_zero = false;
         }
         walk_mut::walk_function(self, node);
@@ -182,7 +190,7 @@ mod tests {
     fn run(source: &str) -> String {
         let allocator = Allocator::new();
         let mut stylesheet = parse(source, &allocator, ParserOptions::default()).unwrap();
-        minify(&mut stylesheet, MinifyOptions::default());
+        minify(&mut stylesheet, &allocator, MinifyOptions::default());
         stylesheet
             .to_css_string(PrinterOptions { prettify: false })
             .unwrap()
@@ -220,7 +228,7 @@ mod tests {
         .unwrap();
         let (buffer_before, token_before) = unparsed_value_storage(&stylesheet);
 
-        minify(&mut stylesheet, MinifyOptions::default());
+        minify(&mut stylesheet, &allocator, MinifyOptions::default());
 
         let (buffer_after, token_after) = unparsed_value_storage(&stylesheet);
         assert_eq!(buffer_after, buffer_before);
@@ -249,6 +257,7 @@ mod tests {
         .unwrap();
         minify(
             &mut stylesheet,
+            &allocator,
             MinifyOptions {
                 transform_custom_properties: false,
                 ..MinifyOptions::default()

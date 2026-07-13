@@ -26,12 +26,18 @@ impl ToCss for Token<'_> {
         use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
 
         match self {
-            Self::Ident(value) => CssToken::Ident(CowRcStr::from(*value)).to_css(dest),
-            Self::AtKeyword(value) => CssToken::AtKeyword(CowRcStr::from(*value)).to_css(dest),
-            Self::Hash(value) => CssToken::Hash(CowRcStr::from(*value)).to_css(dest),
-            Self::IdHash(value) => CssToken::IDHash(CowRcStr::from(*value)).to_css(dest),
-            Self::String(value) => CssToken::QuotedString(CowRcStr::from(*value)).to_css(dest),
-            Self::UnquotedUrl(value) => CssToken::UnquotedUrl(CowRcStr::from(*value)).to_css(dest),
+            Self::Ident(value) => CssToken::Ident(CowRcStr::from(value.as_str())).to_css(dest),
+            Self::AtKeyword(value) => {
+                CssToken::AtKeyword(CowRcStr::from(value.as_str())).to_css(dest)
+            }
+            Self::Hash(value) => CssToken::Hash(CowRcStr::from(value.as_str())).to_css(dest),
+            Self::IdHash(value) => CssToken::IDHash(CowRcStr::from(value.as_str())).to_css(dest),
+            Self::String(value) => {
+                CssToken::QuotedString(CowRcStr::from(value.as_str())).to_css(dest)
+            }
+            Self::UnquotedUrl(value) => {
+                CssToken::UnquotedUrl(CowRcStr::from(value.as_str())).to_css(dest)
+            }
             Self::Delim(value) => {
                 for character in value.chars() {
                     CssToken::Delim(character).to_css(dest)?;
@@ -150,9 +156,9 @@ impl ToCss for Url<'_> {
             use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
 
             let mut unquoted = String::new();
-            CssToken::UnquotedUrl(CowRcStr::from(self.url)).to_css(&mut unquoted)?;
+            CssToken::UnquotedUrl(CowRcStr::from(self.url.as_str())).to_css(&mut unquoted)?;
             let mut quoted = String::from("url(");
-            cssparser::serialize_string(self.url, &mut quoted)?;
+            cssparser::serialize_string(&self.url, &mut quoted)?;
             quoted.push(')');
             return dest.write_str(if unquoted.len() <= quoted.len() {
                 &unquoted
@@ -161,7 +167,7 @@ impl ToCss for Url<'_> {
             });
         }
         dest.write_str("url(")?;
-        serialize_string(self.url, dest)?;
+        serialize_string(&self.url, dest)?;
         dest.write_char(')')
     }
 }
@@ -229,7 +235,7 @@ impl ToCss for UAEnvironmentVariable {
 
 impl ToCss for DashedIdentReference<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_dashed_ident(self.ident, dest)?;
+        write_dashed_ident(&self.ident, dest)?;
         if let Some(from) = &self.from {
             dest.write_str(" from ")?;
             from.to_css(dest)?;
@@ -250,7 +256,7 @@ impl ToCss for Specifier<'_> {
 
 impl ToCss for Function<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         dest.write_char('(')?;
         write_token_list(&self.arguments, dest)?;
         dest.write_char(')')

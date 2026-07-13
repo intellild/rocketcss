@@ -1,5 +1,6 @@
 use bumpalo::Bump;
-use std::cell::Cell;
+use rustc_hash::FxBuildHasher;
+use std::cell::{Cell, UnsafeCell};
 
 mod allocator_api;
 pub mod atom;
@@ -8,6 +9,7 @@ pub mod hash_map;
 pub mod hash_set;
 pub mod raw_vec;
 pub mod small_bit_vec;
+pub mod string_pool;
 pub mod vec;
 pub mod wtf8;
 
@@ -112,7 +114,7 @@ where
 impl<'a> FromIn<'a, String> for &'a str {
     #[inline(always)]
     fn from_in(value: String, allocator: &'a Allocator) -> Self {
-        allocator.alloc_str(value.as_str())
+        allocator.alloc_str_raw(value.as_str())
     }
 }
 
@@ -131,23 +133,67 @@ impl<'a, T> FromIn<'a, Option<T>> for Option<boxed::Box<'a, T>> {
 }
 
 pub struct Allocator {
+    string_pool: UnsafeCell<string_pool::StringPool<'static>>,
     arena: Bump,
 }
 
 impl Allocator {
     pub fn new() -> Self {
-        Self { arena: Bump::new() }
+        Self {
+            string_pool: UnsafeCell::new(string_pool::StringPool::with_hasher(FxBuildHasher)),
+            arena: Bump::new(),
+        }
     }
 
     pub fn reset(&mut self) {
+        self.string_pool.get_mut().clear();
         self.arena.reset();
+    }
+
+    /// Allocates a string-backed AST atom, reusing an existing allocation when
+    /// the same string has already been allocated by this allocator.
+    ///
+    /// The pool is mutated through `UnsafeCell` because arena allocation is
+    /// intentionally available through a shared allocator reference. The
+    /// allocator is not `Sync`, and this method is the only shared access to
+    /// the pool, so no two pool mutations can occur concurrently.
+    #[inline]
+    pub fn alloc_str<'a>(&'a self, value: &str) -> atom::Atom<'a> {
+        // SAFETY: `Allocator` is not Sync, pool access does not escape this
+        // method, and hashing/equality for `str` cannot re-enter `alloc_str`.
+        let string_pool = unsafe { &mut *self.string_pool.get() };
+        if let Some(atom) = string_pool.get(value).copied() {
+            return atom;
+        }
+
+        let stored = if value.is_empty() {
+            ""
+        } else {
+            self.alloc_str_raw(value)
+        };
+        let atom = atom::Atom::from_interned(stored);
+
+        // SAFETY: entries are removed before the arena is reset or dropped.
+        // Public atoms retain the allocator borrow, so they cannot outlive it.
+        let stored: &'static str = unsafe { std::mem::transmute(stored) };
+        let stored_atom = atom::Atom::from_interned(stored);
+        string_pool.insert(stored, stored_atom);
+        atom
+    }
+
+    #[inline]
+    #[cfg(test)]
+    pub(crate) fn string_pool_len(&self) -> usize {
+        // SAFETY: read access follows the same single-threaded invariant as
+        // `alloc_str`, and the returned value does not borrow the pool.
+        unsafe { (&*self.string_pool.get()).len() }
     }
 
     pub fn alloc<T>(&self, value: T) -> &mut T {
         self.arena.alloc(value)
     }
 
-    pub fn alloc_str(&self, s: &str) -> &str {
+    fn alloc_str_raw(&self, s: &str) -> &str {
         self.arena.alloc_str(s)
     }
 

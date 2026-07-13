@@ -2,8 +2,8 @@ use rocketcss_ast::Ratio;
 
 use crate::{Minify, MinifyContext};
 
-impl Minify for Ratio {
-    fn minify(&mut self, context: &mut MinifyContext) {
+impl<'a> Minify<'a> for Ratio {
+    fn minify(&mut self, context: &mut MinifyContext<'a>) {
         if !context.options().normalize_values || self.0 <= 0.0 || self.1 <= 0.0 {
             return;
         }

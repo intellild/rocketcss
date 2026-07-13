@@ -114,7 +114,7 @@ impl ToCss for ImageSetOption<'_> {
         self.resolution.to_css(dest)?;
         if let Some(file_type) = self.file_type {
             dest.write_str(" type(")?;
-            serialize_string(file_type, dest)?;
+            serialize_string(&file_type, dest)?;
             dest.write_char(')')?;
         }
         Ok(())
@@ -889,7 +889,7 @@ impl ToCss for FamilyName<'_> {
                 | "fantasy"
                 | "monospace"
         ) {
-            return serialize_string(self.0, dest);
+            return serialize_string(&self.0, dest);
         }
         for (index, part) in self.0.split_ascii_whitespace().enumerate() {
             if index > 0 {
@@ -1427,7 +1427,7 @@ impl ToCss for MediaRule<'_> {
 impl ToCss for ImportRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@import ")?;
-        serialize_string(self.url, dest)?;
+        serialize_string(&self.url, dest)?;
         if let Some(layer) = &self.layer {
             dest.write_str(" layer")?;
             if !layer.is_empty() {
@@ -1586,7 +1586,7 @@ impl ToCss for UnicodeRange {
 impl ToCss for FontPaletteValuesRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@font-palette-values ")?;
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         write_named_property_block(&self.properties, dest)
     }
 }
@@ -1633,7 +1633,7 @@ impl ToCss for FontFeatureSubrule<'_> {
 
 impl ToCss for FontFeatureDeclaration<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         dest.delim(Delimiter::Colon)?;
         for (index, value) in self.values.iter().enumerate() {
             if index > 0 {
@@ -1687,7 +1687,7 @@ impl ToCss for PageMarginRule<'_> {
 impl ToCss for PageSelector<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if let Some(name) = self.name {
-            serialize_identifier(name, dest)?;
+            serialize_identifier(&name, dest)?;
         }
         for pseudo_class in &self.pseudo_classes {
             dest.write_char(':')?;
@@ -1708,7 +1708,7 @@ impl ToCss for SupportsRule<'_> {
 impl ToCss for CounterStyleRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@counter-style ")?;
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         write_declaration_block(&self.declarations, dest)
     }
 }
@@ -1717,10 +1717,10 @@ impl ToCss for NamespaceRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@namespace ")?;
         if let Some(prefix) = self.prefix {
-            serialize_identifier(prefix, dest)?;
+            serialize_identifier(&prefix, dest)?;
             dest.write_char(' ')?;
         }
-        serialize_string(self.url, dest)?;
+        serialize_string(&self.url, dest)?;
         dest.write_char(';')
     }
 }
@@ -1758,14 +1758,17 @@ impl ToCss for CustomMediaRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@custom-media ")?;
         dest.write_str("--")?;
-        serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
+        serialize_name(
+            self.name.strip_prefix("--").unwrap_or(self.name.as_str()),
+            dest,
+        )?;
         dest.write_char(' ')?;
         self.query.to_css(dest)?;
         dest.write_char(';')
     }
 }
 
-fn write_layer_name<PrinterT: PrinterTrait>(name: &[&str], dest: &mut PrinterT) -> fmt::Result {
+fn write_layer_name<PrinterT: PrinterTrait>(name: &[Atom<'_>], dest: &mut PrinterT) -> fmt::Result {
     for (index, part) in name.iter().enumerate() {
         if index > 0 {
             dest.write_char('.')?;
@@ -1803,7 +1806,10 @@ impl ToCss for PropertyRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@property ")?;
         dest.write_str("--")?;
-        serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
+        serialize_name(
+            self.name.strip_prefix("--").unwrap_or(self.name.as_str()),
+            dest,
+        )?;
         write_block(dest, |dest| {
             dest.write_str("syntax")?;
             dest.delim(Delimiter::Colon)?;
@@ -1831,7 +1837,7 @@ impl ToCss for ContainerRule<'_> {
         dest.write_str("@container")?;
         if let Some(name) = self.name {
             dest.write_char(' ')?;
-            serialize_identifier(name, dest)?;
+            serialize_identifier(&name, dest)?;
         }
         if let Some(condition) = &self.condition {
             dest.write_char(' ')?;
@@ -1876,7 +1882,10 @@ impl ToCss for PositionTryRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("@position-try ")?;
         dest.write_str("--")?;
-        serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
+        serialize_name(
+            self.name.strip_prefix("--").unwrap_or(self.name.as_str()),
+            dest,
+        )?;
         write_declaration_block(&self.declarations, dest)
     }
 }
@@ -1884,7 +1893,7 @@ impl ToCss for PositionTryRule<'_> {
 impl ToCss for UnknownAtRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_char('@')?;
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         if !self.prelude.is_empty() {
             dest.write_char(' ')?;
             crate::token::write_token_list(&self.prelude, dest)?;

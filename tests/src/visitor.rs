@@ -1,4 +1,4 @@
-use rocketcss_allocator::Allocator;
+use rocketcss_allocator::{Allocator, atom::Atom};
 use rocketcss_ast::SelectorComponent;
 use rocketcss_codegen::{PrinterOptions, ToCss};
 use rocketcss_parser::{ParserOptions, parse};
@@ -6,14 +6,16 @@ use rocketcss_visitor::{PluginContext, Plugins, VisitMut, walk_mut};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 
-struct RenameClass;
+struct RenameClass<'a> {
+    after: Atom<'a>,
+}
 
-impl<'a> VisitMut<'a> for RenameClass {
+impl<'a> VisitMut<'a> for RenameClass<'a> {
     fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
         if let SelectorComponent::Class(name) = component
             && *name == "before"
         {
-            *name = "after";
+            *name = self.after;
         }
         walk_mut::walk_selector_component(self, component);
     }
@@ -29,7 +31,12 @@ fn plugins_transform_expected_css() {
             .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
         let mut context = PluginContext::new(&allocator);
         let mut plugins = Plugins::new();
-        plugins.add_visitor("rename-class", RenameClass);
+        plugins.add_visitor(
+            "rename-class",
+            RenameClass {
+                after: allocator.alloc_str("after"),
+            },
+        );
 
         plugins
             .run(&mut stylesheet, &mut context)

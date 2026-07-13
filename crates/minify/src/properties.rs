@@ -24,7 +24,7 @@ pub(crate) fn value_context(property_id: &PropertyId<'_>) -> ValueContext {
     }
 }
 
-pub(crate) fn custom_property_context(context: &MinifyContext) -> ValueContext {
+pub(crate) fn custom_property_context(context: &MinifyContext<'_>) -> ValueContext {
     ValueContext {
         allow_unitless_zero: false,
         property: PropertyContext::Generic,

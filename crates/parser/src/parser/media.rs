@@ -44,7 +44,7 @@ pub(super) fn parse_import<'i>(
             if raw.is_empty() {
                 return Err(input.new_custom_error(ParserError::InvalidValue));
             }
-            Ok::<_, ParseError<'i, ParserError<'i>>>(parse_supports_condition(raw))
+            Ok::<_, ParseError<'i, ParserError<'i>>>(parse_supports_condition(raw, allocator))
         })?))
     } else {
         None
@@ -132,6 +132,9 @@ pub(super) fn parse_media_list<'i>(
     Ok(MediaList { media_queries })
 }
 
-pub(super) fn parse_supports_condition(source: &str) -> SupportsCondition<'_> {
-    SupportsCondition::Unknown(source)
+pub(super) fn parse_supports_condition<'i>(
+    source: &str,
+    allocator: &'i Allocator,
+) -> SupportsCondition<'i> {
+    SupportsCondition::Unknown(allocator.alloc_str(source))
 }

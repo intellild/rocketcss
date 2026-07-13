@@ -47,16 +47,17 @@ pub(super) fn parse_selector<'i, 't>(
         }
 
         let explicit_combinator = match &token {
-            ValueToken::Delim(">") => Some(Combinator::Child),
-            ValueToken::Delim("+") => Some(Combinator::NextSibling),
-            ValueToken::Delim("~") => Some(Combinator::LaterSibling),
-            ValueToken::Delim("/")
-                if input
-                    .try_parse(|input| {
-                        input.expect_ident_matching("deep")?;
-                        input.expect_delim('/')
-                    })
-                    .is_ok() =>
+            ValueToken::Delim(value) if value.as_str() == ">" => Some(Combinator::Child),
+            ValueToken::Delim(value) if value.as_str() == "+" => Some(Combinator::NextSibling),
+            ValueToken::Delim(value) if value.as_str() == "~" => Some(Combinator::LaterSibling),
+            ValueToken::Delim(value)
+                if value.as_str() == "/"
+                    && input
+                        .try_parse(|input| {
+                            input.expect_ident_matching("deep")?;
+                            input.expect_delim('/')
+                        })
+                        .is_ok() =>
             {
                 Some(Combinator::Deep)
             }
@@ -78,23 +79,27 @@ pub(super) fn parse_selector<'i, 't>(
             ValueToken::Ident(name) if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
                 selector.push(SelectorComponent::Namespace {
                     prefix: name,
-                    url: "",
+                    url: allocator.alloc_str(""),
                 });
                 parse_type_selector(input, allocator)?
             }
             ValueToken::Ident(name) => local_name(name, allocator),
             ValueToken::IdHash(id) => SelectorComponent::Id(id),
-            ValueToken::Delim("*") if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
+            ValueToken::Delim(value)
+                if value == "*" && input.try_parse(|input| input.expect_delim('|')).is_ok() =>
+            {
                 selector.push(SelectorComponent::ExplicitAnyNamespace);
                 parse_type_selector(input, allocator)?
             }
-            ValueToken::Delim("*") => SelectorComponent::ExplicitUniversalType,
-            ValueToken::Delim("|") => {
+            ValueToken::Delim(value) if value == "*" => SelectorComponent::ExplicitUniversalType,
+            ValueToken::Delim(value) if value == "|" => {
                 selector.push(SelectorComponent::ExplicitNoNamespace);
                 parse_type_selector(input, allocator)?
             }
-            ValueToken::Delim("&") => SelectorComponent::Nesting,
-            ValueToken::Delim(".") => SelectorComponent::Class(input.expect_ident()?),
+            ValueToken::Delim(value) if value == "&" => SelectorComponent::Nesting,
+            ValueToken::Delim(value) if value == "." => {
+                SelectorComponent::Class(input.expect_ident()?)
+            }
             ValueToken::Colon => parse_pseudo(input, allocator, depth + 1)?,
             ValueToken::SquareBracketBlock => {
                 input.parse_nested_block(|input| parse_attribute(input, allocator))?
@@ -111,7 +116,7 @@ pub(super) fn parse_selector<'i, 't>(
     Ok(selector)
 }
 
-fn local_name<'i>(name: &'i str, allocator: &'i Allocator) -> SelectorComponent<'i> {
+fn local_name<'i>(name: Atom<'i>, allocator: &'i Allocator) -> SelectorComponent<'i> {
     SelectorComponent::LocalName {
         name,
         lower_name: ascii_lowercase(name, allocator),
@@ -123,8 +128,10 @@ fn parse_type_selector<'i>(
     allocator: &'i Allocator,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
     match input.next()? {
-        ValueToken::Ident(name) => Ok(local_name(name, allocator)),
-        ValueToken::Delim("*") => Ok(SelectorComponent::ExplicitUniversalType),
+        ValueToken::Ident(name) => Ok(local_name(*name, allocator)),
+        ValueToken::Delim(value) if value.as_str() == "*" => {
+            Ok(SelectorComponent::ExplicitUniversalType)
+        }
         _ => Err(input.new_custom_error(ParserError::InvalidSelector)),
     }
 }
@@ -160,7 +167,7 @@ pub(super) fn parse_pseudo<'i, 't>(
         }
         ValueToken::Function(name) => {
             let component =
-                if let Some(kind) = nth_type(name) {
+                if let Some(kind) = nth_type(&name) {
                     let (data, selectors) = input.parse_nested_block(|input| {
                         let start = input.position();
                         input.expect_no_error_token()?;
@@ -269,13 +276,16 @@ pub(super) fn parse_attribute<'i, 't>(
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
     let first = input.next()?.clone();
     let (namespace, name) = match first {
-        ValueToken::Delim("|") => (None, input.expect_ident()?),
-        ValueToken::Delim("*") => {
+        ValueToken::Delim(value) if value == "|" => (None, input.expect_ident()?),
+        ValueToken::Delim(value) if value == "*" => {
             input.expect_delim('|')?;
             (Some(NamespaceConstraint::Any), input.expect_ident()?)
         }
         ValueToken::Ident(prefix) if input.try_parse(|input| input.expect_delim('|')).is_ok() => (
-            Some(NamespaceConstraint::Specific { prefix, url: "" }),
+            Some(NamespaceConstraint::Specific {
+                prefix,
+                url: allocator.alloc_str(""),
+            }),
             input.expect_ident()?,
         ),
         ValueToken::Ident(name) => (None, name),
@@ -299,7 +309,7 @@ pub(super) fn parse_attribute<'i, 't>(
     }
 
     let operator = match input.next()? {
-        ValueToken::Delim("=") => AttrSelectorOperator::Equal,
+        ValueToken::Delim(value) if value.as_str() == "=" => AttrSelectorOperator::Equal,
         ValueToken::IncludeMatch => AttrSelectorOperator::Includes,
         ValueToken::DashMatch => AttrSelectorOperator::DashMatch,
         ValueToken::PrefixMatch => AttrSelectorOperator::Prefix,
@@ -342,7 +352,7 @@ pub(super) fn parse_attribute<'i, 't>(
     })
 }
 
-pub(super) fn pseudo_class(name: &str) -> PseudoClass<'_> {
+pub(super) fn pseudo_class(name: Atom<'_>) -> PseudoClass<'_> {
     match_ignore_ascii_case!(
         name,
         "hover" => PseudoClass::Hover,
@@ -359,7 +369,7 @@ pub(super) fn pseudo_class(name: &str) -> PseudoClass<'_> {
     )
 }
 
-pub(super) fn pseudo_element(name: &str) -> PseudoElement<'_> {
+pub(super) fn pseudo_element(name: Atom<'_>) -> PseudoElement<'_> {
     match_ignore_ascii_case!(
         name,
         "before" => PseudoElement::Before,
