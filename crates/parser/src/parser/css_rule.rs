@@ -188,7 +188,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         })?;
         CssRule::Media(allocator.boxed(MediaRule {
             span: span_from(start, input.position()),
-            query: allocator.boxed(query),
+            query,
             rules,
         }))
     } else if name.eq_ignore_ascii_case("supports") {
@@ -273,7 +273,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         CssRule::CustomMedia(allocator.boxed(rocketcss_ast::CustomMediaRule {
             span: span_from(start, input.position()),
             name: custom_name,
-            query: allocator.boxed(query),
+            query,
         }))
     } else if matches_ignore_case(
         name,

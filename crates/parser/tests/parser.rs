@@ -178,7 +178,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
     assert!(matches!(
         rule.media
             .as_ref()
-            .map(|media| &*media.media_queries[0].media_type),
+            .map(|media| &media.media_queries[0].media_type),
         Some(MediaType::Screen)
     ));
 
@@ -187,7 +187,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
     };
     assert_eq!(rule.rules.len(), 1);
     assert!(matches!(
-        *rule.query.media_queries[0].media_type,
+        rule.query.media_queries[0].media_type,
         MediaType::Screen
     ));
     assert!(rule.query.media_queries[0].condition.is_some());
@@ -207,6 +207,97 @@ fn parses_import_media_unknown_and_font_face_rules() {
     };
     assert_eq!(rule.name, "unknown");
     assert!(rule.block.is_some());
+}
+
+#[test]
+fn parses_typed_media_conditions_and_features() {
+    let allocator = Allocator::new();
+    let source = r#"
+        @media (width >= 600px) and (orientation: landscape),
+               not (hover),
+               (400px < width <= 1000px),
+               screen and (resolution: 2dppx),
+               (max-width: env(--narrow, 10px)) {}
+    "#;
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    let CssRule::Media(rule) = &sheet.rules[0] else {
+        panic!("expected media rule")
+    };
+    assert_eq!(rule.query.media_queries.len(), 5);
+
+    assert!(matches!(
+        rule.query.media_queries[0].condition.as_deref(),
+        Some(MediaCondition::Operation {
+            operator: Operator::And,
+            conditions,
+        }) if matches!(
+            &conditions[0],
+            MediaCondition::Feature(feature)
+                if matches!(
+                    &**feature,
+                    QueryFeature::Range {
+                        name: MediaFeatureName::Standard(MediaFeatureId::Width),
+                        operator: MediaFeatureComparison::GreaterThanEqual,
+                        value,
+                    } if matches!(
+                        value,
+                        MediaFeatureValue::Length(Length::Value(length))
+                            if length.value == 600.0 && length.unit == LengthUnit::Px
+                    )
+                )
+        )
+    ));
+    assert!(matches!(
+        rule.query.media_queries[1].condition.as_deref(),
+        Some(MediaCondition::Not(condition))
+            if matches!(
+                &**condition,
+                MediaCondition::Feature(feature)
+                    if matches!(
+                        &**feature,
+                        QueryFeature::Boolean {
+                            name: MediaFeatureName::Standard(MediaFeatureId::Hover)
+                        }
+                    )
+            )
+    ));
+    assert!(matches!(
+        rule.query.media_queries[2].condition.as_deref(),
+        Some(MediaCondition::Feature(feature))
+            if matches!(&**feature, QueryFeature::Interval {
+                name: MediaFeatureName::Standard(MediaFeatureId::Width),
+                start_operator: MediaFeatureComparison::LessThan,
+                end_operator: MediaFeatureComparison::LessThanEqual,
+                ..
+            })
+    ));
+    assert!(matches!(
+        rule.query.media_queries[3].media_type,
+        MediaType::Screen
+    ));
+    assert!(matches!(
+        rule.query.media_queries[3].condition.as_deref(),
+        Some(MediaCondition::Feature(feature))
+            if matches!(
+                &**feature,
+                QueryFeature::Plain {
+                    name: MediaFeatureName::Standard(MediaFeatureId::Resolution),
+                    value,
+                } if matches!(value, MediaFeatureValue::Resolution(Resolution::Dppx(2.0)))
+            )
+    ));
+    assert!(matches!(
+        rule.query.media_queries[4].condition.as_deref(),
+        Some(MediaCondition::Feature(feature))
+            if matches!(
+                &**feature,
+                QueryFeature::Range {
+                    name: MediaFeatureName::Standard(MediaFeatureId::Width),
+                    operator: MediaFeatureComparison::LessThanEqual,
+                    value,
+                } if matches!(value, MediaFeatureValue::Env(_))
+            )
+    ));
 }
 
 #[test]
@@ -410,7 +501,7 @@ fn parses_import_modifiers_scope_and_page() {
         import
             .media
             .as_ref()
-            .map(|media| &*media.media_queries[0].media_type),
+            .map(|media| &media.media_queries[0].media_type),
         Some(MediaType::Print)
     ));
 
