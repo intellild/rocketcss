@@ -30,10 +30,10 @@ jobs:
           bins: cargo-codspeed
 
       - name: Build the benchmark target(s)
-        run: cargo codspeed build -p rocketcss_benchmark
+        run: cargo codspeed build -p rocketcss_benchmark --bench pipeline
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@v4.18.5
         with:
           mode: simulation
-          run: cargo codspeed run
+          run: cargo codspeed run -p rocketcss_benchmark --bench pipeline

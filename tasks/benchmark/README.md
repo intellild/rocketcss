@@ -4,6 +4,18 @@ The benchmark targets use CodSpeed's recommended Divan compatibility layer,
 installed as the `divan` crate. They continue to run locally with `cargo bench`
 and can be measured by CodSpeed with `cargo codspeed build` and `cargo codspeed run`.
 
+CodSpeed tracks the `pipeline` target, which measures Rocket CSS parsing,
+minification, and code generation as separate stages. Input preparation for the
+minify and codegen stages is excluded from their measurements. Each measured
+sample runs its stage 10 times to reduce fixed-cost noise in CodSpeed's
+single-execution simulation mode.
+
+Run the same pipeline benchmark locally with:
+
+```sh
+cargo bench -p rocketcss_benchmark --bench pipeline
+```
+
 Run the tokenizer comparison with:
 
 ```sh

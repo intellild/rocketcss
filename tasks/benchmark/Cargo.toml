@@ -37,3 +37,7 @@ name    = "minify"
 [[bench]]
 harness = false
 name    = "deduplicate"
+
+[[bench]]
+harness = false
+name    = "pipeline"
