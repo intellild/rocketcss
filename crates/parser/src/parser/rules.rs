@@ -255,7 +255,7 @@ pub(super) fn parse_keyframe_list<'i, 't>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         keyframes.push(Keyframe {
-            declarations: allocator.boxed(declarations),
+            declarations: allocator.pinned(declarations),
             selectors,
         });
     }
@@ -492,7 +492,7 @@ pub(super) fn parse_page_body<'i, 't>(
                     parse_declaration_block(input, allocator, options, depth + 1)
                 })?;
                 Ok(Some(PageMarginRule {
-                    declarations: allocator.boxed(declarations),
+                    declarations: allocator.pinned(declarations),
                     span: span_from(&start, input.position()),
                     margin_box,
                 }))

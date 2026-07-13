@@ -1671,7 +1671,7 @@ where
 impl<'a, VisitorT, T> VisitNode<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
 where
     VisitorT: ?Sized + Visit<'a>,
-    T: VisitNode<'a, VisitorT>,
+    T: VisitNode<'a, VisitorT> + Unpin,
 {
     fn visit_node(&self, visitor: &mut VisitorT) {
         for value in self {

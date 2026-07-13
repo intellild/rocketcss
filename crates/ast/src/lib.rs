@@ -73,11 +73,29 @@ mod tests {
         let rule = PositionTryRule {
             span: Span::new(4, 42),
             name: "--fallback",
-            declarations: allocator.boxed(DeclarationBlock::new(&allocator)),
+            declarations: allocator.pinned(DeclarationBlock::new(&allocator)),
         };
         let rule = CssRule::PositionTry(allocator.boxed(rule));
 
         assert_eq!(rule.span(), Span::new(4, 42));
+    }
+
+    #[test]
+    fn declaration_block_remains_pinned_when_its_container_grows() {
+        let allocator = Allocator::new();
+        let first = allocator.pinned(DeclarationBlock::new(&allocator));
+        let first_ptr = first.as_ref().get_ref() as *const DeclarationBlock<'_>;
+        let mut blocks = allocator.vec();
+        blocks.push(first);
+
+        for _ in 0..32 {
+            blocks.push(allocator.pinned(DeclarationBlock::new(&allocator)));
+        }
+
+        assert_eq!(
+            blocks[0].as_ref().get_ref() as *const DeclarationBlock<'_>,
+            first_ptr,
+        );
     }
 
     #[test]
