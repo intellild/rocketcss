@@ -1,6 +1,5 @@
 use super::{
     css_rule::parse_style_contents,
-    media::parse_media_list,
     properties::parse_declaration,
     selector::parse_selector_list,
     stylesheet::{check_depth, recover_declaration, span_from},
@@ -181,7 +180,20 @@ pub(super) fn parse_custom_media<'i>(
     if query.is_empty() {
         return Err(parser.new_custom_error(ParserError::InvalidValue));
     }
-    Ok((name, parse_media_list(query, allocator)?))
+    // Keep custom media definitions lossless until custom-media expansion is
+    // implemented. Parsing these into normalized range features would change
+    // their public serialization even though this crate does not consume the
+    // definition yet.
+    let mut query_input = ParserInput::new(query, allocator);
+    let mut query_parser = Parser::new(&mut query_input);
+    let condition = MediaCondition::Unknown(collect_tokens(&mut query_parser, allocator, 0)?);
+    let mut media_queries = allocator.vec();
+    media_queries.push(MediaQuery {
+        condition: Some(allocator.boxed(condition)),
+        media_type: MediaType::All,
+        qualifier: None,
+    });
+    Ok((name, MediaList { media_queries }))
 }
 
 pub(super) fn parse_single_ident<'i>(

@@ -4076,7 +4076,7 @@ fn style_rule_browser_hack_target(rule: &StyleRule<'_>) -> Option<BrowserHackTar
 
 fn media_browser_hack_target(media: &rocketcss_ast::MediaList<'_>) -> Option<BrowserHackTarget> {
     for query in &media.media_queries {
-        let rocketcss_ast::MediaType::Custom(value) = &*query.media_type else {
+        let rocketcss_ast::MediaType::Custom(value) = &query.media_type else {
             continue;
         };
         if value.contains('�') && value.contains(',') && value.contains('\t') {

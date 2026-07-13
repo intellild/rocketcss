@@ -21,7 +21,7 @@ impl ToCss for MediaQuery<'_> {
             && let MediaCondition::Unknown(tokens) = &**condition
         {
             if matches!(self.qualifier, Some(Qualifier::Not))
-                && matches!(*self.media_type, MediaType::All)
+                && matches!(self.media_type, MediaType::All)
                 && matches!(
                     tokens.iter().find(|value| {
                         !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)))
@@ -37,7 +37,7 @@ impl ToCss for MediaQuery<'_> {
                 qualifier.to_css(dest)?;
                 dest.write_char(' ')?;
             }
-            let wrote_type = !matches!(*self.media_type, MediaType::All);
+            let wrote_type = !matches!(self.media_type, MediaType::All);
             if wrote_type || self.qualifier.is_some() {
                 self.media_type.to_css(dest)?;
                 dest.write_char(' ')?;
@@ -50,8 +50,8 @@ impl ToCss for MediaQuery<'_> {
             dest.write_char(' ')?;
         }
 
-        let has_type = !matches!(*self.media_type, MediaType::All);
-        match &*self.media_type {
+        let has_type = !matches!(self.media_type, MediaType::All);
+        match &self.media_type {
             MediaType::All if self.qualifier.is_some() || self.condition.is_none() => {
                 dest.write_str("all")?
             }
@@ -63,7 +63,21 @@ impl ToCss for MediaQuery<'_> {
             if has_type || self.qualifier.is_some() {
                 dest.write_str(" and ")?;
             }
+            let needs_parens = (has_type || self.qualifier.is_some())
+                && matches!(
+                    **condition,
+                    MediaCondition::Operation {
+                        operator: Operator::Or,
+                        ..
+                    }
+                );
+            if needs_parens {
+                dest.write_char('(')?;
+            }
             condition.to_css(dest)?;
+            if needs_parens {
+                dest.write_char(')')?;
+            }
         }
         Ok(())
     }
@@ -83,6 +97,10 @@ fn write_media_condition<PrinterT: PrinterTrait>(
     match condition {
         MediaCondition::Feature(value) => value.to_css(dest),
         MediaCondition::Not(value) => {
+            let wrap_not = parent.is_some();
+            if wrap_not {
+                dest.write_char('(')?;
+            }
             dest.write_str("not ")?;
             let needs_parens = matches!(**value, MediaCondition::Operation { .. });
             if needs_parens {
@@ -90,6 +108,9 @@ fn write_media_condition<PrinterT: PrinterTrait>(
             }
             write_media_condition(value, None, dest)?;
             if needs_parens {
+                dest.write_char(')')?;
+            }
+            if wrap_not {
                 dest.write_char(')')?;
             }
             Ok(())

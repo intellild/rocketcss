@@ -263,7 +263,7 @@ pub struct StyleSheet<'a> {
 #[derive(Debug, PartialEq)]
 pub struct MediaRule<'a> {
     pub span: Span,
-    pub query: Box<'a, MediaList<'a>>,
+    pub query: MediaList<'a>,
     pub rules: Vec<'a, CssRule<'a>>,
 }
 
@@ -275,7 +275,7 @@ pub struct MediaList<'a> {
 #[derive(Debug, PartialEq)]
 pub struct MediaQuery<'a> {
     pub condition: Option<Box<'a, MediaCondition<'a>>>,
-    pub media_type: Box<'a, MediaType<'a>>,
+    pub media_type: MediaType<'a>,
     pub qualifier: Option<Qualifier>,
 }
 
@@ -1342,7 +1342,7 @@ pub struct ViewportRule<'a> {
 pub struct CustomMediaRule<'a> {
     pub span: Span,
     pub name: &'a str,
-    pub query: Box<'a, MediaList<'a>>,
+    pub query: MediaList<'a>,
 }
 
 #[derive(Debug, PartialEq)]

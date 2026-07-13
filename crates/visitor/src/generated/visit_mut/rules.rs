@@ -545,7 +545,7 @@ where
 {
     visitor.enter_node(AstType::MediaRule);
     visitor.visit_span(&mut node.span);
-    visitor.visit_media_list((&mut node.query).as_mut());
+    visitor.visit_media_list(&mut node.query);
     for value_1 in (&mut node.rules).iter_mut() {
         visitor.visit_css_rule(value_1);
     }
@@ -569,7 +569,7 @@ where
     if let Some(value_0) = (&mut node.condition).as_mut() {
         visitor.visit_media_condition((value_0).as_mut());
     }
-    visitor.visit_media_type((&mut node.media_type).as_mut());
+    visitor.visit_media_type(&mut node.media_type);
     if let Some(value_3) = (&mut node.qualifier).as_mut() {
         visitor.visit_qualifier(value_3);
     }
@@ -1843,7 +1843,7 @@ where
     visitor.enter_node(AstType::CustomMediaRule);
     visitor.visit_span(&mut node.span);
     visitor.visit_str(&mut node.name);
-    visitor.visit_media_list((&mut node.query).as_mut());
+    visitor.visit_media_list(&mut node.query);
     visitor.leave_node(AstType::CustomMediaRule);
 }
 pub fn walk_layer_statement_rule<'a, VisitorT>(

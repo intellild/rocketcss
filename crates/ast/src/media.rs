@@ -16,21 +16,21 @@ pub enum MediaCondition<'a> {
 #[derive(Debug, PartialEq)]
 pub enum QueryFeature<'a, FeatureId> {
     Plain {
-        name: Box<'a, MediaFeatureName<'a, FeatureId>>,
-        value: Box<'a, MediaFeatureValue<'a>>,
+        name: MediaFeatureName<'a, FeatureId>,
+        value: MediaFeatureValue<'a>,
     },
     Boolean {
-        name: Box<'a, MediaFeatureName<'a, FeatureId>>,
+        name: MediaFeatureName<'a, FeatureId>,
     },
     Range {
-        name: Box<'a, MediaFeatureName<'a, FeatureId>>,
+        name: MediaFeatureName<'a, FeatureId>,
         operator: MediaFeatureComparison,
-        value: Box<'a, MediaFeatureValue<'a>>,
+        value: MediaFeatureValue<'a>,
     },
     Interval {
         end: Box<'a, MediaFeatureValue<'a>>,
         end_operator: MediaFeatureComparison,
-        name: Box<'a, MediaFeatureName<'a, FeatureId>>,
+        name: MediaFeatureName<'a, FeatureId>,
         start: Box<'a, MediaFeatureValue<'a>>,
         start_operator: MediaFeatureComparison,
     },
@@ -90,12 +90,12 @@ pub enum MediaFeatureId {
 
 #[derive(Debug, PartialEq)]
 pub enum MediaFeatureValue<'a> {
-    Length(Box<'a, Length<'a>>),
+    Length(Length<'a>),
     Number(f32),
     Integer(i32),
     Boolean(bool),
-    Resolution(Box<'a, Resolution>),
-    Ratio(Box<'a, Ratio>),
+    Resolution(Resolution),
+    Ratio(Ratio),
     Ident(&'a str),
     Env(Box<'a, EnvironmentVariable<'a>>),
 }

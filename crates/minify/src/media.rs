@@ -11,7 +11,7 @@ impl Minify for MediaList<'_> {
                 tokens.minify(cx);
                 minify_ratios(tokens, cx);
                 if cx.is_enabled(Options::NORMALIZE_MEDIA_QUERIES, OptionsOp::Any)
-                    && matches!(*query.media_type, MediaType::All)
+                    && matches!(query.media_type, MediaType::All)
                     && query.qualifier.is_none()
                     && matches!(tokens.first(), Some(TokenOrValue::Token(token))
                         if matches!(&**token, Token::Ident(value) if value.eq_ignore_ascii_case("and")))
@@ -28,7 +28,7 @@ impl Minify for MediaList<'_> {
         }
         if cx.is_enabled(Options::NORMALIZE_MEDIA_QUERIES, OptionsOp::Any)
             && self.media_queries.len() == 1
-            && matches!(*self.media_queries[0].media_type, MediaType::All)
+            && matches!(self.media_queries[0].media_type, MediaType::All)
             && self.media_queries[0].qualifier.is_none()
             && self.media_queries[0].condition.is_none()
         {

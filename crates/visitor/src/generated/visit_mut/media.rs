@@ -46,20 +46,20 @@ pub fn walk_query_feature<'a, FeatureId, VisitorT>(
     visitor.enter_node(AstType::QueryFeature);
     match node {
         QueryFeature::Plain { name, value } => {
-            visitor.visit_media_feature_name((name).as_mut());
-            visitor.visit_media_feature_value((value).as_mut());
+            visitor.visit_media_feature_name(name);
+            visitor.visit_media_feature_value(value);
         }
         QueryFeature::Boolean { name } => {
-            visitor.visit_media_feature_name((name).as_mut());
+            visitor.visit_media_feature_name(name);
         }
         QueryFeature::Range {
             name,
             operator,
             value,
         } => {
-            visitor.visit_media_feature_name((name).as_mut());
+            visitor.visit_media_feature_name(name);
             visitor.visit_media_feature_comparison(operator);
-            visitor.visit_media_feature_value((value).as_mut());
+            visitor.visit_media_feature_value(value);
         }
         QueryFeature::Interval {
             end,
@@ -70,7 +70,7 @@ pub fn walk_query_feature<'a, FeatureId, VisitorT>(
         } => {
             visitor.visit_media_feature_value((end).as_mut());
             visitor.visit_media_feature_comparison(end_operator);
-            visitor.visit_media_feature_name((name).as_mut());
+            visitor.visit_media_feature_name(name);
             visitor.visit_media_feature_value((start).as_mut());
             visitor.visit_media_feature_comparison(start_operator);
         }
@@ -155,16 +155,16 @@ pub fn walk_media_feature_value<'a, VisitorT>(
     visitor.enter_node(AstType::MediaFeatureValue);
     match node {
         MediaFeatureValue::Length(field_0) => {
-            visitor.visit_length((field_0).as_mut());
+            visitor.visit_length(field_0);
         }
         MediaFeatureValue::Number(field_0) => {}
         MediaFeatureValue::Integer(field_0) => {}
         MediaFeatureValue::Boolean(field_0) => {}
         MediaFeatureValue::Resolution(field_0) => {
-            visitor.visit_resolution((field_0).as_mut());
+            visitor.visit_resolution(field_0);
         }
         MediaFeatureValue::Ratio(field_0) => {
-            visitor.visit_ratio((field_0).as_mut());
+            visitor.visit_ratio(field_0);
         }
         MediaFeatureValue::Ident(field_0) => {
             visitor.visit_str(field_0);
