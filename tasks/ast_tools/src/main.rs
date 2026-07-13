@@ -564,7 +564,12 @@ fn manual_walkers(mode: Mode, properties: &[Property]) -> TokenStream {
             visitor.enter_node(AstType::PropertyId);
             match node {
                 #(#property_id_arms)*
-                PropertyId::All | PropertyId::Unparsed => {}
+                PropertyId::ColumnRule
+                | PropertyId::Columns
+                | PropertyId::GridColumnGap
+                | PropertyId::GridRowGap
+                | PropertyId::All
+                | PropertyId::Unparsed => {}
                 PropertyId::Custom(value) => visitor.visit_str(value),
             }
             visitor.leave_node(AstType::PropertyId);

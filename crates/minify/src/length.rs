@@ -1,13 +1,27 @@
 use rocketcss_ast::{Angle, LengthUnit, LengthValue, Resolution, Time, Unit};
 
-use crate::{Minify, MinifyContext};
+use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for LengthValue {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values || self.value == 0.0 {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if self.unit == LengthUnit::Px
+            && let Some(precision) = cx.options().length_precision
+        {
+            let factor = 10_f32.powi(i32::from(precision));
+            let rounded = (self.value * factor).round() / factor;
+            if self.value != rounded {
+                self.value = rounded;
+                cx.record_value_normalized();
+            }
             return;
         }
-        let original_value = self.value;
+        if !cx.is_enabled(
+            Options::NORMALIZE_VALUES | Options::CONVERT_LENGTH_UNITS,
+            OptionsOp::And,
+        ) || self.value == 0.0
+        {
+            return;
+        }
         let Some(px) = to_px(self.value, self.unit) else {
             return;
         };
@@ -16,34 +30,51 @@ impl Minify for LengthValue {
         let candidates = [
             (px, LengthUnit::Px),
             (px / 96.0, LengthUnit::In),
+            (px * 72.0 / 96.0, LengthUnit::Pt),
+            (px / 16.0, LengthUnit::Pc),
             (px * 2.54 / 96.0, LengthUnit::Cm),
             (px * 25.4 / 96.0, LengthUnit::Mm),
             (px * 101.6 / 96.0, LengthUnit::Q),
-            (px * 72.0 / 96.0, LengthUnit::Pt),
-            (px / 16.0, LengthUnit::Pc),
         ];
         let original_len = dimension_len(self.value, Unit::Length(self.unit));
-        let Some((candidate_value, candidate_unit)) = candidates
-            .into_iter()
-            .filter(|(number, _)| number.is_finite())
-            .min_by_key(|(number, unit)| dimension_len(*number, Unit::Length(*unit)))
-        else {
+        if original_len <= 2 {
             return;
-        };
-
-        if dimension_len(candidate_value, Unit::Length(candidate_unit)) < original_len {
-            self.value = clean_float(candidate_value);
-            self.unit = candidate_unit;
         }
-        if self.value != original_value || self.unit != original_unit {
-            context.record_value_normalized();
+
+        let mut best = None;
+        let mut best_len = original_len;
+        for (candidate_value, candidate_unit) in candidates {
+            if !candidate_value.is_finite()
+                || candidate_unit == original_unit
+                || (cx.is_enabled(Options::CONVERT_EXTENDED_LENGTH_UNITS, OptionsOp::None)
+                    && matches!(
+                        candidate_unit,
+                        LengthUnit::Cm | LengthUnit::Mm | LengthUnit::Q
+                    ))
+                || 1 + length_unit_len(candidate_unit) >= best_len
+            {
+                continue;
+            }
+
+            let candidate_value = clean_float(candidate_value);
+            let candidate_len = dimension_len(candidate_value, Unit::Length(candidate_unit));
+            if candidate_len < best_len {
+                best = Some((candidate_value, candidate_unit));
+                best_len = candidate_len;
+            }
+        }
+
+        if let Some((candidate_value, candidate_unit)) = best {
+            self.value = candidate_value;
+            self.unit = candidate_unit;
+            cx.record_value_normalized();
         }
     }
 }
 
 impl Minify for Angle {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
@@ -53,6 +84,9 @@ impl Minify for Angle {
             Angle::Grad(number) => number * 0.9,
             Angle::Turn(number) => number * 360.0,
         };
+        if degrees == 0.0 {
+            return;
+        }
         let candidates = [
             Angle::Deg(clean_float(degrees)),
             Angle::Turn(clean_float(degrees / 360.0)),
@@ -60,21 +94,32 @@ impl Minify for Angle {
             Angle::Rad(clean_float(degrees.to_radians())),
         ];
         let original_len = dimension_len(angle_number(self), angle_unit(self));
-        let candidate = candidates
-            .into_iter()
-            .min_by_key(|candidate| dimension_len(angle_number(candidate), angle_unit(candidate)))
-            .expect("angle candidates are non-empty");
-        let candidate_len = dimension_len(angle_number(&candidate), angle_unit(&candidate));
-        if candidate_len < original_len {
+        let original_unit = angle_unit(self);
+        let mut best = None;
+        let mut best_len = original_len;
+        for candidate in candidates {
+            let candidate_unit = angle_unit(&candidate);
+            if candidate_unit == original_unit || 1 + unit_len(candidate_unit) >= best_len {
+                continue;
+            }
+
+            let candidate_len = dimension_len(angle_number(&candidate), candidate_unit);
+            if candidate_len < best_len {
+                best = Some(candidate);
+                best_len = candidate_len;
+            }
+        }
+
+        if let Some(candidate) = best {
             *self = candidate;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
 
 impl Minify for Time {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
@@ -93,14 +138,14 @@ impl Minify for Time {
         };
         if *self != candidate {
             *self = candidate;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
 
 impl Minify for Resolution {
-    fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
@@ -120,7 +165,7 @@ impl Minify for Resolution {
             .expect("resolution candidates are non-empty");
         if *self != candidate {
             *self = candidate;
-            context.record_value_normalized();
+            cx.record_value_normalized();
         }
     }
 }
@@ -128,7 +173,7 @@ impl Minify for Resolution {
 pub(crate) fn minify_dimension(
     value: f32,
     unit: Unit,
-    context: &mut MinifyContext,
+    cx: &mut MinifyContext,
 ) -> Option<(f32, Unit)> {
     if let Unit::Length(length_unit) = unit
         && to_px(value, length_unit).is_some()
@@ -137,7 +182,7 @@ pub(crate) fn minify_dimension(
             value,
             unit: length_unit,
         };
-        length.minify(context);
+        length.minify(cx);
         return Some((length.value, Unit::Length(length.unit)));
     }
     if matches!(unit, Unit::Milliseconds | Unit::Seconds) {
@@ -146,7 +191,7 @@ pub(crate) fn minify_dimension(
             Unit::Seconds => Time::Seconds(value),
             _ => unreachable!("time units were checked above"),
         };
-        time.minify(context);
+        time.minify(cx);
         return Some(match time {
             Time::Seconds(number) => (number, Unit::Seconds),
             Time::Milliseconds(number) => (number, Unit::Milliseconds),
@@ -160,7 +205,7 @@ pub(crate) fn minify_dimension(
             Unit::Turn => Angle::Turn(value),
             _ => unreachable!("angle units were checked above"),
         };
-        angle.minify(context);
+        angle.minify(cx);
         return Some(match angle {
             Angle::Deg(number) => (number, Unit::Deg),
             Angle::Rad(number) => (number, Unit::Rad),
@@ -277,7 +322,9 @@ const fn length_unit_len(unit: LengthUnit) -> usize {
 
 fn number_len(value: f32) -> usize {
     let value = clean_float(value);
-    let output = value.to_string();
+    let mut buffer = zmij::Buffer::new();
+    let output = buffer.format(value);
+    let output = output.strip_suffix(".0").unwrap_or(output);
     if value != 0.0 && value.abs() < 1.0 {
         output.len().saturating_sub(1)
     } else {
@@ -287,7 +334,7 @@ fn number_len(value: f32) -> usize {
 
 fn clean_float(value: f32) -> f32 {
     let rounded = value.round();
-    if (value - rounded).abs() < 0.000_01 {
+    if (value - rounded).abs() <= f32::EPSILON * value.abs().max(1.0) * 2.0 {
         rounded
     } else {
         (value * 1_000_000.0).round() / 1_000_000.0

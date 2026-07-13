@@ -360,8 +360,10 @@ pub(crate) fn serialize_number<PrinterT: PrinterTrait>(
     } else {
         value
     };
+    let mut buffer = zmij::Buffer::new();
+    let output = buffer.format(value);
+    let output = output.strip_suffix(".0").unwrap_or(output);
     if value != 0.0 && value.abs() < 1.0 {
-        let output = value.to_string();
         if value.is_sign_negative() {
             dest.write_char('-')?;
             dest.write_str(output.trim_start_matches('-').trim_start_matches('0'))
@@ -369,8 +371,43 @@ pub(crate) fn serialize_number<PrinterT: PrinterTrait>(
             dest.write_str(output.trim_start_matches('0'))
         }
     } else {
-        write!(dest, "{value}")
+        dest.write_str(output)
     }
+}
+
+#[inline]
+pub(crate) fn serialize_int<IntegerT: itoa::Integer, PrinterT: PrinterTrait>(
+    value: IntegerT,
+    dest: &mut PrinterT,
+) -> fmt::Result {
+    let mut buffer = itoa::Buffer::new();
+    dest.write_str(buffer.format(value))
+}
+
+pub(crate) fn serialize_hex<PrinterT: PrinterTrait>(
+    mut value: u32,
+    min_digits: usize,
+    uppercase: bool,
+    dest: &mut PrinterT,
+) -> fmt::Result {
+    const LOWER: &[u8; 16] = b"0123456789abcdef";
+    const UPPER: &[u8; 16] = b"0123456789ABCDEF";
+
+    debug_assert!(min_digits <= 8);
+    let digits = if uppercase { UPPER } else { LOWER };
+    let mut buffer = [b'0'; 8];
+    let mut start = buffer.len();
+    loop {
+        start -= 1;
+        buffer[start] = digits[(value & 0x0f) as usize];
+        value >>= 4;
+        if value == 0 && buffer.len() - start >= min_digits.max(1) {
+            break;
+        }
+    }
+
+    // SAFETY: `buffer` only contains ASCII hexadecimal digits.
+    dest.write_str(unsafe { std::str::from_utf8_unchecked(&buffer[start..]) })
 }
 
 pub(crate) fn serialize_dimension<UnitT: ToCss, PrinterT: PrinterTrait>(

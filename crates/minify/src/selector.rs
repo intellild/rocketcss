@@ -1,10 +1,10 @@
 use rocketcss_ast::{NthType, SelectorComponent, SelectorList};
 
-use crate::{Minify, MinifyContext};
+use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for SelectorList<'_> {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if context.options().normalize_values {
+        if context.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
             for selector in self.iter_mut() {
                 remove_qualified_universal(selector);
                 for component in selector.iter_mut() {
@@ -25,7 +25,7 @@ impl Minify for SelectorList<'_> {
             }
         }
 
-        if context.options().deduplicate_lists {
+        if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
             let before = self.len();
             let mut index = 0;
             while index < self.len() {

@@ -64,6 +64,7 @@ pub enum AstType {
     Variable,
     DashedIdentReference,
     Function,
+    FunctionReplacement,
     ImportRule,
     StyleRule,
     DeclarationBlock,

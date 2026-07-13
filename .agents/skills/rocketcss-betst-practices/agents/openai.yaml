@@ -1,0 +1,4 @@
+interface:
+  display_name: "RocketCSS Best Practices"
+  short_description: "Review and improve RocketCSS implementation patterns"
+  default_prompt: "Use $rocketcss-betst-practices to review and improve RocketCSS changes."

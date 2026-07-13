@@ -8,24 +8,6 @@ macro_rules! match_byte {
     };
 }
 
-macro_rules! match_ignore_ascii_case {
-    (
-        $value:expr,
-        $($($expected:literal)|+ => $result:expr,)+
-        _ => $fallback:expr $(,)?
-    ) => {{
-        let value = $value;
-        $(
-            if $(value.eq_ignore_ascii_case($expected))||+ {
-                $result
-            } else
-        )+
-        {
-            $fallback
-        }
-    }};
-}
-
 mod escape;
 mod parser;
 pub mod prelude;
@@ -45,6 +27,8 @@ pub use tokenizer::{
 
 #[cfg(test)]
 mod tests {
+    use rocketcss_ast::match_ignore_ascii_case;
+
     #[test]
     fn ascii_case_match_evaluates_input_once_and_supports_aliases() {
         let mut evaluations = 0;

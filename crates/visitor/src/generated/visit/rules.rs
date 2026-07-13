@@ -637,7 +637,33 @@ where
         visitor.visit_token_or_value(value_0);
     }
     visitor.visit_str(&node.name);
+    if let Some(value_1) = (&node.replacement).as_ref() {
+        visitor.visit_function_replacement(value_1);
+    }
     visitor.leave_node(AstType::Function);
+}
+pub fn walk_function_replacement<'a, VisitorT>(visitor: &mut VisitorT, node: &FunctionReplacement)
+where
+    VisitorT: ?Sized + Visit<'a>,
+{
+    visitor.enter_node(AstType::FunctionReplacement);
+    match node {
+        FunctionReplacement::GrayAlpha { alpha, lightness } => {}
+        FunctionReplacement::Number(field_0) => {}
+        FunctionReplacement::Dimension { unit, value } => {
+            visitor.visit_unit(unit);
+        }
+        FunctionReplacement::Percentage(field_0) => {}
+        FunctionReplacement::Rgb { blue, green, red } => {}
+        FunctionReplacement::Rgba {
+            alpha,
+            blue,
+            green,
+            red,
+            use_hex,
+        } => {}
+    }
+    visitor.leave_node(AstType::FunctionReplacement);
 }
 pub fn walk_import_rule<'a, VisitorT>(visitor: &mut VisitorT, node: &ImportRule<'a>)
 where

@@ -56,13 +56,23 @@ pub enum Token<'a> {
     AtKeyword(&'a str),
     Hash(&'a str),
     IdHash(&'a str),
+    /// A hexadecimal color hash normalized during minification.
+    MinifiedHash(&'a str),
     String(&'a str),
+    /// A quoted font family that can be serialized as identifiers in place.
+    UnquotedFont(&'a str),
     UnquotedUrl(&'a str),
     Delim(&'a str),
     Number(f32),
     Percentage(f32),
-    Dimension { unit: Unit, value: f32 },
-    UnknownDimension { unit: &'a str, value: f32 },
+    Dimension {
+        unit: Unit,
+        value: f32,
+    },
+    UnknownDimension {
+        unit: &'a str,
+        value: f32,
+    },
     WhiteSpace(&'a str),
     Comment(&'a str),
     Colon,

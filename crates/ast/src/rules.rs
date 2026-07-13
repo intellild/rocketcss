@@ -1,5 +1,7 @@
 use super::*;
 
+use bitflags::bitflags;
+
 #[derive(Debug, PartialEq)]
 pub enum KeyframeSelector<'a> {
     Percentage(f32),
@@ -311,7 +313,86 @@ pub struct DashedIdentReference<'a> {
 #[derive(Debug, PartialEq)]
 pub struct Function<'a> {
     pub arguments: Vec<'a, TokenOrValue<'a>>,
+    flags: FunctionFlags,
     pub name: &'a str,
+    /// A simple value serialized from this existing function node.
+    pub replacement: Option<FunctionReplacement>,
+}
+
+bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    struct FunctionFlags: u8 {
+        /// This node was reduced to an identifier during minification.
+        ///
+        /// Keeping the replacement in the existing function allocation avoids
+        /// allocating a new token solely to change the surrounding enum variant.
+        const IS_IDENTIFIER = 1 << 0;
+        /// Emit a quoted `url()` argument directly when it is safe to unquote.
+        const UNQUOTED_URL = 1 << 1;
+    }
+}
+
+impl<'a> Function<'a> {
+    /// Creates a function with no minifier serialization state.
+    #[inline]
+    pub fn new(name: &'a str, arguments: Vec<'a, TokenOrValue<'a>>) -> Self {
+        Self {
+            arguments,
+            flags: FunctionFlags::empty(),
+            name,
+            replacement: None,
+        }
+    }
+
+    /// Returns whether this function serializes as an identifier.
+    #[inline]
+    pub const fn is_identifier(&self) -> bool {
+        self.flags.contains(FunctionFlags::IS_IDENTIFIER)
+    }
+
+    /// Controls whether this function serializes as an identifier.
+    #[inline]
+    pub fn set_identifier(&mut self, is_identifier: bool) {
+        self.flags.set(FunctionFlags::IS_IDENTIFIER, is_identifier);
+    }
+
+    /// Returns whether this function's quoted URL argument serializes unquoted.
+    #[inline]
+    pub const fn is_unquoted_url(&self) -> bool {
+        self.flags.contains(FunctionFlags::UNQUOTED_URL)
+    }
+
+    /// Controls whether this function's quoted URL argument serializes unquoted.
+    #[inline]
+    pub fn set_unquoted_url(&mut self, unquoted_url: bool) {
+        self.flags.set(FunctionFlags::UNQUOTED_URL, unquoted_url);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum FunctionReplacement {
+    GrayAlpha {
+        alpha: f32,
+        lightness: f32,
+    },
+    Number(f32),
+    Dimension {
+        unit: Unit,
+        value: f32,
+    },
+    Percentage(f32),
+    Rgb {
+        blue: u8,
+        green: u8,
+        red: u8,
+    },
+    Rgba {
+        alpha: f32,
+        blue: u8,
+        green: u8,
+        red: u8,
+        use_hex: bool,
+    },
 }
 
 #[derive(Debug, PartialEq)]

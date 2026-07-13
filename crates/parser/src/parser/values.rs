@@ -30,7 +30,7 @@ pub(super) fn collect_tokens<'i, 't>(
                 let arguments = input
                     .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
                 tokens.push(TokenOrValue::Function(
-                    allocator.boxed(Function { arguments, name }),
+                    allocator.boxed(Function::new(name, arguments)),
                 ));
             }
             ValueToken::UnquotedUrl(url) => {

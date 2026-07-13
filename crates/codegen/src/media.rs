@@ -221,7 +221,7 @@ impl ToCss for MediaFeatureValue<'_> {
         match self {
             Self::Length(value) => value.to_css(dest),
             Self::Number(value) => serialize_number(*value, dest),
-            Self::Integer(value) => write!(dest, "{value}"),
+            Self::Integer(value) => serialize_int(*value, dest),
             Self::Boolean(value) => dest.write_char(if *value { '1' } else { '0' }),
             Self::Resolution(value) => value.to_css(dest),
             Self::Ratio(value) => value.to_css(dest),

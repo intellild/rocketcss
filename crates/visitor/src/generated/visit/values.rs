@@ -220,6 +220,7 @@ pub fn walk_dimension_percentage<'a, D, VisitorT>(
             VisitNode::visit_node((field_0).as_ref(), visitor);
         }
         DimensionPercentage::Percentage(field_0) => {}
+        DimensionPercentage::Zero => {}
         DimensionPercentage::Calc(field_0) => {
             visitor.visit_calc((field_0).as_ref());
         }

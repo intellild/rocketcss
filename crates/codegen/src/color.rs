@@ -16,44 +16,36 @@ impl ToCss for CssColor<'_> {
 
 impl ToCss for RGBA {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        let rgba = u32::from_be_bytes([self.red, self.green, self.blue, self.alpha]);
         if self.alpha == u8::MAX {
-            let value =
-                (u32::from(self.red) << 16) | (u32::from(self.green) << 8) | u32::from(self.blue);
-            if let Some(name) = short_color_name(value) {
+            let rgb = rgba >> 8;
+            if let Some(name) = short_color_name(rgb) {
                 return dest.write_str(name);
             }
             if [self.red, self.green, self.blue]
                 .iter()
                 .all(|value| value >> 4 == value & 0x0f)
             {
-                write!(
-                    dest,
-                    "#{:x}{:x}{:x}",
-                    self.red & 0x0f,
-                    self.green & 0x0f,
-                    self.blue & 0x0f
-                )
+                dest.write_char('#')?;
+                let rgb = ((rgb >> 12) & 0x0f00) | ((rgb >> 8) & 0x00f0) | ((rgb >> 4) & 0x000f);
+                serialize_hex(rgb, 3, false, dest)
             } else {
-                write!(dest, "#{value:06x}")
+                dest.write_char('#')?;
+                serialize_hex(rgb, 6, false, dest)
             }
         } else if [self.red, self.green, self.blue, self.alpha]
             .iter()
             .all(|value| value >> 4 == value & 0x0f)
         {
-            write!(
-                dest,
-                "#{:x}{:x}{:x}{:x}",
-                self.red & 0x0f,
-                self.green & 0x0f,
-                self.blue & 0x0f,
-                self.alpha & 0x0f
-            )
+            dest.write_char('#')?;
+            let rgba = ((rgba >> 12) & 0xf000)
+                | ((rgba >> 8) & 0x0f00)
+                | ((rgba >> 4) & 0x00f0)
+                | (rgba & 0x000f);
+            serialize_hex(rgba, 4, false, dest)
         } else {
-            let value = (u32::from(self.red) << 24)
-                | (u32::from(self.green) << 16)
-                | (u32::from(self.blue) << 8)
-                | u32::from(self.alpha);
-            write!(dest, "#{value:08x}")
+            dest.write_char('#')?;
+            serialize_hex(rgba, 8, false, dest)
         }
     }
 }
