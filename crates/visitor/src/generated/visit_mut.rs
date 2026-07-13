@@ -7,6 +7,7 @@
 )]
 use crate::AstType;
 use rocketcss_ast::*;
+use std::pin::Pin;
 pub mod color;
 pub mod css_rule;
 pub mod length;
@@ -297,7 +298,7 @@ pub trait VisitMut<'a> {
         rules::walk_style_rule(self, node);
     }
     #[inline]
-    fn visit_declaration_block(&mut self, node: &mut DeclarationBlock<'a>) {
+    fn visit_declaration_block(&mut self, node: Pin<&mut DeclarationBlock<'a>>) {
         rules::walk_declaration_block(self, node);
     }
     #[inline]
@@ -1670,7 +1671,7 @@ where
 impl<'a, VisitorT, T> VisitMutNode<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
 where
     VisitorT: ?Sized + VisitMut<'a>,
-    T: VisitMutNode<'a, VisitorT>,
+    T: VisitMutNode<'a, VisitorT> + Unpin,
 {
     fn visit_node(&mut self, visitor: &mut VisitorT) {
         for value in self {
@@ -2281,15 +2282,6 @@ where
     #[inline]
     fn visit_node(&mut self, visitor: &mut VisitorT) {
         visitor.visit_style_rule(self);
-    }
-}
-impl<'a, VisitorT> VisitMutNode<'a, VisitorT> for DeclarationBlock<'a>
-where
-    VisitorT: ?Sized + VisitMut<'a>,
-{
-    #[inline]
-    fn visit_node(&mut self, visitor: &mut VisitorT) {
-        visitor.visit_declaration_block(self);
     }
 }
 impl<'a, VisitorT> VisitMutNode<'a, VisitorT> for Position<'a>

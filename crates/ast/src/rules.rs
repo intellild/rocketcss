@@ -1,6 +1,6 @@
 use super::*;
 
-use std::ptr::NonNull;
+use std::{marker::PhantomPinned, pin::Pin, ptr::NonNull};
 
 #[derive(Debug, PartialEq)]
 pub enum KeyframeSelector<'a> {
@@ -362,7 +362,7 @@ pub struct ImportRule<'a> {
 
 #[derive(Debug)]
 pub struct StyleRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub rules: Vec<'a, CssRule<'a>>,
     pub selectors: Box<'a, SelectorList<'a>>,
@@ -385,7 +385,7 @@ pub struct StyleRuleOutputDeclaration<'a> {
 
 impl<'a> StyleRule<'a> {
     pub fn new(
-        declarations: Box<'a, DeclarationBlock<'a>>,
+        declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
         span: Span,
         rules: Vec<'a, CssRule<'a>>,
         selectors: Box<'a, SelectorList<'a>>,
@@ -455,8 +455,9 @@ pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, Declaration<'a>>,
     pub declarations_importance: BitVec<'a>,
     declarations_invalid: BitVec<'a>,
-    previous: Option<NonNull<DeclarationBlock<'a>>>,
-    next: Option<NonNull<DeclarationBlock<'a>>>,
+    previous: Option<Ref<'a, DeclarationBlock<'a>>>,
+    next: Option<Ref<'a, DeclarationBlock<'a>>>,
+    _pin: PhantomPinned,
 }
 
 impl<'a> DeclarationBlock<'a> {
@@ -468,6 +469,7 @@ impl<'a> DeclarationBlock<'a> {
             declarations_invalid: BitVec::new(allocator),
             previous: None,
             next: None,
+            _pin: PhantomPinned,
         }
     }
 
@@ -476,6 +478,12 @@ impl<'a> DeclarationBlock<'a> {
         self.declarations.push(declaration);
         self.declarations_importance.push(important);
         self.declarations_invalid.push(false);
+    }
+
+    #[inline]
+    pub fn push_pinned(mut self: Pin<&mut Self>, declaration: Declaration<'a>, important: bool) {
+        // SAFETY: pushing into the declaration vector does not move the block.
+        unsafe { self.as_mut().get_unchecked_mut() }.push(declaration, important);
     }
 
     #[inline]
@@ -509,6 +517,12 @@ impl<'a> DeclarationBlock<'a> {
     }
 
     #[inline]
+    pub fn mark_invalid_pinned(mut self: Pin<&mut Self>, index: usize) {
+        // SAFETY: setting a tombstone does not move the declaration block.
+        unsafe { self.as_mut().get_unchecked_mut() }.mark_invalid(index);
+    }
+
+    #[inline]
     pub fn swap(&mut self, left: usize, right: usize) {
         self.declarations.swap(left, right);
         let left_important = self.declarations_importance.is_set(left);
@@ -521,35 +535,30 @@ impl<'a> DeclarationBlock<'a> {
         self.declarations_invalid.set(right, left_invalid);
     }
 
-    /// Links this block after `previous` without moving either block.
-    ///
-    /// # Safety
-    ///
-    /// Both pointers must remain valid for the lifetime of the stylesheet,
-    /// refer to different arena-allocated blocks, and `previous` must be the
-    /// current tail of its chain.
+    /// Links this pinned block after another pinned block.
     #[inline]
-    pub unsafe fn link_previous(&mut self, mut previous: NonNull<DeclarationBlock<'a>>) {
-        let current = NonNull::from(&mut *self);
-        debug_assert_ne!(current, previous);
-        debug_assert!(self.previous.is_none());
-        debug_assert!(unsafe { previous.as_ref() }.next.is_none());
-        self.previous = Some(previous);
-        unsafe { previous.as_mut() }.next = Some(current);
+    pub fn link_previous(mut self: Pin<&mut Self>, mut previous: Pin<&mut DeclarationBlock<'a>>) {
+        let current = Ref::from_pin(self.as_mut());
+        let previous_ref = Ref::from_pin(previous.as_mut());
+        debug_assert_ne!(current, previous_ref);
+        debug_assert!(self.as_ref().get_ref().previous.is_none());
+        debug_assert!(previous.as_ref().get_ref().next.is_none());
+        unsafe { self.as_mut().get_unchecked_mut() }.previous = Some(previous_ref);
+        unsafe { previous.as_mut().get_unchecked_mut() }.next = Some(current);
     }
 
     #[inline]
     pub fn first(&self) -> &Self {
         let mut block = self;
         while let Some(previous) = block.previous {
-            block = unsafe { previous.as_ref() };
+            block = previous.get().get_ref();
         }
         block
     }
 
     #[inline]
     pub fn next(&self) -> Option<&Self> {
-        self.next.map(|next| unsafe { next.as_ref() })
+        self.next.map(|next| next.get().get_ref())
     }
 
     pub fn output_len(&self) -> usize {
@@ -1206,7 +1215,7 @@ pub struct KeyframesRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct Keyframe<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub selectors: Vec<'a, KeyframeSelector<'a>>,
 }
 
@@ -1273,7 +1282,7 @@ pub struct FamilyName<'a>(pub &'a str);
 
 #[derive(Debug, PartialEq)]
 pub struct PageRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub rules: Vec<'a, PageMarginRule<'a>>,
     pub selectors: Vec<'a, PageSelector<'a>>,
@@ -1281,7 +1290,7 @@ pub struct PageRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct PageMarginRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub margin_box: PageMarginBox,
 }
@@ -1301,7 +1310,7 @@ pub struct SupportsRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct CounterStyleRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub name: &'a str,
 }
@@ -1327,13 +1336,13 @@ pub struct NestingRule<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct NestedDeclarationsRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ViewportRule<'a> {
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
@@ -1405,7 +1414,7 @@ pub struct ViewTransitionRule<'a> {
 pub struct PositionTryRule<'a> {
     pub span: Span,
     pub name: &'a str,
-    pub declarations: Box<'a, DeclarationBlock<'a>>,
+    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
 }
 
 #[derive(Debug, PartialEq)]

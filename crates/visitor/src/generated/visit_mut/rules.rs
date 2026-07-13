@@ -7,6 +7,7 @@
 use super::{VisitMut, VisitMutNode};
 use crate::AstType;
 use rocketcss_ast::*;
+use std::pin::Pin;
 pub fn walk_keyframe_selector<'a, VisitorT>(visitor: &mut VisitorT, node: &mut KeyframeSelector<'a>)
 where
     VisitorT: ?Sized + VisitMut<'a>,
@@ -546,8 +547,8 @@ where
     visitor.enter_node(AstType::MediaRule);
     visitor.visit_span(&mut node.span);
     visitor.visit_media_list(&mut node.query);
-    for value_1 in (&mut node.rules).iter_mut() {
-        visitor.visit_css_rule(value_1);
+    for value_0 in (&mut node.rules).iter_mut() {
+        visitor.visit_css_rule(value_0);
     }
     visitor.leave_node(AstType::MediaRule);
 }
@@ -570,8 +571,8 @@ where
         visitor.visit_media_condition((value_0).as_mut());
     }
     visitor.visit_media_type(&mut node.media_type);
-    if let Some(value_3) = (&mut node.qualifier).as_mut() {
-        visitor.visit_qualifier(value_3);
+    if let Some(value_2) = (&mut node.qualifier).as_mut() {
+        visitor.visit_qualifier(value_2);
     }
     visitor.leave_node(AstType::MediaQuery);
 }
@@ -679,11 +680,14 @@ where
     visitor.visit_vendor_prefix(&mut node.vendor_prefix);
     visitor.leave_node(AstType::StyleRule);
 }
-pub fn walk_declaration_block<'a, VisitorT>(visitor: &mut VisitorT, node: &mut DeclarationBlock<'a>)
-where
+pub fn walk_declaration_block<'a, VisitorT>(
+    visitor: &mut VisitorT,
+    mut node: Pin<&mut DeclarationBlock<'a>>,
+) where
     VisitorT: ?Sized + VisitMut<'a>,
 {
     visitor.enter_node(AstType::DeclarationBlock);
+    let node = unsafe { node.as_mut().get_unchecked_mut() };
     for value_0 in (&mut node.declarations).iter_mut() {
         visitor.visit_declaration(value_0);
     }

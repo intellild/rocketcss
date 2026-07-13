@@ -2,10 +2,13 @@ use std::{
     cmp::Ordering,
     hash::{Hash, Hasher},
     mem::discriminant,
+    pin::Pin,
     ptr::NonNull,
 };
 
-use rocketcss_allocator::{Allocator, bit_vec::BitVec, hash_map::HashMap, vec::Vec};
+use rocketcss_allocator::{
+    Allocator, bit_vec::BitVec, hash_map::HashMap, reference::Ref, vec::Vec,
+};
 use rocketcss_ast::{
     AnimationName, CSSWideKeyword, CssColor, CssRule, CustomProperty, Declaration,
     DeclarationBlock, DimensionPercentage, EnvironmentVariable, FontFaceProperty, FontFamily,
@@ -3277,7 +3280,7 @@ struct DeclarationKey<'a> {
 
 #[derive(Clone, Copy)]
 struct DeclarationLocation<'a> {
-    block: NonNull<DeclarationBlock<'a>>,
+    block: Ref<'a, DeclarationBlock<'a>>,
     index: usize,
 }
 
@@ -3304,7 +3307,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut Mi
 
     for rule in rules.iter_mut() {
         if let CssRule::Style(rule) = rule {
-            deduplicate_declarations(&mut rule.declarations, cx);
+            deduplicate_declarations(rule.declarations.as_mut(), cx);
         }
     }
 
@@ -3370,7 +3373,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut Mi
                         // longer mutated after the rule-list pass begins.
                         unsafe { previous.set_selector_ir(selector_ir) };
                         tombstone_matching_declarations(
-                            &mut current.declarations,
+                            current.declarations.as_mut(),
                             &previous.declarations,
                             cx,
                         );
@@ -3381,7 +3384,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut Mi
                         // longer mutated after the rule-list pass begins.
                         unsafe { current.set_selector_ir(selector_ir) };
                         tombstone_matching_declarations(
-                            &mut previous.declarations,
+                            previous.declarations.as_mut(),
                             &current.declarations,
                             cx,
                         );
@@ -3389,7 +3392,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut Mi
                     _ => unreachable!(),
                 }
                 declarations.clear();
-                process_declarations(&mut current.declarations, &mut declarations, cx);
+                process_declarations(current.declarations.as_mut(), &mut declarations, cx);
                 cx.record_style_rule_merged();
                 previous_style = Some(index);
                 continue;
@@ -3404,11 +3407,11 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut Mi
 
             match merge_kind {
                 StyleRuleMergeKind::SameSelectors => {
-                    let previous_block = NonNull::from(previous.declarations.as_mut());
-                    // SAFETY: declaration blocks are arena boxed and never move. The
-                    // previous rule is the live tail of this adjacent merge chain.
-                    unsafe { current.declarations.link_previous(previous_block) };
-                    process_declarations(&mut current.declarations, &mut declarations, cx);
+                    current
+                        .declarations
+                        .as_mut()
+                        .link_previous(previous.declarations.as_mut());
+                    process_declarations(current.declarations.as_mut(), &mut declarations, cx);
                 }
                 StyleRuleMergeKind::SameDeclarations => {
                     std::mem::swap(&mut previous.declarations, &mut current.declarations);
@@ -3417,7 +3420,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut Mi
                     // vectors that are no longer mutated after this rule pass.
                     unsafe { current.set_selector_ir(selector_ir) };
                     declarations.clear();
-                    process_declarations(&mut current.declarations, &mut declarations, cx);
+                    process_declarations(current.declarations.as_mut(), &mut declarations, cx);
                 }
                 StyleRuleMergeKind::PreviousDeclarationsAreSubset
                 | StyleRuleMergeKind::CurrentDeclarationsAreSubset => unreachable!(),
@@ -3431,7 +3434,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, cx: &mut Mi
         let CssRule::Style(current) = &mut rules[index] else {
             unreachable!()
         };
-        process_declarations(&mut current.declarations, &mut declarations, cx);
+        process_declarations(current.declarations.as_mut(), &mut declarations, cx);
         previous_style = current.rules.is_empty().then_some(index);
     }
     discard_empty_rules(rules, cx);
@@ -3948,7 +3951,7 @@ pub(crate) fn discard_browser_hacks(rules: &mut Vec<'_, CssRule<'_>>, cx: &mut M
                     if declaration_browser_hack_target(&rule.declarations.declarations[index])
                         .is_some_and(|required| required != target)
                     {
-                        rule.declarations.mark_invalid(index);
+                        rule.declarations.as_mut().mark_invalid_pinned(index);
                         cx.record_declaration_removed();
                     }
                 }
@@ -4529,10 +4532,12 @@ fn split_property(property: &str) -> PropertyParts<'_> {
 }
 
 fn tombstone_matching_declarations(
-    target: &mut DeclarationBlock<'_>,
+    mut target: Pin<&mut DeclarationBlock<'_>>,
     common: &DeclarationBlock<'_>,
     cx: &mut MinifyContext,
 ) {
+    // SAFETY: this pass mutates fields but never moves the pinned block.
+    let target = unsafe { target.as_mut().get_unchecked_mut() };
     for index in 0..target.len() {
         if target.is_invalid(index) {
             continue;
@@ -4729,7 +4734,9 @@ fn selector_component_is_merge_compatible(
     }
 }
 
-fn deduplicate_declarations(block: &mut DeclarationBlock<'_>, cx: &mut MinifyContext) {
+fn deduplicate_declarations(mut block: Pin<&mut DeclarationBlock<'_>>, cx: &mut MinifyContext) {
+    // SAFETY: declaration minification only mutates fields in place.
+    let block = unsafe { block.as_mut().get_unchecked_mut() };
     discard_empty_declarations(block, cx);
     prepare_box_initial_values(block, cx);
     discard_overridden_columns(block, cx);
@@ -7798,13 +7805,15 @@ fn mark_merged_longhands(
 }
 
 fn process_declarations<'a>(
-    block: &mut DeclarationBlock<'a>,
+    mut block: Pin<&mut DeclarationBlock<'a>>,
     declarations: &mut HashMap<'a, DeclarationKey<'a>, DeclarationLocation<'a>>,
     cx: &mut MinifyContext,
 ) {
+    let block_ref = Ref::from_pin(block.as_mut());
+    // SAFETY: this pass mutates fields but never moves the pinned block.
+    let block = unsafe { block.as_mut().get_unchecked_mut() };
     discard_empty_declarations(block, cx);
     merge_box_longhands(block, cx);
-    let block_pointer = NonNull::from(&mut *block);
     for index in 0..block.declarations.len() {
         if block.is_invalid(index) {
             continue;
@@ -7817,19 +7826,16 @@ fn process_declarations<'a>(
         };
 
         if let Some(mut previous) = declarations.get(&key).copied() {
-            // SAFETY: all locations refer to arena-boxed declaration blocks.
             // No declaration vectors are resized or reordered by this pass,
             // so the stored logical index remains valid.
-            let duplicate = unsafe {
-                previous.block.as_ref().declarations[previous.index]
-                    == block_pointer.as_ref().declarations[index]
-            };
+            let duplicate =
+                previous.block.get().declarations[previous.index] == block.declarations[index];
             if duplicate {
                 if cx.is_enabled(Options::KEEP_LATER_DUPLICATE_DECLARATIONS, OptionsOp::Any) {
                     // Keep the later declaration and tombstone the earlier
                     // one. Besides matching cascade order, this lets the IR
                     // map point at the live tail declaration block.
-                    unsafe { previous.block.as_mut().mark_invalid(previous.index) };
+                    previous.block.get_mut().mark_invalid_pinned(previous.index);
                 } else {
                     block.mark_invalid(index);
                     cx.record_declaration_removed();
@@ -7842,7 +7848,7 @@ fn process_declarations<'a>(
         declarations.insert(
             key,
             DeclarationLocation {
-                block: block_pointer,
+                block: block_ref,
                 index,
             },
         );

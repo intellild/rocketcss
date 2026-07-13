@@ -52,11 +52,35 @@ mod tests {
         let rule = PositionTryRule {
             span: Span::new(4, 42),
             name: "--fallback",
-            declarations: allocator.boxed(DeclarationBlock::new(&allocator)),
+            declarations: allocator.pinned(DeclarationBlock::new(&allocator)),
         };
         let rule = CssRule::PositionTry(allocator.boxed(rule));
 
         assert_eq!(rule.span(), Span::new(4, 42));
+    }
+
+    #[test]
+    fn declaration_block_links_survive_vec_reallocation() {
+        let allocator = Allocator::new();
+        let mut first = allocator.pinned(DeclarationBlock::new(&allocator));
+        let mut second = allocator.pinned(DeclarationBlock::new(&allocator));
+        let first_ptr = first.as_ref().get_ref() as *const DeclarationBlock<'_>;
+        let second_ptr = second.as_ref().get_ref() as *const DeclarationBlock<'_>;
+
+        second.as_mut().link_previous(first.as_mut());
+
+        let mut blocks = allocator.vec();
+        blocks.push(first);
+        blocks.push(second);
+        for _ in 0..64 {
+            blocks.push(allocator.pinned(DeclarationBlock::new(&allocator)));
+        }
+
+        assert_eq!(blocks[1].first() as *const DeclarationBlock<'_>, first_ptr);
+        assert_eq!(
+            blocks[0].next().unwrap() as *const DeclarationBlock<'_>,
+            second_ptr
+        );
     }
 
     #[test]
