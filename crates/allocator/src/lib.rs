@@ -3,12 +3,13 @@ use std::{cell::Cell, pin::Pin};
 
 mod allocator_api;
 pub mod atom;
+pub mod bit_vec;
 pub mod boxed;
 pub mod hash_map;
 pub mod hash_set;
+pub mod prelude;
 pub mod raw_vec;
 pub mod reference;
-pub mod small_bit_vec;
 pub mod vec;
 pub mod wtf8;
 
