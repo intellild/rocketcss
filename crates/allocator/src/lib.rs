@@ -7,9 +7,12 @@ pub mod boxed;
 pub mod hash_map;
 pub mod hash_set;
 pub mod raw_vec;
+pub mod reference;
 pub mod small_bit_vec;
 pub mod vec;
 pub mod wtf8;
+
+pub use reference::Ref;
 
 pub trait CloneIn<'a>: Sized {
     type Cloned;
