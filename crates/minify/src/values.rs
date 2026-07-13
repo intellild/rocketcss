@@ -1,10 +1,10 @@
 use rocketcss_ast::{Ratio, StyleSheet, ZIndex};
 use rocketcss_visitor::VisitMut;
 
-use crate::{Minify, MinifyContext};
+use crate::{Minify, MinifyContext, Options};
 
 pub(crate) fn reduce_z_indices<'a>(stylesheet: &mut StyleSheet<'a>, context: &mut MinifyContext) {
-    if !context.options().reduce_z_indices {
+    if !context.options().is_enabled(Options::REDUCE_Z_INDICES) {
         return;
     }
 
@@ -77,7 +77,10 @@ impl<'a> VisitMut<'a> for ZIndexRewriter<'_, '_> {
 
 impl Minify for Ratio {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values || self.0 <= 0.0 || self.1 <= 0.0 {
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES)
+            || self.0 <= 0.0
+            || self.1 <= 0.0
+        {
             return;
         }
         let (left, right) = (self.0.round(), self.1.round());

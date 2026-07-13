@@ -1,13 +1,15 @@
 use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{Token, TokenOrValue, Unit};
 
-use crate::{Minify, MinifyContext, context::PropertyContext, length};
+use crate::{Minify, MinifyContext, Options, context::PropertyContext, length};
 
 impl Minify for TokenOrValue<'_> {
     /// Normalizes one token node in place. The surrounding `TokenOrValue`
     /// variant and its arena allocation are preserved.
     fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values || context.value_context.skip_value_transforms {
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES)
+            || context.value_context.skip_value_transforms
+        {
             return;
         }
 
@@ -172,17 +174,22 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
     /// arena vector. Separator tokens are reused rather than allocated again.
     fn minify(&mut self, context: &mut MinifyContext) {
         protect_adjacent_function_replacements(self);
-        if context.options().normalize_tokens {
-            normalize_separators(self, context);
+        if context.options().is_enabled(Options::DISCARD_COMMENTS) {
+            discard_comments(self, context);
         }
-        if !context.options().normalize_values || context.value_context.skip_value_transforms {
+        if context.options().is_enabled(Options::NORMALIZE_WHITESPACE) {
+            normalize_whitespace(self, context);
+        }
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES)
+            || context.value_context.skip_value_transforms
+        {
             return;
         }
 
         if minify_broken_decimal_tokens(self) {
             context.record_value_normalized();
         }
-        if context.options().normalize_urls && normalize_url_values(self) {
+        if context.options().is_enabled(Options::NORMALIZE_URLS) && normalize_url_values(self) {
             context.record_value_normalized();
         }
 
@@ -601,17 +608,44 @@ fn is_slash(value: &TokenOrValue<'_>) -> bool {
     matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::Delim("/")))
 }
 
-fn normalize_separators(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+fn discard_comments(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
     let mut index = 0;
     while index < values.len() {
-        if !is_whitespace_or_comment(&values[index]) {
+        if !matches!(&values[index], TokenOrValue::Token(token) if matches!(**token, Token::Comment(_)))
+        {
+            index += 1;
+            continue;
+        }
+
+        let needs_separator = index > 0
+            && index + 1 < values.len()
+            && !is_whitespace_or_comment(&values[index - 1])
+            && !is_whitespace_or_comment(&values[index + 1])
+            && whitespace_is_required(&values[index - 1], &values[index + 1]);
+        if needs_separator {
+            let TokenOrValue::Token(token) = &mut values[index] else {
+                unreachable!("comments are tokens")
+            };
+            **token = Token::WhiteSpace(" ");
+            index += 1;
+        } else {
+            values.remove(index);
+        }
+        context.record_value_normalized();
+    }
+}
+
+fn normalize_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut MinifyContext) {
+    let mut index = 0;
+    while index < values.len() {
+        if !is_whitespace(&values[index]) {
             index += 1;
             continue;
         }
 
         let start = index;
         let mut end = start + 1;
-        while end < values.len() && is_whitespace_or_comment(&values[end]) {
+        while end < values.len() && is_whitespace(&values[end]) {
             end += 1;
         }
 

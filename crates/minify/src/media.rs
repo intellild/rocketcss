@@ -1,6 +1,6 @@
 use rocketcss_ast::{MediaCondition, MediaList, MediaType, SupportsCondition, Token, TokenOrValue};
 
-use crate::{Minify, MinifyContext};
+use crate::{Minify, MinifyContext, Options};
 
 impl Minify for MediaList<'_> {
     fn minify(&mut self, context: &mut MinifyContext) {
@@ -10,7 +10,9 @@ impl Minify for MediaList<'_> {
             {
                 tokens.minify(context);
                 minify_ratios(tokens, context);
-                if context.options().normalize_media_queries
+                if context
+                    .options()
+                    .is_enabled(Options::NORMALIZE_MEDIA_QUERIES)
                     && matches!(*query.media_type, MediaType::All)
                     && query.qualifier.is_none()
                     && matches!(tokens.first(), Some(TokenOrValue::Token(token))
@@ -26,7 +28,9 @@ impl Minify for MediaList<'_> {
                 }
             }
         }
-        if context.options().normalize_media_queries
+        if context
+            .options()
+            .is_enabled(Options::NORMALIZE_MEDIA_QUERIES)
             && self.media_queries.len() == 1
             && matches!(*self.media_queries[0].media_type, MediaType::All)
             && self.media_queries[0].qualifier.is_none()
@@ -35,7 +39,7 @@ impl Minify for MediaList<'_> {
             self.media_queries.clear();
             context.record_value_normalized();
         }
-        if context.options().deduplicate_lists {
+        if context.options().is_enabled(Options::DEDUPLICATE_LISTS) {
             let before = self.media_queries.len();
             let mut index = 0;
             while index < self.media_queries.len() {
@@ -82,7 +86,7 @@ fn minify_ratios(
     values: &mut rocketcss_allocator::vec::Vec<'_, TokenOrValue<'_>>,
     context: &mut MinifyContext,
 ) {
-    if !context.options().normalize_values || values.len() < 5 {
+    if !context.options().is_enabled(Options::NORMALIZE_VALUES) || values.len() < 5 {
         return;
     }
     for index in 2..values.len() - 2 {

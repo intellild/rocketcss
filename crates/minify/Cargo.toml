@@ -4,6 +4,7 @@ name    = "rocketcss_minify"
 version = "0.1.0"
 
 [dependencies]
+bitflags            = { workspace = true }
 rocketcss_allocator = { workspace = true }
 rocketcss_ast       = { workspace = true }
 rocketcss_visitor   = { workspace = true }

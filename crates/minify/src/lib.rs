@@ -14,7 +14,7 @@ use rocketcss_ast::*;
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, walk_mut};
 
 pub use context::{MinifyContext, MinifyStats};
-pub use options::{BrowserHackTarget, MinifyOptions};
+pub use options::{BrowserHackTarget, MinifyOptions, Options};
 
 /// Minifies a syntax-tree node in place.
 pub trait Minify {
@@ -63,7 +63,10 @@ impl<'a> Plugin<'a> for MinifyPlugin {
 }
 
 pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, context: &mut MinifyContext) {
-    if context.options().discard_license_comments {
+    if context
+        .options()
+        .is_enabled(Options::DISCARD_LICENSE_COMMENTS)
+    {
         stylesheet.license_comments.clear();
     }
     rules::coalesce_conditional_rules(&mut stylesheet.rules, context);
@@ -108,8 +111,10 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
         let previous = self.context.value_context;
         self.context.value_context = properties::value_context(
             &node.property_id,
-            self.context.options().order_values,
-            self.context.options().convert_zero_percentages,
+            self.context.options().is_enabled(Options::ORDER_VALUES),
+            self.context
+                .options()
+                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
         );
         walk_mut::walk_unparsed_property(self, node);
         node.minify(self.context);
@@ -261,6 +266,15 @@ mod tests {
             .unwrap()
     }
 
+    fn run_pretty_with_options(source: &str, options: MinifyOptions) -> String {
+        let allocator = Allocator::new();
+        let mut stylesheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+        minify(&mut stylesheet, options);
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: true })
+            .unwrap()
+    }
+
     #[test]
     fn normalizes_values_and_removes_exact_duplicate_declarations() {
         assert_eq!(
@@ -393,11 +407,10 @@ mod tests {
 
     #[test]
     fn folds_linear_calc_expressions_in_place() {
-        let options = MinifyOptions {
-            convert_length_units: false,
-            convert_extended_length_units: false,
-            ..MinifyOptions::default()
-        };
+        let mut options = MinifyOptions::default();
+        options
+            .flags
+            .remove(Options::CONVERT_LENGTH_UNITS | Options::CONVERT_EXTENDED_LENGTH_UNITS);
         assert_eq!(
             run_with_options("a{width:calc(calc(2.25rem + 2px) - 1px * 2)}", options,),
             "a{width:2.25rem}"
@@ -420,10 +433,8 @@ mod tests {
 
     #[test]
     fn rebases_positive_z_indices_in_place() {
-        let options = MinifyOptions {
-            reduce_z_indices: true,
-            ..MinifyOptions::default()
-        };
+        let mut options = MinifyOptions::default();
+        options.flags.insert(Options::REDUCE_Z_INDICES);
         assert_eq!(
             run_with_options(
                 "a{z-index:600}b{z-index:350}c{z-index:150}d{z-index:0}e{z-index:auto}",
@@ -459,18 +470,46 @@ mod tests {
             ParserOptions::default(),
         )
         .unwrap();
-        minify(
-            &mut stylesheet,
-            MinifyOptions {
-                transform_custom_properties: false,
-                ..MinifyOptions::default()
-            },
-        );
+        minify(&mut stylesheet, {
+            let mut options = MinifyOptions::default();
+            options.flags.remove(Options::TRANSFORM_CUSTOM_PROPERTIES);
+            options
+        });
         assert_eq!(
             stylesheet
                 .to_css_string(PrinterOptions { prettify: false })
                 .unwrap(),
             "a{--color:rgb(0 0 0);--size:calc(3px * 2)}"
+        );
+    }
+
+    #[test]
+    fn controls_comments_and_whitespace_independently() {
+        let mut keep_comments = MinifyOptions::default();
+        keep_comments.flags.remove(Options::DISCARD_COMMENTS);
+        assert!(run_pretty_with_options("a{x:a/**/b}", keep_comments).contains("/**/"));
+
+        let mut keep_whitespace = MinifyOptions::default();
+        keep_whitespace.flags.remove(Options::NORMALIZE_WHITESPACE);
+        assert!(run_pretty_with_options("a{x:a   b}", keep_whitespace).contains("a   b"));
+        assert!(!run_pretty_with_options("a{x:a   b}", MinifyOptions::default()).contains("a   b"));
+    }
+
+    #[test]
+    fn controls_empty_rules_and_empty_keyframes_independently() {
+        let mut keep_empty_rules = MinifyOptions::default();
+        keep_empty_rules.flags.remove(Options::DISCARD_EMPTY);
+        assert_eq!(run_with_options("a{}", keep_empty_rules), "a{}");
+        assert_eq!(run("a{}"), "");
+
+        assert_eq!(run("@keyframes x{}"), "@keyframes x{}");
+        let mut discard_empty_keyframes = MinifyOptions::default();
+        discard_empty_keyframes
+            .flags
+            .insert(Options::DISCARD_EMPTY_KEYFRAMES);
+        assert_eq!(
+            run_with_options("@keyframes x{}", discard_empty_keyframes),
+            ""
         );
     }
 

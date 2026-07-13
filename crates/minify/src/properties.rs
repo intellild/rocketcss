@@ -1,7 +1,7 @@
 use rocketcss_ast::PropertyId;
 
 use crate::{
-    MinifyContext,
+    MinifyContext, Options,
     context::{PropertyContext, ValueContext},
 };
 
@@ -171,7 +171,9 @@ pub(crate) fn custom_property_context(context: &MinifyContext) -> ValueContext {
         minify_colors: true,
         preserve_space_after_comma: false,
         property: PropertyContext::Generic,
-        skip_value_transforms: !context.options().transform_custom_properties,
+        skip_value_transforms: !context
+            .options()
+            .is_enabled(Options::TRANSFORM_CUSTOM_PROPERTIES),
     }
 }
 

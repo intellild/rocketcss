@@ -2,11 +2,11 @@ use std::cmp::Ordering;
 
 use rocketcss_ast::{Combinator, NthType, PseudoClass, Selector, SelectorComponent, SelectorList};
 
-use crate::{Minify, MinifyContext};
+use crate::{Minify, MinifyContext, Options};
 
 impl Minify for SelectorList<'_> {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if context.options().normalize_values {
+        if context.options().is_enabled(Options::NORMALIZE_VALUES) {
             for selector in self.iter_mut() {
                 remove_qualified_universal(selector);
                 for component in selector.iter_mut() {
@@ -28,22 +28,22 @@ impl Minify for SelectorList<'_> {
         }
 
         let mut deduplicated = false;
-        if context.options().deduplicate_lists {
+        if context.options().is_enabled(Options::DEDUPLICATE_LISTS) {
             deduplicated = deduplicate_selectors(self);
             if deduplicated {
                 context.record_value_normalized();
             }
         }
-        if context.options().merge_selectors
+        if context.options().is_enabled(Options::MERGE_SELECTORS)
             && merge_common_selector_parts(
                 self,
-                context.options().sort_selector_merges,
+                context.options().is_enabled(Options::SORT_SELECTOR_MERGES),
                 deduplicated,
             )
         {
             context.record_value_normalized();
         }
-        if context.options().sort_selectors
+        if context.options().is_enabled(Options::SORT_SELECTORS)
             && self.iter().all(selector_is_sortable)
             && self
                 .windows(2)

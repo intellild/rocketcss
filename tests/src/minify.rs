@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::BTreeMap, path::Path};
 
 use rocketcss_allocator::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss};
-use rocketcss_minify::{BrowserHackTarget, MinifyOptions, minify};
+use rocketcss_minify::{BrowserHackTarget, MinifyOptions, Options, minify};
 use rocketcss_parser::{ParserOptions, parse};
 use serde_json::Value;
 
@@ -321,72 +321,152 @@ fn minifies_all_cssnano_runtime_cases() {
             || upstream_options["overrideBrowserslist"]
                 .as_str()
                 .is_some_and(|targets| targets.eq_ignore_ascii_case("Chrome 62"));
-        let options = MinifyOptions {
-            // CSSNano's default preset disables absolute length-unit conversion;
-            // the standalone postcss-convert-values corpus exercises it enabled.
-            convert_length_units: plugin == "postcss-convert-values"
-                && upstream_options["length"].as_bool() != Some(false),
-            convert_extended_length_units: plugin != "postcss-convert-values",
+        let mut options = MinifyOptions {
             length_precision: upstream_options["precision"]
                 .as_u64()
                 .and_then(|precision| u8::try_from(precision).ok()),
             calc_precision: (plugin == "cssnano").then_some(5),
-            preserve_variable_fallback_space: plugin == "cssnano",
-            convert_zero_percentages: plugin != "cssnano"
+            browser_hack_target,
+            z_index_start,
+            ..MinifyOptions::default()
+        };
+        let flags = &mut options.flags;
+        // CSSNano's default preset disables absolute length-unit conversion;
+        // the standalone postcss-convert-values corpus exercises it enabled.
+        flags.set(
+            Options::CONVERT_LENGTH_UNITS,
+            plugin == "postcss-convert-values"
+                && upstream_options["length"].as_bool() != Some(false),
+        );
+        flags.set(
+            Options::CONVERT_EXTENDED_LENGTH_UNITS,
+            plugin != "postcss-convert-values",
+        );
+        flags.set(
+            Options::PRESERVE_VARIABLE_FALLBACK_SPACE,
+            plugin == "cssnano",
+        );
+        flags.set(
+            Options::CONVERT_ZERO_PERCENTAGES,
+            plugin != "cssnano"
                 && (plugin != "postcss-convert-values"
                     || upstream_options["env"]
                         .as_str()
                         .is_some_and(|environment| environment.eq_ignore_ascii_case("modern"))),
-            discard_license_comments: upstream_options["removeAll"].as_bool() == Some(true),
-            discard_empty_keyframes: plugin == "postcss-convert-values"
-                || plugin.starts_with("cssnano"),
-            discard_unused_keyframes: plugin == "postcss-discard-unused"
+        );
+        flags.set(
+            Options::DISCARD_LICENSE_COMMENTS,
+            upstream_options["removeAll"].as_bool() == Some(true),
+        );
+        flags.set(
+            Options::DISCARD_EMPTY_KEYFRAMES,
+            plugin == "postcss-convert-values" || plugin.starts_with("cssnano"),
+        );
+        flags.set(
+            Options::DISCARD_UNUSED_KEYFRAMES,
+            plugin == "postcss-discard-unused"
                 && upstream_options["keyframes"].as_bool() != Some(false),
-            discard_overridden_keyframes: plugin.starts_with("cssnano"),
-            discard_unused_counter_styles: plugin == "postcss-discard-unused"
+        );
+        flags.set(
+            Options::DISCARD_OVERRIDDEN_KEYFRAMES,
+            plugin.starts_with("cssnano"),
+        );
+        flags.set(
+            Options::DISCARD_UNUSED_COUNTER_STYLES,
+            plugin == "postcss-discard-unused"
                 && upstream_options["counterStyle"].as_bool() != Some(false),
-            discard_unused_font_faces: plugin == "postcss-discard-unused"
+        );
+        flags.set(
+            Options::DISCARD_UNUSED_FONT_FACES,
+            plugin == "postcss-discard-unused"
                 && upstream_options["fontFace"].as_bool() != Some(false),
-            discard_unused_namespaces: plugin == "postcss-discard-unused"
+        );
+        flags.set(
+            Options::DISCARD_UNUSED_NAMESPACES,
+            plugin == "postcss-discard-unused"
                 && upstream_options["namespace"].as_bool() != Some(false),
-            merge_identical_identifiers: plugin == "postcss-merge-idents",
-            normalize_urls: plugin == "postcss-normalize-url" || plugin.starts_with("cssnano"),
-            order_values: plugin == "postcss-ordered-values"
+        );
+        flags.set(
+            Options::MERGE_IDENTICAL_IDENTIFIERS,
+            plugin == "postcss-merge-idents",
+        );
+        flags.set(
+            Options::NORMALIZE_URLS,
+            plugin == "postcss-normalize-url" || plugin.starts_with("cssnano"),
+        );
+        flags.set(
+            Options::ORDER_VALUES,
+            plugin == "postcss-ordered-values"
                 || plugin == "postcss-discard-unused"
                 || plugin == "postcss-merge-idents"
                 || plugin == "postcss-reduce-idents"
                 || plugin.starts_with("cssnano"),
-            sort_declarations: plugin == "cssnano-preset-advanced",
-            discard_obsolete_prefixes: plugin == "cssnano-preset-advanced",
-            browser_hack_target,
-            order_border_values_with_variables: plugin == "postcss-merge-longhand",
-            sort_selectors: plugin == "postcss-minify-selectors"
+        );
+        flags.set(
+            Options::SORT_DECLARATIONS | Options::DISCARD_OBSOLETE_PREFIXES,
+            plugin == "cssnano-preset-advanced",
+        );
+        flags.set(
+            Options::ORDER_BORDER_VALUES_WITH_VARIABLES,
+            plugin == "postcss-merge-longhand",
+        );
+        flags.set(
+            Options::SORT_SELECTORS,
+            plugin == "postcss-minify-selectors"
                 || plugin == "postcss-unique-selectors"
                 || plugin == "postcss-merge-rules"
                 || plugin == "postcss-discard-duplicates"
                 || plugin.starts_with("cssnano"),
-            merge_selectors: selector_targets_support_is,
-            sort_selector_merges: upstream_options["sort"].as_bool() != Some(false),
-            reduce_to_initial: plugin == "postcss-reduce-initial" && !targets_legacy_browsers,
-            reduce_z_indices: plugin == "postcss-zindex",
-            reduce_keyframe_identifiers: plugin == "postcss-reduce-idents"
+        );
+        flags.set(Options::MERGE_SELECTORS, selector_targets_support_is);
+        flags.set(
+            Options::SORT_SELECTOR_MERGES,
+            upstream_options["sort"].as_bool() != Some(false),
+        );
+        flags.set(
+            Options::REDUCE_TO_INITIAL,
+            plugin == "postcss-reduce-initial" && !targets_legacy_browsers,
+        );
+        flags.set(Options::REDUCE_Z_INDICES, plugin == "postcss-zindex");
+        flags.set(
+            Options::REDUCE_KEYFRAME_IDENTIFIERS,
+            plugin == "postcss-reduce-idents"
                 && upstream_options["keyframes"].as_bool() != Some(false),
-            reduce_counter_style_identifiers: plugin == "postcss-reduce-idents"
+        );
+        flags.set(
+            Options::REDUCE_COUNTER_STYLE_IDENTIFIERS,
+            plugin == "postcss-reduce-idents"
                 && upstream_options["counterStyle"].as_bool() != Some(false),
-            reduce_counter_identifiers: plugin == "postcss-reduce-idents"
+        );
+        flags.set(
+            Options::REDUCE_COUNTER_IDENTIFIERS,
+            plugin == "postcss-reduce-idents"
                 && upstream_options["counter"].as_bool() != Some(false),
-            reduce_grid_identifiers: plugin == "postcss-reduce-idents"
+        );
+        flags.set(
+            Options::REDUCE_GRID_IDENTIFIERS,
+            plugin == "postcss-reduce-idents"
                 && upstream_options["gridTemplate"].as_bool() != Some(false),
-            z_index_start,
+        );
+        flags.set(
+            Options::MERGE_PLACEHOLDER_SELECTORS,
             merge_placeholder_selectors,
-            use_hex_alpha_colors,
-            transform_custom_properties: plugin != "postcss-convert-values"
+        );
+        flags.set(Options::USE_HEX_ALPHA_COLORS, use_hex_alpha_colors);
+        flags.set(
+            Options::TRANSFORM_CUSTOM_PROPERTIES,
+            plugin != "postcss-convert-values"
                 || upstream_options["transformCustomProperties"].as_bool() == Some(true),
-            normalize_media_queries: !targets_legacy_browsers,
-            keep_later_duplicate_declarations: plugin != "postcss-merge-rules",
-            preserve_merged_box_initial: plugin == "postcss-merge-longhand",
-            ..MinifyOptions::default()
-        };
+        );
+        flags.set(Options::NORMALIZE_MEDIA_QUERIES, !targets_legacy_browsers);
+        flags.set(
+            Options::KEEP_LATER_DUPLICATE_DECLARATIONS,
+            plugin != "postcss-merge-rules",
+        );
+        flags.set(
+            Options::PRESERVE_MERGED_BOX_INITIAL,
+            plugin == "postcss-merge-longhand",
+        );
         minify(&mut stylesheet, options);
         let actual = stylesheet
             .to_css_string(PrinterOptions { prettify: false })

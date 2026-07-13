@@ -1,6 +1,6 @@
 use rocketcss_ast::{Angle, LengthUnit, LengthValue, Resolution, Time, Unit};
 
-use crate::{Minify, MinifyContext};
+use crate::{Minify, MinifyContext, Options};
 
 impl Minify for LengthValue {
     fn minify(&mut self, context: &mut MinifyContext) {
@@ -15,8 +15,8 @@ impl Minify for LengthValue {
             }
             return;
         }
-        if !context.options().normalize_values
-            || !context.options().convert_length_units
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES)
+            || !context.options().is_enabled(Options::CONVERT_LENGTH_UNITS)
             || self.value == 0.0
         {
             return;
@@ -45,7 +45,9 @@ impl Minify for LengthValue {
         for (candidate_value, candidate_unit) in candidates {
             if !candidate_value.is_finite()
                 || candidate_unit == original_unit
-                || (!context.options().convert_extended_length_units
+                || (!context
+                    .options()
+                    .is_enabled(Options::CONVERT_EXTENDED_LENGTH_UNITS)
                     && matches!(
                         candidate_unit,
                         LengthUnit::Cm | LengthUnit::Mm | LengthUnit::Q
@@ -73,7 +75,7 @@ impl Minify for LengthValue {
 
 impl Minify for Angle {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values {
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
             return;
         }
 
@@ -118,7 +120,7 @@ impl Minify for Angle {
 
 impl Minify for Time {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values {
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
             return;
         }
 
@@ -144,7 +146,7 @@ impl Minify for Time {
 
 impl Minify for Resolution {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values {
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
             return;
         }
 

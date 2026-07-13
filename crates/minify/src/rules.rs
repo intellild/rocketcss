@@ -17,7 +17,7 @@ use rocketcss_ast::{
 use rocketcss_visitor::{VisitMut, walk_mut};
 use rustc_hash::FxHasher;
 
-use crate::{BrowserHackTarget, Minify, MinifyContext};
+use crate::{BrowserHackTarget, Minify, MinifyContext, Options};
 
 const SHORT_IDENTIFIERS: [&str; 52] = [
     "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
@@ -35,7 +35,10 @@ pub(crate) fn reduce_keyframe_identifiers<'a>(
     stylesheet: &mut StyleSheet<'a>,
     context: &mut MinifyContext,
 ) {
-    if !context.options().reduce_keyframe_identifiers {
+    if !context
+        .options()
+        .is_enabled(Options::REDUCE_KEYFRAME_IDENTIFIERS)
+    {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -57,7 +60,10 @@ pub(crate) fn reduce_counter_style_identifiers<'a>(
     stylesheet: &mut StyleSheet<'a>,
     context: &mut MinifyContext,
 ) {
-    if !context.options().reduce_counter_style_identifiers {
+    if !context
+        .options()
+        .is_enabled(Options::REDUCE_COUNTER_STYLE_IDENTIFIERS)
+    {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -79,7 +85,10 @@ pub(crate) fn reduce_counter_identifiers<'a>(
     stylesheet: &mut StyleSheet<'a>,
     context: &mut MinifyContext,
 ) {
-    if !context.options().reduce_counter_identifiers {
+    if !context
+        .options()
+        .is_enabled(Options::REDUCE_COUNTER_IDENTIFIERS)
+    {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -107,30 +116,30 @@ pub(crate) fn discard_unused_definitions<'a>(
     context: &mut MinifyContext,
 ) {
     let options = context.options();
-    if !options.discard_unused_keyframes
-        && !options.discard_unused_counter_styles
-        && !options.discard_unused_font_faces
-        && !options.discard_unused_namespaces
+    if !options.is_enabled(Options::DISCARD_UNUSED_KEYFRAMES)
+        && !options.is_enabled(Options::DISCARD_UNUSED_COUNTER_STYLES)
+        && !options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES)
+        && !options.is_enabled(Options::DISCARD_UNUSED_NAMESPACES)
     {
         return;
     }
     let allocator = stylesheet.rules.bump();
     let mut keyframes = HashMap::new_in(allocator);
-    if options.discard_unused_keyframes {
+    if options.is_enabled(Options::DISCARD_UNUSED_KEYFRAMES) {
         KeyframeReferenceCollector {
             references: &mut keyframes,
         }
         .visit_style_sheet(stylesheet);
     }
     let mut counter_styles = HashMap::new_in(allocator);
-    if options.discard_unused_counter_styles {
+    if options.is_enabled(Options::DISCARD_UNUSED_COUNTER_STYLES) {
         CounterStyleReferenceCollector {
             references: &mut counter_styles,
         }
         .visit_style_sheet(stylesheet);
     }
     let mut font_families = HashMap::new_in(allocator);
-    if options.discard_unused_font_faces {
+    if options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES) {
         FontReferenceCollector {
             references: &mut font_families,
         }
@@ -138,7 +147,7 @@ pub(crate) fn discard_unused_definitions<'a>(
     }
     let mut namespace_prefixes = HashMap::new_in(allocator);
     let mut uses_any_namespace = false;
-    if options.discard_unused_namespaces {
+    if options.is_enabled(Options::DISCARD_UNUSED_NAMESPACES) {
         NamespaceReferenceCollector {
             prefixes: &mut namespace_prefixes,
             uses_any: &mut uses_any_namespace,
@@ -160,7 +169,10 @@ pub(crate) fn merge_identical_identifier_rules<'a>(
     stylesheet: &mut StyleSheet<'a>,
     context: &mut MinifyContext,
 ) {
-    if !context.options().merge_identical_identifiers {
+    if !context
+        .options()
+        .is_enabled(Options::MERGE_IDENTICAL_IDENTIFIERS)
+    {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -475,16 +487,24 @@ struct UnusedDefinitionDiscarder<'map, 'a> {
 impl<'a> VisitMut<'a> for UnusedDefinitionDiscarder<'_, 'a> {
     fn visit_css_rule(&mut self, node: &mut CssRule<'a>) {
         let remove = match node {
-            CssRule::Keyframes(rule) if self.options.discard_unused_keyframes => {
+            CssRule::Keyframes(rule)
+                if self.options.is_enabled(Options::DISCARD_UNUSED_KEYFRAMES) =>
+            {
                 let name = match &*rule.name {
                     KeyframesName::Ident(name) | KeyframesName::Custom(name) => *name,
                 };
                 !self.keyframes.contains_key(name)
             }
-            CssRule::CounterStyle(rule) if self.options.discard_unused_counter_styles => {
+            CssRule::CounterStyle(rule)
+                if self
+                    .options
+                    .is_enabled(Options::DISCARD_UNUSED_COUNTER_STYLES) =>
+            {
                 !self.counter_styles.contains_key(rule.name)
             }
-            CssRule::FontFace(rule) if self.options.discard_unused_font_faces => {
+            CssRule::FontFace(rule)
+                if self.options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES) =>
+            {
                 font_face_family(rule).is_none_or(|family| {
                     !self
                         .font_families
@@ -492,7 +512,9 @@ impl<'a> VisitMut<'a> for UnusedDefinitionDiscarder<'_, 'a> {
                         .any(|reference| reference.eq_ignore_ascii_case(family))
                 })
             }
-            CssRule::Namespace(rule) if self.options.discard_unused_namespaces => {
+            CssRule::Namespace(rule)
+                if self.options.is_enabled(Options::DISCARD_UNUSED_NAMESPACES) =>
+            {
                 rule.prefix.is_some_and(|prefix| {
                     !self.uses_any_namespace && !self.namespace_prefixes.contains_key(prefix)
                 })
@@ -504,7 +526,7 @@ impl<'a> VisitMut<'a> for UnusedDefinitionDiscarder<'_, 'a> {
             return;
         }
         if let CssRule::FontFace(rule) = node
-            && self.options.discard_unused_font_faces
+            && self.options.is_enabled(Options::DISCARD_UNUSED_FONT_FACES)
         {
             unquote_font_face_family(rule);
         }
@@ -617,7 +639,10 @@ pub(crate) fn reduce_grid_identifiers<'a>(
     stylesheet: &mut StyleSheet<'a>,
     context: &mut MinifyContext,
 ) {
-    if !context.options().reduce_grid_identifiers {
+    if !context
+        .options()
+        .is_enabled(Options::REDUCE_GRID_IDENTIFIERS)
+    {
         return;
     }
     let allocator = stylesheet.rules.bump();
@@ -1275,7 +1300,7 @@ fn reduce_animation_name<'a>(name: &mut AnimationName<'a>, names: &HashMap<'a, &
 
 impl Minify for KeyframeSelector<'_> {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if !context.options().normalize_values {
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
             return;
         }
 
@@ -1298,7 +1323,10 @@ impl Minify for KeyframeSelector<'_> {
 
 impl Minify for Declaration<'_> {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if context.options().convert_zero_percentages {
+        if context
+            .options()
+            .is_enabled(Options::CONVERT_ZERO_PERCENTAGES)
+        {
             let size = match self {
                 Declaration::Width(value)
                 | Declaration::Height(value)
@@ -1321,7 +1349,7 @@ impl Minify for Declaration<'_> {
                 context.record_value_normalized();
             }
         }
-        if !context.options().reduce_to_initial {
+        if !context.options().is_enabled(Options::REDUCE_TO_INITIAL) {
             return;
         }
         if let Declaration::BackgroundColor(color) = self
@@ -1361,7 +1389,7 @@ impl Minify for UnparsedProperty<'_> {
                 context.record_value_normalized();
             }
         }
-        if !context.options().normalize_values {
+        if !context.options().is_enabled(Options::NORMALIZE_VALUES) {
             return;
         }
         if self.property_id.name().eq_ignore_ascii_case("columns") {
@@ -1384,7 +1412,9 @@ impl Minify for UnparsedProperty<'_> {
                 .iter()
                 .filter(|value| token_or_value_contains_variable(value))
                 .count();
-            if context.options().order_border_values_with_variables
+            if context
+                .options()
+                .is_enabled(Options::ORDER_BORDER_VALUES_WITH_VARIABLES)
                 && variable_count == 1
                 && is_border_shorthand(property_name)
                 && order_border_with_trailing_variable(&mut self.value)
@@ -1401,7 +1431,7 @@ impl Minify for UnparsedProperty<'_> {
                 minify_default_border(&mut self.value, context);
             }
         }
-        if context.options().reduce_to_initial
+        if context.options().is_enabled(Options::REDUCE_TO_INITIAL)
             && is_multi_token_initial_value(self.property_id.name(), &self.value)
         {
             let TokenOrValue::Token(token) = &mut self.value[0] else {
@@ -1422,7 +1452,7 @@ impl Minify for UnparsedProperty<'_> {
         let Token::Ident(value) = &**token else {
             return;
         };
-        if context.options().reduce_to_initial
+        if context.options().is_enabled(Options::REDUCE_TO_INITIAL)
             && crate::properties::is_initial_value(self.property_id.name(), value)
         {
             **token = Token::Ident("initial");
@@ -1432,7 +1462,9 @@ impl Minify for UnparsedProperty<'_> {
         if !value.eq_ignore_ascii_case("initial") {
             return;
         }
-        if context.options().preserve_merged_box_initial
+        if context
+            .options()
+            .is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL)
             && is_margin_or_padding_longhand(self.property_id.name())
         {
             return;
@@ -1647,11 +1679,12 @@ impl Minify for Function<'_> {
             rollback_gradient_color_replacements(&mut self.arguments);
         }
         let preserve_space_after_comma = context.value_context.preserve_space_after_comma;
-        context.value_context.preserve_space_after_comma =
-            context.options().preserve_variable_fallback_space
-                && ["var", "env", "constant"]
-                    .iter()
-                    .any(|name| self.name.eq_ignore_ascii_case(name));
+        context.value_context.preserve_space_after_comma = context
+            .options()
+            .is_enabled(Options::PRESERVE_VARIABLE_FALLBACK_SPACE)
+            && ["var", "env", "constant"]
+                .iter()
+                .any(|name| self.name.eq_ignore_ascii_case(name));
         self.arguments.minify(context);
         context.value_context.preserve_space_after_comma = preserve_space_after_comma;
         if is_gradient
@@ -1693,7 +1726,7 @@ impl Minify for Function<'_> {
             }
         }
         if self.name.eq_ignore_ascii_case("url") {
-            if context.options().normalize_urls {
+            if context.options().is_enabled(Options::NORMALIZE_URLS) {
                 self.name = "url";
                 let allocator = self.arguments.bump();
                 if let [TokenOrValue::Token(token)] = self.arguments.as_mut_slice()
@@ -2112,7 +2145,7 @@ fn minify_hsl_function(
             red,
             green,
             blue,
-            use_hex: context.options().use_hex_alpha_colors,
+            use_hex: context.options().is_enabled(Options::USE_HEX_ALPHA_COLORS),
         }
     })
 }
@@ -2181,7 +2214,7 @@ fn minify_rgb_function(
                     red,
                     green,
                     blue,
-                    use_hex: context.options().use_hex_alpha_colors,
+                    use_hex: context.options().is_enabled(Options::USE_HEX_ALPHA_COLORS),
                 }
             },
         );
@@ -3414,7 +3447,7 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
 }
 
 fn factor_style_output_runs<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut MinifyContext) {
-    if !context.options().merge_style_rules {
+    if !context.options().is_enabled(Options::MERGE_STYLE_RULES) {
         return;
     }
     let allocator = rules.bump();
@@ -4082,7 +4115,10 @@ fn contains_ignore_ascii_case(value: &str, needle: &str) -> bool {
 }
 
 fn discard_overridden_keyframes<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut MinifyContext) {
-    if !context.options().discard_overridden_keyframes {
+    if !context
+        .options()
+        .is_enabled(Options::DISCARD_OVERRIDDEN_KEYFRAMES)
+    {
         return;
     }
     let allocator = rules.bump();
@@ -4137,7 +4173,7 @@ fn merged_selector_ir<'a>(
 }
 
 fn deduplicate_style_rules(rules: &mut Vec<'_, CssRule<'_>>, context: &mut MinifyContext) {
-    if !context.options().deduplicate_rules {
+    if !context.options().is_enabled(Options::DEDUPLICATE_RULES) {
         return;
     }
 
@@ -4273,6 +4309,9 @@ impl<'block, 'a> Iterator for OutputDeclarations<'block, 'a> {
 }
 
 fn discard_empty_rules(rules: &mut [CssRule<'_>], context: &MinifyContext) {
+    if !context.options().is_enabled(Options::DISCARD_EMPTY) {
+        return;
+    }
     for rule in rules {
         let should_discard = match rule {
             CssRule::Style(style) => {
@@ -4310,7 +4349,10 @@ fn discard_empty_rules(rules: &mut [CssRule<'_>], context: &MinifyContext) {
             CssRule::FontFeatureValues(rule) => rule.rules.is_empty(),
             CssRule::CounterStyle(rule) => rule.declarations.is_output_empty(),
             CssRule::Keyframes(rule) => {
-                context.options().discard_empty_keyframes && rule.keyframes.is_empty()
+                context
+                    .options()
+                    .is_enabled(Options::DISCARD_EMPTY_KEYFRAMES)
+                    && rule.keyframes.is_empty()
             }
             CssRule::Viewport(rule) => rule.declarations.is_output_empty(),
             CssRule::Unknown(rule) => rule.block.as_ref().is_some_and(|block| block.is_empty()),
@@ -4364,7 +4406,7 @@ fn style_rule_merge_kind(
     if previous.selectors == current.selectors && selectors_are_compatible {
         return Some(StyleRuleMergeKind::SameSelectors);
     }
-    if !context.options().merge_style_rules || !selectors_are_compatible {
+    if !context.options().is_enabled(Options::MERGE_STYLE_RULES) || !selectors_are_compatible {
         return None;
     }
     if style_rule_declarations_are_equivalent(previous, current) {
@@ -4537,7 +4579,9 @@ fn style_rule_selectors_are_compatible(
             selector.iter().all(|component| {
                 selector_component_is_merge_compatible(
                     component,
-                    context.options().merge_placeholder_selectors,
+                    context
+                        .options()
+                        .is_enabled(Options::MERGE_PLACEHOLDER_SELECTORS),
                 )
             })
         })
@@ -4733,7 +4777,10 @@ fn discard_obsolete_prefixed_declarations(
     block: &mut DeclarationBlock<'_>,
     context: &mut MinifyContext,
 ) {
-    if !context.options().discard_obsolete_prefixes {
+    if !context
+        .options()
+        .is_enabled(Options::DISCARD_OBSOLETE_PREFIXES)
+    {
         return;
     }
     for current in 0..block.len() {
@@ -4762,7 +4809,7 @@ fn discard_obsolete_prefixed_declarations(
 }
 
 fn sort_declarations(block: &mut DeclarationBlock<'_>, context: &mut MinifyContext) {
-    if !context.options().sort_declarations {
+    if !context.options().is_enabled(Options::SORT_DECLARATIONS) {
         return;
     }
     let mut changed = false;
@@ -4822,7 +4869,7 @@ pub(crate) fn sort_font_face_properties(
     properties: &mut Vec<'_, FontFaceProperty<'_>>,
     context: &mut MinifyContext,
 ) {
-    if !context.options().sort_declarations {
+    if !context.options().is_enabled(Options::SORT_DECLARATIONS) {
         return;
     }
     let mut changed = false;
@@ -4930,7 +4977,10 @@ fn is_margin_or_padding_longhand(name: &str) -> bool {
 }
 
 fn prepare_box_initial_values(block: &mut DeclarationBlock<'_>, context: &MinifyContext) {
-    if !context.options().preserve_merged_box_initial {
+    if !context
+        .options()
+        .is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL)
+    {
         return;
     }
     let allocator = block.declarations.bump();
@@ -6873,8 +6923,10 @@ fn minify_border_declaration(
     let previous = context.value_context;
     context.value_context = crate::properties::value_context(
         &value.property_id,
-        context.options().order_values,
-        context.options().convert_zero_percentages,
+        context.options().is_enabled(Options::ORDER_VALUES),
+        context
+            .options()
+            .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
     );
     canonicalize_border_keywords(&mut value.value);
     canonicalize_full_border_keywords(&mut value.value);
@@ -6935,8 +6987,10 @@ fn minify_unparsed_declaration(
     let previous = context.value_context;
     context.value_context = crate::properties::value_context(
         &value.property_id,
-        context.options().order_values,
-        context.options().convert_zero_percentages,
+        context.options().is_enabled(Options::ORDER_VALUES),
+        context
+            .options()
+            .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
     );
     value.value.minify(context);
     context.value_context = previous;
@@ -7251,8 +7305,10 @@ fn merge_border_side_shorthands<'a>(
         let previous = context.value_context;
         context.value_context = crate::properties::value_context(
             &target_value.property_id,
-            context.options().order_values,
-            context.options().convert_zero_percentages,
+            context.options().is_enabled(Options::ORDER_VALUES),
+            context
+                .options()
+                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
         );
         target_value.value.minify(context);
         context.value_context = previous;
@@ -7445,8 +7501,10 @@ fn merge_unparsed_values<'a, const N: usize>(
         let previous = context.value_context;
         context.value_context = crate::properties::value_context(
             &target_value.property_id,
-            context.options().order_values,
-            context.options().convert_zero_percentages,
+            context.options().is_enabled(Options::ORDER_VALUES),
+            context
+                .options()
+                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
         );
         target_value.value.minify(context);
         context.value_context = previous;
@@ -7677,7 +7735,9 @@ fn merge_unparsed_box_longhands<'a>(
     let all_equal = indices[1..].iter().all(|&index| {
         matches!(&block.declarations[index], Declaration::Unparsed(value) if value.value == *first_value)
     });
-    let preserve_initial = context.options().preserve_merged_box_initial
+    let preserve_initial = context
+        .options()
+        .is_enabled(Options::PRESERVE_MERGED_BOX_INITIAL)
         && all_equal
         && matches!(first_value.as_slice(), [TokenOrValue::Token(token)]
             if matches!(&**token, Token::Ident(keyword)
@@ -7721,8 +7781,10 @@ fn merge_unparsed_box_longhands<'a>(
         let previous = context.value_context;
         context.value_context = crate::properties::value_context(
             &target_value.property_id,
-            context.options().order_values,
-            context.options().convert_zero_percentages,
+            context.options().is_enabled(Options::ORDER_VALUES),
+            context
+                .options()
+                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES),
         );
         target_value.minify(context);
         context.value_context = previous;
@@ -7799,7 +7861,10 @@ fn process_declarations<'a>(
                     == block_pointer.as_ref().declarations[index]
             };
             if duplicate {
-                if context.options().keep_later_duplicate_declarations {
+                if context
+                    .options()
+                    .is_enabled(Options::KEEP_LATER_DUPLICATE_DECLARATIONS)
+                {
                     // Keep the later declaration and tombstone the earlier
                     // one. Besides matching cascade order, this lets the IR
                     // map point at the live tail declaration block.
