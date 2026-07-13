@@ -67,7 +67,25 @@ struct CssnanoWorker {
 }
 
 impl CssnanoWorker {
-    fn spawn() -> Self {
+    /// Returns the directory that holds the cssnano checkout, if it is available.
+    ///
+    /// The cssnano comparison relies on an external Node.js checkout of cssnano,
+    /// which is not present in every environment (for example CI). When it is
+    /// missing, the benchmark is skipped instead of failing the whole run.
+    fn cssnano_dir() -> Option<PathBuf> {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let cssnano_dir = std::env::var_os("CSSNANO_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| manifest_dir.join("../../../cssnano"));
+        cssnano_dir
+            .join("packages/cssnano/src/index.js")
+            .is_file()
+            .then_some(cssnano_dir)
+    }
+
+    fn spawn() -> Option<Self> {
+        Self::cssnano_dir()?;
+
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let node = std::env::var_os("NODE").unwrap_or_else(|| OsString::from("node"));
         let mut child = Command::new(node)
@@ -87,11 +105,11 @@ impl CssnanoWorker {
             .expect("failed to read cssnano worker startup status");
         assert_eq!(ready.trim(), "ready", "cssnano worker failed to initialize");
 
-        Self {
+        Some(Self {
             child,
             stdin,
             stdout,
-        }
+        })
     }
 
     fn run(&mut self, iterations: u64) -> Duration {
@@ -130,7 +148,15 @@ impl Drop for CssnanoWorker {
 
 #[divan::bench]
 fn cssnano(bencher: Bencher<'_, '_>) {
-    let mut cssnano = CssnanoWorker::spawn();
+    let Some(mut cssnano) = CssnanoWorker::spawn() else {
+        // The cssnano checkout is not available (e.g. in CI). Skip the
+        // comparison instead of failing the benchmark run. Set CSSNANO_DIR to a
+        // cssnano checkout to enable it locally.
+        eprintln!(
+            "skipping cssnano benchmark: cssnano checkout not found (set CSSNANO_DIR to enable)"
+        );
+        return;
+    };
     bencher
         .counter(BytesCount::of_str(BOOTSTRAP))
         .bench_local(|| black_box(cssnano.run(1)));

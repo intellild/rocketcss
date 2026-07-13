@@ -39,7 +39,9 @@ worker request from the Rust side.
 tools include broader cross-rule passes. Treat this as an implementation-cost
 comparison rather than feature-equivalent minifier throughput.
 
-By default, the benchmark loads cssnano from a sibling `cssnano` checkout. Set
+By default, the benchmark loads cssnano from a sibling `cssnano` checkout. When
+that checkout is not available (for example in CI, including the CodSpeed run),
+the cssnano comparison is skipped instead of failing the benchmark run. Set
 `CSSNANO_DIR` when it lives elsewhere, and set `NODE` to override the Node.js
 executable:
 
