@@ -38,6 +38,7 @@ pub(crate) struct ValueContext {
     pub allow_unitless_zero_length: bool,
     pub allow_unitless_zero_percentage: bool,
     pub minify_colors: bool,
+    pub preserve_space_after_comma: bool,
     pub property: PropertyContext,
     pub skip_value_transforms: bool,
 }
@@ -48,6 +49,7 @@ impl Default for ValueContext {
             allow_unitless_zero_length: false,
             allow_unitless_zero_percentage: false,
             minify_colors: true,
+            preserve_space_after_comma: false,
             property: PropertyContext::Generic,
             skip_value_transforms: false,
         }

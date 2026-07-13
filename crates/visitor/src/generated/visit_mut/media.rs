@@ -259,6 +259,9 @@ pub fn walk_supports_condition<'a, VisitorT>(
         SupportsCondition::Unknown(field_0) => {
             visitor.visit_str(field_0);
         }
+        SupportsCondition::MinifiedUnknown(field_0) => {
+            visitor.visit_str(field_0);
+        }
     }
     visitor.leave_node(AstType::SupportsCondition);
 }

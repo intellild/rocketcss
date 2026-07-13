@@ -140,4 +140,7 @@ pub enum SupportsCondition<'a> {
     },
     Selector(&'a str),
     Unknown(&'a str),
+    /// Unknown syntax whose declaration-like separators are minified directly
+    /// by code generation without allocating a replacement string.
+    MinifiedUnknown(&'a str),
 }

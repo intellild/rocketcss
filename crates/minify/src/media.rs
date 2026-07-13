@@ -1,4 +1,4 @@
-use rocketcss_ast::{MediaCondition, MediaList, MediaType, Token, TokenOrValue};
+use rocketcss_ast::{MediaCondition, MediaList, MediaType, SupportsCondition, Token, TokenOrValue};
 
 use crate::{Minify, MinifyContext};
 
@@ -51,6 +51,29 @@ impl Minify for MediaList<'_> {
             if self.media_queries.len() != before {
                 context.record_value_normalized();
             }
+        }
+    }
+}
+
+impl Minify for SupportsCondition<'_> {
+    fn minify(&mut self, context: &mut MinifyContext) {
+        match self {
+            Self::Declaration { value, .. } => {
+                let normalized = value.trim();
+                if normalized.len() != value.len() {
+                    *value = normalized;
+                    context.record_value_normalized();
+                }
+            }
+            Self::Unknown(value)
+                if value
+                    .split_once(':')
+                    .is_some_and(|(_, value)| value.starts_with(char::is_whitespace)) =>
+            {
+                *self = Self::MinifiedUnknown(value);
+                context.record_value_normalized();
+            }
+            _ => {}
         }
     }
 }

@@ -105,6 +105,8 @@ fn minify_color_keyword(value: &str) -> Option<Token<'static>> {
         Some(Token::MinifiedHash("ff0"))
     } else if value.eq_ignore_ascii_case("fuchsia") || value.eq_ignore_ascii_case("magenta") {
         Some(Token::MinifiedHash("f0f"))
+    } else if value.eq_ignore_ascii_case("lightgreen") {
+        Some(Token::MinifiedHash("90ee90"))
     } else if value.eq_ignore_ascii_case("grey") {
         Some(Token::Ident("grey"))
     } else {
@@ -616,7 +618,9 @@ fn normalize_separators(values: &mut Vec<'_, TokenOrValue<'_>>, context: &mut Mi
         let keep_space = start > 0
             && end < values.len()
             && (whitespace_is_required(&values[start - 1], &values[end])
-                || multiplication_before_parentheses(values, start, end));
+                || multiplication_before_parentheses(values, start, end)
+                || (context.value_context.preserve_space_after_comma
+                    && is_comma(&values[start - 1])));
         if keep_space {
             let TokenOrValue::Token(token) = &mut values[start] else {
                 unreachable!("separator nodes are tokens")

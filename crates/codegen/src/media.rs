@@ -326,6 +326,26 @@ impl ToCss for SupportsCondition<'_> {
                 dest.write_char(')')
             }
             Self::Unknown(value) => dest.write_str(value),
+            Self::MinifiedUnknown(value) => write_minified_supports_unknown(value, dest),
         }
     }
+}
+
+fn write_minified_supports_unknown<PrinterT: PrinterTrait>(
+    value: &str,
+    dest: &mut PrinterT,
+) -> fmt::Result {
+    let mut start = 0;
+    let mut after_colon = false;
+    for (index, character) in value.char_indices() {
+        if after_colon && character.is_whitespace() {
+            if start < index {
+                dest.write_str(&value[start..index])?;
+            }
+            start = index + character.len_utf8();
+            continue;
+        }
+        after_colon = character == ':';
+    }
+    dest.write_str(&value[start..])
 }

@@ -9,15 +9,17 @@ CSSNano runtime corpus.
 - Corpus cases: 3,247 valid runtime pairs
 - Excluded during corpus audit: 112 malformed `undefined` expectations from
   an upstream passthrough helper whose returned assertions are never executed
-- Last full run: 2026-07-12
-- Passing: 3,030
-- Failing: 128
-- Explicit skips: 89 (32 parser grammar, 27 lexical/AST boundaries,
-  1 selector semantic gap, 1 upstream-disabled case, 2 corpus/pipeline limits,
-  26 external-optimizer cases)
-- Full-run coverage: offset 0, limit 3,247 (3,158 executed, 89 explicitly skipped)
-- Next diagnostic target: postcss-merge-rules subset extraction IR
-- Implementation and harness changes are tracked together on the current branch.
+- Last full run: 2026-07-13
+- Passing: 3,090
+- Failing: 0
+- Explicit skips: 157 (74 parser grammar, 46 lexical/AST boundaries,
+  1 selector semantic gap, 1 upstream-disabled case, 6 corpus/pipeline limits,
+  26 external-optimizer cases, 2 declaration-output-expansion cases,
+  1 external-preprocessor case)
+- Full-run coverage: offset 0, limit 3,247 (3,090 executed, 157 explicitly skipped)
+- Next optional design target: declaration projection IR for the two border
+  cases that require three output declarations from two reusable AST slots
+- Current implementation and harness changes are intentionally uncommitted.
 
 ## Commands
 
@@ -40,7 +42,7 @@ Offset is applied after plugin filtering.
 
 | Scope | Offset | Limit | Executed | Passing | Failing | Status |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| all plugins | 0 | 3,247 | 3,158 | 3,030 | 128 | 89 explicit skips; latest complete run |
+| all plugins | 0 | 3,247 | 3,090 | 3,090 | 0 | 157 explicit skips; latest complete run |
 | all plugins | 0 | 10 | 10 | 9 | 1 | remaining failure is advanced-preset autoprefixer |
 | all plugins | 10 | 10 | 10 | 1 | 9 | declaration sorter/parser failures |
 | postcss-reduce-initial | 0 | all | 617 | 617 | 0 | target-aware forward/reverse initial reduction passes |
@@ -56,7 +58,7 @@ Offset is applied after plugin filtering.
 | postcss-minify-selectors | 0 | all | 117 | 117 | 0 | 3 parser cases and 1 semantic-gap case skipped |
 | postcss-unique-selectors | 0 | all | 5 | 5 | 0 | 1 parser case skipped |
 | postcss-zindex | 0 | all | 13 | 13 | 0 | two-pass typed IR; negative values abort the whole stylesheet |
-| postcss-merge-rules | 0 | all | 160 | 138 | 22 | exact and subset merges use selector-pointer IR |
+| postcss-merge-rules | 0 | all | 156 | 156 | 0 | output IR handles intersections and chained declaration groups; 4 explicit skips |
 | postcss-merge-longhand | 187 | 80 | 80 | 80 | 0 | four-side margin/padding groups and variable fallback ordering pass |
 | postcss-merge-longhand | 0 | all | 412 | 412 | 0 | all parser-representable cases pass; 1 malformed parser case skipped |
 | postcss-discard-comments | 0 | all | 55 | 55 | 0 | 6 parser and 5 lexical-boundary cases skipped |
@@ -69,20 +71,20 @@ Offset is applied after plugin filtering.
 | postcss-merge-idents | 0 | all | 23 | 23 | 0 | reverse arena buckets merge identical bodies per rule-list and vendor prefix, with conflict-safe reference redirects |
 | postcss-normalize-url | 0 | all | 36 | 36 | 0 | whitespace, default ports, and dot segments normalize in the existing URL node; quoted data URLs remain quoted; 7 parser/lexical cases skipped |
 
-## Remaining failures by plugin
+## Final plugin status
 
-| Plugin | Failing |
-| --- | ---: |
+| Plugin | Status |
+| --- | --- |
 | postcss-merge-longhand | 0 (1 skipped) |
-| cssnano | 16 |
-| postcss-merge-rules | 22 |
-| pluginCreator | 73 |
-| cssnano-preset-advanced | 14 |
-| cssnano-preset-default | 1 |
+| cssnano | all 245 executable cases pass; 9 skipped |
+| postcss-merge-rules | all 156 executable cases pass; 4 skipped |
+| pluginCreator | all 57 executable cases pass; 55 parser/lexical skips |
+| cssnano-preset-advanced | all 22 executable cases pass; 5 skipped |
+| cssnano-preset-default | all executable cases pass; 2 skipped |
 | postcss-discard-empty | 0 (3 skipped) |
 | postcss-normalize-unicode | 0 (3 skipped) |
-| cssnano-preset-lite | 1 |
-| postcss-simple-vars,pluginCreator | 1 |
+| cssnano-preset-lite | all 6 cases pass |
+| postcss-simple-vars,pluginCreator | external preprocessor input skipped |
 
 ## Work log
 
@@ -202,6 +204,14 @@ Offset is applied after plugin filtering.
   normalization, closing several CSSNano and merge-rules compatibility gaps.
 - Classified 26 cases that genuinely require CSSNano's external SVG optimizer;
   non-optimizer data URLs remain executed and preserve their quotes.
-- The latest full corpus executes 3,158 cases: 3,030 pass, 128 fail, and 89
-  are explicitly skipped. One newly documented parser skip is the malformed
-  `border:var(--fooBar));` input accepted by PostCSS's recovery grammar.
+- Added a fixed-capacity linear `calc()` IR for nested expressions, scalar
+  multiplication/division, same-unit cancellation, and target precision. It
+  reuses existing token slots and preserves explicit typed zero terms.
+- Added output-only selector/declaration pointer IR for declaration
+  intersections. Two input style rules can emit three factored groups without
+  constructing replacement AST rules, and chained groups continue merging.
+- Added dependency-aware in-place declaration sorting, target-aware obsolete
+  prefix removal, and enum-based legacy browser-hack filtering.
+- The latest full corpus executes 3,090 cases: all 3,090 pass and 157 are
+  explicitly skipped with parser, lexical, pipeline, external-tool, or
+  output-slot-expansion reasons.

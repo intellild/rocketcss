@@ -1,3 +1,14 @@
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BrowserHackTarget {
+    Firefox2,
+    Ie6,
+    Ie7,
+    Ie8,
+    Ie9,
+    Opera9,
+    Modern,
+}
+
 /// Options controlling local, in-place syntax-tree minification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MinifyOptions {
@@ -11,6 +22,12 @@ pub struct MinifyOptions {
     pub use_hex_alpha_colors: bool,
     /// Put unordered shorthand components into their canonical order.
     pub order_values: bool,
+    /// Sort independent declarations while preserving cascade dependencies.
+    pub sort_declarations: bool,
+    /// Remove vendor-prefixed declarations no longer needed by the targets.
+    pub discard_obsolete_prefixes: bool,
+    /// Remove legacy browser hacks not needed by this explicit target.
+    pub browser_hack_target: Option<BrowserHackTarget>,
     /// Order known border width/style components around a trailing variable.
     pub order_border_values_with_variables: bool,
     /// Sort selector lists by their serialized component order.
@@ -27,6 +44,10 @@ pub struct MinifyOptions {
     pub convert_extended_length_units: bool,
     /// Decimal precision for pixel lengths; disables cross-unit conversion.
     pub length_precision: Option<u8>,
+    /// Decimal precision applied to folded linear `calc()` terms.
+    pub calc_precision: Option<u8>,
+    /// Preserve an existing space before a variable fallback value.
+    pub preserve_variable_fallback_space: bool,
     /// Allow target-sensitive percentage zeros to become unitless zeros.
     pub convert_zero_percentages: bool,
     /// Deduplicate entries contained by a single list node.
@@ -85,6 +106,9 @@ impl Default for MinifyOptions {
             normalize_values: true,
             use_hex_alpha_colors: true,
             order_values: true,
+            sort_declarations: false,
+            discard_obsolete_prefixes: false,
+            browser_hack_target: None,
             order_border_values_with_variables: false,
             sort_selectors: true,
             normalize_media_queries: true,
@@ -93,6 +117,8 @@ impl Default for MinifyOptions {
             convert_length_units: true,
             convert_extended_length_units: true,
             length_precision: None,
+            calc_precision: None,
+            preserve_variable_fallback_space: false,
             convert_zero_percentages: true,
             deduplicate_lists: true,
             deduplicate_rules: true,

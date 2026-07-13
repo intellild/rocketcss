@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     hash::{Hash, Hasher},
     mem::discriminant,
     ptr::NonNull,
@@ -10,13 +11,13 @@ use rocketcss_ast::{
     DeclarationBlock, DimensionPercentage, EnvironmentVariable, FontFaceProperty, FontFamily,
     Function, FunctionReplacement, KeyframeSelector, KeyframesName, LengthUnit, LengthValue,
     Margin, NamespaceConstraint, Padding, ParsedCaseSensitivity, PropertyId, PseudoClass,
-    PseudoElement, SelectorComponent, Size, StyleRule, StyleSheet, Token, TokenOrValue, Unit,
-    UnknownAtRule, UnparsedProperty, Variable, VendorPrefix,
+    PseudoElement, SelectorComponent, Size, StyleRule, StyleRuleOutput, StyleRuleOutputDeclaration,
+    StyleSheet, Token, TokenOrValue, Unit, UnknownAtRule, UnparsedProperty, Variable, VendorPrefix,
 };
 use rocketcss_visitor::{VisitMut, walk_mut};
 use rustc_hash::FxHasher;
 
-use crate::{Minify, MinifyContext};
+use crate::{BrowserHackTarget, Minify, MinifyContext};
 
 const SHORT_IDENTIFIERS: [&str; 52] = [
     "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
@@ -1645,7 +1646,14 @@ impl Minify for Function<'_> {
         if gradient_contains_variable {
             rollback_gradient_color_replacements(&mut self.arguments);
         }
+        let preserve_space_after_comma = context.value_context.preserve_space_after_comma;
+        context.value_context.preserve_space_after_comma =
+            context.options().preserve_variable_fallback_space
+                && ["var", "env", "constant"]
+                    .iter()
+                    .any(|name| self.name.eq_ignore_ascii_case(name));
         self.arguments.minify(context);
+        context.value_context.preserve_space_after_comma = preserve_space_after_comma;
         if is_gradient
             && !gradient_contains_variable
             && (minify_gradient_direction(&mut self.arguments)
@@ -1662,6 +1670,15 @@ impl Minify for Function<'_> {
             return;
         }
         if self.name.eq_ignore_ascii_case("calc") {
+            if let Some(linear) = calc_linear_expression(&self.arguments)
+                .map(|linear| linear.round(context.options().calc_precision))
+                && linear.write_to(self)
+            {
+                context.record_value_normalized();
+                if self.replacement.is_some() {
+                    return;
+                }
+            }
             if remove_redundant_calc_parentheses(&mut self.arguments) {
                 context.record_value_normalized();
             }
@@ -2338,6 +2355,348 @@ fn simple_calc_value(values: &[TokenOrValue<'_>]) -> Option<FunctionReplacement>
     calculate_values(left, operator, right).map(unitless_calc_zero)
 }
 
+const MAX_CALC_TERMS: usize = 16;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CalcTermKind {
+    Number,
+    Percentage,
+    Dimension(Unit),
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CalcTerm {
+    explicit_zero: bool,
+    kind: CalcTermKind,
+    value: f32,
+}
+
+impl CalcTerm {
+    const EMPTY: Self = Self {
+        explicit_zero: false,
+        kind: CalcTermKind::Number,
+        value: 0.0,
+    };
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CalcLinear {
+    terms: [CalcTerm; MAX_CALC_TERMS],
+    len: usize,
+}
+
+impl CalcLinear {
+    const fn empty() -> Self {
+        Self {
+            terms: [CalcTerm::EMPTY; MAX_CALC_TERMS],
+            len: 0,
+        }
+    }
+
+    fn from_value(value: FunctionReplacement) -> Option<Self> {
+        let (kind, value) = match value {
+            FunctionReplacement::Number(value) => (CalcTermKind::Number, value),
+            FunctionReplacement::Percentage(value) => (CalcTermKind::Percentage, value),
+            FunctionReplacement::Dimension { unit, value } => {
+                (CalcTermKind::Dimension(unit), value)
+            }
+            _ => return None,
+        };
+        let mut result = Self::empty();
+        result.terms[0] = CalcTerm {
+            explicit_zero: value == 0.0,
+            kind,
+            value,
+        };
+        result.len = 1;
+        Some(result)
+    }
+
+    fn add(mut self, right: Self, sign: f32) -> Option<Self> {
+        for right in right.terms[..right.len].iter().copied() {
+            if let Some(left) = self.terms[..self.len]
+                .iter_mut()
+                .find(|left| left.kind == right.kind)
+            {
+                left.value += right.value * sign;
+                left.explicit_zero &= right.explicit_zero;
+                continue;
+            }
+            if self.len == MAX_CALC_TERMS {
+                return None;
+            }
+            self.terms[self.len] = CalcTerm {
+                explicit_zero: right.explicit_zero,
+                kind: right.kind,
+                value: right.value * sign,
+            };
+            self.len += 1;
+        }
+        Some(self)
+    }
+
+    fn scale(mut self, factor: f32) -> Self {
+        for term in &mut self.terms[..self.len] {
+            term.value *= factor;
+        }
+        self
+    }
+
+    fn round(mut self, precision: Option<u8>) -> Self {
+        let Some(precision) = precision else {
+            return self;
+        };
+        let factor = 10_f64.powi(i32::from(precision));
+        for term in &mut self.terms[..self.len] {
+            term.value = ((f64::from(term.value) * factor).round() / factor) as f32;
+        }
+        self
+    }
+
+    fn scalar(self) -> Option<f32> {
+        (self.len == 1 && self.terms[0].kind == CalcTermKind::Number).then_some(self.terms[0].value)
+    }
+
+    fn compact_cancelled_terms(&mut self) {
+        let mut target = 0;
+        for source in 0..self.len {
+            let term = self.terms[source];
+            if term.value == 0.0 && !term.explicit_zero {
+                continue;
+            }
+            self.terms[target] = term;
+            target += 1;
+        }
+        self.len = target;
+    }
+
+    fn replacement(self) -> Option<FunctionReplacement> {
+        if self.len == 0 {
+            return Some(FunctionReplacement::Number(0.0));
+        }
+        if self.len != 1 {
+            return None;
+        }
+        Some(match self.terms[0] {
+            CalcTerm {
+                kind: CalcTermKind::Number,
+                value,
+                ..
+            } => FunctionReplacement::Number(value),
+            CalcTerm {
+                kind: CalcTermKind::Percentage,
+                value,
+                ..
+            } => FunctionReplacement::Percentage(value),
+            CalcTerm {
+                kind: CalcTermKind::Dimension(unit),
+                value,
+                ..
+            } => FunctionReplacement::Dimension { unit, value },
+        })
+    }
+
+    fn write_to(mut self, function: &mut Function<'_>) -> bool {
+        self.compact_cancelled_terms();
+        if let Some(replacement) = self.replacement() {
+            function.replacement = Some(unitless_calc_zero(replacement));
+            function.arguments.clear();
+            return true;
+        }
+
+        let required = 1 + (self.len - 1) * 4;
+        if function
+            .arguments
+            .iter()
+            .filter(|value| matches!(value, TokenOrValue::Token(_)))
+            .count()
+            < required
+        {
+            return false;
+        }
+        for target in 0..required {
+            if matches!(function.arguments[target], TokenOrValue::Token(_)) {
+                continue;
+            }
+            let Some(source) = function.arguments[target + 1..]
+                .iter()
+                .position(|value| matches!(value, TokenOrValue::Token(_)))
+                .map(|source| target + 1 + source)
+            else {
+                return false;
+            };
+            function.arguments.swap(target, source);
+        }
+
+        let mut output = 0;
+        for (index, term) in self.terms[..self.len].iter().copied().enumerate() {
+            if index != 0 {
+                set_calc_token(&mut function.arguments[output], Token::WhiteSpace(" "));
+                output += 1;
+                set_calc_token(
+                    &mut function.arguments[output],
+                    Token::Delim(if term.value < 0.0 { "-" } else { "+" }),
+                );
+                output += 1;
+                set_calc_token(&mut function.arguments[output], Token::WhiteSpace(" "));
+                output += 1;
+            }
+            let value = if index == 0 {
+                term.value
+            } else {
+                term.value.abs()
+            };
+            let token = match term.kind {
+                CalcTermKind::Number => Token::Number(value),
+                CalcTermKind::Percentage => Token::Percentage(value),
+                CalcTermKind::Dimension(unit) => Token::Dimension { unit, value },
+            };
+            set_calc_token(&mut function.arguments[output], token);
+            output += 1;
+        }
+        function.arguments.truncate(required);
+        true
+    }
+}
+
+fn set_calc_token<'a>(value: &mut TokenOrValue<'a>, token_value: Token<'a>) {
+    let TokenOrValue::Token(token) = value else {
+        unreachable!("calc output slots were normalized to tokens")
+    };
+    **token = token_value;
+}
+
+fn calc_linear_expression(values: &[TokenOrValue<'_>]) -> Option<CalcLinear> {
+    let mut parser = CalcLinearParser { index: 0, values };
+    let mut result = parser.expression(false)?;
+    parser.skip_whitespace();
+    if parser.index != values.len() {
+        return None;
+    }
+    result.compact_cancelled_terms();
+    Some(result)
+}
+
+struct CalcLinearParser<'values, 'arena> {
+    index: usize,
+    values: &'values [TokenOrValue<'arena>],
+}
+
+impl CalcLinearParser<'_, '_> {
+    fn expression(&mut self, nested: bool) -> Option<CalcLinear> {
+        let mut result = self.term()?;
+        loop {
+            self.skip_whitespace();
+            if nested && self.is_close_parenthesis() {
+                break;
+            }
+            let Some(operator) = self.operator(&["+", "-"]) else {
+                break;
+            };
+            let right = self.term()?;
+            result = result.add(right, if operator == "+" { 1.0 } else { -1.0 })?;
+        }
+        Some(result)
+    }
+
+    fn term(&mut self) -> Option<CalcLinear> {
+        let mut result = self.factor()?;
+        loop {
+            self.skip_whitespace();
+            let Some(operator) = self.operator(&["*", "/"]) else {
+                break;
+            };
+            let right = self.factor()?;
+            result = match operator {
+                "*" => {
+                    if let Some(scalar) = result.scalar() {
+                        right.scale(scalar)
+                    } else {
+                        result.scale(right.scalar()?)
+                    }
+                }
+                "/" => {
+                    let divisor = right.scalar()?;
+                    if divisor == 0.0 {
+                        return None;
+                    }
+                    result.scale(1.0 / divisor)
+                }
+                _ => unreachable!(),
+            };
+        }
+        Some(result)
+    }
+
+    fn factor(&mut self) -> Option<CalcLinear> {
+        self.skip_whitespace();
+        let mut sign = 1.0;
+        while let Some(operator) = self.operator(&["+", "-"]) {
+            if operator == "-" {
+                sign = -sign;
+            }
+            self.skip_whitespace();
+        }
+        let value = self.values.get(self.index)?;
+        let mut result = match value {
+            TokenOrValue::Token(token) if matches!(**token, Token::ParenthesisBlock) => {
+                self.index += 1;
+                let result = self.expression(true)?;
+                self.skip_whitespace();
+                if !self.is_close_parenthesis() {
+                    return None;
+                }
+                self.index += 1;
+                result
+            }
+            TokenOrValue::Function(function) if function.name.eq_ignore_ascii_case("calc") => {
+                self.index += 1;
+                if let Some(replacement) = function.replacement {
+                    CalcLinear::from_value(replacement)?
+                } else {
+                    calc_linear_expression(&function.arguments)?
+                }
+            }
+            value => {
+                self.index += 1;
+                CalcLinear::from_value(calc_value(value)?)?
+            }
+        };
+        if sign < 0.0 {
+            result = result.scale(-1.0);
+        }
+        Some(result)
+    }
+
+    fn operator<'operator>(
+        &mut self,
+        allowed: &'operator [&'operator str],
+    ) -> Option<&'operator str> {
+        let TokenOrValue::Token(token) = self.values.get(self.index)? else {
+            return None;
+        };
+        let Token::Delim(operator) = &**token else {
+            return None;
+        };
+        let operator = allowed
+            .iter()
+            .copied()
+            .find(|allowed| operator == allowed)?;
+        self.index += 1;
+        Some(operator)
+    }
+
+    fn is_close_parenthesis(&self) -> bool {
+        matches!(self.values.get(self.index), Some(TokenOrValue::Token(token)) if matches!(**token, Token::CloseParenthesis))
+    }
+
+    fn skip_whitespace(&mut self) {
+        while self.values.get(self.index).is_some_and(is_calc_whitespace) {
+            self.index += 1;
+        }
+    }
+}
+
 fn unitless_calc_zero(value: FunctionReplacement) -> FunctionReplacement {
     match value {
         FunctionReplacement::Dimension { value: 0.0, .. }
@@ -2924,6 +3283,8 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
         }
     }
 
+    factor_style_output_runs(rules, context);
+
     if !has_mergeable_style_run(rules, context) {
         discard_empty_rules(rules, context);
         deduplicate_style_rules(rules, context);
@@ -2942,6 +3303,12 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
         if !matches!(rules[index], CssRule::Style(_)) {
             // All at-rules are barriers in the first IR design. Dedicated
             // optimizations such as the conditional fast path run separately.
+            previous_style = None;
+            declarations.clear();
+            continue;
+        }
+
+        if matches!(&rules[index], CssRule::Style(rule) if rule.output_ir().is_some()) {
             previous_style = None;
             declarations.clear();
             continue;
@@ -3044,6 +3411,674 @@ pub(crate) fn minify_rule_list<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &m
     }
     discard_empty_rules(rules, context);
     deduplicate_style_rules(rules, context);
+}
+
+fn factor_style_output_runs<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut MinifyContext) {
+    if !context.options().merge_style_rules {
+        return;
+    }
+    let allocator = rules.bump();
+    let mut run = allocator.vec();
+    let mut run_vendor = None;
+    let mut run_selector_vendor = None;
+
+    for index in 0..=rules.len() {
+        let candidate = rules.get(index).and_then(|rule| {
+            let CssRule::Style(rule) = rule else {
+                return None;
+            };
+            if !rule.rules.is_empty()
+                || rule.output_ir().is_some()
+                || !style_rule_selectors_are_compatible(rule, rule, context)
+            {
+                return None;
+            }
+            Some((rule.vendor_prefix, style_rule_selector_vendor(rule)?))
+        });
+
+        if let Some((vendor, selector_vendor)) = candidate
+            && (run.is_empty()
+                || run_vendor == Some(vendor) && run_selector_vendor == Some(selector_vendor))
+        {
+            run.push(index);
+            run_vendor = Some(vendor);
+            run_selector_vendor = Some(selector_vendor);
+            continue;
+        }
+
+        factor_style_output_run(rules, &run, allocator, context);
+        run.clear();
+        run_vendor = None;
+        run_selector_vendor = None;
+        if let Some((vendor, selector_vendor)) = candidate {
+            run.push(index);
+            run_vendor = Some(vendor);
+            run_selector_vendor = Some(selector_vendor);
+        }
+    }
+}
+
+fn factor_style_output_run<'a>(
+    rules: &mut [CssRule<'a>],
+    indices: &[usize],
+    allocator: &'a Allocator,
+    context: &mut MinifyContext,
+) {
+    if indices.len() < 2 {
+        return;
+    }
+    if indices.windows(2).any(|indices| {
+        let (CssRule::Style(left), CssRule::Style(right)) =
+            (&rules[indices[0]], &rules[indices[1]])
+        else {
+            unreachable!()
+        };
+        left.selectors == right.selectors
+    }) {
+        return;
+    }
+    let mut groups = allocator.vec();
+    for &index in indices {
+        let CssRule::Style(rule) = &rules[index] else {
+            unreachable!("style output run contains only style rules")
+        };
+        let mut selectors = allocator.vec();
+        if let Some(selector_ir) = rule.selector_ir() {
+            selectors.extend(selector_ir.iter().copied());
+        } else {
+            selectors.extend(rule.selectors.iter().map(NonNull::from));
+        }
+        let mut declarations = allocator.vec();
+        declarations.extend(OutputDeclarations::new(&rule.declarations).map(
+            |(declaration, important)| StyleRuleOutputDeclaration {
+                declaration: NonNull::from(declaration),
+                important,
+            },
+        ));
+        if !declarations.is_empty() {
+            groups.push(StyleRuleOutput {
+                declarations,
+                selectors,
+            });
+        }
+    }
+
+    let mut transformed = false;
+    let mut index = 0;
+    while index + 1 < groups.len() {
+        let Some(replacement) = factor_output_pair(&groups[index], &groups[index + 1], allocator)
+        else {
+            index += 1;
+            continue;
+        };
+        groups.remove(index + 1);
+        groups.remove(index);
+        let replacement_len = replacement.len();
+        for (offset, group) in replacement.into_iter().enumerate() {
+            groups.insert(index + offset, group);
+        }
+        transformed = true;
+        if index > 0 {
+            index -= 1;
+        } else if replacement_len == 0 {
+            break;
+        }
+    }
+
+    if merge_nonadjacent_output_groups(&mut groups, allocator) {
+        transformed = true;
+    }
+    if !transformed || groups.is_empty() {
+        return;
+    }
+
+    let anchor = indices[0];
+    let CssRule::Style(anchor_rule) = &mut rules[anchor] else {
+        unreachable!()
+    };
+    // SAFETY: selectors and declarations are arena-backed and no longer
+    // mutated after this output IR is installed.
+    unsafe { anchor_rule.set_output_ir(groups) };
+    for &index in &indices[1..] {
+        if !matches!(rules[index], CssRule::Ignored) {
+            rules[index] = CssRule::Ignored;
+            context.record_style_rule_merged();
+        }
+    }
+}
+
+fn factor_output_pair<'a>(
+    left: &StyleRuleOutput<'a>,
+    right: &StyleRuleOutput<'a>,
+    allocator: &'a Allocator,
+) -> Option<Vec<'a, StyleRuleOutput<'a>>> {
+    let mut left_to_right = allocator.vec();
+    left_to_right.resize(left.declarations.len(), usize::MAX);
+    let mut right_to_left = allocator.vec();
+    right_to_left.resize(right.declarations.len(), usize::MAX);
+    let mut right_matched = BitVec::new(allocator);
+    for _ in 0..right.declarations.len() {
+        right_matched.push(false);
+    }
+
+    for (left_index, left_declaration) in left.declarations.iter().enumerate() {
+        for (right_index, right_declaration) in right.declarations.iter().enumerate() {
+            if right_matched.is_set(right_index)
+                || !output_declarations_equal(*left_declaration, *right_declaration)
+            {
+                continue;
+            }
+            left_to_right[left_index] = right_index;
+            right_to_left[right_index] = left_index;
+            right_matched.set(right_index, true);
+            break;
+        }
+    }
+
+    let mut common = BitVec::new(allocator);
+    for _ in 0..left.declarations.len() {
+        common.push(false);
+    }
+    for (index, right_index) in left_to_right.iter().copied().enumerate() {
+        if right_index != usize::MAX {
+            common.set(index, true);
+        }
+    }
+    if !common.iter().any(|value| value) {
+        return None;
+    }
+
+    loop {
+        let mut changed = false;
+        'reversed: for first in 0..left.declarations.len() {
+            if !common.is_set(first) {
+                continue;
+            }
+            for second in first + 1..left.declarations.len() {
+                if !common.is_set(second)
+                    || left_to_right[first] < left_to_right[second]
+                    || !output_declarations_conflict(
+                        left.declarations[first],
+                        left.declarations[second],
+                    )
+                {
+                    continue;
+                }
+                let first_score = first + right.declarations.len() - 1 - left_to_right[first];
+                let second_score = second + right.declarations.len() - 1 - left_to_right[second];
+                common.set(
+                    if first_score > second_score {
+                        second
+                    } else {
+                        first
+                    },
+                    false,
+                );
+                changed = true;
+                break 'reversed;
+            }
+        }
+        if changed {
+            continue;
+        }
+
+        'boundary: for left_index in 0..left.declarations.len() {
+            if !common.is_set(left_index) {
+                continue;
+            }
+            let right_index = left_to_right[left_index];
+            let crosses_left_conflict = (left_index + 1..left.declarations.len()).any(|other| {
+                !common.is_set(other)
+                    && output_declarations_conflict(
+                        left.declarations[left_index],
+                        left.declarations[other],
+                    )
+            });
+            let crosses_right_conflict = (0..right_index).any(|other| {
+                let matching_left = right_to_left[other];
+                (matching_left == usize::MAX || !common.is_set(matching_left))
+                    && output_declarations_conflict(
+                        left.declarations[left_index],
+                        right.declarations[other],
+                    )
+            });
+            if crosses_left_conflict || crosses_right_conflict {
+                common.set(left_index, false);
+                changed = true;
+                break 'boundary;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    let common_count = common.iter().filter(|value| *value).count();
+    if common_count == 0 {
+        return None;
+    }
+    let left_unique_count = left.declarations.len() - common_count;
+    let right_unique_count = right.declarations.len() - common_count;
+    let saved = left
+        .declarations
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| common.is_set(*index))
+        .map(|(_, declaration)| output_declaration_weight(*declaration))
+        .sum::<usize>();
+    let selector_cost = if left_unique_count == 0 {
+        0
+    } else {
+        output_selector_weight(&left.selectors)
+    } + if right_unique_count == 0 {
+        0
+    } else {
+        output_selector_weight(&right.selectors)
+    };
+    let output_count =
+        usize::from(left_unique_count != 0) + 1 + usize::from(right_unique_count != 0);
+    let structural_cost = output_count.saturating_sub(2) * 2;
+    let largest_duplicated_selector = [
+        (left_unique_count != 0).then(|| output_selector_weight(&left.selectors)),
+        (right_unique_count != 0).then(|| output_selector_weight(&right.selectors)),
+    ]
+    .into_iter()
+    .flatten()
+    .max()
+    .unwrap_or(0);
+    let partial_intersection = left_unique_count != 0 && right_unique_count != 0;
+    if saved <= selector_cost + structural_cost
+        || partial_intersection && largest_duplicated_selector * 2 > saved
+        || partial_intersection
+            && left
+                .selectors
+                .iter()
+                .chain(right.selectors.iter())
+                .any(|selector| {
+                    // SAFETY: output selector pointers refer to stable arena storage.
+                    unsafe { selector.as_ref() }
+                        .iter()
+                        .any(|component| matches!(component, SelectorComponent::PseudoElement(_)))
+                })
+    {
+        return None;
+    }
+
+    let mut output = allocator.vec();
+    if left_unique_count != 0 {
+        output.push(StyleRuleOutput {
+            declarations: copy_output_declarations(left, allocator, |index| !common.is_set(index)),
+            selectors: copy_output_selectors(&left.selectors, allocator),
+        });
+    }
+    output.push(StyleRuleOutput {
+        declarations: copy_output_declarations(left, allocator, |index| common.is_set(index)),
+        selectors: merge_output_selectors(&left.selectors, &right.selectors, allocator),
+    });
+    if right_unique_count != 0 {
+        output.push(StyleRuleOutput {
+            declarations: copy_output_declarations(right, allocator, |index| {
+                let matching_left = right_to_left[index];
+                matching_left == usize::MAX || !common.is_set(matching_left)
+            }),
+            selectors: copy_output_selectors(&right.selectors, allocator),
+        });
+    }
+    Some(output)
+}
+
+fn copy_output_declarations<'a>(
+    group: &StyleRuleOutput<'a>,
+    allocator: &'a Allocator,
+    mut include: impl FnMut(usize) -> bool,
+) -> Vec<'a, StyleRuleOutputDeclaration<'a>> {
+    let mut declarations = allocator.vec();
+    declarations.extend(
+        group
+            .declarations
+            .iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(index, declaration)| include(index).then_some(declaration)),
+    );
+    declarations
+}
+
+fn copy_output_selectors<'a>(
+    selectors: &[NonNull<rocketcss_ast::Selector<'a>>],
+    allocator: &'a Allocator,
+) -> Vec<'a, NonNull<rocketcss_ast::Selector<'a>>> {
+    let mut output = allocator.vec();
+    output.extend(selectors.iter().copied());
+    output
+}
+
+fn merge_output_selectors<'a>(
+    left: &[NonNull<rocketcss_ast::Selector<'a>>],
+    right: &[NonNull<rocketcss_ast::Selector<'a>>],
+    allocator: &'a Allocator,
+) -> Vec<'a, NonNull<rocketcss_ast::Selector<'a>>> {
+    let mut selectors = copy_output_selectors(left, allocator);
+    selectors.extend(right.iter().copied());
+    selectors.sort_unstable_by(|left, right| {
+        // SAFETY: output IR points into stable arena selector vectors.
+        crate::selector::compare_selectors(unsafe { left.as_ref() }, unsafe { right.as_ref() })
+    });
+    let mut write = 0;
+    for read in 0..selectors.len() {
+        let duplicate = write != 0 && {
+            // SAFETY: output IR points into stable arena selector vectors.
+            unsafe { selectors[write - 1].as_ref() == selectors[read].as_ref() }
+        };
+        if !duplicate {
+            selectors.swap(write, read);
+            write += 1;
+        }
+    }
+    selectors.truncate(write);
+    selectors
+}
+
+fn merge_nonadjacent_output_groups<'a>(
+    groups: &mut Vec<'a, StyleRuleOutput<'a>>,
+    allocator: &'a Allocator,
+) -> bool {
+    let mut changed = false;
+    let mut left = 0;
+    while left + 2 < groups.len() {
+        let mut right = left + 2;
+        while right < groups.len() {
+            if !output_group_declarations_equal(&groups[left], &groups[right])
+                || groups[left + 1..right].iter().any(|between| {
+                    groups[left].declarations.iter().any(|left| {
+                        between
+                            .declarations
+                            .iter()
+                            .any(|right| output_declarations_conflict(*left, *right))
+                    })
+                })
+            {
+                right += 1;
+                continue;
+            }
+            let selectors = merge_output_selectors(
+                &groups[left].selectors,
+                &groups[right].selectors,
+                allocator,
+            );
+            groups[left].selectors = selectors;
+            groups.remove(right);
+            changed = true;
+        }
+        left += 1;
+    }
+    changed
+}
+
+fn output_group_declarations_equal(
+    left: &StyleRuleOutput<'_>,
+    right: &StyleRuleOutput<'_>,
+) -> bool {
+    left.declarations.len() == right.declarations.len()
+        && left
+            .declarations
+            .iter()
+            .zip(right.declarations.iter())
+            .all(|(left, right)| output_declarations_equal(*left, *right))
+}
+
+fn output_declarations_equal(
+    left: StyleRuleOutputDeclaration<'_>,
+    right: StyleRuleOutputDeclaration<'_>,
+) -> bool {
+    left.important == right.important && {
+        // SAFETY: output declaration pointers refer to stable arena storage.
+        unsafe { left.declaration.as_ref() == right.declaration.as_ref() }
+    }
+}
+
+fn output_declarations_conflict(
+    left: StyleRuleOutputDeclaration<'_>,
+    right: StyleRuleOutputDeclaration<'_>,
+) -> bool {
+    // SAFETY: output declaration pointers refer to stable arena storage.
+    properties_conflict(
+        unsafe { left.declaration.as_ref() }.name(),
+        unsafe { right.declaration.as_ref() }.name(),
+    )
+}
+
+fn output_declaration_weight(declaration: StyleRuleOutputDeclaration<'_>) -> usize {
+    // SAFETY: output declaration pointers refer to stable arena storage.
+    unsafe { declaration.declaration.as_ref() }.name().len()
+        + 8
+        + usize::from(declaration.important) * 11
+}
+
+fn output_selector_weight(selectors: &[NonNull<rocketcss_ast::Selector<'_>>]) -> usize {
+    selectors.len().saturating_sub(1)
+        + selectors
+            .iter()
+            .map(|selector| {
+                // SAFETY: output selector pointers refer to stable arena storage.
+                unsafe { selector.as_ref() }
+                    .iter()
+                    .map(|component| match component {
+                        SelectorComponent::Class(name) | SelectorComponent::Id(name) => {
+                            name.len() + 1
+                        }
+                        SelectorComponent::DefaultNamespace(name) => name.len(),
+                        SelectorComponent::LocalName { name, .. } => name.len(),
+                        SelectorComponent::Namespace { prefix, url } => {
+                            prefix.len() + url.len() + 1
+                        }
+                        SelectorComponent::AttributeInNoNamespaceExists { local_name, .. } => {
+                            local_name.len() + 2
+                        }
+                        SelectorComponent::AttributeInNoNamespace {
+                            local_name, value, ..
+                        } => local_name.len() + value.len() + 4,
+                        SelectorComponent::AttributeOther(attribute) => {
+                            let value = match &attribute.operation {
+                                rocketcss_ast::AttrOperation::Exists => 0,
+                                rocketcss_ast::AttrOperation::WithValue {
+                                    expected_value, ..
+                                } => expected_value.len() + 2,
+                            };
+                            attribute.local_name.len() + value + 2
+                        }
+                        SelectorComponent::PseudoClass(pseudo) => match &**pseudo {
+                            PseudoClass::Custom { name } => name.len() + 1,
+                            PseudoClass::CustomFunction { name, .. } => name.len() + 3,
+                            _ => 8,
+                        },
+                        SelectorComponent::PseudoElement(pseudo) => match &**pseudo {
+                            PseudoElement::After => 7,
+                            PseudoElement::Before => 8,
+                            PseudoElement::FirstLine => 12,
+                            PseudoElement::FirstLetter => 14,
+                            PseudoElement::Custom { name } => name.len() + 2,
+                            PseudoElement::CustomFunction { name, .. } => name.len() + 4,
+                            _ => 10,
+                        },
+                        SelectorComponent::Combinator(_) => 1,
+                        _ => 3,
+                    })
+                    .sum::<usize>()
+            })
+            .sum::<usize>()
+}
+
+pub(crate) fn discard_browser_hacks(rules: &mut Vec<'_, CssRule<'_>>, context: &mut MinifyContext) {
+    let Some(target) = context.options().browser_hack_target else {
+        return;
+    };
+    for rule in rules.iter_mut() {
+        let required_target = match rule {
+            CssRule::Style(rule) => {
+                for index in 0..rule.declarations.len() {
+                    if rule.declarations.is_invalid(index) {
+                        continue;
+                    }
+                    if declaration_browser_hack_target(&rule.declarations.declarations[index])
+                        .is_some_and(|required| required != target)
+                    {
+                        rule.declarations.mark_invalid(index);
+                        context.record_declaration_removed();
+                    }
+                }
+                discard_browser_hacks(&mut rule.rules, context);
+                style_rule_browser_hack_target(rule)
+            }
+            CssRule::Media(rule) => {
+                let required = media_browser_hack_target(&rule.query);
+                discard_browser_hacks(&mut rule.rules, context);
+                required
+            }
+            CssRule::Supports(rule) => {
+                discard_browser_hacks(&mut rule.rules, context);
+                None
+            }
+            CssRule::MozDocument(rule) => {
+                discard_browser_hacks(&mut rule.rules, context);
+                None
+            }
+            CssRule::Nesting(rule) => {
+                discard_browser_hacks(&mut rule.style.rules, context);
+                None
+            }
+            CssRule::LayerBlock(rule) => {
+                discard_browser_hacks(&mut rule.rules, context);
+                None
+            }
+            CssRule::Container(rule) => {
+                discard_browser_hacks(&mut rule.rules, context);
+                None
+            }
+            CssRule::Scope(rule) => {
+                discard_browser_hacks(&mut rule.rules, context);
+                None
+            }
+            CssRule::StartingStyle(rule) => {
+                discard_browser_hacks(&mut rule.rules, context);
+                None
+            }
+            _ => None,
+        };
+        if required_target.is_some_and(|required| required != target) {
+            *rule = CssRule::Ignored;
+            context.record_style_rule_merged();
+        }
+    }
+}
+
+fn declaration_browser_hack_target(declaration: &Declaration<'_>) -> Option<BrowserHackTarget> {
+    let name = declaration.name();
+    if name.starts_with('_') || name.eq_ignore_ascii_case("-color") {
+        return Some(BrowserHackTarget::Ie6);
+    }
+    let Declaration::Unparsed(value) = declaration else {
+        return None;
+    };
+    if token_list_contains_bang_ie(&value.value) {
+        return Some(BrowserHackTarget::Ie6);
+    }
+    value
+        .value
+        .iter()
+        .any(token_or_value_contains_backslash_nine)
+        .then_some(BrowserHackTarget::Ie8)
+}
+
+fn token_list_contains_bang_ie(values: &[TokenOrValue<'_>]) -> bool {
+    let mut bang = false;
+    for value in values {
+        let TokenOrValue::Token(token) = value else {
+            continue;
+        };
+        match &**token {
+            Token::Delim(value) if *value == "!" => bang = true,
+            Token::Ident(value) if bang && value.eq_ignore_ascii_case("ie") => return true,
+            Token::WhiteSpace(_) | Token::Comment(_) => {}
+            _ => bang = false,
+        }
+    }
+    false
+}
+
+fn token_or_value_contains_backslash_nine(value: &TokenOrValue<'_>) -> bool {
+    match value {
+        TokenOrValue::Token(token) => match &**token {
+            Token::Ident(value)
+            | Token::AtKeyword(value)
+            | Token::Delim(value)
+            | Token::UnknownDimension { unit: value, .. } => {
+                value.contains("\\9") || value.contains('\t')
+            }
+            Token::WhiteSpace(value) => value.contains('\t'),
+            _ => false,
+        },
+        TokenOrValue::Function(function) => function
+            .arguments
+            .iter()
+            .any(token_or_value_contains_backslash_nine),
+        _ => false,
+    }
+}
+
+fn style_rule_browser_hack_target(rule: &StyleRule<'_>) -> Option<BrowserHackTarget> {
+    for selector in rule.selectors.iter() {
+        if selector.iter().any(|component| {
+            matches!(component, SelectorComponent::LocalName { name, .. }
+                if name.ends_with('\\') || name.ends_with(char::is_whitespace))
+        }) {
+            return Some(BrowserHackTarget::Ie6);
+        }
+        for components in selector.windows(3) {
+            if matches!(components[0], SelectorComponent::ExplicitUniversalType)
+                && matches!(
+                    components[1],
+                    SelectorComponent::Combinator(rocketcss_ast::Combinator::Descendant)
+                )
+                && matches!(&components[2], SelectorComponent::LocalName { name, .. } if name.eq_ignore_ascii_case("html"))
+            {
+                return Some(BrowserHackTarget::Ie6);
+            }
+        }
+    }
+    None
+}
+
+fn media_browser_hack_target(media: &rocketcss_ast::MediaList<'_>) -> Option<BrowserHackTarget> {
+    for query in &media.media_queries {
+        let rocketcss_ast::MediaType::Custom(value) = &*query.media_type else {
+            continue;
+        };
+        if value.contains('�') && value.contains(',') && value.contains('\t') {
+            return Some(BrowserHackTarget::Ie6);
+        }
+        if contains_ignore_ascii_case(value, "\\0screen\\,screen\\9")
+            || contains_ignore_ascii_case(value, "�screen\\,screen\\9")
+        {
+            return Some(BrowserHackTarget::Ie6);
+        }
+        if contains_ignore_ascii_case(value, "\\0screen")
+            || contains_ignore_ascii_case(value, "�screen")
+        {
+            return Some(BrowserHackTarget::Ie8);
+        }
+        if contains_ignore_ascii_case(value, "screen\\9") || value.contains('\t') {
+            return Some(BrowserHackTarget::Ie6);
+        }
+    }
+    None
+}
+
+fn contains_ignore_ascii_case(value: &str, needle: &str) -> bool {
+    value
+        .as_bytes()
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle.as_bytes()))
 }
 
 fn discard_overridden_keyframes<'a>(rules: &mut Vec<'a, CssRule<'a>>, context: &mut MinifyContext) {
@@ -3425,6 +4460,12 @@ fn properties_conflict(left: &str, right: &str) -> bool {
     {
         return true;
     }
+    if left.base == Some("flex")
+        && ((left.rest == "flow" && matches!(right.rest, "wrap" | "direction"))
+            || (right.rest == "flow" && matches!(left.rest, "wrap" | "direction")))
+    {
+        return true;
+    }
     left.rest.split('-').eq(right.rest.split('-'))
 }
 
@@ -3663,6 +4704,8 @@ fn deduplicate_declarations(block: &mut DeclarationBlock<'_>, context: &mut Mini
     discard_empty_declarations(block, context);
     prepare_box_initial_values(block, context);
     discard_overridden_columns(block, context);
+    discard_box_longhands_before_shorthand(block, context);
+    discard_obsolete_prefixed_declarations(block, context);
     discard_overridden_same_properties(block, context);
     merge_box_longhands(block, context);
     for index in 1..block.declarations.len() {
@@ -3683,6 +4726,192 @@ fn deduplicate_declarations(block: &mut DeclarationBlock<'_>, context: &mut Mini
             context.record_declaration_removed();
         }
     }
+    sort_declarations(block, context);
+}
+
+fn discard_obsolete_prefixed_declarations(
+    block: &mut DeclarationBlock<'_>,
+    context: &mut MinifyContext,
+) {
+    if !context.options().discard_obsolete_prefixes {
+        return;
+    }
+    for current in 0..block.len() {
+        if block.is_invalid(current)
+            || block.declarations[current].vendor_prefix() != VendorPrefix::NONE
+            || !block.declarations[current]
+                .name()
+                .eq_ignore_ascii_case("box-sizing")
+        {
+            continue;
+        }
+        for previous in 0..current {
+            let previous_name = block.declarations[previous].name();
+            if block.is_invalid(previous)
+                || block.is_important(previous) != block.is_important(current)
+                || !(block.declarations[previous].vendor_prefix() == VendorPrefix::WEBKIT
+                    && previous_name.eq_ignore_ascii_case("box-sizing")
+                    || previous_name.eq_ignore_ascii_case("-webkit-box-sizing"))
+            {
+                continue;
+            }
+            block.mark_invalid(previous);
+            context.record_declaration_removed();
+        }
+    }
+}
+
+fn sort_declarations(block: &mut DeclarationBlock<'_>, context: &mut MinifyContext) {
+    if !context.options().sort_declarations {
+        return;
+    }
+    let mut changed = false;
+    loop {
+        let mut swapped = false;
+        let mut previous = None;
+        for current in 0..block.len() {
+            if block.is_invalid(current) {
+                continue;
+            }
+            if let Some(previous_index) = previous
+                && declaration_sort_order(
+                    &block.declarations[previous_index],
+                    &block.declarations[current],
+                ) == Ordering::Greater
+            {
+                block.swap(previous_index, current);
+                swapped = true;
+                changed = true;
+            }
+            previous = Some(current);
+        }
+        if !swapped {
+            break;
+        }
+    }
+    if changed {
+        context.record_value_normalized();
+    }
+}
+
+fn declaration_sort_order(left: &Declaration<'_>, right: &Declaration<'_>) -> Ordering {
+    let left_name = left.name();
+    let right_name = right.name();
+    if left_name.eq_ignore_ascii_case("all") {
+        return Ordering::Less;
+    }
+    if right_name.eq_ignore_ascii_case("all") {
+        return Ordering::Greater;
+    }
+    if declaration_is_unsortable(left)
+        || declaration_is_unsortable(right)
+        || properties_conflict(left_name, right_name)
+    {
+        return Ordering::Equal;
+    }
+    left_name.cmp(right_name)
+}
+
+fn declaration_is_unsortable(declaration: &Declaration<'_>) -> bool {
+    matches!(declaration, Declaration::Custom(_))
+        || matches!(declaration, Declaration::Unparsed(value)
+            if matches!(&*value.property_id, PropertyId::Custom(_)))
+}
+
+pub(crate) fn sort_font_face_properties(
+    properties: &mut Vec<'_, FontFaceProperty<'_>>,
+    context: &mut MinifyContext,
+) {
+    if !context.options().sort_declarations {
+        return;
+    }
+    let mut changed = false;
+    for current in 1..properties.len() {
+        let mut index = current;
+        while index != 0
+            && font_face_property_name(&properties[index - 1])
+                > font_face_property_name(&properties[index])
+        {
+            properties.swap(index - 1, index);
+            index -= 1;
+            changed = true;
+        }
+    }
+    if changed {
+        context.record_value_normalized();
+    }
+}
+
+fn font_face_property_name<'a>(property: &FontFaceProperty<'a>) -> &'a str {
+    match property {
+        FontFaceProperty::Source(_) => "src",
+        FontFaceProperty::FontFamily(_) => "font-family",
+        FontFaceProperty::FontStyle(_) => "font-style",
+        FontFaceProperty::FontWeight(_) => "font-weight",
+        FontFaceProperty::FontStretch(_) => "font-stretch",
+        FontFaceProperty::UnicodeRange(_) => "unicode-range",
+        FontFaceProperty::Custom(value) => match &*value.name {
+            rocketcss_ast::CustomPropertyName::Custom(name)
+            | rocketcss_ast::CustomPropertyName::Unknown(name) => name,
+        },
+    }
+}
+
+fn discard_box_longhands_before_shorthand(
+    block: &mut DeclarationBlock<'_>,
+    context: &mut MinifyContext,
+) {
+    for shorthand in 1..block.len() {
+        if block.is_invalid(shorthand) {
+            continue;
+        }
+        if declaration_contains_variable(&block.declarations[shorthand]) {
+            continue;
+        }
+        let longhands = match block.declarations[shorthand].name() {
+            "margin" => Some(["margin-top", "margin-right", "margin-bottom", "margin-left"]),
+            "padding" => Some([
+                "padding-top",
+                "padding-right",
+                "padding-bottom",
+                "padding-left",
+            ]),
+            "border" => None,
+            _ => continue,
+        };
+        for previous in 0..shorthand {
+            if block.is_invalid(previous)
+                || block.is_important(previous) != block.is_important(shorthand)
+                || !longhands.map_or_else(
+                    || border_shorthand_overrides(block.declarations[previous].name()),
+                    |longhands| {
+                        longhands.iter().any(|name| {
+                            block.declarations[previous]
+                                .name()
+                                .eq_ignore_ascii_case(name)
+                        })
+                    },
+                )
+            {
+                continue;
+            }
+            block.mark_invalid(previous);
+            context.record_declaration_removed();
+        }
+    }
+}
+
+fn border_shorthand_overrides(name: &str) -> bool {
+    let Some(suffix) = name.strip_prefix("border-") else {
+        return false;
+    };
+    suffix.split('-').next().is_some_and(|component| {
+        [
+            "top", "right", "bottom", "left", "width", "style", "color", "image",
+        ]
+        .iter()
+        .any(|candidate| component.eq_ignore_ascii_case(candidate))
+    })
 }
 
 fn is_margin_or_padding_longhand(name: &str) -> bool {

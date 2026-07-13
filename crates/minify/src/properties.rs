@@ -16,6 +16,7 @@ pub(crate) fn value_context(
         allow_unitless_zero_percentage: !matches!(property_id, PropertyId::Custom(_))
             && (convert_zero_percentages || !zero_percentage_requires_target_support(name)),
         minify_colors: should_minify_colors(name),
+        preserve_space_after_comma: false,
         skip_value_transforms: false,
         property: if order_values && is_animation_shorthand(name) {
             PropertyContext::Animation
@@ -168,6 +169,7 @@ pub(crate) fn custom_property_context(context: &MinifyContext) -> ValueContext {
         allow_unitless_zero_length: false,
         allow_unitless_zero_percentage: false,
         minify_colors: true,
+        preserve_space_after_comma: false,
         property: PropertyContext::Generic,
         skip_value_transforms: !context.options().transform_custom_properties,
     }

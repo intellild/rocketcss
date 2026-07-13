@@ -368,6 +368,19 @@ pub struct StyleRule<'a> {
     pub selectors: Box<'a, SelectorList<'a>>,
     pub vendor_prefix: VendorPrefix,
     selector_ir: Option<Vec<'a, NonNull<Selector<'a>>>>,
+    output_ir: Option<Vec<'a, StyleRuleOutput<'a>>>,
+}
+
+#[derive(Debug)]
+pub struct StyleRuleOutput<'a> {
+    pub declarations: Vec<'a, StyleRuleOutputDeclaration<'a>>,
+    pub selectors: Vec<'a, NonNull<Selector<'a>>>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct StyleRuleOutputDeclaration<'a> {
+    pub declaration: NonNull<Declaration<'a>>,
+    pub important: bool,
 }
 
 impl<'a> StyleRule<'a> {
@@ -385,6 +398,7 @@ impl<'a> StyleRule<'a> {
             selectors,
             vendor_prefix,
             selector_ir: None,
+            output_ir: None,
         }
     }
 
@@ -407,6 +421,22 @@ impl<'a> StyleRule<'a> {
     #[inline]
     pub unsafe fn set_selector_ir(&mut self, selectors: Vec<'a, NonNull<Selector<'a>>>) {
         self.selector_ir = Some(selectors);
+    }
+
+    #[inline]
+    pub fn output_ir(&self) -> Option<&[StyleRuleOutput<'a>]> {
+        self.output_ir.as_deref()
+    }
+
+    /// Installs output-only rule groups after all referenced AST mutations.
+    ///
+    /// # Safety
+    ///
+    /// Every selector and declaration pointer must remain valid and immutable
+    /// until code generation completes.
+    #[inline]
+    pub unsafe fn set_output_ir(&mut self, output: Vec<'a, StyleRuleOutput<'a>>) {
+        self.output_ir = Some(output);
     }
 }
 
@@ -476,6 +506,19 @@ impl<'a> DeclarationBlock<'a> {
     pub fn mark_invalid(&mut self, index: usize) {
         debug_assert_eq!(self.declarations.len(), self.declarations_invalid.len());
         self.declarations_invalid.set(index, true);
+    }
+
+    #[inline]
+    pub fn swap(&mut self, left: usize, right: usize) {
+        self.declarations.swap(left, right);
+        let left_important = self.declarations_importance.is_set(left);
+        let right_important = self.declarations_importance.is_set(right);
+        self.declarations_importance.set(left, right_important);
+        self.declarations_importance.set(right, left_important);
+        let left_invalid = self.declarations_invalid.is_set(left);
+        let right_invalid = self.declarations_invalid.is_set(right);
+        self.declarations_invalid.set(left, right_invalid);
+        self.declarations_invalid.set(right, left_invalid);
     }
 
     /// Links this block after `previous` without moving either block.

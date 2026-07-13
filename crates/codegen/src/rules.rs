@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use std::ptr::NonNull;
 
 fn write_space_separated<PrinterT: PrinterTrait, T: ToCss>(
     values: &[&T],
@@ -1475,16 +1476,35 @@ impl ToCss for ImportRule<'_> {
 
 impl ToCss for StyleRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        if let Some(selectors) = self.selector_ir() {
-            for (index, selector) in selectors.iter().enumerate() {
-                if index > 0 {
-                    dest.delim(Delimiter::Comma)?;
+        if let Some(output) = self.output_ir() {
+            for (index, group) in output.iter().enumerate() {
+                if index != 0 {
+                    dest.blank_line()?;
                 }
-                // SAFETY: selector IR is installed only after selector AST
-                // mutation is complete and arena-backed selector storage does
-                // not move before code generation.
-                unsafe { selector.as_ref() }.to_css(dest)?;
+                write_selector_ir(&group.selectors, dest)?;
+                write_block(dest, |dest| {
+                    for (declaration_index, output) in group.declarations.iter().enumerate() {
+                        // SAFETY: the minifier installs output IR only after
+                        // declaration mutation is complete; arena storage does
+                        // not move before code generation.
+                        unsafe { output.declaration.as_ref() }.to_css(dest)?;
+                        if output.important {
+                            dest.write_str(" !important")?;
+                        }
+                        if declaration_index + 1 != group.declarations.len() {
+                            dest.write_char(';')?;
+                            dest.new_line()?;
+                        } else {
+                            dest.semicolon(false)?;
+                        }
+                    }
+                    Ok(())
+                })?;
             }
+            return Ok(());
+        }
+        if let Some(selectors) = self.selector_ir() {
+            write_selector_ir(selectors, dest)?;
         } else {
             self.selectors.to_css(dest)?;
         }
@@ -1504,6 +1524,22 @@ impl ToCss for StyleRule<'_> {
             write_rule_list(&self.rules, dest)
         })
     }
+}
+
+fn write_selector_ir<PrinterT: PrinterTrait>(
+    selectors: &[NonNull<Selector<'_>>],
+    dest: &mut PrinterT,
+) -> fmt::Result {
+    for (index, selector) in selectors.iter().enumerate() {
+        if index > 0 {
+            dest.delim(Delimiter::Comma)?;
+        }
+        // SAFETY: selector IR is installed only after selector AST mutation
+        // is complete and arena-backed selector storage does not move before
+        // code generation.
+        unsafe { selector.as_ref() }.to_css(dest)?;
+    }
+    Ok(())
 }
 
 impl ToCss for KeyframesRule<'_> {

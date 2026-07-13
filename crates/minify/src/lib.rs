@@ -14,7 +14,7 @@ use rocketcss_ast::*;
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, walk_mut};
 
 pub use context::{MinifyContext, MinifyStats};
-pub use options::MinifyOptions;
+pub use options::{BrowserHackTarget, MinifyOptions};
 
 /// Minifies a syntax-tree node in place.
 pub trait Minify {
@@ -68,6 +68,7 @@ pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, context: &
     }
     rules::coalesce_conditional_rules(&mut stylesheet.rules, context);
     Minifier { context }.visit_style_sheet(stylesheet);
+    rules::discard_browser_hacks(&mut stylesheet.rules, context);
     rules::merge_identical_identifier_rules(stylesheet, context);
     rules::discard_unused_definitions(stylesheet, context);
     rules::reduce_keyframe_identifiers(stylesheet, context);
@@ -86,6 +87,11 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
     fn visit_font_face_property(&mut self, node: &mut FontFaceProperty<'a>) {
         walk_mut::walk_font_face_property(self, node);
         rules::minify_font_face_property(node, self.context);
+    }
+
+    fn visit_font_face_rule(&mut self, node: &mut FontFaceRule<'a>) {
+        walk_mut::walk_font_face_rule(self, node);
+        rules::sort_font_face_properties(&mut node.properties, self.context);
     }
 
     fn visit_declaration(&mut self, node: &mut Declaration<'a>) {
@@ -214,6 +220,11 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
         walk_mut::walk_media_list(self, node);
         node.minify(self.context);
     }
+
+    fn visit_supports_condition(&mut self, node: &mut SupportsCondition<'a>) {
+        walk_mut::walk_supports_condition(self, node);
+        node.minify(self.context);
+    }
 }
 
 fn is_math_function(name: &str) -> bool {
@@ -280,6 +291,27 @@ mod tests {
         assert_eq!(
             run("a{padding-left:1px}a{padding-right:2px}"),
             "a{padding-left:1px;padding-right:2px}"
+        );
+    }
+
+    #[test]
+    fn factors_common_declarations_through_output_ir() {
+        let allocator = Allocator::new();
+        let mut stylesheet = parse(
+            "h1{color:red;text-decoration:underline}h2{text-decoration:underline;color:green}h3{font-weight:bold;color:green}",
+            &allocator,
+            ParserOptions::default(),
+        )
+        .unwrap();
+
+        minify(&mut stylesheet, MinifyOptions::default());
+        minify(&mut stylesheet, MinifyOptions::default());
+
+        assert_eq!(
+            stylesheet
+                .to_css_string(PrinterOptions { prettify: false })
+                .unwrap(),
+            "h1{color:red}h1,h2{text-decoration:underline}h2,h3{color:green}h3{font-weight:700}"
         );
     }
 
@@ -357,6 +389,33 @@ mod tests {
     #[test]
     fn preserves_typed_zero_in_calc() {
         assert_eq!(run("a{width:calc(0px + 1em)}"), "a{width:calc(0px + 1em)}");
+    }
+
+    #[test]
+    fn folds_linear_calc_expressions_in_place() {
+        let options = MinifyOptions {
+            convert_length_units: false,
+            convert_extended_length_units: false,
+            ..MinifyOptions::default()
+        };
+        assert_eq!(
+            run_with_options("a{width:calc(calc(2.25rem + 2px) - 1px * 2)}", options,),
+            "a{width:2.25rem}"
+        );
+        assert_eq!(
+            run_with_options("a{width:calc((100px - 1em) + (-50px + 1em))}", options,),
+            "a{width:50px}"
+        );
+        assert_eq!(
+            run_with_options(
+                "a{width:calc(14px + 6 * ((100vw - 320px) / 448))}",
+                MinifyOptions {
+                    calc_precision: Some(5),
+                    ..options
+                },
+            ),
+            "a{width:calc(9.71429px + 1.33929vw)}"
+        );
     }
 
     #[test]
