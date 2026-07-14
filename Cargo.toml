@@ -20,11 +20,12 @@ rustc-hash     = "2.1.2"
 zmij           = "1.0.21"
 
 # Ast tool
-convert_case = "0.11.0"
-prettyplease = "0.2.37"
-proc-macro2  = "1.0.106"
-quote        = "1.0.46"
-syn          = { version = "2.0.118", default-features = false }
+convert_case     = "0.11.0"
+prettyplease     = "0.2.37"
+proc-macro-crate = "3.5.0"
+proc-macro2      = "1.0.106"
+quote            = "1.0.46"
+syn              = { version = "2.0.118", default-features = false }
 
 # Workspace
 rocketcss_allocator = { version = "0.1.0", path = "crates/allocator" }

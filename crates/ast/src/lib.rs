@@ -48,6 +48,7 @@ pub use generated::{
     kind::AstType,
     visit::{Visit, Visitor},
     visit_mut::{VisitMut, VisitorMut},
+    visitor_methods::VisitorMethods,
 };
 pub use length::*;
 pub use media::*;

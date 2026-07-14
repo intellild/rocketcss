@@ -1,13 +1,103 @@
 use convert_case::{Case, Casing};
 use proc_macro::TokenStream;
+use proc_macro_crate::{FoundCrate, crate_name};
 use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use syn::{
-    Attribute, Data, DeriveInput, Field, Fields, GenericArgument, GenericParam, Generics, Lifetime,
-    LitStr, Path, PathArguments, Type, parse_macro_input, parse_quote, spanned::Spanned,
+    Attribute, Data, DeriveInput, Field, Fields, GenericArgument, GenericParam, Generics, ImplItem,
+    ItemImpl, Lifetime, LitStr, Path, PathArguments, Type, parse_macro_input, parse_quote,
+    spanned::Spanned,
 };
 
 mod generated_visit_aliases;
+mod generated_visitor_methods;
+
+/// Records the callbacks implemented by a `Visitor` or `VisitorMut` implementation.
+#[proc_macro_attribute]
+pub fn visitor(attributes: TokenStream, input: TokenStream) -> TokenStream {
+    if !attributes.is_empty() {
+        return syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "visitor does not accept arguments",
+        )
+        .into_compile_error()
+        .into();
+    }
+    let mut input = parse_macro_input!(input as ItemImpl);
+    expand_visitor(&mut input)
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+fn expand_visitor(input: &mut ItemImpl) -> syn::Result<TokenStream2> {
+    let Some((_, trait_path, _)) = &input.trait_ else {
+        return Err(syn::Error::new(
+            input.self_ty.span(),
+            "visitor must be applied to a Visitor or VisitorMut implementation",
+        ));
+    };
+    let is_visitor = trait_path.segments.last().is_some_and(|segment| {
+        matches!(segment.ident.to_string().as_str(), "Visitor" | "VisitorMut")
+    });
+    if !is_visitor {
+        return Err(syn::Error::new(
+            trait_path.span(),
+            "visitor must be applied to a Visitor or VisitorMut implementation",
+        ));
+    }
+    if input
+        .items
+        .iter()
+        .any(|item| matches!(item, ImplItem::Fn(method) if method.sig.ident == "visitor_methods"))
+    {
+        return Err(syn::Error::new(
+            input.span(),
+            "visitor generates visitor_methods; remove the manual implementation",
+        ));
+    }
+
+    let word_count = generated_visitor_methods::VISITOR_METHODS
+        .len()
+        .div_ceil(u64::BITS as usize);
+    let mut words = vec![0_u64; word_count];
+    for method in input.items.iter().filter_map(|item| match item {
+        ImplItem::Fn(method) => Some(&method.sig.ident),
+        _ => None,
+    }) {
+        let method_name = method.to_string();
+        let Some(index) = generated_visitor_methods::VISITOR_METHODS
+            .iter()
+            .position(|candidate| *candidate == method_name)
+        else {
+            if method_name.starts_with("visit_") && method_name.ends_with("_children") {
+                continue;
+            }
+            return Err(syn::Error::new(method.span(), "unknown visitor callback"));
+        };
+        words[index / u64::BITS as usize] |= 1 << (index % u64::BITS as usize);
+    }
+    let visitor_crate = visitor_crate();
+    let visitor_methods: ImplItem = parse_quote! {
+        #[inline]
+        fn visitor_methods(&self) -> &'static #visitor_crate::VisitorMethods {
+            static METHODS: #visitor_crate::VisitorMethods =
+                #visitor_crate::VisitorMethods::from_words([#(#words),*]);
+            &METHODS
+        }
+    };
+    input.items.push(visitor_methods);
+    Ok(quote!(#input))
+}
+
+fn visitor_crate() -> TokenStream2 {
+    match crate_name("rocketcss_visitor") {
+        Ok(FoundCrate::Name(name)) => {
+            let name = format_ident!("{}", name.replace('-', "_"));
+            quote!(::#name)
+        }
+        Ok(FoundCrate::Itself) | Err(_) => quote!(::rocketcss_visitor),
+    }
+}
 
 /// Generates immutable and mutable typed traversal for an AST node.
 ///
@@ -171,6 +261,7 @@ fn expand_visit_mode(
     let visit = mode.visit_method();
     let visit_children = mode.visit_children_method();
     let callback = format_ident!("visit_{}", name.to_string().to_case(Case::Snake));
+    let callback_flag = visitor_method_flag(&callback);
     let body = visit_data(mode, data)?;
     let impl_generics = impl_generics(generics, lifetime, &node_trait);
     let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
@@ -188,18 +279,35 @@ fn expand_visit_mode(
                     &mut self,
                     visitor: &mut VisitorT,
                 ) {
-                    visitor.#callback(self.as_mut());
+                    if visitor
+                        .visitor_methods()
+                        .contains(crate::VisitorMethods::#callback_flag)
+                    {
+                        visitor.#callback(self.as_mut());
+                    } else {
+                        crate::#node_trait::#visit_children(self, visitor);
+                    }
                 }
 
                 fn #visit_children<VisitorT: ?Sized + crate::#visitor_trait<#lifetime>>(
                     &mut self,
                     visitor: &mut VisitorT,
                 ) {
-                    visitor.enter_node(crate::AstType::#name);
+                    if visitor
+                        .visitor_methods()
+                        .contains(crate::VisitorMethods::ENTER_NODE)
+                    {
+                        visitor.enter_node(crate::AstType::#name);
+                    }
                     // SAFETY: traversal mutates fields without moving the pinned node.
                     let node = unsafe { self.as_mut().get_unchecked_mut() };
                     #body
-                    visitor.leave_node(crate::AstType::#name);
+                    if visitor
+                        .visitor_methods()
+                        .contains(crate::VisitorMethods::LEAVE_NODE)
+                    {
+                        visitor.leave_node(crate::AstType::#name);
+                    }
                 }
             }
         })
@@ -213,17 +321,34 @@ fn expand_visit_mode(
                     #reference self,
                     visitor: &mut VisitorT,
                 ) {
-                    visitor.#callback(self);
+                    if visitor
+                        .visitor_methods()
+                        .contains(crate::VisitorMethods::#callback_flag)
+                    {
+                        visitor.#callback(self);
+                    } else {
+                        crate::#node_trait::#visit_children(self, visitor);
+                    }
                 }
 
                 fn #visit_children<VisitorT: ?Sized + crate::#visitor_trait<#lifetime>>(
                     #reference self,
                     visitor: &mut VisitorT,
                 ) {
-                    visitor.enter_node(crate::AstType::#name);
+                    if visitor
+                        .visitor_methods()
+                        .contains(crate::VisitorMethods::ENTER_NODE)
+                    {
+                        visitor.enter_node(crate::AstType::#name);
+                    }
                     let node = self;
                     #body
-                    visitor.leave_node(crate::AstType::#name);
+                    if visitor
+                        .visitor_methods()
+                        .contains(crate::VisitorMethods::LEAVE_NODE)
+                    {
+                        visitor.leave_node(crate::AstType::#name);
+                    }
                 }
             }
         })
@@ -401,7 +526,14 @@ fn visit_type(
 ) -> syn::Result<TokenStream2> {
     match ty {
         Type::Reference(reference) if matches!(&*reference.elem, Type::Path(path) if path.path.is_ident("str")) => {
-            Ok(quote!(visitor.visit_str(#expression);))
+            Ok(quote! {
+                if visitor
+                    .visitor_methods()
+                    .contains(crate::VisitorMethods::VISIT_STR)
+                {
+                    visitor.visit_str(#expression);
+                }
+            })
         }
         Type::Reference(reference) => visit_type(mode, &reference.elem, expression, counter),
         Type::Paren(paren) => visit_type(mode, &paren.elem, expression, counter),
@@ -489,7 +621,18 @@ fn visit_type(
                 Ok(quote!(for #binding in (#expression).#iterator() { #inner }))
             } else if generated_visit_aliases::VISIT_ALIASES.contains(&name.as_str()) {
                 let method = format_ident!("visit_{}", name.to_case(Case::Snake));
-                Ok(quote!(visitor.#method(#expression);))
+                let visit_children = format_ident!("{method}_children");
+                let flag = visitor_method_flag(&method);
+                Ok(quote! {
+                    if visitor
+                        .visitor_methods()
+                        .contains(crate::VisitorMethods::#flag)
+                    {
+                        visitor.#method(#expression);
+                    } else {
+                        visitor.#visit_children(#expression);
+                    }
+                })
             } else {
                 let node_trait = mode.node_trait();
                 let visit = mode.visit_method();
@@ -517,6 +660,10 @@ fn fresh_binding(counter: &mut usize) -> Ident {
     let binding = format_ident!("value_{}", *counter);
     *counter += 1;
     binding
+}
+
+fn visitor_method_flag(method: &Ident) -> Ident {
+    format_ident!("{}", method.to_string().to_ascii_uppercase())
 }
 
 fn visit_attributes(attributes: &[Attribute]) -> syn::Result<VisitAttributes> {

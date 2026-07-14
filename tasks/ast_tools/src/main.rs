@@ -135,6 +135,7 @@ fn main() {
     let ast_src = root.join("crates/ast/src");
     let visitor_src = ast_src.join("generated");
     let macro_aliases = root.join("crates/macros/src/generated_visit_aliases.rs");
+    let macro_methods = root.join("crates/macros/src/generated_visitor_methods.rs");
 
     let mut nodes = Vec::new();
     let mut aliases = Vec::new();
@@ -181,11 +182,16 @@ fn main() {
         .iter()
         .map(|alias| alias.ident.to_string())
         .collect::<HashSet<_>>();
+    let visitor_methods = visitor_methods(&nodes, &aliases);
 
     fs::create_dir_all(&visitor_src).unwrap();
     write_rust(
         &visitor_src.join("kind.rs"),
         generate_kind(&nodes, &aliases),
+    );
+    write_rust(
+        &visitor_src.join("visitor_methods.rs"),
+        generate_visitor_methods(&visitor_methods),
     );
     for mode in [Mode::Read, Mode::Mut] {
         write_rust(
@@ -199,9 +205,14 @@ fn main() {
             pub mod kind;
             pub mod visit;
             pub mod visit_mut;
+            pub mod visitor_methods;
         },
     );
     write_rust(&macro_aliases, generate_visit_aliases(&aliases));
+    write_rust(
+        &macro_methods,
+        generate_macro_visitor_methods(&visitor_methods),
+    );
 }
 
 fn ast_module_files(ast_src: &Path, name: &str) -> Vec<PathBuf> {
@@ -304,6 +315,91 @@ fn generate_visit_aliases(aliases: &[Alias]) -> TokenStream {
     }
 }
 
+fn visitor_methods(nodes: &[Node], aliases: &[Alias]) -> Vec<Ident> {
+    let methods = [
+        format_ident!("enter_node"),
+        format_ident!("leave_node"),
+        format_ident!("visit_str"),
+    ]
+    .into_iter()
+    .chain(nodes.iter().map(|node| visit_method(&node.ident)))
+    .chain(aliases.iter().map(|alias| visit_method(&alias.ident)))
+    .chain([
+        format_ident!("visit_declaration"),
+        format_ident!("visit_property_id"),
+        format_ident!("visit_vendor_prefix"),
+    ])
+    .collect::<Vec<_>>();
+    let unique = methods
+        .iter()
+        .map(ToString::to_string)
+        .collect::<HashSet<_>>();
+    assert_eq!(methods.len(), unique.len(), "duplicate visitor method");
+    methods
+}
+
+fn generate_visitor_methods(methods: &[Ident]) -> TokenStream {
+    let word_count = methods.len().div_ceil(u64::BITS as usize);
+    let remaining_bits = methods.len() % u64::BITS as usize;
+    let all_words = (0..word_count).map(|index| {
+        if index + 1 == word_count && remaining_bits != 0 {
+            (1_u64 << remaining_bits) - 1
+        } else {
+            u64::MAX
+        }
+    });
+    let method_indices = methods.iter().enumerate().map(|(index, method)| {
+        let flag = visitor_method_flag(method);
+        quote! {
+            #[doc(hidden)]
+            pub const #flag: usize = #index;
+        }
+    });
+
+    quote! {
+        //! Generated visitor callback bitset.
+
+        /// Identifies the callbacks implemented by a visitor.
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub struct VisitorMethods {
+            words: [u64; #word_count],
+        }
+
+        impl VisitorMethods {
+            #[doc(hidden)]
+            pub const ALL: Self = Self {
+                words: [#(#all_words),*],
+            };
+
+            #[doc(hidden)]
+            pub const fn from_words(words: [u64; #word_count]) -> Self {
+                Self { words }
+            }
+
+            #[doc(hidden)]
+            #[inline]
+            pub const fn contains(&self, method: usize) -> bool {
+                self.words[method / u64::BITS as usize]
+                    & (1 << (method % u64::BITS as usize))
+                    != 0
+            }
+
+            #(#method_indices)*
+        }
+    }
+}
+
+fn generate_macro_visitor_methods(methods: &[Ident]) -> TokenStream {
+    let methods = methods
+        .iter()
+        .map(|method| LitStr::new(&method.to_string(), method.span()));
+    quote! {
+        //! Generated visitor callbacks recognized by the `visitor` attribute.
+
+        pub(crate) const VISITOR_METHODS: &[&str] = &[#(#methods),*];
+    }
+}
+
 fn generate_visitor(
     mode: Mode,
     nodes: &[Node],
@@ -372,9 +468,19 @@ fn generate_visitor(
             #[doc = #visit_children_doc]
             fn #visit_children #method_generics (&mut self, node: #reference #ty) #bounds {
                 let visitor = self;
-                visitor.enter_node(AstType::#variant);
+                if visitor
+                    .visitor_methods()
+                    .contains(VisitorMethods::ENTER_NODE)
+                {
+                    visitor.enter_node(AstType::#variant);
+                }
                 #body
-                visitor.leave_node(AstType::#variant);
+                if visitor
+                    .visitor_methods()
+                    .contains(VisitorMethods::LEAVE_NODE)
+                {
+                    visitor.leave_node(AstType::#variant);
+                }
             }
         }
     });
@@ -398,6 +504,16 @@ fn generate_visitor(
 
         /// Typed callbacks invoked while traversing CSS AST nodes.
         pub trait #visitor_trait<'a> {
+            /// Returns the callbacks implemented by this visitor.
+            ///
+            /// Use `#[rocketcss_visitor::visitor]` on the visitor implementation to
+            /// generate a precise static bitset. The default preserves compatibility
+            /// by treating every callback as implemented.
+            #[inline]
+            fn visitor_methods(&self) -> &'static VisitorMethods {
+                &VisitorMethods::ALL
+            }
+
             #[inline]
             fn enter_node(&mut self, _kind: AstType) {}
 
@@ -467,15 +583,32 @@ fn manual_impls(mode: Mode) -> TokenStream {
                 #reference self,
                 visitor: &mut VisitorT,
             ) {
-                visitor.visit_vendor_prefix(self);
+                if visitor
+                    .visitor_methods()
+                    .contains(VisitorMethods::VISIT_VENDOR_PREFIX)
+                {
+                    visitor.visit_vendor_prefix(self);
+                } else {
+                    #node_trait::#visit_children(self, visitor);
+                }
             }
 
             fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
                 #reference self,
                 visitor: &mut VisitorT,
             ) {
-                visitor.enter_node(AstType::VendorPrefix);
-                visitor.leave_node(AstType::VendorPrefix);
+                if visitor
+                    .visitor_methods()
+                    .contains(VisitorMethods::ENTER_NODE)
+                {
+                    visitor.enter_node(AstType::VendorPrefix);
+                }
+                if visitor
+                    .visitor_methods()
+                    .contains(VisitorMethods::LEAVE_NODE)
+                {
+                    visitor.leave_node(AstType::VendorPrefix);
+                }
             }
         }
     }
@@ -536,7 +669,12 @@ fn container_impls(mode: Mode) -> TokenStream {
                     &self,
                     visitor: &mut VisitorT,
                 ) {
-                    visitor.visit_str(self);
+                    if visitor
+                        .visitor_methods()
+                        .contains(VisitorMethods::VISIT_STR)
+                    {
+                        visitor.visit_str(self);
+                    }
                 }
             }
         }
@@ -591,7 +729,12 @@ fn container_impls(mode: Mode) -> TokenStream {
                     &mut self,
                     visitor: &mut VisitorT,
                 ) {
-                    visitor.visit_str(self);
+                    if visitor
+                        .visitor_methods()
+                        .contains(VisitorMethods::VISIT_STR)
+                    {
+                        visitor.visit_str(self);
+                    }
                 }
             }
         }
@@ -610,7 +753,14 @@ fn visit_type(
     match ty {
         Type::Reference(reference) if matches!(&*reference.elem, Type::Path(path) if path.path.is_ident("str")) =>
         {
-            quote!(visitor.visit_str(#expression);)
+            quote! {
+                if visitor
+                    .visitor_methods()
+                    .contains(VisitorMethods::VISIT_STR)
+                {
+                    visitor.visit_str(#expression);
+                }
+            }
         }
         Type::Reference(reference) => visit_type(
             mode,
@@ -743,7 +893,15 @@ fn visit_type(
                 quote!(#node_trait::#visit(#expression, visitor);)
             } else if aliases.contains(&name) {
                 let method = visit_method(&segment.ident);
-                quote!(visitor.#method(#expression);)
+                let visit_children = format_ident!("{method}_children");
+                let flag = visitor_method_flag(&method);
+                quote! {
+                    if visitor.visitor_methods().contains(VisitorMethods::#flag) {
+                        visitor.#method(#expression);
+                    } else {
+                        visitor.#visit_children(#expression);
+                    }
+                }
             } else if known.contains(&name) {
                 let node_trait = mode.node_trait();
                 let visit = mode.visit_method();
@@ -774,6 +932,10 @@ fn fresh_binding(counter: &mut usize) -> Ident {
 
 fn visit_method(ident: &Ident) -> Ident {
     format_ident!("visit_{}", ident.to_string().to_case(Case::Snake))
+}
+
+fn visitor_method_flag(method: &Ident) -> Ident {
+    format_ident!("{}", method.to_string().to_ascii_uppercase())
 }
 
 fn type_param_names(generics: &Generics) -> HashSet<String> {

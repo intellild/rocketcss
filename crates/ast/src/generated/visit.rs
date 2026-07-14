@@ -8,6 +8,15 @@
 use crate::*;
 /// Typed callbacks invoked while traversing CSS AST nodes.
 pub trait Visitor<'a> {
+    /// Returns the callbacks implemented by this visitor.
+    ///
+    /// Use `#[rocketcss_visitor::visitor]` on the visitor implementation to
+    /// generate a precise static bitset. The default preserves compatibility
+    /// by treating every callback as implemented.
+    #[inline]
+    fn visitor_methods(&self) -> &'static VisitorMethods {
+        &VisitorMethods::ALL
+    }
     #[inline]
     fn enter_node(&mut self, _kind: AstType) {}
     #[inline]
@@ -1596,9 +1605,19 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`MediaFeature`] without redispatching its visitor callback.
     fn visit_media_feature_children(&mut self, node: &MediaFeature<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::MediaFeature);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::MediaFeature);
+        }
         Visit::visit(node, visitor);
-        visitor.leave_node(AstType::MediaFeature);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::MediaFeature);
+        }
     }
     #[inline]
     fn visit_container_size_feature(&mut self, node: &ContainerSizeFeature<'a>) {
@@ -1607,9 +1626,19 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`ContainerSizeFeature`] without redispatching its visitor callback.
     fn visit_container_size_feature_children(&mut self, node: &ContainerSizeFeature<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::ContainerSizeFeature);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::ContainerSizeFeature);
+        }
         Visit::visit(node, visitor);
-        visitor.leave_node(AstType::ContainerSizeFeature);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::ContainerSizeFeature);
+        }
     }
     #[inline]
     fn visit_scroll_state_feature(&mut self, node: &ScrollStateFeature<'a>) {
@@ -1618,9 +1647,19 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`ScrollStateFeature`] without redispatching its visitor callback.
     fn visit_scroll_state_feature_children(&mut self, node: &ScrollStateFeature<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::ScrollStateFeature);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::ScrollStateFeature);
+        }
         Visit::visit(node, visitor);
-        visitor.leave_node(AstType::ScrollStateFeature);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::ScrollStateFeature);
+        }
     }
     #[inline]
     fn visit_selector_list(&mut self, node: &SelectorList<'a>) {
@@ -1629,11 +1668,28 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`SelectorList`] without redispatching its visitor callback.
     fn visit_selector_list_children(&mut self, node: &SelectorList<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::SelectorList);
-        for value_0 in (node).iter() {
-            visitor.visit_selector(value_0);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::SelectorList);
         }
-        visitor.leave_node(AstType::SelectorList);
+        for value_0 in (node).iter() {
+            if visitor
+                .visitor_methods()
+                .contains(VisitorMethods::VISIT_SELECTOR)
+            {
+                visitor.visit_selector(value_0);
+            } else {
+                visitor.visit_selector_children(value_0);
+            }
+        }
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::SelectorList);
+        }
     }
     #[inline]
     fn visit_selector(&mut self, node: &Selector<'a>) {
@@ -1642,11 +1698,21 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`Selector`] without redispatching its visitor callback.
     fn visit_selector_children(&mut self, node: &Selector<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::Selector);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::Selector);
+        }
         for value_0 in (node).iter() {
             Visit::visit(value_0, visitor);
         }
-        visitor.leave_node(AstType::Selector);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::Selector);
+        }
     }
     #[inline]
     fn visit_animation_range_start(&mut self, node: &AnimationRangeStart<'a>) {
@@ -1655,9 +1721,19 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`AnimationRangeStart`] without redispatching its visitor callback.
     fn visit_animation_range_start_children(&mut self, node: &AnimationRangeStart<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::AnimationRangeStart);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::AnimationRangeStart);
+        }
         Visit::visit(node, visitor);
-        visitor.leave_node(AstType::AnimationRangeStart);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::AnimationRangeStart);
+        }
     }
     #[inline]
     fn visit_animation_range_end(&mut self, node: &AnimationRangeEnd<'a>) {
@@ -1666,9 +1742,19 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`AnimationRangeEnd`] without redispatching its visitor callback.
     fn visit_animation_range_end_children(&mut self, node: &AnimationRangeEnd<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::AnimationRangeEnd);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::AnimationRangeEnd);
+        }
         Visit::visit(node, visitor);
-        visitor.leave_node(AstType::AnimationRangeEnd);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::AnimationRangeEnd);
+        }
     }
     #[inline]
     fn visit_length_percentage(&mut self, node: &LengthPercentage<'a>) {
@@ -1677,9 +1763,19 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`LengthPercentage`] without redispatching its visitor callback.
     fn visit_length_percentage_children(&mut self, node: &LengthPercentage<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::LengthPercentage);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::LengthPercentage);
+        }
         Visit::visit(node, visitor);
-        visitor.leave_node(AstType::LengthPercentage);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::LengthPercentage);
+        }
     }
     #[inline]
     fn visit_angle_percentage(&mut self, node: &AnglePercentage<'a>) {
@@ -1688,9 +1784,19 @@ pub trait Visitor<'a> {
     ///Continues traversal of [`AnglePercentage`] without redispatching its visitor callback.
     fn visit_angle_percentage_children(&mut self, node: &AnglePercentage<'a>) {
         let visitor = self;
-        visitor.enter_node(AstType::AnglePercentage);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::AnglePercentage);
+        }
         Visit::visit(node, visitor);
-        visitor.leave_node(AstType::AnglePercentage);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::AnglePercentage);
+        }
     }
     #[inline]
     fn visit_declaration(&mut self, node: &Declaration<'a>) {
@@ -1741,15 +1847,37 @@ impl<'a, T: Visit<'a>> Visit<'a> for Option<T> {
 }
 impl<'a> Visit<'a> for &'a str {
     fn visit<VisitorT: ?Sized + Visitor<'a>>(&self, visitor: &mut VisitorT) {
-        visitor.visit_str(self);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::VISIT_STR)
+        {
+            visitor.visit_str(self);
+        }
     }
 }
 impl<'a> Visit<'a> for VendorPrefix {
     fn visit<VisitorT: ?Sized + Visitor<'a>>(&self, visitor: &mut VisitorT) {
-        visitor.visit_vendor_prefix(self);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::VISIT_VENDOR_PREFIX)
+        {
+            visitor.visit_vendor_prefix(self);
+        } else {
+            Visit::visit_children(self, visitor);
+        }
     }
     fn visit_children<VisitorT: ?Sized + Visitor<'a>>(&self, visitor: &mut VisitorT) {
-        visitor.enter_node(AstType::VendorPrefix);
-        visitor.leave_node(AstType::VendorPrefix);
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::ENTER_NODE)
+        {
+            visitor.enter_node(AstType::VendorPrefix);
+        }
+        if visitor
+            .visitor_methods()
+            .contains(VisitorMethods::LEAVE_NODE)
+        {
+            visitor.leave_node(AstType::VendorPrefix);
+        }
     }
 }

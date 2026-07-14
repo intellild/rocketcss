@@ -2,7 +2,7 @@
 
 pub use crate::{
     AstType, BoxError, Plugin, PluginContext, PluginError, Plugins, Visit, VisitMut, Visitor,
-    VisitorMut, VisitorPlugin,
+    VisitorMethods, VisitorMut, VisitorPlugin, visitor,
 };
 pub use rocketcss_allocator::Allocator;
 pub use rocketcss_ast::prelude::*;
