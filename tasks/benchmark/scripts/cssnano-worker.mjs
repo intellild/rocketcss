@@ -1,13 +1,14 @@
-"use strict";
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const fs = require("node:fs");
-const path = require("node:path");
-const readline = require("node:readline");
-
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const cssnanoDir = process.env.CSSNANO_DIR
   ? path.resolve(process.env.CSSNANO_DIR)
-  : path.resolve(__dirname, "../../../../cssnano");
-const cssnano = require(path.join(cssnanoDir, "packages/cssnano/src/index.js"));
+  : path.resolve(scriptDir, "../../../../cssnano");
+const cssnanoPath = path.join(cssnanoDir, "packages/cssnano/src/index.js");
+const { default: cssnano } = await import(pathToFileURL(cssnanoPath));
 const source = fs.readFileSync(process.argv[2], "utf8");
 const processor = cssnano({ preset: "default" });
 const lines = readline.createInterface({
