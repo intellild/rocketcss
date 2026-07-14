@@ -63,7 +63,7 @@ macro_rules! define_properties {
             $name:literal: $property:ident($value:ty $(, $vp:ty)?),
         )+
     ) => {
-        #[derive(Debug, PartialEq)]
+        #[derive(Debug, PartialEq, Visit)]
         pub enum PropertyId<'a> {
             $(
                 $(#[$meta])*
@@ -78,7 +78,7 @@ macro_rules! define_properties {
             Custom(&'a str),
         }
 
-        #[derive(Debug, PartialEq)]
+        #[derive(Debug, PartialEq, Visit)]
         pub enum Declaration<'a> {
             $(
                 $(#[$meta])*
@@ -214,7 +214,7 @@ fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'
     value.get(prefix.len()..)
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BlendMode {
     Normal,
     Multiply,

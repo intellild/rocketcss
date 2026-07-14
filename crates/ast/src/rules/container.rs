@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum ContainerCondition<'a> {
     Feature(Box<'a, ContainerSizeFeature<'a>>),
     Not(Box<'a, ContainerCondition<'a>>),
@@ -15,7 +15,7 @@ pub enum ContainerCondition<'a> {
 
 pub type ContainerSizeFeature<'a> = QueryFeature<'a, ContainerSizeFeatureId>;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum ContainerSizeFeatureId {
     Width,
     Height,
@@ -25,7 +25,7 @@ pub enum ContainerSizeFeatureId {
     Orientation,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum StyleQuery<'a> {
     Declaration(Box<'a, Declaration<'a>>),
     Property(Box<'a, PropertyId<'a>>),
@@ -36,7 +36,7 @@ pub enum StyleQuery<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum ScrollStateQuery<'a> {
     Feature(Box<'a, ScrollStateFeature<'a>>),
     Not(Box<'a, ScrollStateQuery<'a>>),
@@ -48,7 +48,7 @@ pub enum ScrollStateQuery<'a> {
 
 pub type ScrollStateFeature<'a> = QueryFeature<'a, ScrollStateFeatureId>;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum ScrollStateFeatureId {
     Stuck,
     Snapped,
@@ -56,13 +56,13 @@ pub enum ScrollStateFeatureId {
     Scrolled,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Container<'a> {
     pub container_type: ContainerType,
     pub name: Box<'a, ContainerNameList<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct ContainerRule<'a> {
     pub condition: Option<Box<'a, ContainerCondition<'a>>>,
     pub span: Span,

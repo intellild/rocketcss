@@ -2,7 +2,7 @@ use super::*;
 
 use rocketcss_allocator::{boxed::Box, vec::Vec};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum CssColor<'a> {
     CurrentColor,
     Rgba(RGBA),
@@ -13,7 +13,7 @@ pub enum CssColor<'a> {
     System(SystemColor),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub struct RGBA {
     pub red: u8,
     pub green: u8,
@@ -21,7 +21,7 @@ pub struct RGBA {
     pub alpha: u8,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum LABColor {
     Lab { a: f32, alpha: f32, b: f32, l: f32 },
     Lch { alpha: f32, c: f32, h: f32, l: f32 },
@@ -29,7 +29,7 @@ pub enum LABColor {
     Oklch { alpha: f32, c: f32, h: f32, l: f32 },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum PredefinedColor {
     Srgb { alpha: f32, b: f32, g: f32, r: f32 },
     SrgbLinear { alpha: f32, b: f32, g: f32, r: f32 },
@@ -41,20 +41,20 @@ pub enum PredefinedColor {
     XyzD65 { alpha: f32, x: f32, y: f32, z: f32 },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum FloatColor {
     Rgb { alpha: f32, b: f32, g: f32, r: f32 },
     Hsl { alpha: f32, h: f32, l: f32, s: f32 },
     Hwb { alpha: f32, b: f32, h: f32, w: f32 },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct LightDark<'a> {
     pub dark: Box<'a, CssColor<'a>>,
     pub light: Box<'a, CssColor<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum SystemColor {
     Accentcolor,
     Accentcolortext,
@@ -100,7 +100,7 @@ pub enum SystemColor {
     Windowtext,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum UnresolvedColor<'a> {
     Rgb {
         alpha: Vec<'a, TokenOrValue<'a>>,

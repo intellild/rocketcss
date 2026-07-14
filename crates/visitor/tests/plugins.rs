@@ -7,14 +7,14 @@ struct Rename {
     to: &'static str,
 }
 
-impl<'a> VisitMut<'a> for Rename {
+impl<'a> VisitorMut<'a> for Rename {
     fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
         if let SelectorComponent::Class(name) = component
             && *name == self.from
         {
             *name = self.to;
         }
-        walk_mut::walk_selector_component(self, component);
+        component.visit_mut_children(self);
     }
 }
 

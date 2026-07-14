@@ -1,37 +1,37 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct InsetRect<'a> {
     pub radius: Box<'a, BorderRadius<'a>>,
     pub rect: Box<'a, Rect<'a, LengthPercentage<'a>>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct CircleShape<'a> {
     pub position: Box<'a, Position<'a>>,
     pub radius: Box<'a, ShapeRadius<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct EllipseShape<'a> {
     pub position: Box<'a, Position<'a>>,
     pub radius_x: Box<'a, ShapeRadius<'a>>,
     pub radius_y: Box<'a, ShapeRadius<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Polygon<'a> {
     pub fill_rule: FillRule,
     pub points: Vec<'a, Point<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Point<'a> {
     pub x: Box<'a, LengthPercentage<'a>>,
     pub y: Box<'a, LengthPercentage<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Mask<'a> {
     pub clip: Box<'a, MaskClip>,
     pub composite: MaskComposite,
@@ -43,7 +43,7 @@ pub struct Mask<'a> {
     pub size: Box<'a, BackgroundSize<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct MaskBorder<'a> {
     pub mode: MaskBorderMode,
     pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
@@ -53,7 +53,7 @@ pub struct MaskBorder<'a> {
     pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct DropShadow<'a> {
     pub blur: Box<'a, Length<'a>>,
     pub color: Box<'a, CssColor<'a>>,

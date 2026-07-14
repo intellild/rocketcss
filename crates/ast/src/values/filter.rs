@@ -1,12 +1,12 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum FilterList<'a> {
     None,
     Filters(Vec<'a, Filter<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Filter<'a> {
     Blur(Box<'a, Length<'a>>),
     Brightness(Box<'a, NumberOrPercentage>),

@@ -1,7 +1,8 @@
 //! CSS syntax tree data structures ported from lightningcss.
 //!
-//! This crate intentionally contains data definitions only. Parsing, printing,
-//! transformation, and minification logic stays outside of the AST crate.
+//! Parsing, printing, transformation, and minification logic stays outside of
+//! this crate. Typed immutable and mutable traversal is implemented directly by
+//! the AST nodes.
 
 #![allow(non_camel_case_types)]
 
@@ -26,10 +27,11 @@ macro_rules! match_ignore_ascii_case {
 }
 
 use rocketcss_allocator::prelude::*;
-pub use rocketcss_macros::CssKeyword;
+pub use rocketcss_macros::{CssKeyword, Visit};
 
 mod color;
 mod css_rule;
+mod generated;
 mod length;
 mod media;
 pub mod prelude;
@@ -42,6 +44,11 @@ mod values;
 
 pub use color::*;
 pub use css_rule::*;
+pub use generated::{
+    kind::AstType,
+    visit::{Visit, Visitor},
+    visit_mut::{VisitMut, VisitorMut},
+};
 pub use length::*;
 pub use media::*;
 pub use properties::*;

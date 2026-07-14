@@ -8,7 +8,7 @@ use std::{
 use rocketcss_allocator::Allocator;
 use rocketcss_ast::StyleSheet;
 
-use crate::VisitMut;
+use crate::{VisitMut, VisitorMut};
 
 /// Type-erased error returned by a plugin.
 pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
@@ -114,7 +114,7 @@ impl<'plugin, 'a> Plugins<'plugin, 'a> {
 
     pub fn add_visitor<V>(&mut self, name: &'static str, visitor: V)
     where
-        V: VisitMut<'a> + 'plugin,
+        V: VisitorMut<'a> + 'plugin,
     {
         self.add(VisitorPlugin::new(name, visitor));
     }
@@ -136,7 +136,7 @@ impl<'plugin, 'a> Plugins<'plugin, 'a> {
     }
 }
 
-/// Adapts an infallible [`VisitMut`] implementation into a dynamic plugin.
+/// Adapts an infallible [`VisitorMut`] implementation into a dynamic plugin.
 pub struct VisitorPlugin<V> {
     name: &'static str,
     visitor: V,
@@ -164,7 +164,7 @@ impl<V> VisitorPlugin<V> {
     }
 }
 
-impl<'a, V: VisitMut<'a>> Plugin<'a> for VisitorPlugin<V> {
+impl<'a, V: VisitorMut<'a>> Plugin<'a> for VisitorPlugin<V> {
     #[inline]
     fn name(&self) -> &str {
         self.name
@@ -175,7 +175,7 @@ impl<'a, V: VisitMut<'a>> Plugin<'a> for VisitorPlugin<V> {
         stylesheet: &mut StyleSheet<'a>,
         _context: &mut PluginContext<'a>,
     ) -> Result<(), BoxError> {
-        self.visitor.visit_style_sheet(stylesheet);
+        stylesheet.visit_mut(&mut self.visitor);
         Ok(())
     }
 }

@@ -10,7 +10,7 @@ pub type Selector<'a> = Vec<'a, SelectorComponent<'a>>;
 ///
 /// This mirrors `parcel_selectors::parser::Component`, specialized for
 /// lightningcss' selector implementation and arena-backed containers.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum SelectorComponent<'a> {
     Combinator(Combinator),
 
@@ -68,7 +68,7 @@ pub enum SelectorComponent<'a> {
     Nesting,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum Combinator {
     Child,
     Descendant,
@@ -81,7 +81,7 @@ pub enum Combinator {
     Deep,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct AttrSelector<'a> {
     pub namespace: Option<NamespaceConstraint<'a>>,
     pub local_name: &'a str,
@@ -90,13 +90,13 @@ pub struct AttrSelector<'a> {
     pub never_matches: bool,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum NamespaceConstraint<'a> {
     Any,
     Specific { prefix: &'a str, url: &'a str },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AttrOperation<'a> {
     Exists,
     WithValue {
@@ -106,7 +106,7 @@ pub enum AttrOperation<'a> {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Visit)]
 pub enum ParsedCaseSensitivity {
     ExplicitCaseSensitive,
     AsciiCaseInsensitive,
@@ -115,7 +115,7 @@ pub enum ParsedCaseSensitivity {
     AsciiCaseInsensitiveIfInHtmlElementInHtmlDocument,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum AttrSelectorOperator {
     Equal,
     Includes,
@@ -125,7 +125,7 @@ pub enum AttrSelectorOperator {
     Suffix,
 }
 
-#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum NthType {
     Child,
     LastChild,
@@ -137,7 +137,7 @@ pub enum NthType {
     LastCol,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub struct NthSelectorData {
     pub kind: NthType,
     pub is_function: bool,
@@ -145,13 +145,13 @@ pub struct NthSelectorData {
     pub b: i32,
 }
 
-#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum Direction {
     Ltr,
     Rtl,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum PseudoClass<'a> {
     Lang {
         languages: Vec<'a, &'a str>,
@@ -232,7 +232,7 @@ pub enum PseudoClass<'a> {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum WebKitScrollbarPseudoClass {
     Horizontal,
     Vertical,
@@ -247,7 +247,7 @@ pub enum WebKitScrollbarPseudoClass {
     WindowInactive,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum PseudoElement<'a> {
     After,
     Before,
@@ -302,7 +302,7 @@ pub enum PseudoElement<'a> {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum WebKitScrollbarPseudoElement {
     Scrollbar,
     Button,
@@ -313,7 +313,7 @@ pub enum WebKitScrollbarPseudoElement {
     Resizer,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum ViewTransitionPartName<'a> {
     All,
     Name(&'a str),

@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum TrackSizing<'a> {
     None,
     TrackList {
@@ -9,13 +9,13 @@ pub enum TrackSizing<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum TrackListItem<'a> {
     TrackSize(Box<'a, TrackSize<'a>>),
     TrackRepeat(Box<'a, TrackRepeat<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum TrackSize<'a> {
     TrackBreadth(Box<'a, TrackBreadth<'a>>),
     MinMax {
@@ -25,7 +25,7 @@ pub enum TrackSize<'a> {
     FitContent(Box<'a, LengthPercentage<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum TrackBreadth<'a> {
     Length(Box<'a, LengthPercentage<'a>>),
     Flex(f32),
@@ -34,20 +34,20 @@ pub enum TrackBreadth<'a> {
     Auto,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum RepeatCount {
     Number(f32),
     AutoFill,
     AutoFit,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum AutoFlowDirection {
     Row,
     Column,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum GridTemplateAreas<'a> {
     None,
     Areas {
@@ -56,7 +56,7 @@ pub enum GridTemplateAreas<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum GridLine<'a> {
     Auto,
     Area { name: &'a str },

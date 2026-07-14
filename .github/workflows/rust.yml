@@ -28,6 +28,10 @@ jobs:
         run: pnpm format-ci:toml
       - name: Check Prettier formatting
         run: pnpm format-ci:prettier
+      - name: Check generated visitor code
+        run: |
+          cargo run -p rocketcss_ast_tools
+          git diff --exit-code -- crates/ast/src/generated crates/macros/src/generated_visit_aliases.rs
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
       - name: Run Clippy

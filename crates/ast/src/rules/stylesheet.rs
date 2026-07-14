@@ -3,10 +3,10 @@ use crate::*;
 use bitflags::bitflags;
 use std::{marker::PhantomPinned, pin::Pin};
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Visit)]
 pub struct DefaultAtRule;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct StyleSheet<'a> {
     pub license_comments: Vec<'a, &'a str>,
     pub rules: Vec<'a, CssRule<'a>>,
@@ -14,59 +14,60 @@ pub struct StyleSheet<'a> {
     pub sources: Vec<'a, &'a str>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct MediaRule<'a> {
     pub span: Span,
     pub query: MediaList<'a>,
     pub rules: Vec<'a, CssRule<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct MediaList<'a> {
     pub media_queries: Vec<'a, MediaQuery<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct MediaQuery<'a> {
     pub condition: Option<Box<'a, MediaCondition<'a>>>,
     pub media_type: MediaType<'a>,
     pub qualifier: Option<Qualifier>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct LengthValue {
     pub unit: LengthUnit,
     pub value: f32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct EnvironmentVariable<'a> {
     pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
     pub indices: Vec<'a, i32>,
     pub name: Box<'a, EnvironmentVariableName<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Url<'a> {
     pub span: Span,
     pub url: &'a str,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Variable<'a> {
     pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
     pub name: Box<'a, DashedIdentReference<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct DashedIdentReference<'a> {
     pub from: Option<Box<'a, Specifier<'a>>>,
     pub ident: &'a str,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Function<'a> {
     pub arguments: Vec<'a, TokenOrValue<'a>>,
+    #[visit(skip)]
     flags: FunctionFlags,
     pub name: &'a str,
     /// A simple value serialized from this existing function node.
@@ -123,7 +124,7 @@ impl<'a> Function<'a> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Visit)]
 pub enum FunctionReplacement {
     GrayAlpha {
         alpha: f32,
@@ -149,7 +150,7 @@ pub enum FunctionReplacement {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct ImportRule<'a> {
     pub layer: Option<Vec<'a, &'a str>>,
     pub span: Span,
@@ -158,7 +159,7 @@ pub struct ImportRule<'a> {
     pub url: &'a str,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct StyleRule<'a> {
     pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
     pub span: Span,
@@ -167,10 +168,13 @@ pub struct StyleRule<'a> {
     pub vendor_prefix: VendorPrefix,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
+#[visit(pinned)]
 pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, Declaration<'a>>,
+    #[visit(skip)]
     pub declarations_importance: BitVec<'a>,
+    #[visit(skip)]
     _pin: PhantomPinned,
 }
 

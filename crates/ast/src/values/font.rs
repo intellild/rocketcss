@@ -1,27 +1,27 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum FontWeight<'a> {
     Absolute(Box<'a, AbsoluteFontWeight>),
     Bolder,
     Lighter,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AbsoluteFontWeight {
     Weight(f32),
     Normal,
     Bold,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum FontSize<'a> {
     Length(Box<'a, LengthPercentage<'a>>),
     Absolute(AbsoluteFontSize),
     Relative(RelativeFontSize),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum AbsoluteFontSize {
     XxSmall,
     XSmall,
@@ -33,19 +33,19 @@ pub enum AbsoluteFontSize {
     XxxLarge,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum RelativeFontSize {
     Smaller,
     Larger,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum FontStretch {
     Keyword(FontStretchKeyword),
     Percentage(f32),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum FontStretchKeyword {
     Normal,
     UltraCondensed,
@@ -58,13 +58,13 @@ pub enum FontStretchKeyword {
     UltraExpanded,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum FontFamily<'a> {
     Generic(GenericFontFamily),
     FamilyName(FamilyName<'a>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum GenericFontFamily {
     Serif,
     SansSerif,
@@ -87,14 +87,14 @@ pub enum GenericFontFamily {
     RevertLayer,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum FontStyle<'a> {
     Normal,
     Italic,
     Oblique(Box<'a, Angle>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum FontVariantCaps {
     Normal,
     SmallCaps,
@@ -105,20 +105,20 @@ pub enum FontVariantCaps {
     TitlingCaps,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum LineHeight<'a> {
     Normal,
     Number(f32),
     Length(Box<'a, LengthPercentage<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum VerticalAlign<'a> {
     Keyword(VerticalAlignKeyword),
     Length(Box<'a, LengthPercentage<'a>>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum VerticalAlignKeyword {
     Baseline,
     Sub,

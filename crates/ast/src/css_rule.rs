@@ -2,7 +2,7 @@ use super::*;
 
 use rocketcss_allocator::boxed::Box;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum CssRule<'a> {
     Media(Box<'a, MediaRule<'a>>),
     Import(Box<'a, ImportRule<'a>>),
