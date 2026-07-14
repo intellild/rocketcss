@@ -1,8 +1,8 @@
 use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{
     CustomProperty, EnvironmentVariable, Function, FunctionReplacement, KeyframeSelector,
-    LengthUnit, StyleSheet, Token, TokenOrValue, Unit, UnknownAtRule, UnparsedProperty, Variable,
-    match_ignore_ascii_case,
+    KnownFunction, LengthUnit, StyleSheet, Token, TokenOrValue, Unit, UnknownAtRule,
+    UnparsedProperty, Variable, match_ignore_ascii_case,
 };
 
 use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlags};
@@ -51,7 +51,7 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     match value {
         TokenOrValue::Var(_) => true,
         TokenOrValue::Function(function) => {
-            match_ignore_ascii_case!(function.name, "var" => true, _ => false)
+            function.kind() == KnownFunction::Var
                 || function
                     .arguments
                     .iter()
@@ -69,19 +69,18 @@ impl Minify for Function<'_> {
         {
             return;
         }
-        if let Some(canonical) = match_ignore_ascii_case!(
-            self.name,
-            "rgb" => Some("rgb"),
-            "rgba" => Some("rgba"),
-            "hsl" => Some("hsl"),
-            "hsla" => Some("hsla"),
-            "hwb" => Some("hwb"),
+        if let Some(canonical) = match self.kind() {
+            KnownFunction::Rgb => Some("rgb"),
+            KnownFunction::Rgba => Some("rgba"),
+            KnownFunction::Hsl => Some("hsl"),
+            KnownFunction::Hsla => Some("hsla"),
+            KnownFunction::Hwb => Some("hwb"),
             _ => None,
-        ) {
-            self.name = canonical;
+        } {
+            self.set_name(canonical);
             canonicalize_nested_variable_functions(&mut self.arguments);
         }
-        let is_gradient = is_gradient_function(self.name);
+        let is_gradient = self.kind().is_gradient();
         let gradient_contains_variable =
             is_gradient && self.arguments.iter().any(token_or_value_contains_variable);
         if gradient_contains_variable {
@@ -93,11 +92,7 @@ impl Minify for Function<'_> {
         cx.value_context.set_enabled(
             ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA,
             cx.is_enabled(Options::PRESERVE_VARIABLE_FALLBACK_SPACE, OptionsOp::Any)
-                && match_ignore_ascii_case!(
-                    self.name,
-                    "var" | "env" | "constant" => true,
-                    _ => false,
-                ),
+                && self.kind().is_variable(),
         );
         self.arguments.minify(cx);
         cx.value_context.set_enabled(
@@ -121,7 +116,7 @@ impl Minify for Function<'_> {
             cx.record_value_normalized();
             return;
         }
-        if match_ignore_ascii_case!(self.name, "calc" => true, _ => false) {
+        if self.kind() == KnownFunction::Calc && !self.is_vendor_prefixed() {
             if let Some(linear) = calc_linear_expression(&self.arguments)
                 .map(|linear| linear.round(cx.options().calc_precision))
                 && linear.write_to(self)
@@ -144,9 +139,9 @@ impl Minify for Function<'_> {
                 return;
             }
         }
-        if match_ignore_ascii_case!(self.name, "url" => true, _ => false) {
+        if self.kind() == KnownFunction::Url {
             if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) {
-                self.name = "url";
+                self.set_name("url");
                 let allocator = self.arguments.bump();
                 if let [TokenOrValue::Token(token)] = self.arguments.as_mut_slice()
                     && let Token::String(value) = &mut **token
@@ -185,14 +180,13 @@ impl Minify for Function<'_> {
             return;
         }
 
-        let replacement = match_ignore_ascii_case!(
-            self.name,
-            "cubic-bezier" => minify_cubic_bezier(&self.arguments),
-            "steps" => minify_steps(&mut self.arguments),
+        let replacement = match self.kind() {
+            KnownFunction::CubicBezier => minify_cubic_bezier(&self.arguments),
+            KnownFunction::Steps => minify_steps(&mut self.arguments),
             _ => None,
-        );
+        };
         if let Some(replacement) = replacement {
-            self.name = replacement;
+            self.set_name(replacement);
             self.arguments.clear();
             self.set_identifier(true);
             cx.record_value_normalized();
@@ -205,13 +199,12 @@ fn canonicalize_nested_variable_functions(arguments: &mut Vec<'_, TokenOrValue<'
         let TokenOrValue::Function(function) = argument else {
             continue;
         };
-        if let Some(name) = match_ignore_ascii_case!(
-            function.name,
-            "var" => Some("var"),
-            "env" => Some("env"),
+        if let Some(name) = match function.kind() {
+            KnownFunction::Var => Some("var"),
+            KnownFunction::Env => Some("env"),
             _ => None,
-        ) {
-            function.name = name;
+        } {
+            function.set_name(name);
         }
         canonicalize_nested_variable_functions(&mut function.arguments);
     }
@@ -233,18 +226,6 @@ fn rollback_gradient_color_replacements(arguments: &mut Vec<'_, TokenOrValue<'_>
             function.replacement = None;
         }
     }
-}
-
-pub(crate) fn is_gradient_function(name: &str) -> bool {
-    let name = name
-        .strip_prefix('-')
-        .and_then(|name| name.split_once('-').map(|(_, name)| name))
-        .unwrap_or(name);
-    match_ignore_ascii_case!(
-        name,
-        "linear-gradient" | "repeating-linear-gradient" | "radial-gradient" | "repeating-radial-gradient" | "conic-gradient" | "repeating-conic-gradient" => true,
-        _ => false,
-    )
 }
 
 fn minify_gradient_direction(arguments: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
@@ -307,7 +288,7 @@ fn minify_gradient_stops(arguments: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
                 Some(FunctionReplacement::Rgba { alpha: 0.0, .. })
             )
         {
-            function.name = "transparent";
+            function.set_name("transparent");
             function.arguments.clear();
             function.replacement = None;
             function.set_identifier(true);
@@ -497,22 +478,17 @@ fn is_color_value(value: &TokenOrValue<'_>) -> bool {
     matches!(
         value,
         TokenOrValue::Color(_) | TokenOrValue::UnresolvedColor(_)
-    ) || matches!(value, TokenOrValue::Function(function)
-    if match_ignore_ascii_case!(
-        function.name,
-        "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "lab" | "lch" | "color" => true,
-        _ => false,
-    )) || matches!(value, TokenOrValue::Token(token)
+    ) || matches!(value, TokenOrValue::Function(function) if function.kind().is_color())
+        || matches!(value, TokenOrValue::Token(token)
             if matches!(**token, Token::Ident(_) | Token::Hash(_) | Token::IdHash(_) | Token::MinifiedHash(_)))
 }
 
 fn minify_hsl_function(function: &Function<'_>, cx: &MinifyContext) -> Option<FunctionReplacement> {
-    let is_hsl = match_ignore_ascii_case!(
-        function.name,
-        "hsl" => true,
-        "hsla" => false,
+    let is_hsl = match function.kind() {
+        KnownFunction::Hsl => true,
+        KnownFunction::Hsla => false,
         _ => return None,
-    );
+    };
     let mut components = function.arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
             if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
@@ -583,12 +559,11 @@ fn color_percentage(value: &TokenOrValue<'_>) -> Option<f32> {
 }
 
 fn minify_rgb_function(function: &Function<'_>, cx: &MinifyContext) -> Option<FunctionReplacement> {
-    let is_rgb = match_ignore_ascii_case!(
-        function.name,
-        "rgb" => true,
-        "rgba" => false,
+    let is_rgb = match function.kind() {
+        KnownFunction::Rgb => true,
+        KnownFunction::Rgba => false,
         _ => return None,
-    );
+    };
     let mut components = function.arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
             if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
@@ -659,13 +634,11 @@ fn color_component(value: &TokenOrValue<'_>) -> Option<(u8, Option<bool>, f32)> 
 }
 
 fn minify_transform_function(function: &mut Function<'_>) -> bool {
-    if match_ignore_ascii_case!(function.name, "rotatez" => true, _ => false)
-        && function.arguments.len() == 1
-    {
-        function.name = "rotate";
+    if function.kind() == KnownFunction::RotateZ && function.arguments.len() == 1 {
+        function.set_name("rotate");
         return true;
     }
-    if match_ignore_ascii_case!(function.name, "matrix3d" => true, _ => false) {
+    if function.kind() == KnownFunction::Matrix3d {
         let values = &function.arguments;
         if values.len() == 31
             && number_at(values, 4) == Some(0.0)
@@ -679,7 +652,7 @@ fn minify_transform_function(function: &mut Function<'_>) -> bool {
             && number_at(values, 28) == Some(0.0)
             && number_at(values, 30) == Some(1.0)
         {
-            function.name = "matrix";
+            function.set_name("matrix");
             compact_arguments(
                 &mut function.arguments,
                 &[0, 1, 2, 3, 8, 9, 10, 11, 24, 25, 26],
@@ -688,10 +661,8 @@ fn minify_transform_function(function: &mut Function<'_>) -> bool {
         }
         return false;
     }
-    if match_ignore_ascii_case!(function.name, "rotate3d" => true, _ => false)
-        && function.arguments.len() == 7
-    {
-        function.name = match (
+    if function.kind() == KnownFunction::Rotate3d && function.arguments.len() == 7 {
+        let name = match (
             number_at(&function.arguments, 0),
             number_at(&function.arguments, 2),
             number_at(&function.arguments, 4),
@@ -701,12 +672,11 @@ fn minify_transform_function(function: &mut Function<'_>) -> bool {
             (Some(0.0), Some(0.0), Some(1.0)) => "rotate",
             _ => return false,
         };
+        function.set_name(name);
         compact_arguments(&mut function.arguments, &[6]);
         return true;
     }
-    if match_ignore_ascii_case!(function.name, "scale" => true, _ => false)
-        && function.arguments.len() == 3
-    {
+    if function.kind() == KnownFunction::Scale && function.arguments.len() == 3 {
         if function.arguments[0] == function.arguments[2]
             && !is_empty_variable_function(&function.arguments[0])
         {
@@ -720,20 +690,18 @@ fn minify_transform_function(function: &mut Function<'_>) -> bool {
             return true;
         }
         if second == Some(1.0) {
-            function.name = "scaleX";
+            function.set_name("scaleX");
             function.arguments.truncate(1);
             return true;
         }
         if first == Some(1.0) {
-            function.name = "scaleY";
+            function.set_name("scaleY");
             compact_arguments(&mut function.arguments, &[2]);
             return true;
         }
         return false;
     }
-    if match_ignore_ascii_case!(function.name, "scale3d" => true, _ => false)
-        && function.arguments.len() == 5
-    {
+    if function.kind() == KnownFunction::Scale3d && function.arguments.len() == 5 {
         let values = [
             number_at(&function.arguments, 0),
             number_at(&function.arguments, 2),
@@ -748,30 +716,28 @@ fn minify_transform_function(function: &mut Function<'_>) -> bool {
         } else {
             return false;
         };
-        function.name = name;
+        function.set_name(name);
         compact_arguments(&mut function.arguments, &[index]);
         return true;
     }
-    if match_ignore_ascii_case!(function.name, "translate" => true, _ => false)
-        && function.arguments.len() == 3
-    {
+    if function.kind() == KnownFunction::Translate && function.arguments.len() == 3 {
         if number_at(&function.arguments, 2) == Some(0.0) {
             function.arguments.truncate(1);
             return true;
         }
         if number_at(&function.arguments, 0) == Some(0.0) {
-            function.name = "translateY";
+            function.set_name("translateY");
             compact_arguments(&mut function.arguments, &[2]);
             return true;
         }
         return false;
     }
-    if match_ignore_ascii_case!(function.name, "translate3d" => true, _ => false)
+    if function.kind() == KnownFunction::Translate3d
         && function.arguments.len() == 5
         && number_at(&function.arguments, 0) == Some(0.0)
         && number_at(&function.arguments, 2) == Some(0.0)
     {
-        function.name = "translateZ";
+        function.set_name("translateZ");
         compact_arguments(&mut function.arguments, &[4]);
         return true;
     }
@@ -780,12 +746,7 @@ fn minify_transform_function(function: &mut Function<'_>) -> bool {
 
 fn is_empty_variable_function(value: &TokenOrValue<'_>) -> bool {
     matches!(value, TokenOrValue::Function(function)
-    if function.arguments.is_empty()
-        && match_ignore_ascii_case!(
-            function.name,
-            "var" | "env" | "constant" => true,
-            _ => false,
-        ))
+        if function.arguments.is_empty() && function.kind().is_variable())
 }
 
 fn simple_calc_value(values: &[TokenOrValue<'_>]) -> Option<FunctionReplacement> {
@@ -1103,7 +1064,8 @@ impl CalcLinearParser<'_, '_> {
                 self.index += 1;
                 result
             }
-            TokenOrValue::Function(function) if match_ignore_ascii_case!(function.name, "calc" => true, _ => false) =>
+            TokenOrValue::Function(function)
+                if function.kind() == KnownFunction::Calc && !function.is_vendor_prefixed() =>
             {
                 self.index += 1;
                 if let Some(replacement) = function.replacement {

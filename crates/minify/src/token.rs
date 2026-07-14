@@ -1,5 +1,5 @@
 use rocketcss_allocator::vec::Vec;
-use rocketcss_ast::{Token, TokenOrValue, Unit, match_ignore_ascii_case};
+use rocketcss_ast::{KnownFunction, Token, TokenOrValue, Unit, match_ignore_ascii_case};
 
 use crate::{
     Minify, MinifyContext, Options, OptionsOp,
@@ -579,11 +579,9 @@ fn is_position_component(value: &TokenOrValue<'_>) -> bool {
                     | Token::UnknownDimension { .. }
             )
         }
-        TokenOrValue::Function(function) => match_ignore_ascii_case!(
-            function.name,
-            "calc" | "min" | "max" | "clamp" => true,
-            _ => false,
-        ),
+        TokenOrValue::Function(function) => {
+            function.kind().is_math_value() && !function.is_vendor_prefixed()
+        }
         TokenOrValue::Length(_) => true,
         _ => false,
     }
@@ -592,11 +590,7 @@ fn is_position_component(value: &TokenOrValue<'_>) -> bool {
 fn is_variable(value: &TokenOrValue<'_>) -> bool {
     match value {
         TokenOrValue::Var(_) | TokenOrValue::Env(_) => true,
-        TokenOrValue::Function(function) => match_ignore_ascii_case!(
-            function.name,
-            "var" | "env" | "constant" => true,
-            _ => false,
-        ),
+        TokenOrValue::Function(function) => function.kind().is_variable(),
         _ => false,
     }
 }
@@ -854,10 +848,12 @@ fn is_timing_value(value: &TokenOrValue<'_>) -> bool {
             _ => false,
         )
     }) || matches!(value, TokenOrValue::Function(function)
-        if match_ignore_ascii_case!(
-            function.name,
-            "steps" | "cubic-bezier" | "linear" | "frames" => true,
-            _ => false,
+        if matches!(
+            function.kind(),
+            KnownFunction::Steps
+                | KnownFunction::CubicBezier
+                | KnownFunction::Linear
+                | KnownFunction::Frames
         ))
 }
 
@@ -962,7 +958,7 @@ fn list_style_rank(value: &TokenOrValue<'_>) -> Option<u8> {
     ) {
         Some(1)
     } else if matches!(value, TokenOrValue::Url(_))
-        || matches!(value, TokenOrValue::Function(function) if match_ignore_ascii_case!(function.name, "url" => true, _ => false))
+        || matches!(value, TokenOrValue::Function(function) if function.kind() == KnownFunction::Url)
     {
         Some(2)
     } else if is_variable(value) {
@@ -1065,23 +1061,11 @@ fn border_value_rank(value: &TokenOrValue<'_>) -> Option<u8> {
     match value {
         TokenOrValue::Length(_) => Some(0),
         TokenOrValue::Function(function)
-            if match_ignore_ascii_case!(
-                function.name,
-                "calc" | "min" | "max" | "clamp" => true,
-                _ => false,
-            ) =>
+            if function.kind().is_math_value() && !function.is_vendor_prefixed() =>
         {
             Some(0)
         }
-        TokenOrValue::Function(function)
-            if match_ignore_ascii_case!(
-                function.name,
-                "rgb" | "rgba" | "hsl" | "hsla" | "hwb" | "lab" | "lch" | "color" => true,
-                _ => false,
-            ) =>
-        {
-            Some(2)
-        }
+        TokenOrValue::Function(function) if function.kind().is_color() => Some(2),
         TokenOrValue::Color(_) | TokenOrValue::UnresolvedColor(_) => Some(2),
         TokenOrValue::Token(token) => match &**token {
             Token::Number(_) | Token::Dimension { .. } => Some(0),
@@ -1164,7 +1148,7 @@ fn box_shadow_value_rank(value: &TokenOrValue<'_>) -> Option<u8> {
     }
     match value {
         TokenOrValue::Length(_) => Some(1),
-        TokenOrValue::Function(function) if is_math_value_function(function.name) => Some(1),
+        TokenOrValue::Function(function) if function.kind().is_math_value() => Some(1),
         TokenOrValue::Token(token)
             if matches!(**token, Token::Number(_) | Token::Dimension { .. }) =>
         {
@@ -1176,18 +1160,6 @@ fn box_shadow_value_rank(value: &TokenOrValue<'_>) -> Option<u8> {
         | TokenOrValue::Token(_) => Some(2),
         _ => None,
     }
-}
-
-fn is_math_value_function(name: &str) -> bool {
-    let name = name
-        .strip_prefix('-')
-        .and_then(|name| name.split_once('-').map(|(_, name)| name))
-        .unwrap_or(name);
-    match_ignore_ascii_case!(
-        name,
-        "calc" | "min" | "max" | "clamp" => true,
-        _ => false,
-    )
 }
 
 fn sort_layer_by_rank(
