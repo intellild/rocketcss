@@ -9,23 +9,21 @@ use std::time::Duration;
 
 use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_allocator::Allocator;
-use rocketcss_benchmark::WRITER_CAPACITY_PADDING;
+use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss};
-
-const BOOTSTRAP: &str = include_str!("../files/bootstrap.css");
 
 fn main() {
     divan::main();
 }
 
-#[divan::bench]
-fn rocketcss(bencher: Bencher<'_, '_>) {
+#[divan::bench(args = BENCH_CASES)]
+fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
     bencher
-        .counter(BytesCount::of_str(BOOTSTRAP))
+        .counter(BytesCount::of_str(case.source))
         .bench_local(|| {
             let allocator = Allocator::new();
             let mut stylesheet = rocketcss_parser::parse(
-                black_box(BOOTSTRAP),
+                black_box(case.source),
                 &allocator,
                 rocketcss_parser::ParserOptions {
                     error_recovery: true,
@@ -34,7 +32,7 @@ fn rocketcss(bencher: Bencher<'_, '_>) {
             )
             .unwrap();
             rocketcss_minify::minify(&mut stylesheet, rocketcss_minify::MinifyOptions::default());
-            let mut output = String::with_capacity(BOOTSTRAP.len() + WRITER_CAPACITY_PADDING);
+            let mut output = String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
             stylesheet
                 .to_css(&mut Printer::new(
                     &mut output,
@@ -45,15 +43,15 @@ fn rocketcss(bencher: Bencher<'_, '_>) {
         });
 }
 
-#[divan::bench]
-fn lightningcss(bencher: Bencher<'_, '_>) {
+#[divan::bench(args = BENCH_CASES)]
+fn lightningcss(bencher: Bencher<'_, '_>, case: BenchCase) {
     use lightningcss::stylesheet::{MinifyOptions, ParserOptions, PrinterOptions, StyleSheet};
 
     bencher
-        .counter(BytesCount::of_str(BOOTSTRAP))
+        .counter(BytesCount::of_str(case.source))
         .bench_local(|| {
             let mut stylesheet =
-                StyleSheet::parse(black_box(BOOTSTRAP), ParserOptions::default()).unwrap();
+                StyleSheet::parse(black_box(case.source), ParserOptions::default()).unwrap();
             stylesheet.minify(MinifyOptions::default()).unwrap();
             let output = stylesheet
                 .to_css(PrinterOptions {
@@ -74,9 +72,9 @@ struct CssnanoWorker {
 impl CssnanoWorker {
     /// Returns the directory that holds the cssnano checkout, if it is available.
     ///
-    /// The cssnano comparison relies on an external Node.js checkout of cssnano,
-    /// which is not present in every environment (for example CI). When it is
-    /// missing, the benchmark is skipped instead of failing the whole run.
+    /// The cssnano comparison relies on an external Node.js checkout of cssnano.
+    /// When it is missing, the benchmark is skipped instead of failing the whole
+    /// run.
     fn cssnano_dir() -> Option<PathBuf> {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let cssnano_dir = std::env::var_os("CSSNANO_DIR")
@@ -88,14 +86,14 @@ impl CssnanoWorker {
             .then_some(cssnano_dir)
     }
 
-    fn spawn() -> Option<Self> {
+    fn spawn(case: BenchCase) -> Option<Self> {
         Self::cssnano_dir()?;
 
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let node = std::env::var_os("NODE").unwrap_or_else(|| OsString::from("node"));
         let mut child = Command::new(node)
             .arg(manifest_dir.join("scripts/cssnano-worker.mjs"))
-            .arg(manifest_dir.join("files/bootstrap.css"))
+            .arg(manifest_dir.join("files").join(case.file_name))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -151,18 +149,17 @@ impl Drop for CssnanoWorker {
     }
 }
 
-#[divan::bench]
-fn cssnano(bencher: Bencher<'_, '_>) {
-    let Some(mut cssnano) = CssnanoWorker::spawn() else {
-        // The cssnano checkout is not available (e.g. in CI). Skip the
-        // comparison instead of failing the benchmark run. Set CSSNANO_DIR to a
-        // cssnano checkout to enable it locally.
+#[divan::bench(args = BENCH_CASES)]
+fn cssnano(bencher: Bencher<'_, '_>, case: BenchCase) {
+    let Some(mut cssnano) = CssnanoWorker::spawn(case) else {
+        // Skip the comparison instead of failing the benchmark run when the
+        // cssnano checkout is unavailable. Set CSSNANO_DIR to enable it locally.
         eprintln!(
             "skipping cssnano benchmark: cssnano checkout not found (set CSSNANO_DIR to enable)"
         );
         return;
     };
     bencher
-        .counter(BytesCount::of_str(BOOTSTRAP))
+        .counter(BytesCount::of_str(case.source))
         .bench_local(|| black_box(cssnano.run(1)));
 }

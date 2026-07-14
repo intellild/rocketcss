@@ -5,7 +5,9 @@ use std::fmt;
 #[derive(Clone, Copy)]
 pub struct BenchCase {
     pub name: &'static str,
+    pub file_name: &'static str,
     pub source: &'static str,
+    pub pipeline_iterations: usize,
 }
 
 pub const WRITER_CAPACITY_PADDING: usize = 1024;
@@ -19,10 +21,14 @@ impl fmt::Display for BenchCase {
 pub const BENCH_CASES: &[BenchCase] = &[
     BenchCase {
         name: "bootstrap",
+        file_name: "bootstrap.css",
         source: include_str!("../files/bootstrap.css"),
+        pipeline_iterations: 10,
     },
     BenchCase {
-        name: "bootstrap.min",
-        source: include_str!("../files/bootstrap.min.css"),
+        name: "tailwind",
+        file_name: "tailwind.css",
+        source: include_str!("../files/tailwind.css"),
+        pipeline_iterations: 1,
     },
 ];
