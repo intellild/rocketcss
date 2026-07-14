@@ -10,6 +10,7 @@ struct Recorder {
     colors: usize,
 }
 
+#[visitor]
 impl<'a> Visitor<'a> for Recorder {
     fn enter_node(&mut self, kind: AstType) {
         self.stack.push(kind);
@@ -68,6 +69,7 @@ fn immutable_visitor_walks_the_complete_tree_with_balanced_events() {
 
 struct RenameAndRecolor;
 
+#[visitor]
 impl<'a> VisitorMut<'a> for RenameAndRecolor {
     fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
         if let SelectorComponent::Class(name) = component {

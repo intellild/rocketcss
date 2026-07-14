@@ -7,6 +7,7 @@ struct Rename {
     to: &'static str,
 }
 
+#[visitor]
 impl<'a> VisitorMut<'a> for Rename {
     fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
         if let SelectorComponent::Class(name) = component
@@ -16,6 +17,30 @@ impl<'a> VisitorMut<'a> for Rename {
         }
         component.visit_mut_children(self);
     }
+}
+
+#[test]
+fn visitor_macro_records_only_implemented_callbacks() {
+    let visitor = Rename {
+        from: "before",
+        to: "after",
+    };
+    let methods = visitor.visitor_methods();
+
+    assert!(methods.contains(VisitorMethods::VISIT_SELECTOR_COMPONENT));
+    assert!(!methods.contains(VisitorMethods::VISIT_STYLE_SHEET));
+}
+
+struct LegacyVisitor;
+
+impl<'a> VisitorMut<'a> for LegacyVisitor {}
+
+#[test]
+fn visitor_without_macro_preserves_all_callbacks() {
+    let methods = LegacyVisitor.visitor_methods();
+
+    assert!(methods.contains(VisitorMethods::VISIT_STYLE_SHEET));
+    assert!(methods.contains(VisitorMethods::VISIT_SELECTOR_COMPONENT));
 }
 
 struct RecordPlugin(&'static str);

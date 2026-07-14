@@ -2,12 +2,13 @@ use rocketcss_allocator::Allocator;
 use rocketcss_ast::SelectorComponent;
 use rocketcss_codegen::{PrinterOptions, ToCss};
 use rocketcss_parser::{ParserOptions, parse};
-use rocketcss_visitor::{PluginContext, Plugins, VisitMut, VisitorMut};
+use rocketcss_visitor::{PluginContext, Plugins, VisitMut, VisitorMut, visitor};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 
 struct RenameClass;
 
+#[visitor]
 impl<'a> VisitorMut<'a> for RenameClass {
     fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
         if let SelectorComponent::Class(name) = component

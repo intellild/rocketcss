@@ -11,6 +11,7 @@ version               = "0.1.0"
 [dependencies]
 rocketcss_allocator = { workspace = true }
 rocketcss_ast       = { workspace = true }
+rocketcss_macros    = { workspace = true }
 
 [dev-dependencies]
 rocketcss_parser = { workspace = true }

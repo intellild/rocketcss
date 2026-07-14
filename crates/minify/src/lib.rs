@@ -11,7 +11,7 @@ mod values;
 pub mod prelude;
 
 use rocketcss_ast::{match_ignore_ascii_case, *};
-use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut};
+use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut, visitor};
 
 pub use context::{MinifyContext, MinifyStats};
 pub use options::{MinifyOptions, Options, OptionsOp};
@@ -70,6 +70,7 @@ struct Minifier<'cx> {
     cx: &'cx mut MinifyContext,
 }
 
+#[visitor]
 impl<'a> VisitorMut<'a> for Minifier<'_> {
     fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
         node.visit_mut_children(self);
