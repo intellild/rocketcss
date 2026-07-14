@@ -89,7 +89,7 @@ impl CssnanoWorker {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let node = std::env::var_os("NODE").unwrap_or_else(|| OsString::from("node"));
         let mut child = Command::new(node)
-            .arg(manifest_dir.join("scripts/cssnano-worker.cjs"))
+            .arg(manifest_dir.join("scripts/cssnano-worker.mjs"))
             .arg(manifest_dir.join("files/bootstrap.css"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
