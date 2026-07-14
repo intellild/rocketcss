@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AlignContent {
     Normal,
     BaselinePosition(BaselinePosition),
@@ -11,13 +11,13 @@ pub enum AlignContent {
     },
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BaselinePosition {
     First,
     Last,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum ContentDistribution {
     SpaceBetween,
     SpaceAround,
@@ -25,13 +25,13 @@ pub enum ContentDistribution {
     Stretch,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum OverflowPosition {
     Safe,
     Unsafe,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum ContentPosition {
     Center,
     Start,
@@ -40,7 +40,7 @@ pub enum ContentPosition {
     FlexEnd,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum JustifyContent {
     Normal,
     ContentDistribution(ContentDistribution),
@@ -56,7 +56,7 @@ pub enum JustifyContent {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AlignSelf {
     Auto,
     Normal,
@@ -68,7 +68,7 @@ pub enum AlignSelf {
     },
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum SelfPosition {
     Center,
     Start,
@@ -79,7 +79,7 @@ pub enum SelfPosition {
     FlexEnd,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum JustifySelf {
     Auto,
     Normal,
@@ -97,7 +97,7 @@ pub enum JustifySelf {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AlignItems {
     Normal,
     Stretch,
@@ -108,7 +108,7 @@ pub enum AlignItems {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum JustifyItems {
     Normal,
     Stretch,
@@ -126,14 +126,14 @@ pub enum JustifyItems {
     Legacy(LegacyJustify),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum LegacyJustify {
     Left,
     Right,
     Center,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum GapValue<'a> {
     Normal,
     LengthPercentage(Box<'a, LengthPercentage<'a>>),

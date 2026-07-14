@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum ContainerType {
     Normal,
     InlineSize,
@@ -8,7 +8,7 @@ pub enum ContainerType {
     ScrollState,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum ContainerNameList<'a> {
     None,
     Names(Vec<'a, &'a str>),

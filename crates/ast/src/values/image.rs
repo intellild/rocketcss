@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Image<'a> {
     None,
     Url(Box<'a, Url<'a>>),
@@ -8,7 +8,7 @@ pub enum Image<'a> {
     ImageSet(Box<'a, ImageSet<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Gradient<'a> {
     Linear {
         direction: Box<'a, LineDirection<'a>>,
@@ -45,7 +45,7 @@ pub enum Gradient<'a> {
     WebKitGradient(Box<'a, WebKitGradient<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum WebKitGradient<'a> {
     Linear {
         from: Box<'a, WebKitGradientPoint<'a>>,
@@ -61,7 +61,7 @@ pub enum WebKitGradient<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum LineDirection<'a> {
     Angle(Box<'a, Angle>),
     Horizontal(HorizontalPositionKeyword),
@@ -72,19 +72,19 @@ pub enum LineDirection<'a> {
     },
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum HorizontalPositionKeyword {
     Left,
     Right,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum VerticalPositionKeyword {
     Top,
     Bottom,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum GradientItem<'a, D> {
     ColorStop {
         color: Box<'a, CssColor<'a>>,
@@ -93,7 +93,7 @@ pub enum GradientItem<'a, D> {
     Hint(Box<'a, DimensionPercentage<'a, D>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum DimensionPercentage<'a, D> {
     Dimension(Box<'a, D>),
     Percentage(f32),
@@ -105,7 +105,7 @@ pub enum DimensionPercentage<'a, D> {
 pub type LengthPercentage<'a> = DimensionPercentage<'a, LengthValue>;
 pub type AnglePercentage<'a> = DimensionPercentage<'a, Angle>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum PositionComponent<'a, S> {
     Center,
     Length(Box<'a, LengthPercentage<'a>>),
@@ -115,13 +115,13 @@ pub enum PositionComponent<'a, S> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum EndingShape<'a> {
     Ellipse(Box<'a, Ellipse<'a>>),
     Circle(Box<'a, Circle<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Ellipse<'a> {
     Size {
         x: Box<'a, LengthPercentage<'a>>,
@@ -130,7 +130,7 @@ pub enum Ellipse<'a> {
     Extent(ShapeExtent),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum ShapeExtent {
     ClosestSide,
     FarthestSide,
@@ -138,26 +138,26 @@ pub enum ShapeExtent {
     FarthestCorner,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Circle<'a> {
     Radius(Box<'a, Length<'a>>),
     Extent(ShapeExtent),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum WebKitGradientPointComponent<'a, S> {
     Center,
     Number(Box<'a, NumberOrPercentage>),
     Side(S),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum NumberOrPercentage {
     Number(f32),
     Percentage(f32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum BackgroundSize<'a> {
     Explicit {
         height: Box<'a, LengthPercentageOrAuto<'a>>,
@@ -167,13 +167,13 @@ pub enum BackgroundSize<'a> {
     Contain,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum LengthPercentageOrAuto<'a> {
     Auto,
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BackgroundRepeatKeyword {
     Repeat,
     Space,
@@ -181,14 +181,14 @@ pub enum BackgroundRepeatKeyword {
     NoRepeat,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BackgroundAttachment {
     Scroll,
     Fixed,
     Local,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BackgroundClip {
     BorderBox,
     PaddingBox,
@@ -197,7 +197,7 @@ pub enum BackgroundClip {
     Text,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BackgroundOrigin {
     BorderBox,
     PaddingBox,

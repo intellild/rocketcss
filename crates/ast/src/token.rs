@@ -2,7 +2,7 @@ use super::*;
 
 use rocketcss_allocator::boxed::Box;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum TokenOrValue<'a> {
     Token(Box<'a, Token<'a>>),
     Color(Box<'a, CssColor<'a>>),
@@ -19,7 +19,7 @@ pub enum TokenOrValue<'a> {
     AnimationName(Box<'a, AnimationName<'a>>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Visit)]
 pub enum Unit {
     Length(LengthUnit),
     Deg,
@@ -50,7 +50,7 @@ impl Unit {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Visit)]
 pub enum Token<'a> {
     Ident(&'a str),
     AtKeyword(&'a str),
@@ -96,28 +96,28 @@ pub enum Token<'a> {
     CloseCurlyBracket,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Specifier<'a> {
     Global,
     File(&'a str),
     SourceIndex(u32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AnimationName<'a> {
     None,
     Ident(&'a str),
     String(&'a str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum EnvironmentVariableName<'a> {
     UA(UAEnvironmentVariable),
     Custom(Box<'a, DashedIdentReference<'a>>),
     Unknown(&'a str),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum UAEnvironmentVariable {
     SafeAreaInsetTop,
     SafeAreaInsetRight,

@@ -2,7 +2,7 @@ use super::*;
 
 use rocketcss_allocator::{boxed::Box, vec::Vec};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum MediaCondition<'a> {
     Feature(Box<'a, MediaFeature<'a>>),
     Not(Box<'a, MediaCondition<'a>>),
@@ -13,7 +13,7 @@ pub enum MediaCondition<'a> {
     Unknown(Vec<'a, TokenOrValue<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum QueryFeature<'a, FeatureId> {
     Plain {
         name: MediaFeatureName<'a, FeatureId>,
@@ -36,7 +36,7 @@ pub enum QueryFeature<'a, FeatureId> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum MediaFeatureName<'a, FeatureId> {
     Standard(FeatureId),
     Custom(&'a str),
@@ -45,7 +45,7 @@ pub enum MediaFeatureName<'a, FeatureId> {
 
 pub type MediaFeature<'a> = QueryFeature<'a, MediaFeatureId>;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum MediaFeatureId {
     Width,
     Height,
@@ -90,7 +90,7 @@ pub enum MediaFeatureId {
     MozDevicePixelRatio,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum MediaFeatureValue<'a> {
     Length(Length<'a>),
     Number(f32),
@@ -102,7 +102,7 @@ pub enum MediaFeatureValue<'a> {
     Env(Box<'a, EnvironmentVariable<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum MediaFeatureComparison {
     Equal,
     GreaterThan,
@@ -111,13 +111,13 @@ pub enum MediaFeatureComparison {
     LessThanEqual,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum Operator {
     And,
     Or,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum MediaType<'a> {
     All,
     Print,
@@ -125,13 +125,13 @@ pub enum MediaType<'a> {
     Custom(&'a str),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum Qualifier {
     Only,
     Not,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum SupportsCondition<'a> {
     Not(Box<'a, SupportsCondition<'a>>),
     And(Vec<'a, SupportsCondition<'a>>),

@@ -1,8 +1,9 @@
+use crate::Visit;
 use rocketcss_allocator::boxed::Box;
 
 pub const DUMMY_SP: Span = Span { start: 0, end: 0 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Visit)]
 pub struct Span {
     pub start: u32,
     pub end: u32,

@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Transform<'a> {
     Translate((Box<'a, LengthPercentage<'a>>, Box<'a, LengthPercentage<'a>>)),
     TranslateX(Box<'a, LengthPercentage<'a>>),
@@ -37,13 +37,13 @@ pub enum Transform<'a> {
     Matrix3d(Box<'a, Matrix3DForFloat>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum TransformStyle {
     Flat,
     Preserve3d,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum TransformBox {
     ContentBox,
     BorderBox,
@@ -52,19 +52,19 @@ pub enum TransformBox {
     ViewBox,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BackfaceVisibility {
     Visible,
     Hidden,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Perspective<'a> {
     None,
     Length(Box<'a, Length<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Translate<'a> {
     None,
     Xyz {
@@ -74,7 +74,7 @@ pub enum Translate<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Scale<'a> {
     None,
     Xyz {

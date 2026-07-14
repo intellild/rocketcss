@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderRadius<'a> {
     pub bottom_left: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
     pub bottom_right: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
@@ -8,19 +8,19 @@ pub struct BorderRadius<'a> {
     pub top_right: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderImageRepeat {
     pub horizontal: BorderImageRepeatKeyword,
     pub vertical: BorderImageRepeatKeyword,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderImageSlice<'a> {
     pub fill: bool,
     pub offsets: Box<'a, Rect<'a, NumberOrPercentage>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderImage<'a> {
     pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
     pub repeat: Box<'a, BorderImageRepeat>,
@@ -29,7 +29,7 @@ pub struct BorderImage<'a> {
     pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderColor<'a> {
     pub bottom: Box<'a, CssColor<'a>>,
     pub left: Box<'a, CssColor<'a>>,
@@ -37,7 +37,7 @@ pub struct BorderColor<'a> {
     pub top: Box<'a, CssColor<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderStyle {
     pub bottom: LineStyle,
     pub left: LineStyle,
@@ -45,7 +45,7 @@ pub struct BorderStyle {
     pub top: LineStyle,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderWidth<'a> {
     pub bottom: Box<'a, BorderSideWidth<'a>>,
     pub left: Box<'a, BorderSideWidth<'a>>,
@@ -53,43 +53,43 @@ pub struct BorderWidth<'a> {
     pub top: Box<'a, BorderSideWidth<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderBlockColor<'a> {
     pub end: Box<'a, CssColor<'a>>,
     pub start: Box<'a, CssColor<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderBlockStyle {
     pub end: LineStyle,
     pub start: LineStyle,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderBlockWidth<'a> {
     pub end: Box<'a, BorderSideWidth<'a>>,
     pub start: Box<'a, BorderSideWidth<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderInlineColor<'a> {
     pub end: Box<'a, CssColor<'a>>,
     pub start: Box<'a, CssColor<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderInlineStyle {
     pub end: LineStyle,
     pub start: LineStyle,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct BorderInlineWidth<'a> {
     pub end: Box<'a, BorderSideWidth<'a>>,
     pub start: Box<'a, BorderSideWidth<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct GenericBorder<'a, S> {
     pub color: Box<'a, CssColor<'a>>,
     pub style: S,

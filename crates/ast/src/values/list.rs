@@ -1,13 +1,13 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum ListStyleType<'a> {
     None,
     String(&'a str),
     CounterStyle(Box<'a, CounterStyle<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum CounterStyle<'a> {
     Predefined(PredefinedCounterStyle),
     Name(&'a str),
@@ -17,7 +17,7 @@ pub enum CounterStyle<'a> {
     },
 }
 
-#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Visit)]
 pub enum SymbolsType {
     Cyclic,
     Numeric,
@@ -27,7 +27,7 @@ pub enum SymbolsType {
     Fixed,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum PredefinedCounterStyle {
     Decimal,
     DecimalLeadingZero,
@@ -85,19 +85,19 @@ pub enum PredefinedCounterStyle {
     EthiopicNumeric,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Symbol<'a> {
     String(&'a str),
     Image(Box<'a, Image<'a>>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum ListStylePosition {
     Inside,
     Outside,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum MarkerSide {
     MatchSelf,
     MatchParent,

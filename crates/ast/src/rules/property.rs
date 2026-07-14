@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum ParsedComponent<'a> {
     Length(Box<'a, Length<'a>>),
     Number(f32),
@@ -25,20 +25,20 @@ pub enum ParsedComponent<'a> {
     TokenList(Vec<'a, TokenOrValue<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Multiplier {
     None,
     Space,
     Comma,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum SyntaxString<'a> {
     Components(Vec<'a, SyntaxComponent<'a>>),
     Universal,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum SyntaxComponentKind<'a> {
     Length,
     Number,
@@ -58,19 +58,19 @@ pub enum SyntaxComponentKind<'a> {
     Literal(&'a str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct UnparsedProperty<'a> {
     pub property_id: Box<'a, PropertyId<'a>>,
     pub value: Vec<'a, TokenOrValue<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct CustomProperty<'a> {
     pub name: Box<'a, CustomPropertyName<'a>>,
     pub value: Vec<'a, TokenOrValue<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct PropertyRule<'a> {
     pub inherits: bool,
     pub initial_value: Option<Box<'a, ParsedComponent<'a>>>,
@@ -79,7 +79,7 @@ pub struct PropertyRule<'a> {
     pub syntax: Box<'a, SyntaxString<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct SyntaxComponent<'a> {
     pub kind: Box<'a, SyntaxComponentKind<'a>>,
     pub multiplier: Multiplier,

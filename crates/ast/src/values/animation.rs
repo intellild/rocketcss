@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum EasingFunction {
     Linear,
     Ease,
@@ -11,7 +11,7 @@ pub enum EasingFunction {
     Steps { count: i32, position: StepPosition },
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum StepPosition {
     Start,
     End,
@@ -19,13 +19,13 @@ pub enum StepPosition {
     JumpBoth,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AnimationIterationCount {
     Number(f32),
     Infinite,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum AnimationDirection {
     Normal,
     Reverse,
@@ -33,13 +33,13 @@ pub enum AnimationDirection {
     AlternateReverse,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum AnimationPlayState {
     Running,
     Paused,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum AnimationFillMode {
     None,
     Forwards,
@@ -47,14 +47,14 @@ pub enum AnimationFillMode {
     Both,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum AnimationComposition {
     Replace,
     Add,
     Accumulate,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AnimationTimeline<'a> {
     Auto,
     None,
@@ -63,7 +63,7 @@ pub enum AnimationTimeline<'a> {
     View(Box<'a, ViewTimeline<'a>>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum ScrollAxis {
     Block,
     Inline,
@@ -71,7 +71,7 @@ pub enum ScrollAxis {
     Y,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum Scroller {
     Root,
     Nearest,
@@ -80,7 +80,7 @@ pub enum Scroller {
 
 pub type AnimationRangeStart<'a> = AnimationAttachmentRange<'a>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum AnimationAttachmentRange<'a> {
     Normal,
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
@@ -90,7 +90,7 @@ pub enum AnimationAttachmentRange<'a> {
     },
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum TimelineRangeName {
     Cover,
     Contain,

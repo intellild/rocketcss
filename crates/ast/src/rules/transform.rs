@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct MatrixForFloat {
     pub a: f32,
     pub b: f32,
@@ -10,7 +10,7 @@ pub struct MatrixForFloat {
     pub f: f32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Matrix3DForFloat {
     pub m11: f32,
     pub m12: f32,
@@ -30,7 +30,7 @@ pub struct Matrix3DForFloat {
     pub m44: f32,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Rotate<'a> {
     pub angle: Box<'a, Angle>,
     pub x: f32,

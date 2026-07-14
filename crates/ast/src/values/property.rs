@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum CSSWideKeyword {
     Initial,
     Inherit,
@@ -9,7 +9,7 @@ pub enum CSSWideKeyword {
     RevertLayer,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum CustomPropertyName<'a> {
     Custom(&'a str),
     Unknown(&'a str),

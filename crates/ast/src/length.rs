@@ -2,13 +2,13 @@ use super::*;
 
 use rocketcss_allocator::{boxed::Box, vec::Vec};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Length<'a> {
     Value(Box<'a, LengthValue>),
     Calc(Box<'a, Calc<'a, Length<'a>>>),
 }
 
-#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Visit)]
 pub enum LengthUnit {
     Px,
     In,
@@ -61,7 +61,7 @@ pub enum LengthUnit {
     Cqmax,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Calc<'a, V> {
     Value(Box<'a, V>),
     Number(f32),
@@ -70,7 +70,7 @@ pub enum Calc<'a, V> {
     Function(Box<'a, MathFunction<'a, V>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 #[allow(clippy::type_complexity)]
 pub enum MathFunction<'a, V> {
     Calc(Box<'a, Calc<'a, V>>),
@@ -91,7 +91,7 @@ pub enum MathFunction<'a, V> {
     Hypot(Vec<'a, Calc<'a, V>>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum RoundingStrategy {
     Nearest,
     Up,
@@ -99,17 +99,17 @@ pub enum RoundingStrategy {
     ToZero,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Resolution {
     Dpi(f32),
     Dpcm(f32),
     Dppx(f32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Ratio(pub f32, pub f32);
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Angle {
     Deg(f32),
     Rad(f32),
@@ -117,7 +117,7 @@ pub enum Angle {
     Turn(f32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum Time {
     Seconds(f32),
     Milliseconds(f32),

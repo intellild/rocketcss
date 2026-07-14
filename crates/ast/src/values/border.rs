@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum LineStyle {
     None,
     Hidden,
@@ -14,7 +14,7 @@ pub enum LineStyle {
     Double,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum BorderSideWidth<'a> {
     Thin,
     Medium,
@@ -22,13 +22,13 @@ pub enum BorderSideWidth<'a> {
     Length(Box<'a, Length<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum LengthOrNumber<'a> {
     Number(f32),
     Length(Box<'a, Length<'a>>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BorderImageRepeatKeyword {
     Stretch,
     Repeat,
@@ -36,14 +36,14 @@ pub enum BorderImageRepeatKeyword {
     Space,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum BorderImageSideWidth<'a> {
     Number(f32),
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
     Auto,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum OutlineStyle {
     Auto,
     LineStyle(LineStyle),

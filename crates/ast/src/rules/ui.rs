@@ -1,38 +1,38 @@
 use crate::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Cursor<'a> {
     pub images: Vec<'a, CursorImage<'a>>,
     pub keyword: CursorKeyword,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct CursorImage<'a> {
     pub hotspot: Option<(f32, f32)>,
     pub url: Box<'a, Url<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Caret<'a> {
     pub color: Box<'a, ColorOrAuto<'a>>,
     pub shape: CaretShape,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct ListStyle<'a> {
     pub image: Box<'a, Image<'a>>,
     pub list_style_type: Box<'a, ListStyleType<'a>>,
     pub position: ListStylePosition,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct Composes<'a> {
     pub from: Option<Box<'a, Specifier<'a>>>,
     pub span: Span,
     pub names: Vec<'a, &'a str>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub struct ColorScheme {
     pub dark: bool,
     pub light: bool,

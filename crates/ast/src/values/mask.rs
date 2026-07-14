@@ -1,19 +1,19 @@
 use crate::*;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum MaskMode {
     Luminance,
     Alpha,
     MatchSource,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum MaskClip {
     GeometryBox(GeometryBox),
     NoClip,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum MaskComposite {
     Add,
     Subtract,
@@ -21,19 +21,19 @@ pub enum MaskComposite {
     Exclude,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum MaskType {
     Luminance,
     Alpha,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum MaskBorderMode {
     Luminance,
     Alpha,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum WebKitMaskComposite {
     Clear,
     Copy,
@@ -48,7 +48,7 @@ pub enum WebKitMaskComposite {
     Xor,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum WebKitMaskSourceType {
     Auto,
     Luminance,

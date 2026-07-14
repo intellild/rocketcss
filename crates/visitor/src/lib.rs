@@ -5,13 +5,8 @@
 //! [`VisitorMut`]. Traversal is unconditional: no node-type bitflags or branch
 //! masks are used.
 
-mod generated;
 mod plugin;
 pub mod prelude;
 
-pub use generated::{
-    kind::AstType,
-    visit::{Visit, Visitor},
-    visit_mut::{VisitMut, VisitorMut},
-};
 pub use plugin::{BoxError, Plugin, PluginContext, PluginError, Plugins, VisitorPlugin};
+pub use rocketcss_ast::{AstType, Visit, VisitMut, Visitor, VisitorMut};

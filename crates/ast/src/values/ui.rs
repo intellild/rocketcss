@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum Resize {
     None,
     Both,
@@ -10,7 +10,7 @@ pub enum Resize {
     Inline,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum CursorKeyword {
     Auto,
     Default,
@@ -50,13 +50,13 @@ pub enum CursorKeyword {
     ZoomOut,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Visit)]
 pub enum ColorOrAuto<'a> {
     Auto,
     Color(Box<'a, CssColor<'a>>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum CaretShape {
     Auto,
     Bar,
@@ -64,7 +64,7 @@ pub enum CaretShape {
     Underscore,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum UserSelect {
     Auto,
     Text,
@@ -73,7 +73,7 @@ pub enum UserSelect {
     All,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum Appearance<'a> {
     None,
     Auto,
@@ -94,7 +94,7 @@ pub enum Appearance<'a> {
     NonStandard(&'a str),
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum PrintColorAdjust {
     Economy,
     Exact,

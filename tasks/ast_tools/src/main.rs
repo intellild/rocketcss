@@ -9,8 +9,8 @@ use convert_case::{Case, Casing};
 use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
-    Fields, GenericArgument, GenericParam, Generics, Item, ItemEnum, ItemStruct, LitStr,
-    PathArguments, Token, Type, Visibility, parenthesized, parse::Parse,
+    Attribute, GenericArgument, GenericParam, Generics, Item, LitStr, Path as SynPath,
+    PathArguments, Token, Type, Visibility, punctuated::Punctuated,
 };
 
 const AST_FILES: &[&str] = &[
@@ -27,17 +27,10 @@ const AST_FILES: &[&str] = &[
 ];
 
 #[derive(Clone)]
-enum NodeData {
-    Struct(ItemStruct),
-    Enum(ItemEnum),
-}
-
-#[derive(Clone)]
 struct Node {
-    module: Ident,
     ident: Ident,
     generics: Generics,
-    data: NodeData,
+    pinned: bool,
 }
 
 #[derive(Clone)]
@@ -45,39 +38,6 @@ struct Alias {
     ident: Ident,
     generics: Generics,
     ty: Type,
-}
-
-struct Property {
-    ident: Ident,
-    vendor_prefix: Option<Type>,
-}
-
-struct PropertyList(Vec<Property>);
-
-impl Parse for PropertyList {
-    fn parse(input: syn::parse::ParseStream<'_>) -> syn::Result<Self> {
-        let mut properties = Vec::new();
-        while !input.is_empty() {
-            let _: LitStr = input.parse()?;
-            let _: Token![:] = input.parse()?;
-            let ident = input.parse()?;
-            let content;
-            parenthesized!(content in input);
-            let _: Type = content.parse()?;
-            let vendor_prefix = if content.is_empty() {
-                None
-            } else {
-                let _: Token![,] = content.parse()?;
-                Some(content.parse()?)
-            };
-            let _: Token![,] = input.parse()?;
-            properties.push(Property {
-                ident,
-                vendor_prefix,
-            });
-        }
-        Ok(Self(properties))
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -173,43 +133,38 @@ impl Mode {
 fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let ast_src = root.join("crates/ast/src");
-    let visitor_src = root.join("crates/visitor/src/generated");
+    let visitor_src = ast_src.join("generated");
+    let macro_aliases = root.join("crates/macros/src/generated_visit_aliases.rs");
 
     let mut nodes = Vec::new();
     let mut aliases = Vec::new();
-    let mut properties = None;
     for name in AST_FILES {
-        let module = format_ident!("{name}");
         for path in ast_module_files(&ast_src, name) {
             let source = fs::read_to_string(&path).unwrap();
             let file = syn::parse_file(&source).unwrap();
             for item in file.items {
                 match item {
-                    Item::Struct(item) if is_public(&item.vis) => nodes.push(Node {
-                        module: module.clone(),
-                        ident: item.ident.clone(),
-                        generics: item.generics.clone(),
-                        data: NodeData::Struct(item),
-                    }),
-                    Item::Enum(item) if is_public(&item.vis) => nodes.push(Node {
-                        module: module.clone(),
-                        ident: item.ident.clone(),
-                        generics: item.generics.clone(),
-                        data: NodeData::Enum(item),
-                    }),
+                    Item::Struct(item) if is_public(&item.vis) => {
+                        assert_derives_visit(&item.attrs, &item.ident, &path);
+                        nodes.push(Node {
+                            ident: item.ident,
+                            generics: item.generics,
+                            pinned: has_visit_option(&item.attrs, "pinned"),
+                        });
+                    }
+                    Item::Enum(item) if is_public(&item.vis) => {
+                        assert_derives_visit(&item.attrs, &item.ident, &path);
+                        nodes.push(Node {
+                            ident: item.ident,
+                            generics: item.generics,
+                            pinned: false,
+                        });
+                    }
                     Item::Type(item) if is_public(&item.vis) => aliases.push(Alias {
                         ident: item.ident.clone(),
                         generics: item.generics.clone(),
                         ty: *item.ty,
                     }),
-                    Item::Macro(item)
-                        if item
-                            .ident
-                            .as_ref()
-                            .is_some_and(|ident| ident == "for_each_property") =>
-                    {
-                        properties = find_property_list(item.mac.tokens);
-                    }
                     _ => {}
                 }
             }
@@ -226,7 +181,6 @@ fn main() {
         .iter()
         .map(|alias| alias.ident.to_string())
         .collect::<HashSet<_>>();
-    let properties = properties.expect("could not find for_each_property! property definitions");
 
     fs::create_dir_all(&visitor_src).unwrap();
     write_rust(
@@ -234,25 +188,20 @@ fn main() {
         generate_kind(&nodes, &aliases),
     );
     for mode in [Mode::Read, Mode::Mut] {
-        let mode_dir = visitor_src.join(mode.module_name());
-        fs::create_dir_all(&mode_dir).unwrap();
-        for module in AST_FILES {
-            let module_ident = format_ident!("{module}");
-            let module_nodes = nodes
-                .iter()
-                .filter(|node| node.module == module_ident)
-                .cloned()
-                .collect::<Vec<_>>();
-            write_rust(
-                &mode_dir.join(format!("{module}.rs")),
-                generate_node_module(mode, &module_nodes, &known, &aliases_set),
-            );
-        }
         write_rust(
             &visitor_src.join(format!("{}.rs", mode.module_name())),
-            generate_visitor(mode, &nodes, &aliases, &properties, &known, &aliases_set),
+            generate_visitor(mode, &nodes, &aliases, &known, &aliases_set),
         );
     }
+    write_rust(
+        &visitor_src.join("mod.rs"),
+        quote! {
+            pub mod kind;
+            pub mod visit;
+            pub mod visit_mut;
+        },
+    );
+    write_rust(&macro_aliases, generate_visit_aliases(&aliases));
 }
 
 fn ast_module_files(ast_src: &Path, name: &str) -> Vec<PathBuf> {
@@ -271,24 +220,47 @@ fn ast_module_files(ast_src: &Path, name: &str) -> Vec<PathBuf> {
     files
 }
 
-fn find_property_list(tokens: TokenStream) -> Option<Vec<Property>> {
-    for token in tokens {
-        if let proc_macro2::TokenTree::Group(group) = token {
-            if let Ok(properties) = syn::parse2::<PropertyList>(group.stream())
-                && properties.0.len() > 100
-            {
-                return Some(properties.0);
-            }
-            if let Some(properties) = find_property_list(group.stream()) {
-                return Some(properties);
-            }
-        }
-    }
-    None
-}
-
 fn is_public(vis: &Visibility) -> bool {
     matches!(vis, Visibility::Public(_))
+}
+
+fn assert_derives_visit(attributes: &[Attribute], ident: &Ident, path: &Path) {
+    let derives_visit = attributes
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("derive"))
+        .filter_map(|attribute| {
+            attribute
+                .parse_args_with(Punctuated::<SynPath, Token![,]>::parse_terminated)
+                .ok()
+        })
+        .flatten()
+        .any(|derive| {
+            derive
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "Visit")
+        });
+    assert!(
+        derives_visit,
+        "public AST node {ident} in {} must derive Visit",
+        path.display()
+    );
+}
+
+fn has_visit_option(attributes: &[Attribute], expected: &str) -> bool {
+    attributes
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("visit"))
+        .any(|attribute| {
+            let mut found = false;
+            attribute
+                .parse_nested_meta(|meta| {
+                    found |= meta.path.is_ident(expected);
+                    Ok(())
+                })
+                .unwrap();
+            found
+        })
 }
 
 fn write_rust(path: &Path, tokens: TokenStream) {
@@ -321,36 +293,40 @@ fn generate_kind(nodes: &[Node], aliases: &[Alias]) -> TokenStream {
     }
 }
 
+fn generate_visit_aliases(aliases: &[Alias]) -> TokenStream {
+    let aliases = aliases
+        .iter()
+        .map(|alias| LitStr::new(&alias.ident.to_string(), alias.ident.span()));
+    quote! {
+        //! Generated visitor type aliases used by the AST traversal derive.
+
+        pub(crate) const VISIT_ALIASES: &[&str] = &[#(#aliases),*];
+    }
+}
+
 fn generate_visitor(
     mode: Mode,
     nodes: &[Node],
     aliases: &[Alias],
-    properties: &[Property],
     known: &HashSet<String>,
     alias_names: &HashSet<String>,
 ) -> TokenStream {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
-    let pin_import = (matches!(mode, Mode::Mut)
-        && nodes.iter().any(|node| node.ident == "DeclarationBlock"))
-    .then(|| {
-        quote!(
-            use std::pin::Pin;
-        )
-    });
+    let pin_import =
+        (matches!(mode, Mode::Mut) && nodes.iter().any(|node| node.pinned)).then(|| {
+            quote!(
+                use std::pin::Pin;
+            )
+        });
     let reference = mode.reference();
     let visit = mode.visit_method();
     let visit_children = mode.visit_children_method();
-    let modules = AST_FILES
-        .iter()
-        .map(|name| format_ident!("{name}"))
-        .collect::<Vec<_>>();
-
     let methods = nodes.iter().map(|node| {
         let method = visit_method(&node.ident);
         let (method_generics, ty, bounds) =
             signature_parts(&node.ident, &node.generics, &node_trait);
-        if matches!(mode, Mode::Mut) && node.ident == "DeclarationBlock" {
+        if matches!(mode, Mode::Mut) && node.pinned {
             quote! {
                 #[inline]
                 fn #method #method_generics (&mut self, mut node: Pin<&mut #ty>) #bounds {
@@ -409,7 +385,7 @@ fn generate_visitor(
         quote! { fn visit_str(&mut self, _value: &mut &'a str) {} }
     };
     let manual_methods = manual_methods(mode);
-    let manual_impls = manual_impls(mode, properties);
+    let manual_impls = manual_impls(mode);
     let container_impls = container_impls(mode);
 
     quote! {
@@ -417,11 +393,8 @@ fn generate_visitor(
 
         #![allow(clippy::match_same_arms, clippy::needless_borrow, unused_imports, unused_variables)]
 
-        use rocketcss_ast::*;
-        use crate::AstType;
+        use crate::*;
         #pin_import
-
-        #(mod #modules;)*
 
         /// Typed callbacks invoked while traversing CSS AST nodes.
         pub trait #visitor_trait<'a> {
@@ -482,157 +455,27 @@ fn manual_methods(mode: Mode) -> TokenStream {
     }
 }
 
-fn manual_impls(mode: Mode, properties: &[Property]) -> TokenStream {
+fn manual_impls(mode: Mode) -> TokenStream {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
     let visit = mode.visit_method();
     let visit_children = mode.visit_children_method();
-    let declaration_arms = properties
-        .iter()
-        .map(|property| {
-            let ident = &property.ident;
-            if property.vendor_prefix.is_some() {
-                quote!(
-                    Declaration::#ident(value, vendor_prefix) => {
-                        #node_trait::#visit(value, visitor);
-                        #node_trait::#visit(vendor_prefix, visitor);
-                    }
-                )
-            } else {
-                quote!(Declaration::#ident(value) => #node_trait::#visit(value, visitor),)
-            }
-        })
-        .collect::<Vec<_>>();
-    let property_id_arms = properties
-        .iter()
-        .map(|property| {
-            let ident = &property.ident;
-            if property.vendor_prefix.is_some() {
-                quote!(PropertyId::#ident(value) => #node_trait::#visit(value, visitor),)
-            } else {
-                quote!(PropertyId::#ident => {})
-            }
-        })
-        .collect::<Vec<_>>();
-
-    if matches!(mode, Mode::Read) {
-        quote! {
-            impl<'a> #node_trait<'a> for Declaration<'a> {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&self, visitor: &mut VisitorT) {
-                    visitor.visit_declaration(self);
-                }
-
-                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
-                    &self,
-                    visitor: &mut VisitorT,
-                ) {
-                    visitor.enter_node(AstType::Declaration);
-                    match self {
-                        #(#declaration_arms)*
-                        Declaration::All(value) => #node_trait::#visit(value, visitor),
-                        Declaration::Unparsed(value) => #node_trait::#visit(value, visitor),
-                        Declaration::Custom(value) => #node_trait::#visit(value, visitor),
-                    }
-                    visitor.leave_node(AstType::Declaration);
-                }
+    let reference = mode.reference();
+    quote! {
+        impl<'a> #node_trait<'a> for VendorPrefix {
+            fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                #reference self,
+                visitor: &mut VisitorT,
+            ) {
+                visitor.visit_vendor_prefix(self);
             }
 
-            impl<'a> #node_trait<'a> for PropertyId<'a> {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&self, visitor: &mut VisitorT) {
-                    visitor.visit_property_id(self);
-                }
-
-                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
-                    &self,
-                    visitor: &mut VisitorT,
-                ) {
-                    visitor.enter_node(AstType::PropertyId);
-                    match self {
-                        #(#property_id_arms)*
-                        PropertyId::ColumnRule
-                        | PropertyId::Columns
-                        | PropertyId::GridColumnGap
-                        | PropertyId::GridRowGap
-                        | PropertyId::All
-                        | PropertyId::Unparsed => {}
-                        PropertyId::Custom(value) => visitor.visit_str(value),
-                    }
-                    visitor.leave_node(AstType::PropertyId);
-                }
-            }
-
-            impl<'a> #node_trait<'a> for VendorPrefix {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&self, visitor: &mut VisitorT) {
-                    visitor.visit_vendor_prefix(self);
-                }
-
-                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
-                    &self,
-                    visitor: &mut VisitorT,
-                ) {
-                    visitor.enter_node(AstType::VendorPrefix);
-                    visitor.leave_node(AstType::VendorPrefix);
-                }
-            }
-        }
-    } else {
-        quote! {
-            impl<'a> #node_trait<'a> for Declaration<'a> {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&mut self, visitor: &mut VisitorT) {
-                    visitor.visit_declaration(self);
-                }
-
-                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
-                    &mut self,
-                    visitor: &mut VisitorT,
-                ) {
-                    visitor.enter_node(AstType::Declaration);
-                    match self {
-                        #(#declaration_arms)*
-                        Declaration::All(value) => #node_trait::#visit(value, visitor),
-                        Declaration::Unparsed(value) => #node_trait::#visit(value, visitor),
-                        Declaration::Custom(value) => #node_trait::#visit(value, visitor),
-                    }
-                    visitor.leave_node(AstType::Declaration);
-                }
-            }
-
-            impl<'a> #node_trait<'a> for PropertyId<'a> {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&mut self, visitor: &mut VisitorT) {
-                    visitor.visit_property_id(self);
-                }
-
-                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
-                    &mut self,
-                    visitor: &mut VisitorT,
-                ) {
-                    visitor.enter_node(AstType::PropertyId);
-                    match self {
-                        #(#property_id_arms)*
-                        PropertyId::ColumnRule
-                        | PropertyId::Columns
-                        | PropertyId::GridColumnGap
-                        | PropertyId::GridRowGap
-                        | PropertyId::All
-                        | PropertyId::Unparsed => {}
-                        PropertyId::Custom(value) => visitor.visit_str(value),
-                    }
-                    visitor.leave_node(AstType::PropertyId);
-                }
-            }
-
-            impl<'a> #node_trait<'a> for VendorPrefix {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&mut self, visitor: &mut VisitorT) {
-                    visitor.visit_vendor_prefix(self);
-                }
-
-                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
-                    &mut self,
-                    visitor: &mut VisitorT,
-                ) {
-                    visitor.enter_node(AstType::VendorPrefix);
-                    visitor.leave_node(AstType::VendorPrefix);
-                }
+            fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                #reference self,
+                visitor: &mut VisitorT,
+            ) {
+                visitor.enter_node(AstType::VendorPrefix);
+                visitor.leave_node(AstType::VendorPrefix);
             }
         }
     }
@@ -751,208 +594,6 @@ fn container_impls(mode: Mode) -> TokenStream {
                     visitor.visit_str(self);
                 }
             }
-        }
-    }
-}
-
-fn generate_node_module(
-    mode: Mode,
-    nodes: &[Node],
-    known: &HashSet<String>,
-    alias_names: &HashSet<String>,
-) -> TokenStream {
-    let visitor_trait = mode.visitor_trait();
-    let node_trait = mode.node_trait();
-    let visit = mode.visit_method();
-    let visit_children = mode.visit_children_method();
-    let pin_import = (matches!(mode, Mode::Mut)
-        && nodes.iter().any(|node| node.ident == "DeclarationBlock"))
-    .then(|| {
-        quote!(
-            use std::pin::Pin;
-        )
-    });
-    let implementations = nodes.iter().map(|node| {
-        let method = visit_method(&node.ident);
-        let variant = &node.ident;
-        let (impl_generics, ty, bounds) = impl_parts(&node.ident, &node.generics, &node_trait);
-        let body = visit_children_data(mode, node, known, alias_names);
-        let reference = mode.reference();
-        if matches!(mode, Mode::Mut) && node.ident == "DeclarationBlock" {
-            quote! {
-                impl<'a> #node_trait<'a> for Pin<&mut #ty> {
-                    #[inline]
-                    fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
-                        &mut self,
-                        visitor: &mut VisitorT,
-                    ) {
-                        visitor.#method(self.as_mut());
-                    }
-
-                    fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
-                        &mut self,
-                        visitor: &mut VisitorT,
-                    ) {
-                        visitor.enter_node(AstType::#variant);
-                        // SAFETY: traversal only mutates fields and never moves the pinned block.
-                        let node = unsafe { self.as_mut().get_unchecked_mut() };
-                        #body
-                        visitor.leave_node(AstType::#variant);
-                    }
-                }
-            }
-        } else {
-            quote! {
-                impl #impl_generics #node_trait<'a> for #ty #bounds {
-                    #[inline]
-                    fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
-                        #reference self,
-                        visitor: &mut VisitorT,
-                    ) {
-                        visitor.#method(self);
-                    }
-
-                    fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
-                        #reference self,
-                        visitor: &mut VisitorT,
-                    ) {
-                        visitor.enter_node(AstType::#variant);
-                        let node = self;
-                        #body
-                        visitor.leave_node(AstType::#variant);
-                    }
-                }
-            }
-        }
-    });
-    quote! {
-        #![allow(clippy::match_same_arms, clippy::needless_borrow, unused_imports, unused_variables)]
-
-        use super::{#visitor_trait, #node_trait};
-        use crate::AstType;
-        use rocketcss_ast::*;
-        #pin_import
-
-        #(#implementations)*
-    }
-}
-
-fn visit_children_data(
-    mode: Mode,
-    node: &Node,
-    known: &HashSet<String>,
-    aliases: &HashSet<String>,
-) -> TokenStream {
-    let generic_names = type_param_names(&node.generics);
-    let mut counter = 0;
-    match &node.data {
-        NodeData::Struct(item) => visit_children_fields(
-            mode,
-            &item.fields,
-            quote!(node),
-            known,
-            aliases,
-            &generic_names,
-            &mut counter,
-        ),
-        NodeData::Enum(item) => {
-            let ident = &item.ident;
-            let arms = item.variants.iter().map(|variant| {
-                let variant_ident = &variant.ident;
-                match &variant.fields {
-                    Fields::Unit => quote!(#ident::#variant_ident => {}),
-                    Fields::Unnamed(fields) => {
-                        let bindings = fields
-                            .unnamed
-                            .iter()
-                            .enumerate()
-                            .map(|(index, _)| format_ident!("field_{index}"))
-                            .collect::<Vec<_>>();
-                        let visits =
-                            fields
-                                .unnamed
-                                .iter()
-                                .zip(&bindings)
-                                .map(|(field, binding)| {
-                                    visit_type(
-                                        mode,
-                                        &field.ty,
-                                        quote!(#binding),
-                                        known,
-                                        aliases,
-                                        &generic_names,
-                                        &mut counter,
-                                    )
-                                });
-                        quote!(#ident::#variant_ident(#(#bindings),*) => { #(#visits)* })
-                    }
-                    Fields::Named(fields) => {
-                        let bindings = fields
-                            .named
-                            .iter()
-                            .map(|field| field.ident.as_ref().unwrap())
-                            .collect::<Vec<_>>();
-                        let visits = fields.named.iter().zip(&bindings).map(|(field, binding)| {
-                            visit_type(
-                                mode,
-                                &field.ty,
-                                quote!(#binding),
-                                known,
-                                aliases,
-                                &generic_names,
-                                &mut counter,
-                            )
-                        });
-                        quote!(#ident::#variant_ident { #(#bindings),* } => { #(#visits)* })
-                    }
-                }
-            });
-            quote!(match node { #(#arms),* })
-        }
-    }
-}
-
-fn visit_children_fields(
-    mode: Mode,
-    fields: &Fields,
-    base: TokenStream,
-    known: &HashSet<String>,
-    aliases: &HashSet<String>,
-    generics: &HashSet<String>,
-    counter: &mut usize,
-) -> TokenStream {
-    let reference = mode.reference();
-    match fields {
-        Fields::Unit => quote!(),
-        Fields::Named(fields) => {
-            let visits = fields.named.iter().map(|field| {
-                let ident = field.ident.as_ref().unwrap();
-                visit_type(
-                    mode,
-                    &field.ty,
-                    quote!(#reference #base.#ident),
-                    known,
-                    aliases,
-                    generics,
-                    counter,
-                )
-            });
-            quote!(#(#visits)*)
-        }
-        Fields::Unnamed(fields) => {
-            let visits = fields.unnamed.iter().enumerate().map(|(index, field)| {
-                let index = syn::Index::from(index);
-                visit_type(
-                    mode,
-                    &field.ty,
-                    quote!(#reference #base.#index),
-                    known,
-                    aliases,
-                    generics,
-                    counter,
-                )
-            });
-            quote!(#(#visits)*)
         }
     }
 }
@@ -1195,30 +836,6 @@ fn signature_parts(
         quote!(where #(#names: #node_trait<'a>),*)
     };
     (method_generics, ty, bounds)
-}
-
-fn impl_parts(
-    ident: &Ident,
-    generics: &Generics,
-    node_trait: &Ident,
-) -> (TokenStream, TokenStream, TokenStream) {
-    let params = non_lifetime_params(generics);
-    let impl_generics = if params.is_empty() {
-        quote!(<'a>)
-    } else {
-        quote!(<'a, #(#params),*>)
-    };
-    let ty = type_tokens(ident, generics);
-    let names = generics
-        .type_params()
-        .map(|param| &param.ident)
-        .collect::<Vec<_>>();
-    let bounds = if names.is_empty() {
-        quote!()
-    } else {
-        quote!(where #(#names: #node_trait<'a>),*)
-    };
-    (impl_generics, ty, bounds)
 }
 
 #[cfg(test)]

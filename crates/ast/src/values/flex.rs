@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum FlexDirection {
     Row,
     RowReverse,
@@ -8,14 +8,14 @@ pub enum FlexDirection {
     ColumnReverse,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum FlexWrap {
     Nowrap,
     Wrap,
     WrapReverse,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BoxOrient {
     Horizontal,
     Vertical,
@@ -23,13 +23,13 @@ pub enum BoxOrient {
     BlockAxis,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BoxDirection {
     Normal,
     Reverse,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BoxAlign {
     Start,
     End,
@@ -38,7 +38,7 @@ pub enum BoxAlign {
     Stretch,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BoxPack {
     Start,
     End,
@@ -46,13 +46,13 @@ pub enum BoxPack {
     Justify,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BoxLines {
     Single,
     Multiple,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum FlexPack {
     Start,
     End,
@@ -61,7 +61,7 @@ pub enum FlexPack {
     Distribute,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum FlexItemAlign {
     Auto,
     Start,
@@ -71,7 +71,7 @@ pub enum FlexItemAlign {
     Stretch,
 }
 
-#[derive(CssKeyword, Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum FlexLinePack {
     Start,
     End,
