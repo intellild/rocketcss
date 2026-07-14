@@ -81,7 +81,7 @@ pub struct Function<'a> {
 /// The original function name remains on [`Function`] so parsing and code
 /// generation stay lossless. This enum gives downstream passes a shared,
 /// ASCII case-insensitive identity without repeating string matching.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Visit)]
 #[repr(u8)]
 pub enum KnownFunction {
     Abs,

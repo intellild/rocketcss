@@ -164,6 +164,7 @@ pub enum AstType {
     Variable,
     DashedIdentReference,
     Function,
+    KnownFunction,
     FunctionReplacement,
     ImportRule,
     StyleRule,

@@ -683,6 +683,10 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
+    fn visit_known_function(&mut self, node: &mut KnownFunction) {
+        VisitMut::visit_mut_children(node, self);
+    }
+    #[inline]
     fn visit_function_replacement(&mut self, node: &mut FunctionReplacement) {
         VisitMut::visit_mut_children(node, self);
     }
