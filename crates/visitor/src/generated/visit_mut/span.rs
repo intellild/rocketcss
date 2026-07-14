@@ -4,13 +4,17 @@
     unused_imports,
     unused_variables
 )]
-use super::{VisitMut, VisitMutNode};
+use super::{VisitMut, VisitorMut};
 use crate::AstType;
 use rocketcss_ast::*;
-pub fn walk_span<'a, VisitorT>(visitor: &mut VisitorT, node: &mut Span)
-where
-    VisitorT: ?Sized + VisitMut<'a>,
-{
-    visitor.enter_node(AstType::Span);
-    visitor.leave_node(AstType::Span);
+impl<'a> VisitMut<'a> for Span {
+    #[inline]
+    fn visit_mut<VisitorT: ?Sized + VisitorMut<'a>>(&mut self, visitor: &mut VisitorT) {
+        visitor.visit_span(self);
+    }
+    fn visit_mut_children<VisitorT: ?Sized + VisitorMut<'a>>(&mut self, visitor: &mut VisitorT) {
+        visitor.enter_node(AstType::Span);
+        let node = self;
+        visitor.leave_node(AstType::Span);
+    }
 }

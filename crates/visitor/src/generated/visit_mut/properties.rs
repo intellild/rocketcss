@@ -4,33 +4,37 @@
     unused_imports,
     unused_variables
 )]
-use super::{VisitMut, VisitMutNode};
+use super::{VisitMut, VisitorMut};
 use crate::AstType;
 use rocketcss_ast::*;
-pub fn walk_blend_mode<'a, VisitorT>(visitor: &mut VisitorT, node: &mut BlendMode)
-where
-    VisitorT: ?Sized + VisitMut<'a>,
-{
-    visitor.enter_node(AstType::BlendMode);
-    match node {
-        BlendMode::Normal => {}
-        BlendMode::Multiply => {}
-        BlendMode::Screen => {}
-        BlendMode::Overlay => {}
-        BlendMode::Darken => {}
-        BlendMode::Lighten => {}
-        BlendMode::ColorDodge => {}
-        BlendMode::ColorBurn => {}
-        BlendMode::HardLight => {}
-        BlendMode::SoftLight => {}
-        BlendMode::Difference => {}
-        BlendMode::Exclusion => {}
-        BlendMode::Hue => {}
-        BlendMode::Saturation => {}
-        BlendMode::Color => {}
-        BlendMode::Luminosity => {}
-        BlendMode::PlusDarker => {}
-        BlendMode::PlusLighter => {}
+impl<'a> VisitMut<'a> for BlendMode {
+    #[inline]
+    fn visit_mut<VisitorT: ?Sized + VisitorMut<'a>>(&mut self, visitor: &mut VisitorT) {
+        visitor.visit_blend_mode(self);
     }
-    visitor.leave_node(AstType::BlendMode);
+    fn visit_mut_children<VisitorT: ?Sized + VisitorMut<'a>>(&mut self, visitor: &mut VisitorT) {
+        visitor.enter_node(AstType::BlendMode);
+        let node = self;
+        match node {
+            BlendMode::Normal => {}
+            BlendMode::Multiply => {}
+            BlendMode::Screen => {}
+            BlendMode::Overlay => {}
+            BlendMode::Darken => {}
+            BlendMode::Lighten => {}
+            BlendMode::ColorDodge => {}
+            BlendMode::ColorBurn => {}
+            BlendMode::HardLight => {}
+            BlendMode::SoftLight => {}
+            BlendMode::Difference => {}
+            BlendMode::Exclusion => {}
+            BlendMode::Hue => {}
+            BlendMode::Saturation => {}
+            BlendMode::Color => {}
+            BlendMode::Luminosity => {}
+            BlendMode::PlusDarker => {}
+            BlendMode::PlusLighter => {}
+        }
+        visitor.leave_node(AstType::BlendMode);
+    }
 }

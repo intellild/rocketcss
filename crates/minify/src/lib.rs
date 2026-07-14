@@ -11,7 +11,7 @@ mod values;
 pub mod prelude;
 
 use rocketcss_ast::{match_ignore_ascii_case, *};
-use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, walk_mut};
+use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut};
 
 pub use context::{MinifyContext, MinifyStats};
 pub use options::{MinifyOptions, Options, OptionsOp};
@@ -63,16 +63,16 @@ impl<'a> Plugin<'a> for MinifyPlugin {
 }
 
 pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
-    Minifier { cx }.visit_style_sheet(stylesheet);
+    stylesheet.visit_mut(&mut Minifier { cx });
 }
 
 struct Minifier<'cx> {
     cx: &'cx mut MinifyContext,
 }
 
-impl<'a> VisitMut<'a> for Minifier<'_> {
+impl<'a> VisitorMut<'a> for Minifier<'_> {
     fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
-        walk_mut::walk_keyframe_selector(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
@@ -84,7 +84,7 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
             self.cx
                 .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
-        walk_mut::walk_unparsed_property(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
         self.cx.value_context = previous;
     }
@@ -98,7 +98,7 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
         if match_ignore_ascii_case!(name, "--font-family" => true, _ => false) {
             self.cx.value_context.property = context::PropertyContext::Font;
         }
-        walk_mut::walk_custom_property(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
         self.cx.value_context = previous;
     }
@@ -134,18 +134,18 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
                 .value_context
                 .set_enabled(context::ValueContextFlags::MINIFY_COLORS, false);
         }
-        walk_mut::walk_function(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
         self.cx.value_context = previous;
     }
 
     fn visit_variable(&mut self, node: &mut Variable<'a>) {
-        walk_mut::walk_variable(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
     fn visit_environment_variable(&mut self, node: &mut EnvironmentVariable<'a>) {
-        walk_mut::walk_environment_variable(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
@@ -155,48 +155,48 @@ impl<'a> VisitMut<'a> for Minifier<'_> {
         self.cx
             .value_context
             .set_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS, true);
-        walk_mut::walk_unknown_at_rule(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
         self.cx.value_context = previous;
     }
 
     fn visit_token_or_value(&mut self, node: &mut TokenOrValue<'a>) {
-        walk_mut::walk_token_or_value(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
     fn visit_length_value(&mut self, node: &mut LengthValue) {
-        walk_mut::walk_length_value(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
     fn visit_angle(&mut self, node: &mut Angle) {
-        walk_mut::walk_angle(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
     fn visit_time(&mut self, node: &mut Time) {
-        walk_mut::walk_time(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
     fn visit_resolution(&mut self, node: &mut Resolution) {
-        walk_mut::walk_resolution(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
     fn visit_ratio(&mut self, node: &mut Ratio) {
-        walk_mut::walk_ratio(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
     fn visit_selector_list(&mut self, node: &mut SelectorList<'a>) {
-        walk_mut::walk_selector_list(self, node);
+        self.visit_selector_list_children(node);
         node.minify(self.cx);
     }
 
     fn visit_media_list(&mut self, node: &mut MediaList<'a>) {
-        walk_mut::walk_media_list(self, node);
+        node.visit_mut_children(self);
         node.minify(self.cx);
     }
 }

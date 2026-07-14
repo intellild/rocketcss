@@ -42,7 +42,6 @@ struct Node {
 
 #[derive(Clone)]
 struct Alias {
-    module: Ident,
     ident: Ident,
     generics: Generics,
     ty: Type,
@@ -92,9 +91,9 @@ impl Mode {
         format_ident!(
             "{}",
             if matches!(self, Self::Read) {
-                "Visit"
+                "Visitor"
             } else {
-                "VisitMut"
+                "VisitorMut"
             }
         )
     }
@@ -103,9 +102,31 @@ impl Mode {
         format_ident!(
             "{}",
             if matches!(self, Self::Read) {
-                "VisitNode"
+                "Visit"
             } else {
-                "VisitMutNode"
+                "VisitMut"
+            }
+        )
+    }
+
+    fn visit_method(self) -> Ident {
+        format_ident!(
+            "{}",
+            if matches!(self, Self::Read) {
+                "visit"
+            } else {
+                "visit_mut"
+            }
+        )
+    }
+
+    fn visit_children_method(self) -> Ident {
+        format_ident!(
+            "{}",
+            if matches!(self, Self::Read) {
+                "visit_children"
+            } else {
+                "visit_mut_children"
             }
         )
     }
@@ -177,7 +198,6 @@ fn main() {
                         data: NodeData::Enum(item),
                     }),
                     Item::Type(item) if is_public(&item.vis) => aliases.push(Alias {
-                        module: module.clone(),
                         ident: item.ident.clone(),
                         generics: item.generics.clone(),
                         ty: *item.ty,
@@ -223,19 +243,14 @@ fn main() {
                 .filter(|node| node.module == module_ident)
                 .cloned()
                 .collect::<Vec<_>>();
-            let module_aliases = aliases
-                .iter()
-                .filter(|alias| alias.module == module_ident)
-                .cloned()
-                .collect::<Vec<_>>();
             write_rust(
                 &mode_dir.join(format!("{module}.rs")),
-                generate_walk_module(mode, &module_nodes, &module_aliases, &known, &aliases_set),
+                generate_node_module(mode, &module_nodes, &known, &aliases_set),
             );
         }
         write_rust(
             &visitor_src.join(format!("{}.rs", mode.module_name())),
-            generate_visitor(mode, &nodes, &aliases, &properties),
+            generate_visitor(mode, &nodes, &aliases, &properties, &known, &aliases_set),
         );
     }
 }
@@ -311,6 +326,8 @@ fn generate_visitor(
     nodes: &[Node],
     aliases: &[Alias],
     properties: &[Property],
+    known: &HashSet<String>,
+    alias_names: &HashSet<String>,
 ) -> TokenStream {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
@@ -322,6 +339,8 @@ fn generate_visitor(
         )
     });
     let reference = mode.reference();
+    let visit = mode.visit_method();
+    let visit_children = mode.visit_children_method();
     let modules = AST_FILES
         .iter()
         .map(|name| format_ident!("{name}"))
@@ -329,64 +348,58 @@ fn generate_visitor(
 
     let methods = nodes.iter().map(|node| {
         let method = visit_method(&node.ident);
-        let module = &node.module;
-        let walk = walk_method(&node.ident);
         let (method_generics, ty, bounds) =
-            signature_parts(&node.ident, &node.generics, &node_trait, quote!(Self));
+            signature_parts(&node.ident, &node.generics, &node_trait);
         if matches!(mode, Mode::Mut) && node.ident == "DeclarationBlock" {
             quote! {
                 #[inline]
-                fn #method #method_generics (&mut self, node: Pin<&mut #ty>) #bounds {
-                    #module::#walk(self, node);
+                fn #method #method_generics (&mut self, mut node: Pin<&mut #ty>) #bounds {
+                    #node_trait::#visit_children(&mut node, self);
                 }
             }
         } else {
             quote! {
                 #[inline]
                 fn #method #method_generics (&mut self, node: #reference #ty) #bounds {
-                    #module::#walk(self, node);
+                    #node_trait::#visit_children(node, self);
                 }
             }
         }
     });
     let alias_methods = aliases.iter().map(|alias| {
         let method = visit_method(&alias.ident);
-        let module = &alias.module;
-        let walk = walk_method(&alias.ident);
+        let visit_children = format_ident!("{method}_children");
+        let visit_children_doc = format!(
+            "Continues traversal of [`{}`] without redispatching its visitor callback.",
+            alias.ident
+        );
+        let variant = &alias.ident;
         let (method_generics, ty, bounds) =
-            signature_parts(&alias.ident, &alias.generics, &node_trait, quote!(Self));
+            signature_parts(&alias.ident, &alias.generics, &node_trait);
+        let generic_names = type_param_names(&alias.generics);
+        let mut counter = 0;
+        let body = visit_type(
+            mode,
+            &alias.ty,
+            quote!(node),
+            known,
+            alias_names,
+            &generic_names,
+            &mut counter,
+        );
         quote! {
             #[inline]
             fn #method #method_generics (&mut self, node: #reference #ty) #bounds {
-                #module::#walk(self, node);
+                self.#visit_children(node);
             }
-        }
-    });
-    let node_impls = nodes.iter().filter_map(|node| {
-        if matches!(mode, Mode::Mut) && node.ident == "DeclarationBlock" {
-            return None;
-        }
-        let method = visit_method(&node.ident);
-        let (impl_generics, ty, bounds) =
-            impl_parts(&node.ident, &node.generics, &visitor_trait, &node_trait);
-        if matches!(mode, Mode::Read) {
-            Some(quote! {
-                impl #impl_generics #node_trait<'a, VisitorT> for #ty #bounds {
-                    #[inline]
-                    fn visit_node(&self, visitor: &mut VisitorT) {
-                        visitor.#method(self);
-                    }
-                }
-            })
-        } else {
-            Some(quote! {
-                impl #impl_generics #node_trait<'a, VisitorT> for #ty #bounds {
-                    #[inline]
-                    fn visit_node(&mut self, visitor: &mut VisitorT) {
-                        visitor.#method(self);
-                    }
-                }
-            })
+
+            #[doc = #visit_children_doc]
+            fn #visit_children #method_generics (&mut self, node: #reference #ty) #bounds {
+                let visitor = self;
+                visitor.enter_node(AstType::#variant);
+                #body
+                visitor.leave_node(AstType::#variant);
+            }
         }
     });
 
@@ -396,10 +409,8 @@ fn generate_visitor(
         quote! { fn visit_str(&mut self, _value: &mut &'a str) {} }
     };
     let manual_methods = manual_methods(mode);
-    let manual_impls = manual_impls(mode);
+    let manual_impls = manual_impls(mode, properties);
     let container_impls = container_impls(mode);
-    let manual_walkers = manual_walkers(mode, properties);
-    let walk_exports = modules.iter();
 
     quote! {
         //! Generated typed visitor API. Regenerate with `cargo run -p rocketcss_ast_tools`.
@@ -410,8 +421,9 @@ fn generate_visitor(
         use crate::AstType;
         #pin_import
 
-        #(pub mod #modules;)*
+        #(mod #modules;)*
 
+        /// Typed callbacks invoked while traversing CSS AST nodes.
         pub trait #visitor_trait<'a> {
             #[inline]
             fn enter_node(&mut self, _kind: AstType) {}
@@ -427,68 +439,200 @@ fn generate_visitor(
             #manual_methods
         }
 
-        #[doc(hidden)]
-        pub trait #node_trait<'a, VisitorT: ?Sized + #visitor_trait<'a>> {
-            fn visit_node(#reference self, visitor: &mut VisitorT);
+        /// Traversal implemented by CSS AST nodes.
+        pub trait #node_trait<'a> {
+            /// Dispatches this node to its typed visitor callback.
+            fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                #reference self,
+                visitor: &mut VisitorT,
+            );
+
+            /// Continues traversal without redispatching this node's visitor callback.
+            #[inline]
+            fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                #reference self,
+                _visitor: &mut VisitorT,
+            ) {}
         }
 
         #container_impls
-        #(#node_impls)*
         #manual_impls
-        #manual_walkers
-
-        pub mod walk {
-            #(pub use super::#walk_exports::*;)*
-            pub use super::{walk_declaration, walk_property_id, walk_vendor_prefix};
-        }
     }
 }
 
 fn manual_methods(mode: Mode) -> TokenStream {
     let reference = mode.reference();
+    let node_trait = mode.node_trait();
+    let visit_children = mode.visit_children_method();
     quote! {
         #[inline]
         fn visit_declaration(&mut self, node: #reference Declaration<'a>) {
-            walk_declaration(self, node);
+            #node_trait::#visit_children(node, self);
         }
 
         #[inline]
         fn visit_property_id(&mut self, node: #reference PropertyId<'a>) {
-            walk_property_id(self, node);
+            #node_trait::#visit_children(node, self);
         }
 
         #[inline]
         fn visit_vendor_prefix(&mut self, node: #reference VendorPrefix) {
-            walk_vendor_prefix(self, node);
+            #node_trait::#visit_children(node, self);
         }
     }
 }
 
-fn manual_impls(mode: Mode) -> TokenStream {
+fn manual_impls(mode: Mode, properties: &[Property]) -> TokenStream {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
+    let visit = mode.visit_method();
+    let visit_children = mode.visit_children_method();
+    let declaration_arms = properties
+        .iter()
+        .map(|property| {
+            let ident = &property.ident;
+            if property.vendor_prefix.is_some() {
+                quote!(
+                    Declaration::#ident(value, vendor_prefix) => {
+                        #node_trait::#visit(value, visitor);
+                        #node_trait::#visit(vendor_prefix, visitor);
+                    }
+                )
+            } else {
+                quote!(Declaration::#ident(value) => #node_trait::#visit(value, visitor),)
+            }
+        })
+        .collect::<Vec<_>>();
+    let property_id_arms = properties
+        .iter()
+        .map(|property| {
+            let ident = &property.ident;
+            if property.vendor_prefix.is_some() {
+                quote!(PropertyId::#ident(value) => #node_trait::#visit(value, visitor),)
+            } else {
+                quote!(PropertyId::#ident => {})
+            }
+        })
+        .collect::<Vec<_>>();
+
     if matches!(mode, Mode::Read) {
         quote! {
-            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for Declaration<'a> {
-                fn visit_node(&self, visitor: &mut VisitorT) { visitor.visit_declaration(self); }
+            impl<'a> #node_trait<'a> for Declaration<'a> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&self, visitor: &mut VisitorT) {
+                    visitor.visit_declaration(self);
+                }
+
+                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                ) {
+                    visitor.enter_node(AstType::Declaration);
+                    match self {
+                        #(#declaration_arms)*
+                        Declaration::All(value) => #node_trait::#visit(value, visitor),
+                        Declaration::Unparsed(value) => #node_trait::#visit(value, visitor),
+                        Declaration::Custom(value) => #node_trait::#visit(value, visitor),
+                    }
+                    visitor.leave_node(AstType::Declaration);
+                }
             }
-            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for PropertyId<'a> {
-                fn visit_node(&self, visitor: &mut VisitorT) { visitor.visit_property_id(self); }
+
+            impl<'a> #node_trait<'a> for PropertyId<'a> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&self, visitor: &mut VisitorT) {
+                    visitor.visit_property_id(self);
+                }
+
+                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                ) {
+                    visitor.enter_node(AstType::PropertyId);
+                    match self {
+                        #(#property_id_arms)*
+                        PropertyId::ColumnRule
+                        | PropertyId::Columns
+                        | PropertyId::GridColumnGap
+                        | PropertyId::GridRowGap
+                        | PropertyId::All
+                        | PropertyId::Unparsed => {}
+                        PropertyId::Custom(value) => visitor.visit_str(value),
+                    }
+                    visitor.leave_node(AstType::PropertyId);
+                }
             }
-            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for VendorPrefix {
-                fn visit_node(&self, visitor: &mut VisitorT) { visitor.visit_vendor_prefix(self); }
+
+            impl<'a> #node_trait<'a> for VendorPrefix {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&self, visitor: &mut VisitorT) {
+                    visitor.visit_vendor_prefix(self);
+                }
+
+                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                ) {
+                    visitor.enter_node(AstType::VendorPrefix);
+                    visitor.leave_node(AstType::VendorPrefix);
+                }
             }
         }
     } else {
         quote! {
-            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for Declaration<'a> {
-                fn visit_node(&mut self, visitor: &mut VisitorT) { visitor.visit_declaration(self); }
+            impl<'a> #node_trait<'a> for Declaration<'a> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&mut self, visitor: &mut VisitorT) {
+                    visitor.visit_declaration(self);
+                }
+
+                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                ) {
+                    visitor.enter_node(AstType::Declaration);
+                    match self {
+                        #(#declaration_arms)*
+                        Declaration::All(value) => #node_trait::#visit(value, visitor),
+                        Declaration::Unparsed(value) => #node_trait::#visit(value, visitor),
+                        Declaration::Custom(value) => #node_trait::#visit(value, visitor),
+                    }
+                    visitor.leave_node(AstType::Declaration);
+                }
             }
-            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for PropertyId<'a> {
-                fn visit_node(&mut self, visitor: &mut VisitorT) { visitor.visit_property_id(self); }
+
+            impl<'a> #node_trait<'a> for PropertyId<'a> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&mut self, visitor: &mut VisitorT) {
+                    visitor.visit_property_id(self);
+                }
+
+                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                ) {
+                    visitor.enter_node(AstType::PropertyId);
+                    match self {
+                        #(#property_id_arms)*
+                        PropertyId::ColumnRule
+                        | PropertyId::Columns
+                        | PropertyId::GridColumnGap
+                        | PropertyId::GridRowGap
+                        | PropertyId::All
+                        | PropertyId::Unparsed => {}
+                        PropertyId::Custom(value) => visitor.visit_str(value),
+                    }
+                    visitor.leave_node(AstType::PropertyId);
+                }
             }
-            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for VendorPrefix {
-                fn visit_node(&mut self, visitor: &mut VisitorT) { visitor.visit_vendor_prefix(self); }
+
+            impl<'a> #node_trait<'a> for VendorPrefix {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(&mut self, visitor: &mut VisitorT) {
+                    visitor.visit_vendor_prefix(self);
+                }
+
+                fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                ) {
+                    visitor.enter_node(AstType::VendorPrefix);
+                    visitor.leave_node(AstType::VendorPrefix);
+                }
             }
         }
     }
@@ -497,141 +641,130 @@ fn manual_impls(mode: Mode) -> TokenStream {
 fn container_impls(mode: Mode) -> TokenStream {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
+    let visit = mode.visit_method();
     if matches!(mode, Mode::Read) {
         quote! {
-            macro_rules! impl_leaf_visit_node {
+            macro_rules! impl_leaf_visit {
                 ($($ty:ty),+ $(,)?) => {$(
-                    impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for $ty {
-                        fn visit_node(&self, _visitor: &mut VisitorT) {}
+                    impl<'a> #node_trait<'a> for $ty {
+                        fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                            &self,
+                            _visitor: &mut VisitorT,
+                        ) {}
                     }
                 )+};
             }
-            impl_leaf_visit_node!(bool, char, f32, i32, u8, u16, u32, usize);
+            impl_leaf_visit!(bool, char, f32, i32, u8, u16, u32, usize);
 
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::boxed::Box<'a, T>
-            where VisitorT: ?Sized + #visitor_trait<'a>, T: ?Sized + #node_trait<'a, VisitorT> {
-                fn visit_node(&self, visitor: &mut VisitorT) { self.as_ref().visit_node(visitor); }
+            impl<'a, T: ?Sized + #node_trait<'a>> #node_trait<'a>
+                for rocketcss_allocator::boxed::Box<'a, T>
+            {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                ) {
+                    #node_trait::#visit(self.as_ref(), visitor);
+                }
             }
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
-            where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> + Unpin {
-                fn visit_node(&self, visitor: &mut VisitorT) { for value in self { value.visit_node(visitor); } }
+            impl<'a, T: #node_trait<'a> + Unpin> #node_trait<'a>
+                for rocketcss_allocator::vec::Vec<'a, T>
+            {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                ) {
+                    for value in self {
+                        #node_trait::#visit(value, visitor);
+                    }
+                }
             }
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for Option<T>
-            where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> {
-                fn visit_node(&self, visitor: &mut VisitorT) { if let Some(value) = self { value.visit_node(visitor); } }
+            impl<'a, T: #node_trait<'a>> #node_trait<'a> for Option<T> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                ) {
+                    if let Some(value) = self {
+                        #node_trait::#visit(value, visitor);
+                    }
+                }
             }
-            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for &'a str {
-                fn visit_node(&self, visitor: &mut VisitorT) { visitor.visit_str(self); }
+            impl<'a> #node_trait<'a> for &'a str {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                ) {
+                    visitor.visit_str(self);
+                }
             }
         }
     } else {
         quote! {
-            macro_rules! impl_leaf_visit_mut_node {
+            macro_rules! impl_leaf_visit_mut {
                 ($($ty:ty),+ $(,)?) => {$(
-                    impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for $ty {
-                        fn visit_node(&mut self, _visitor: &mut VisitorT) {}
+                    impl<'a> #node_trait<'a> for $ty {
+                        fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                            &mut self,
+                            _visitor: &mut VisitorT,
+                        ) {}
                     }
                 )+};
             }
-            impl_leaf_visit_mut_node!(bool, char, f32, i32, u8, u16, u32, usize);
+            impl_leaf_visit_mut!(bool, char, f32, i32, u8, u16, u32, usize);
 
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::boxed::Box<'a, T>
-            where VisitorT: ?Sized + #visitor_trait<'a>, T: ?Sized + #node_trait<'a, VisitorT> {
-                fn visit_node(&mut self, visitor: &mut VisitorT) { self.as_mut().visit_node(visitor); }
-            }
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for rocketcss_allocator::vec::Vec<'a, T>
-            where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> + Unpin {
-                fn visit_node(&mut self, visitor: &mut VisitorT) { for value in self { value.visit_node(visitor); } }
-            }
-            impl<'a, VisitorT, T> #node_trait<'a, VisitorT> for Option<T>
-            where VisitorT: ?Sized + #visitor_trait<'a>, T: #node_trait<'a, VisitorT> {
-                fn visit_node(&mut self, visitor: &mut VisitorT) { if let Some(value) = self { value.visit_node(visitor); } }
-            }
-            impl<'a, VisitorT: ?Sized + #visitor_trait<'a>> #node_trait<'a, VisitorT> for &'a str {
-                fn visit_node(&mut self, visitor: &mut VisitorT) { visitor.visit_str(self); }
-            }
-        }
-    }
-}
-
-fn manual_walkers(mode: Mode, properties: &[Property]) -> TokenStream {
-    let visitor_trait = mode.visitor_trait();
-    let node_trait = mode.node_trait();
-    let reference = mode.reference();
-    let declaration_arms = properties.iter().map(|property| {
-        let ident = &property.ident;
-        if property.vendor_prefix.is_some() {
-            quote!(
-                Declaration::#ident(value, vendor_prefix) => {
-                    #node_trait::visit_node(value, visitor);
-                    #node_trait::visit_node(vendor_prefix, visitor);
+            impl<'a, T: ?Sized + #node_trait<'a>> #node_trait<'a>
+                for rocketcss_allocator::boxed::Box<'a, T>
+            {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                ) {
+                    #node_trait::#visit(self.as_mut(), visitor);
                 }
-            )
-        } else {
-            quote!(Declaration::#ident(value) => #node_trait::visit_node(value, visitor),)
-        }
-    });
-    let property_id_arms = properties.iter().map(|property| {
-        let ident = &property.ident;
-        if property.vendor_prefix.is_some() {
-            quote!(PropertyId::#ident(value) => #node_trait::visit_node(value, visitor),)
-        } else {
-            quote!(PropertyId::#ident => {})
-        }
-    });
-
-    quote! {
-        pub fn walk_declaration<'a, VisitorT: ?Sized + #visitor_trait<'a>>(
-            visitor: &mut VisitorT,
-            node: #reference Declaration<'a>,
-        ) {
-            visitor.enter_node(AstType::Declaration);
-            match node {
-                #(#declaration_arms)*
-                Declaration::All(value) => #node_trait::visit_node(value, visitor),
-                Declaration::Unparsed(value) => #node_trait::visit_node(value, visitor),
-                Declaration::Custom(value) => #node_trait::visit_node(value, visitor),
             }
-            visitor.leave_node(AstType::Declaration);
-        }
-
-        pub fn walk_property_id<'a, VisitorT: ?Sized + #visitor_trait<'a>>(
-            visitor: &mut VisitorT,
-            node: #reference PropertyId<'a>,
-        ) {
-            visitor.enter_node(AstType::PropertyId);
-            match node {
-                #(#property_id_arms)*
-                PropertyId::ColumnRule
-                | PropertyId::Columns
-                | PropertyId::GridColumnGap
-                | PropertyId::GridRowGap
-                | PropertyId::All
-                | PropertyId::Unparsed => {}
-                PropertyId::Custom(value) => visitor.visit_str(value),
+            impl<'a, T: #node_trait<'a> + Unpin> #node_trait<'a>
+                for rocketcss_allocator::vec::Vec<'a, T>
+            {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                ) {
+                    for value in self {
+                        #node_trait::#visit(value, visitor);
+                    }
+                }
             }
-            visitor.leave_node(AstType::PropertyId);
-        }
-
-        pub fn walk_vendor_prefix<'a, VisitorT: ?Sized + #visitor_trait<'a>>(
-            visitor: &mut VisitorT,
-            _node: #reference VendorPrefix,
-        ) {
-            visitor.enter_node(AstType::VendorPrefix);
-            visitor.leave_node(AstType::VendorPrefix);
+            impl<'a, T: #node_trait<'a>> #node_trait<'a> for Option<T> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                ) {
+                    if let Some(value) = self {
+                        #node_trait::#visit(value, visitor);
+                    }
+                }
+            }
+            impl<'a> #node_trait<'a> for &'a str {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                ) {
+                    visitor.visit_str(self);
+                }
+            }
         }
     }
 }
 
-fn generate_walk_module(
+fn generate_node_module(
     mode: Mode,
     nodes: &[Node],
-    aliases: &[Alias],
     known: &HashSet<String>,
     alias_names: &HashSet<String>,
 ) -> TokenStream {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
+    let visit = mode.visit_method();
+    let visit_children = mode.visit_children_method();
     let pin_import = (matches!(mode, Mode::Mut)
         && nodes.iter().any(|node| node.ident == "DeclarationBlock"))
     .then(|| {
@@ -639,55 +772,56 @@ fn generate_walk_module(
             use std::pin::Pin;
         )
     });
-    let walkers = nodes.iter().map(|node| {
-        let walk = walk_method(&node.ident);
+    let implementations = nodes.iter().map(|node| {
+        let method = visit_method(&node.ident);
         let variant = &node.ident;
-        let (function_generics, ty, bounds) =
-            function_parts(&node.ident, &node.generics, &visitor_trait, &node_trait);
-        let body = walk_data(mode, node, known, alias_names);
+        let (impl_generics, ty, bounds) = impl_parts(&node.ident, &node.generics, &node_trait);
+        let body = visit_children_data(mode, node, known, alias_names);
         let reference = mode.reference();
         if matches!(mode, Mode::Mut) && node.ident == "DeclarationBlock" {
             quote! {
-                pub fn #walk #function_generics (visitor: &mut VisitorT, mut node: Pin<&mut #ty>) #bounds {
-                    visitor.enter_node(AstType::#variant);
-                    // SAFETY: the walker only mutates fields and never moves the pinned block.
-                    let node = unsafe { node.as_mut().get_unchecked_mut() };
-                    #body
-                    visitor.leave_node(AstType::#variant);
+                impl<'a> #node_trait<'a> for Pin<&mut #ty> {
+                    #[inline]
+                    fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                        &mut self,
+                        visitor: &mut VisitorT,
+                    ) {
+                        visitor.#method(self.as_mut());
+                    }
+
+                    fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                        &mut self,
+                        visitor: &mut VisitorT,
+                    ) {
+                        visitor.enter_node(AstType::#variant);
+                        // SAFETY: traversal only mutates fields and never moves the pinned block.
+                        let node = unsafe { self.as_mut().get_unchecked_mut() };
+                        #body
+                        visitor.leave_node(AstType::#variant);
+                    }
                 }
             }
         } else {
             quote! {
-                pub fn #walk #function_generics (visitor: &mut VisitorT, node: #reference #ty) #bounds {
-                    visitor.enter_node(AstType::#variant);
-                    #body
-                    visitor.leave_node(AstType::#variant);
+                impl #impl_generics #node_trait<'a> for #ty #bounds {
+                    #[inline]
+                    fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                        #reference self,
+                        visitor: &mut VisitorT,
+                    ) {
+                        visitor.#method(self);
+                    }
+
+                    fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+                        #reference self,
+                        visitor: &mut VisitorT,
+                    ) {
+                        visitor.enter_node(AstType::#variant);
+                        let node = self;
+                        #body
+                        visitor.leave_node(AstType::#variant);
+                    }
                 }
-            }
-        }
-    });
-    let alias_walkers = aliases.iter().map(|alias| {
-        let walk = walk_method(&alias.ident);
-        let variant = &alias.ident;
-        let (function_generics, ty, bounds) =
-            function_parts(&alias.ident, &alias.generics, &visitor_trait, &node_trait);
-        let reference = mode.reference();
-        let generic_names = type_param_names(&alias.generics);
-        let mut counter = 0;
-        let body = visit_type(
-            mode,
-            &alias.ty,
-            quote!(node),
-            known,
-            alias_names,
-            &generic_names,
-            &mut counter,
-        );
-        quote! {
-            pub fn #walk #function_generics (visitor: &mut VisitorT, node: #reference #ty) #bounds {
-                visitor.enter_node(AstType::#variant);
-                #body
-                visitor.leave_node(AstType::#variant);
             }
         }
     });
@@ -699,12 +833,11 @@ fn generate_walk_module(
         use rocketcss_ast::*;
         #pin_import
 
-        #(#walkers)*
-        #(#alias_walkers)*
+        #(#implementations)*
     }
 }
 
-fn walk_data(
+fn visit_children_data(
     mode: Mode,
     node: &Node,
     known: &HashSet<String>,
@@ -713,7 +846,7 @@ fn walk_data(
     let generic_names = type_param_names(&node.generics);
     let mut counter = 0;
     match &node.data {
-        NodeData::Struct(item) => walk_fields(
+        NodeData::Struct(item) => visit_children_fields(
             mode,
             &item.fields,
             quote!(node),
@@ -779,7 +912,7 @@ fn walk_data(
     }
 }
 
-fn walk_fields(
+fn visit_children_fields(
     mode: Mode,
     fields: &Fields,
     base: TokenStream,
@@ -883,9 +1016,6 @@ fn visit_type(
             };
             let name = segment.ident.to_string();
             if name == "Pin" {
-                // Keep binding numbering stable with the Box traversal this
-                // wrapper replaces.
-                let _ = fresh_binding(counter);
                 let Some(Type::Path(box_path)) = first_type_argument(&segment.arguments) else {
                     return quote!();
                 };
@@ -895,20 +1025,32 @@ fn visit_type(
                 let Some(inner_ty) = first_type_argument(&box_segment.arguments) else {
                     return quote!();
                 };
-                let inner_expression = if matches!(mode, Mode::Read) {
-                    quote!((#expression).as_ref().get_ref())
+                if matches!(mode, Mode::Read) {
+                    visit_type(
+                        mode,
+                        inner_ty,
+                        quote!((#expression).as_ref().get_ref()),
+                        known,
+                        aliases,
+                        generics,
+                        counter,
+                    )
                 } else {
-                    quote!((#expression).as_mut())
-                };
-                visit_type(
-                    mode,
-                    inner_ty,
-                    inner_expression,
-                    known,
-                    aliases,
-                    generics,
-                    counter,
-                )
+                    let binding = fresh_binding(counter);
+                    let inner = visit_type(
+                        mode,
+                        inner_ty,
+                        quote!(&mut #binding),
+                        known,
+                        aliases,
+                        generics,
+                        counter,
+                    );
+                    quote! {
+                        let mut #binding = (#expression).as_mut();
+                        #inner
+                    }
+                }
             } else if matches!(name.as_str(), "Box" | "Option") {
                 let Some(inner_ty) = first_type_argument(&segment.arguments) else {
                     return quote!();
@@ -956,10 +1098,15 @@ fn visit_type(
                 quote!(for #binding in (#expression).#iterator() { #inner })
             } else if generics.contains(&name) {
                 let node_trait = mode.node_trait();
-                quote!(#node_trait::visit_node(#expression, visitor);)
-            } else if known.contains(&name) || aliases.contains(&name) {
+                let visit = mode.visit_method();
+                quote!(#node_trait::#visit(#expression, visitor);)
+            } else if aliases.contains(&name) {
                 let method = visit_method(&segment.ident);
                 quote!(visitor.#method(#expression);)
+            } else if known.contains(&name) {
+                let node_trait = mode.node_trait();
+                let visit = mode.visit_method();
+                quote!(#node_trait::#visit(#expression, visitor);)
             } else {
                 quote!()
             }
@@ -986,10 +1133,6 @@ fn fresh_binding(counter: &mut usize) -> Ident {
 
 fn visit_method(ident: &Ident) -> Ident {
     format_ident!("visit_{}", ident.to_string().to_case(Case::Snake))
-}
-
-fn walk_method(ident: &Ident) -> Ident {
-    format_ident!("walk_{}", ident.to_string().to_case(Case::Snake))
 }
 
 fn type_param_names(generics: &Generics) -> HashSet<String> {
@@ -1034,7 +1177,6 @@ fn signature_parts(
     ident: &Ident,
     generics: &Generics,
     node_trait: &Ident,
-    visitor: TokenStream,
 ) -> (TokenStream, TokenStream, TokenStream) {
     let params = non_lifetime_params(generics);
     let method_generics = if params.is_empty() {
@@ -1050,52 +1192,32 @@ fn signature_parts(
     let bounds = if names.is_empty() {
         quote!()
     } else {
-        quote!(where #(#names: #node_trait<'a, #visitor>),*)
+        quote!(where #(#names: #node_trait<'a>),*)
     };
     (method_generics, ty, bounds)
-}
-
-fn function_parts(
-    ident: &Ident,
-    generics: &Generics,
-    visitor_trait: &Ident,
-    node_trait: &Ident,
-) -> (TokenStream, TokenStream, TokenStream) {
-    let params = non_lifetime_params(generics);
-    let function_generics = if params.is_empty() {
-        quote!(<'a, VisitorT>)
-    } else {
-        quote!(<'a, #(#params,)* VisitorT>)
-    };
-    let ty = type_tokens(ident, generics);
-    let names = generics
-        .type_params()
-        .map(|param| &param.ident)
-        .collect::<Vec<_>>();
-    let bounds =
-        quote!(where VisitorT: ?Sized + #visitor_trait<'a> #(, #names: #node_trait<'a, VisitorT>)*);
-    (function_generics, ty, bounds)
 }
 
 fn impl_parts(
     ident: &Ident,
     generics: &Generics,
-    visitor_trait: &Ident,
     node_trait: &Ident,
 ) -> (TokenStream, TokenStream, TokenStream) {
     let params = non_lifetime_params(generics);
     let impl_generics = if params.is_empty() {
-        quote!(<'a, VisitorT>)
+        quote!(<'a>)
     } else {
-        quote!(<'a, #(#params,)* VisitorT>)
+        quote!(<'a, #(#params),*>)
     };
     let ty = type_tokens(ident, generics);
     let names = generics
         .type_params()
         .map(|param| &param.ident)
         .collect::<Vec<_>>();
-    let bounds =
-        quote!(where VisitorT: ?Sized + #visitor_trait<'a> #(, #names: #node_trait<'a, VisitorT>)*);
+    let bounds = if names.is_empty() {
+        quote!()
+    } else {
+        quote!(where #(#names: #node_trait<'a>),*)
+    };
     (impl_generics, ty, bounds)
 }
 

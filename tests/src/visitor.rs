@@ -2,20 +2,20 @@ use rocketcss_allocator::Allocator;
 use rocketcss_ast::SelectorComponent;
 use rocketcss_codegen::{PrinterOptions, ToCss};
 use rocketcss_parser::{ParserOptions, parse};
-use rocketcss_visitor::{PluginContext, Plugins, VisitMut, walk_mut};
+use rocketcss_visitor::{PluginContext, Plugins, VisitMut, VisitorMut};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 
 struct RenameClass;
 
-impl<'a> VisitMut<'a> for RenameClass {
+impl<'a> VisitorMut<'a> for RenameClass {
     fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
         if let SelectorComponent::Class(name) = component
             && *name == "before"
         {
             *name = "after";
         }
-        walk_mut::walk_selector_component(self, component);
+        component.visit_mut_children(self);
     }
 }
 
