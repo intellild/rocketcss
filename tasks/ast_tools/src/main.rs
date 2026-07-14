@@ -1112,17 +1112,19 @@ mod tests {
             vec![ast_src.join("color.rs")]
         );
 
-        let rules = ast_module_files(&ast_src, "rules");
-        assert!(rules.len() > 1);
-        assert!(rules.iter().any(|path| path.ends_with("rules/mod.rs")));
-        assert!(
-            rules
-                .iter()
-                .any(|path| path.ends_with("rules/stylesheet.rs"))
-        );
-        for path in rules {
-            let source = fs::read_to_string(path).unwrap();
-            syn::parse_file(&source).unwrap();
+        for (module, representative) in [("rules", "stylesheet.rs"), ("values", "image.rs")] {
+            let files = ast_module_files(&ast_src, module);
+            assert!(files.len() > 1);
+            assert!(
+                files
+                    .iter()
+                    .any(|path| path.ends_with(format!("{module}/mod.rs")))
+            );
+            assert!(files.iter().any(|path| path.ends_with(representative)));
+            for path in files {
+                let source = fs::read_to_string(path).unwrap();
+                syn::parse_file(&source).unwrap();
+            }
         }
     }
 }
