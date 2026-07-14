@@ -1,8 +1,8 @@
 use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{
-    CustomProperty, EnvironmentVariable, Function, FunctionReplacement, KeyframeSelector,
-    KnownFunction, LengthUnit, StyleSheet, Token, TokenOrValue, Unit, UnknownAtRule,
-    UnparsedProperty, Variable, match_ignore_ascii_case,
+    CustomProperty, Declaration, DeclarationBlock, EnvironmentVariable, Function,
+    FunctionReplacement, KeyframeSelector, KnownFunction, LengthUnit, StyleSheet, Token,
+    TokenOrValue, Unit, UnknownAtRule, UnparsedProperty, Variable, match_ignore_ascii_case,
 };
 
 use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlags};
@@ -10,6 +10,33 @@ use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlag
 impl Minify for StyleSheet<'_> {
     fn minify(&mut self, cx: &mut MinifyContext) {
         crate::minify_style_sheet(self, cx);
+    }
+}
+
+impl Minify for DeclarationBlock<'_> {
+    fn minify(&mut self, cx: &mut MinifyContext) {
+        deduplicate_declarations(self, cx);
+    }
+}
+
+fn deduplicate_declarations(block: &mut DeclarationBlock<'_>, cx: &mut MinifyContext) {
+    for current in 1..block.len() {
+        if block.declarations[current].is_tombstone() {
+            continue;
+        }
+        let previous = (0..current).rev().find(|&previous| {
+            !block.declarations[previous].is_tombstone()
+                && block.is_important(previous) == block.is_important(current)
+                && block.declarations[previous].name() == block.declarations[current].name()
+                && block.declarations[previous].vendor_prefix()
+                    == block.declarations[current].vendor_prefix()
+        });
+        if let Some(previous) = previous
+            && block.declarations[previous] == block.declarations[current]
+        {
+            block.declarations[previous] = Declaration::Tombstone;
+            cx.record_declaration_removed();
+        }
     }
 }
 

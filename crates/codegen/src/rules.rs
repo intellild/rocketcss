@@ -1316,6 +1316,14 @@ impl ToCss for Navigation {
     }
 }
 
+impl ToCss for CharsetRule<'_> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        dest.write_str("@charset ")?;
+        serialize_string(self.encoding, dest)?;
+        dest.write_char(';')
+    }
+}
+
 impl ToCss for DefaultAtRule {
     fn to_css<PrinterT: PrinterTrait>(&self, _dest: &mut PrinterT) -> fmt::Result {
         Ok(())
@@ -1329,14 +1337,14 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
     let mut first = true;
     let mut last_without_block = false;
     for rule in rules {
-        if matches!(rule, CssRule::Ignored) {
-            continue;
-        }
         if !first {
             if !last_without_block
                 || !matches!(
                     rule,
-                    CssRule::Import(_) | CssRule::Namespace(_) | CssRule::LayerStatement(_)
+                    CssRule::Charset(_)
+                        | CssRule::Import(_)
+                        | CssRule::Namespace(_)
+                        | CssRule::LayerStatement(_)
                 )
             {
                 dest.blank_line()?;
@@ -1348,7 +1356,10 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
         rule.to_css(dest)?;
         last_without_block = matches!(
             rule,
-            CssRule::Import(_) | CssRule::Namespace(_) | CssRule::LayerStatement(_)
+            CssRule::Charset(_)
+                | CssRule::Import(_)
+                | CssRule::Namespace(_)
+                | CssRule::LayerStatement(_)
         );
     }
     Ok(())
@@ -1380,12 +1391,13 @@ fn write_declarations<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
 ) -> fmt::Result {
-    for (index, (declaration, important)) in declarations.iter().enumerate() {
+    let mut declarations = declarations.iter_live().peekable();
+    while let Some((declaration, important)) = declarations.next() {
         declaration.to_css(dest)?;
         if important {
             dest.write_str(" !important")?;
         }
-        let has_next = index + 1 < declarations.len();
+        let has_next = declarations.peek().is_some();
         if has_next {
             dest.write_char(';')?;
         } else {
@@ -1487,7 +1499,7 @@ impl ToCss for StyleRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_empty() && !self.rules.is_empty() {
+            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             write_rule_list(&self.rules, dest)
@@ -1685,7 +1697,7 @@ impl ToCss for PageRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_empty() && !self.rules.is_empty() {
+            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             for (index, rule) in self.rules.iter().enumerate() {

@@ -52,6 +52,23 @@ fn stylesheet_implements_to_css() {
 }
 
 #[test]
+fn serializes_typed_charset_rules() {
+    let stylesheet = parse_stylesheet(r#"@CHARSET "UTF-8"; @import "theme.css";"#);
+    let CssRule::Charset(rule) = &stylesheet.rules[0] else {
+        panic!("expected charset rule")
+    };
+
+    assert_eq!(
+        rule.to_css_string(PrinterOptions::default()).unwrap(),
+        r#"@charset "UTF-8";"#
+    );
+    assert_eq!(
+        stylesheet.to_css_string(PrinterOptions::default()).unwrap(),
+        "@charset \"UTF-8\";\n@import \"theme.css\";\n"
+    );
+}
+
+#[test]
 fn compact_stylesheet_omits_optional_whitespace() {
     let stylesheet = parse_stylesheet(".foo { color: #ff00ff }");
     assert_eq!(
@@ -154,6 +171,33 @@ fn declaration_block_preserves_importance_bits() {
             .to_css_string(PrinterOptions::default())
             .unwrap(),
         "color: red !important;\nopacity: .5"
+    );
+}
+
+#[test]
+fn declaration_block_skips_tombstones() {
+    let allocator = Allocator::new();
+    let mut declarations = DeclarationBlock::new(&allocator);
+
+    declarations.push(Declaration::Tombstone, true);
+    assert!(declarations.is_output_empty());
+    assert_eq!(
+        declarations
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        ""
+    );
+
+    declarations.push(Declaration::All(CSSWideKeyword::Initial), false);
+    declarations.push(Declaration::Tombstone, true);
+    declarations.push(Declaration::All(CSSWideKeyword::Inherit), true);
+    declarations.push(Declaration::Tombstone, false);
+    assert!(!declarations.is_output_empty());
+    assert_eq!(
+        declarations
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "all: initial;\nall: inherit !important"
     );
 }
 

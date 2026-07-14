@@ -155,6 +155,7 @@ pub enum AstType {
     DropShadow,
     DefaultAtRule,
     StyleSheet,
+    CharsetRule,
     MediaRule,
     MediaList,
     MediaQuery,

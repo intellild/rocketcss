@@ -87,6 +87,8 @@ macro_rules! define_properties {
             All(CSSWideKeyword),
             Unparsed(Box<'a, UnparsedProperty<'a>>),
             Custom(Box<'a, CustomProperty<'a>>),
+            /// Tombstone for a declaration removed by an in-place transform.
+            Tombstone,
         }
 
         impl<'a> PropertyId<'a> {
@@ -159,6 +161,7 @@ macro_rules! define_properties {
                     Self::Custom(value) => match &*value.name {
                         CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
                     },
+                    Self::Tombstone => "",
                 }
             }
 
@@ -167,8 +170,14 @@ macro_rules! define_properties {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => declaration_prefix!($(vendor_prefix: $vp)?),)+
                     Self::Unparsed(value) => value.property_id.vendor_prefix(),
-                    Self::All(_) | Self::Custom(_) => VendorPrefix::NONE,
+                    Self::All(_) | Self::Custom(_) | Self::Tombstone => VendorPrefix::NONE,
                 }
+            }
+
+            /// Returns whether this declaration slot is an in-place tombstone.
+            #[inline]
+            pub fn is_tombstone(&self) -> bool {
+                matches!(self, Self::Tombstone)
             }
         }
     };

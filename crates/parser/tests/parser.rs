@@ -1,6 +1,22 @@
 use rocketcss_parser::prelude::*;
 
 #[test]
+fn parses_charset_as_a_typed_rule() {
+    let allocator = Allocator::new();
+    let source = r#"@CHARSET "\55 TF-8"; @import "theme.css";"#;
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+
+    assert_eq!(sheet.rules.len(), 2);
+    let CssRule::Charset(rule) = &sheet.rules[0] else {
+        panic!("expected charset rule")
+    };
+    assert_eq!(rule.encoding, "UTF-8");
+    assert_eq!(rule.span.start, 0);
+    assert!(!rule.span.is_dummy());
+    assert!(matches!(sheet.rules[1], CssRule::Import(_)));
+}
+
+#[test]
 fn parser_decodes_values_from_token_spans() {
     let allocator = Allocator::new();
     let mut input = ParserInput::new(

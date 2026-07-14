@@ -40,7 +40,6 @@ fn requires_nonlocal_or_rebuilding_transform(input: &Path) -> bool {
     let path = input.to_string_lossy();
     let unsupported_groups = [
         "/cssnano/custom-properties/",
-        "/cssnano/discard-duplicates/",
         "/cssnano/discard-empty/",
         "/cssnano/discard-overridden/",
         "/cssnano/minify-gradients/",
@@ -64,7 +63,8 @@ fn requires_nonlocal_or_rebuilding_transform(input: &Path) -> bool {
         "/cssnano/normalize-repeat/collapse/",
         "/cssnano/normalize-url/double-quote/",
         "/cssnano/normalize-url/single-quote/",
-        "/lightningcss/declarations/important/",
+        "/cssnano/discard-duplicates/declarations/",
+        "/cssnano/discard-duplicates/partial/",
         "/lightningcss/rules/keyframe-merge/",
         "/lightningcss/rules/merge-layer/",
         "/lightningcss/rules/merge-media/",

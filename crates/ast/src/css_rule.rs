@@ -4,6 +4,7 @@ use rocketcss_allocator::boxed::Box;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum CssRule<'a> {
+    Charset(Box<'a, CharsetRule<'a>>),
     Media(Box<'a, MediaRule<'a>>),
     Import(Box<'a, ImportRule<'a>>),
     Style(Box<'a, StyleRule<'a>>),
@@ -28,7 +29,6 @@ pub enum CssRule<'a> {
     StartingStyle(Box<'a, StartingStyleRule<'a>>),
     ViewTransition(Box<'a, ViewTransitionRule<'a>>),
     PositionTry(Box<'a, PositionTryRule<'a>>),
-    Ignored,
     Unknown(Box<'a, UnknownAtRule<'a>>),
     Custom(Box<'a, DefaultAtRule>),
 }
@@ -37,6 +37,7 @@ impl GetSpan for CssRule<'_> {
     #[inline]
     fn span(&self) -> Span {
         match self {
+            Self::Charset(rule) => rule.span(),
             Self::Media(rule) => rule.span(),
             Self::Import(rule) => rule.span(),
             Self::Style(rule) => rule.span(),
@@ -62,7 +63,7 @@ impl GetSpan for CssRule<'_> {
             Self::ViewTransition(rule) => rule.span(),
             Self::PositionTry(rule) => rule.span(),
             Self::Unknown(rule) => rule.span(),
-            Self::Ignored | Self::Custom(_) => DUMMY_SP,
+            Self::Custom(_) => DUMMY_SP,
         }
     }
 }

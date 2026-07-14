@@ -56,6 +56,7 @@ macro_rules! impl_spanned {
 
 impl_spanned!(
     Composes,
+    CharsetRule,
     KeyframesRule,
     FontFaceRule,
     FontPaletteValuesRule,

@@ -144,6 +144,9 @@ macro_rules! impl_declaration_to_css {
     ) => {
         impl ToCss for Declaration<'_> {
             fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+                if self.is_tombstone() {
+                    return Ok(());
+                }
                 self.vendor_prefix().to_css(dest)?;
                 match self {
                     Self::Custom(_) => serialize_name(self.name(), dest)?,
@@ -167,6 +170,7 @@ macro_rules! impl_declaration_to_css {
                     Self::All(value) => value.to_css(dest),
                     Self::Unparsed(value) => value.to_css(dest),
                     Self::Custom(value) => value.to_css(dest),
+                    Self::Tombstone => Ok(()),
                 }
             }
         }

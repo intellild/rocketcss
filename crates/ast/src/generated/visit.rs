@@ -646,6 +646,10 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
+    fn visit_charset_rule(&mut self, node: &CharsetRule<'a>) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
     fn visit_media_rule(&mut self, node: &MediaRule<'a>) {
         Visit::visit_children(node, self);
     }

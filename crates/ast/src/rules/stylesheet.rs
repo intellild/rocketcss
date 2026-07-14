@@ -15,6 +15,12 @@ pub struct StyleSheet<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
+pub struct CharsetRule<'a> {
+    pub encoding: &'a str,
+    pub span: Span,
+}
+
+#[derive(Debug, PartialEq, Visit)]
 pub struct MediaRule<'a> {
     pub span: Span,
     pub query: MediaList<'a>,
@@ -448,6 +454,12 @@ impl<'a> DeclarationBlock<'a> {
         self.len() == 0
     }
 
+    /// Returns whether this block has no declarations that should be emitted.
+    #[inline]
+    pub fn is_output_empty(&self) -> bool {
+        self.declarations.iter().all(Declaration::is_tombstone)
+    }
+
     #[inline]
     pub fn is_important(&self, index: usize) -> bool {
         debug_assert_eq!(self.declarations.len(), self.declarations_importance.len());
@@ -460,5 +472,12 @@ impl<'a> DeclarationBlock<'a> {
         self.declarations
             .iter()
             .zip(self.declarations_importance.iter())
+    }
+
+    /// Iterates over declarations that have not been replaced by tombstones.
+    #[inline]
+    pub fn iter_live(&self) -> impl DoubleEndedIterator<Item = (&Declaration<'a>, bool)> {
+        self.iter()
+            .filter(|(declaration, _)| !declaration.is_tombstone())
     }
 }

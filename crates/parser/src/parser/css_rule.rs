@@ -70,7 +70,7 @@ pub(super) fn parse_rule_list<'i, 't>(
             Ok(rule) => {
                 if depth == 0 {
                     top_level_state = match &rule {
-                        CssRule::Ignored => top_level_state,
+                        CssRule::Charset(_) => top_level_state,
                         CssRule::Import(_) => TopLevelState::Imports,
                         CssRule::Namespace(_) => TopLevelState::Namespaces,
                         CssRule::LayerStatement(_) if top_level_state <= TopLevelState::Layers => {
@@ -229,8 +229,11 @@ pub(super) fn parse_at_rule<'i, 't>(
         if !matches!(ending, Ending::Semicolon | Ending::None) {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
-        validate_charset(raw_prelude, allocator)?;
-        CssRule::Ignored
+        let encoding = parse_charset(raw_prelude, allocator)?;
+        CssRule::Charset(allocator.boxed(CharsetRule {
+            encoding,
+            span: span_from(start, input.position()),
+        }))
     } else if name.eq_ignore_ascii_case("namespace") {
         if !matches!(ending, Ending::Semicolon | Ending::None) {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));

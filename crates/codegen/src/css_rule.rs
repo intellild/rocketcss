@@ -3,6 +3,7 @@ use crate::prelude::*;
 impl ToCss for CssRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
+            Self::Charset(value) => value.to_css(dest),
             Self::Media(value) => value.to_css(dest),
             Self::Import(value) => value.to_css(dest),
             Self::Style(value) => value.to_css(dest),
@@ -27,7 +28,7 @@ impl ToCss for CssRule<'_> {
             Self::StartingStyle(value) => value.to_css(dest),
             Self::ViewTransition(value) => value.to_css(dest),
             Self::PositionTry(value) => value.to_css(dest),
-            Self::Ignored | Self::Custom(_) => Ok(()),
+            Self::Custom(_) => Ok(()),
             Self::Unknown(value) => value.to_css(dest),
         }
     }
