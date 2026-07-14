@@ -69,9 +69,212 @@ pub struct Function<'a> {
     pub arguments: Vec<'a, TokenOrValue<'a>>,
     #[visit(skip)]
     flags: FunctionFlags,
-    pub name: &'a str,
+    #[visit(skip)]
+    kind: KnownFunction,
+    name: &'a str,
     /// A simple value serialized from this existing function node.
     pub replacement: Option<FunctionReplacement>,
+}
+
+/// A function name recognized by RocketCSS.
+///
+/// The original function name remains on [`Function`] so parsing and code
+/// generation stay lossless. This enum gives downstream passes a shared,
+/// ASCII case-insensitive identity without repeating string matching.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum KnownFunction {
+    Abs,
+    Calc,
+    Clamp,
+    Color,
+    ColorMix,
+    Constant,
+    ConicGradient,
+    CubicBezier,
+    Env,
+    Frames,
+    Hsl,
+    Hsla,
+    Hwb,
+    Hypot,
+    Lab,
+    Lch,
+    Linear,
+    LinearGradient,
+    Local,
+    Matrix,
+    Matrix3d,
+    Max,
+    Min,
+    Mod,
+    RadialGradient,
+    Rem,
+    RepeatingConicGradient,
+    RepeatingLinearGradient,
+    RepeatingRadialGradient,
+    Rgb,
+    Rgba,
+    Rotate,
+    RotateX,
+    RotateY,
+    Rotate3d,
+    RotateZ,
+    Round,
+    Scale,
+    ScaleX,
+    ScaleY,
+    ScaleZ,
+    Scale3d,
+    Sign,
+    Steps,
+    Translate,
+    TranslateY,
+    TranslateZ,
+    Translate3d,
+    Url,
+    Var,
+    #[default]
+    Unknown,
+}
+
+impl KnownFunction {
+    /// Resolves a function name using CSS ASCII case-insensitive matching.
+    pub fn from_name(name: &str) -> Self {
+        Self::classify(name).0
+    }
+
+    fn classify(name: &str) -> (Self, bool) {
+        let kind = Self::from_unprefixed_name(name);
+        if kind != Self::Unknown {
+            return (kind, false);
+        }
+
+        let unprefixed_name = name
+            .strip_prefix('-')
+            .and_then(|name| name.split_once('-').map(|(_, name)| name));
+        let Some(unprefixed_name) = unprefixed_name else {
+            return (Self::Unknown, false);
+        };
+        let kind = Self::from_unprefixed_name(unprefixed_name);
+        if kind.is_math() || kind.is_gradient() {
+            (kind, true)
+        } else {
+            (Self::Unknown, false)
+        }
+    }
+
+    fn from_unprefixed_name(name: &str) -> Self {
+        match_ignore_ascii_case!(
+            name,
+            "abs" => Self::Abs,
+            "calc" => Self::Calc,
+            "clamp" => Self::Clamp,
+            "color" => Self::Color,
+            "color-mix" => Self::ColorMix,
+            "constant" => Self::Constant,
+            "conic-gradient" => Self::ConicGradient,
+            "cubic-bezier" => Self::CubicBezier,
+            "env" => Self::Env,
+            "frames" => Self::Frames,
+            "hsl" => Self::Hsl,
+            "hsla" => Self::Hsla,
+            "hwb" => Self::Hwb,
+            "hypot" => Self::Hypot,
+            "lab" => Self::Lab,
+            "lch" => Self::Lch,
+            "linear" => Self::Linear,
+            "linear-gradient" => Self::LinearGradient,
+            "local" => Self::Local,
+            "matrix" => Self::Matrix,
+            "matrix3d" => Self::Matrix3d,
+            "max" => Self::Max,
+            "min" => Self::Min,
+            "mod" => Self::Mod,
+            "radial-gradient" => Self::RadialGradient,
+            "rem" => Self::Rem,
+            "repeating-conic-gradient" => Self::RepeatingConicGradient,
+            "repeating-linear-gradient" => Self::RepeatingLinearGradient,
+            "repeating-radial-gradient" => Self::RepeatingRadialGradient,
+            "rgb" => Self::Rgb,
+            "rgba" => Self::Rgba,
+            "rotate" => Self::Rotate,
+            "rotatex" => Self::RotateX,
+            "rotatey" => Self::RotateY,
+            "rotate3d" => Self::Rotate3d,
+            "rotatez" => Self::RotateZ,
+            "round" => Self::Round,
+            "scale" => Self::Scale,
+            "scalex" => Self::ScaleX,
+            "scaley" => Self::ScaleY,
+            "scalez" => Self::ScaleZ,
+            "scale3d" => Self::Scale3d,
+            "sign" => Self::Sign,
+            "steps" => Self::Steps,
+            "translate" => Self::Translate,
+            "translatey" => Self::TranslateY,
+            "translatez" => Self::TranslateZ,
+            "translate3d" => Self::Translate3d,
+            "url" => Self::Url,
+            "var" => Self::Var,
+            _ => Self::Unknown,
+        )
+    }
+
+    /// Returns whether this function participates in math value parsing.
+    pub const fn is_math(self) -> bool {
+        matches!(
+            self,
+            Self::Abs
+                | Self::Calc
+                | Self::Clamp
+                | Self::Hypot
+                | Self::Max
+                | Self::Min
+                | Self::Mod
+                | Self::Rem
+                | Self::Round
+                | Self::Sign
+        )
+    }
+
+    /// Returns whether this function is accepted as a basic calculated value.
+    pub const fn is_math_value(self) -> bool {
+        matches!(self, Self::Calc | Self::Min | Self::Max | Self::Clamp)
+    }
+
+    /// Returns whether this is a gradient function.
+    pub const fn is_gradient(self) -> bool {
+        matches!(
+            self,
+            Self::LinearGradient
+                | Self::RepeatingLinearGradient
+                | Self::RadialGradient
+                | Self::RepeatingRadialGradient
+                | Self::ConicGradient
+                | Self::RepeatingConicGradient
+        )
+    }
+
+    /// Returns whether this function resolves a variable or environment value.
+    pub const fn is_variable(self) -> bool {
+        matches!(self, Self::Var | Self::Env | Self::Constant)
+    }
+
+    /// Returns whether this is a color function handled by the minifier.
+    pub const fn is_color(self) -> bool {
+        matches!(
+            self,
+            Self::Rgb
+                | Self::Rgba
+                | Self::Hsl
+                | Self::Hsla
+                | Self::Hwb
+                | Self::Lab
+                | Self::Lch
+                | Self::Color
+        )
+    }
 }
 
 bitflags! {
@@ -84,6 +287,8 @@ bitflags! {
         const IS_IDENTIFIER = 1 << 0;
         /// Emit a quoted `url()` argument directly when it is safe to unquote.
         const UNQUOTED_URL = 1 << 1;
+        /// The known identity was resolved after removing a vendor prefix.
+        const VENDOR_PREFIXED = 1 << 2;
     }
 }
 
@@ -91,12 +296,44 @@ impl<'a> Function<'a> {
     /// Creates a function with no minifier serialization state.
     #[inline]
     pub fn new(name: &'a str, arguments: Vec<'a, TokenOrValue<'a>>) -> Self {
+        let (kind, vendor_prefixed) = KnownFunction::classify(name);
+        let mut flags = FunctionFlags::empty();
+        flags.set(FunctionFlags::VENDOR_PREFIXED, vendor_prefixed);
         Self {
             arguments,
-            flags: FunctionFlags::empty(),
+            flags,
+            kind,
             name,
             replacement: None,
         }
+    }
+
+    /// Returns the original function name.
+    #[inline]
+    pub const fn name(&self) -> &'a str {
+        self.name
+    }
+
+    /// Returns the shared identity for a recognized function name.
+    #[inline]
+    pub const fn kind(&self) -> KnownFunction {
+        self.kind
+    }
+
+    /// Updates the lossless function name and its recognized identity together.
+    #[inline]
+    pub fn set_name(&mut self, name: &'a str) {
+        let (kind, vendor_prefixed) = KnownFunction::classify(name);
+        self.name = name;
+        self.kind = kind;
+        self.flags
+            .set(FunctionFlags::VENDOR_PREFIXED, vendor_prefixed);
+    }
+
+    /// Returns whether the known identity came from a vendor-prefixed name.
+    #[inline]
+    pub const fn is_vendor_prefixed(&self) -> bool {
+        self.flags.contains(FunctionFlags::VENDOR_PREFIXED)
     }
 
     /// Returns whether this function serializes as an identifier.

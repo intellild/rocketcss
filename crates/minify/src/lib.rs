@@ -105,7 +105,8 @@ impl<'a> VisitorMut<'a> for Minifier<'_> {
 
     fn visit_function(&mut self, node: &mut Function<'a>) {
         let previous = self.cx.value_context;
-        if is_math_function(node.name) {
+        let kind = node.kind();
+        if kind.is_math() {
             self.cx.value_context.set_enabled(
                 context::ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH
                     | context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
@@ -113,23 +114,22 @@ impl<'a> VisitorMut<'a> for Minifier<'_> {
             );
             self.cx.value_context.property = context::PropertyContext::Generic;
         }
-        match_ignore_ascii_case!(
-            node.name,
-            "hwb" => self.cx.value_context.set_enabled(
+        match kind {
+            KnownFunction::Hwb => self.cx.value_context.set_enabled(
                 context::ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH
                     | context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
                 false,
             ),
-            "color-mix" | "linear" => self.cx.value_context.set_enabled(
+            KnownFunction::ColorMix | KnownFunction::Linear => self.cx.value_context.set_enabled(
                 context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
                 false,
             ),
-            _ => {},
-        );
-        if rules::is_gradient_function(node.name) {
+            _ => {}
+        }
+        if kind.is_gradient() {
             self.cx.value_context.property = context::PropertyContext::Generic;
         }
-        if match_ignore_ascii_case!(node.name, "local" => true, _ => false) {
+        if kind == KnownFunction::Local {
             self.cx
                 .value_context
                 .set_enabled(context::ValueContextFlags::MINIFY_COLORS, false);
@@ -201,18 +201,6 @@ impl<'a> VisitorMut<'a> for Minifier<'_> {
     }
 }
 
-fn is_math_function(name: &str) -> bool {
-    let name = name
-        .strip_prefix('-')
-        .and_then(|name| name.split_once('-').map(|(_, name)| name))
-        .unwrap_or(name);
-    match_ignore_ascii_case!(
-        name,
-        "calc" | "min" | "max" | "clamp" | "round" | "rem" | "mod" | "abs" | "sign" | "hypot" => true,
-        _ => false,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use rocketcss_allocator::Allocator;
@@ -273,6 +261,18 @@ mod tests {
             "a{width:6px;height:125px}"
         );
         assert_eq!(run("a{width:calc(0px + 1em)}"), "a{width:calc(0px + 1em)}");
+    }
+
+    #[test]
+    fn dispatches_known_functions_without_repeated_name_matching() {
+        assert_eq!(
+            run("a{color:RGB(255 0 0);transform:ROTATEZ(1turn)}"),
+            "a{color:red;transform:rotate(1turn)}"
+        );
+        assert_eq!(
+            run("a{width:-WEBKIT-CALC(3px * 2)}"),
+            "a{width:-WEBKIT-CALC(3px*2)}"
+        );
     }
 
     #[test]

@@ -63,6 +63,17 @@ fn compact_stylesheet_omits_optional_whitespace() {
 }
 
 #[test]
+fn function_codegen_uses_known_identity_and_preserves_original_name() {
+    let stylesheet = parse_stylesheet("a{color:VAR(--x,);width:CuStOm(1)}");
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "a{color:VAR(--x, );width:CuStOm(1)}"
+    );
+}
+
+#[test]
 fn serializes_packed_rgb_and_rgba_hex_values() {
     for (color, expected) in [
         (

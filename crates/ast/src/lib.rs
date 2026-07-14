@@ -63,6 +63,7 @@ const _: () = {
     use std::mem::size_of;
 
     assert!(size_of::<VendorPrefix>() == 1);
+    assert!(size_of::<KnownFunction>() == 1);
     assert!(size_of::<CssRule<'_>>() == 16);
     assert!(size_of::<Declaration<'_>>() == 32);
     assert!(size_of::<Token<'_>>() == 24);
@@ -132,14 +133,38 @@ mod tests {
         let allocator = Allocator::new();
         let mut function = Function::new("url", allocator.vec());
 
+        assert_eq!(function.name(), "url");
+        assert_eq!(function.kind(), KnownFunction::Url);
+        assert!(!function.is_vendor_prefixed());
         assert!(!function.is_identifier());
         assert!(!function.is_unquoted_url());
 
+        function.set_name("VAR");
         function.set_identifier(true);
         function.set_unquoted_url(true);
 
+        assert_eq!(function.name(), "VAR");
+        assert_eq!(function.kind(), KnownFunction::Var);
+        assert!(!function.is_vendor_prefixed());
         assert!(function.is_identifier());
         assert!(function.is_unquoted_url());
+    }
+
+    #[test]
+    fn known_function_classifies_case_and_supported_vendor_prefixes() {
+        let allocator = Allocator::new();
+        assert_eq!(KnownFunction::from_name("RGB"), KnownFunction::Rgb);
+        assert_eq!(
+            KnownFunction::from_name("-WEBKIT-LINEAR-GRADIENT"),
+            KnownFunction::LinearGradient,
+        );
+        assert_eq!(KnownFunction::from_name("-moz-calc"), KnownFunction::Calc,);
+        let function = Function::new("-moz-calc", allocator.vec());
+        assert!(function.is_vendor_prefixed());
+        assert_eq!(
+            KnownFunction::from_name("custom-function"),
+            KnownFunction::Unknown,
+        );
     }
 
     #[test]

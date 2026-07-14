@@ -363,7 +363,7 @@ impl ToCss for Function<'_> {
                 } => write_minified_rgba(red, green, blue, alpha, use_hex, dest),
             };
         }
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(self.name(), dest)?;
         if self.is_identifier() {
             return Ok(());
         }
@@ -379,11 +379,8 @@ impl ToCss for Function<'_> {
             return dest.write_char(')');
         }
         write_token_list(&self.arguments, dest)?;
-        if match_ignore_ascii_case!(
-            self.name,
-            "var" | "env" | "constant" => true,
-            _ => false,
-        ) && matches!(self.arguments.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
+        if self.kind().is_variable()
+            && matches!(self.arguments.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
         {
             dest.write_char(' ')?;
         }

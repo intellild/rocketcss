@@ -151,10 +151,10 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
     assert!(matches!(
         &width.value[0],
         TokenOrValue::Function(function)
-            if function.name == "calc"
+            if function.name() == "calc"
                 && function.arguments.iter().any(|value| matches!(
                     value,
-                    TokenOrValue::Function(nested) if nested.name == "var"
+                    TokenOrValue::Function(nested) if nested.name() == "var"
                 ))
     ));
 }
@@ -682,7 +682,7 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
         Declaration::Unparsed(value)
             if matches!(&*value.property_id, PropertyId::Width)
                 && matches!(&value.value[0], TokenOrValue::Function(function)
-                    if function.name.eq_ignore_ascii_case("calc"))
+                    if function.name().eq_ignore_ascii_case("calc"))
     ));
     assert!(style.declarations.is_important(1));
     assert!(matches!(
@@ -701,7 +701,7 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
         Declaration::Custom(value)
             if matches!(&*value.name, CustomPropertyName::Custom("--theme"))
                 && value.value.iter().any(|token| matches!(token,
-                    TokenOrValue::Function(function) if function.name == "fn"))
+                    TokenOrValue::Function(function) if function.name() == "fn"))
     ));
     assert!(style.declarations.is_important(4));
     assert!(matches!(
