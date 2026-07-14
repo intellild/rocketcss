@@ -3,7 +3,8 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_allocator::Allocator;
-use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_benchmark::WRITER_CAPACITY_PADDING;
+use rocketcss_codegen::{Printer, PrinterOptions, ToCss};
 use rocketcss_parser::prelude::StyleSheet;
 
 const BOOTSTRAP: &str = include_str!("../files/bootstrap.css");
@@ -96,12 +97,15 @@ fn codegen(bencher: Bencher<'_, '_>) {
         })
         .bench_local_values(|input| {
             for _ in 0..ITERATIONS {
-                black_box(
-                    input
-                        .stylesheet
-                        .to_css_string(PrinterOptions { prettify: false })
-                        .unwrap(),
-                );
+                let mut output = String::with_capacity(BOOTSTRAP.len() + WRITER_CAPACITY_PADDING);
+                input
+                    .stylesheet
+                    .to_css(&mut Printer::new(
+                        &mut output,
+                        PrinterOptions { prettify: false },
+                    ))
+                    .unwrap();
+                black_box(output);
             }
         });
 }

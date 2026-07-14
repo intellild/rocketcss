@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_allocator::Allocator;
-use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_benchmark::WRITER_CAPACITY_PADDING;
+use rocketcss_codegen::{Printer, PrinterOptions, ToCss};
 
 const BOOTSTRAP: &str = include_str!("../files/bootstrap.css");
 
@@ -33,8 +34,12 @@ fn rocketcss(bencher: Bencher<'_, '_>) {
             )
             .unwrap();
             rocketcss_minify::minify(&mut stylesheet, rocketcss_minify::MinifyOptions::default());
-            let output = stylesheet
-                .to_css_string(PrinterOptions { prettify: false })
+            let mut output = String::with_capacity(BOOTSTRAP.len() + WRITER_CAPACITY_PADDING);
+            stylesheet
+                .to_css(&mut Printer::new(
+                    &mut output,
+                    PrinterOptions { prettify: false },
+                ))
                 .unwrap();
             black_box(output);
         });

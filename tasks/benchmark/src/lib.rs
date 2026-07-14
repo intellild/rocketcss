@@ -8,6 +8,8 @@ pub struct BenchCase {
     pub source: &'static str,
 }
 
+pub const WRITER_CAPACITY_PADDING: usize = 1024;
+
 impl fmt::Display for BenchCase {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.name)
