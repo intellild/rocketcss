@@ -123,7 +123,7 @@ macro_rules! define_properties {
             }
 
             /// Returns the canonical CSS property name.
-            pub fn name(&self) -> &str {
+            pub fn name(&self) -> &'a str {
                 match self {
                     $(property_id_pattern!(Self::$property$(, $vp)?) => $name,)+
                     Self::ColumnRule => "column-rule",
@@ -151,9 +151,9 @@ macro_rules! define_properties {
             }
         }
 
-        impl Declaration<'_> {
+        impl<'a> Declaration<'a> {
             /// Returns the canonical CSS property name.
-            pub fn name(&self) -> &str {
+            pub fn name(&self) -> &'a str {
                 match self {
                     $(Self::$property(..) => $name,)+
                     Self::All(_) => "all",

@@ -360,6 +360,68 @@ mod tests {
     }
 
     #[test]
+    fn minifies_box_longhands_through_single_pass_ir() {
+        assert_eq!(
+            run("a{margin-top:10px;margin-right:20px;margin-bottom:10px;margin-left:20px}"),
+            "a{margin:10px 20px}"
+        );
+        assert_eq!(
+            run("a{padding-left:4px;padding-top:1px;padding-bottom:3px;padding-right:2px}"),
+            "a{padding:1px 2px 3px 4px}"
+        );
+        assert_eq!(
+            run("a{margin-top:1px;margin-right:2px;margin:3px}"),
+            "a{margin:3px}"
+        );
+        assert_eq!(
+            run("a{padding:1px;padding-left:2px}"),
+            "a{padding:1px 1px 1px 2px}"
+        );
+        assert_eq!(
+            run("a{margin:1px 2px;margin-left:2px}"),
+            "a{margin:1px 2px}"
+        );
+        assert_eq!(
+            run(
+                "a{margin-top:1px!important;margin-right:1px!important;margin-bottom:1px!important;margin-left:1px!important}"
+            ),
+            "a{margin:1px !important}"
+        );
+    }
+
+    #[test]
+    fn box_ir_preserves_fallback_and_logical_property_barriers() {
+        assert_eq!(
+            run("a{margin:inherit;margin-left:1px}"),
+            "a{margin:inherit;margin-left:1px}"
+        );
+        assert_eq!(
+            run("a{margin:1px;margin-left:var(--space)}"),
+            "a{margin:1px;margin-left:var(--space)}"
+        );
+        assert_eq!(
+            run("a{margin-left:1px;margin:invalid}"),
+            "a{margin-left:1px;margin:invalid}"
+        );
+        assert_eq!(
+            run("a{padding-left:1px;padding:auto}"),
+            "a{padding-left:1px;padding:auto}"
+        );
+        assert_eq!(
+            run(
+                "a{margin-top:1px;margin-inline-start:2px;margin-right:3px;margin-bottom:4px;margin-left:5px}"
+            ),
+            "a{margin-top:1px;margin-inline-start:2px;margin-right:3px;margin-bottom:4px;margin-left:5px}"
+        );
+        assert_eq!(
+            run(
+                "a{padding-top:1px!important;padding-right:1px;padding-bottom:1px;padding-left:1px}"
+            ),
+            "a{padding-top:1px !important;padding-right:1px;padding-bottom:1px;padding-left:1px}"
+        );
+    }
+
+    #[test]
     fn keeps_existing_token_storage() {
         let allocator = Allocator::new();
         let mut stylesheet = parse(
