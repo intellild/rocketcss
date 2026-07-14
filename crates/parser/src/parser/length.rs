@@ -1,53 +1,49 @@
-use super::values::single_token;
 use crate::prelude::*;
 
-pub(super) fn parse_size<'i>(
-    value: &[TokenOrValue<'i>],
-    allocator: &'i Allocator,
-) -> Option<Size<'i>> {
-    let token = single_token(value)?;
-    match token {
-        ValueToken::Ident(name) if name.eq_ignore_ascii_case("auto") => Some(Size::Auto),
-        ValueToken::Ident(name) if name.eq_ignore_ascii_case("min-content") => {
-            Some(Size::MinContent {
+impl<'i> Parse<'i> for Size<'i> {
+    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let allocator = input.allocator();
+        let location = input.current_source_location();
+        let token = input.next()?.clone();
+        match token {
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("auto") => Ok(Size::Auto),
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("min-content") => {
+                Ok(Size::MinContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("max-content") => {
+                Ok(Size::MaxContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("fit-content") => {
+                Ok(Size::FitContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("stretch") => Ok(Size::Stretch {
                 vendor_prefix: VendorPrefix::NONE,
-            })
-        }
-        ValueToken::Ident(name) if name.eq_ignore_ascii_case("max-content") => {
-            Some(Size::MaxContent {
-                vendor_prefix: VendorPrefix::NONE,
-            })
-        }
-        ValueToken::Ident(name) if name.eq_ignore_ascii_case("fit-content") => {
-            Some(Size::FitContent {
-                vendor_prefix: VendorPrefix::NONE,
-            })
-        }
-        ValueToken::Ident(name) if name.eq_ignore_ascii_case("stretch") => Some(Size::Stretch {
-            vendor_prefix: VendorPrefix::NONE,
-        }),
-        ValueToken::Ident(name) if name.eq_ignore_ascii_case("contain") => Some(Size::Contain),
-        ValueToken::Percentage(value) => Some(Size::LengthPercentage(
-            allocator.boxed(DimensionPercentage::Percentage(*value)),
-        )),
-        ValueToken::Dimension { unit, value } => {
-            let unit = parse_length_unit(unit)?;
-            Some(Size::LengthPercentage(allocator.boxed(
-                DimensionPercentage::Dimension(allocator.boxed(LengthValue {
-                    unit,
-                    value: *value,
-                })),
-            )))
-        }
-        ValueToken::Number(value) if *value == 0.0 => {
-            Some(Size::LengthPercentage(allocator.boxed(
+            }),
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("contain") => Ok(Size::Contain),
+            ValueToken::Percentage(value) => Ok(Size::LengthPercentage(
+                allocator.boxed(DimensionPercentage::Percentage(value)),
+            )),
+            ValueToken::Dimension { unit, value } => {
+                let unit = parse_length_unit(&unit)
+                    .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
+                Ok(Size::LengthPercentage(allocator.boxed(
+                    DimensionPercentage::Dimension(allocator.boxed(LengthValue { unit, value })),
+                )))
+            }
+            ValueToken::Number(0.0) => Ok(Size::LengthPercentage(allocator.boxed(
                 DimensionPercentage::Dimension(allocator.boxed(LengthValue {
                     unit: LengthUnit::Px,
                     value: 0.0,
                 })),
-            )))
+            ))),
+            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
-        _ => None,
     }
 }
 

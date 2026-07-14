@@ -619,7 +619,7 @@ fn declaration_error_recovery_continues_at_semicolon() {
 fn parses_typed_core_property_values() {
     let allocator = Allocator::new();
     let sheet = parse(
-        "a { color: #0f08; background-color: currentColor; display: inline-flex; visibility: hidden; width: 10rem; height: 25%; }",
+        "a { color: #0f08; background-color: currentColor; display: inline-flex; visibility: hidden; width: 10rem; height: 25%; all: revert-layer; }",
         &allocator,
         ParserOptions::default(),
     )
@@ -645,6 +645,72 @@ fn parses_typed_core_property_values() {
     ));
     assert!(matches!(&declarations[4], Declaration::Width(_)));
     assert!(matches!(&declarations[5], Declaration::Height(_)));
+    assert!(matches!(
+        &declarations[6],
+        Declaration::All(CSSWideKeyword::RevertLayer)
+    ));
+}
+
+#[test]
+fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        r#"a {
+            COLOR: red ! IMPORTANT;
+            WIDTH: calc(100% - var(--gap)) !important;
+            -WEBKIT-TRANSFORM: translateX(1px);
+            future-property: fn(!important);
+            --theme: fn(!important) !important;
+            opacity: .5 !urgent;
+            height: 10px;
+        }"#,
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    let declarations = &style.declarations.declarations;
+
+    assert_eq!(declarations.len(), 7);
+    assert!(matches!(&declarations[0], Declaration::Color(_)));
+    assert!(style.declarations.is_important(0));
+
+    assert!(matches!(
+        &declarations[1],
+        Declaration::Unparsed(value)
+            if matches!(&*value.property_id, PropertyId::Width)
+                && matches!(&value.value[0], TokenOrValue::Function(function)
+                    if function.name.eq_ignore_ascii_case("calc"))
+    ));
+    assert!(style.declarations.is_important(1));
+    assert!(matches!(
+        &declarations[2],
+        Declaration::Unparsed(value)
+            if matches!(&*value.property_id, PropertyId::Transform(prefix)
+                if prefix.contains(VendorPrefix::WEBKIT))
+    ));
+    assert!(matches!(
+        &declarations[3],
+        Declaration::Unparsed(value)
+            if matches!(&*value.property_id, PropertyId::Custom("future-property"))
+    ));
+    assert!(matches!(
+        &declarations[4],
+        Declaration::Custom(value)
+            if matches!(&*value.name, CustomPropertyName::Custom("--theme"))
+                && value.value.iter().any(|token| matches!(token,
+                    TokenOrValue::Function(function) if function.name == "fn"))
+    ));
+    assert!(style.declarations.is_important(4));
+    assert!(matches!(
+        &declarations[5],
+        Declaration::Unparsed(value)
+            if matches!(&*value.property_id, PropertyId::Opacity)
+    ));
+    assert!(!style.declarations.is_important(5));
+    assert!(matches!(&declarations[6], Declaration::Height(_)));
 }
 
 #[test]

@@ -1,11 +1,4 @@
-use super::{
-    color::parse_color,
-    length::parse_size,
-    values::{
-        collect_tokens, css_wide_keyword, remove_important, single_token, token_ident,
-        trim_leading_whitespace,
-    },
-};
+use super::values::{collect_tokens, css_wide_keyword, remove_important, trim_leading_whitespace};
 use crate::prelude::*;
 
 pub(super) fn parse_declaration<'i, 't>(
@@ -14,6 +7,19 @@ pub(super) fn parse_declaration<'i, 't>(
     name: &'i str,
     depth: usize,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
+    let property_id = PropertyId::from_name(name);
+
+    if !name.starts_with("--") {
+        let start = input.state();
+        if let Some(Ok(declaration)) = try_parse_typed_declaration(input, &property_id, allocator)
+            && let Some(important) = parse_declaration_end(input)
+        {
+            let _ = input.try_parse(Parser::expect_semicolon);
+            return Ok((declaration, important));
+        }
+        input.reset(&start);
+    }
+
     let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
         collect_tokens(input, allocator, depth + 1)
     })?;
@@ -27,121 +33,104 @@ pub(super) fn parse_declaration<'i, 't>(
         }))
     } else {
         trim_leading_whitespace(&mut value);
-        if let Some(declaration) = parse_typed_declaration(name, &value, allocator) {
-            declaration
-        } else if name.eq_ignore_ascii_case("all") && value.len() == 1 {
-            match token_ident(&value[0]).and_then(css_wide_keyword) {
-                Some(keyword) => Declaration::All(keyword),
-                None => unparsed_declaration(name, value, allocator),
-            }
-        } else {
-            unparsed_declaration(name, value, allocator)
-        }
+        unparsed_declaration(property_id, value, allocator)
     };
 
     Ok((declaration, important))
 }
 
 pub(super) fn unparsed_declaration<'i>(
-    name: &'i str,
+    property_id: PropertyId<'i>,
     value: Vec<'i, TokenOrValue<'i>>,
     allocator: &'i Allocator,
 ) -> Declaration<'i> {
     Declaration::Unparsed(allocator.boxed(UnparsedProperty {
-        property_id: allocator.boxed(PropertyId::from_name(name)),
+        property_id: allocator.boxed(property_id),
         value,
     }))
 }
 
-pub(super) fn parse_typed_declaration<'i>(
-    name: &str,
-    value: &[TokenOrValue<'i>],
+fn try_parse_typed_declaration<'i, 't>(
+    input: &mut Parser<'i, 't>,
+    property_id: &PropertyId<'i>,
     allocator: &'i Allocator,
-) -> Option<Declaration<'i>> {
-    if name.eq_ignore_ascii_case("color") {
-        return parse_color(value, allocator)
-            .map(|color| Declaration::Color(allocator.boxed(color)));
-    }
-    if name.eq_ignore_ascii_case("background-color") {
-        return parse_color(value, allocator)
-            .map(|color| Declaration::BackgroundColor(allocator.boxed(color)));
-    }
-    if name.eq_ignore_ascii_case("opacity") {
-        return match single_token(value)? {
-            ValueToken::Number(value) => Some(Declaration::Opacity(*value)),
-            ValueToken::Percentage(value) => Some(Declaration::Opacity(*value)),
-            _ => None,
+) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
+    let delimiters = Delimiter::Bang | Delimiter::Semicolon;
+    macro_rules! parse {
+        ($parser:expr) => {
+            Some(input.parse_until_before(delimiters, $parser))
         };
     }
-    if name.eq_ignore_ascii_case("visibility") {
-        let value = token_ident(value.first()?)?;
-        let visibility = match_ignore_ascii_case!(
-            value,
-            "visible" => Visibility::Visible,
-            "hidden" => Visibility::Hidden,
-            "collapse" => Visibility::Collapse,
-            _ => return None,
-        );
-        return Some(Declaration::Visibility(visibility));
-    }
-    if name.eq_ignore_ascii_case("display") {
-        return parse_display(value, allocator)
-            .map(|display| Declaration::Display(allocator.boxed(display)));
-    }
 
-    let size = parse_size(value, allocator)?;
-    let size = allocator.boxed(size);
-    match_ignore_ascii_case!(
-        name,
-        "width" => Some(Declaration::Width(size)),
-        "height" => Some(Declaration::Height(size)),
-        "min-width" => Some(Declaration::MinWidth(size)),
-        "min-height" => Some(Declaration::MinHeight(size)),
-        "block-size" => Some(Declaration::BlockSize(size)),
-        "inline-size" => Some(Declaration::InlineSize(size)),
-        "min-block-size" => Some(Declaration::MinBlockSize(size)),
-        "min-inline-size" => Some(Declaration::MinInlineSize(size)),
+    match property_id {
+        PropertyId::Color => parse!(|input| {
+            CssColor::parse(input).map(|value| Declaration::Color(allocator.boxed(value)))
+        }),
+        PropertyId::BackgroundColor => parse!(|input| {
+            CssColor::parse(input).map(|value| Declaration::BackgroundColor(allocator.boxed(value)))
+        }),
+        PropertyId::Opacity => {
+            parse!(|input| parse_opacity(input).map(Declaration::Opacity))
+        }
+        PropertyId::Visibility => {
+            parse!(|input| Visibility::parse(input).map(Declaration::Visibility))
+        }
+        PropertyId::Display => parse!(|input| {
+            Display::parse(input).map(|value| Declaration::Display(allocator.boxed(value)))
+        }),
+        property_id @ (PropertyId::Width
+        | PropertyId::Height
+        | PropertyId::MinWidth
+        | PropertyId::MinHeight
+        | PropertyId::BlockSize
+        | PropertyId::InlineSize
+        | PropertyId::MinBlockSize
+        | PropertyId::MinInlineSize) => parse!(|input| {
+            let value = allocator.boxed(Size::parse(input)?);
+            Ok(match property_id {
+                PropertyId::Width => Declaration::Width(value),
+                PropertyId::Height => Declaration::Height(value),
+                PropertyId::MinWidth => Declaration::MinWidth(value),
+                PropertyId::MinHeight => Declaration::MinHeight(value),
+                PropertyId::BlockSize => Declaration::BlockSize(value),
+                PropertyId::InlineSize => Declaration::InlineSize(value),
+                PropertyId::MinBlockSize => Declaration::MinBlockSize(value),
+                PropertyId::MinInlineSize => Declaration::MinInlineSize(value),
+                _ => unreachable!(),
+            })
+        }),
+        PropertyId::All => parse!(|input| {
+            let ident = input.expect_ident()?;
+            css_wide_keyword(ident)
+                .map(Declaration::All)
+                .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
+        }),
         _ => None,
-    )
+    }
 }
 
-pub(super) fn parse_display<'i>(
-    value: &[TokenOrValue<'i>],
-    allocator: &'i Allocator,
-) -> Option<Display<'i>> {
-    let ident = token_ident(value.first()?)?;
-    if value.len() != 1 {
-        return None;
+fn parse_declaration_end<'i, 't>(input: &mut Parser<'i, 't>) -> Option<bool> {
+    let important = input
+        .try_parse(|input| {
+            input.expect_delim('!')?;
+            input.expect_ident_matching("important")
+        })
+        .is_ok();
+    input
+        .parse_until_before(Delimiter::Semicolon, |input| {
+            input.expect_exhausted()?;
+            Ok::<_, ParseError<'i, ParserError<'i>>>(())
+        })
+        .ok()
+        .map(|()| important)
+}
+
+fn parse_opacity<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<f32, ParseError<'i, ParserError<'i>>> {
+    let location = input.current_source_location();
+    match input.next()?.clone() {
+        ValueToken::Number(value) | ValueToken::Percentage(value) => Ok(value),
+        _ => Err(location.new_custom_error(ParserError::InvalidValue)),
     }
-    let (outside, inside, is_list_item) = match_ignore_ascii_case!(
-        ident,
-        "none" => return Some(Display::Keyword(DisplayKeyword::None)),
-        "contents" => return Some(Display::Keyword(DisplayKeyword::Contents)),
-        "block" => (DisplayOutside::Block, DisplayInside::Flow, false),
-        "inline" => (DisplayOutside::Inline, DisplayInside::Flow, false),
-        "flow-root" => (DisplayOutside::Block, DisplayInside::FlowRoot, false),
-        "flex" => (
-            DisplayOutside::Block,
-            DisplayInside::Flex {
-                vendor_prefix: VendorPrefix::NONE,
-            },
-            false,
-        ),
-        "inline-flex" => (
-            DisplayOutside::Inline,
-            DisplayInside::Flex {
-                vendor_prefix: VendorPrefix::NONE,
-            },
-            false,
-        ),
-        "grid" => (DisplayOutside::Block, DisplayInside::Grid, false),
-        "inline-grid" => (DisplayOutside::Inline, DisplayInside::Grid, false),
-        "list-item" => (DisplayOutside::Block, DisplayInside::Flow, true),
-        _ => return None,
-    );
-    Some(Display::Pair {
-        inside: allocator.boxed(inside),
-        is_list_item,
-        outside,
-    })
 }

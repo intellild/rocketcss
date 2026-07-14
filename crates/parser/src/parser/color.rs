@@ -1,20 +1,21 @@
-use super::values::single_token;
 use crate::prelude::*;
 
-pub(super) fn parse_color<'i>(
-    value: &[TokenOrValue<'i>],
-    _allocator: &'i Allocator,
-) -> Option<CssColor<'i>> {
-    let token = single_token(value)?;
-    match token {
-        ValueToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => {
-            Some(CssColor::CurrentColor)
+impl<'i> Parse<'i> for CssColor<'i> {
+    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let location = input.current_source_location();
+        let token = input.next()?.clone();
+        match token {
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => {
+                Ok(CssColor::CurrentColor)
+            }
+            ValueToken::Ident(name) => named_color(name)
+                .map(CssColor::Rgba)
+                .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),
+            ValueToken::Hash(value) | ValueToken::IdHash(value) => parse_hex_color(value)
+                .map(CssColor::Rgba)
+                .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),
+            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
-        ValueToken::Ident(name) => named_color(name).map(CssColor::Rgba),
-        ValueToken::Hash(value) | ValueToken::IdHash(value) => {
-            parse_hex_color(value).map(CssColor::Rgba)
-        }
-        _ => None,
     }
 }
 
