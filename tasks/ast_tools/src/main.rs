@@ -159,37 +159,39 @@ fn main() {
     let mut properties = None;
     for name in AST_FILES {
         let module = format_ident!("{name}");
-        let source = fs::read_to_string(ast_src.join(format!("{name}.rs"))).unwrap();
-        let file = syn::parse_file(&source).unwrap();
-        for item in file.items {
-            match item {
-                Item::Struct(item) if is_public(&item.vis) => nodes.push(Node {
-                    module: module.clone(),
-                    ident: item.ident.clone(),
-                    generics: item.generics.clone(),
-                    data: NodeData::Struct(item),
-                }),
-                Item::Enum(item) if is_public(&item.vis) => nodes.push(Node {
-                    module: module.clone(),
-                    ident: item.ident.clone(),
-                    generics: item.generics.clone(),
-                    data: NodeData::Enum(item),
-                }),
-                Item::Type(item) if is_public(&item.vis) => aliases.push(Alias {
-                    module: module.clone(),
-                    ident: item.ident.clone(),
-                    generics: item.generics.clone(),
-                    ty: *item.ty,
-                }),
-                Item::Macro(item)
-                    if item
-                        .ident
-                        .as_ref()
-                        .is_some_and(|ident| ident == "for_each_property") =>
-                {
-                    properties = find_property_list(item.mac.tokens);
+        for path in ast_module_files(&ast_src, name) {
+            let source = fs::read_to_string(&path).unwrap();
+            let file = syn::parse_file(&source).unwrap();
+            for item in file.items {
+                match item {
+                    Item::Struct(item) if is_public(&item.vis) => nodes.push(Node {
+                        module: module.clone(),
+                        ident: item.ident.clone(),
+                        generics: item.generics.clone(),
+                        data: NodeData::Struct(item),
+                    }),
+                    Item::Enum(item) if is_public(&item.vis) => nodes.push(Node {
+                        module: module.clone(),
+                        ident: item.ident.clone(),
+                        generics: item.generics.clone(),
+                        data: NodeData::Enum(item),
+                    }),
+                    Item::Type(item) if is_public(&item.vis) => aliases.push(Alias {
+                        module: module.clone(),
+                        ident: item.ident.clone(),
+                        generics: item.generics.clone(),
+                        ty: *item.ty,
+                    }),
+                    Item::Macro(item)
+                        if item
+                            .ident
+                            .as_ref()
+                            .is_some_and(|ident| ident == "for_each_property") =>
+                    {
+                        properties = find_property_list(item.mac.tokens);
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
     }
@@ -236,6 +238,22 @@ fn main() {
             generate_visitor(mode, &nodes, &aliases, &properties),
         );
     }
+}
+
+fn ast_module_files(ast_src: &Path, name: &str) -> Vec<PathBuf> {
+    let file = ast_src.join(format!("{name}.rs"));
+    if file.is_file() {
+        return vec![file];
+    }
+
+    let directory = ast_src.join(name);
+    let mut files = fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
+        .collect::<Vec<_>>();
+    files.sort();
+    files
 }
 
 fn find_property_list(tokens: TokenStream) -> Option<Vec<Property>> {
@@ -1079,4 +1097,32 @@ fn impl_parts(
     let bounds =
         quote!(where VisitorT: ?Sized + #visitor_trait<'a> #(, #names: #node_trait<'a, VisitorT>)*);
     (impl_generics, ty, bounds)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_single_file_and_directory_ast_modules() {
+        let ast_src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/ast/src");
+
+        assert_eq!(
+            ast_module_files(&ast_src, "color"),
+            vec![ast_src.join("color.rs")]
+        );
+
+        let rules = ast_module_files(&ast_src, "rules");
+        assert!(rules.len() > 1);
+        assert!(rules.iter().any(|path| path.ends_with("rules/mod.rs")));
+        assert!(
+            rules
+                .iter()
+                .any(|path| path.ends_with("rules/stylesheet.rs"))
+        );
+        for path in rules {
+            let source = fs::read_to_string(path).unwrap();
+            syn::parse_file(&source).unwrap();
+        }
+    }
 }
