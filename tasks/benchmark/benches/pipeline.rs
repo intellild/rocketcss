@@ -3,12 +3,9 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_allocator::Allocator;
-use rocketcss_benchmark::WRITER_CAPACITY_PADDING;
+use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss};
 use rocketcss_parser::prelude::StyleSheet;
-
-const BOOTSTRAP: &str = include_str!("../files/bootstrap.css");
-const ITERATIONS: usize = 10;
 
 fn main() {
     divan::main();
@@ -22,14 +19,14 @@ struct ParsedStyleSheet {
 }
 
 impl ParsedStyleSheet {
-    fn new() -> Self {
+    fn new(source: &'static str) -> Self {
         let allocator = Box::new(Allocator::new());
 
         // The allocator remains at a stable heap address and is owned by this
         // input for at least as long as the stylesheet.
         let allocator_ref: &'static Allocator = unsafe { &*std::ptr::from_ref(&*allocator) };
         let stylesheet = rocketcss_parser::parse(
-            BOOTSTRAP,
+            source,
             allocator_ref,
             rocketcss_parser::ParserOptions {
                 error_recovery: true,
@@ -45,17 +42,17 @@ impl ParsedStyleSheet {
     }
 }
 
-fn processed_bytes() -> BytesCount {
-    BytesCount::new(BOOTSTRAP.len() * ITERATIONS)
+fn processed_bytes(case: BenchCase) -> BytesCount {
+    BytesCount::new(case.source.len() * case.pipeline_iterations)
 }
 
-#[divan::bench]
-fn parse(bencher: Bencher<'_, '_>) {
-    bencher.counter(processed_bytes()).bench_local(|| {
-        for _ in 0..ITERATIONS {
+#[divan::bench(args = BENCH_CASES)]
+fn parse(bencher: Bencher<'_, '_>, case: BenchCase) {
+    bencher.counter(processed_bytes(case)).bench_local(|| {
+        for _ in 0..case.pipeline_iterations {
             let allocator = Allocator::new();
             let stylesheet = rocketcss_parser::parse(
-                black_box(BOOTSTRAP),
+                black_box(case.source),
                 &allocator,
                 rocketcss_parser::ParserOptions {
                     error_recovery: true,
@@ -68,11 +65,15 @@ fn parse(bencher: Bencher<'_, '_>) {
     });
 }
 
-#[divan::bench]
-fn minify(bencher: Bencher<'_, '_>) {
+#[divan::bench(args = BENCH_CASES)]
+fn minify(bencher: Bencher<'_, '_>, case: BenchCase) {
     bencher
-        .counter(processed_bytes())
-        .with_inputs(|| std::array::from_fn::<_, ITERATIONS, _>(|_| ParsedStyleSheet::new()))
+        .counter(processed_bytes(case))
+        .with_inputs(|| {
+            std::iter::repeat_with(|| ParsedStyleSheet::new(case.source))
+                .take(case.pipeline_iterations)
+                .collect::<Vec<_>>()
+        })
         .bench_local_values(|mut inputs| {
             for input in &mut inputs {
                 black_box(rocketcss_minify::minify(
@@ -83,12 +84,12 @@ fn minify(bencher: Bencher<'_, '_>) {
         });
 }
 
-#[divan::bench]
-fn codegen(bencher: Bencher<'_, '_>) {
+#[divan::bench(args = BENCH_CASES)]
+fn codegen(bencher: Bencher<'_, '_>, case: BenchCase) {
     bencher
-        .counter(processed_bytes())
+        .counter(processed_bytes(case))
         .with_inputs(|| {
-            let mut input = ParsedStyleSheet::new();
+            let mut input = ParsedStyleSheet::new(case.source);
             rocketcss_minify::minify(
                 &mut input.stylesheet,
                 rocketcss_minify::MinifyOptions::default(),
@@ -96,8 +97,8 @@ fn codegen(bencher: Bencher<'_, '_>) {
             input
         })
         .bench_local_values(|input| {
-            for _ in 0..ITERATIONS {
-                let mut output = String::with_capacity(BOOTSTRAP.len() + WRITER_CAPACITY_PADDING);
+            for _ in 0..case.pipeline_iterations {
+                let mut output = String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
                 input
                     .stylesheet
                     .to_css(&mut Printer::new(

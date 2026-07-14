@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       sample_count:
-        description: Samples collected for each minifier
+        description: Samples collected for each minifier and input
         required: true
         default: "100"
         type: choice
@@ -22,7 +22,7 @@ env:
 
 jobs:
   benchmark:
-    name: Compare CSS minifiers
+    name: Compare CSS minifiers on Bootstrap and Tailwind
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -57,7 +57,7 @@ jobs:
           channel: stable
           cache-target: release
 
-      - name: Run minifier benchmark
+      - name: Run Bootstrap and Tailwind minifier benchmarks
         id: benchmark
         shell: bash
         run: |
@@ -76,9 +76,9 @@ jobs:
             echo "- Status: \`${{ steps.benchmark.outcome }}\`"
             echo "- Commit: [\`${GITHUB_SHA::7}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})"
             echo "- Runner: \`${RUNNER_OS} ${RUNNER_ARCH}\`"
-            echo "- Input: \`tasks/benchmark/files/bootstrap.css\`"
+            echo "- Inputs: \`tasks/benchmark/files/bootstrap.css\`, \`tasks/benchmark/files/tailwind.css\`"
             echo "- Scope: parse, minify, and serialize"
-            echo "- Samples per minifier: \`${{ inputs.sample_count }}\`"
+            echo "- Samples per minifier and input: \`${{ inputs.sample_count }}\`"
             echo
 
             if [[ -s .benchmark/result.txt ]]; then

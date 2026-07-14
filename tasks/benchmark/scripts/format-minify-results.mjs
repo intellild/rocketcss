@@ -15,26 +15,38 @@ const DISPLAY_ORDER = new Map(
 export function parseResults(output) {
   const lines = output.replace(ANSI_ESCAPE_PATTERN, "").split(/\r?\n/);
   const results = [];
+  let currentMinifier = null;
 
   for (let index = 0; index < lines.length; index++) {
-    const match = lines[index].match(/^[├╰]─\s+(\S+)\s+(.+)$/);
+    const match = lines[index].match(/^([│ ]*)[├╰]─\s+(\S+)(?:\s+(.+))?$/);
     if (!match) {
       continue;
     }
 
-    const timings = match[2].split("│").map((value) => value.trim());
-    if (timings.length < 6) {
+    const [, treePrefix, label, timingColumns = ""] = match;
+    if (treePrefix.length === 0 && DISPLAY_NAMES.has(label)) {
+      currentMinifier = label;
+    }
+
+    const timings = timingColumns.split("│").map((value) => value.trim());
+    if (timings.length < 6 || timings[0] === "") {
+      continue;
+    }
+
+    const name = treePrefix.length === 0 ? label : currentMinifier;
+    if (name === null) {
       continue;
     }
 
     const throughputLine = lines[index + 1] ?? "";
     const throughputs = throughputLine
-      .replace(/^\s*│?\s*/, "")
+      .replace(/^[│ ]+/, "")
       .split("│")
       .map((value) => value.trim());
 
     results.push({
-      name: match[1],
+      name,
+      caseName: treePrefix.length === 0 ? null : label,
       fastest: timings[0],
       slowest: timings[1],
       median: timings[2],
@@ -45,23 +57,20 @@ export function parseResults(output) {
     });
   }
 
-  return results.sort(
-    (left, right) =>
-      (DISPLAY_ORDER.get(left.name) ?? Number.MAX_SAFE_INTEGER) -
-      (DISPLAY_ORDER.get(right.name) ?? Number.MAX_SAFE_INTEGER),
-  );
+  return results.sort((left, right) => {
+    const caseOrder = (left.caseName ?? "").localeCompare(right.caseName ?? "");
+    return caseOrder !== 0
+      ? caseOrder
+      : (DISPLAY_ORDER.get(left.name) ?? Number.MAX_SAFE_INTEGER) -
+          (DISPLAY_ORDER.get(right.name) ?? Number.MAX_SAFE_INTEGER);
+  });
 }
 
 function escapeCell(value) {
   return String(value).replaceAll("|", "\\|");
 }
 
-export function formatResults(output) {
-  const results = parseResults(output);
-  if (results.length === 0) {
-    return "_No benchmark results could be parsed._";
-  }
-
+function formatTable(results) {
   const rows = [
     "| Minifier | Fastest | Median | Mean | Slowest | Mean throughput | Samples | Iterations |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -75,6 +84,32 @@ export function formatResults(output) {
   }
 
   return rows.join("\n");
+}
+
+export function formatResults(output) {
+  const results = parseResults(output);
+  if (results.length === 0) {
+    return "_No benchmark results could be parsed._";
+  }
+
+  if (results.every((result) => result.caseName === null)) {
+    return formatTable(results);
+  }
+
+  const cases = new Map();
+  for (const result of results) {
+    const caseName = result.caseName ?? "other";
+    const caseResults = cases.get(caseName) ?? [];
+    caseResults.push(result);
+    cases.set(caseName, caseResults);
+  }
+
+  return [...cases]
+    .map(
+      ([caseName, caseResults]) =>
+        `### \`${caseName}\`\n\n${formatTable(caseResults)}`,
+    )
+    .join("\n\n");
 }
 
 const invokedPath = process.argv[1];
