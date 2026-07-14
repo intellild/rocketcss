@@ -193,47 +193,10 @@ impl<FeatureId: ToCss> ToCss for MediaFeatureName<'_, FeatureId> {
 
 impl ToCss for MediaFeatureId {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        dest.write_str(match self {
-            Self::Width => "width",
-            Self::Height => "height",
-            Self::AspectRatio => "aspect-ratio",
-            Self::Orientation => "orientation",
-            Self::OverflowBlock => "overflow-block",
-            Self::OverflowInline => "overflow-inline",
-            Self::HorizontalViewportSegments => "horizontal-viewport-segments",
-            Self::VerticalViewportSegments => "vertical-viewport-segments",
-            Self::DisplayMode => "display-mode",
-            Self::Resolution => "resolution",
-            Self::Scan => "scan",
-            Self::Grid => "grid",
-            Self::Update => "update",
-            Self::EnvironmentBlending => "environment-blending",
-            Self::Color => "color",
-            Self::ColorIndex => "color-index",
-            Self::Monochrome => "monochrome",
-            Self::ColorGamut => "color-gamut",
-            Self::DynamicRange => "dynamic-range",
-            Self::InvertedColors => "inverted-colors",
-            Self::Pointer => "pointer",
-            Self::Hover => "hover",
-            Self::AnyPointer => "any-pointer",
-            Self::AnyHover => "any-hover",
-            Self::NavControls => "nav-controls",
-            Self::VideoColorGamut => "video-color-gamut",
-            Self::VideoDynamicRange => "video-dynamic-range",
-            Self::Scripting => "scripting",
-            Self::PrefersReducedMotion => "prefers-reduced-motion",
-            Self::PrefersReducedTransparency => "prefers-reduced-transparency",
-            Self::PrefersContrast => "prefers-contrast",
-            Self::ForcedColors => "forced-colors",
-            Self::PrefersColorScheme => "prefers-color-scheme",
-            Self::PrefersReducedData => "prefers-reduced-data",
-            Self::DeviceWidth => "device-width",
-            Self::DeviceHeight => "device-height",
-            Self::DeviceAspectRatio => "device-aspect-ratio",
-            Self::WebkitDevicePixelRatio => "-webkit-device-pixel-ratio",
-            Self::MozDevicePixelRatio => "-moz-device-pixel-ratio",
-        })
+        dest.write_str(
+            self.as_css_str()
+                .expect("media feature names are static keywords"),
+        )
     }
 }
 
@@ -268,30 +231,26 @@ impl ToCss for MediaFeatureComparison {
 
 impl ToCss for Operator {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        dest.write_str(match self {
-            Self::And => "and",
-            Self::Or => "or",
-        })
+        dest.write_str(self.as_css_str().expect("operators are static keywords"))
     }
 }
 
 impl ToCss for MediaType<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
-            Self::All => dest.write_str("all"),
-            Self::Print => dest.write_str("print"),
-            Self::Screen => dest.write_str("screen"),
             Self::Custom(value) => serialize_identifier(value, dest),
+            value => dest.write_str(
+                value
+                    .as_css_str()
+                    .expect("custom media type handled separately"),
+            ),
         }
     }
 }
 
 impl ToCss for Qualifier {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        dest.write_str(match self {
-            Self::Only => "only",
-            Self::Not => "not",
-        })
+        dest.write_str(self.as_css_str().expect("qualifiers are static keywords"))
     }
 }
 

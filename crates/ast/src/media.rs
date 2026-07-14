@@ -45,7 +45,7 @@ pub enum MediaFeatureName<'a, FeatureId> {
 
 pub type MediaFeature<'a> = QueryFeature<'a, MediaFeatureId>;
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum MediaFeatureId {
     Width,
     Height,
@@ -84,7 +84,9 @@ pub enum MediaFeatureId {
     DeviceWidth,
     DeviceHeight,
     DeviceAspectRatio,
+    #[css_keyword("-webkit-device-pixel-ratio")]
     WebkitDevicePixelRatio,
+    #[css_keyword("-moz-device-pixel-ratio")]
     MozDevicePixelRatio,
 }
 
@@ -109,13 +111,13 @@ pub enum MediaFeatureComparison {
     LessThanEqual,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum Operator {
     And,
     Or,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum MediaType<'a> {
     All,
     Print,
@@ -123,7 +125,7 @@ pub enum MediaType<'a> {
     Custom(&'a str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum Qualifier {
     Only,
     Not,

@@ -26,6 +26,7 @@ macro_rules! match_ignore_ascii_case {
 }
 
 use rocketcss_allocator::prelude::*;
+pub use rocketcss_macros::CssKeyword;
 
 mod color;
 mod css_rule;
@@ -132,5 +133,17 @@ mod tests {
 
         assert!(function.is_identifier());
         assert!(function.is_unquoted_url());
+    }
+
+    #[test]
+    fn css_keyword_derive_handles_defaults_overrides_and_dynamic_variants() {
+        assert_eq!(NthType::LastOfType.as_css_str(), Some("last-of-type"));
+        assert_eq!(LengthUnit::Cqmax.as_css_str(), Some("cqmax"));
+        assert_eq!(
+            MediaFeatureId::WebkitDevicePixelRatio.as_css_str(),
+            Some("-webkit-device-pixel-ratio"),
+        );
+        assert_eq!(Appearance::NonStandard("textfield").as_css_str(), None);
+        assert_eq!(FontFormat::String("woff3").as_css_str(), None);
     }
 }

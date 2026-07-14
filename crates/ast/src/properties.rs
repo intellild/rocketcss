@@ -214,7 +214,7 @@ fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'
     value.get(prefix.len()..)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BlendMode {
     Normal,
     Multiply,

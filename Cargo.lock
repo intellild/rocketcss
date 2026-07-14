@@ -1228,6 +1228,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "rocketcss_allocator",
+ "rocketcss_macros",
 ]
 
 [[package]]
@@ -1271,6 +1272,15 @@ dependencies = [
  "rocketcss_parser",
  "serde_json",
  "zmij",
+]
+
+[[package]]
+name = "rocketcss_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
 ]
 
 [[package]]

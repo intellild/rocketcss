@@ -5,7 +5,7 @@ macro_rules! keyword_values {
         $(
             impl ToCss for $ty {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-                    serialize_debug_keyword(self, dest)
+                    dest.write_str(self.as_css_str().expect("keyword enum has only static variants"))
                 }
             }
         )+
@@ -1308,7 +1308,11 @@ impl ToCss for Appearance<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::NonStandard(value) => dest.write_str(value),
-            value => serialize_debug_keyword(value, dest),
+            value => dest.write_str(
+                value
+                    .as_css_str()
+                    .expect("non-standard appearance handled separately"),
+            ),
         }
     }
 }

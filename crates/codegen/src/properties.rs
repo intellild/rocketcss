@@ -28,7 +28,7 @@ impl ToCss for PropertyId<'_> {
 
 impl ToCss for BlendMode {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_debug_keyword(self, dest)
+        dest.write_str(self.as_css_str().expect("blend modes are static keywords"))
     }
 }
 

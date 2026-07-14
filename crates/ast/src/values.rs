@@ -72,13 +72,13 @@ pub enum LineDirection<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum HorizontalPositionKeyword {
     Left,
     Right,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum VerticalPositionKeyword {
     Top,
     Bottom,
@@ -130,7 +130,7 @@ pub enum Ellipse<'a> {
     Extent(ShapeExtent),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ShapeExtent {
     ClosestSide,
     FarthestSide,
@@ -173,7 +173,7 @@ pub enum LengthPercentageOrAuto<'a> {
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BackgroundRepeatKeyword {
     Repeat,
     Space,
@@ -181,14 +181,14 @@ pub enum BackgroundRepeatKeyword {
     NoRepeat,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BackgroundAttachment {
     Scroll,
     Fixed,
     Local,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BackgroundClip {
     BorderBox,
     PaddingBox,
@@ -197,7 +197,7 @@ pub enum BackgroundClip {
     Text,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BackgroundOrigin {
     BorderBox,
     PaddingBox,
@@ -214,7 +214,7 @@ pub enum Display<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum DisplayKeyword {
     None,
     Contents,
@@ -243,14 +243,14 @@ pub enum DisplayInside {
     Ruby,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum DisplayOutside {
     Block,
     Inline,
     RunIn,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum Visibility {
     Visible,
     Hidden,
@@ -281,13 +281,13 @@ pub enum MaxSize<'a> {
     Contain,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BoxSizing {
     ContentBox,
     BorderBox,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum OverflowKeyword {
     Visible,
     Hidden,
@@ -296,7 +296,7 @@ pub enum OverflowKeyword {
     Auto,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextOverflow {
     Clip,
     Ellipsis,
@@ -322,7 +322,7 @@ pub struct Rect<'a, T>(
     pub Box<'a, T>,
 );
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum LineStyle {
     None,
     Hidden,
@@ -350,7 +350,7 @@ pub enum LengthOrNumber<'a> {
     Length(Box<'a, Length<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BorderImageRepeatKeyword {
     Stretch,
     Repeat,
@@ -371,7 +371,7 @@ pub enum OutlineStyle {
     LineStyle(LineStyle),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FlexDirection {
     Row,
     RowReverse,
@@ -379,7 +379,7 @@ pub enum FlexDirection {
     ColumnReverse,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FlexWrap {
     Nowrap,
     Wrap,
@@ -397,13 +397,13 @@ pub enum AlignContent {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BaselinePosition {
     First,
     Last,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ContentDistribution {
     SpaceBetween,
     SpaceAround,
@@ -411,13 +411,13 @@ pub enum ContentDistribution {
     Stretch,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum OverflowPosition {
     Safe,
     Unsafe,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ContentPosition {
     Center,
     Start,
@@ -454,7 +454,7 @@ pub enum AlignSelf {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum SelfPosition {
     Center,
     Start,
@@ -512,7 +512,7 @@ pub enum JustifyItems {
     Legacy(LegacyJustify),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum LegacyJustify {
     Left,
     Right,
@@ -525,7 +525,7 @@ pub enum GapValue<'a> {
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BoxOrient {
     Horizontal,
     Vertical,
@@ -533,13 +533,13 @@ pub enum BoxOrient {
     BlockAxis,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BoxDirection {
     Normal,
     Reverse,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BoxAlign {
     Start,
     End,
@@ -548,7 +548,7 @@ pub enum BoxAlign {
     Stretch,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BoxPack {
     Start,
     End,
@@ -556,13 +556,13 @@ pub enum BoxPack {
     Justify,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BoxLines {
     Single,
     Multiple,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FlexPack {
     Start,
     End,
@@ -571,7 +571,7 @@ pub enum FlexPack {
     Distribute,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FlexItemAlign {
     Auto,
     Start,
@@ -581,7 +581,7 @@ pub enum FlexItemAlign {
     Stretch,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FlexLinePack {
     Start,
     End,
@@ -632,7 +632,7 @@ pub enum RepeatCount {
     AutoFit,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum AutoFlowDirection {
     Row,
     Column,
@@ -676,7 +676,7 @@ pub enum FontSize<'a> {
     Relative(RelativeFontSize),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum AbsoluteFontSize {
     XxSmall,
     XSmall,
@@ -688,7 +688,7 @@ pub enum AbsoluteFontSize {
     XxxLarge,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum RelativeFontSize {
     Smaller,
     Larger,
@@ -700,7 +700,7 @@ pub enum FontStretch {
     Percentage(f32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FontStretchKeyword {
     Normal,
     UltraCondensed,
@@ -719,7 +719,7 @@ pub enum FontFamily<'a> {
     FamilyName(FamilyName<'a>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum GenericFontFamily {
     Serif,
     SansSerif,
@@ -749,7 +749,7 @@ pub enum FontStyle<'a> {
     Oblique(Box<'a, Angle>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FontVariantCaps {
     Normal,
     SmallCaps,
@@ -773,7 +773,7 @@ pub enum VerticalAlign<'a> {
     Length(Box<'a, LengthPercentage<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum VerticalAlignKeyword {
     Baseline,
     Sub,
@@ -796,7 +796,7 @@ pub enum EasingFunction {
     Steps { count: i32, position: StepPosition },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum StepPosition {
     Start,
     End,
@@ -810,7 +810,7 @@ pub enum AnimationIterationCount {
     Infinite,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum AnimationDirection {
     Normal,
     Reverse,
@@ -818,13 +818,13 @@ pub enum AnimationDirection {
     AlternateReverse,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum AnimationPlayState {
     Running,
     Paused,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum AnimationFillMode {
     None,
     Forwards,
@@ -832,7 +832,7 @@ pub enum AnimationFillMode {
     Both,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum AnimationComposition {
     Replace,
     Add,
@@ -848,7 +848,7 @@ pub enum AnimationTimeline<'a> {
     View(Box<'a, ViewTimeline<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ScrollAxis {
     Block,
     Inline,
@@ -856,7 +856,7 @@ pub enum ScrollAxis {
     Y,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum Scroller {
     Root,
     Nearest,
@@ -875,7 +875,7 @@ pub enum AnimationAttachmentRange<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TimelineRangeName {
     Cover,
     Contain,
@@ -924,13 +924,13 @@ pub enum Transform<'a> {
     Matrix3d(Box<'a, Matrix3DForFloat>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TransformStyle {
     Flat,
     Preserve3d,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TransformBox {
     ContentBox,
     BorderBox,
@@ -939,7 +939,7 @@ pub enum TransformBox {
     ViewBox,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BackfaceVisibility {
     Visible,
     Hidden,
@@ -971,7 +971,7 @@ pub enum Scale<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextTransformCase {
     None,
     Uppercase,
@@ -979,7 +979,7 @@ pub enum TextTransformCase {
     Capitalize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum WhiteSpace {
     Normal,
     Pre,
@@ -989,7 +989,7 @@ pub enum WhiteSpace {
     PreLine,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum WordBreak {
     Normal,
     KeepAll,
@@ -997,7 +997,7 @@ pub enum WordBreak {
     BreakWord,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum LineBreak {
     Auto,
     Loose,
@@ -1006,21 +1006,21 @@ pub enum LineBreak {
     Anywhere,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum Hyphens {
     None,
     Manual,
     Auto,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum OverflowWrap {
     Normal,
     Anywhere,
     BreakWord,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextAlign {
     Start,
     End,
@@ -1032,7 +1032,7 @@ pub enum TextAlign {
     JustifyAll,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextAlignLast {
     Auto,
     Start,
@@ -1044,7 +1044,7 @@ pub enum TextAlignLast {
     MatchParent,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextJustify {
     Auto,
     None,
@@ -1064,14 +1064,14 @@ pub enum TextDecorationLine<'a> {
     Value(Vec<'a, OtherTextDecorationLine>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ExclusiveTextDecorationLine {
     None,
     SpellingError,
     GrammarError,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum OtherTextDecorationLine {
     Underline,
     Overline,
@@ -1079,7 +1079,7 @@ pub enum OtherTextDecorationLine {
     Blink,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextDecorationStyle {
     Solid,
     Double,
@@ -1095,7 +1095,7 @@ pub enum TextDecorationThickness<'a> {
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextDecorationSkipInk {
     Auto,
     None,
@@ -1112,13 +1112,13 @@ pub enum TextEmphasisStyle<'a> {
     String(&'a str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextEmphasisFillMode {
     Filled,
     Open,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextEmphasisShape {
     Dot,
     Circle,
@@ -1127,13 +1127,13 @@ pub enum TextEmphasisShape {
     Sesame,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextEmphasisPositionHorizontal {
     Left,
     Right,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextEmphasisPositionVertical {
     Over,
     Under,
@@ -1146,13 +1146,13 @@ pub enum TextSizeAdjust {
     Percentage(f32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextDirection {
     Ltr,
     Rtl,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum UnicodeBidi {
     Normal,
     Embed,
@@ -1162,13 +1162,13 @@ pub enum UnicodeBidi {
     Plaintext,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum BoxDecorationBreak {
     Slice,
     Clone,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum Resize {
     None,
     Both,
@@ -1178,7 +1178,7 @@ pub enum Resize {
     Inline,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum CursorKeyword {
     Auto,
     Default,
@@ -1224,7 +1224,7 @@ pub enum ColorOrAuto<'a> {
     Color(Box<'a, CssColor<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum CaretShape {
     Auto,
     Bar,
@@ -1232,7 +1232,7 @@ pub enum CaretShape {
     Underscore,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum UserSelect {
     Auto,
     Text,
@@ -1241,7 +1241,7 @@ pub enum UserSelect {
     All,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum Appearance<'a> {
     None,
     Auto,
@@ -1279,7 +1279,7 @@ pub enum CounterStyle<'a> {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SymbolsType {
     Cyclic,
     Numeric,
@@ -1289,7 +1289,7 @@ pub enum SymbolsType {
     Fixed,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum PredefinedCounterStyle {
     Decimal,
     DecimalLeadingZero,
@@ -1353,13 +1353,13 @@ pub enum Symbol<'a> {
     Image(Box<'a, Image<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ListStylePosition {
     Inside,
     Outside,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum MarkerSide {
     MatchSelf,
     MatchParent,
@@ -1383,20 +1383,20 @@ pub enum SVGPaintFallback<'a> {
     Color(Box<'a, CssColor<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum FillRule {
     Nonzero,
     Evenodd,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum StrokeLinecap {
     Butt,
     Round,
     Square,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum StrokeLinejoin {
     Miter,
     MiterClip,
@@ -1417,21 +1417,21 @@ pub enum Marker<'a> {
     Url(Box<'a, Url<'a>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ColorInterpolation {
     Auto,
     Srgb,
     Linearrgb,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ColorRendering {
     Auto,
     Optimizespeed,
     Optimizequality,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ShapeRendering {
     Auto,
     Optimizespeed,
@@ -1439,7 +1439,7 @@ pub enum ShapeRendering {
     Geometricprecision,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum TextRendering {
     Auto,
     Optimizespeed,
@@ -1447,7 +1447,7 @@ pub enum TextRendering {
     Geometricprecision,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ImageRendering {
     Auto,
     Optimizespeed,
@@ -1465,7 +1465,7 @@ pub enum ClipPath<'a> {
     Box(GeometryBox),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum GeometryBox {
     BorderBox,
     PaddingBox,
@@ -1491,7 +1491,7 @@ pub enum ShapeRadius<'a> {
     FarthestSide,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum MaskMode {
     Luminance,
     Alpha,
@@ -1504,7 +1504,7 @@ pub enum MaskClip {
     NoClip,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum MaskComposite {
     Add,
     Subtract,
@@ -1512,19 +1512,19 @@ pub enum MaskComposite {
     Exclude,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum MaskType {
     Luminance,
     Alpha,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum MaskBorderMode {
     Luminance,
     Alpha,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum WebKitMaskComposite {
     Clear,
     Copy,
@@ -1539,7 +1539,7 @@ pub enum WebKitMaskComposite {
     Xor,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum WebKitMaskSourceType {
     Auto,
     Luminance,
@@ -1573,7 +1573,7 @@ pub enum ZIndex {
     Integer(i32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum ContainerType {
     Normal,
     InlineSize,
@@ -1608,13 +1608,13 @@ pub enum ViewTransitionGroup<'a> {
     Custom(&'a str),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum PrintColorAdjust {
     Economy,
     Exact,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(CssKeyword, Debug, PartialEq)]
 pub enum CSSWideKeyword {
     Initial,
     Inherit,

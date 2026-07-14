@@ -304,18 +304,10 @@ impl ToCss for EnvironmentVariableName<'_> {
 
 impl ToCss for UAEnvironmentVariable {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        dest.write_str(match self {
-            Self::SafeAreaInsetTop => "safe-area-inset-top",
-            Self::SafeAreaInsetRight => "safe-area-inset-right",
-            Self::SafeAreaInsetBottom => "safe-area-inset-bottom",
-            Self::SafeAreaInsetLeft => "safe-area-inset-left",
-            Self::ViewportSegmentWidth => "viewport-segment-width",
-            Self::ViewportSegmentHeight => "viewport-segment-height",
-            Self::ViewportSegmentTop => "viewport-segment-top",
-            Self::ViewportSegmentLeft => "viewport-segment-left",
-            Self::ViewportSegmentBottom => "viewport-segment-bottom",
-            Self::ViewportSegmentRight => "viewport-segment-right",
-        })
+        dest.write_str(
+            self.as_css_str()
+                .expect("UA environment variables are static keywords"),
+        )
     }
 }
 

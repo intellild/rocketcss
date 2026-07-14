@@ -11,3 +11,4 @@ version               = "0.1.0"
 [dependencies]
 bitflags            = { workspace = true }
 rocketcss_allocator = { workspace = true }
+rocketcss_macros    = { workspace = true }

@@ -419,29 +419,6 @@ pub(crate) fn serialize_dimension<UnitT: ToCss, PrinterT: PrinterTrait>(
     unit.to_css(dest)
 }
 
-pub(crate) fn serialize_debug_keyword<T: fmt::Debug, PrinterT: PrinterTrait>(
-    value: &T,
-    dest: &mut PrinterT,
-) -> fmt::Result {
-    let debug = format!("{value:?}");
-    let debug = debug.strip_suffix('_').unwrap_or(&debug);
-    let characters: Vec<_> = debug.chars().collect();
-    for (index, character) in characters.iter().copied().enumerate() {
-        if character.is_ascii_uppercase()
-            && index > 0
-            && (characters[index - 1].is_ascii_lowercase()
-                || characters[index - 1].is_ascii_digit()
-                || characters
-                    .get(index + 1)
-                    .is_some_and(char::is_ascii_lowercase))
-        {
-            dest.write_char('-')?;
-        }
-        dest.write_char(character.to_ascii_lowercase())?;
-    }
-    Ok(())
-}
-
 impl<'a, T: ToCss> ToCss for rocketcss_allocator::boxed::Box<'a, T> {
     #[inline]
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
