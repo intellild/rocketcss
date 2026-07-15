@@ -6,7 +6,6 @@ mod properties;
 mod rules;
 mod selector;
 mod token;
-mod values;
 
 pub mod prelude;
 
