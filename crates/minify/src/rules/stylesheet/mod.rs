@@ -1,5 +1,6 @@
 mod calc;
 mod color;
+mod declaration_block;
 mod function;
 mod gradient;
 mod timing;

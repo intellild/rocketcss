@@ -181,6 +181,33 @@ fn declaration_block_preserves_importance_bits() {
 }
 
 #[test]
+fn declaration_block_skips_tombstones() {
+    let allocator = Allocator::new();
+    let mut declarations = DeclarationBlock::new(&allocator);
+
+    declarations.push(Declaration::Tombstone, true);
+    assert!(declarations.is_output_empty());
+    assert_eq!(
+        declarations
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        ""
+    );
+
+    declarations.push(Declaration::All(CSSWideKeyword::Initial), false);
+    declarations.push(Declaration::Tombstone, true);
+    declarations.push(Declaration::All(CSSWideKeyword::Inherit), true);
+    declarations.push(Declaration::Tombstone, false);
+    assert!(!declarations.is_output_empty());
+    assert_eq!(
+        declarations
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "all: initial;\nall: inherit !important"
+    );
+}
+
+#[test]
 fn ports_lightningcss_typed_value_serialization_cases() {
     assert_eq!(
         Time::Milliseconds(100.0)

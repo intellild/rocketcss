@@ -1383,12 +1383,13 @@ fn write_declarations<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
 ) -> fmt::Result {
-    for (index, (declaration, important)) in declarations.iter().enumerate() {
+    let mut declarations = declarations.iter_live().peekable();
+    while let Some((declaration, important)) = declarations.next() {
         declaration.to_css(dest)?;
         if important {
             dest.write_str(" !important")?;
         }
-        let has_next = index + 1 < declarations.len();
+        let has_next = declarations.peek().is_some();
         if has_next {
             dest.write_char(';')?;
         } else {
@@ -1490,7 +1491,7 @@ impl ToCss for StyleRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_empty() && !self.rules.is_empty() {
+            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             write_rule_list(&self.rules, dest)
@@ -1688,7 +1689,7 @@ impl ToCss for PageRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_empty() && !self.rules.is_empty() {
+            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             for (index, rule) in self.rules.iter().enumerate() {
