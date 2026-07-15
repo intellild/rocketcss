@@ -10,7 +10,10 @@ use crate::{
 impl Minify for TokenOrValue<'_> {
     /// Normalizes one token node in place. The surrounding `TokenOrValue`
     /// variant and its arena allocation are preserved.
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    where
+        Self: 'alloc,
+    {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
             || cx
                 .value_context
@@ -169,7 +172,10 @@ fn is_generic_font_family(value: &str) -> bool {
 impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
     /// Removes comments and redundant whitespace by compacting the existing
     /// arena vector. Separator tokens are reused rather than allocated again.
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    where
+        Self: 'alloc,
+    {
         protect_adjacent_function_replacements(self);
         if cx.is_enabled(Options::DISCARD_COMMENTS, OptionsOp::Any) {
             discard_comments(self, cx);

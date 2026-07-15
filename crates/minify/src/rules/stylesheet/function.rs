@@ -14,7 +14,10 @@ use super::{
 };
 
 impl Minify for Function<'_> {
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    where
+        Self: 'alloc,
+    {
         if cx
             .value_context
             .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)

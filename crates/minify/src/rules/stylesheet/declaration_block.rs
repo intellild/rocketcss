@@ -21,12 +21,15 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
 }
 
 impl<'a> Minify for DeclarationBlock<'a> {
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    where
+        Self: 'alloc,
+    {
         if self.len() < 2 {
             return;
         }
-        let scratch = Allocator::new();
-        let mut minifier = DeclarationBlockMinifier::new(&scratch);
+        let allocator = cx.allocator();
+        let mut minifier = DeclarationBlockMinifier::new(allocator);
         minifier.minify_non_trivial(self, cx);
     }
 }
@@ -190,14 +193,22 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     }
 
     #[inline]
-    pub(crate) fn minify(&mut self, block: &mut DeclarationBlock<'ast>, cx: &mut MinifyContext) {
+    pub(crate) fn minify(
+        &mut self,
+        block: &mut DeclarationBlock<'ast>,
+        cx: &mut MinifyContext<'scratch>,
+    ) {
         if block.len() < 2 {
             return;
         }
         self.minify_non_trivial(block, cx);
     }
 
-    fn minify_non_trivial(&mut self, block: &mut DeclarationBlock<'ast>, cx: &mut MinifyContext) {
+    fn minify_non_trivial(
+        &mut self,
+        block: &mut DeclarationBlock<'ast>,
+        cx: &mut MinifyContext<'scratch>,
+    ) {
         self.ir.clear();
         deduplicate_declarations(block, &mut self.ir, cx);
     }
@@ -257,11 +268,13 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
     }
 }
 
-fn deduplicate_declarations<'a>(
-    block: &mut DeclarationBlock<'a>,
-    ir: &mut DeclarationIr<'_, 'a>,
-    cx: &mut MinifyContext,
-) {
+fn deduplicate_declarations<'scratch, 'ast>(
+    block: &mut DeclarationBlock<'ast>,
+    ir: &mut DeclarationIr<'scratch, 'ast>,
+    cx: &mut MinifyContext<'scratch>,
+) where
+    'ast: 'scratch,
+{
     for current in 0..block.len() {
         if block.declarations[current].is_tombstone() {
             continue;
@@ -274,13 +287,15 @@ fn deduplicate_declarations<'a>(
     }
 }
 
-fn deduplicate_exact_declaration<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn deduplicate_exact_declaration<'scratch, 'ast>(
+    block: &mut DeclarationBlock<'ast>,
     current: usize,
     important: bool,
-    declarations: &mut DeclarationMap<'_, 'a>,
-    cx: &mut MinifyContext,
-) {
+    declarations: &mut DeclarationMap<'scratch, 'ast>,
+    cx: &mut MinifyContext<'scratch>,
+) where
+    'ast: 'scratch,
+{
     let current_index = current as u32;
     let declaration = &block.declarations[current];
     let previous = if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix() {
@@ -305,13 +320,16 @@ fn deduplicate_exact_declaration<'a>(
     }
 }
 
-fn process_box_declaration<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn process_box_declaration<'scratch, 'ast>(
+    block: &mut DeclarationBlock<'ast>,
     current: usize,
     important: bool,
-    ir: &mut DeclarationIr<'_, 'a>,
-    cx: &mut MinifyContext,
-) -> bool {
+    ir: &mut DeclarationIr<'scratch, 'ast>,
+    cx: &mut MinifyContext<'scratch>,
+) -> bool
+where
+    'ast: 'scratch,
+{
     let Some(property) = box_property(&block.declarations[current]) else {
         return false;
     };
@@ -635,12 +653,15 @@ fn clone_simple_token_or_value<'a>(
     }
 }
 
-fn merge_box_longhands<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn merge_box_longhands<'ast, 'alloc>(
+    block: &mut DeclarationBlock<'ast>,
     indices: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext,
-) -> bool {
+    cx: &mut MinifyContext<'alloc>,
+) -> bool
+where
+    'ast: 'alloc,
+{
     let typed = match family {
         BoxFamily::Margin => indices.iter().all(|&index| {
             matches!(
@@ -667,12 +688,15 @@ fn merge_box_longhands<'a>(
     merge_unparsed_box_longhands(block, indices, family, cx)
 }
 
-fn merge_typed_box_longhands<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn merge_typed_box_longhands<'ast, 'alloc>(
+    block: &mut DeclarationBlock<'ast>,
     [top, right, bottom, left]: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext,
-) -> bool {
+    cx: &mut MinifyContext<'alloc>,
+) -> bool
+where
+    'ast: 'alloc,
+{
     let allocator = block.declarations.bump();
     let target = [top, right, bottom, left]
         .into_iter()
@@ -740,12 +764,15 @@ fn merge_typed_box_longhands<'a>(
     true
 }
 
-fn merge_unparsed_box_longhands<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn merge_unparsed_box_longhands<'ast, 'alloc>(
+    block: &mut DeclarationBlock<'ast>,
     indices: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext,
-) -> bool {
+    cx: &mut MinifyContext<'alloc>,
+) -> bool
+where
+    'ast: 'alloc,
+{
     if indices.iter().any(|&index| {
         !matches!(&block.declarations[index], Declaration::Unparsed(value)
             if value.value.len() == 1 && is_box_component(&value.value[0], family))
@@ -822,11 +849,13 @@ fn record_merged_longhands(indices: [usize; 4], target: usize, cx: &mut MinifyCo
     }
 }
 
-fn minify_unparsed_declaration(
-    block: &mut DeclarationBlock<'_>,
+fn minify_unparsed_declaration<'ast, 'alloc>(
+    block: &mut DeclarationBlock<'ast>,
     index: usize,
-    cx: &mut MinifyContext,
-) {
+    cx: &mut MinifyContext<'alloc>,
+) where
+    'ast: 'alloc,
+{
     let Declaration::Unparsed(value) = &mut block.declarations[index] else {
         return;
     };

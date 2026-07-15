@@ -18,12 +18,15 @@ pub use options::{MinifyOptions, Options, OptionsOp};
 
 /// Minifies a syntax-tree node in place.
 pub trait Minify {
-    fn minify(&mut self, cx: &mut MinifyContext);
+    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    where
+        Self: 'alloc;
 }
 
 /// Minifies a stylesheet in place and returns transformation statistics.
 pub fn minify<'a>(stylesheet: &mut StyleSheet<'a>, options: MinifyOptions) -> MinifyStats {
-    let mut cx = MinifyContext::new(options);
+    let allocator = Allocator::new();
+    let mut cx = MinifyContext::new(options, &allocator);
     stylesheet.minify(&mut cx);
     cx.stats()
 }
@@ -62,23 +65,26 @@ impl<'a> Plugin<'a> for MinifyPlugin {
     }
 }
 
-pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
+pub(crate) fn minify_style_sheet<'ast, 'alloc>(
+    stylesheet: &mut StyleSheet<'ast>,
+    cx: &mut MinifyContext<'alloc>,
+) where
+    'ast: 'alloc,
+{
     // Minifier IR and transient collections are scratch state. Keep them out
     // of the AST arena so every temporary allocation is released when this
     // minify pass finishes.
-    let scratch = Allocator::new();
-    let declaration_blocks = rules::DeclarationBlockMinifier::new(&scratch);
+    let allocator = cx.allocator();
+    let declaration_blocks = rules::DeclarationBlockMinifier::new(allocator);
     stylesheet.visit_mut(&mut Minifier {
         cx,
-        scratch: &scratch,
         declaration_blocks,
     });
 }
 
-struct Minifier<'ast, 'scratch, 'cx> {
-    cx: &'cx mut MinifyContext,
-    scratch: &'scratch Allocator,
-    declaration_blocks: rules::DeclarationBlockMinifier<'scratch, 'ast>,
+struct Minifier<'ast, 'alloc, 'cx> {
+    cx: &'cx mut MinifyContext<'alloc>,
+    declaration_blocks: rules::DeclarationBlockMinifier<'alloc, 'ast>,
 }
 
 impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
@@ -211,7 +217,8 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
 
     fn visit_selector_list(&mut self, node: &mut SelectorList<'ast>) {
         self.visit_selector_list_children(node);
-        selector::minify_selector_list(node, self.cx, self.scratch);
+        let allocator = self.cx.allocator();
+        selector::minify_selector_list(node, self.cx, allocator);
     }
 
     fn visit_media_list(&mut self, node: &mut MediaList<'ast>) {
