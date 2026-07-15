@@ -1,47 +1,52 @@
-use rocketcss_allocator::prelude::{AdaptiveHashSet, Vec};
+use rocketcss_allocator::prelude::{AdaptiveHashSet, Allocator, Vec};
 use rocketcss_ast::{NthType, SelectorComponent, SelectorList};
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for SelectorList<'_> {
     fn minify(&mut self, context: &mut MinifyContext) {
-        if context.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
-            for selector in self.iter_mut() {
-                remove_qualified_universal(selector);
-                for component in selector.iter_mut() {
-                    if let SelectorComponent::Nth(data) = component
-                        && data.a == 0
-                        && data.b == 1
-                        && matches!(
-                            data.kind,
-                            NthType::Child
-                                | NthType::LastChild
-                                | NthType::OfType
-                                | NthType::LastOfType
-                        )
-                    {
-                        data.is_function = false;
-                    }
+        let scratch = Allocator::new();
+        minify_selector_list(self, context, &scratch);
+    }
+}
+
+pub(crate) fn minify_selector_list(
+    selectors: &mut SelectorList<'_>,
+    context: &mut MinifyContext,
+    scratch: &Allocator,
+) {
+    if context.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
+        for selector in selectors.iter_mut() {
+            remove_qualified_universal(selector);
+            for component in selector.iter_mut() {
+                if let SelectorComponent::Nth(data) = component
+                    && data.a == 0
+                    && data.b == 1
+                    && matches!(
+                        data.kind,
+                        NthType::Child | NthType::LastChild | NthType::OfType | NthType::LastOfType
+                    )
+                {
+                    data.is_function = false;
                 }
             }
         }
+    }
 
-        if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
-            let before = self.len();
-            deduplicate(self);
-            if before != self.len() {
-                context.record_value_normalized();
-            }
+    if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
+        let before = selectors.len();
+        deduplicate(selectors, scratch);
+        if before != selectors.len() {
+            context.record_value_normalized();
         }
     }
 }
 
-fn deduplicate(selectors: &mut SelectorList<'_>) {
+fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator) {
     if selectors.len() < 2 {
         return;
     }
 
-    let allocator = selectors.bump();
     let mut duplicate_indices = Vec::new_in(allocator);
     {
         let mut seen = AdaptiveHashSet::<_, 4>::new_in(allocator);

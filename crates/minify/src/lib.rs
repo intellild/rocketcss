@@ -63,18 +63,21 @@ impl<'a> Plugin<'a> for MinifyPlugin {
 }
 
 pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
-    // Declaration-block IR is scratch state. Keep it out of the AST arena so
-    // every temporary allocation is released when this minify pass finishes.
+    // Minifier IR and transient collections are scratch state. Keep them out
+    // of the AST arena so every temporary allocation is released when this
+    // minify pass finishes.
     let scratch = Allocator::new();
     let declaration_blocks = rules::DeclarationBlockMinifier::new(&scratch);
     stylesheet.visit_mut(&mut Minifier {
         cx,
+        scratch: &scratch,
         declaration_blocks,
     });
 }
 
 struct Minifier<'ast, 'scratch, 'cx> {
     cx: &'cx mut MinifyContext,
+    scratch: &'scratch Allocator,
     declaration_blocks: rules::DeclarationBlockMinifier<'scratch, 'ast>,
 }
 
@@ -208,7 +211,7 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
 
     fn visit_selector_list(&mut self, node: &mut SelectorList<'ast>) {
         self.visit_selector_list_children(node);
-        node.minify(self.cx);
+        selector::minify_selector_list(node, self.cx, self.scratch);
     }
 
     fn visit_media_list(&mut self, node: &mut MediaList<'ast>) {
