@@ -418,7 +418,8 @@ fn process_box_declaration<'a>(
         BoxProperty::Longhand(family, side) => {
             let state = ir.box_family(family, important);
             let shorthand = state.shorthand as usize;
-            if state.shorthand != EMPTY_INDEX
+            if state.sides[side] == EMPTY_INDEX
+                && state.shorthand != EMPTY_INDEX
                 && !block.declarations[shorthand].is_tombstone()
                 && fold_box_side_override(block, shorthand, current, family, side)
             {
