@@ -70,6 +70,31 @@ pub struct Gap<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
+pub struct ColumnRule<'a> {
+    pub color: Option<Box<'a, CssColor<'a>>>,
+    pub style: Option<LineStyle>,
+    pub width: Option<Box<'a, BorderSideWidth<'a>>>,
+}
+
+#[derive(Debug, PartialEq, Visit)]
+pub enum ColumnWidth<'a> {
+    Auto,
+    Length(Box<'a, Length<'a>>),
+}
+
+#[derive(Debug, PartialEq, Visit)]
+pub enum ColumnCount {
+    Auto,
+    Integer(i32),
+}
+
+#[derive(Debug, PartialEq, Visit)]
+pub struct Columns<'a> {
+    pub count: ColumnCount,
+    pub width: Box<'a, ColumnWidth<'a>>,
+}
+
+#[derive(Debug, PartialEq, Visit)]
 pub struct TrackRepeat<'a> {
     pub count: Box<'a, RepeatCount>,
     pub line_names: Vec<'a, Vec<'a, &'a str>>,

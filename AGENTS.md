@@ -1,9 +1,14 @@
 # Repository Guidelines
 
-## AST-aligned feature structure
+## AST-aligned modules
 
-When implementing a feature whose modules or implementations correspond one-to-one with a large number of AST structures, keep that feature's directory and file structure aligned with the AST directory and file structure.
+- AST-wide features such as parsers, visitors, code generators, and transforms must mirror the owning AST module path.
+- For example, code for `crates/ast/src/color.rs` and `crates/ast/src/rules.rs` belongs in the feature's corresponding `color.rs` and `rules.rs` modules.
+- If one implementation grows too large, turn its corresponding feature module into a directory and split it into focused child modules. Keep those children under the owning AST path; do not treat them as peer AST modules.
 
-This applies to features such as parsers, visitors, code generators, transforms, and similar AST-wide functionality. For example, implementations for AST nodes defined in `crates/ast/src/color.rs` and `crates/ast/src/rules.rs` should live in corresponding `color.rs` and `rules.rs` modules within the feature crate.
+## Known property coverage
 
-Alignment applies to the owning parent module, not to a strict one-file limit. When the implementation corresponding to one AST file becomes too large, represent that file as a directory module in the feature crate and split the implementation into focused child modules. For example, implementations owned by `crates/ast/src/rules/stylesheet.rs` may live under `rules/stylesheet/mod.rs` with child modules such as `calc.rs`, `color.rs`, or `transform.rs`. Keep the parent path aligned with the AST; use child modules only to separate substantial implementation concerns, and do not treat them as peer AST modules.
+- Define each statically known property once in the property metadata. The same entry must generate its `PropertyId` and typed `Declaration` variants.
+- Do not add ID-only property lists, hand-written known variants, or parallel name/discriminant mappings.
+- Use `Declaration::Unparsed` only as a lossless fallback for values the typed parser cannot represent, such as variables—not as a substitute for a missing AST node.
+- `PropertyId::Custom` and internal sentinel variants are exempt.

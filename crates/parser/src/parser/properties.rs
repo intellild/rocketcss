@@ -78,6 +78,19 @@ fn try_parse_typed_declaration<'i, 't>(
         PropertyId::Display => parse!(|input| {
             Display::parse(input).map(|value| Declaration::Display(allocator.boxed(value)))
         }),
+        PropertyId::ColumnRule(prefix) => parse!(|input| {
+            ColumnRule::parse(input)
+                .map(|value| Declaration::ColumnRule(allocator.boxed(value), *prefix))
+        }),
+        PropertyId::Columns(prefix) => parse!(|input| {
+            Columns::parse(input).map(|value| Declaration::Columns(allocator.boxed(value), *prefix))
+        }),
+        PropertyId::GridColumnGap => parse!(|input| {
+            GapValue::parse(input).map(|value| Declaration::GridColumnGap(allocator.boxed(value)))
+        }),
+        PropertyId::GridRowGap => parse!(|input| {
+            GapValue::parse(input).map(|value| Declaration::GridRowGap(allocator.boxed(value)))
+        }),
         property_id @ (PropertyId::Width
         | PropertyId::Height
         | PropertyId::MinWidth

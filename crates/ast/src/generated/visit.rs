@@ -482,6 +482,22 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
+    fn visit_column_rule(&mut self, node: &ColumnRule<'a>) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
+    fn visit_column_width(&mut self, node: &ColumnWidth<'a>) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
+    fn visit_column_count(&mut self, node: &ColumnCount) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
+    fn visit_columns(&mut self, node: &Columns<'a>) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
     fn visit_track_repeat(&mut self, node: &TrackRepeat<'a>) {
         Visit::visit_children(node, self);
     }

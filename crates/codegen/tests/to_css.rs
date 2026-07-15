@@ -63,6 +63,19 @@ fn compact_stylesheet_omits_optional_whitespace() {
 }
 
 #[test]
+fn serializes_typed_multicol_and_legacy_gap_properties() {
+    let stylesheet = parse_stylesheet(
+        "a { -webkit-column-rule: red solid 1px; columns: 3 10px; grid-column-gap: 10%; grid-row-gap: normal }",
+    );
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "a{-webkit-column-rule:1px solid red;columns:10px 3;grid-column-gap:10%;grid-row-gap:normal}"
+    );
+}
+
+#[test]
 fn serializes_charset_rules() {
     let stylesheet =
         parse_stylesheet("@charset 'UTF-8'; @import 'theme.css'; .foo { color: green }");
@@ -177,6 +190,33 @@ fn declaration_block_preserves_importance_bits() {
             .to_css_string(PrinterOptions::default())
             .unwrap(),
         "color: red !important;\nopacity: .5"
+    );
+}
+
+#[test]
+fn declaration_block_skips_tombstones() {
+    let allocator = Allocator::new();
+    let mut declarations = DeclarationBlock::new(&allocator);
+
+    declarations.push(Declaration::Tombstone, true);
+    assert!(declarations.is_output_empty());
+    assert_eq!(
+        declarations
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        ""
+    );
+
+    declarations.push(Declaration::All(CSSWideKeyword::Initial), false);
+    declarations.push(Declaration::Tombstone, true);
+    declarations.push(Declaration::All(CSSWideKeyword::Inherit), true);
+    declarations.push(Declaration::Tombstone, false);
+    assert!(!declarations.is_output_empty());
+    assert_eq!(
+        declarations
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "all: initial;\nall: inherit !important"
     );
 }
 

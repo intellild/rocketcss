@@ -9,6 +9,7 @@ mod token;
 
 pub mod prelude;
 
+use rocketcss_allocator::Allocator;
 use rocketcss_ast::{match_ignore_ascii_case, *};
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut};
 
@@ -62,20 +63,36 @@ impl<'a> Plugin<'a> for MinifyPlugin {
 }
 
 pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
-    stylesheet.visit_mut(&mut Minifier { cx });
+    // Declaration-block IR is scratch state. Keep it out of the AST arena so
+    // every temporary allocation is released when this minify pass finishes.
+    let scratch = Allocator::new();
+    let declaration_blocks = rules::DeclarationBlockMinifier::new(&scratch);
+    stylesheet.visit_mut(&mut Minifier {
+        cx,
+        declaration_blocks,
+    });
 }
 
-struct Minifier<'cx> {
+struct Minifier<'ast, 'scratch, 'cx> {
     cx: &'cx mut MinifyContext,
+    declaration_blocks: rules::DeclarationBlockMinifier<'scratch, 'ast>,
 }
 
-impl<'a> VisitorMut<'a> for Minifier<'_> {
-    fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
+impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
+    fn visit_declaration_block(&mut self, mut node: std::pin::Pin<&mut DeclarationBlock<'ast>>) {
+        node.as_mut().visit_mut_children(self);
+        // SAFETY: minification mutates fields in place and never moves the
+        // pinned declaration block itself.
+        self.declaration_blocks
+            .minify(unsafe { node.as_mut().get_unchecked_mut() }, self.cx);
+    }
+
+    fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
-    fn visit_unparsed_property(&mut self, node: &mut UnparsedProperty<'a>) {
+    fn visit_unparsed_property(&mut self, node: &mut UnparsedProperty<'ast>) {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::value_context(
             &node.property_id,
@@ -88,7 +105,7 @@ impl<'a> VisitorMut<'a> for Minifier<'_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_custom_property(&mut self, node: &mut CustomProperty<'a>) {
+    fn visit_custom_property(&mut self, node: &mut CustomProperty<'ast>) {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::custom_property_context(self.cx);
         let name = match &*node.name {
@@ -102,7 +119,7 @@ impl<'a> VisitorMut<'a> for Minifier<'_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_function(&mut self, node: &mut Function<'a>) {
+    fn visit_function(&mut self, node: &mut Function<'ast>) {
         let previous = self.cx.value_context;
         let kind = node.kind();
         if kind.is_math() {
@@ -138,17 +155,17 @@ impl<'a> VisitorMut<'a> for Minifier<'_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_variable(&mut self, node: &mut Variable<'a>) {
+    fn visit_variable(&mut self, node: &mut Variable<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
-    fn visit_environment_variable(&mut self, node: &mut EnvironmentVariable<'a>) {
+    fn visit_environment_variable(&mut self, node: &mut EnvironmentVariable<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
-    fn visit_unknown_at_rule(&mut self, node: &mut UnknownAtRule<'a>) {
+    fn visit_unknown_at_rule(&mut self, node: &mut UnknownAtRule<'ast>) {
         let previous = self.cx.value_context;
         self.cx.value_context = Default::default();
         self.cx
@@ -159,7 +176,7 @@ impl<'a> VisitorMut<'a> for Minifier<'_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_token_or_value(&mut self, node: &mut TokenOrValue<'a>) {
+    fn visit_token_or_value(&mut self, node: &mut TokenOrValue<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
@@ -189,12 +206,12 @@ impl<'a> VisitorMut<'a> for Minifier<'_> {
         node.minify(self.cx);
     }
 
-    fn visit_selector_list(&mut self, node: &mut SelectorList<'a>) {
+    fn visit_selector_list(&mut self, node: &mut SelectorList<'ast>) {
         self.visit_selector_list_children(node);
         node.minify(self.cx);
     }
 
-    fn visit_media_list(&mut self, node: &mut MediaList<'a>) {
+    fn visit_media_list(&mut self, node: &mut MediaList<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
@@ -275,15 +292,157 @@ mod tests {
     }
 
     #[test]
-    fn preserves_rule_and_declaration_structure() {
+    fn preserves_rule_structure() {
         assert_eq!(
             run("a{}a{color:red}a{color:red} @media print{a{}}"),
             "a{}a{color:red}a{color:red}@media print{a{}}"
         );
-        assert_eq!(run("a{width:1px;width:1px}"), "a{width:1px;width:1px}");
         assert_eq!(
             run("@charset 'UTF-8'; @import 'theme.css'; a{color:red}"),
             "@charset \"UTF-8\";@import \"theme.css\";a{color:red}"
+        );
+    }
+
+    #[test]
+    fn removes_exact_duplicate_declarations_within_one_block() {
+        assert_eq!(
+            run("h1{font-weight:700;font-weight:700}"),
+            "h1{font-weight:700}"
+        );
+        assert_eq!(
+            run("h1{font-weight:bold;font-weight:bold}"),
+            "h1{font-weight:700}"
+        );
+        assert_eq!(
+            run("h1{margin:10px 0 10px 0;margin:10px 0}"),
+            "h1{margin:10px 0}"
+        );
+        assert_eq!(
+            run("a{width:1px;color:red;width:1px}"),
+            "a{color:red;width:1px}"
+        );
+        assert_eq!(
+            run("a{width:1px!important;width:1px!important}"),
+            "a{width:1px !important}"
+        );
+        assert_eq!(
+            run("a{-webkit-user-select:none;-webkit-user-select:none}"),
+            "a{-webkit-user-select:none}"
+        );
+        assert_eq!(run("a{--x:1;--x:1}"), "a{--x:1}");
+        assert_eq!(run("a{unknown:value;unknown:value}"), "a{unknown:value}");
+        assert_eq!(
+            run(
+                "a{width:1px;height:1px;top:1px;right:1px;bottom:1px;left:1px;color:red;opacity:1;z-index:1;width:1px}"
+            ),
+            "a{height:1px;top:1px;right:1px;bottom:1px;left:1px;color:red;opacity:1;z-index:1;width:1px}"
+        );
+        assert_eq!(run("a{width:1px;width:1px;width:1px}"), "a{width:1px}");
+        assert_eq!(
+            run("a{height:1px;width:1px;width:1px;color:red}"),
+            "a{height:1px;width:1px;color:red}"
+        );
+
+        let allocator = Allocator::new();
+        let mut stylesheet = parse(
+            "a{width:1px;color:red;width:1px}",
+            &allocator,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let stats = minify(&mut stylesheet, MinifyOptions::default());
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        assert_eq!(rule.declarations.len(), 3);
+        assert_eq!(rule.declarations.declarations_importance.len(), 3);
+        assert!(matches!(
+            rule.declarations.declarations[0],
+            Declaration::Tombstone
+        ));
+        assert_eq!(stats.declarations_removed, 1);
+
+        let stats = minify(&mut stylesheet, MinifyOptions::default());
+        assert_eq!(stats.declarations_removed, 0);
+        assert_eq!(
+            stylesheet
+                .to_css_string(PrinterOptions { prettify: false })
+                .unwrap(),
+            "a{color:red;width:1px}"
+        );
+    }
+
+    #[test]
+    fn preserves_declaration_fallbacks_and_importance() {
+        assert_eq!(
+            run("a{width:1px;width:2px;width:1px}"),
+            "a{width:1px;width:2px;width:1px}"
+        );
+        assert_eq!(
+            run("a{width:1px;width:1px!important}"),
+            "a{width:1px;width:1px !important}"
+        );
+    }
+
+    #[test]
+    fn minifies_box_longhands_through_single_pass_ir() {
+        assert_eq!(
+            run("a{margin-top:10px;margin-right:20px;margin-bottom:10px;margin-left:20px}"),
+            "a{margin:10px 20px}"
+        );
+        assert_eq!(
+            run("a{padding-left:4px;padding-top:1px;padding-bottom:3px;padding-right:2px}"),
+            "a{padding:1px 2px 3px 4px}"
+        );
+        assert_eq!(
+            run("a{margin-top:1px;margin-right:2px;margin:3px}"),
+            "a{margin:3px}"
+        );
+        assert_eq!(
+            run("a{padding:1px;padding-left:2px}"),
+            "a{padding:1px 1px 1px 2px}"
+        );
+        assert_eq!(
+            run("a{margin:1px 2px;margin-left:2px}"),
+            "a{margin:1px 2px}"
+        );
+        assert_eq!(
+            run(
+                "a{margin-top:1px!important;margin-right:1px!important;margin-bottom:1px!important;margin-left:1px!important}"
+            ),
+            "a{margin:1px !important}"
+        );
+    }
+
+    #[test]
+    fn box_ir_preserves_fallback_and_logical_property_barriers() {
+        assert_eq!(
+            run("a{margin:inherit;margin-left:1px}"),
+            "a{margin:inherit;margin-left:1px}"
+        );
+        assert_eq!(
+            run("a{margin:1px;margin-left:var(--space)}"),
+            "a{margin:1px;margin-left:var(--space)}"
+        );
+        assert_eq!(
+            run("a{margin-left:1px;margin:invalid}"),
+            "a{margin-left:1px;margin:invalid}"
+        );
+        assert_eq!(
+            run("a{padding-left:1px;padding:auto}"),
+            "a{padding-left:1px;padding:auto}"
+        );
+        assert_eq!(
+            run(
+                "a{margin-top:1px;margin-inline-start:2px;margin-right:3px;margin-bottom:4px;margin-left:5px}"
+            ),
+            "a{margin-top:1px;margin-inline-start:2px;margin-right:3px;margin-bottom:4px;margin-left:5px}"
+        );
+        assert_eq!(
+            run(
+                "a{padding-top:1px!important;padding-right:1px;padding-bottom:1px;padding-left:1px}"
+            ),
+            "a{padding-top:1px !important;padding-right:1px;padding-bottom:1px;padding-left:1px}"
         );
     }
 
@@ -358,7 +517,7 @@ mod tests {
         );
 
         let columns = PropertyId::from_name("CoLuMnS");
-        assert_eq!(columns, PropertyId::Columns);
+        assert_eq!(columns, PropertyId::Columns(VendorPrefix::NONE));
         assert_eq!(
             properties::value_context(&columns, true, true).property,
             context::PropertyContext::Columns
@@ -392,13 +551,19 @@ mod tests {
     #[test]
     fn plugin_exposes_local_normalization_stats() {
         let allocator = Allocator::new();
-        let mut stylesheet = parse("a{width:16px}", &allocator, ParserOptions::default()).unwrap();
+        let mut stylesheet = parse(
+            "a{width:16px;width:16px}",
+            &allocator,
+            ParserOptions::default(),
+        )
+        .unwrap();
         let mut plugins = Plugins::new();
         plugins.add(MinifyPlugin::default());
         let mut plugin_context = PluginContext::new(&allocator);
         plugins.run(&mut stylesheet, &mut plugin_context).unwrap();
         let stats = plugin_context.get::<MinifyStats>().unwrap();
-        assert_eq!(stats.values_normalized, 1);
+        assert_eq!(stats.values_normalized, 2);
+        assert_eq!(stats.declarations_removed, 1);
     }
 
     fn unparsed_value_storage<'a>(

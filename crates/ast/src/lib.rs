@@ -120,6 +120,46 @@ mod tests {
     }
 
     #[test]
+    fn known_property_ids_use_the_property_discriminant() {
+        let width = PropertyId::Width;
+        let height = PropertyId::Height;
+        let webkit_user_select = PropertyId::UserSelect(VendorPrefix::WEBKIT);
+        let moz_user_select = PropertyId::UserSelect(VendorPrefix::MOZ);
+
+        assert_ne!(width.known_id(), height.known_id());
+        assert_eq!(webkit_user_select.known_id(), moz_user_select.known_id());
+        assert_eq!(
+            webkit_user_select.known_id_and_prefix(),
+            webkit_user_select
+                .known_id()
+                .map(|id| (id, VendorPrefix::WEBKIT))
+        );
+        assert_eq!(
+            moz_user_select.known_id_and_prefix(),
+            moz_user_select.known_id().map(|id| (id, VendorPrefix::MOZ))
+        );
+        assert!(PropertyId::All.known_id().is_some());
+        assert_eq!(PropertyId::Unparsed.known_id(), None);
+        assert_eq!(PropertyId::Custom("unknown").known_id(), None);
+
+        for (name, expected) in [
+            ("CoLuMn-RuLe", PropertyId::ColumnRule(VendorPrefix::NONE)),
+            ("CoLuMnS", PropertyId::Columns(VendorPrefix::NONE)),
+            ("GrId-CoLuMn-GaP", PropertyId::GridColumnGap),
+            ("GrId-RoW-GaP", PropertyId::GridRowGap),
+        ] {
+            let property_id = PropertyId::from_name(name);
+            assert_eq!(property_id, expected);
+            assert!(property_id.known_id().is_some());
+            assert_eq!(property_id.vendor_prefix(), VendorPrefix::NONE);
+        }
+        assert_eq!(
+            PropertyId::from_name("-WeBkIt-CoLuMnS"),
+            PropertyId::Columns(VendorPrefix::WEBKIT)
+        );
+    }
+
+    #[test]
     fn selector_uses_typed_lightningcss_components() {
         let allocator = Allocator::new();
         let mut selector = allocator.vec();

@@ -676,6 +676,51 @@ fn parses_typed_core_property_values() {
 }
 
 #[test]
+fn parses_known_multicol_and_legacy_gap_ast_nodes() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        "a { -webkit-column-rule: red solid 1px; columns: 3 10px; grid-column-gap: 10%; grid-row-gap: normal; columns: var(--count); }",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style")
+    };
+    let declarations = &style.declarations.declarations;
+
+    assert!(matches!(
+        &declarations[0],
+        Declaration::ColumnRule(value, prefix)
+            if prefix.contains(VendorPrefix::WEBKIT)
+                && matches!(value.style, Some(LineStyle::Solid))
+                && value.width.is_some()
+                && value.color.is_some()
+    ));
+    assert!(matches!(
+        &declarations[1],
+        Declaration::Columns(value, prefix)
+            if *prefix == VendorPrefix::NONE
+                && matches!(value.count, ColumnCount::Integer(3))
+                && matches!(&*value.width, ColumnWidth::Length(_))
+    ));
+    assert!(matches!(
+        &declarations[2],
+        Declaration::GridColumnGap(value)
+            if matches!(&**value, GapValue::LengthPercentage(_))
+    ));
+    assert!(matches!(
+        &declarations[3],
+        Declaration::GridRowGap(value) if matches!(&**value, GapValue::Normal)
+    ));
+    assert!(matches!(
+        &declarations[4],
+        Declaration::Unparsed(value)
+            if matches!(&*value.property_id, PropertyId::Columns(VendorPrefix::NONE))
+    ));
+}
+
+#[test]
 fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
     let allocator = Allocator::new();
     let sheet = parse(

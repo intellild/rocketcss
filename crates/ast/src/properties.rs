@@ -56,6 +56,15 @@ macro_rules! declaration_prefix {
     };
 }
 
+macro_rules! declaration_property_id {
+    ($name:path) => {
+        $name
+    };
+    ($name:path, $binding:ident: $vendor_prefix:ty) => {
+        $name(*$binding)
+    };
+}
+
 macro_rules! define_properties {
     (
         $(
@@ -63,19 +72,22 @@ macro_rules! define_properties {
             $name:literal: $property:ident($value:ty $(, $vp:ty)?),
         )+
     ) => {
-        #[derive(Debug, PartialEq, Visit)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
         pub enum PropertyId<'a> {
             $(
                 $(#[$meta])*
                 $property$(($vp))?,
             )+
-            ColumnRule,
-            Columns,
-            GridColumnGap,
-            GridRowGap,
-            All,
             Unparsed,
             Custom(&'a str),
+        }
+
+        // Generated from the same source as `PropertyId`, so compact lookup IDs
+        // cannot drift from the known property variants. This enum is only used
+        // to assign compile-time discriminants and is never stored in the AST.
+        #[repr(u32)]
+        enum KnownPropertyDiscriminant {
+            $($property,)+
         }
 
         #[derive(Debug, PartialEq, Visit)]
@@ -84,9 +96,10 @@ macro_rules! define_properties {
                 $(#[$meta])*
                 $property($value $(, $vp)?),
             )+
-            All(CSSWideKeyword),
             Unparsed(Box<'a, UnparsedProperty<'a>>),
             Custom(Box<'a, CustomProperty<'a>>),
+            /// Tombstone for a declaration removed by an in-place transform.
+            Tombstone,
         }
 
         impl<'a> PropertyId<'a> {
@@ -94,12 +107,7 @@ macro_rules! define_properties {
             pub fn from_name(name: &'a str) -> Self {
                 let property_id = match_ignore_ascii_case!(
                     name,
-                    "all" => Some(Self::All),
                     $($name => Some(Self::$property$( (<$vp>::default()) )?),)+
-                    "column-rule" => Some(Self::ColumnRule),
-                    "columns" => Some(Self::Columns),
-                    "grid-column-gap" => Some(Self::GridColumnGap),
-                    "grid-row-gap" => Some(Self::GridRowGap),
                     _ => None,
                 );
                 if let Some(property_id) = property_id {
@@ -121,14 +129,9 @@ macro_rules! define_properties {
             }
 
             /// Returns the canonical CSS property name.
-            pub fn name(&self) -> &str {
+            pub fn name(&self) -> &'a str {
                 match self {
                     $(property_id_pattern!(Self::$property$(, $vp)?) => $name,)+
-                    Self::ColumnRule => "column-rule",
-                    Self::Columns => "columns",
-                    Self::GridColumnGap => "grid-column-gap",
-                    Self::GridRowGap => "grid-row-gap",
-                    Self::All => "all",
                     Self::Unparsed => "",
                     Self::Custom(name) => name,
                 }
@@ -138,27 +141,67 @@ macro_rules! define_properties {
             pub fn vendor_prefix(&self) -> VendorPrefix {
                 match self {
                     $(property_id_prefix_pattern!(Self::$property$(, $vp)?, prefix) => property_id_prefix!($(prefix: $vp)?),)+
-                    Self::ColumnRule
-                    | Self::Columns
-                    | Self::GridColumnGap
-                    | Self::GridRowGap
-                    | Self::All
-                    | Self::Unparsed
-                    | Self::Custom(_) => VendorPrefix::NONE,
+                    Self::Unparsed | Self::Custom(_) => VendorPrefix::NONE,
+                }
+            }
+
+            /// Returns the compact discriminant of a known property.
+            ///
+            /// The value is intended for in-memory lookup tables and is not a stable
+            /// serialization format.
+            #[inline]
+            pub fn known_id(&self) -> Option<u32> {
+                self.known_id_and_prefix().map(|(id, _)| id)
+            }
+
+            /// Returns the compact discriminant and vendor prefix of a known property.
+            ///
+            /// The value is intended for in-memory lookup tables and is not a stable
+            /// serialization format.
+            #[inline]
+            pub fn known_id_and_prefix(&self) -> Option<(u32, VendorPrefix)> {
+                match self {
+                    $(property_id_prefix_pattern!(Self::$property$(, $vp)?, prefix) => Some((KnownPropertyDiscriminant::$property as u32, property_id_prefix!($(prefix: $vp)?))),)+
+                    Self::Unparsed | Self::Custom(_) => None,
                 }
             }
         }
 
-        impl Declaration<'_> {
+        impl<'a> Declaration<'a> {
+            /// Returns the compact discriminant and vendor prefix of a known declaration.
+            ///
+            /// This performs one typed dispatch without constructing a `PropertyId`.
+            #[inline]
+            pub fn known_id_and_prefix(&self) -> Option<(u32, VendorPrefix)> {
+                match self {
+                    $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some((KnownPropertyDiscriminant::$property as u32, declaration_prefix!($(vendor_prefix: $vp)?))),)+
+                    Self::Unparsed(value) => value.property_id.known_id_and_prefix(),
+                    Self::Custom(_) | Self::Tombstone => None,
+                }
+            }
+
+            /// Returns the typed identity of this declaration.
+            #[inline]
+            pub fn property_id(&self) -> Option<PropertyId<'a>> {
+                match self {
+                    $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some(declaration_property_id!(PropertyId::$property$(, vendor_prefix: $vp)?)),)+
+                    Self::Unparsed(value) => Some(*value.property_id),
+                    Self::Custom(value) => Some(PropertyId::Custom(match &*value.name {
+                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                    })),
+                    Self::Tombstone => None,
+                }
+            }
+
             /// Returns the canonical CSS property name.
-            pub fn name(&self) -> &str {
+            pub fn name(&self) -> &'a str {
                 match self {
                     $(Self::$property(..) => $name,)+
-                    Self::All(_) => "all",
                     Self::Unparsed(value) => value.property_id.name(),
                     Self::Custom(value) => match &*value.name {
                         CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
                     },
+                    Self::Tombstone => "",
                 }
             }
 
@@ -167,8 +210,14 @@ macro_rules! define_properties {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => declaration_prefix!($(vendor_prefix: $vp)?),)+
                     Self::Unparsed(value) => value.property_id.vendor_prefix(),
-                    Self::All(_) | Self::Custom(_) => VendorPrefix::NONE,
+                    Self::Custom(_) | Self::Tombstone => VendorPrefix::NONE,
                 }
+            }
+
+            /// Returns whether this declaration slot is an in-place tombstone.
+            #[inline]
+            pub fn is_tombstone(&self) -> bool {
+                matches!(self, Self::Tombstone)
             }
         }
     };
@@ -240,6 +289,7 @@ pub enum BlendMode {
 macro_rules! for_each_property {
     ($macro:ident) => {
         $macro! {
+    "all": All(CSSWideKeyword),
     "background-color": BackgroundColor(Box<'a, CssColor<'a>>),
     "background-image": BackgroundImage(Vec<'a, Image<'a>>),
     "background-position-x": BackgroundPositionX(Vec<'a, PositionComponent<'a, HorizontalPositionKeyword>>),
@@ -370,6 +420,10 @@ macro_rules! for_each_property {
     "row-gap": RowGap(Box<'a, GapValue<'a>>),
     "column-gap": ColumnGap(Box<'a, GapValue<'a>>),
     "gap": Gap(Box<'a, Gap<'a>>),
+    "column-rule": ColumnRule(Box<'a, ColumnRule<'a>>, VendorPrefix),
+    "columns": Columns(Box<'a, Columns<'a>>, VendorPrefix),
+    "grid-column-gap": GridColumnGap(Box<'a, GapValue<'a>>),
+    "grid-row-gap": GridRowGap(Box<'a, GapValue<'a>>),
     "box-orient": BoxOrient(BoxOrient, VendorPrefix),
     "box-direction": BoxDirection(BoxDirection, VendorPrefix),
     "box-ordinal-group": BoxOrdinalGroup(f32, VendorPrefix),

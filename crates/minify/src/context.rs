@@ -5,6 +5,7 @@ use crate::{MinifyOptions, Options, OptionsOp};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct MinifyStats {
     pub values_normalized: u32,
+    pub declarations_removed: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -109,5 +110,10 @@ impl MinifyContext {
     #[inline]
     pub(crate) fn record_value_normalized(&mut self) {
         self.stats.values_normalized += 1;
+    }
+
+    #[inline]
+    pub(crate) fn record_declaration_removed(&mut self) {
+        self.stats.declarations_removed += 1;
     }
 }
