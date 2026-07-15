@@ -18,12 +18,15 @@ pub use options::{MinifyOptions, Options, OptionsOp};
 
 /// Minifies a syntax-tree node in place.
 pub trait Minify {
-    fn minify(&mut self, cx: &mut MinifyContext);
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
+    where
+        Self: 'cx;
 }
 
 /// Minifies a stylesheet in place and returns transformation statistics.
 pub fn minify<'a>(stylesheet: &mut StyleSheet<'a>, options: MinifyOptions) -> MinifyStats {
-    let mut cx = MinifyContext::new(options);
+    let allocator = Allocator::new();
+    let mut cx = MinifyContext::new(options, &allocator);
     stylesheet.minify(&mut cx);
     cx.stats()
 }
@@ -62,34 +65,47 @@ impl<'a> Plugin<'a> for MinifyPlugin {
     }
 }
 
-pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
-    // Declaration-block IR is scratch state. Keep it out of the AST arena so
-    // every temporary allocation is released when this minify pass finishes.
-    let scratch = Allocator::new();
-    let declaration_blocks = rules::DeclarationBlockMinifier::new(&scratch);
-    stylesheet.visit_mut(&mut Minifier {
-        cx,
+pub(crate) fn minify_style_sheet<'ast, 'cx>(
+    stylesheet: &mut StyleSheet<'ast>,
+    cx: &mut MinifyContext<'cx>,
+) where
+    'ast: 'cx,
+{
+    // Minifier IR and transient collections are scratch state. Keep them out
+    // of the AST arena so every temporary allocation is released when this
+    // minify pass finishes.
+    // Move the context into the visitor so it and its scratch IR share one
+    // `'cx` lifetime, then restore it after traversal.
+    let replacement = MinifyContext::new(cx.options(), cx.allocator());
+    let owned_cx = std::mem::replace(cx, replacement);
+    let allocator = owned_cx.allocator();
+    let declaration_blocks = rules::DeclarationBlockMinifier::new(allocator);
+    let mut minifier = Minifier {
+        cx: owned_cx,
         declaration_blocks,
-    });
+    };
+    stylesheet.visit_mut(&mut minifier);
+    let Minifier { cx: result, .. } = minifier;
+    *cx = result;
 }
 
-struct Minifier<'ast, 'scratch, 'cx> {
-    cx: &'cx mut MinifyContext,
-    declaration_blocks: rules::DeclarationBlockMinifier<'scratch, 'ast>,
+struct Minifier<'ast, 'cx> {
+    cx: MinifyContext<'cx>,
+    declaration_blocks: rules::DeclarationBlockMinifier<'cx, 'ast>,
 }
 
-impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
+impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
     fn visit_declaration_block(&mut self, mut node: std::pin::Pin<&mut DeclarationBlock<'ast>>) {
         node.as_mut().visit_mut_children(self);
         // SAFETY: minification mutates fields in place and never moves the
         // pinned declaration block itself.
         self.declaration_blocks
-            .minify(unsafe { node.as_mut().get_unchecked_mut() }, self.cx);
+            .minify(unsafe { node.as_mut().get_unchecked_mut() }, &mut self.cx);
     }
 
     fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'ast>) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_unparsed_property(&mut self, node: &mut UnparsedProperty<'ast>) {
@@ -101,13 +117,13 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
                 .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
         self.cx.value_context = previous;
     }
 
     fn visit_custom_property(&mut self, node: &mut CustomProperty<'ast>) {
         let previous = self.cx.value_context;
-        self.cx.value_context = properties::custom_property_context(self.cx);
+        self.cx.value_context = properties::custom_property_context(&self.cx);
         let name = match &*node.name {
             CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => *name,
         };
@@ -115,7 +131,7 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
             self.cx.value_context.property = context::PropertyContext::Font;
         }
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
         self.cx.value_context = previous;
     }
 
@@ -151,18 +167,18 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
                 .set_enabled(context::ValueContextFlags::MINIFY_COLORS, false);
         }
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
         self.cx.value_context = previous;
     }
 
     fn visit_variable(&mut self, node: &mut Variable<'ast>) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_environment_variable(&mut self, node: &mut EnvironmentVariable<'ast>) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_unknown_at_rule(&mut self, node: &mut UnknownAtRule<'ast>) {
@@ -172,48 +188,49 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
             .value_context
             .set_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS, true);
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
         self.cx.value_context = previous;
     }
 
     fn visit_token_or_value(&mut self, node: &mut TokenOrValue<'ast>) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_length_value(&mut self, node: &mut LengthValue) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_angle(&mut self, node: &mut Angle) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_time(&mut self, node: &mut Time) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_resolution(&mut self, node: &mut Resolution) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_ratio(&mut self, node: &mut Ratio) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 
     fn visit_selector_list(&mut self, node: &mut SelectorList<'ast>) {
         self.visit_selector_list_children(node);
-        node.minify(self.cx);
+        let allocator = self.cx.allocator();
+        selector::minify_selector_list(node, &mut self.cx, allocator);
     }
 
     fn visit_media_list(&mut self, node: &mut MediaList<'ast>) {
         node.visit_mut_children(self);
-        node.minify(self.cx);
+        node.minify(&mut self.cx);
     }
 }
 
@@ -300,6 +317,34 @@ mod tests {
         assert_eq!(
             run("@charset 'UTF-8'; @import 'theme.css'; a{color:red}"),
             "@charset \"UTF-8\";@import \"theme.css\";a{color:red}"
+        );
+    }
+
+    #[test]
+    fn deduplicates_selectors_with_structural_hashes() {
+        assert_eq!(run("h1,h2,h1,h2{color:red}"), "h1,h2{color:red}");
+        assert_eq!(
+            run("a:custom(1),b,a:custom(1),a:custom(2),b{color:red}"),
+            "a:custom(1),b,a:custom(2){color:red}"
+        );
+        assert_eq!(
+            run("a:custom(0),b,a:custom(-0),c,d{color:red}"),
+            "a:custom(0),b,c,d{color:red}"
+        );
+        assert_eq!(
+            run("a:is(.x,.x,.y),a:is(.x,.x,.y){color:red}"),
+            "a:is(.x,.x,.y){color:red}"
+        );
+    }
+
+    #[test]
+    fn selector_deduplication_is_configurable() {
+        let mut options = MinifyOptions::default();
+        options.flags.remove(Options::DEDUPLICATE_LISTS);
+
+        assert_eq!(
+            run_with_options("h1,h2,h1,h2{color:red}", options),
+            "h1,h2,h1,h2{color:red}"
         );
     }
 

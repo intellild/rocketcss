@@ -13,7 +13,7 @@ pub enum Navigation {
     Auto,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub struct ViewTransitionPartSelector<'a> {
     pub classes: Vec<'a, &'a str>,
     pub name: Option<Box<'a, ViewTransitionPartName<'a>>>,

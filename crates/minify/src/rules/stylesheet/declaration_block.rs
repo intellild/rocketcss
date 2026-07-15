@@ -1,4 +1,4 @@
-use rocketcss_allocator::prelude::{Allocator, HashMap, Vec};
+use rocketcss_allocator::prelude::{AdaptiveHashMap, Allocator, Vec};
 use rocketcss_ast::{
     Declaration, DeclarationBlock, KnownFunction, LengthValue, Margin, Padding, PropertyId, Token,
     TokenOrValue, UnparsedProperty, VendorPrefix, match_ignore_ascii_case,
@@ -21,12 +21,15 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
 }
 
 impl<'a> Minify for DeclarationBlock<'a> {
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
+    where
+        Self: 'cx,
+    {
         if self.len() < 2 {
             return;
         }
-        let scratch = Allocator::new();
-        let mut minifier = DeclarationBlockMinifier::new(&scratch);
+        let allocator = cx.allocator();
+        let mut minifier = DeclarationBlockMinifier::new(allocator);
         minifier.minify_non_trivial(self, cx);
     }
 }
@@ -77,97 +80,25 @@ impl KnownDeclarationKey {
 }
 
 const EMPTY_INDEX: u32 = u32::MAX;
-// Most declaration blocks are small. Keep their single-pass IR inline and
-// promote larger blocks to the reusable arena map below.
-const INLINE_DECLARATION_CAPACITY: usize = 8;
-
-#[derive(Clone, Copy, Debug, Default)]
-struct KnownDeclarationEntry {
-    key: KnownDeclarationKey,
-    index: u32,
-}
-
-const _: () = {
-    assert!(std::mem::size_of::<KnownDeclarationKey>() == 4);
-    assert!(std::mem::size_of::<KnownDeclarationEntry>() == 8);
-};
-
-#[derive(Debug)]
-struct KnownDeclarationMap<'a> {
-    entries: [KnownDeclarationEntry; INLINE_DECLARATION_CAPACITY],
-    len: u8,
-    overflow: HashMap<'a, KnownDeclarationKey, u32>,
-    overflowed: bool,
-}
-
-impl<'a> KnownDeclarationMap<'a> {
-    fn new(allocator: &'a Allocator) -> Self {
-        Self {
-            entries: [KnownDeclarationEntry::default(); INLINE_DECLARATION_CAPACITY],
-            len: 0,
-            overflow: HashMap::new_in(allocator),
-            overflowed: false,
-        }
-    }
-
-    #[inline]
-    fn clear(&mut self) {
-        self.len = 0;
-        if self.overflowed {
-            self.overflow.clear();
-            self.overflowed = false;
-        }
-    }
-
-    #[inline]
-    fn insert(&mut self, key: KnownDeclarationKey, index: u32) -> Option<u32> {
-        if self.overflowed {
-            return self.overflow.insert(key, index);
-        }
-
-        for entry in &mut self.entries[..usize::from(self.len)] {
-            if entry.key == key {
-                return Some(std::mem::replace(&mut entry.index, index));
-            }
-        }
-
-        if usize::from(self.len) < INLINE_DECLARATION_CAPACITY {
-            self.entries[usize::from(self.len)] = KnownDeclarationEntry { key, index };
-            self.len += 1;
-            return None;
-        }
-
-        for entry in &self.entries {
-            self.overflow.insert(entry.key, entry.index);
-        }
-        self.overflowed = true;
-        self.overflow.insert(key, index)
-    }
-}
 
 #[derive(Debug)]
 struct DeclarationMap<'scratch, 'ast> {
-    known: KnownDeclarationMap<'scratch>,
-    unknown: HashMap<'scratch, UnknownDeclarationKey<'ast>, u32>,
-    has_unknown: bool,
+    known: AdaptiveHashMap<'scratch, KnownDeclarationKey, u32>,
+    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'ast>, u32>,
 }
 
 impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
     fn new(allocator: &'scratch Allocator) -> Self {
         Self {
-            known: KnownDeclarationMap::new(allocator),
-            unknown: HashMap::new_in(allocator),
-            has_unknown: false,
+            known: AdaptiveHashMap::new_in(allocator),
+            unknown: AdaptiveHashMap::new_in(allocator),
         }
     }
 
     #[inline]
     fn clear(&mut self) {
         self.known.clear();
-        if self.has_unknown {
-            self.unknown.clear();
-            self.has_unknown = false;
-        }
+        self.unknown.clear();
     }
 
     #[inline]
@@ -192,7 +123,6 @@ impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
         important: bool,
         index: u32,
     ) -> Option<u32> {
-        self.has_unknown = true;
         self.unknown.insert(
             UnknownDeclarationKey {
                 property_id,
@@ -263,14 +193,22 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     }
 
     #[inline]
-    pub(crate) fn minify(&mut self, block: &mut DeclarationBlock<'ast>, cx: &mut MinifyContext) {
+    pub(crate) fn minify(
+        &mut self,
+        block: &mut DeclarationBlock<'ast>,
+        cx: &mut MinifyContext<'scratch>,
+    ) {
         if block.len() < 2 {
             return;
         }
         self.minify_non_trivial(block, cx);
     }
 
-    fn minify_non_trivial(&mut self, block: &mut DeclarationBlock<'ast>, cx: &mut MinifyContext) {
+    fn minify_non_trivial(
+        &mut self,
+        block: &mut DeclarationBlock<'ast>,
+        cx: &mut MinifyContext<'scratch>,
+    ) {
         self.ir.clear();
         deduplicate_declarations(block, &mut self.ir, cx);
     }
@@ -330,11 +268,13 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
     }
 }
 
-fn deduplicate_declarations<'a>(
-    block: &mut DeclarationBlock<'a>,
-    ir: &mut DeclarationIr<'_, 'a>,
-    cx: &mut MinifyContext,
-) {
+fn deduplicate_declarations<'scratch, 'ast>(
+    block: &mut DeclarationBlock<'ast>,
+    ir: &mut DeclarationIr<'scratch, 'ast>,
+    cx: &mut MinifyContext<'scratch>,
+) where
+    'ast: 'scratch,
+{
     for current in 0..block.len() {
         if block.declarations[current].is_tombstone() {
             continue;
@@ -347,13 +287,15 @@ fn deduplicate_declarations<'a>(
     }
 }
 
-fn deduplicate_exact_declaration<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn deduplicate_exact_declaration<'scratch, 'ast>(
+    block: &mut DeclarationBlock<'ast>,
     current: usize,
     important: bool,
-    declarations: &mut DeclarationMap<'_, 'a>,
-    cx: &mut MinifyContext,
-) {
+    declarations: &mut DeclarationMap<'scratch, 'ast>,
+    cx: &mut MinifyContext<'scratch>,
+) where
+    'ast: 'scratch,
+{
     let current_index = current as u32;
     let declaration = &block.declarations[current];
     let previous = if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix() {
@@ -378,13 +320,16 @@ fn deduplicate_exact_declaration<'a>(
     }
 }
 
-fn process_box_declaration<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn process_box_declaration<'scratch, 'ast>(
+    block: &mut DeclarationBlock<'ast>,
     current: usize,
     important: bool,
-    ir: &mut DeclarationIr<'_, 'a>,
-    cx: &mut MinifyContext,
-) -> bool {
+    ir: &mut DeclarationIr<'scratch, 'ast>,
+    cx: &mut MinifyContext<'scratch>,
+) -> bool
+where
+    'ast: 'scratch,
+{
     let Some(property) = box_property(&block.declarations[current]) else {
         return false;
     };
@@ -709,12 +654,15 @@ fn clone_simple_token_or_value<'a>(
     }
 }
 
-fn merge_box_longhands<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn merge_box_longhands<'ast, 'cx>(
+    block: &mut DeclarationBlock<'ast>,
     indices: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext,
-) -> bool {
+    cx: &mut MinifyContext<'cx>,
+) -> bool
+where
+    'ast: 'cx,
+{
     let typed = match family {
         BoxFamily::Margin => indices.iter().all(|&index| {
             matches!(
@@ -741,12 +689,15 @@ fn merge_box_longhands<'a>(
     merge_unparsed_box_longhands(block, indices, family, cx)
 }
 
-fn merge_typed_box_longhands<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn merge_typed_box_longhands<'ast, 'cx>(
+    block: &mut DeclarationBlock<'ast>,
     [top, right, bottom, left]: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext,
-) -> bool {
+    cx: &mut MinifyContext<'cx>,
+) -> bool
+where
+    'ast: 'cx,
+{
     let allocator = block.declarations.bump();
     let target = [top, right, bottom, left]
         .into_iter()
@@ -814,12 +765,15 @@ fn merge_typed_box_longhands<'a>(
     true
 }
 
-fn merge_unparsed_box_longhands<'a>(
-    block: &mut DeclarationBlock<'a>,
+fn merge_unparsed_box_longhands<'ast, 'cx>(
+    block: &mut DeclarationBlock<'ast>,
     indices: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext,
-) -> bool {
+    cx: &mut MinifyContext<'cx>,
+) -> bool
+where
+    'ast: 'cx,
+{
     if indices.iter().any(|&index| {
         !matches!(&block.declarations[index], Declaration::Unparsed(value)
             if value.value.len() == 1 && is_box_component(&value.value[0], family))
@@ -896,11 +850,13 @@ fn record_merged_longhands(indices: [usize; 4], target: usize, cx: &mut MinifyCo
     }
 }
 
-fn minify_unparsed_declaration(
-    block: &mut DeclarationBlock<'_>,
+fn minify_unparsed_declaration<'ast, 'cx>(
+    block: &mut DeclarationBlock<'ast>,
     index: usize,
-    cx: &mut MinifyContext,
-) {
+    cx: &mut MinifyContext<'cx>,
+) where
+    'ast: 'cx,
+{
     let Declaration::Unparsed(value) = &mut block.declarations[index] else {
         return;
     };

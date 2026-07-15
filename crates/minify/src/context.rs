@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+use rocketcss_allocator::Allocator;
 
 use crate::{MinifyOptions, Options, OptionsOp};
 
@@ -77,19 +78,29 @@ impl Default for ValueContext {
 }
 
 /// Shared state for local, in-place node minification.
-pub struct MinifyContext {
+pub struct MinifyContext<'cx> {
+    allocator: &'cx Allocator,
     options: MinifyOptions,
     stats: MinifyStats,
     pub(crate) value_context: ValueContext,
 }
 
-impl MinifyContext {
-    pub fn new(options: MinifyOptions) -> Self {
+impl<'cx> MinifyContext<'cx> {
+    /// Creates a minification context backed by the scratch allocator shared
+    /// for the whole minification pass.
+    pub fn new(options: MinifyOptions, allocator: &'cx Allocator) -> Self {
         Self {
+            allocator,
             options,
             stats: MinifyStats::default(),
             value_context: ValueContext::default(),
         }
+    }
+
+    /// Returns the scratch allocator shared by this minification pass.
+    #[inline]
+    pub fn allocator(&self) -> &'cx Allocator {
+        self.allocator
     }
 
     #[inline]

@@ -3,7 +3,10 @@ use rocketcss_ast::{Angle, LengthUnit, LengthValue, Ratio, Resolution, Time, Uni
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for LengthValue {
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
+    where
+        Self: 'cx,
+    {
         if self.unit == LengthUnit::Px
             && let Some(precision) = cx.options().length_precision
         {
@@ -73,7 +76,10 @@ impl Minify for LengthValue {
 }
 
 impl Minify for Angle {
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
+    where
+        Self: 'cx,
+    {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
@@ -118,7 +124,10 @@ impl Minify for Angle {
 }
 
 impl Minify for Time {
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
+    where
+        Self: 'cx,
+    {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
@@ -144,7 +153,10 @@ impl Minify for Time {
 }
 
 impl Minify for Resolution {
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
+    where
+        Self: 'cx,
+    {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
@@ -171,7 +183,10 @@ impl Minify for Resolution {
 }
 
 impl Minify for Ratio {
-    fn minify(&mut self, cx: &mut MinifyContext) {
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
+    where
+        Self: 'cx,
+    {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
             || self.0 <= 0.0
             || self.1 <= 0.0

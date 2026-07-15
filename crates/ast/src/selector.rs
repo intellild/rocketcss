@@ -10,7 +10,7 @@ pub type Selector<'a> = Vec<'a, SelectorComponent<'a>>;
 ///
 /// This mirrors `parcel_selectors::parser::Component`, specialized for
 /// lightningcss' selector implementation and arena-backed containers.
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum SelectorComponent<'a> {
     Combinator(Combinator),
 
@@ -81,7 +81,7 @@ pub enum Combinator {
     Deep,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub struct AttrSelector<'a> {
     pub namespace: Option<NamespaceConstraint<'a>>,
     pub local_name: &'a str,
@@ -90,13 +90,13 @@ pub struct AttrSelector<'a> {
     pub never_matches: bool,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum NamespaceConstraint<'a> {
     Any,
     Specific { prefix: &'a str, url: &'a str },
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum AttrOperation<'a> {
     Exists,
     WithValue {
@@ -151,7 +151,7 @@ pub enum Direction {
     Rtl,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum PseudoClass<'a> {
     Lang {
         languages: Vec<'a, &'a str>,
@@ -247,7 +247,7 @@ pub enum WebKitScrollbarPseudoClass {
     WindowInactive,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum PseudoElement<'a> {
     After,
     Before,
@@ -313,7 +313,7 @@ pub enum WebKitScrollbarPseudoElement {
     Resizer,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum ViewTransitionPartName<'a> {
     All,
     Name(&'a str),
