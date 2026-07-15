@@ -25,7 +25,8 @@ impl<'a> Minify for DeclarationBlock<'a> {
         if self.len() < 2 {
             return;
         }
-        let mut minifier = DeclarationBlockMinifier::new(self.declarations.bump());
+        let scratch = Allocator::new();
+        let mut minifier = DeclarationBlockMinifier::new(&scratch);
         minifier.minify_non_trivial(self, cx);
     }
 }
@@ -145,14 +146,14 @@ impl<'a> KnownDeclarationMap<'a> {
 }
 
 #[derive(Debug)]
-struct DeclarationMap<'a> {
-    known: KnownDeclarationMap<'a>,
-    unknown: HashMap<'a, UnknownDeclarationKey<'a>, u32>,
+struct DeclarationMap<'scratch, 'ast> {
+    known: KnownDeclarationMap<'scratch>,
+    unknown: HashMap<'scratch, UnknownDeclarationKey<'ast>, u32>,
     has_unknown: bool,
 }
 
-impl<'a> DeclarationMap<'a> {
-    fn new(allocator: &'a Allocator) -> Self {
+impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
+    fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             known: KnownDeclarationMap::new(allocator),
             unknown: HashMap::new_in(allocator),
@@ -170,23 +171,35 @@ impl<'a> DeclarationMap<'a> {
     }
 
     #[inline]
-    fn insert(&mut self, property_id: PropertyId<'a>, important: bool, index: u32) -> Option<u32> {
-        if let Some(known_id) = property_id.known_id() {
-            let key = KnownDeclarationKey::new(known_id, property_id.vendor_prefix(), important);
-            debug_assert_eq!(key.property_id(), known_id);
-            debug_assert_eq!(key.vendor_prefix(), property_id.vendor_prefix());
-            debug_assert_eq!(key.is_important(), important);
-            self.known.insert(key, index)
-        } else {
-            self.has_unknown = true;
-            self.unknown.insert(
-                UnknownDeclarationKey {
-                    property_id,
-                    important,
-                },
-                index,
-            )
-        }
+    fn insert_known(
+        &mut self,
+        property_id: u32,
+        vendor_prefix: VendorPrefix,
+        important: bool,
+        index: u32,
+    ) -> Option<u32> {
+        let key = KnownDeclarationKey::new(property_id, vendor_prefix, important);
+        debug_assert_eq!(key.property_id(), property_id);
+        debug_assert_eq!(key.vendor_prefix(), vendor_prefix);
+        debug_assert_eq!(key.is_important(), important);
+        self.known.insert(key, index)
+    }
+
+    #[inline]
+    fn insert_unknown(
+        &mut self,
+        property_id: PropertyId<'ast>,
+        important: bool,
+        index: u32,
+    ) -> Option<u32> {
+        self.has_unknown = true;
+        self.unknown.insert(
+            UnknownDeclarationKey {
+                property_id,
+                important,
+            },
+            index,
+        )
     }
 }
 
@@ -238,40 +251,40 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-pub(crate) struct DeclarationBlockMinifier<'a> {
-    ir: DeclarationIr<'a>,
+pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
+    ir: DeclarationIr<'scratch, 'ast>,
 }
 
-impl<'a> DeclarationBlockMinifier<'a> {
-    pub(crate) fn new(allocator: &'a Allocator) -> Self {
+impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
+    pub(crate) fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             ir: DeclarationIr::new(allocator),
         }
     }
 
     #[inline]
-    pub(crate) fn minify(&mut self, block: &mut DeclarationBlock<'a>, cx: &mut MinifyContext) {
+    pub(crate) fn minify(&mut self, block: &mut DeclarationBlock<'ast>, cx: &mut MinifyContext) {
         if block.len() < 2 {
             return;
         }
         self.minify_non_trivial(block, cx);
     }
 
-    fn minify_non_trivial(&mut self, block: &mut DeclarationBlock<'a>, cx: &mut MinifyContext) {
+    fn minify_non_trivial(&mut self, block: &mut DeclarationBlock<'ast>, cx: &mut MinifyContext) {
         self.ir.clear();
         deduplicate_declarations(block, &mut self.ir, cx);
     }
 }
 
 #[derive(Debug)]
-struct DeclarationIr<'a> {
-    declarations: DeclarationMap<'a>,
-    boxes: [[BoxFamilyIr<'a>; 2]; BoxFamily::COUNT],
+struct DeclarationIr<'scratch, 'ast> {
+    declarations: DeclarationMap<'scratch, 'ast>,
+    boxes: [[BoxFamilyIr<'scratch>; 2]; BoxFamily::COUNT],
     dirty_boxes: u8,
 }
 
-impl<'a> DeclarationIr<'a> {
-    fn new(allocator: &'a Allocator) -> Self {
+impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
+    fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             declarations: DeclarationMap::new(allocator),
             boxes: std::array::from_fn(|_| std::array::from_fn(|_| BoxFamilyIr::new(allocator))),
@@ -286,7 +299,7 @@ impl<'a> DeclarationIr<'a> {
     }
 
     #[inline]
-    fn box_family(&mut self, family: BoxFamily, important: bool) -> &mut BoxFamilyIr<'a> {
+    fn box_family(&mut self, family: BoxFamily, important: bool) -> &mut BoxFamilyIr<'scratch> {
         let importance = usize::from(important);
         self.dirty_boxes |= 1 << (family.index() * 2 + importance);
         &mut self.boxes[family.index()][importance]
@@ -319,35 +332,42 @@ impl<'a> DeclarationIr<'a> {
 
 fn deduplicate_declarations<'a>(
     block: &mut DeclarationBlock<'a>,
-    ir: &mut DeclarationIr<'a>,
+    ir: &mut DeclarationIr<'_, 'a>,
     cx: &mut MinifyContext,
 ) {
     for current in 0..block.len() {
         if block.declarations[current].is_tombstone() {
             continue;
         }
-        process_box_declaration(block, current, ir, cx);
-        if block.declarations[current].is_tombstone() {
+        let important = block.is_important(current);
+        if process_box_declaration(block, current, important, ir, cx) {
             continue;
         }
-        deduplicate_exact_declaration(block, current, &mut ir.declarations, cx);
+        deduplicate_exact_declaration(block, current, important, &mut ir.declarations, cx);
     }
 }
 
 fn deduplicate_exact_declaration<'a>(
     block: &mut DeclarationBlock<'a>,
     current: usize,
-    declarations: &mut DeclarationMap<'a>,
+    important: bool,
+    declarations: &mut DeclarationMap<'_, 'a>,
     cx: &mut MinifyContext,
 ) {
-    let declaration = &block.declarations[current];
-    let property_id = declaration
-        .property_id()
-        .expect("tombstones are skipped before exact deduplication");
     let current_index = current as u32;
-    if let Some(previous) =
-        declarations.insert(property_id, block.is_important(current), current_index)
-    {
+    let declaration = &block.declarations[current];
+    let previous = if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix() {
+        declarations.insert_known(property_id, vendor_prefix, important, current_index)
+    } else {
+        declarations.insert_unknown(
+            declaration
+                .property_id()
+                .expect("tombstones are skipped before exact deduplication"),
+            important,
+            current_index,
+        )
+    };
+    if let Some(previous) = previous {
         let previous = previous as usize;
         if !block.declarations[previous].is_tombstone()
             && block.declarations[previous] == block.declarations[current]
@@ -361,17 +381,23 @@ fn deduplicate_exact_declaration<'a>(
 fn process_box_declaration<'a>(
     block: &mut DeclarationBlock<'a>,
     current: usize,
-    ir: &mut DeclarationIr<'a>,
+    important: bool,
+    ir: &mut DeclarationIr<'_, 'a>,
     cx: &mut MinifyContext,
-) {
+) -> bool {
     let Some(property) = box_property(&block.declarations[current]) else {
-        return;
+        return false;
     };
     match property {
-        BoxProperty::BarrierAll => ir.clear_boxes(),
-        BoxProperty::Barrier(family) => ir.clear_box_family(family),
+        BoxProperty::BarrierAll => {
+            ir.clear_boxes();
+            false
+        }
+        BoxProperty::Barrier(family) => {
+            ir.clear_box_family(family);
+            false
+        }
         BoxProperty::Shorthand(family) => {
-            let important = block.is_important(current);
             let can_override = can_override_box_longhands(&block.declarations[current], family);
             let state = ir.box_family(family, important);
             if can_override {
@@ -387,9 +413,9 @@ fn process_box_declaration<'a>(
             if can_override {
                 state.shorthand = current as u32;
             }
+            false
         }
         BoxProperty::Longhand(family, side) => {
-            let important = block.is_important(current);
             let state = ir.box_family(family, important);
             let shorthand = state.shorthand as usize;
             if state.shorthand != EMPTY_INDEX
@@ -399,14 +425,14 @@ fn process_box_declaration<'a>(
                 block.declarations[current] = Declaration::Tombstone;
                 cx.record_declaration_removed();
                 minify_unparsed_declaration(block, shorthand, cx);
-                return;
+                return true;
             }
 
             let current_index = current as u32;
             state.pending_longhands.push(current_index);
             state.sides[side] = current_index;
             if state.sides.contains(&EMPTY_INDEX) {
-                return;
+                return false;
             }
             let indices = state.sides.map(|index| index as usize);
             if merge_box_longhands(block, indices, family, cx) {
@@ -414,6 +440,7 @@ fn process_box_declaration<'a>(
                 state.clear();
                 state.shorthand = target as u32;
             }
+            false
         }
     }
 }

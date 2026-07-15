@@ -128,6 +128,16 @@ mod tests {
 
         assert_ne!(width.known_id(), height.known_id());
         assert_eq!(webkit_user_select.known_id(), moz_user_select.known_id());
+        assert_eq!(
+            webkit_user_select.known_id_and_prefix(),
+            webkit_user_select
+                .known_id()
+                .map(|id| (id, VendorPrefix::WEBKIT))
+        );
+        assert_eq!(
+            moz_user_select.known_id_and_prefix(),
+            moz_user_select.known_id().map(|id| (id, VendorPrefix::MOZ))
+        );
         assert!(PropertyId::All.known_id().is_some());
         assert_eq!(PropertyId::Unparsed.known_id(), None);
         assert_eq!(PropertyId::Custom("unknown").known_id(), None);

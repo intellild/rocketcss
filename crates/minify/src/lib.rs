@@ -9,6 +9,7 @@ mod token;
 
 pub mod prelude;
 
+use rocketcss_allocator::Allocator;
 use rocketcss_ast::{match_ignore_ascii_case, *};
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut};
 
@@ -62,20 +63,23 @@ impl<'a> Plugin<'a> for MinifyPlugin {
 }
 
 pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
-    let declaration_blocks = rules::DeclarationBlockMinifier::new(stylesheet.rules.bump());
+    // Declaration-block IR is scratch state. Keep it out of the AST arena so
+    // every temporary allocation is released when this minify pass finishes.
+    let scratch = Allocator::new();
+    let declaration_blocks = rules::DeclarationBlockMinifier::new(&scratch);
     stylesheet.visit_mut(&mut Minifier {
         cx,
         declaration_blocks,
     });
 }
 
-struct Minifier<'a, 'cx> {
+struct Minifier<'ast, 'scratch, 'cx> {
     cx: &'cx mut MinifyContext,
-    declaration_blocks: rules::DeclarationBlockMinifier<'a>,
+    declaration_blocks: rules::DeclarationBlockMinifier<'scratch, 'ast>,
 }
 
-impl<'a> VisitorMut<'a> for Minifier<'a, '_> {
-    fn visit_declaration_block(&mut self, mut node: std::pin::Pin<&mut DeclarationBlock<'a>>) {
+impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_, '_> {
+    fn visit_declaration_block(&mut self, mut node: std::pin::Pin<&mut DeclarationBlock<'ast>>) {
         node.as_mut().visit_mut_children(self);
         // SAFETY: minification mutates fields in place and never moves the
         // pinned declaration block itself.
@@ -83,12 +87,12 @@ impl<'a> VisitorMut<'a> for Minifier<'a, '_> {
             .minify(unsafe { node.as_mut().get_unchecked_mut() }, self.cx);
     }
 
-    fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
+    fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
-    fn visit_unparsed_property(&mut self, node: &mut UnparsedProperty<'a>) {
+    fn visit_unparsed_property(&mut self, node: &mut UnparsedProperty<'ast>) {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::value_context(
             &node.property_id,
@@ -101,7 +105,7 @@ impl<'a> VisitorMut<'a> for Minifier<'a, '_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_custom_property(&mut self, node: &mut CustomProperty<'a>) {
+    fn visit_custom_property(&mut self, node: &mut CustomProperty<'ast>) {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::custom_property_context(self.cx);
         let name = match &*node.name {
@@ -115,7 +119,7 @@ impl<'a> VisitorMut<'a> for Minifier<'a, '_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_function(&mut self, node: &mut Function<'a>) {
+    fn visit_function(&mut self, node: &mut Function<'ast>) {
         let previous = self.cx.value_context;
         let kind = node.kind();
         if kind.is_math() {
@@ -151,17 +155,17 @@ impl<'a> VisitorMut<'a> for Minifier<'a, '_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_variable(&mut self, node: &mut Variable<'a>) {
+    fn visit_variable(&mut self, node: &mut Variable<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
-    fn visit_environment_variable(&mut self, node: &mut EnvironmentVariable<'a>) {
+    fn visit_environment_variable(&mut self, node: &mut EnvironmentVariable<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
 
-    fn visit_unknown_at_rule(&mut self, node: &mut UnknownAtRule<'a>) {
+    fn visit_unknown_at_rule(&mut self, node: &mut UnknownAtRule<'ast>) {
         let previous = self.cx.value_context;
         self.cx.value_context = Default::default();
         self.cx
@@ -172,7 +176,7 @@ impl<'a> VisitorMut<'a> for Minifier<'a, '_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_token_or_value(&mut self, node: &mut TokenOrValue<'a>) {
+    fn visit_token_or_value(&mut self, node: &mut TokenOrValue<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }
@@ -202,12 +206,12 @@ impl<'a> VisitorMut<'a> for Minifier<'a, '_> {
         node.minify(self.cx);
     }
 
-    fn visit_selector_list(&mut self, node: &mut SelectorList<'a>) {
+    fn visit_selector_list(&mut self, node: &mut SelectorList<'ast>) {
         self.visit_selector_list_children(node);
         node.minify(self.cx);
     }
 
-    fn visit_media_list(&mut self, node: &mut MediaList<'a>) {
+    fn visit_media_list(&mut self, node: &mut MediaList<'ast>) {
         node.visit_mut_children(self);
         node.minify(self.cx);
     }

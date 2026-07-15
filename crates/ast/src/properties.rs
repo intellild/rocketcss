@@ -178,19 +178,41 @@ macro_rules! define_properties {
             /// serialization format.
             #[inline]
             pub fn known_id(&self) -> Option<u32> {
+                self.known_id_and_prefix().map(|(id, _)| id)
+            }
+
+            /// Returns the compact discriminant and vendor prefix of a known property.
+            ///
+            /// The value is intended for in-memory lookup tables and is not a stable
+            /// serialization format.
+            #[inline]
+            pub fn known_id_and_prefix(&self) -> Option<(u32, VendorPrefix)> {
                 match self {
-                    $(property_id_pattern!(Self::$property$(, $vp)?) => Some(KnownPropertyDiscriminant::$property as u32),)+
-                    Self::ColumnRule => Some(KnownPropertyDiscriminant::ColumnRule as u32),
-                    Self::Columns => Some(KnownPropertyDiscriminant::Columns as u32),
-                    Self::GridColumnGap => Some(KnownPropertyDiscriminant::GridColumnGap as u32),
-                    Self::GridRowGap => Some(KnownPropertyDiscriminant::GridRowGap as u32),
-                    Self::All => Some(KnownPropertyDiscriminant::All as u32),
+                    $(property_id_prefix_pattern!(Self::$property$(, $vp)?, prefix) => Some((KnownPropertyDiscriminant::$property as u32, property_id_prefix!($(prefix: $vp)?))),)+
+                    Self::ColumnRule => Some((KnownPropertyDiscriminant::ColumnRule as u32, VendorPrefix::NONE)),
+                    Self::Columns => Some((KnownPropertyDiscriminant::Columns as u32, VendorPrefix::NONE)),
+                    Self::GridColumnGap => Some((KnownPropertyDiscriminant::GridColumnGap as u32, VendorPrefix::NONE)),
+                    Self::GridRowGap => Some((KnownPropertyDiscriminant::GridRowGap as u32, VendorPrefix::NONE)),
+                    Self::All => Some((KnownPropertyDiscriminant::All as u32, VendorPrefix::NONE)),
                     Self::Unparsed | Self::Custom(_) => None,
                 }
             }
         }
 
         impl<'a> Declaration<'a> {
+            /// Returns the compact discriminant and vendor prefix of a known declaration.
+            ///
+            /// This performs one typed dispatch without constructing a `PropertyId`.
+            #[inline]
+            pub fn known_id_and_prefix(&self) -> Option<(u32, VendorPrefix)> {
+                match self {
+                    $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some((KnownPropertyDiscriminant::$property as u32, declaration_prefix!($(vendor_prefix: $vp)?))),)+
+                    Self::All(_) => Some((KnownPropertyDiscriminant::All as u32, VendorPrefix::NONE)),
+                    Self::Unparsed(value) => value.property_id.known_id_and_prefix(),
+                    Self::Custom(_) | Self::Tombstone => None,
+                }
+            }
+
             /// Returns the typed identity of this declaration.
             #[inline]
             pub fn property_id(&self) -> Option<PropertyId<'a>> {
