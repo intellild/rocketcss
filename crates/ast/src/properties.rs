@@ -87,6 +87,19 @@ macro_rules! define_properties {
             Custom(&'a str),
         }
 
+        // Generated from the same source as `PropertyId`, so compact lookup IDs
+        // cannot drift from the typed property variants. This enum is only used
+        // to assign compile-time discriminants and is never stored in the AST.
+        #[repr(u32)]
+        enum KnownPropertyDiscriminant {
+            $($property,)+
+            ColumnRule,
+            Columns,
+            GridColumnGap,
+            GridRowGap,
+            All,
+        }
+
         #[derive(Debug, PartialEq, Visit)]
         pub enum Declaration<'a> {
             $(
@@ -156,6 +169,23 @@ macro_rules! define_properties {
                     | Self::All
                     | Self::Unparsed
                     | Self::Custom(_) => VendorPrefix::NONE,
+                }
+            }
+
+            /// Returns the compact discriminant of a known property.
+            ///
+            /// The value is intended for in-memory lookup tables and is not a stable
+            /// serialization format.
+            #[inline]
+            pub fn known_id(&self) -> Option<u32> {
+                match self {
+                    $(property_id_pattern!(Self::$property$(, $vp)?) => Some(KnownPropertyDiscriminant::$property as u32),)+
+                    Self::ColumnRule => Some(KnownPropertyDiscriminant::ColumnRule as u32),
+                    Self::Columns => Some(KnownPropertyDiscriminant::Columns as u32),
+                    Self::GridColumnGap => Some(KnownPropertyDiscriminant::GridColumnGap as u32),
+                    Self::GridRowGap => Some(KnownPropertyDiscriminant::GridRowGap as u32),
+                    Self::All => Some(KnownPropertyDiscriminant::All as u32),
+                    Self::Unparsed | Self::Custom(_) => None,
                 }
             }
         }

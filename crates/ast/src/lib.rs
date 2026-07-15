@@ -120,6 +120,20 @@ mod tests {
     }
 
     #[test]
+    fn known_property_ids_use_the_property_discriminant() {
+        let width = PropertyId::Width;
+        let height = PropertyId::Height;
+        let webkit_user_select = PropertyId::UserSelect(VendorPrefix::WEBKIT);
+        let moz_user_select = PropertyId::UserSelect(VendorPrefix::MOZ);
+
+        assert_ne!(width.known_id(), height.known_id());
+        assert_eq!(webkit_user_select.known_id(), moz_user_select.known_id());
+        assert!(PropertyId::All.known_id().is_some());
+        assert_eq!(PropertyId::Unparsed.known_id(), None);
+        assert_eq!(PropertyId::Custom("unknown").known_id(), None);
+    }
+
+    #[test]
     fn selector_uses_typed_lightningcss_components() {
         let allocator = Allocator::new();
         let mut selector = allocator.vec();

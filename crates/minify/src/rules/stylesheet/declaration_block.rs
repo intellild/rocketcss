@@ -1,7 +1,7 @@
 use rocketcss_allocator::prelude::{Allocator, HashMap, Vec};
 use rocketcss_ast::{
     Declaration, DeclarationBlock, KnownFunction, LengthValue, Margin, Padding, PropertyId, Token,
-    TokenOrValue, UnparsedProperty, match_ignore_ascii_case,
+    TokenOrValue, UnparsedProperty, VendorPrefix, match_ignore_ascii_case,
 };
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
@@ -31,9 +31,48 @@ impl<'a> Minify for DeclarationBlock<'a> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct DeclarationKey<'a> {
+struct UnknownDeclarationKey<'a> {
     property_id: PropertyId<'a>,
     important: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+struct KnownDeclarationKey(u32);
+
+impl KnownDeclarationKey {
+    const IMPORTANT_MASK: u32 = 1;
+    const VENDOR_PREFIX_SHIFT: u32 = 1;
+    const VENDOR_PREFIX_MASK: u32 = 0b1_1111 << Self::VENDOR_PREFIX_SHIFT;
+    const PROPERTY_ID_SHIFT: u32 = 6;
+
+    #[inline]
+    fn new(property_id: u32, vendor_prefix: VendorPrefix, important: bool) -> Self {
+        let vendor_prefix = u32::from(vendor_prefix.bits());
+        debug_assert!(property_id <= u32::MAX >> Self::PROPERTY_ID_SHIFT);
+        debug_assert_eq!(vendor_prefix & !0b1_1111, 0);
+        Self(
+            (property_id << Self::PROPERTY_ID_SHIFT)
+                | (vendor_prefix << Self::VENDOR_PREFIX_SHIFT)
+                | u32::from(important),
+        )
+    }
+
+    #[inline]
+    fn property_id(self) -> u32 {
+        self.0 >> Self::PROPERTY_ID_SHIFT
+    }
+
+    #[inline]
+    fn vendor_prefix(self) -> VendorPrefix {
+        let bits = ((self.0 & Self::VENDOR_PREFIX_MASK) >> Self::VENDOR_PREFIX_SHIFT) as u8;
+        VendorPrefix::from_bits_retain(bits)
+    }
+
+    #[inline]
+    fn is_important(self) -> bool {
+        self.0 & Self::IMPORTANT_MASK != 0
+    }
 }
 
 const EMPTY_INDEX: u32 = u32::MAX;
@@ -41,24 +80,29 @@ const EMPTY_INDEX: u32 = u32::MAX;
 // promote larger blocks to the reusable arena map below.
 const INLINE_DECLARATION_CAPACITY: usize = 8;
 
-#[derive(Clone, Copy, Debug)]
-struct DeclarationEntry<'a> {
-    key: DeclarationKey<'a>,
+#[derive(Clone, Copy, Debug, Default)]
+struct KnownDeclarationEntry {
+    key: KnownDeclarationKey,
     index: u32,
 }
 
+const _: () = {
+    assert!(std::mem::size_of::<KnownDeclarationKey>() == 4);
+    assert!(std::mem::size_of::<KnownDeclarationEntry>() == 8);
+};
+
 #[derive(Debug)]
-struct DeclarationMap<'a> {
-    entries: [Option<DeclarationEntry<'a>>; INLINE_DECLARATION_CAPACITY],
+struct KnownDeclarationMap<'a> {
+    entries: [KnownDeclarationEntry; INLINE_DECLARATION_CAPACITY],
     len: u8,
-    overflow: HashMap<'a, DeclarationKey<'a>, u32>,
+    overflow: HashMap<'a, KnownDeclarationKey, u32>,
     overflowed: bool,
 }
 
-impl<'a> DeclarationMap<'a> {
+impl<'a> KnownDeclarationMap<'a> {
     fn new(allocator: &'a Allocator) -> Self {
         Self {
-            entries: [None; INLINE_DECLARATION_CAPACITY],
+            entries: [KnownDeclarationEntry::default(); INLINE_DECLARATION_CAPACITY],
             len: 0,
             overflow: HashMap::new_in(allocator),
             overflowed: false,
@@ -75,28 +119,74 @@ impl<'a> DeclarationMap<'a> {
     }
 
     #[inline]
-    fn insert(&mut self, key: DeclarationKey<'a>, index: u32) -> Option<u32> {
+    fn insert(&mut self, key: KnownDeclarationKey, index: u32) -> Option<u32> {
         if self.overflowed {
             return self.overflow.insert(key, index);
         }
 
-        for entry in self.entries[..usize::from(self.len)].iter_mut().flatten() {
+        for entry in &mut self.entries[..usize::from(self.len)] {
             if entry.key == key {
                 return Some(std::mem::replace(&mut entry.index, index));
             }
         }
 
         if usize::from(self.len) < INLINE_DECLARATION_CAPACITY {
-            self.entries[usize::from(self.len)] = Some(DeclarationEntry { key, index });
+            self.entries[usize::from(self.len)] = KnownDeclarationEntry { key, index };
             self.len += 1;
             return None;
         }
 
-        for entry in self.entries.iter().flatten() {
+        for entry in &self.entries {
             self.overflow.insert(entry.key, entry.index);
         }
         self.overflowed = true;
         self.overflow.insert(key, index)
+    }
+}
+
+#[derive(Debug)]
+struct DeclarationMap<'a> {
+    known: KnownDeclarationMap<'a>,
+    unknown: HashMap<'a, UnknownDeclarationKey<'a>, u32>,
+    has_unknown: bool,
+}
+
+impl<'a> DeclarationMap<'a> {
+    fn new(allocator: &'a Allocator) -> Self {
+        Self {
+            known: KnownDeclarationMap::new(allocator),
+            unknown: HashMap::new_in(allocator),
+            has_unknown: false,
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.known.clear();
+        if self.has_unknown {
+            self.unknown.clear();
+            self.has_unknown = false;
+        }
+    }
+
+    #[inline]
+    fn insert(&mut self, property_id: PropertyId<'a>, important: bool, index: u32) -> Option<u32> {
+        if let Some(known_id) = property_id.known_id() {
+            let key = KnownDeclarationKey::new(known_id, property_id.vendor_prefix(), important);
+            debug_assert_eq!(key.property_id(), known_id);
+            debug_assert_eq!(key.vendor_prefix(), property_id.vendor_prefix());
+            debug_assert_eq!(key.is_important(), important);
+            self.known.insert(key, index)
+        } else {
+            self.has_unknown = true;
+            self.unknown.insert(
+                UnknownDeclarationKey {
+                    property_id,
+                    important,
+                },
+                index,
+            )
+        }
     }
 }
 
@@ -251,14 +341,13 @@ fn deduplicate_exact_declaration<'a>(
     cx: &mut MinifyContext,
 ) {
     let declaration = &block.declarations[current];
-    let key = DeclarationKey {
-        property_id: declaration
-            .property_id()
-            .expect("tombstones are skipped before exact deduplication"),
-        important: block.is_important(current),
-    };
+    let property_id = declaration
+        .property_id()
+        .expect("tombstones are skipped before exact deduplication");
     let current_index = current as u32;
-    if let Some(previous) = declarations.insert(key, current_index) {
+    if let Some(previous) =
+        declarations.insert(property_id, block.is_important(current), current_index)
+    {
         let previous = previous as usize;
         if !block.declarations[previous].is_tombstone()
             && block.declarations[previous] == block.declarations[current]
@@ -813,4 +902,19 @@ fn is_css_wide_keyword(value: &str) -> bool {
 fn declaration_contains_variable(declaration: &Declaration<'_>) -> bool {
     matches!(declaration, Declaration::Unparsed(value)
         if value.value.iter().any(token_or_value_contains_variable))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn known_declaration_key_round_trips_packed_fields() {
+        let prefix = VendorPrefix::WEBKIT | VendorPrefix::MOZ;
+        let key = KnownDeclarationKey::new(349, prefix, true);
+
+        assert_eq!(key.property_id(), 349);
+        assert_eq!(key.vendor_prefix(), prefix);
+        assert!(key.is_important());
+    }
 }
