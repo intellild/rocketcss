@@ -19,9 +19,9 @@ pub(crate) use declaration_block::DeclarationBlockMinifier;
 pub(crate) use url::normalize_url_text;
 
 impl Minify for StyleSheet<'_> {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         crate::minify_style_sheet(self, cx);
     }
@@ -71,9 +71,9 @@ fn is_comma(value: &TokenOrValue<'_>) -> bool {
 }
 
 impl Minify for Variable<'_> {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if let Some(fallback) = &mut self.fallback {
             fallback.minify(cx);
@@ -82,9 +82,9 @@ impl Minify for Variable<'_> {
 }
 
 impl Minify for EnvironmentVariable<'_> {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if let Some(fallback) = &mut self.fallback {
             fallback.minify(cx);

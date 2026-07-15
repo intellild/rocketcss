@@ -14,9 +14,9 @@ use super::{
 };
 
 impl Minify for Function<'_> {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if cx
             .value_context

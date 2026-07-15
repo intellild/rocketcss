@@ -21,9 +21,9 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
 }
 
 impl<'a> Minify for DeclarationBlock<'a> {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if self.len() < 2 {
             return;
@@ -653,14 +653,14 @@ fn clone_simple_token_or_value<'a>(
     }
 }
 
-fn merge_box_longhands<'ast, 'alloc>(
+fn merge_box_longhands<'ast, 'cx>(
     block: &mut DeclarationBlock<'ast>,
     indices: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext<'alloc>,
+    cx: &mut MinifyContext<'cx>,
 ) -> bool
 where
-    'ast: 'alloc,
+    'ast: 'cx,
 {
     let typed = match family {
         BoxFamily::Margin => indices.iter().all(|&index| {
@@ -688,14 +688,14 @@ where
     merge_unparsed_box_longhands(block, indices, family, cx)
 }
 
-fn merge_typed_box_longhands<'ast, 'alloc>(
+fn merge_typed_box_longhands<'ast, 'cx>(
     block: &mut DeclarationBlock<'ast>,
     [top, right, bottom, left]: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext<'alloc>,
+    cx: &mut MinifyContext<'cx>,
 ) -> bool
 where
-    'ast: 'alloc,
+    'ast: 'cx,
 {
     let allocator = block.declarations.bump();
     let target = [top, right, bottom, left]
@@ -764,14 +764,14 @@ where
     true
 }
 
-fn merge_unparsed_box_longhands<'ast, 'alloc>(
+fn merge_unparsed_box_longhands<'ast, 'cx>(
     block: &mut DeclarationBlock<'ast>,
     indices: [usize; 4],
     family: BoxFamily,
-    cx: &mut MinifyContext<'alloc>,
+    cx: &mut MinifyContext<'cx>,
 ) -> bool
 where
-    'ast: 'alloc,
+    'ast: 'cx,
 {
     if indices.iter().any(|&index| {
         !matches!(&block.declarations[index], Declaration::Unparsed(value)
@@ -849,12 +849,12 @@ fn record_merged_longhands(indices: [usize; 4], target: usize, cx: &mut MinifyCo
     }
 }
 
-fn minify_unparsed_declaration<'ast, 'alloc>(
+fn minify_unparsed_declaration<'ast, 'cx>(
     block: &mut DeclarationBlock<'ast>,
     index: usize,
-    cx: &mut MinifyContext<'alloc>,
+    cx: &mut MinifyContext<'cx>,
 ) where
-    'ast: 'alloc,
+    'ast: 'cx,
 {
     let Declaration::Unparsed(value) = &mut block.declarations[index] else {
         return;

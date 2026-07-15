@@ -4,9 +4,9 @@ use rocketcss_ast::{NthType, SelectorComponent, SelectorList};
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for SelectorList<'_> {
-    fn minify<'alloc>(&mut self, context: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, context: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         let allocator = context.allocator();
         minify_selector_list(self, context, allocator);

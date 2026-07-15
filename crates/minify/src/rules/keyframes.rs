@@ -3,9 +3,9 @@ use rocketcss_ast::KeyframeSelector;
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for KeyframeSelector<'_> {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;

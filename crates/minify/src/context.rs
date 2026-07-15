@@ -78,17 +78,17 @@ impl Default for ValueContext {
 }
 
 /// Shared state for local, in-place node minification.
-pub struct MinifyContext<'alloc> {
-    allocator: &'alloc Allocator,
+pub struct MinifyContext<'cx> {
+    allocator: &'cx Allocator,
     options: MinifyOptions,
     stats: MinifyStats,
     pub(crate) value_context: ValueContext,
 }
 
-impl<'alloc> MinifyContext<'alloc> {
+impl<'cx> MinifyContext<'cx> {
     /// Creates a minification context backed by the scratch allocator shared
     /// for the whole minification pass.
-    pub fn new(options: MinifyOptions, allocator: &'alloc Allocator) -> Self {
+    pub fn new(options: MinifyOptions, allocator: &'cx Allocator) -> Self {
         Self {
             allocator,
             options,
@@ -99,7 +99,7 @@ impl<'alloc> MinifyContext<'alloc> {
 
     /// Returns the scratch allocator shared by this minification pass.
     #[inline]
-    pub fn allocator(&self) -> &'alloc Allocator {
+    pub fn allocator(&self) -> &'cx Allocator {
         self.allocator
     }
 

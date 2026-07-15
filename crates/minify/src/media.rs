@@ -3,9 +3,9 @@ use rocketcss_ast::MediaList;
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for MediaList<'_> {
-    fn minify<'alloc>(&mut self, context: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, context: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
             let before = self.media_queries.len();

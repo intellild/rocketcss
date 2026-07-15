@@ -3,9 +3,9 @@ use rocketcss_ast::{Angle, LengthUnit, LengthValue, Ratio, Resolution, Time, Uni
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 impl Minify for LengthValue {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if self.unit == LengthUnit::Px
             && let Some(precision) = cx.options().length_precision
@@ -76,9 +76,9 @@ impl Minify for LengthValue {
 }
 
 impl Minify for Angle {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
@@ -124,9 +124,9 @@ impl Minify for Angle {
 }
 
 impl Minify for Time {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
@@ -153,9 +153,9 @@ impl Minify for Time {
 }
 
 impl Minify for Resolution {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
@@ -183,9 +183,9 @@ impl Minify for Resolution {
 }
 
 impl Minify for Ratio {
-    fn minify<'alloc>(&mut self, cx: &mut MinifyContext<'alloc>)
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
-        Self: 'alloc,
+        Self: 'cx,
     {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
             || self.0 <= 0.0
