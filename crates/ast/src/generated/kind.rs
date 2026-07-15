@@ -284,7 +284,6 @@ pub enum AstType {
     FontStretch,
     FontStretchKeyword,
     FontFamily,
-    GenericFontFamily,
     FontStyle,
     FontVariantCaps,
     LineHeight,

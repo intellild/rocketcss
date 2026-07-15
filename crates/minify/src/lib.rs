@@ -6,6 +6,7 @@ mod properties;
 mod rules;
 mod selector;
 mod token;
+mod values;
 
 pub mod prelude;
 
@@ -95,6 +96,13 @@ struct Minifier<'ast, 'cx> {
 }
 
 impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
+    fn visit_declaration(&mut self, node: &mut Declaration<'ast>) {
+        node.visit_mut_children(self);
+        if let Declaration::FontFamily(families) = node {
+            families.minify(&mut self.cx);
+        }
+    }
+
     fn visit_declaration_block(&mut self, mut node: std::pin::Pin<&mut DeclarationBlock<'ast>>) {
         node.as_mut().visit_mut_children(self);
         // SAFETY: minification mutates fields in place and never moves the
@@ -288,7 +296,7 @@ mod tests {
 
         assert_eq!(
             run_with_options("a{font-family:\"A\",Arial,a,sans-serif}", options),
-            "a{font-family:\"A\",Arial,a,sans-serif}"
+            "a{font-family:A,Arial,a,sans-serif}"
         );
     }
 

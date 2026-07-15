@@ -1,4 +1,7 @@
-use super::values::{collect_tokens, css_wide_keyword, remove_important, trim_leading_whitespace};
+use super::values::{
+    collect_tokens, css_wide_keyword, parse_font_family_list, remove_important,
+    trim_leading_whitespace,
+};
 use crate::prelude::*;
 
 pub(super) fn parse_declaration<'i, 't>(
@@ -78,6 +81,9 @@ fn try_parse_typed_declaration<'i, 't>(
         PropertyId::Display => parse!(|input| {
             Display::parse(input).map(|value| Declaration::Display(allocator.boxed(value)))
         }),
+        PropertyId::FontFamily => {
+            parse!(|input| parse_font_family_list(input).map(Declaration::FontFamily))
+        }
         PropertyId::ColumnRule(prefix) => parse!(|input| {
             ColumnRule::parse(input)
                 .map(|value| Declaration::ColumnRule(allocator.boxed(value), *prefix))

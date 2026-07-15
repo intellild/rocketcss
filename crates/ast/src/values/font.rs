@@ -58,14 +58,8 @@ pub enum FontStretchKeyword {
     UltraExpanded,
 }
 
-#[derive(Debug, PartialEq, Visit)]
-pub enum FontFamily<'a> {
-    Generic(GenericFontFamily),
-    FamilyName(FamilyName<'a>),
-}
-
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
-pub enum GenericFontFamily {
+pub enum FontFamily<'a> {
     Serif,
     SansSerif,
     Cursive,
@@ -85,6 +79,55 @@ pub enum GenericFontFamily {
     Default,
     Revert,
     RevertLayer,
+    Custom(&'a str),
+}
+
+impl<'a> FontFamily<'a> {
+    pub fn from_name(name: &'a str) -> Self {
+        match_ignore_ascii_case!(
+            name,
+            "serif" => Self::Serif,
+            "sans-serif" => Self::SansSerif,
+            "cursive" => Self::Cursive,
+            "fantasy" => Self::Fantasy,
+            "monospace" => Self::Monospace,
+            "system-ui" => Self::SystemUi,
+            "emoji" => Self::Emoji,
+            "math" => Self::Math,
+            "fangsong" => Self::Fangsong,
+            "ui-serif" => Self::UiSerif,
+            "ui-sans-serif" => Self::UiSansSerif,
+            "ui-monospace" => Self::UiMonospace,
+            "ui-rounded" => Self::UiRounded,
+            "initial" => Self::Initial,
+            "inherit" => Self::Inherit,
+            "unset" => Self::Unset,
+            "default" => Self::Default,
+            "revert" => Self::Revert,
+            "revert-layer" => Self::RevertLayer,
+            _ => Self::Custom(name),
+        )
+    }
+
+    #[inline]
+    pub const fn is_generic(&self) -> bool {
+        matches!(
+            self,
+            Self::Serif
+                | Self::SansSerif
+                | Self::Cursive
+                | Self::Fantasy
+                | Self::Monospace
+                | Self::SystemUi
+                | Self::Emoji
+                | Self::Math
+                | Self::Fangsong
+                | Self::UiSerif
+                | Self::UiSansSerif
+                | Self::UiMonospace
+                | Self::UiRounded
+        )
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]

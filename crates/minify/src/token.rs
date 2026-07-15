@@ -1,5 +1,7 @@
 use rocketcss_allocator::vec::Vec;
-use rocketcss_ast::{KnownFunction, Token, TokenOrValue, Unit, match_ignore_ascii_case};
+use rocketcss_ast::{
+    FontFamily, KnownFunction, Token, TokenOrValue, Unit, match_ignore_ascii_case,
+};
 
 use crate::{
     Minify, MinifyContext, Options, OptionsOp,
@@ -162,11 +164,7 @@ pub(crate) fn can_unquote_font(value: &str) -> bool {
 }
 
 fn is_generic_font_family(value: &str) -> bool {
-    match_ignore_ascii_case!(
-        value,
-        "serif" | "sans-serif" | "monospace" | "cursive" | "fantasy" | "system-ui" | "ui-serif" | "ui-sans-serif" | "ui-monospace" | "ui-rounded" | "emoji" | "math" | "fangsong" => true,
-        _ => false,
-    )
+    FontFamily::from_name(value).is_generic()
 }
 
 impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {

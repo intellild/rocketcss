@@ -1,5 +1,7 @@
 use crate::prelude::*;
 
+pub(crate) mod font;
+
 macro_rules! keyword_values {
     ($($ty:ty),+ $(,)?) => {
         $(
@@ -48,7 +50,6 @@ keyword_values! {
     AbsoluteFontSize,
     RelativeFontSize,
     FontStretchKeyword,
-    GenericFontFamily,
     FontVariantCaps,
     VerticalAlignKeyword,
     StepPosition,
@@ -964,15 +965,6 @@ impl ToCss for FontStretch {
                 serialize_number(*value * 100.0, dest)?;
                 dest.write_char('%')
             }
-        }
-    }
-}
-
-impl ToCss for FontFamily<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        match self {
-            Self::Generic(value) => value.to_css(dest),
-            Self::FamilyName(value) => value.to_css(dest),
         }
     }
 }

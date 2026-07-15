@@ -229,5 +229,7 @@ mod tests {
         );
         assert_eq!(Appearance::NonStandard("textfield").as_css_str(), None);
         assert_eq!(FontFormat::String("woff3").as_css_str(), None);
+        assert_eq!(FontFamily::SansSerif.as_css_str(), Some("sans-serif"));
+        assert_eq!(FontFamily::Custom("Inter").as_css_str(), None);
     }
 }

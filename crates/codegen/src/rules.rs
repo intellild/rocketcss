@@ -938,29 +938,7 @@ impl ToCss for CustomProperty<'_> {
 
 impl ToCss for FamilyName<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        if matches!(
-            self.0.to_ascii_lowercase().as_str(),
-            "initial"
-                | "inherit"
-                | "unset"
-                | "default"
-                | "revert"
-                | "revert-layer"
-                | "serif"
-                | "sans-serif"
-                | "cursive"
-                | "fantasy"
-                | "monospace"
-        ) {
-            return serialize_string(self.0, dest);
-        }
-        for (index, part) in self.0.split_ascii_whitespace().enumerate() {
-            if index > 0 {
-                dest.write_char(' ')?;
-            }
-            serialize_identifier(part, dest)?;
-        }
-        Ok(())
+        crate::values::font::write_custom_font_family(self.0, dest)
     }
 }
 

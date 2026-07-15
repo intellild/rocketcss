@@ -260,4 +260,34 @@ fn ports_lightningcss_typed_value_serialization_cases() {
             .unwrap(),
         "Fancy Font Name"
     );
+    assert_eq!(
+        FontFamily::SansSerif
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "sans-serif"
+    );
+    assert_eq!(
+        FontFamily::Custom("serif")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"serif\""
+    );
+    assert_eq!(
+        FontFamily::Custom("Fancy Font")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "Fancy Font"
+    );
+    assert_eq!(
+        FontFamily::Custom("A  B")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"A  B\""
+    );
+    assert_eq!(
+        FontFamily::Custom("slab serif")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"slab serif\""
+    );
 }
