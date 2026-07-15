@@ -1,6 +1,7 @@
 use super::*;
 
 use rocketcss_allocator::boxed::Box;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum TokenOrValue<'a> {
@@ -19,7 +20,21 @@ pub enum TokenOrValue<'a> {
     AnimationName(Box<'a, AnimationName<'a>>),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Visit)]
+impl Eq for TokenOrValue<'_> {}
+
+impl Hash for TokenOrValue<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        if let Self::Token(token) = self {
+            token.hash(state);
+        }
+        // Values in selectors are rare, and fully hashing them would pull
+        // floating-point hashing through much of the AST. Equal values still
+        // share this hash; collisions are resolved by structural equality.
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
 pub enum Unit {
     Length(LengthUnit),
     Deg,
@@ -94,6 +109,65 @@ pub enum Token<'a> {
     CloseParenthesis,
     CloseSquareBracket,
     CloseCurlyBracket,
+}
+
+impl Eq for Token<'_> {}
+
+impl Hash for Token<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::Ident(value)
+            | Self::AtKeyword(value)
+            | Self::Hash(value)
+            | Self::IdHash(value)
+            | Self::MinifiedHash(value)
+            | Self::String(value)
+            | Self::UnquotedFont(value)
+            | Self::UnquotedUrl(value)
+            | Self::Delim(value)
+            | Self::WhiteSpace(value)
+            | Self::Comment(value)
+            | Self::Function(value)
+            | Self::BadUrl(value)
+            | Self::BadString(value) => value.hash(state),
+            Self::Number(value) | Self::Percentage(value) => hash_float(*value, state),
+            Self::Dimension { unit, value } => {
+                unit.hash(state);
+                hash_float(*value, state);
+            }
+            Self::UnknownDimension { unit, value } => {
+                unit.hash(state);
+                hash_float(*value, state);
+            }
+            Self::Colon
+            | Self::Semicolon
+            | Self::Comma
+            | Self::IncludeMatch
+            | Self::DashMatch
+            | Self::PrefixMatch
+            | Self::SuffixMatch
+            | Self::SubstringMatch
+            | Self::Cdo
+            | Self::Cdc
+            | Self::ParenthesisBlock
+            | Self::SquareBracketBlock
+            | Self::CurlyBracketBlock
+            | Self::CloseParenthesis
+            | Self::CloseSquareBracket
+            | Self::CloseCurlyBracket => {}
+        }
+    }
+}
+
+#[inline]
+fn hash_float<H: Hasher>(value: f32, state: &mut H) {
+    // PartialEq considers both signed zero representations equal.
+    if value == 0.0 {
+        0_u32.hash(state);
+    } else {
+        value.to_bits().hash(state);
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]

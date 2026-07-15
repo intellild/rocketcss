@@ -27,7 +27,10 @@ pub use hashbrown::hash_set::{
     Difference, Drain, Entry, ExtractIf, Intersection, IntoIter, Iter, SymmetricDifference, Union,
 };
 
-use crate::{Allocator, hash_map::HashMap};
+use crate::{
+    Allocator,
+    hash_map::{AdaptiveHashMap, DEFAULT_LINEAR_SEARCH_LIMIT, HashMap},
+};
 
 type InnerHashSet<'alloc, T, S> = hashbrown::HashSet<T, S, &'alloc Allocator>;
 
@@ -53,6 +56,65 @@ type InnerHashSet<'alloc, T, S> = hashbrown::HashSet<T, S, &'alloc Allocator>;
 ///
 /// [`FxHasher`]: rustc_hash::FxHasher
 pub struct HashSet<'alloc, T, S = FxBuildHasher>(ManuallyDrop<InnerHashSet<'alloc, T, S>>);
+
+/// An arena-allocated set that uses linear search for small collections and
+/// promotes itself to a hash table once it grows beyond `LINEAR_SEARCH_LIMIT`.
+pub struct AdaptiveHashSet<
+    'alloc,
+    T: Unpin,
+    const LINEAR_SEARCH_LIMIT: usize = DEFAULT_LINEAR_SEARCH_LIMIT,
+>(AdaptiveHashMap<'alloc, T, (), LINEAR_SEARCH_LIMIT>);
+
+impl<T, const LINEAR_SEARCH_LIMIT: usize> fmt::Debug for AdaptiveHashSet<'_, T, LINEAR_SEARCH_LIMIT>
+where
+    T: fmt::Debug + Unpin,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("AdaptiveHashSet").field(&self.0).finish()
+    }
+}
+
+impl<'alloc, T, const LINEAR_SEARCH_LIMIT: usize> AdaptiveHashSet<'alloc, T, LINEAR_SEARCH_LIMIT>
+where
+    T: Eq + Hash + Unpin,
+{
+    /// Creates an empty adaptive set in its linear representation.
+    #[inline]
+    pub fn new_in(allocator: &'alloc Allocator) -> Self {
+        Self(AdaptiveHashMap::new_in(allocator))
+    }
+
+    /// Returns the number of values in the set.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns `true` if the set contains no values.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Returns `true` if the set contains `value`.
+    #[inline]
+    pub fn contains(&self, value: &T) -> bool {
+        self.0.contains_key(value)
+    }
+
+    /// Adds a value to the set. Returns whether the value was newly inserted.
+    #[inline]
+    pub fn insert(&mut self, value: T) -> bool {
+        self.0.insert(value, ()).is_none()
+    }
+
+    /// Removes all values while retaining the current representation and its
+    /// arena-allocated capacity for reuse.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+}
 
 impl<T: fmt::Debug, S> fmt::Debug for HashSet<'_, T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -255,5 +317,27 @@ impl<'alloc, T, S> From<HashMap<'alloc, T, (), S>> for HashSet<'alloc, T, S> {
         let inner_map = ManuallyDrop::into_inner(map.0);
         let inner_set = hashbrown::HashSet::from(inner_map);
         Self(ManuallyDrop::new(inner_set))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AdaptiveHashSet, Allocator};
+
+    #[test]
+    fn duplicate_values_do_not_trigger_promotion() {
+        let allocator = Allocator::new();
+        let mut set = AdaptiveHashSet::<u32, 2>::new_in(&allocator);
+
+        assert!(set.insert(1));
+        assert!(set.insert(2));
+        assert!(!set.insert(1));
+        assert!(!set.0.uses_hash_table());
+
+        assert!(set.insert(3));
+        assert!(set.0.uses_hash_table());
+        assert!(set.contains(&1));
+        assert!(set.contains(&2));
+        assert!(set.contains(&3));
     }
 }

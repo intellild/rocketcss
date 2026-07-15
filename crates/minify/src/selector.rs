@@ -1,3 +1,4 @@
+use rocketcss_allocator::prelude::{AdaptiveHashSet, Vec};
 use rocketcss_ast::{NthType, SelectorComponent, SelectorList};
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
@@ -27,22 +28,47 @@ impl Minify for SelectorList<'_> {
 
         if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
             let before = self.len();
-            let mut index = 0;
-            while index < self.len() {
-                if self[..index]
-                    .iter()
-                    .any(|selector| selector == &self[index])
-                {
-                    self.remove(index);
-                } else {
-                    index += 1;
-                }
-            }
+            deduplicate(self);
             if before != self.len() {
                 context.record_value_normalized();
             }
         }
     }
+}
+
+fn deduplicate(selectors: &mut SelectorList<'_>) {
+    if selectors.len() < 2 {
+        return;
+    }
+
+    let allocator = selectors.bump();
+    let mut duplicate_indices = Vec::new_in(allocator);
+    {
+        let mut seen = AdaptiveHashSet::<_, 4>::new_in(allocator);
+        for (index, selector) in selectors.iter().enumerate() {
+            if !seen.insert(selector) {
+                duplicate_indices.push(index);
+            }
+        }
+    }
+    if duplicate_indices.is_empty() {
+        return;
+    }
+
+    let original_len = selectors.len();
+    let mut duplicate_indices = duplicate_indices.into_iter();
+    let mut next_duplicate = duplicate_indices.next();
+    let mut index = 0;
+    selectors.retain(|_| {
+        let keep = next_duplicate != Some(index);
+        if !keep {
+            next_duplicate = duplicate_indices.next();
+        }
+        index += 1;
+        keep
+    });
+    debug_assert!(next_duplicate.is_none());
+    debug_assert_eq!(index, original_len);
 }
 
 fn remove_qualified_universal(selector: &mut rocketcss_ast::Selector<'_>) {

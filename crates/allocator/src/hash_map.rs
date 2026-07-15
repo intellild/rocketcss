@@ -31,7 +31,11 @@ pub use hashbrown::{
     },
 };
 
-use crate::Allocator;
+use crate::{Allocator, vec::Vec};
+
+/// Number of entries an [`AdaptiveHashMap`] scans linearly before promoting
+/// itself to a hash table.
+pub const DEFAULT_LINEAR_SEARCH_LIMIT: usize = 8;
 
 type InnerHashMap<'alloc, K, V, S> = hashbrown::HashMap<K, V, S, &'alloc Allocator>;
 
@@ -59,6 +63,167 @@ type InnerHashMap<'alloc, K, V, S> = hashbrown::HashMap<K, V, S, &'alloc Allocat
 pub struct HashMap<'alloc, K, V, S = FxBuildHasher>(
     pub(crate) ManuallyDrop<InnerHashMap<'alloc, K, V, S>>,
 );
+
+enum AdaptiveHashMapRepr<'alloc, K: Unpin, V: Unpin> {
+    Linear(Vec<'alloc, (K, V)>),
+    Hashed(HashMap<'alloc, K, V>),
+}
+
+/// An arena-allocated map that uses linear search for small collections and
+/// promotes itself to a hash table once it grows beyond `LINEAR_SEARCH_LIMIT`.
+///
+/// Unlike a small-map optimization, entries are never stored inline in this
+/// value. The linear representation is an arena-allocated [`Vec`], so moving
+/// the map does not move its entries. Promotion is one-way because arena
+/// allocations are reclaimed in bulk and the hash table can be reused after
+/// [`clear`](AdaptiveHashMap::clear).
+pub struct AdaptiveHashMap<
+    'alloc,
+    K: Unpin,
+    V: Unpin,
+    const LINEAR_SEARCH_LIMIT: usize = DEFAULT_LINEAR_SEARCH_LIMIT,
+> {
+    allocator: &'alloc Allocator,
+    repr: AdaptiveHashMapRepr<'alloc, K, V>,
+}
+
+impl<K, V, const LINEAR_SEARCH_LIMIT: usize> fmt::Debug
+    for AdaptiveHashMap<'_, K, V, LINEAR_SEARCH_LIMIT>
+where
+    K: fmt::Debug + Unpin,
+    V: fmt::Debug + Unpin,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.repr {
+            AdaptiveHashMapRepr::Linear(entries) => f
+                .debug_map()
+                .entries(entries.iter().map(|(key, value)| (key, value)))
+                .finish(),
+            AdaptiveHashMapRepr::Hashed(map) => fmt::Debug::fmt(map, f),
+        }
+    }
+}
+
+impl<'alloc, K, V, const LINEAR_SEARCH_LIMIT: usize>
+    AdaptiveHashMap<'alloc, K, V, LINEAR_SEARCH_LIMIT>
+where
+    K: Unpin,
+    V: Unpin,
+{
+    /// Creates an empty adaptive map in its linear representation.
+    #[inline]
+    pub fn new_in(allocator: &'alloc Allocator) -> Self {
+        Self {
+            allocator,
+            repr: AdaptiveHashMapRepr::Linear(Vec::new_in(allocator)),
+        }
+    }
+
+    /// Returns the number of entries in the map.
+    #[inline]
+    pub fn len(&self) -> usize {
+        match &self.repr {
+            AdaptiveHashMapRepr::Linear(entries) => entries.len(),
+            AdaptiveHashMapRepr::Hashed(map) => map.len(),
+        }
+    }
+
+    /// Returns `true` if the map contains no entries.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Removes all entries while retaining the current representation and its
+    /// arena-allocated capacity for reuse.
+    #[inline]
+    pub fn clear(&mut self) {
+        match &mut self.repr {
+            AdaptiveHashMapRepr::Linear(entries) => entries.clear(),
+            AdaptiveHashMapRepr::Hashed(map) => map.clear(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn uses_hash_table(&self) -> bool {
+        matches!(self.repr, AdaptiveHashMapRepr::Hashed(_))
+    }
+}
+
+impl<'alloc, K, V, const LINEAR_SEARCH_LIMIT: usize>
+    AdaptiveHashMap<'alloc, K, V, LINEAR_SEARCH_LIMIT>
+where
+    K: Eq + Hash + Unpin,
+    V: Unpin,
+{
+    /// Returns a reference to the value corresponding to `key`.
+    #[inline]
+    pub fn get(&self, key: &K) -> Option<&V> {
+        match &self.repr {
+            AdaptiveHashMapRepr::Linear(entries) => entries
+                .iter()
+                .find_map(|(candidate, value)| (candidate == key).then_some(value)),
+            AdaptiveHashMapRepr::Hashed(map) => map.get(key),
+        }
+    }
+
+    /// Returns `true` if the map contains `key`.
+    #[inline]
+    pub fn contains_key(&self, key: &K) -> bool {
+        self.get(key).is_some()
+    }
+
+    /// Inserts a key-value pair into the map.
+    ///
+    /// If the key was already present, replaces its value and returns the old
+    /// value. A new unique key promotes a full linear representation before it
+    /// is inserted into the hash table.
+    #[inline]
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        match &mut self.repr {
+            AdaptiveHashMapRepr::Linear(entries) => {
+                if let Some((_, existing)) =
+                    entries.iter_mut().find(|(candidate, _)| candidate == &key)
+                {
+                    return Some(std::mem::replace(existing, value));
+                }
+
+                if entries.len() < LINEAR_SEARCH_LIMIT {
+                    entries.push((key, value));
+                    return None;
+                }
+            }
+            AdaptiveHashMapRepr::Hashed(map) => return map.insert(key, value),
+        }
+
+        self.promote();
+        let AdaptiveHashMapRepr::Hashed(map) = &mut self.repr else {
+            unreachable!();
+        };
+        map.insert(key, value)
+    }
+
+    #[cold]
+    fn promote(&mut self) {
+        if matches!(self.repr, AdaptiveHashMapRepr::Hashed(_)) {
+            return;
+        }
+
+        let old_repr = std::mem::replace(
+            &mut self.repr,
+            AdaptiveHashMapRepr::Linear(Vec::new_in(self.allocator)),
+        );
+        let AdaptiveHashMapRepr::Linear(entries) = old_repr else {
+            unreachable!();
+        };
+        let mut map = HashMap::with_capacity_in(entries.len() + 1, self.allocator);
+        for (key, value) in entries {
+            let previous = map.insert(key, value);
+            debug_assert!(previous.is_none());
+        }
+        self.repr = AdaptiveHashMapRepr::Hashed(map);
+    }
+}
 
 impl<K: fmt::Debug, V: fmt::Debug, S> fmt::Debug for HashMap<'_, K, V, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -331,3 +496,46 @@ where
 }
 
 // Note: `Index` and `Extend` are implemented via `Deref`
+
+#[cfg(test)]
+mod tests {
+    use super::{AdaptiveHashMap, Allocator};
+
+    #[test]
+    fn promotes_only_after_exceeding_unique_key_limit() {
+        let allocator = Allocator::new();
+        let mut map = AdaptiveHashMap::<u32, u32, 4>::new_in(&allocator);
+
+        for key in 0..4 {
+            assert_eq!(map.insert(key, key * 10), None);
+        }
+        assert!(!map.uses_hash_table());
+
+        assert_eq!(map.insert(2, 25), Some(20));
+        assert!(!map.uses_hash_table());
+        assert_eq!(map.len(), 4);
+
+        assert_eq!(map.insert(4, 40), None);
+        assert!(map.uses_hash_table());
+        assert_eq!(map.len(), 5);
+        assert_eq!(map.get(&2), Some(&25));
+        assert_eq!(map.get(&4), Some(&40));
+    }
+
+    #[test]
+    fn clear_reuses_promoted_hash_table() {
+        let allocator = Allocator::new();
+        let mut map = AdaptiveHashMap::<u32, u32, 1>::new_in(&allocator);
+        map.insert(0, 0);
+        map.insert(1, 10);
+        assert!(map.uses_hash_table());
+
+        map.clear();
+        assert!(map.is_empty());
+        assert!(map.uses_hash_table());
+
+        assert_eq!(map.insert(2, 20), None);
+        assert_eq!(map.get(&2), Some(&20));
+        assert!(map.uses_hash_table());
+    }
+}

@@ -304,6 +304,34 @@ mod tests {
     }
 
     #[test]
+    fn deduplicates_selectors_with_structural_hashes() {
+        assert_eq!(run("h1,h2,h1,h2{color:red}"), "h1,h2{color:red}");
+        assert_eq!(
+            run("a:custom(1),b,a:custom(1),a:custom(2),b{color:red}"),
+            "a:custom(1),b,a:custom(2){color:red}"
+        );
+        assert_eq!(
+            run("a:custom(0),b,a:custom(-0),c,d{color:red}"),
+            "a:custom(0),b,c,d{color:red}"
+        );
+        assert_eq!(
+            run("a:is(.x,.x,.y),a:is(.x,.x,.y){color:red}"),
+            "a:is(.x,.x,.y){color:red}"
+        );
+    }
+
+    #[test]
+    fn selector_deduplication_is_configurable() {
+        let mut options = MinifyOptions::default();
+        options.flags.remove(Options::DEDUPLICATE_LISTS);
+
+        assert_eq!(
+            run_with_options("h1,h2,h1,h2{color:red}", options),
+            "h1,h2,h1,h2{color:red}"
+        );
+    }
+
+    #[test]
     fn removes_exact_duplicate_declarations_within_one_block() {
         assert_eq!(
             run("h1{font-weight:700;font-weight:700}"),

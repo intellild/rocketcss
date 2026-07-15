@@ -8,7 +8,7 @@ pub enum Length<'a> {
     Calc(Box<'a, Calc<'a, Length<'a>>>),
 }
 
-#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Visit)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
 pub enum LengthUnit {
     Px,
     In,

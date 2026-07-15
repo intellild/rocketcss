@@ -1,4 +1,4 @@
-use rocketcss_allocator::prelude::{Allocator, HashMap, Vec};
+use rocketcss_allocator::prelude::{AdaptiveHashMap, Allocator, Vec};
 use rocketcss_ast::{
     Declaration, DeclarationBlock, KnownFunction, LengthValue, Margin, Padding, PropertyId, Token,
     TokenOrValue, UnparsedProperty, VendorPrefix, match_ignore_ascii_case,
@@ -77,97 +77,25 @@ impl KnownDeclarationKey {
 }
 
 const EMPTY_INDEX: u32 = u32::MAX;
-// Most declaration blocks are small. Keep their single-pass IR inline and
-// promote larger blocks to the reusable arena map below.
-const INLINE_DECLARATION_CAPACITY: usize = 8;
-
-#[derive(Clone, Copy, Debug, Default)]
-struct KnownDeclarationEntry {
-    key: KnownDeclarationKey,
-    index: u32,
-}
-
-const _: () = {
-    assert!(std::mem::size_of::<KnownDeclarationKey>() == 4);
-    assert!(std::mem::size_of::<KnownDeclarationEntry>() == 8);
-};
-
-#[derive(Debug)]
-struct KnownDeclarationMap<'a> {
-    entries: [KnownDeclarationEntry; INLINE_DECLARATION_CAPACITY],
-    len: u8,
-    overflow: HashMap<'a, KnownDeclarationKey, u32>,
-    overflowed: bool,
-}
-
-impl<'a> KnownDeclarationMap<'a> {
-    fn new(allocator: &'a Allocator) -> Self {
-        Self {
-            entries: [KnownDeclarationEntry::default(); INLINE_DECLARATION_CAPACITY],
-            len: 0,
-            overflow: HashMap::new_in(allocator),
-            overflowed: false,
-        }
-    }
-
-    #[inline]
-    fn clear(&mut self) {
-        self.len = 0;
-        if self.overflowed {
-            self.overflow.clear();
-            self.overflowed = false;
-        }
-    }
-
-    #[inline]
-    fn insert(&mut self, key: KnownDeclarationKey, index: u32) -> Option<u32> {
-        if self.overflowed {
-            return self.overflow.insert(key, index);
-        }
-
-        for entry in &mut self.entries[..usize::from(self.len)] {
-            if entry.key == key {
-                return Some(std::mem::replace(&mut entry.index, index));
-            }
-        }
-
-        if usize::from(self.len) < INLINE_DECLARATION_CAPACITY {
-            self.entries[usize::from(self.len)] = KnownDeclarationEntry { key, index };
-            self.len += 1;
-            return None;
-        }
-
-        for entry in &self.entries {
-            self.overflow.insert(entry.key, entry.index);
-        }
-        self.overflowed = true;
-        self.overflow.insert(key, index)
-    }
-}
 
 #[derive(Debug)]
 struct DeclarationMap<'scratch, 'ast> {
-    known: KnownDeclarationMap<'scratch>,
-    unknown: HashMap<'scratch, UnknownDeclarationKey<'ast>, u32>,
-    has_unknown: bool,
+    known: AdaptiveHashMap<'scratch, KnownDeclarationKey, u32>,
+    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'ast>, u32>,
 }
 
 impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
     fn new(allocator: &'scratch Allocator) -> Self {
         Self {
-            known: KnownDeclarationMap::new(allocator),
-            unknown: HashMap::new_in(allocator),
-            has_unknown: false,
+            known: AdaptiveHashMap::new_in(allocator),
+            unknown: AdaptiveHashMap::new_in(allocator),
         }
     }
 
     #[inline]
     fn clear(&mut self) {
         self.known.clear();
-        if self.has_unknown {
-            self.unknown.clear();
-            self.has_unknown = false;
-        }
+        self.unknown.clear();
     }
 
     #[inline]
@@ -192,7 +120,6 @@ impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
         important: bool,
         index: u32,
     ) -> Option<u32> {
-        self.has_unknown = true;
         self.unknown.insert(
             UnknownDeclarationKey {
                 property_id,
