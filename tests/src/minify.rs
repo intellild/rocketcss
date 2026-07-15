@@ -7,17 +7,13 @@ use rocketcss_parser::{ParserOptions, parse};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 
-// Fixtures that require cross-node analysis or replacement AST allocation
-// remain in the corpus but are skipped until those features are redesigned
-// around the local-only pass.
+// Fixtures that still require cross-node analysis, replacement AST allocation,
+// or unsupported value transforms remain in the corpus for future work.
 #[test]
 fn minifies_upstream_fixtures() {
     for input in fixture_paths("minify") {
-        if requires_nonlocal_or_rebuilding_transform(&input) {
-            eprintln!(
-                "skipped non-local or rebuilding minify fixture: {}",
-                input.display()
-            );
+        if still_requires_unsupported_transform(&input) {
+            eprintln!("skipped unsupported minify fixture: {}", input.display());
             continue;
         }
 
@@ -36,42 +32,28 @@ fn minifies_upstream_fixtures() {
     }
 }
 
-fn requires_nonlocal_or_rebuilding_transform(input: &Path) -> bool {
+fn still_requires_unsupported_transform(input: &Path) -> bool {
     let path = input.to_string_lossy();
-    let unsupported_groups = [
-        "/cssnano/custom-properties/",
-        "/cssnano/discard-empty/",
-        "/cssnano/discard-overridden/",
-        "/cssnano/minify-gradients/",
-        "/cssnano/normalize-display/",
-        "/cssnano/normalize-positions/",
-        "/cssnano/normalize-timing/",
-        "/cssnano/reduce-transforms/",
-        "/lightningcss/math/",
-    ];
     let unsupported_cases = [
-        "/cssnano/colormin/gradient/",
-        "/cssnano/colormin/hex-name/",
-        "/cssnano/colormin/hsl/",
-        "/cssnano/colormin/rgb/",
-        "/cssnano/colormin/text-shadow/",
-        "/cssnano/minify-font-values/family-deduplicate/",
-        "/cssnano/minify-font-values/family-unquote/",
-        "/cssnano/normalize-repeat/collapse/",
-        "/cssnano/normalize-url/double-quote/",
-        "/cssnano/normalize-url/single-quote/",
         "/cssnano/discard-duplicates/declarations/",
         "/cssnano/discard-duplicates/partial/",
+        "/cssnano/discard-empty/rules/",
+        "/cssnano/discard-overridden/counter-style/",
+        "/cssnano/discard-overridden/keyframes/",
+        "/cssnano/normalize-timing/step-start/",
+        "/lightningcss/math/color-abs/",
+        "/lightningcss/math/color-hypot/",
+        "/lightningcss/math/color-max/",
+        "/lightningcss/math/color-sign/",
+        "/lightningcss/math/opacity-filter/",
+        "/lightningcss/math/width-max/",
         "/lightningcss/rules/keyframe-merge/",
         "/lightningcss/rules/merge-layer/",
         "/lightningcss/rules/merge-media/",
         "/lightningcss/rules/merge-selectors/",
-        "/lightningcss/values/background-position/",
-        "/lightningcss/values/display/",
         "/lightningcss/values/font-family/",
     ];
-    unsupported_groups
+    unsupported_cases
         .into_iter()
-        .chain(unsupported_cases)
         .any(|pattern| path.contains(pattern))
 }
