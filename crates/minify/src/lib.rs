@@ -425,6 +425,18 @@ mod tests {
             "a{margin:1px;margin-left:var(--space)}"
         );
         assert_eq!(
+            run("a{margin:1px;margin-left:var(--space);margin-left:2px}"),
+            "a{margin:1px;margin-left:var(--space);margin-left:2px}"
+        );
+        assert_eq!(
+            run("a{padding:1px;padding-top:var(--space);padding-top:2px}"),
+            "a{padding:1px;padding-top:var(--space);padding-top:2px}"
+        );
+        assert_eq!(
+            run("a{margin:1px;margin-left:var(--space);margin-right:2px}"),
+            "a{margin:1px 2px 1px 1px;margin-left:var(--space)}"
+        );
+        assert_eq!(
             run("a{margin-left:1px;margin:invalid}"),
             "a{margin-left:1px;margin:invalid}"
         );
