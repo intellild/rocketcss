@@ -56,6 +56,15 @@ macro_rules! declaration_prefix {
     };
 }
 
+macro_rules! declaration_property_id {
+    ($name:path) => {
+        $name
+    };
+    ($name:path, $binding:ident: $vendor_prefix:ty) => {
+        $name(*$binding)
+    };
+}
+
 macro_rules! define_properties {
     (
         $(
@@ -63,7 +72,7 @@ macro_rules! define_properties {
             $name:literal: $property:ident($value:ty $(, $vp:ty)?),
         )+
     ) => {
-        #[derive(Debug, PartialEq, Visit)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
         pub enum PropertyId<'a> {
             $(
                 $(#[$meta])*
@@ -152,6 +161,20 @@ macro_rules! define_properties {
         }
 
         impl<'a> Declaration<'a> {
+            /// Returns the typed identity of this declaration.
+            #[inline]
+            pub fn property_id(&self) -> Option<PropertyId<'a>> {
+                match self {
+                    $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some(declaration_property_id!(PropertyId::$property$(, vendor_prefix: $vp)?)),)+
+                    Self::All(_) => Some(PropertyId::All),
+                    Self::Unparsed(value) => Some(*value.property_id),
+                    Self::Custom(value) => Some(PropertyId::Custom(match &*value.name {
+                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                    })),
+                    Self::Tombstone => None,
+                }
+            }
+
             /// Returns the canonical CSS property name.
             pub fn name(&self) -> &'a str {
                 match self {

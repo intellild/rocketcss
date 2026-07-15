@@ -1,7 +1,7 @@
 use rocketcss_allocator::prelude::{Allocator, HashMap, Vec};
 use rocketcss_ast::{
     Declaration, DeclarationBlock, KnownFunction, LengthValue, Margin, Padding, PropertyId, Token,
-    TokenOrValue, UnparsedProperty, VendorPrefix, match_ignore_ascii_case,
+    TokenOrValue, UnparsedProperty, match_ignore_ascii_case,
 };
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
@@ -20,17 +20,84 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     }
 }
 
-impl Minify for DeclarationBlock<'_> {
+impl<'a> Minify for DeclarationBlock<'a> {
     fn minify(&mut self, cx: &mut MinifyContext) {
-        deduplicate_declarations(self, cx);
+        if self.len() < 2 {
+            return;
+        }
+        let mut minifier = DeclarationBlockMinifier::new(self.declarations.bump());
+        minifier.minify_non_trivial(self, cx);
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct DeclarationKey<'a> {
-    name: &'a str,
-    vendor_prefix: VendorPrefix,
+    property_id: PropertyId<'a>,
     important: bool,
+}
+
+const EMPTY_INDEX: u32 = u32::MAX;
+// Most declaration blocks are small. Keep their single-pass IR inline and
+// promote larger blocks to the reusable arena map below.
+const INLINE_DECLARATION_CAPACITY: usize = 8;
+
+#[derive(Clone, Copy, Debug)]
+struct DeclarationEntry<'a> {
+    key: DeclarationKey<'a>,
+    index: u32,
+}
+
+#[derive(Debug)]
+struct DeclarationMap<'a> {
+    entries: [Option<DeclarationEntry<'a>>; INLINE_DECLARATION_CAPACITY],
+    len: u8,
+    overflow: HashMap<'a, DeclarationKey<'a>, u32>,
+    overflowed: bool,
+}
+
+impl<'a> DeclarationMap<'a> {
+    fn new(allocator: &'a Allocator) -> Self {
+        Self {
+            entries: [None; INLINE_DECLARATION_CAPACITY],
+            len: 0,
+            overflow: HashMap::new_in(allocator),
+            overflowed: false,
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.len = 0;
+        if self.overflowed {
+            self.overflow.clear();
+            self.overflowed = false;
+        }
+    }
+
+    #[inline]
+    fn insert(&mut self, key: DeclarationKey<'a>, index: u32) -> Option<u32> {
+        if self.overflowed {
+            return self.overflow.insert(key, index);
+        }
+
+        for entry in self.entries[..usize::from(self.len)].iter_mut().flatten() {
+            if entry.key == key {
+                return Some(std::mem::replace(&mut entry.index, index));
+            }
+        }
+
+        if usize::from(self.len) < INLINE_DECLARATION_CAPACITY {
+            self.entries[usize::from(self.len)] = Some(DeclarationEntry { key, index });
+            self.len += 1;
+            return None;
+        }
+
+        for entry in self.entries.iter().flatten() {
+            self.overflow.insert(entry.key, entry.index);
+        }
+        self.overflowed = true;
+        self.overflow.insert(key, index)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -58,9 +125,9 @@ enum BoxProperty {
 
 #[derive(Debug)]
 struct BoxFamilyIr<'a> {
-    pending_longhands: Vec<'a, usize>,
-    sides: [Option<usize>; 4],
-    shorthand: Option<usize>,
+    pending_longhands: Vec<'a, u32>,
+    sides: [u32; 4],
+    shorthand: u32,
 }
 
 impl<'a> BoxFamilyIr<'a> {
@@ -68,57 +135,108 @@ impl<'a> BoxFamilyIr<'a> {
     fn new(allocator: &'a Allocator) -> Self {
         Self {
             pending_longhands: allocator.vec(),
-            sides: [None; 4],
-            shorthand: None,
+            sides: [EMPTY_INDEX; 4],
+            shorthand: EMPTY_INDEX,
         }
     }
 
     #[inline]
     fn clear(&mut self) {
         self.pending_longhands.clear();
-        self.sides = [None; 4];
-        self.shorthand = None;
+        self.sides = [EMPTY_INDEX; 4];
+        self.shorthand = EMPTY_INDEX;
+    }
+}
+
+pub(crate) struct DeclarationBlockMinifier<'a> {
+    ir: DeclarationIr<'a>,
+}
+
+impl<'a> DeclarationBlockMinifier<'a> {
+    pub(crate) fn new(allocator: &'a Allocator) -> Self {
+        Self {
+            ir: DeclarationIr::new(allocator),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn minify(&mut self, block: &mut DeclarationBlock<'a>, cx: &mut MinifyContext) {
+        if block.len() < 2 {
+            return;
+        }
+        self.minify_non_trivial(block, cx);
+    }
+
+    fn minify_non_trivial(&mut self, block: &mut DeclarationBlock<'a>, cx: &mut MinifyContext) {
+        self.ir.clear();
+        deduplicate_declarations(block, &mut self.ir, cx);
     }
 }
 
 #[derive(Debug)]
 struct DeclarationIr<'a> {
-    declarations: HashMap<'a, DeclarationKey<'a>, usize>,
+    declarations: DeclarationMap<'a>,
     boxes: [[BoxFamilyIr<'a>; 2]; BoxFamily::COUNT],
+    dirty_boxes: u8,
 }
 
 impl<'a> DeclarationIr<'a> {
-    fn new(allocator: &'a Allocator, declaration_count: usize) -> Self {
+    fn new(allocator: &'a Allocator) -> Self {
         Self {
-            declarations: HashMap::with_capacity_in(declaration_count, allocator),
+            declarations: DeclarationMap::new(allocator),
             boxes: std::array::from_fn(|_| std::array::from_fn(|_| BoxFamilyIr::new(allocator))),
+            dirty_boxes: 0,
         }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.declarations.clear();
+        self.clear_boxes();
     }
 
     #[inline]
     fn box_family(&mut self, family: BoxFamily, important: bool) -> &mut BoxFamilyIr<'a> {
-        &mut self.boxes[family.index()][usize::from(important)]
+        let importance = usize::from(important);
+        self.dirty_boxes |= 1 << (family.index() * 2 + importance);
+        &mut self.boxes[family.index()][importance]
+    }
+
+    #[inline]
+    fn clear_box_family(&mut self, family: BoxFamily) {
+        for importance in 0..2 {
+            let bit = 1 << (family.index() * 2 + importance);
+            if self.dirty_boxes & bit != 0 {
+                self.boxes[family.index()][importance].clear();
+                self.dirty_boxes &= !bit;
+            }
+        }
     }
 
     #[inline]
     fn clear_boxes(&mut self) {
-        for family in &mut self.boxes {
-            for importance in family {
-                importance.clear();
+        for family in 0..BoxFamily::COUNT {
+            for importance in 0..2 {
+                let bit = 1 << (family * 2 + importance);
+                if self.dirty_boxes & bit != 0 {
+                    self.boxes[family][importance].clear();
+                }
             }
         }
+        self.dirty_boxes = 0;
     }
 }
 
-fn deduplicate_declarations<'a>(block: &mut DeclarationBlock<'a>, cx: &mut MinifyContext) {
-    let allocator = block.declarations.bump();
-    let mut ir = DeclarationIr::new(allocator, block.len());
-
+fn deduplicate_declarations<'a>(
+    block: &mut DeclarationBlock<'a>,
+    ir: &mut DeclarationIr<'a>,
+    cx: &mut MinifyContext,
+) {
     for current in 0..block.len() {
         if block.declarations[current].is_tombstone() {
             continue;
         }
-        process_box_declaration(block, current, &mut ir, cx);
+        process_box_declaration(block, current, ir, cx);
         if block.declarations[current].is_tombstone() {
             continue;
         }
@@ -129,21 +247,25 @@ fn deduplicate_declarations<'a>(block: &mut DeclarationBlock<'a>, cx: &mut Minif
 fn deduplicate_exact_declaration<'a>(
     block: &mut DeclarationBlock<'a>,
     current: usize,
-    declarations: &mut HashMap<'a, DeclarationKey<'a>, usize>,
+    declarations: &mut DeclarationMap<'a>,
     cx: &mut MinifyContext,
 ) {
     let declaration = &block.declarations[current];
     let key = DeclarationKey {
-        name: declaration.name(),
-        vendor_prefix: declaration.vendor_prefix(),
+        property_id: declaration
+            .property_id()
+            .expect("tombstones are skipped before exact deduplication"),
         important: block.is_important(current),
     };
-    if let Some(previous) = declarations.insert(key, current)
-        && !block.declarations[previous].is_tombstone()
-        && block.declarations[previous] == block.declarations[current]
-    {
-        block.declarations[previous] = Declaration::Tombstone;
-        cx.record_declaration_removed();
+    let current_index = current as u32;
+    if let Some(previous) = declarations.insert(key, current_index) {
+        let previous = previous as usize;
+        if !block.declarations[previous].is_tombstone()
+            && block.declarations[previous] == block.declarations[current]
+        {
+            block.declarations[previous] = Declaration::Tombstone;
+            cx.record_declaration_removed();
+        }
     }
 }
 
@@ -158,17 +280,14 @@ fn process_box_declaration<'a>(
     };
     match property {
         BoxProperty::BarrierAll => ir.clear_boxes(),
-        BoxProperty::Barrier(family) => {
-            for important in [false, true] {
-                ir.box_family(family, important).clear();
-            }
-        }
+        BoxProperty::Barrier(family) => ir.clear_box_family(family),
         BoxProperty::Shorthand(family) => {
             let important = block.is_important(current);
             let can_override = can_override_box_longhands(&block.declarations[current], family);
             let state = ir.box_family(family, important);
             if can_override {
                 for &index in &state.pending_longhands {
+                    let index = index as usize;
                     if !block.declarations[index].is_tombstone() {
                         block.declarations[index] = Declaration::Tombstone;
                         cx.record_declaration_removed();
@@ -177,15 +296,15 @@ fn process_box_declaration<'a>(
             }
             state.clear();
             if can_override {
-                state.shorthand = Some(current);
+                state.shorthand = current as u32;
             }
         }
         BoxProperty::Longhand(family, side) => {
             let important = block.is_important(current);
             let state = ir.box_family(family, important);
-            if let Some(shorthand) = state
-                .shorthand
-                .filter(|&index| !block.declarations[index].is_tombstone())
+            let shorthand = state.shorthand as usize;
+            if state.shorthand != EMPTY_INDEX
+                && !block.declarations[shorthand].is_tombstone()
                 && fold_box_side_override(block, shorthand, current, family, side)
             {
                 block.declarations[current] = Declaration::Tombstone;
@@ -194,16 +313,17 @@ fn process_box_declaration<'a>(
                 return;
             }
 
-            state.pending_longhands.push(current);
-            state.sides[side] = Some(current);
-            let [Some(top), Some(right), Some(bottom), Some(left)] = state.sides else {
+            let current_index = current as u32;
+            state.pending_longhands.push(current_index);
+            state.sides[side] = current_index;
+            if state.sides.contains(&EMPTY_INDEX) {
                 return;
-            };
-            let indices = [top, right, bottom, left];
+            }
+            let indices = state.sides.map(|index| index as usize);
             if merge_box_longhands(block, indices, family, cx) {
                 let target = *indices.iter().max().expect("four box sides");
                 state.clear();
-                state.shorthand = Some(target);
+                state.shorthand = target as u32;
             }
         }
     }

@@ -62,19 +62,25 @@ impl<'a> Plugin<'a> for MinifyPlugin {
 }
 
 pub(crate) fn minify_style_sheet<'a>(stylesheet: &mut StyleSheet<'a>, cx: &mut MinifyContext) {
-    stylesheet.visit_mut(&mut Minifier { cx });
+    let declaration_blocks = rules::DeclarationBlockMinifier::new(stylesheet.rules.bump());
+    stylesheet.visit_mut(&mut Minifier {
+        cx,
+        declaration_blocks,
+    });
 }
 
-struct Minifier<'cx> {
+struct Minifier<'a, 'cx> {
     cx: &'cx mut MinifyContext,
+    declaration_blocks: rules::DeclarationBlockMinifier<'a>,
 }
 
-impl<'a> VisitorMut<'a> for Minifier<'_> {
+impl<'a> VisitorMut<'a> for Minifier<'a, '_> {
     fn visit_declaration_block(&mut self, mut node: std::pin::Pin<&mut DeclarationBlock<'a>>) {
         node.as_mut().visit_mut_children(self);
         // SAFETY: minification mutates fields in place and never moves the
         // pinned declaration block itself.
-        unsafe { node.as_mut().get_unchecked_mut() }.minify(self.cx);
+        self.declaration_blocks
+            .minify(unsafe { node.as_mut().get_unchecked_mut() }, self.cx);
     }
 
     fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
@@ -314,6 +320,18 @@ mod tests {
         assert_eq!(
             run("a{width:1px!important;width:1px!important}"),
             "a{width:1px !important}"
+        );
+        assert_eq!(
+            run("a{-webkit-user-select:none;-webkit-user-select:none}"),
+            "a{-webkit-user-select:none}"
+        );
+        assert_eq!(run("a{--x:1;--x:1}"), "a{--x:1}");
+        assert_eq!(run("a{unknown:value;unknown:value}"), "a{unknown:value}");
+        assert_eq!(
+            run(
+                "a{width:1px;height:1px;top:1px;right:1px;bottom:1px;left:1px;color:red;opacity:1;z-index:1;width:1px}"
+            ),
+            "a{height:1px;top:1px;right:1px;bottom:1px;left:1px;color:red;opacity:1;z-index:1;width:1px}"
         );
         assert_eq!(run("a{width:1px;width:1px;width:1px}"), "a{width:1px}");
         assert_eq!(

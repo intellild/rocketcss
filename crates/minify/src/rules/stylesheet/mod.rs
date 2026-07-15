@@ -15,6 +15,7 @@ use rocketcss_ast::{
 
 use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlags};
 
+pub(crate) use declaration_block::DeclarationBlockMinifier;
 pub(crate) use url::normalize_url_text;
 
 impl Minify for StyleSheet<'_> {
