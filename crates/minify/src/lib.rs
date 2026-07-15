@@ -517,7 +517,7 @@ mod tests {
         );
 
         let columns = PropertyId::from_name("CoLuMnS");
-        assert_eq!(columns, PropertyId::Columns);
+        assert_eq!(columns, PropertyId::Columns(VendorPrefix::NONE));
         assert_eq!(
             properties::value_context(&columns, true, true).property,
             context::PropertyContext::Columns

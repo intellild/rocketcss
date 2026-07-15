@@ -141,6 +141,22 @@ mod tests {
         assert!(PropertyId::All.known_id().is_some());
         assert_eq!(PropertyId::Unparsed.known_id(), None);
         assert_eq!(PropertyId::Custom("unknown").known_id(), None);
+
+        for (name, expected) in [
+            ("CoLuMn-RuLe", PropertyId::ColumnRule(VendorPrefix::NONE)),
+            ("CoLuMnS", PropertyId::Columns(VendorPrefix::NONE)),
+            ("GrId-CoLuMn-GaP", PropertyId::GridColumnGap),
+            ("GrId-RoW-GaP", PropertyId::GridRowGap),
+        ] {
+            let property_id = PropertyId::from_name(name);
+            assert_eq!(property_id, expected);
+            assert!(property_id.known_id().is_some());
+            assert_eq!(property_id.vendor_prefix(), VendorPrefix::NONE);
+        }
+        assert_eq!(
+            PropertyId::from_name("-WeBkIt-CoLuMnS"),
+            PropertyId::Columns(VendorPrefix::WEBKIT)
+        );
     }
 
     #[test]

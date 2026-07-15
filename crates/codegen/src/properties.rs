@@ -167,7 +167,6 @@ macro_rules! impl_declaration_to_css {
                         $(#[$meta])*
                         declaration_value_pattern!(Self::$property, value$(, _prefix: $vp)?) => value.to_css(dest),
                     )+
-                    Self::All(value) => value.to_css(dest),
                     Self::Unparsed(value) => value.to_css(dest),
                     Self::Custom(value) => value.to_css(dest),
                     Self::Tombstone => Ok(()),

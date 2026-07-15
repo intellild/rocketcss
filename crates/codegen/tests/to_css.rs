@@ -63,6 +63,19 @@ fn compact_stylesheet_omits_optional_whitespace() {
 }
 
 #[test]
+fn serializes_typed_multicol_and_legacy_gap_properties() {
+    let stylesheet = parse_stylesheet(
+        "a { -webkit-column-rule: red solid 1px; columns: 3 10px; grid-column-gap: 10%; grid-row-gap: normal }",
+    );
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "a{-webkit-column-rule:1px solid red;columns:10px 3;grid-column-gap:10%;grid-row-gap:normal}"
+    );
+}
+
+#[test]
 fn serializes_charset_rules() {
     let stylesheet =
         parse_stylesheet("@charset 'UTF-8'; @import 'theme.css'; .foo { color: green }");

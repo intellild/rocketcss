@@ -393,6 +393,69 @@ impl ToCss for Gap<'_> {
     }
 }
 
+impl ToCss for ColumnRule<'_> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        debug_assert!(self.width.is_some() || self.style.is_some() || self.color.is_some());
+        let mut wrote_value = false;
+        if let Some(width) = &self.width {
+            width.to_css(dest)?;
+            wrote_value = true;
+        }
+        if let Some(style) = &self.style {
+            if wrote_value {
+                dest.write_char(' ')?;
+            }
+            style.to_css(dest)?;
+            wrote_value = true;
+        }
+        if let Some(color) = &self.color {
+            if wrote_value {
+                dest.write_char(' ')?;
+            }
+            color.to_css(dest)?;
+        }
+        Ok(())
+    }
+}
+
+impl ToCss for ColumnWidth<'_> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        match self {
+            Self::Auto => dest.write_str("auto"),
+            Self::Length(value) => value.to_css(dest),
+        }
+    }
+}
+
+impl ToCss for ColumnCount {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        match self {
+            Self::Auto => dest.write_str("auto"),
+            Self::Integer(value) => serialize_int(*value, dest),
+        }
+    }
+}
+
+impl ToCss for Columns<'_> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        let width_is_auto = matches!(&*self.width, ColumnWidth::Auto);
+        let count_is_auto = matches!(self.count, ColumnCount::Auto);
+        if width_is_auto && count_is_auto {
+            return dest.write_str("auto");
+        }
+        if !width_is_auto {
+            self.width.to_css(dest)?;
+        }
+        if !count_is_auto {
+            if !width_is_auto {
+                dest.write_char(' ')?;
+            }
+            self.count.to_css(dest)?;
+        }
+        Ok(())
+    }
+}
+
 impl ToCss for TrackRepeat<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         dest.write_str("repeat(")?;

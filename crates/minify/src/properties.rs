@@ -36,8 +36,8 @@ pub(crate) fn value_context(
             | PropertyId::GridRowStart
             | PropertyId::GridRowEnd => PropertyContext::GridLine,
             PropertyId::ListStyle => PropertyContext::ListStyle,
-            PropertyId::ColumnRule => PropertyContext::Outline,
-            PropertyId::Columns => PropertyContext::Columns,
+            PropertyId::ColumnRule(_) => PropertyContext::Outline,
+            PropertyId::Columns(_) => PropertyContext::Columns,
             PropertyId::GridColumnGap | PropertyId::GridRowGap => PropertyContext::GridGap,
             _ => property_context(property_id),
         }
