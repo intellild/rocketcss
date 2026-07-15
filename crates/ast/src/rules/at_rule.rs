@@ -16,6 +16,12 @@ pub struct CounterStyleRule<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
+pub struct CharsetRule<'a> {
+    pub span: Span,
+    pub encoding: &'a str,
+}
+
+#[derive(Debug, PartialEq, Visit)]
 pub struct NamespaceRule<'a> {
     pub span: Span,
     pub prefix: Option<&'a str>,

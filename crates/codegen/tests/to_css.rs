@@ -63,6 +63,29 @@ fn compact_stylesheet_omits_optional_whitespace() {
 }
 
 #[test]
+fn serializes_charset_rules() {
+    let stylesheet =
+        parse_stylesheet("@charset 'UTF-8'; @import 'theme.css'; .foo { color: green }");
+
+    assert_eq!(
+        stylesheet.to_css_string(PrinterOptions::default()).unwrap(),
+        concat!(
+            "@charset \"UTF-8\";\n",
+            "@import \"theme.css\";\n\n",
+            ".foo {\n",
+            "  color: green;\n",
+            "}\n"
+        )
+    );
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "@charset \"UTF-8\";@import \"theme.css\";.foo{color:green}"
+    );
+}
+
+#[test]
 fn function_codegen_uses_known_identity_and_preserves_original_name() {
     let stylesheet = parse_stylesheet("a{color:VAR(--x,);width:CuStOm(1)}");
     assert_eq!(

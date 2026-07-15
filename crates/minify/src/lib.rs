@@ -281,6 +281,10 @@ mod tests {
             "a{}a{color:red}a{color:red}@media print{a{}}"
         );
         assert_eq!(run("a{width:1px;width:1px}"), "a{width:1px;width:1px}");
+        assert_eq!(
+            run("@charset 'UTF-8'; @import 'theme.css'; a{color:red}"),
+            "@charset \"UTF-8\";@import \"theme.css\";a{color:red}"
+        );
     }
 
     #[test]

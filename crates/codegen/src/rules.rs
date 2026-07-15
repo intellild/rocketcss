@@ -1329,14 +1329,14 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
     let mut first = true;
     let mut last_without_block = false;
     for rule in rules {
-        if matches!(rule, CssRule::Ignored) {
-            continue;
-        }
         if !first {
             if !last_without_block
                 || !matches!(
                     rule,
-                    CssRule::Import(_) | CssRule::Namespace(_) | CssRule::LayerStatement(_)
+                    CssRule::Charset(_)
+                        | CssRule::Import(_)
+                        | CssRule::Namespace(_)
+                        | CssRule::LayerStatement(_)
                 )
             {
                 dest.blank_line()?;
@@ -1348,7 +1348,10 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
         rule.to_css(dest)?;
         last_without_block = matches!(
             rule,
-            CssRule::Import(_) | CssRule::Namespace(_) | CssRule::LayerStatement(_)
+            CssRule::Charset(_)
+                | CssRule::Import(_)
+                | CssRule::Namespace(_)
+                | CssRule::LayerStatement(_)
         );
     }
     Ok(())
@@ -1733,6 +1736,14 @@ impl ToCss for CounterStyleRule<'_> {
         dest.write_str("@counter-style ")?;
         serialize_identifier(self.name, dest)?;
         write_declaration_block(&self.declarations, dest)
+    }
+}
+
+impl ToCss for CharsetRule<'_> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        dest.write_str("@charset ")?;
+        serialize_string(self.encoding, dest)?;
+        dest.write_char(';')
     }
 }
 
