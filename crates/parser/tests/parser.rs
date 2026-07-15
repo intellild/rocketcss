@@ -545,12 +545,36 @@ fn enforces_import_and_namespace_order_like_lightningcss() {
     ));
 
     let valid = parse(
-        "@layer reset; @import 'theme.css'; @namespace svg 'urn:svg'; a {}",
+        "@charset 'UTF-8'; @layer reset; @import 'theme.css'; @namespace svg 'urn:svg'; a {}",
         &allocator,
         ParserOptions::default(),
     )
     .unwrap();
-    assert_eq!(valid.rules.len(), 4);
+    assert_eq!(valid.rules.len(), 5);
+    assert!(matches!(
+        &valid.rules[0],
+        CssRule::Charset(rule)
+            if rule.encoding == "UTF-8" && rule.span == Span::new(0, 17)
+    ));
+}
+
+#[test]
+fn parses_charset_as_a_typed_rule() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        r#"@charset "UTF-\38 ";"#,
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        &sheet.rules[..],
+        [CssRule::Charset(rule)]
+            if rule.encoding == "UTF-8" && rule.span == Span::new(0, 20)
+    ));
+
+    assert!(parse("@charset UTF-8;", &allocator, ParserOptions::default(),).is_err());
 }
 
 #[test]

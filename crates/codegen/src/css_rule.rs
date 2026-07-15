@@ -13,6 +13,7 @@ impl ToCss for CssRule<'_> {
             Self::Page(value) => value.to_css(dest),
             Self::Supports(value) => value.to_css(dest),
             Self::CounterStyle(value) => value.to_css(dest),
+            Self::Charset(value) => value.to_css(dest),
             Self::Namespace(value) => value.to_css(dest),
             Self::MozDocument(value) => value.to_css(dest),
             Self::Nesting(value) => value.to_css(dest),
@@ -27,7 +28,7 @@ impl ToCss for CssRule<'_> {
             Self::StartingStyle(value) => value.to_css(dest),
             Self::ViewTransition(value) => value.to_css(dest),
             Self::PositionTry(value) => value.to_css(dest),
-            Self::Ignored | Self::Custom(_) => Ok(()),
+            Self::Custom(_) => Ok(()),
             Self::Unknown(value) => value.to_css(dest),
         }
     }

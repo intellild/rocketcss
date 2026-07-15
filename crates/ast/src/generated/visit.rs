@@ -171,6 +171,10 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
+    fn visit_charset_rule(&mut self, node: &CharsetRule<'a>) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
     fn visit_namespace_rule(&mut self, node: &NamespaceRule<'a>) {
         Visit::visit_children(node, self);
     }

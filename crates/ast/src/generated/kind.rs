@@ -37,6 +37,7 @@ pub enum AstType {
     Animation,
     SupportsRule,
     CounterStyleRule,
+    CharsetRule,
     NamespaceRule,
     MozDocumentRule,
     NestingRule,

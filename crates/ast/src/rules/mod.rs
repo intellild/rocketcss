@@ -65,6 +65,7 @@ impl_spanned!(
     PageMarginRule,
     SupportsRule,
     CounterStyleRule,
+    CharsetRule,
     NamespaceRule,
     MozDocumentRule,
     NestingRule,

@@ -130,15 +130,15 @@ pub(super) fn parse_namespace<'i>(
     Ok((None, url))
 }
 
-pub(super) fn validate_charset<'i>(
+pub(super) fn parse_charset<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
-) -> Result<(), ParseError<'i, ParserError<'i>>> {
+) -> Result<&'i str, ParseError<'i, ParserError<'i>>> {
     let mut input = ParserInput::new(prelude, allocator);
     let mut parser = Parser::new(&mut input);
-    parser.expect_string()?;
+    let encoding = parser.expect_string()?;
     parser.expect_exhausted()?;
-    Ok(())
+    Ok(encoding)
 }
 
 pub(super) fn parse_layer_names<'i>(

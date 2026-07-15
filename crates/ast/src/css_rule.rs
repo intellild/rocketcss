@@ -14,6 +14,7 @@ pub enum CssRule<'a> {
     Page(Box<'a, PageRule<'a>>),
     Supports(Box<'a, SupportsRule<'a>>),
     CounterStyle(Box<'a, CounterStyleRule<'a>>),
+    Charset(Box<'a, CharsetRule<'a>>),
     Namespace(Box<'a, NamespaceRule<'a>>),
     MozDocument(Box<'a, MozDocumentRule<'a>>),
     Nesting(Box<'a, NestingRule<'a>>),
@@ -28,7 +29,6 @@ pub enum CssRule<'a> {
     StartingStyle(Box<'a, StartingStyleRule<'a>>),
     ViewTransition(Box<'a, ViewTransitionRule<'a>>),
     PositionTry(Box<'a, PositionTryRule<'a>>),
-    Ignored,
     Unknown(Box<'a, UnknownAtRule<'a>>),
     Custom(Box<'a, DefaultAtRule>),
 }
@@ -47,6 +47,7 @@ impl GetSpan for CssRule<'_> {
             Self::Page(rule) => rule.span(),
             Self::Supports(rule) => rule.span(),
             Self::CounterStyle(rule) => rule.span(),
+            Self::Charset(rule) => rule.span(),
             Self::Namespace(rule) => rule.span(),
             Self::MozDocument(rule) => rule.span(),
             Self::Nesting(rule) => rule.span(),
@@ -62,7 +63,7 @@ impl GetSpan for CssRule<'_> {
             Self::ViewTransition(rule) => rule.span(),
             Self::PositionTry(rule) => rule.span(),
             Self::Unknown(rule) => rule.span(),
-            Self::Ignored | Self::Custom(_) => DUMMY_SP,
+            Self::Custom(_) => DUMMY_SP,
         }
     }
 }

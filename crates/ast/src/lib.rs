@@ -90,6 +90,18 @@ mod tests {
     }
 
     #[test]
+    fn charset_rule_uses_span() {
+        let allocator = Allocator::new();
+        let rule = CharsetRule {
+            span: Span::new(2, 19),
+            encoding: "UTF-8",
+        };
+        let rule = CssRule::Charset(allocator.boxed(rule));
+
+        assert_eq!(rule.span(), Span::new(2, 19));
+    }
+
+    #[test]
     fn declaration_block_remains_pinned_when_its_container_grows() {
         let allocator = Allocator::new();
         let first = allocator.pinned(DeclarationBlock::new(&allocator));
