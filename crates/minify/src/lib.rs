@@ -270,6 +270,29 @@ mod tests {
     }
 
     #[test]
+    fn deduplicates_quoted_and_unquoted_font_families() {
+        assert_eq!(
+            run("a{font-family:\"A\",Arial,a,sans-serif}"),
+            "a{font-family:A,Arial,sans-serif}"
+        );
+        assert_eq!(
+            run("a{font-family:\"serif\",serif}"),
+            "a{font-family:\"serif\",serif}"
+        );
+    }
+
+    #[test]
+    fn font_family_deduplication_is_configurable() {
+        let mut options = MinifyOptions::default();
+        options.flags.remove(Options::NORMALIZE_VALUES);
+
+        assert_eq!(
+            run_with_options("a{font-family:\"A\",Arial,a,sans-serif}", options),
+            "a{font-family:\"A\",Arial,a,sans-serif}"
+        );
+    }
+
+    #[test]
     fn serializes_rgb_channels_as_integers() {
         let mut options = MinifyOptions::default();
         options.flags.remove(Options::USE_HEX_ALPHA_COLORS);
