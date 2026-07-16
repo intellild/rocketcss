@@ -312,6 +312,10 @@ mod tests {
             run("a{font-family:A,var(--family),a,serif}"),
             "a{font-family:A,serif}"
         );
+        assert_eq!(
+            run("a{font-family:A,serif,Helvetica;font-family:A,serif}"),
+            "a{font-family:A,serif}"
+        );
 
         let allocator = Allocator::new();
         let mut stylesheet = parse(
@@ -336,11 +340,18 @@ mod tests {
     #[test]
     fn font_family_deduplication_is_configurable() {
         let mut options = MinifyOptions::default();
-        options.flags.remove(Options::NORMALIZE_VALUES);
+        options.flags.remove(Options::DEDUPLICATE_LISTS);
 
         assert_eq!(
-            run_with_options("a{font-family:\"A\",Arial,a,sans-serif}", options),
+            run_with_options("a{font-family:\"A\",Arial,a,sans-serif,Helvetica}", options),
             "a{font-family:A,Arial,a,sans-serif}"
+        );
+
+        let mut options = MinifyOptions::default();
+        options.flags.remove(Options::NORMALIZE_VALUES);
+        assert_eq!(
+            run_with_options("a{font-family:A,A,serif,Helvetica}", options),
+            "a{font-family:A,serif,Helvetica}"
         );
     }
 

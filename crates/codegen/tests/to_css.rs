@@ -303,6 +303,12 @@ fn ports_lightningcss_typed_value_serialization_cases() {
         "\"A  B\""
     );
     assert_eq!(
+        FontFamily::Custom("1")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"1\""
+    );
+    assert_eq!(
         FontFamily::Custom("slab serif")
             .to_css_string(PrinterOptions::default())
             .unwrap(),

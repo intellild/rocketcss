@@ -33,11 +33,18 @@ pub(crate) fn write_custom_font_family<PrinterT: PrinterTrait>(
         return serialize_string(value, dest);
     }
 
+    let mut identifier = String::new();
     for (index, part) in value.split(' ').enumerate() {
         if index > 0 {
-            dest.write_char(' ')?;
+            identifier.push(' ');
         }
-        serialize_identifier(part, dest)?;
+        serialize_identifier(part, &mut identifier)?;
     }
-    Ok(())
+    let mut string = String::new();
+    serialize_string(value, &mut string)?;
+    if identifier.len() < string.len() {
+        dest.write_str(&identifier)
+    } else {
+        dest.write_str(&string)
+    }
 }

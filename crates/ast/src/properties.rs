@@ -220,6 +220,17 @@ macro_rules! define_properties {
                 matches!(self, Self::Tombstone)
             }
         }
+
+        impl EqIgnoringTombstones for Declaration<'_> {
+            fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
+                match (self, other) {
+                    (Self::FontFamily(left), Self::FontFamily(right)) => {
+                        left.eq_ignoring_tombstones(right)
+                    }
+                    _ => self == other,
+                }
+            }
+        }
     };
 }
 

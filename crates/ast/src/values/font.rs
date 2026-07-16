@@ -139,6 +139,27 @@ impl<'a> FontFamily<'a> {
     }
 }
 
+impl EqIgnoringTombstones for FontFamily<'_> {
+    #[inline]
+    fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl<'a> EqIgnoringTombstones for Vec<'a, FontFamily<'a>> {
+    fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
+        let mut left = self.iter().filter(|family| !family.is_tombstone());
+        let mut right = other.iter().filter(|family| !family.is_tombstone());
+        loop {
+            match (left.next(), right.next()) {
+                (None, None) => return true,
+                (Some(left), Some(right)) if left.eq_ignoring_tombstones(right) => {}
+                _ => return false,
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum FontStyle<'a> {
     Normal,

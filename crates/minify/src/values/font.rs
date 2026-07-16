@@ -15,11 +15,8 @@ impl<'a> Minify for Vec<'a, FontFamily<'a>> {
             }
         }
 
-        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
-            return;
-        }
-
-        if let Some(generic) = self.iter().position(FontFamily::is_generic)
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any)
+            && let Some(generic) = self.iter().position(FontFamily::is_generic)
             && self[..generic].iter().any(|family| !family.is_tombstone())
             && self[generic + 1..]
                 .iter()
@@ -31,6 +28,10 @@ impl<'a> Minify for Vec<'a, FontFamily<'a>> {
                     cx.record_value_normalized();
                 }
             }
+        }
+
+        if cx.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::None) {
+            return;
         }
 
         for current in 1..self.len() {
