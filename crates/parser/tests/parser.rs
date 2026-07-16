@@ -373,6 +373,31 @@ fn selector_error_recovery_continues_at_commas() {
 }
 
 #[test]
+fn selector_error_recovery_consumes_multiple_invalid_tokens() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        ".valid, .broken ?? trailing, #also-valid { color: red }",
+        &allocator,
+        ParserOptions {
+            error_recovery: true,
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap();
+
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected recovered style rule")
+    };
+    assert_eq!(rule.selectors.len(), 3);
+    assert!(matches!(&rule.selectors[0], Selector::Parsed(_)));
+    assert!(matches!(
+        &rule.selectors[1],
+        Selector::Unparsed(".broken ?? trailing")
+    ));
+    assert!(matches!(&rule.selectors[2], Selector::Parsed(_)));
+}
+
+#[test]
 fn invalid_selector_still_fails_without_error_recovery() {
     let allocator = Allocator::new();
     let error = parse(
