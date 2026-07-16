@@ -58,14 +58,8 @@ pub enum FontStretchKeyword {
     UltraExpanded,
 }
 
-#[derive(Debug, PartialEq, Visit)]
-pub enum FontFamily<'a> {
-    Generic(GenericFontFamily),
-    FamilyName(FamilyName<'a>),
-}
-
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
-pub enum GenericFontFamily {
+pub enum FontFamily<'a> {
     Serif,
     SansSerif,
     Cursive,
@@ -85,6 +79,85 @@ pub enum GenericFontFamily {
     Default,
     Revert,
     RevertLayer,
+    Unparsed(Vec<'a, TokenOrValue<'a>>),
+    /// Tombstone for a family entry removed by an in-place transform.
+    #[css_keyword("")]
+    Tombstone,
+    Custom(&'a str),
+}
+
+impl<'a> FontFamily<'a> {
+    pub fn from_name(name: &'a str) -> Self {
+        match_ignore_ascii_case!(
+            name,
+            "serif" => Self::Serif,
+            "sans-serif" => Self::SansSerif,
+            "cursive" => Self::Cursive,
+            "fantasy" => Self::Fantasy,
+            "monospace" => Self::Monospace,
+            "system-ui" => Self::SystemUi,
+            "emoji" => Self::Emoji,
+            "math" => Self::Math,
+            "fangsong" => Self::Fangsong,
+            "ui-serif" => Self::UiSerif,
+            "ui-sans-serif" => Self::UiSansSerif,
+            "ui-monospace" => Self::UiMonospace,
+            "ui-rounded" => Self::UiRounded,
+            "initial" => Self::Initial,
+            "inherit" => Self::Inherit,
+            "unset" => Self::Unset,
+            "default" => Self::Default,
+            "revert" => Self::Revert,
+            "revert-layer" => Self::RevertLayer,
+            _ => Self::Custom(name),
+        )
+    }
+
+    #[inline]
+    pub const fn is_generic(&self) -> bool {
+        matches!(
+            self,
+            Self::Serif
+                | Self::SansSerif
+                | Self::Cursive
+                | Self::Fantasy
+                | Self::Monospace
+                | Self::SystemUi
+                | Self::Emoji
+                | Self::Math
+                | Self::Fangsong
+                | Self::UiSerif
+                | Self::UiSansSerif
+                | Self::UiMonospace
+                | Self::UiRounded
+        )
+    }
+
+    #[inline]
+    pub const fn is_tombstone(&self) -> bool {
+        matches!(self, Self::Tombstone)
+    }
+}
+
+impl EqIgnoringTombstones for FontFamily<'_> {
+    #[inline]
+    fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl<'a> EqIgnoringTombstones for Vec<'a, FontFamily<'a>> {
+    fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
+        let mut left = self.iter().filter(|family| !family.is_tombstone());
+        let mut right = other.iter().filter(|family| !family.is_tombstone());
+        loop {
+            match (left.next(), right.next()) {
+                (None, None) => return true,
+                (Some(left), Some(right)) if left.eq_ignoring_tombstones(right) => {}
+                _ => return false,
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]

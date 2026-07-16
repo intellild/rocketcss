@@ -1,5 +1,7 @@
 use rocketcss_allocator::vec::Vec;
-use rocketcss_ast::{KnownFunction, Token, TokenOrValue, Unit, match_ignore_ascii_case};
+use rocketcss_ast::{
+    FontFamily, KnownFunction, Token, TokenOrValue, Unit, match_ignore_ascii_case,
+};
 
 use crate::{
     Minify, MinifyContext, Options, OptionsOp,
@@ -162,11 +164,7 @@ pub(crate) fn can_unquote_font(value: &str) -> bool {
 }
 
 fn is_generic_font_family(value: &str) -> bool {
-    match_ignore_ascii_case!(
-        value,
-        "serif" | "sans-serif" | "monospace" | "cursive" | "fantasy" | "system-ui" | "ui-serif" | "ui-sans-serif" | "ui-monospace" | "ui-rounded" | "emoji" | "math" | "fangsong" => true,
-        _ => false,
-    )
+    FontFamily::from_name(value).is_generic()
 }
 
 impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
@@ -1276,7 +1274,7 @@ fn minify_font(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
 
     let is_simple_family_list = values.iter().enumerate().all(|(index, value)| {
         if index % 2 == 0 {
-            token_ident(value).is_some()
+            font_family_name(value).is_some()
         } else {
             is_comma(value)
         }
@@ -1286,19 +1284,31 @@ fn minify_font(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
     }
     let mut current = 2;
     while current < values.len() {
-        let Some(name) = token_ident(&values[current]) else {
-            unreachable!("simple font family entries are identifiers")
+        let Some((name, generic)) = font_family_name(&values[current]) else {
+            unreachable!("simple font family entries are names")
         };
-        let duplicate = !is_generic_font_family(name)
-            && (0..current).step_by(2).any(|previous| {
-                token_ident(&values[previous]).is_some_and(|value| value.eq_ignore_ascii_case(name))
-            });
+        let duplicate = (0..current).step_by(2).any(|previous| {
+            font_family_name(&values[previous]).is_some_and(|(previous, previous_generic)| {
+                previous_generic == generic && previous.eq_ignore_ascii_case(name)
+            })
+        });
         if duplicate {
             drop(values.drain(current - 1..=current));
             cx.record_value_normalized();
         } else {
             current += 2;
         }
+    }
+}
+
+fn font_family_name<'a>(value: &'a TokenOrValue<'_>) -> Option<(&'a str, bool)> {
+    let TokenOrValue::Token(token) = value else {
+        return None;
+    };
+    match &**token {
+        Token::Ident(value) => Some((value, is_generic_font_family(value))),
+        Token::String(value) | Token::UnquotedFont(value) => Some((value, false)),
+        _ => None,
     }
 }
 

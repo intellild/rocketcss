@@ -1169,10 +1169,6 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_generic_font_family(&mut self, node: &mut GenericFontFamily) {
-        VisitMut::visit_mut_children(node, self);
-    }
-    #[inline]
     fn visit_font_style(&mut self, node: &mut FontStyle<'a>) {
         VisitMut::visit_mut_children(node, self);
     }

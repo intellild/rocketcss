@@ -103,7 +103,7 @@ fn every_css_ast_node_implements_to_css() {
         TrackBreadth<'static>, RepeatCount, AutoFlowDirection, GridTemplateAreas<'static>,
         GridLine<'static>, FontWeight<'static>, AbsoluteFontWeight, FontSize<'static>,
         AbsoluteFontSize, RelativeFontSize, FontStretch, FontStretchKeyword, FontFamily<'static>,
-        GenericFontFamily, FontStyle<'static>, FontVariantCaps, LineHeight<'static>,
+        FontStyle<'static>, FontVariantCaps, LineHeight<'static>,
         VerticalAlign<'static>, VerticalAlignKeyword, EasingFunction, StepPosition,
         AnimationIterationCount, AnimationDirection, AnimationPlayState, AnimationFillMode,
         AnimationComposition, AnimationTimeline<'static>, ScrollAxis, Scroller,

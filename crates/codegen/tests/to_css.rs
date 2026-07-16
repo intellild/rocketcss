@@ -63,6 +63,24 @@ fn compact_stylesheet_omits_optional_whitespace() {
 }
 
 #[test]
+fn font_family_lists_skip_tombstones_without_extra_commas() {
+    let allocator = Allocator::new();
+    let mut families = allocator.vec();
+    families.push(FontFamily::Tombstone);
+    families.push(FontFamily::Custom("A"));
+    families.push(FontFamily::Tombstone);
+    families.push(FontFamily::Serif);
+    families.push(FontFamily::Tombstone);
+
+    assert_eq!(
+        families
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "A,serif"
+    );
+}
+
+#[test]
 fn serializes_typed_multicol_and_legacy_gap_properties() {
     let stylesheet = parse_stylesheet(
         "a { -webkit-column-rule: red solid 1px; columns: 3 10px; grid-column-gap: 10%; grid-row-gap: normal }",
@@ -259,5 +277,47 @@ fn ports_lightningcss_typed_value_serialization_cases() {
             .to_css_string(PrinterOptions::default())
             .unwrap(),
         "Fancy Font Name"
+    );
+    assert_eq!(
+        FontFamily::SansSerif
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "sans-serif"
+    );
+    assert_eq!(
+        FontFamily::Custom("serif")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"serif\""
+    );
+    assert_eq!(
+        FontFamily::Custom("Fancy Font")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "Fancy Font"
+    );
+    assert_eq!(
+        FontFamily::Custom("A  B")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"A  B\""
+    );
+    assert_eq!(
+        FontFamily::Custom("1")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"1\""
+    );
+    assert_eq!(
+        FontFamily::Custom("slab serif")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"slab serif\""
+    );
+    assert_eq!(
+        FontFamily::Custom("slab inherit")
+            .to_css_string(PrinterOptions::default())
+            .unwrap(),
+        "\"slab inherit\""
     );
 }

@@ -475,3 +475,18 @@ impl<'a> DeclarationBlock<'a> {
             .filter(|(declaration, _)| !declaration.is_tombstone())
     }
 }
+
+impl EqIgnoringTombstones for DeclarationBlock<'_> {
+    fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
+        let mut left = self.iter_live();
+        let mut right = other.iter_live();
+        loop {
+            match (left.next(), right.next()) {
+                (None, None) => return true,
+                (Some((left, left_important)), Some((right, right_important)))
+                    if left_important == right_important && left.eq_ignoring_tombstones(right) => {}
+                _ => return false,
+            }
+        }
+    }
+}

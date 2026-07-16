@@ -51,7 +51,6 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
         "/lightningcss/rules/merge-layer/",
         "/lightningcss/rules/merge-media/",
         "/lightningcss/rules/merge-selectors/",
-        "/lightningcss/values/font-family/",
     ];
     unsupported_cases
         .into_iter()

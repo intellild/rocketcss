@@ -1,7 +1,8 @@
 use rocketcss_allocator::prelude::{AdaptiveHashMap, Allocator, Vec};
 use rocketcss_ast::{
-    Declaration, DeclarationBlock, KnownFunction, LengthValue, Margin, Padding, PropertyId, Token,
-    TokenOrValue, UnparsedProperty, VendorPrefix, match_ignore_ascii_case,
+    Declaration, DeclarationBlock, EqIgnoringTombstones, KnownFunction, LengthValue, Margin,
+    Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, VendorPrefix,
+    match_ignore_ascii_case,
 };
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
@@ -312,7 +313,7 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
     if let Some(previous) = previous {
         let previous = previous as usize;
         if !block.declarations[previous].is_tombstone()
-            && block.declarations[previous] == block.declarations[current]
+            && block.declarations[previous].eq_ignoring_tombstones(&block.declarations[current])
         {
             block.declarations[previous] = Declaration::Tombstone;
             cx.record_declaration_removed();

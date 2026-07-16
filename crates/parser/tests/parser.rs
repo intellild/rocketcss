@@ -676,6 +676,46 @@ fn parses_typed_core_property_values() {
 }
 
 #[test]
+fn parses_font_family_into_typed_ast_nodes() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        r#"a { font-family: "serif", SANS-SERIF, Fancy Font, "A", "slab inherit"; font-family: var(--family), sans-serif; font-family: slab inherit; }"#,
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style")
+    };
+    let declarations = &style.declarations.declarations;
+
+    assert!(matches!(
+        &declarations[0],
+        Declaration::FontFamily(families)
+            if matches!(families.as_slice(), [
+                FontFamily::Custom("serif"),
+                FontFamily::SansSerif,
+                FontFamily::Custom("Fancy Font"),
+                FontFamily::Custom("A"),
+                FontFamily::Custom("slab inherit"),
+            ])
+    ));
+    assert!(matches!(
+        &declarations[1],
+        Declaration::FontFamily(families)
+            if matches!(families.as_slice(), [
+                FontFamily::Unparsed(_),
+                FontFamily::SansSerif,
+            ])
+    ));
+    assert!(matches!(
+        &declarations[2],
+        Declaration::FontFamily(families)
+            if matches!(families.as_slice(), [FontFamily::Unparsed(_)])
+    ));
+}
+
+#[test]
 fn parses_known_multicol_and_legacy_gap_ast_nodes() {
     let allocator = Allocator::new();
     let sheet = parse(

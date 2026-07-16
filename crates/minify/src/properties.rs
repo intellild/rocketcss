@@ -68,7 +68,7 @@ fn property_context(property_id: &PropertyId<'_>) -> PropertyContext {
         | PropertyId::AnimationTimingFunction(_)
         | PropertyId::TransitionTimingFunction(_) => PropertyContext::TimingFunction,
         PropertyId::Display => PropertyContext::Display,
-        PropertyId::Font | PropertyId::FontFamily => PropertyContext::Font,
+        PropertyId::Font => PropertyContext::Font,
         PropertyId::FontWeight => PropertyContext::FontWeight,
         PropertyId::Background
         | PropertyId::BackgroundPosition

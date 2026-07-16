@@ -80,7 +80,6 @@ comma_vec! {
     BackgroundOrigin,
     Background<'a>,
     BoxShadow<'a>,
-    FontFamily<'a>,
     PropertyId<'a>,
     Time,
     EasingFunction,
@@ -104,6 +103,20 @@ comma_vec! {
     Mask<'a>,
     WebKitMaskComposite,
     WebKitMaskSourceType,
+}
+
+impl<'a> ToCss for rocketcss_allocator::vec::Vec<'a, FontFamily<'a>> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        let mut first = true;
+        for family in self.iter().filter(|family| !family.is_tombstone()) {
+            if !first {
+                dest.delim(Delimiter::Comma)?;
+            }
+            family.to_css(dest)?;
+            first = false;
+        }
+        Ok(())
+    }
 }
 
 macro_rules! space_vec {

@@ -40,6 +40,7 @@ mod rules;
 mod selector;
 mod span;
 mod token;
+mod tombstone;
 mod values;
 
 pub use color::*;
@@ -56,6 +57,7 @@ pub use rules::*;
 pub use selector::*;
 pub use span::*;
 pub use token::*;
+pub use tombstone::*;
 pub use values::*;
 
 #[cfg(target_pointer_width = "64")]
@@ -117,6 +119,45 @@ mod tests {
             blocks[0].as_ref().get_ref() as *const DeclarationBlock<'_>,
             first_ptr,
         );
+    }
+
+    #[test]
+    fn compares_nodes_while_ignoring_owned_tombstone_slots() {
+        let allocator = Allocator::new();
+        assert!(FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Tombstone));
+        assert!(!FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Serif));
+
+        let mut left_families = allocator.vec();
+        left_families.push(FontFamily::Custom("A"));
+        left_families.push(FontFamily::Tombstone);
+        left_families.push(FontFamily::Serif);
+        let mut right_families = allocator.vec();
+        right_families.push(FontFamily::Custom("A"));
+        right_families.push(FontFamily::Serif);
+
+        assert_ne!(left_families, right_families);
+        assert!(left_families.eq_ignoring_tombstones(&right_families));
+
+        let left_declaration = Declaration::FontFamily(left_families);
+        let right_declaration = Declaration::FontFamily(right_families);
+        assert_ne!(left_declaration, right_declaration);
+        assert!(left_declaration.eq_ignoring_tombstones(&right_declaration));
+
+        let mut left_block = DeclarationBlock::new(&allocator);
+        left_block.push(left_declaration, false);
+        left_block.push(Declaration::Tombstone, true);
+        let mut right_block = DeclarationBlock::new(&allocator);
+        right_block.push(right_declaration, false);
+
+        assert_ne!(left_block, right_block);
+        assert!(left_block.eq_ignoring_tombstones(&right_block));
+
+        let mut important_block = DeclarationBlock::new(&allocator);
+        let mut important_families = allocator.vec();
+        important_families.push(FontFamily::Custom("A"));
+        important_families.push(FontFamily::Serif);
+        important_block.push(Declaration::FontFamily(important_families), true);
+        assert!(!left_block.eq_ignoring_tombstones(&important_block));
     }
 
     #[test]
@@ -229,5 +270,7 @@ mod tests {
         );
         assert_eq!(Appearance::NonStandard("textfield").as_css_str(), None);
         assert_eq!(FontFormat::String("woff3").as_css_str(), None);
+        assert_eq!(FontFamily::SansSerif.as_css_str(), Some("sans-serif"));
+        assert_eq!(FontFamily::Custom("Inter").as_css_str(), None);
     }
 }
