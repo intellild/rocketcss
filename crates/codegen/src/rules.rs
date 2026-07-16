@@ -1370,6 +1370,11 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
     let mut first = true;
     let mut last_without_block = false;
     for rule in rules {
+        if matches!(rule, CssRule::Style(style)
+            if style.selectors.iter().all(Selector::is_tombstone))
+        {
+            continue;
+        }
         if !first {
             if !last_without_block
                 || !matches!(
@@ -1447,9 +1452,58 @@ fn write_declarations<PrinterT: PrinterTrait>(
     Ok(())
 }
 
+fn declaration_chain_is_output_empty(tail: &DeclarationBlock<'_>) -> bool {
+    let mut current = tail;
+    loop {
+        if !current.is_output_empty() {
+            return false;
+        }
+        let Some(previous) = current.previous_merged() else {
+            return true;
+        };
+        current = previous.get().get_ref();
+    }
+}
+
+fn write_declaration_chain<PrinterT: PrinterTrait>(
+    tail: &DeclarationBlock<'_>,
+    dest: &mut PrinterT,
+    last_semicolon: LastSemicolon,
+) -> fmt::Result {
+    let mut blocks = std::vec::Vec::new();
+    let mut current = tail;
+    blocks.push(current);
+    while let Some(previous) = current.previous_merged() {
+        current = previous.get().get_ref();
+        blocks.push(current);
+    }
+
+    let mut live = blocks
+        .into_iter()
+        .rev()
+        .filter(|block| !block.is_output_empty())
+        .peekable();
+    while let Some(block) = live.next() {
+        let has_next_block = live.peek().is_some();
+        write_declarations(
+            block,
+            dest,
+            if has_next_block {
+                LastSemicolon::Required
+            } else {
+                last_semicolon
+            },
+        )?;
+        if has_next_block {
+            dest.new_line()?;
+        }
+    }
+    Ok(())
+}
+
 impl ToCss for DeclarationBlock<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_declarations(self, dest, LastSemicolon::Omit)
+        write_declaration_chain(self, dest, LastSemicolon::Omit)
     }
 }
 
@@ -1458,7 +1512,7 @@ fn write_declaration_block<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
 ) -> fmt::Result {
     write_block(dest, |dest| {
-        write_declarations(declarations, dest, LastSemicolon::Optional)
+        write_declaration_chain(declarations, dest, LastSemicolon::Optional)
     })
 }
 
@@ -1526,7 +1580,7 @@ impl ToCss for StyleRule<'_> {
         }
         self.selectors.to_css(dest)?;
         write_block(dest, |dest| {
-            write_declarations(
+            write_declaration_chain(
                 &self.declarations,
                 dest,
                 if self.rules.is_empty() {
@@ -1535,7 +1589,7 @@ impl ToCss for StyleRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
+            if !declaration_chain_is_output_empty(&self.declarations) && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             write_rule_list(&self.rules, dest)

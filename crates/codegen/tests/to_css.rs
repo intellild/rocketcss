@@ -1,3 +1,4 @@
+use rocketcss_allocator::Ref;
 use rocketcss_codegen::{PrinterOptions, ToCss};
 use rocketcss_parser::prelude::*;
 
@@ -256,6 +257,29 @@ fn declaration_block_skips_tombstones() {
             .to_css_string(PrinterOptions::default())
             .unwrap(),
         "all: initial;\nall: inherit !important"
+    );
+}
+
+#[test]
+fn merged_declaration_blocks_serialize_from_chain_head() {
+    let mut stylesheet = parse_stylesheet("a{width:1px}a{height:2px}");
+    let [CssRule::Style(first), CssRule::Style(second)] = &mut stylesheet.rules[..] else {
+        panic!("expected two style rules")
+    };
+    let previous = Ref::from_pinned_box(&first.declarations);
+    second
+        .declarations
+        .as_mut()
+        .set_previous_merged(Some(previous));
+    for selector in first.selectors.iter_mut() {
+        *selector = Selector::Tombstone;
+    }
+
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "a{width:1px;height:2px}"
     );
 }
 

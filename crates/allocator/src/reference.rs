@@ -26,6 +26,15 @@ impl<'a, T> Ref<'a, T> {
         }
     }
 
+    /// Creates a stable arena-lifetime reference from an arena-owned pinned box.
+    #[inline]
+    pub fn from_pinned_box(value: &Pin<crate::boxed::Box<'a, T>>) -> Self {
+        Self {
+            pointer: NonNull::from(value.as_ref().get_ref()),
+            marker: PhantomData,
+        }
+    }
+
     #[inline]
     pub fn get(self) -> Pin<&'a T> {
         // SAFETY: the arena keeps the pointee alive for `'a`, and `Ref` is only
@@ -97,5 +106,17 @@ mod tests {
 
         assert_eq!(reference.get().value, 42);
         assert_eq!(reference.get().get_ref() as *const PinnedValue, pointer);
+    }
+
+    #[test]
+    fn borrows_a_pinned_arena_box_for_the_arena_lifetime() {
+        let allocator = Allocator::new();
+        let value = allocator.pinned(PinnedValue {
+            value: 42,
+            _pin: PhantomPinned,
+        });
+        let reference = Ref::from_pinned_box(&value);
+
+        assert_eq!(reference.get().value, 42);
     }
 }
