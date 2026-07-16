@@ -631,42 +631,44 @@ fn fold_box_side_override(
         sequence.declaration_mut(shorthand),
         &mut longhand_declaration,
     ) {
-        (BoxFamily::Margin, Declaration::Margin(value), longhand) => {
-            let target = match (side, longhand) {
-                (0, Declaration::MarginTop(value)) => value,
-                (1, Declaration::MarginRight(value)) => value,
-                (2, Declaration::MarginBottom(value)) => value,
-                (3, Declaration::MarginLeft(value)) => value,
-                _ => return false,
-            };
-            let shorthand_side = match side {
-                0 => &mut value.top,
-                1 => &mut value.right,
-                2 => &mut value.bottom,
-                3 => &mut value.left,
-                _ => unreachable!(),
-            };
-            std::mem::swap(shorthand_side, target);
-            true
-        }
-        (BoxFamily::Padding, Declaration::Padding(value), longhand) => {
-            let target = match (side, longhand) {
-                (0, Declaration::PaddingTop(value)) => value,
-                (1, Declaration::PaddingRight(value)) => value,
-                (2, Declaration::PaddingBottom(value)) => value,
-                (3, Declaration::PaddingLeft(value)) => value,
-                _ => return false,
-            };
-            let shorthand_side = match side {
-                0 => &mut value.top,
-                1 => &mut value.right,
-                2 => &mut value.bottom,
-                3 => &mut value.left,
-                _ => unreachable!(),
-            };
-            std::mem::swap(shorthand_side, target);
-            true
-        }
+        (BoxFamily::Margin, Declaration::Margin(value), longhand) => match (side, longhand) {
+            (0, Declaration::MarginTop(target)) => {
+                std::mem::swap(&mut value.top, target);
+                true
+            }
+            (1, Declaration::MarginRight(target)) => {
+                std::mem::swap(&mut value.right, target);
+                true
+            }
+            (2, Declaration::MarginBottom(target)) => {
+                std::mem::swap(&mut value.bottom, target);
+                true
+            }
+            (3, Declaration::MarginLeft(target)) => {
+                std::mem::swap(&mut value.left, target);
+                true
+            }
+            _ => false,
+        },
+        (BoxFamily::Padding, Declaration::Padding(value), longhand) => match (side, longhand) {
+            (0, Declaration::PaddingTop(target)) => {
+                std::mem::swap(&mut value.top, target);
+                true
+            }
+            (1, Declaration::PaddingRight(target)) => {
+                std::mem::swap(&mut value.right, target);
+                true
+            }
+            (2, Declaration::PaddingBottom(target)) => {
+                std::mem::swap(&mut value.bottom, target);
+                true
+            }
+            (3, Declaration::PaddingLeft(target)) => {
+                std::mem::swap(&mut value.left, target);
+                true
+            }
+            _ => false,
+        },
         (_, Declaration::Unparsed(shorthand), Declaration::Unparsed(longhand)) => {
             fold_unparsed_box_side(shorthand, longhand, family, side)
         }

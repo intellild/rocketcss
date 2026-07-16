@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 bitflags! {
-    /// Individually configurable node-local minification passes.
+    /// Individually configurable minification passes.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Options: u32 {
         /// Remove ordinary comments from token lists.
@@ -43,10 +43,10 @@ pub enum OptionsOp {
     None,
 }
 
-/// Options controlling local, in-place syntax-tree minification.
+/// Options controlling in-place syntax-tree minification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MinifyOptions {
-    /// Enabled node-local minification passes.
+    /// Enabled minification passes.
     pub flags: Options,
     /// Decimal precision for pixel lengths; disables cross-unit conversion.
     pub length_precision: Option<u8>,

@@ -32,7 +32,7 @@ pub fn minify<'a>(stylesheet: &mut StyleSheet<'a>, options: MinifyOptions) -> Mi
     cx.stats()
 }
 
-/// Adapter for running node-local minification in a visitor plugin pipeline.
+/// Adapter for running in-place minification in a visitor plugin pipeline.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MinifyPlugin {
     options: MinifyOptions,
@@ -646,6 +646,10 @@ mod tests {
         assert_eq!(
             run(".a{color:red}.a{color:blue;& .child{display:block}}"),
             ".a{color:red;color:#00f;& .child{display:block}}"
+        );
+        assert_eq!(
+            run(".a{color:red;& .child{display:block};color:green}.a{color:blue}"),
+            ".a{color:red;& .child{display:block}color:green}.a{color:#00f}"
         );
     }
 
