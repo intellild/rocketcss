@@ -322,6 +322,70 @@ fn invalid_selector_reports_source_location() {
 }
 
 #[test]
+fn selector_error_recovery_preserves_a_pure_invalid_selector() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        "(font-[family-name:var(--font-*)]) { color: red }",
+        &allocator,
+        ParserOptions {
+            error_recovery: true,
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap();
+
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected recovered style rule")
+    };
+    assert!(matches!(
+        &rule.selectors[0],
+        Selector::Unparsed("(font-[family-name:var(--font-*)])")
+    ));
+    assert!(matches!(
+        &rule.declarations.declarations[0],
+        Declaration::Color(_)
+    ));
+}
+
+#[test]
+fn selector_error_recovery_continues_at_commas() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        ".valid, (font-[family-name:var(--font-*)]), #also-valid { color: red }",
+        &allocator,
+        ParserOptions {
+            error_recovery: true,
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap();
+
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected recovered style rule")
+    };
+    assert_eq!(rule.selectors.len(), 3);
+    assert!(matches!(&rule.selectors[0], Selector::Parsed(_)));
+    assert!(matches!(
+        &rule.selectors[1],
+        Selector::Unparsed("(font-[family-name:var(--font-*)])")
+    ));
+    assert!(matches!(&rule.selectors[2], Selector::Parsed(_)));
+}
+
+#[test]
+fn invalid_selector_still_fails_without_error_recovery() {
+    let allocator = Allocator::new();
+    let error = parse(
+        "(font-[family-name:var(--font-*)]) { color: red }",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap_err();
+
+    assert!(matches!(error.kind, ParserError::InvalidSelector));
+}
+
+#[test]
 fn parser_reports_unmatched_closing_token() {
     let allocator = Allocator::new();
     let mut input = ParserInput::new(")", &allocator);

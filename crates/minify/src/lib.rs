@@ -277,6 +277,58 @@ mod tests {
             .unwrap()
     }
 
+    fn run_with_error_recovery(source: &str) -> String {
+        let allocator = Allocator::new();
+        let mut stylesheet = parse(
+            source,
+            &allocator,
+            ParserOptions {
+                error_recovery: true,
+                ..ParserOptions::default()
+            },
+        )
+        .unwrap();
+        minify(&mut stylesheet, MinifyOptions::default());
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap()
+    }
+
+    #[test]
+    fn removes_unparsed_selectors_from_mixed_selector_lists() {
+        let allocator = Allocator::new();
+        let mut stylesheet = parse(
+            ".valid, (font-[family-name:var(--font-*)]), #also-valid { color: red }",
+            &allocator,
+            ParserOptions {
+                error_recovery: true,
+                ..ParserOptions::default()
+            },
+        )
+        .unwrap();
+        minify(&mut stylesheet, MinifyOptions::default());
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        assert!(matches!(rule.selectors[0], Selector::Parsed(_)));
+        assert!(matches!(rule.selectors[1], Selector::Tombstone));
+        assert!(matches!(rule.selectors[2], Selector::Parsed(_)));
+        assert_eq!(
+            stylesheet
+                .to_css_string(PrinterOptions { prettify: false })
+                .unwrap(),
+            ".valid,#also-valid{color:red}"
+        );
+    }
+
+    #[test]
+    fn removes_style_rules_containing_only_unparsed_selectors() {
+        assert_eq!(
+            run_with_error_recovery("(font-[family-name:var(--font-*)]) { color: red }"),
+            ""
+        );
+    }
+
     #[test]
     fn normalizes_numbers_colors_and_lengths() {
         assert_eq!(

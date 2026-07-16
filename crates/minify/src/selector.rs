@@ -1,5 +1,5 @@
 use rocketcss_allocator::prelude::{AdaptiveHashSet, Allocator, Vec};
-use rocketcss_ast::{NthType, SelectorComponent, SelectorList};
+use rocketcss_ast::{NthType, Selector, SelectorComponent, SelectorList};
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
@@ -18,8 +18,17 @@ pub(crate) fn minify_selector_list(
     context: &mut MinifyContext,
     scratch: &Allocator,
 ) {
+    for selector in selectors.iter_mut() {
+        if matches!(selector, Selector::Unparsed(_)) {
+            *selector = Selector::Tombstone;
+        }
+    }
+
     if context.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
         for selector in selectors.iter_mut() {
+            let Some(selector) = selector.as_parsed_mut() else {
+                continue;
+            };
             remove_qualified_universal(selector);
             for component in selector.iter_mut() {
                 if let SelectorComponent::Nth(data) = component
@@ -54,7 +63,7 @@ fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator) {
     {
         let mut seen = AdaptiveHashSet::<_, 4>::new_in(allocator);
         for (index, selector) in selectors.iter().enumerate() {
-            if !seen.insert(selector) {
+            if matches!(selector, Selector::Parsed(_)) && !seen.insert(selector) {
                 duplicate_indices.push(index);
             }
         }
@@ -79,7 +88,9 @@ fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator) {
     debug_assert_eq!(index, original_len);
 }
 
-fn remove_qualified_universal(selector: &mut rocketcss_ast::Selector<'_>) {
+fn remove_qualified_universal(
+    selector: &mut rocketcss_allocator::prelude::Vec<'_, SelectorComponent<'_>>,
+) {
     let mut index = 0;
     while index < selector.len() {
         if !matches!(selector[index], SelectorComponent::ExplicitUniversalType) {

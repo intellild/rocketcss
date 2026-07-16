@@ -63,6 +63,27 @@ fn compact_stylesheet_omits_optional_whitespace() {
 }
 
 #[test]
+fn recovered_unparsed_selectors_round_trip_before_minification() {
+    let allocator = Allocator::new();
+    let stylesheet = parse(
+        ".valid, (font-[family-name:var(--font-*)]), #also-valid { color: red }",
+        &allocator,
+        ParserOptions {
+            error_recovery: true,
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        ".valid,(font-[family-name:var(--font-*)]),#also-valid{color:red}"
+    );
+}
+
+#[test]
 fn font_family_lists_skip_tombstones_without_extra_commas() {
     let allocator = Allocator::new();
     let mut families = allocator.vec();

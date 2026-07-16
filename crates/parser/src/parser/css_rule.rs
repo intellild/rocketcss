@@ -2,7 +2,7 @@ use super::{
     media::{parse_import, parse_media_list, parse_supports_condition},
     properties::parse_declaration,
     rules::*,
-    selector::{parse_selector_list, parse_selector_string},
+    selector::{parse_selector_list, parse_selector_list_with_recovery, parse_selector_string},
     stylesheet::{check_depth, recover_declaration, recover_rule, span_from},
     values::{collect_tokens, matches_ignore_case},
 };
@@ -492,7 +492,11 @@ pub(super) fn parse_qualified_rule<'i, 't>(
     start: &ParserState,
 ) -> Result<CssRule<'i>, ParseError<'i, ParserError<'i>>> {
     let selectors = input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
-        parse_selector_list(input, allocator, depth + 1)
+        if options.error_recovery {
+            parse_selector_list_with_recovery(input, allocator, depth + 1)
+        } else {
+            parse_selector_list(input, allocator, depth + 1)
+        }
     })?;
     input.expect_curly_bracket_block()?;
     let (declarations, rules) = input

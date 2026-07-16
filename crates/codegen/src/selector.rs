@@ -2,22 +2,22 @@ use crate::prelude::*;
 
 impl ToCss for SelectorList<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        for (index, selector) in self.iter().enumerate() {
-            if index > 0 {
-                dest.delim(Delimiter::Comma)?;
-            }
-            selector.to_css(dest)?;
-        }
-        Ok(())
+        write_selector_list(self, dest)
     }
 }
 
 impl ToCss for Selector<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        for component in self {
-            component.to_css(dest)?;
+        match self {
+            Self::Parsed(components) => {
+                for component in components {
+                    component.to_css(dest)?;
+                }
+                Ok(())
+            }
+            Self::Unparsed(raw) => dest.write_str(raw),
+            Self::Tombstone => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -25,11 +25,16 @@ fn write_selector_list<PrinterT: PrinterTrait>(
     selectors: &[Selector<'_>],
     dest: &mut PrinterT,
 ) -> fmt::Result {
-    for (index, selector) in selectors.iter().enumerate() {
-        if index > 0 {
+    let mut wrote_selector = false;
+    for selector in selectors {
+        if selector.is_tombstone() {
+            continue;
+        }
+        if wrote_selector {
             dest.delim(Delimiter::Comma)?;
         }
         selector.to_css(dest)?;
+        wrote_selector = true;
     }
     Ok(())
 }
