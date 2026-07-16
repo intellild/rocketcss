@@ -679,7 +679,7 @@ fn parses_typed_core_property_values() {
 fn parses_font_family_into_typed_ast_nodes() {
     let allocator = Allocator::new();
     let sheet = parse(
-        r#"a { font-family: "serif", SANS-SERIF, Fancy Font, "A"; font-family: var(--family), sans-serif; }"#,
+        r#"a { font-family: "serif", SANS-SERIF, Fancy Font, "A", "slab inherit"; font-family: var(--family), sans-serif; font-family: slab inherit; }"#,
         &allocator,
         ParserOptions::default(),
     )
@@ -697,12 +697,21 @@ fn parses_font_family_into_typed_ast_nodes() {
                 FontFamily::SansSerif,
                 FontFamily::Custom("Fancy Font"),
                 FontFamily::Custom("A"),
+                FontFamily::Custom("slab inherit"),
             ])
     ));
     assert!(matches!(
         &declarations[1],
-        Declaration::Unparsed(value)
-            if matches!(&*value.property_id, PropertyId::FontFamily)
+        Declaration::FontFamily(families)
+            if matches!(families.as_slice(), [
+                FontFamily::Unparsed(_),
+                FontFamily::SansSerif,
+            ])
+    ));
+    assert!(matches!(
+        &declarations[2],
+        Declaration::FontFamily(families)
+            if matches!(families.as_slice(), [FontFamily::Unparsed(_)])
     ));
 }
 

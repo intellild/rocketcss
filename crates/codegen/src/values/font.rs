@@ -4,6 +4,8 @@ impl ToCss for FontFamily<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Custom(value) => write_custom_font_family(value, dest),
+            Self::Unparsed(value) => crate::token::write_token_list(value, dest),
+            Self::Tombstone => Ok(()),
             _ => dest.write_str(
                 self.as_css_str()
                     .expect("known font families are static keywords"),
@@ -20,7 +22,7 @@ pub(crate) fn write_custom_font_family<PrinterT: PrinterTrait>(
         || !matches!(FontFamily::from_name(value), FontFamily::Custom(_))
         || value
             .split_ascii_whitespace()
-            .any(|part| FontFamily::from_name(part).is_generic())
+            .any(|part| !matches!(FontFamily::from_name(part), FontFamily::Custom(_)))
         || value.starts_with(' ')
         || value.ends_with(' ')
         || value.contains("  ")

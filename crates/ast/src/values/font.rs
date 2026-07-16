@@ -79,6 +79,10 @@ pub enum FontFamily<'a> {
     Default,
     Revert,
     RevertLayer,
+    Unparsed(Vec<'a, TokenOrValue<'a>>),
+    /// Tombstone for a family entry removed by an in-place transform.
+    #[css_keyword("")]
+    Tombstone,
     Custom(&'a str),
 }
 
@@ -127,6 +131,11 @@ impl<'a> FontFamily<'a> {
                 | Self::UiMonospace
                 | Self::UiRounded
         )
+    }
+
+    #[inline]
+    pub const fn is_tombstone(&self) -> bool {
+        matches!(self, Self::Tombstone)
     }
 }
 

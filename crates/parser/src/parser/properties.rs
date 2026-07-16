@@ -14,7 +14,8 @@ pub(super) fn parse_declaration<'i, 't>(
 
     if !name.starts_with("--") {
         let start = input.state();
-        if let Some(Ok(declaration)) = try_parse_typed_declaration(input, &property_id, allocator)
+        if let Some(Ok(declaration)) =
+            try_parse_typed_declaration(input, &property_id, allocator, depth)
             && let Some(important) = parse_declaration_end(input)
         {
             let _ = input.try_parse(Parser::expect_semicolon);
@@ -57,6 +58,7 @@ fn try_parse_typed_declaration<'i, 't>(
     input: &mut Parser<'i, 't>,
     property_id: &PropertyId<'i>,
     allocator: &'i Allocator,
+    depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     let delimiters = Delimiter::Bang | Delimiter::Semicolon;
     macro_rules! parse {
@@ -82,7 +84,7 @@ fn try_parse_typed_declaration<'i, 't>(
             Display::parse(input).map(|value| Declaration::Display(allocator.boxed(value)))
         }),
         PropertyId::FontFamily => {
-            parse!(|input| parse_font_family_list(input).map(Declaration::FontFamily))
+            parse!(|input| parse_font_family_list(input, depth).map(Declaration::FontFamily))
         }
         PropertyId::ColumnRule(prefix) => parse!(|input| {
             ColumnRule::parse(input)

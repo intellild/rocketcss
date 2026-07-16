@@ -8,30 +8,42 @@ impl<'a> Minify for Vec<'a, FontFamily<'a>> {
     where
         Self: 'cx,
     {
+        for family in self.iter_mut() {
+            if matches!(family, FontFamily::Unparsed(_)) {
+                *family = FontFamily::Tombstone;
+                cx.record_value_normalized();
+            }
+        }
+
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
         if let Some(generic) = self.iter().position(FontFamily::is_generic)
-            && generic > 0
-            && generic + 1 < self.len()
+            && self[..generic].iter().any(|family| !family.is_tombstone())
+            && self[generic + 1..]
+                .iter()
+                .any(|family| !family.is_tombstone())
         {
-            self.truncate(generic + 1);
-            cx.record_value_normalized();
-            return;
+            for family in &mut self[generic + 1..] {
+                if !family.is_tombstone() {
+                    *family = FontFamily::Tombstone;
+                    cx.record_value_normalized();
+                }
+            }
         }
 
-        let mut current = 1;
-        while current < self.len() {
-            let duplicate = !self[current].is_generic()
-                && self[..current]
-                    .iter()
-                    .any(|previous| equivalent(previous, &self[current]));
+        for current in 1..self.len() {
+            if self[current].is_tombstone() {
+                continue;
+            }
+            let duplicate = self[..current]
+                .iter()
+                .filter(|previous| !previous.is_tombstone())
+                .any(|previous| equivalent(previous, &self[current]));
             if duplicate {
-                self.remove(current);
+                self[current] = FontFamily::Tombstone;
                 cx.record_value_normalized();
-            } else {
-                current += 1;
             }
         }
     }

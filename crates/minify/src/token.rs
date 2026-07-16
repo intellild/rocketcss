@@ -1287,12 +1287,11 @@ fn minify_font(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
         let Some((name, generic)) = font_family_name(&values[current]) else {
             unreachable!("simple font family entries are names")
         };
-        let duplicate = !generic
-            && (0..current).step_by(2).any(|previous| {
-                font_family_name(&values[previous]).is_some_and(|(previous, previous_generic)| {
-                    previous_generic == generic && previous.eq_ignore_ascii_case(name)
-                })
-            });
+        let duplicate = (0..current).step_by(2).any(|previous| {
+            font_family_name(&values[previous]).is_some_and(|(previous, previous_generic)| {
+                previous_generic == generic && previous.eq_ignore_ascii_case(name)
+            })
+        });
         if duplicate {
             drop(values.drain(current - 1..=current));
             cx.record_value_normalized();
