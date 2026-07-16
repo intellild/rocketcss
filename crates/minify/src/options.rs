@@ -28,6 +28,8 @@ bitflags! {
         const NORMALIZE_URLS = 1 << 10;
         /// Transform values inside custom properties.
         const TRANSFORM_CUSTOM_PROPERTIES = 1 << 11;
+        /// Merge physically adjacent style rules with equal selectors.
+        const MERGE_ADJACENT_RULES = 1 << 12;
     }
 }
 
@@ -75,7 +77,8 @@ impl Default for MinifyOptions {
                 | Options::CONVERT_EXTENDED_LENGTH_UNITS
                 | Options::CONVERT_ZERO_PERCENTAGES
                 | Options::DEDUPLICATE_LISTS
-                | Options::TRANSFORM_CUSTOM_PROPERTIES,
+                | Options::TRANSFORM_CUSTOM_PROPERTIES
+                | Options::MERGE_ADJACENT_RULES,
             length_precision: None,
             calc_precision: None,
         }

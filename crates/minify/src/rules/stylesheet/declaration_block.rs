@@ -1,4 +1,7 @@
-use rocketcss_allocator::prelude::{AdaptiveHashMap, Allocator, Vec};
+use rocketcss_allocator::{
+    Ref,
+    prelude::{AdaptiveHashMap, Allocator, Vec},
+};
 use rocketcss_ast::{
     Declaration, DeclarationBlock, EqIgnoringTombstones, KnownFunction, LengthValue, Margin,
     Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, VendorPrefix,
@@ -26,12 +29,9 @@ impl<'a> Minify for DeclarationBlock<'a> {
     where
         Self: 'cx,
     {
-        if self.len() < 2 {
-            return;
-        }
         let allocator = cx.allocator();
         let mut minifier = DeclarationBlockMinifier::new(allocator);
-        minifier.minify_non_trivial(self, cx);
+        minifier.minify(self, cx);
     }
 }
 
@@ -80,12 +80,35 @@ impl KnownDeclarationKey {
     }
 }
 
-const EMPTY_INDEX: u32 = u32::MAX;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+struct DeclarationLocation(u64);
+
+impl DeclarationLocation {
+    const EMPTY: Self = Self(u64::MAX);
+
+    #[inline]
+    fn new(block: usize, declaration: usize) -> Self {
+        debug_assert!(block <= u32::MAX as usize);
+        debug_assert!(declaration <= u32::MAX as usize);
+        Self(((block as u64) << 32) | declaration as u64)
+    }
+
+    #[inline]
+    fn block(self) -> usize {
+        (self.0 >> 32) as usize
+    }
+
+    #[inline]
+    fn declaration(self) -> usize {
+        self.0 as u32 as usize
+    }
+}
 
 #[derive(Debug)]
 struct DeclarationMap<'scratch, 'ast> {
-    known: AdaptiveHashMap<'scratch, KnownDeclarationKey, u32>,
-    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'ast>, u32>,
+    known: AdaptiveHashMap<'scratch, KnownDeclarationKey, DeclarationLocation>,
+    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'ast>, DeclarationLocation>,
 }
 
 impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
@@ -108,13 +131,13 @@ impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
         property_id: u32,
         vendor_prefix: VendorPrefix,
         important: bool,
-        index: u32,
-    ) -> Option<u32> {
+        location: DeclarationLocation,
+    ) -> Option<DeclarationLocation> {
         let key = KnownDeclarationKey::new(property_id, vendor_prefix, important);
         debug_assert_eq!(key.property_id(), property_id);
         debug_assert_eq!(key.vendor_prefix(), vendor_prefix);
         debug_assert_eq!(key.is_important(), important);
-        self.known.insert(key, index)
+        self.known.insert(key, location)
     }
 
     #[inline]
@@ -122,14 +145,14 @@ impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
         &mut self,
         property_id: PropertyId<'ast>,
         important: bool,
-        index: u32,
-    ) -> Option<u32> {
+        location: DeclarationLocation,
+    ) -> Option<DeclarationLocation> {
         self.unknown.insert(
             UnknownDeclarationKey {
                 property_id,
                 important,
             },
-            index,
+            location,
         )
     }
 }
@@ -159,9 +182,9 @@ enum BoxProperty {
 
 #[derive(Debug)]
 struct BoxFamilyIr<'a> {
-    pending_longhands: Vec<'a, u32>,
-    sides: [u32; 4],
-    shorthand: u32,
+    pending_longhands: Vec<'a, DeclarationLocation>,
+    sides: [DeclarationLocation; 4],
+    shorthand: DeclarationLocation,
 }
 
 impl<'a> BoxFamilyIr<'a> {
@@ -169,16 +192,100 @@ impl<'a> BoxFamilyIr<'a> {
     fn new(allocator: &'a Allocator) -> Self {
         Self {
             pending_longhands: allocator.vec(),
-            sides: [EMPTY_INDEX; 4],
-            shorthand: EMPTY_INDEX,
+            sides: [DeclarationLocation::EMPTY; 4],
+            shorthand: DeclarationLocation::EMPTY,
         }
     }
 
     #[inline]
     fn clear(&mut self) {
         self.pending_longhands.clear();
-        self.sides = [EMPTY_INDEX; 4];
-        self.shorthand = EMPTY_INDEX;
+        self.sides = [DeclarationLocation::EMPTY; 4];
+        self.shorthand = DeclarationLocation::EMPTY;
+    }
+}
+
+enum DeclarationBlocks<'sequence, 'ast> {
+    Single(&'sequence mut DeclarationBlock<'ast>),
+    Linked(&'sequence mut [Ref<'ast, DeclarationBlock<'ast>>]),
+}
+
+struct DeclarationSequence<'sequence, 'ast> {
+    blocks: DeclarationBlocks<'sequence, 'ast>,
+}
+
+impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
+    #[inline]
+    fn single(block: &'sequence mut DeclarationBlock<'ast>) -> Self {
+        Self {
+            blocks: DeclarationBlocks::Single(block),
+        }
+    }
+
+    #[inline]
+    fn linked(blocks: &'sequence mut [Ref<'ast, DeclarationBlock<'ast>>]) -> Self {
+        Self {
+            blocks: DeclarationBlocks::Linked(blocks),
+        }
+    }
+
+    #[inline]
+    fn block_count(&self) -> usize {
+        match &self.blocks {
+            DeclarationBlocks::Single(_) => 1,
+            DeclarationBlocks::Linked(blocks) => blocks.len(),
+        }
+    }
+
+    #[inline]
+    fn block(&self, index: usize) -> &DeclarationBlock<'ast> {
+        match &self.blocks {
+            DeclarationBlocks::Single(block) => block,
+            DeclarationBlocks::Linked(blocks) => blocks[index].get().get_ref(),
+        }
+    }
+
+    #[inline]
+    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast> {
+        match &mut self.blocks {
+            DeclarationBlocks::Single(block) => block,
+            DeclarationBlocks::Linked(blocks) => {
+                // SAFETY: adjacent-rule collection supplies every arena block
+                // exactly once, and this sequence is the only mutable access
+                // path while declaration IR is running.
+                unsafe { blocks[index].get_mut().get_unchecked_mut() }
+            }
+        }
+    }
+
+    #[inline]
+    fn declaration(&self, location: DeclarationLocation) -> &Declaration<'ast> {
+        &self.block(location.block()).declarations[location.declaration()]
+    }
+
+    #[inline]
+    fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
+        &mut self.block_mut(location.block()).declarations[location.declaration()]
+    }
+
+    #[inline]
+    fn replace(
+        &mut self,
+        location: DeclarationLocation,
+        declaration: Declaration<'ast>,
+    ) -> Declaration<'ast> {
+        std::mem::replace(self.declaration_mut(location), declaration)
+    }
+
+    #[inline]
+    fn is_important(&self, location: DeclarationLocation) -> bool {
+        self.block(location.block())
+            .is_important(location.declaration())
+    }
+
+    #[inline]
+    fn allocator(&self, location: DeclarationLocation) -> &'ast Allocator {
+        self.block(location.block()).declarations.bump()
     }
 }
 
@@ -202,16 +309,26 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         if block.len() < 2 {
             return;
         }
-        self.minify_non_trivial(block, cx);
+        let mut sequence = DeclarationSequence::single(block);
+        self.minify_non_trivial(&mut sequence, cx);
     }
 
     fn minify_non_trivial(
         &mut self,
-        block: &mut DeclarationBlock<'ast>,
+        sequence: &mut DeclarationSequence<'_, 'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         self.ir.clear();
-        deduplicate_declarations(block, &mut self.ir, cx);
+        deduplicate_declarations(sequence, &mut self.ir, cx);
+    }
+
+    pub(crate) fn minify_sequence(
+        &mut self,
+        blocks: &mut [Ref<'ast, DeclarationBlock<'ast>>],
+        cx: &mut MinifyContext<'scratch>,
+    ) {
+        let mut sequence = DeclarationSequence::linked(blocks);
+        self.minify_non_trivial(&mut sequence, cx);
     }
 }
 
@@ -270,60 +387,63 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
 }
 
 fn deduplicate_declarations<'scratch, 'ast>(
-    block: &mut DeclarationBlock<'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     ir: &mut DeclarationIr<'scratch, 'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) where
     'ast: 'scratch,
 {
-    for current in 0..block.len() {
-        if block.declarations[current].is_tombstone() {
-            continue;
+    for block in 0..sequence.block_count() {
+        let declaration_count = sequence.block(block).len();
+        for declaration in 0..declaration_count {
+            let current = DeclarationLocation::new(block, declaration);
+            if sequence.declaration(current).is_tombstone() {
+                continue;
+            }
+            let important = sequence.is_important(current);
+            if process_box_declaration(sequence, current, important, ir, cx) {
+                continue;
+            }
+            deduplicate_exact_declaration(sequence, current, important, &mut ir.declarations, cx);
         }
-        let important = block.is_important(current);
-        if process_box_declaration(block, current, important, ir, cx) {
-            continue;
-        }
-        deduplicate_exact_declaration(block, current, important, &mut ir.declarations, cx);
     }
 }
 
 fn deduplicate_exact_declaration<'scratch, 'ast>(
-    block: &mut DeclarationBlock<'ast>,
-    current: usize,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
+    current: DeclarationLocation,
     important: bool,
     declarations: &mut DeclarationMap<'scratch, 'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) where
     'ast: 'scratch,
 {
-    let current_index = current as u32;
-    let declaration = &block.declarations[current];
+    let declaration = sequence.declaration(current);
     let previous = if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix() {
-        declarations.insert_known(property_id, vendor_prefix, important, current_index)
+        declarations.insert_known(property_id, vendor_prefix, important, current)
     } else {
         declarations.insert_unknown(
             declaration
                 .property_id()
                 .expect("tombstones are skipped before exact deduplication"),
             important,
-            current_index,
+            current,
         )
     };
-    if let Some(previous) = previous {
-        let previous = previous as usize;
-        if !block.declarations[previous].is_tombstone()
-            && block.declarations[previous].eq_ignoring_tombstones(&block.declarations[current])
-        {
-            block.declarations[previous] = Declaration::Tombstone;
-            cx.record_declaration_removed();
-        }
+    if let Some(previous) = previous
+        && !sequence.declaration(previous).is_tombstone()
+        && sequence
+            .declaration(previous)
+            .eq_ignoring_tombstones(sequence.declaration(current))
+    {
+        sequence.replace(previous, Declaration::Tombstone);
+        cx.record_declaration_removed();
     }
 }
 
 fn process_box_declaration<'scratch, 'ast>(
-    block: &mut DeclarationBlock<'ast>,
-    current: usize,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
+    current: DeclarationLocation,
     important: bool,
     ir: &mut DeclarationIr<'scratch, 'ast>,
     cx: &mut MinifyContext<'scratch>,
@@ -331,7 +451,7 @@ fn process_box_declaration<'scratch, 'ast>(
 where
     'ast: 'scratch,
 {
-    let Some(property) = box_property(&block.declarations[current]) else {
+    let Some(property) = box_property(sequence.declaration(current)) else {
         return false;
     };
     match property {
@@ -344,48 +464,45 @@ where
             false
         }
         BoxProperty::Shorthand(family) => {
-            let can_override = can_override_box_longhands(&block.declarations[current], family);
+            let can_override = can_override_box_longhands(sequence.declaration(current), family);
             let state = ir.box_family(family, important);
             if can_override {
-                for &index in &state.pending_longhands {
-                    let index = index as usize;
-                    if !block.declarations[index].is_tombstone() {
-                        block.declarations[index] = Declaration::Tombstone;
+                for &location in &state.pending_longhands {
+                    if !sequence.declaration(location).is_tombstone() {
+                        sequence.replace(location, Declaration::Tombstone);
                         cx.record_declaration_removed();
                     }
                 }
             }
             state.clear();
             if can_override {
-                state.shorthand = current as u32;
+                state.shorthand = current;
             }
             false
         }
         BoxProperty::Longhand(family, side) => {
             let state = ir.box_family(family, important);
-            let shorthand = state.shorthand as usize;
-            if state.sides[side] == EMPTY_INDEX
-                && state.shorthand != EMPTY_INDEX
-                && !block.declarations[shorthand].is_tombstone()
-                && fold_box_side_override(block, shorthand, current, family, side)
+            let shorthand = state.shorthand;
+            if state.sides[side] == DeclarationLocation::EMPTY
+                && shorthand != DeclarationLocation::EMPTY
+                && !sequence.declaration(shorthand).is_tombstone()
+                && fold_box_side_override(sequence, shorthand, current, family, side)
             {
-                block.declarations[current] = Declaration::Tombstone;
                 cx.record_declaration_removed();
-                minify_unparsed_declaration(block, shorthand, cx);
+                minify_unparsed_declaration(sequence, shorthand, cx);
                 return true;
             }
 
-            let current_index = current as u32;
-            state.pending_longhands.push(current_index);
-            state.sides[side] = current_index;
-            if state.sides.contains(&EMPTY_INDEX) {
+            state.pending_longhands.push(current);
+            state.sides[side] = current;
+            if state.sides.contains(&DeclarationLocation::EMPTY) {
                 return false;
             }
-            let indices = state.sides.map(|index| index as usize);
-            if merge_box_longhands(block, indices, family, cx) {
-                let target = *indices.iter().max().expect("four box sides");
+            let locations = state.sides;
+            if merge_box_longhands(sequence, locations, family, cx) {
+                let target = *locations.iter().max().expect("four box sides");
                 state.clear();
-                state.shorthand = target as u32;
+                state.shorthand = target;
             }
             false
         }
@@ -501,19 +618,19 @@ fn is_box_component(value: &TokenOrValue<'_>, family: BoxFamily) -> bool {
 }
 
 fn fold_box_side_override(
-    block: &mut DeclarationBlock<'_>,
-    shorthand: usize,
-    longhand: usize,
+    sequence: &mut DeclarationSequence<'_, '_>,
+    shorthand: DeclarationLocation,
+    longhand: DeclarationLocation,
     family: BoxFamily,
     side: usize,
 ) -> bool {
-    let (shorthand_declaration, longhand_declaration) = if shorthand < longhand {
-        let (before, after) = block.declarations.split_at_mut(longhand);
-        (&mut before[shorthand], &mut after[0])
-    } else {
-        unreachable!("the shorthand IR always precedes its longhand")
-    };
-    match (family, shorthand_declaration, longhand_declaration) {
+    debug_assert!(shorthand < longhand);
+    let mut longhand_declaration = sequence.replace(longhand, Declaration::Tombstone);
+    let folded = match (
+        family,
+        sequence.declaration_mut(shorthand),
+        &mut longhand_declaration,
+    ) {
         (BoxFamily::Margin, Declaration::Margin(value), longhand) => {
             let target = match (side, longhand) {
                 (0, Declaration::MarginTop(value)) => value,
@@ -554,7 +671,11 @@ fn fold_box_side_override(
             fold_unparsed_box_side(shorthand, longhand, family, side)
         }
         _ => false,
+    };
+    if !folded {
+        sequence.replace(longhand, longhand_declaration);
     }
+    folded
 }
 
 fn fold_unparsed_box_side<'a>(
@@ -656,8 +777,8 @@ fn clone_simple_token_or_value<'a>(
 }
 
 fn merge_box_longhands<'ast, 'cx>(
-    block: &mut DeclarationBlock<'ast>,
-    indices: [usize; 4],
+    sequence: &mut DeclarationSequence<'_, 'ast>,
+    locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
 ) -> bool
@@ -665,18 +786,18 @@ where
     'ast: 'cx,
 {
     let typed = match family {
-        BoxFamily::Margin => indices.iter().all(|&index| {
+        BoxFamily::Margin => locations.iter().all(|&location| {
             matches!(
-                block.declarations[index],
+                sequence.declaration(location),
                 Declaration::MarginTop(_)
                     | Declaration::MarginRight(_)
                     | Declaration::MarginBottom(_)
                     | Declaration::MarginLeft(_)
             )
         }),
-        BoxFamily::Padding => indices.iter().all(|&index| {
+        BoxFamily::Padding => locations.iter().all(|&location| {
             matches!(
-                block.declarations[index],
+                sequence.declaration(location),
                 Declaration::PaddingTop(_)
                     | Declaration::PaddingRight(_)
                     | Declaration::PaddingBottom(_)
@@ -685,129 +806,124 @@ where
         }),
     };
     if typed {
-        return merge_typed_box_longhands(block, indices, family, cx);
+        return merge_typed_box_longhands(sequence, locations, family, cx);
     }
-    merge_unparsed_box_longhands(block, indices, family, cx)
+    merge_unparsed_box_longhands(sequence, locations, family, cx)
 }
 
 fn merge_typed_box_longhands<'ast, 'cx>(
-    block: &mut DeclarationBlock<'ast>,
-    [top, right, bottom, left]: [usize; 4],
+    sequence: &mut DeclarationSequence<'_, 'ast>,
+    [top, right, bottom, left]: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
 ) -> bool
 where
     'ast: 'cx,
 {
-    let allocator = block.declarations.bump();
     let target = [top, right, bottom, left]
         .into_iter()
         .max()
         .expect("four box sides");
+    let allocator = sequence.allocator(target);
+    let top_declaration = sequence.replace(top, Declaration::Tombstone);
+    let right_declaration = sequence.replace(right, Declaration::Tombstone);
+    let bottom_declaration = sequence.replace(bottom, Declaration::Tombstone);
+    let left_declaration = sequence.replace(left, Declaration::Tombstone);
     match family {
         BoxFamily::Margin => {
-            let Declaration::MarginTop(top_value) =
-                std::mem::replace(&mut block.declarations[top], Declaration::Tombstone)
-            else {
+            let Declaration::MarginTop(top_value) = top_declaration else {
                 unreachable!("typed margin IR validates every side")
             };
-            let Declaration::MarginRight(right_value) =
-                std::mem::replace(&mut block.declarations[right], Declaration::Tombstone)
-            else {
+            let Declaration::MarginRight(right_value) = right_declaration else {
                 unreachable!("typed margin IR validates every side")
             };
-            let Declaration::MarginBottom(bottom_value) =
-                std::mem::replace(&mut block.declarations[bottom], Declaration::Tombstone)
-            else {
+            let Declaration::MarginBottom(bottom_value) = bottom_declaration else {
                 unreachable!("typed margin IR validates every side")
             };
-            let Declaration::MarginLeft(left_value) =
-                std::mem::replace(&mut block.declarations[left], Declaration::Tombstone)
-            else {
+            let Declaration::MarginLeft(left_value) = left_declaration else {
                 unreachable!("typed margin IR validates every side")
             };
-            block.declarations[target] = Declaration::Margin(allocator.boxed(Margin {
-                top: top_value,
-                right: right_value,
-                bottom: bottom_value,
-                left: left_value,
-            }));
+            sequence.replace(
+                target,
+                Declaration::Margin(allocator.boxed(Margin {
+                    top: top_value,
+                    right: right_value,
+                    bottom: bottom_value,
+                    left: left_value,
+                })),
+            );
         }
         BoxFamily::Padding => {
-            let Declaration::PaddingTop(top_value) =
-                std::mem::replace(&mut block.declarations[top], Declaration::Tombstone)
-            else {
+            let Declaration::PaddingTop(top_value) = top_declaration else {
                 unreachable!("typed padding IR validates every side")
             };
-            let Declaration::PaddingRight(right_value) =
-                std::mem::replace(&mut block.declarations[right], Declaration::Tombstone)
-            else {
+            let Declaration::PaddingRight(right_value) = right_declaration else {
                 unreachable!("typed padding IR validates every side")
             };
-            let Declaration::PaddingBottom(bottom_value) =
-                std::mem::replace(&mut block.declarations[bottom], Declaration::Tombstone)
-            else {
+            let Declaration::PaddingBottom(bottom_value) = bottom_declaration else {
                 unreachable!("typed padding IR validates every side")
             };
-            let Declaration::PaddingLeft(left_value) =
-                std::mem::replace(&mut block.declarations[left], Declaration::Tombstone)
-            else {
+            let Declaration::PaddingLeft(left_value) = left_declaration else {
                 unreachable!("typed padding IR validates every side")
             };
-            block.declarations[target] = Declaration::Padding(allocator.boxed(Padding {
-                top: top_value,
-                right: right_value,
-                bottom: bottom_value,
-                left: left_value,
-            }));
+            sequence.replace(
+                target,
+                Declaration::Padding(allocator.boxed(Padding {
+                    top: top_value,
+                    right: right_value,
+                    bottom: bottom_value,
+                    left: left_value,
+                })),
+            );
         }
     }
-    record_merged_longhands(indices_from_sides(top, right, bottom, left), target, cx);
+    record_merged_longhands([top, right, bottom, left], target, cx);
     true
 }
 
 fn merge_unparsed_box_longhands<'ast, 'cx>(
-    block: &mut DeclarationBlock<'ast>,
-    indices: [usize; 4],
+    sequence: &mut DeclarationSequence<'_, 'ast>,
+    locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
 ) -> bool
 where
     'ast: 'cx,
 {
-    if indices.iter().any(|&index| {
-        !matches!(&block.declarations[index], Declaration::Unparsed(value)
+    if locations.iter().any(|&location| {
+        !matches!(sequence.declaration(location), Declaration::Unparsed(value)
             if value.value.len() == 1 && is_box_component(&value.value[0], family))
     }) {
         return false;
     }
-    let variable_count = indices
+    let variable_count = locations
         .iter()
-        .filter(|&&index| declaration_contains_variable(&block.declarations[index]))
+        .filter(|&&location| declaration_contains_variable(sequence.declaration(location)))
         .count();
-    if variable_count != 0 && variable_count != indices.len() {
+    if variable_count != 0 && variable_count != locations.len() {
         return false;
     }
-    let first_value = match &block.declarations[indices[0]] {
+    let first_value = match sequence.declaration(locations[0]) {
         Declaration::Unparsed(value) => &value.value,
         _ => unreachable!(),
     };
-    let all_equal = indices[1..].iter().all(|&index| {
-        matches!(&block.declarations[index], Declaration::Unparsed(value)
+    let all_equal = locations[1..].iter().all(|&location| {
+        matches!(sequence.declaration(location), Declaration::Unparsed(value)
             if value.value == *first_value)
     });
     if !all_equal
-        && indices.iter().any(|&index| {
-            matches!(&block.declarations[index], Declaration::Unparsed(value)
+        && locations.iter().any(|&location| {
+            matches!(sequence.declaration(location), Declaration::Unparsed(value)
                 if value.value.iter().any(is_css_wide_value))
         })
     {
         return false;
     }
 
-    let allocator = block.declarations.bump();
-    let mut sides = indices.map(|index| {
-        let Declaration::Unparsed(value) = &mut block.declarations[index] else {
+    let target = *locations.iter().max().expect("four box sides");
+    let allocator = sequence.allocator(target);
+    let mut sides = locations.map(|location| {
+        let Declaration::Unparsed(value) = sequence.declaration_mut(location) else {
             unreachable!("unparsed box IR validates every side")
         };
         std::mem::replace(&mut value.value, allocator.vec())
@@ -819,8 +935,7 @@ where
             value.append(side);
         }
     }
-    let target = *indices.iter().max().expect("four box sides");
-    let Declaration::Unparsed(target_value) = &mut block.declarations[target] else {
+    let Declaration::Unparsed(target_value) = sequence.declaration_mut(target) else {
         unreachable!("unparsed box IR target remains unparsed")
     };
     *target_value.property_id = match family {
@@ -828,37 +943,36 @@ where
         BoxFamily::Padding => PropertyId::Padding,
     };
     target_value.value = value;
-    for &index in &indices {
-        if index != target {
-            block.declarations[index] = Declaration::Tombstone;
+    for &location in &locations {
+        if location != target {
+            sequence.replace(location, Declaration::Tombstone);
         }
     }
-    record_merged_longhands(indices, target, cx);
-    minify_unparsed_declaration(block, target, cx);
+    record_merged_longhands(locations, target, cx);
+    minify_unparsed_declaration(sequence, target, cx);
     true
 }
 
-#[inline]
-const fn indices_from_sides(top: usize, right: usize, bottom: usize, left: usize) -> [usize; 4] {
-    [top, right, bottom, left]
-}
-
-fn record_merged_longhands(indices: [usize; 4], target: usize, cx: &mut MinifyContext) {
-    for index in indices {
-        if index != target {
+fn record_merged_longhands(
+    locations: [DeclarationLocation; 4],
+    target: DeclarationLocation,
+    cx: &mut MinifyContext,
+) {
+    for location in locations {
+        if location != target {
             cx.record_declaration_removed();
         }
     }
 }
 
 fn minify_unparsed_declaration<'ast, 'cx>(
-    block: &mut DeclarationBlock<'ast>,
-    index: usize,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
+    location: DeclarationLocation,
     cx: &mut MinifyContext<'cx>,
 ) where
     'ast: 'cx,
 {
-    let Declaration::Unparsed(value) = &mut block.declarations[index] else {
+    let Declaration::Unparsed(value) = sequence.declaration_mut(location) else {
         return;
     };
     let previous = cx.value_context;

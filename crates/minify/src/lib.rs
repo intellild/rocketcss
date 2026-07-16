@@ -86,6 +86,11 @@ pub(crate) fn minify_style_sheet<'ast, 'cx>(
         declaration_blocks,
     };
     stylesheet.visit_mut(&mut minifier);
+    rules::merge_adjacent_style_rules(
+        &mut stylesheet.rules,
+        &mut minifier.declaration_blocks,
+        &mut minifier.cx,
+    );
     let Minifier { cx: result, .. } = minifier;
     *cx = result;
 }
@@ -476,10 +481,10 @@ mod tests {
     }
 
     #[test]
-    fn preserves_rule_structure() {
+    fn preserves_rule_boundaries_while_merging_adjacent_styles() {
         assert_eq!(
             run("a{}a{color:red}a{color:red} @media print{a{}}"),
-            "a{}a{color:red}a{color:red}@media print{a{}}"
+            "a{color:red}@media print{a{}}"
         );
         assert_eq!(
             run("@charset 'UTF-8'; @import 'theme.css'; a{color:red}"),
@@ -593,6 +598,42 @@ mod tests {
         assert_eq!(
             run("a{width:1px;width:1px!important}"),
             "a{width:1px;width:1px !important}"
+        );
+    }
+
+    #[test]
+    fn merges_adjacent_equal_selector_declaration_blocks() {
+        assert_eq!(
+            run("h1{color:red;background:blue}h1{color:red}"),
+            "h1{background:#00f;color:red}"
+        );
+        assert_eq!(
+            run("a{width:1px}a{height:2px}a{opacity:.5}"),
+            "a{width:1px;height:2px;opacity:.5}"
+        );
+    }
+
+    #[test]
+    fn runs_box_ir_across_adjacent_blocks() {
+        assert_eq!(
+            run("a{margin-top:1px;margin-right:2px}a{margin-bottom:3px;margin-left:4px}"),
+            "a{margin:1px 2px 3px 4px}"
+        );
+        assert_eq!(
+            run("a{padding:1px}a{padding-left:2px}"),
+            "a{padding:1px 1px 1px 2px}"
+        );
+    }
+
+    #[test]
+    fn preserves_cross_block_fallbacks_and_importance() {
+        assert_eq!(
+            run("a{width:1px}a{width:2px}a{width:1px}"),
+            "a{width:1px;width:2px;width:1px}"
+        );
+        assert_eq!(
+            run("a{color:red!important}a{color:blue}"),
+            "a{color:red !important;color:#00f}"
         );
     }
 

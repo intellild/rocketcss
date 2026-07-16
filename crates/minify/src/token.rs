@@ -119,7 +119,7 @@ fn minify_color_keyword(value: &str) -> Option<Token<'static>> {
     match_ignore_ascii_case!(
         value,
         "red" => Some(Token::Ident("red")),
-        "blue" => Some(Token::Ident("blue")),
+        "blue" => Some(Token::MinifiedHash("00f")),
         "black" => Some(Token::MinifiedHash("000")),
         "white" => Some(Token::MinifiedHash("fff")),
         "yellow" => Some(Token::MinifiedHash("ff0")),
