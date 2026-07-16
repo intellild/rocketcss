@@ -281,6 +281,13 @@ fn merged_declaration_blocks_serialize_from_chain_head() {
             .unwrap(),
         "a{width:1px;height:2px}"
     );
+
+    let pretty = stylesheet
+        .to_css_string(PrinterOptions { prettify: true })
+        .unwrap();
+    assert_eq!(pretty.matches("a {").count(), 1);
+    assert!(pretty.trim_start().starts_with("a {"));
+    assert!(!pretty.starts_with('\n'));
 }
 
 #[test]
