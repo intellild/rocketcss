@@ -47,6 +47,8 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
         "/lightningcss/math/color-sign/",
         "/lightningcss/math/opacity-filter/",
         "/lightningcss/math/width-max/",
+        "/lightningcss/rules/issue-1235/",
+        "/lightningcss/rules/issue-137/",
         "/lightningcss/rules/keyframe-merge/",
         "/lightningcss/rules/merge-layer/",
         "/lightningcss/rules/merge-media/",

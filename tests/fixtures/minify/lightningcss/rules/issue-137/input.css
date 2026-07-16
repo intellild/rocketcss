@@ -1,0 +1,7 @@
+@supports (color: red) {
+  .b { color: green }
+}
+@supports (foo: bar) {
+  .b { color: green }
+}
+.a { color: red }
