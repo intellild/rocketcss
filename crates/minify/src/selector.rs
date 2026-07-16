@@ -21,6 +21,7 @@ pub(crate) fn minify_selector_list(
     for selector in selectors.iter_mut() {
         if matches!(selector, Selector::Unparsed(_)) {
             *selector = Selector::Tombstone;
+            context.record_value_normalized();
         }
     }
 

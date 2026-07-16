@@ -306,13 +306,14 @@ mod tests {
             },
         )
         .unwrap();
-        minify(&mut stylesheet, MinifyOptions::default());
+        let stats = minify(&mut stylesheet, MinifyOptions::default());
         let CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected style rule")
         };
         assert!(matches!(rule.selectors[0], Selector::Parsed(_)));
         assert!(matches!(rule.selectors[1], Selector::Tombstone));
         assert!(matches!(rule.selectors[2], Selector::Parsed(_)));
+        assert_eq!(stats.values_normalized, 1);
         assert_eq!(
             stylesheet
                 .to_css_string(PrinterOptions { prettify: false })
