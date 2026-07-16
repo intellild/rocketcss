@@ -4,7 +4,6 @@ pub(crate) const VISIT_ALIASES: &[&str] = &[
     "ContainerSizeFeature",
     "ScrollStateFeature",
     "SelectorList",
-    "Selector",
     "AnimationRangeStart",
     "AnimationRangeEnd",
     "LengthPercentage",

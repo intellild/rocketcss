@@ -799,6 +799,10 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
+    fn visit_selector(&mut self, node: &mut Selector<'a>) {
+        VisitMut::visit_mut_children(node, self);
+    }
+    #[inline]
     fn visit_selector_component(&mut self, node: &mut SelectorComponent<'a>) {
         VisitMut::visit_mut_children(node, self);
     }
@@ -1655,22 +1659,9 @@ pub trait VisitorMut<'a> {
         let visitor = self;
         visitor.enter_node(AstType::SelectorList);
         for value_0 in (node).iter_mut() {
-            visitor.visit_selector(value_0);
-        }
-        visitor.leave_node(AstType::SelectorList);
-    }
-    #[inline]
-    fn visit_selector(&mut self, node: &mut Selector<'a>) {
-        self.visit_selector_children(node);
-    }
-    ///Continues traversal of [`Selector`] without redispatching its visitor callback.
-    fn visit_selector_children(&mut self, node: &mut Selector<'a>) {
-        let visitor = self;
-        visitor.enter_node(AstType::Selector);
-        for value_0 in (node).iter_mut() {
             VisitMut::visit_mut(value_0, visitor);
         }
-        visitor.leave_node(AstType::Selector);
+        visitor.leave_node(AstType::SelectorList);
     }
     #[inline]
     fn visit_animation_range_start(&mut self, node: &mut AnimationRangeStart<'a>) {

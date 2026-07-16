@@ -3,8 +3,67 @@ use super::*;
 /// A selector list in source order.
 pub type SelectorList<'a> = Vec<'a, Selector<'a>>;
 
-/// A complex selector. Components are stored in parse order.
-pub type Selector<'a> = Vec<'a, SelectorComponent<'a>>;
+/// A complex selector, a losslessly preserved invalid selector, or a removed selector.
+#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+pub enum Selector<'a> {
+    /// A valid selector. Components are stored in parse order.
+    Parsed(Vec<'a, SelectorComponent<'a>>),
+    /// An invalid selector preserved by parser error recovery.
+    #[visit(skip)]
+    Unparsed(&'a str),
+    /// A selector removed by a transformation.
+    Tombstone,
+}
+
+impl<'a> Selector<'a> {
+    #[inline]
+    pub fn parsed(components: Vec<'a, SelectorComponent<'a>>) -> Self {
+        Self::Parsed(components)
+    }
+
+    #[inline]
+    pub fn as_parsed(&self) -> Option<&Vec<'a, SelectorComponent<'a>>> {
+        match self {
+            Self::Parsed(components) => Some(components),
+            Self::Unparsed(_) | Self::Tombstone => None,
+        }
+    }
+
+    #[inline]
+    pub fn as_parsed_mut(&mut self) -> Option<&mut Vec<'a, SelectorComponent<'a>>> {
+        match self {
+            Self::Parsed(components) => Some(components),
+            Self::Unparsed(_) | Self::Tombstone => None,
+        }
+    }
+
+    #[inline]
+    pub fn is_tombstone(&self) -> bool {
+        matches!(self, Self::Tombstone)
+    }
+}
+
+impl<'a> std::ops::Deref for Selector<'a> {
+    type Target = [SelectorComponent<'a>];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Parsed(components) => components,
+            Self::Unparsed(_) | Self::Tombstone => &[],
+        }
+    }
+}
+
+impl std::ops::DerefMut for Selector<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Parsed(components) => components,
+            Self::Unparsed(_) | Self::Tombstone => {
+                panic!("only parsed selectors expose mutable components")
+            }
+        }
+    }
+}
 
 /// A CSS simple selector or combinator.
 ///

@@ -24,6 +24,38 @@ pub(super) fn parse_selector_list<'i, 't>(
     Ok(selectors)
 }
 
+pub(super) fn parse_selector_list_with_recovery<'i, 't>(
+    input: &mut Parser<'i, 't>,
+    allocator: &'i Allocator,
+    depth: usize,
+) -> Result<SelectorList<'i>, ParseError<'i, ParserError<'i>>> {
+    check_depth(input, depth)?;
+    let mut selectors = allocator.vec();
+
+    loop {
+        input.skip_whitespace();
+        let start = input.position();
+        match input.parse_until_before(Delimiter::Comma, |input| {
+            parse_selector(input, allocator, depth + 1)
+        }) {
+            Ok(selector) => selectors.push(selector),
+            Err(_) => {
+                let raw = input.slice(start..input.position()).trim();
+                selectors.push(Selector::Unparsed(raw));
+            }
+        }
+
+        match input.next() {
+            Ok(ValueToken::Comma) => {}
+            Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
+            Ok(_) => unreachable!(),
+            Err(error) => return Err(error.into()),
+        }
+    }
+
+    Ok(selectors)
+}
+
 pub(super) fn parse_selector<'i, 't>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
@@ -108,7 +140,7 @@ pub(super) fn parse_selector<'i, 't>(
     if selector.is_empty() || matches!(selector.last(), Some(SelectorComponent::Combinator(_))) {
         return Err(input.new_custom_error(ParserError::InvalidSelector));
     }
-    Ok(selector)
+    Ok(Selector::parsed(selector))
 }
 
 fn local_name<'i>(name: &'i str, allocator: &'i Allocator) -> SelectorComponent<'i> {

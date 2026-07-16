@@ -1521,6 +1521,9 @@ impl ToCss for ImportRule<'_> {
 
 impl ToCss for StyleRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        if self.selectors.iter().all(Selector::is_tombstone) {
+            return Ok(());
+        }
         self.selectors.to_css(dest)?;
         write_block(dest, |dest| {
             write_declarations(
