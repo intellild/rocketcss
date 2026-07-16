@@ -145,6 +145,10 @@ Adjacent same-selector merging is controlled by a dedicated minify option and is
 
 Tests cover:
 
+- enabling the existing cssnano `discard-duplicates/declarations` and
+  `discard-duplicates/partial` fixtures under `tests/fixtures/minify`, removing
+  their entries from the unsupported-fixture filter instead of duplicating
+  them as new tests;
 - two- and three-block same-selector sequences;
 - declaration source order across blocks;
 - exact duplicates across a block boundary;
@@ -162,3 +166,6 @@ Tests cover:
 - repeated minification without cycles or additional changes;
 - compact and pretty code generation without phantom separators.
 
+The existing Lightning CSS `merge-selectors` fixture remains disabled in this
+version because it merges different selectors with equal declaration blocks,
+which is outside the stated scope.
