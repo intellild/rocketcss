@@ -1,0 +1,13 @@
+{
+  "name": "@rocketcss/sync-upstream-css-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate-parser-corpus": "zx scripts/generate-parser-test-corpus.mjs",
+    "upstream-tests": "zx scripts/upstream-tests.mjs"
+  },
+  "dependencies": {
+    "zx": "^8.8.5"
+  }
+}
