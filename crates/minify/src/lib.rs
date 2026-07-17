@@ -1329,4 +1329,36 @@ mod tests {
         const SOURCE: &str = "@layer one,one.a,one.b;@layer one{@layer b{.test1{color:red}}}@layer one.a{.test1{color:green}}";
         assert_eq!(run(SOURCE), SOURCE);
     }
+
+    #[test]
+    fn preserves_whitespace_between_variables_and_adjacent_values() {
+        assert_eq!(
+            run("a{margin:var(--x) var(--y);padding:var(--x) 0}"),
+            "a{margin:var(--x) var(--y);padding:var(--x) 0}"
+        );
+    }
+
+    #[test]
+    fn preserves_distinct_vendor_values_and_negated_supports_conditions() {
+        const SOURCE: &str = "a{-webkit-appearance:none;appearance:textfield}b{appearance:textfield;-webkit-appearance:none}@supports not (backdrop-filter:none){c{-webkit-backdrop-filter:none;backdrop-filter:none}}";
+        assert_eq!(run(SOURCE), SOURCE);
+    }
+
+    #[test]
+    #[ignore = "cross-rule selector merging and selector-support proofs are not implemented"]
+    fn does_not_merge_adjacent_rules_through_forgiving_selector_wrappers() {
+        const SOURCE: &str = "a{color:blue}:unknown{color:blue}";
+        assert_eq!(run(SOURCE), SOURCE);
+        assert!(!run(SOURCE).contains(":is("));
+        assert!(!run(SOURCE).contains(":where("));
+    }
+
+    #[test]
+    fn preserves_scroll_driven_animation_duration_auto_semantics() {
+        const SOURCE: &str = ".overflowContainer{animation:--keyframes-top-scroll-border step-end,--keyframes-bottom-scroll-border step-end reverse;animation-timeline:scroll(self)}";
+        let output = run(SOURCE);
+        assert!(output.contains("animation:--keyframes-top-scroll-border step-end,--keyframes-bottom-scroll-border step-end reverse"));
+        assert!(output.contains("animation-timeline:scroll(self)"));
+        assert!(!output.contains("animation-duration"));
+    }
 }

@@ -891,3 +891,95 @@ normalize it during an explicitly enabled transform or minification pass.
   as structured AST. The comma is OR semantics: never drop either selector or
   rewrite the list as compound `:root:host`; preserve conditional, layer,
   scope, and authored-order boundaries.
+
+## 2026-07-17: issue batch 23
+
+### [#975: Preserve pseudo-elements when lowering nested media rules](https://github.com/parcel-bundler/lightningcss/issues/975)
+
+- Category: target-aware nesting lowering.
+- Status: RocketCSS preserves native nesting and does not lower it for targets.
+- Guardrail: any future lowering must keep pseudo-elements on their compound
+  selector and must not wrap them in `:is()`, which invalidates selectors such
+  as `.foo::after`.
+
+### [#977: Preserve authored values for individual vendor prefixes](https://github.com/parcel-bundler/lightningcss/issues/977)
+
+- Category: target-aware vendor-prefix generation.
+- Status: RocketCSS preserves authored prefix/value pairs and their source
+  order; it does not generate missing prefixes for browser targets.
+- Guardrail: generated prefix declarations must use the intended fallback
+
+## 2026-07-17: issue batch 24
+
+### [#982: Keep pseudo-elements intact when lowering nested parent selectors](https://github.com/parcel-bundler/lightningcss/issues/982)
+
+- Category: target-aware nesting lowering and pseudo-element validity.
+- Status: RocketCSS preserves native nesting and does not lower it for browser
+  targets.
+- Guardrail: future lowering of `&` beneath a pseudo-element must retain the
+  double-colon pseudo-element spelling and selector meaning; never rewrite
+  `#b::after` to `#b:after` or discard the nested rule.
+
+### [#987: Preserve unknown symbols in media calc() conditions](https://github.com/parcel-bundler/lightningcss/issues/987)
+
+- Category: lossless media-query recovery for non-standard CSS Modules input.
+- Status: unknown media conditions are stored as tokens and their rule bodies
+  round-trip; RocketCSS does not resolve CSS Modules values.
+- Guardrail: a bare symbol such as `baseUnit` in `calc()` is not a standard
+  length. Keep the complete prelude and block, and treat it as a barrier to
+  media evaluation, folding, removal, and reordering.
+
+### [#990: Support valid before/after marker pseudo-element chains](https://github.com/parcel-bundler/lightningcss/issues/990)
+
+- Category: pseudo-element compatibility syntax and selector validation.
+- Status: RocketCSS preserves chained pseudo-elements but does not validate
+  which continuations are legal or preserve source colon spelling.
+
+## 2026-07-17: issue batch 25
+
+### [#997: Avoid redundant legacy selector fallbacks](https://github.com/parcel-bundler/lightningcss/issues/997)
+
+- Category: target-aware selector lowering.
+- Status: RocketCSS preserves selector-list `:not()` but has no browser-target
+  model or legacy `:is()`/`:-webkit-any()`/`:-moz-any()` fallback generation.
+- Guardrail: preserve `:not(a,block)` whenever targets support that syntax.
+  Generate legacy fallback only with target evidence, retain the modern branch
+  and ordering, and never apply unconditional selector rewrites.
+
+### [#998: Do not merge adjacent rules through forgiving selector wrappers](https://github.com/parcel-bundler/lightningcss/issues/998)
+
+- Category: compatibility-safe cross-rule minification.
+- Status: RocketCSS does not merge adjacent style rules; this preserves unknown
+  pseudo selectors and their cascade behavior.
+- Guardrail: a comma merge, `:is()`, or `:where()` wrapper requires proof that
+  every selector arm has the same match set and specificity for all targets.
+  Unknown/custom pseudos, recovered selectors, pseudo-elements, differing
+
+## 2026-07-17: issue batch 26
+
+### [#1006: Preserve legacy bare colors outside quirks mode](https://github.com/parcel-bundler/lightningcss/issues/1006)
+
+- Category: quirks-mode color compatibility.
+- Status: RocketCSS has no document mode and keeps an invalid bare value such
+  as `333333` as lossless unparsed declaration tokens in standard CSS mode.
+- Guardrail: do not guess bare numeric tokens as colors by default. A future
+  explicit quirks mode must implement the complete legacy color algorithm and
+  normalize only in that mode; strict mode must retain the original value.
+
+### [#1012: Preserve auto animation duration for scroll timelines](https://github.com/parcel-bundler/lightningcss/issues/1012)
+
+- Category: scroll-driven animation shorthand compatibility.
+- Status: RocketCSS preserves unparsed animation shorthand and timeline tokens,
+  so it neither expands the shorthand nor inserts `animation-duration:0s`.
+- Guardrail: typed shorthand expansion must represent `auto` duration before
+  expanding scroll-driven animations. Never substitute `0s` for a value whose
+  computed default is `auto`.
+
+### [#1018: Preserve logical-property semantics before selector specificity](https://github.com/parcel-bundler/lightningcss/issues/1018)
+
+- Category: target-aware logical-property lowering.
+- Status: RocketCSS has no target-aware logical lowering and preserves native
+  logical declarations.
+- Guardrail: a legacy direction-selector fallback can raise specificity. Use
+  `:where()` only when targets support it; otherwise retain native syntax or
+  document the unavoidable semantic-versus-cascade tradeoff.

@@ -889,3 +889,132 @@ fn preserves_numeric_oklch_property_initial_values() {
         SOURCE
     );
 }
+
+#[test]
+fn preserves_attr_type_angle_brackets_without_inserted_whitespace() {
+    const SOURCE: &str = "a{max-width:attr(data-max-width type(<length>)|fit-content)}";
+    let stylesheet = parse_stylesheet(SOURCE);
+    let output = stylesheet
+        .to_css_string(PrinterOptions { prettify: false })
+        .unwrap();
+    assert!(output.contains("type(<length>)"));
+    assert!(!output.contains("< length>"));
+    let _ = parse_stylesheet(&output);
+}
+
+#[test]
+#[ignore = "target-aware nesting lowering is not implemented"]
+fn avoids_invalid_is_wrapping_for_nested_pseudo_element_media_rules() {
+    let stylesheet = parse_stylesheet(".foo::after,.bar::after{@media screen{color:red}}");
+    let output = stylesheet
+        .to_css_string(PrinterOptions { prettify: false })
+        .unwrap();
+    assert_eq!(output, "@media screen{.foo:after,.bar:after{color:red}}");
+    assert!(!output.contains(":is("));
+}
+
+#[test]
+#[ignore = "target-aware vendor prefix generation is not implemented"]
+fn retains_authored_vendor_values_when_generating_missing_prefixes() {
+    let stylesheet = parse_stylesheet("a{-webkit-appearance:none;appearance:textfield}");
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "a{-webkit-appearance:none;-moz-appearance:textfield;appearance:textfield}"
+    );
+}
+
+#[test]
+fn preserves_three_length_text_shadows_without_inserting_a_spread() {
+    let stylesheet = parse_stylesheet(".foo{text-shadow:0 .02rem 0 rgba(0,0,0,.05)}");
+    let output = stylesheet
+        .to_css_string(PrinterOptions { prettify: false })
+        .unwrap();
+    assert!(output.contains("text-shadow:0 .02rem 0 rgba(0,0,0,.05)"));
+    assert!(!output.contains("text-shadow:0 .02rem 0 0"));
+    let _ = parse_stylesheet(&output);
+}
+
+#[test]
+fn preserves_unknown_media_calc_symbols_and_rule_bodies() {
+    let stylesheet =
+        parse_stylesheet("@media (min-width:calc(baseUnit * 1)){.className{color:red}}");
+    let output = stylesheet
+        .to_css_string(PrinterOptions { prettify: false })
+        .unwrap();
+    assert!(output.contains("baseUnit * 1"));
+    assert!(output.contains(".className{color:red}"));
+    assert_eq!(parse_stylesheet(&output).rules.len(), 1);
+}
+
+#[test]
+#[ignore = "target-aware nesting lowering is not implemented"]
+fn preserves_pseudo_elements_when_lowering_nested_parent_selectors() {
+    let stylesheet = parse_stylesheet("#b::after{&{color:green}}");
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "#b::after{color:green}"
+    );
+}
+
+#[test]
+#[ignore = "pseudo-element chaining validation and source spelling preservation are not implemented"]
+fn preserves_valid_before_and_after_marker_chains() {
+    let stylesheet = parse_stylesheet("li::before::marker,li::after::marker{content:\"\"}");
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "li::before::marker,li::after::marker{content:\"\"}"
+    );
+}
+
+#[test]
+#[ignore = "browser-target selector lowering is not implemented"]
+fn avoids_legacy_any_fallbacks_when_targets_support_selector_list_not() {
+    let stylesheet = parse_stylesheet(":not(a,block){color:red}");
+    let output = stylesheet
+        .to_css_string(PrinterOptions { prettify: false })
+        .unwrap();
+    assert_eq!(output, ":not(a,block){color:red}");
+    assert!(!output.contains("-webkit-any"));
+    assert!(!output.contains("-moz-any"));
+}
+
+#[test]
+fn printer_options_are_copy_clone_and_debuggable() {
+    fn assert_clone<T: Clone>() {}
+
+    assert_clone::<PrinterOptions>();
+    let options = PrinterOptions { prettify: false };
+    let copied = options;
+    assert_eq!(options, copied);
+    assert_eq!(format!("{options:?}"), "PrinterOptions { prettify: false }");
+}
+
+#[test]
+#[ignore = "an explicit quirks-mode color parser is not implemented"]
+fn normalizes_legacy_bare_hex_colors_only_in_quirks_mode() {
+    let stylesheet = parse_stylesheet("a{background-color:333333}");
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "a{background-color:#333}"
+    );
+}
+
+#[test]
+#[ignore = "target-aware logical-property lowering is not implemented"]
+fn avoids_specificity_increases_when_lowering_logical_margins() {
+    const SOURCE: &str = ".ms-0{margin-inline-start:0}@media(min-width:1536px){.two-xl\\:mx-auto{margin-inline:auto}}";
+    let stylesheet = parse_stylesheet(SOURCE);
+    let output = stylesheet
+        .to_css_string(PrinterOptions { prettify: false })
+        .unwrap();
+    assert_eq!(output, SOURCE);
+    assert!(!output.contains(":lang("));
+}
