@@ -1,0 +1,463 @@
+{
+  "upstream": "packages/postcss-minify-font-values/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should not unquote font names with a leading number",
+      "input": "h1{font-family:\"11880-icons\"!important;}",
+      "expected": "h1{font-family:\"11880-icons\"!important;}",
+      "passthrough": true
+    },
+    {
+      "test": "should unquote font names",
+      "input": "h1{font-family:\"Helvetica Neue\"}",
+      "expected": "h1{font-family:Helvetica Neue}"
+    },
+    {
+      "test": "css variable should unquote font names",
+      "input": "h1{--font-family:\"Helvetica Neue\"}",
+      "expected": "h1{--font-family:Helvetica Neue}"
+    },
+    {
+      "test": "should unquote font names with one character name",
+      "input": "h1{font-family:\"A\"}",
+      "expected": "h1{font-family:A}"
+    },
+    {
+      "test": "should unquote font names with one character name #1",
+      "input": "h1{font-family:\"A\";font-family:\"A\"}",
+      "expected": "h1{font-family:A;font-family:A}"
+    },
+    {
+      "test": "css variable should unquote font names with one character name #1",
+      "input": "h1{--font-family:\"A\";--font-family:\"A\"}",
+      "expected": "h1{--font-family:A;--font-family:A}"
+    },
+    {
+      "test": "should unquote font names with space at the start",
+      "input": "h1{font-family:\" Helvetica Neue\"}",
+      "expected": "h1{font-family:\\ Helvetica Neue}"
+    },
+    {
+      "test": "css variable should unquote font names with space at the start",
+      "input": "h1{--font-family:\" Helvetica Neue\"}",
+      "expected": "h1{--font-family:\\ Helvetica Neue}"
+    },
+    {
+      "test": "should unquote font names with space at the end",
+      "input": "h1{font-family:\"Helvetica Neue \"}",
+      "expected": "h1{font-family:Helvetica Neue\\ }"
+    },
+    {
+      "test": "css variable should unquote font names with space at the end",
+      "input": "h1{--font-family:\"Helvetica Neue \"}",
+      "expected": "h1{--font-family:Helvetica Neue\\ }"
+    },
+    {
+      "test": "should unquote and join identifiers with a slash, if numeric",
+      "input": "h1{font-family:\"Bond 007\"}",
+      "expected": "h1{font-family:Bond\\ 007}"
+    },
+    {
+      "test": "css variable should unquote and join identifiers with a slash, if numeric",
+      "input": "h1{--font-family:\"Bond 007\"}",
+      "expected": "h1{--font-family:Bond\\ 007}"
+    },
+    {
+      "test": "should not unquote font name contains generic font family word at start",
+      "input": "h1{font-family:\"serif custom font\"}",
+      "expected": "h1{font-family:\"serif custom font\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote font name contains generic font family word at middle",
+      "input": "h1{font-family:\"custom serif font\"}",
+      "expected": "h1{font-family:\"custom serif font\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote font name contains generic font family word at end",
+      "input": "h1{font-family:\"custom font serif\"}",
+      "expected": "h1{font-family:\"custom font serif\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote font name contains monospace generic font family word",
+      "input": "h1{font-family:\"Monospace Custom Font\"}",
+      "expected": "h1{font-family:\"Monospace Custom Font\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote font name contains monospace generic font family word with spaces",
+      "input": "h1{font-family:\"  Monospace Custom Font  \"}",
+      "expected": "h1{font-family:\"  Monospace Custom Font  \"}",
+      "passthrough": true
+    },
+    {
+      "test": "should unquote and join identifiers with a slash",
+      "input": "h1{font-family:Ahem\\!}",
+      "expected": "h1{font-family:Ahem\\!}",
+      "passthrough": true
+    },
+    {
+      "test": "should unquote with escaped `/` character",
+      "input": "h1{font-family:Red\\/Black}",
+      "expected": "h1{font-family:Red\\/Black}",
+      "passthrough": true
+    },
+    {
+      "test": "should unquote with multiple escaped ` ` character",
+      "input": "h1{font-family:Hawaii \\  \\  \\  \\  \\ \\\\35}",
+      "expected": "h1{font-family:Hawaii \\  \\  \\  \\  \\ \\\\35}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote if it would produce a bigger identifier",
+      "input": "h1{font-family:\"Call 0118 999 881 999 119 725 3\"}",
+      "expected": "h1{font-family:\"Call 0118 999 881 999 119 725 3\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote font names if they contain keywords",
+      "input": "h1{font-family:\"slab serif\"}",
+      "expected": "h1{font-family:\"slab serif\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote font names with multiple \\",
+      "input": "h1{font-family:\"\\5FAE\\8F6F\\96C5\\9ED1\"}",
+      "expected": "h1{font-family:\"\\5FAE\\8F6F\\96C5\\9ED1\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote font names with multiple \\ #1",
+      "input": "h1{font-family:\"\\5B8B\\4F53\"}",
+      "expected": "h1{font-family:\"\\5B8B\\4F53\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should minimise space inside a legal font name",
+      "input": "h1{font-family:Lucida     Grande}",
+      "expected": "h1{font-family:Lucida Grande}"
+    },
+    {
+      "test": "should minimise space around a list of font names",
+      "input": "h1{font-family:Arial, Helvetica, sans-serif}",
+      "expected": "h1{font-family:Arial,Helvetica,sans-serif}"
+    },
+    {
+      "test": "should dedupe font family names",
+      "input": "h1{font-family:Helvetica,Arial,Helvetica,sans-serif}",
+      "expected": "h1{font-family:Helvetica,Arial,sans-serif}"
+    },
+    {
+      "test": "should dedupe lowercase generic font family name",
+      "input": "h1{font-family:Helvetica,Arial,sans-serif,sans-serif}",
+      "expected": "h1{font-family:Helvetica,Arial,sans-serif}"
+    },
+    {
+      "test": "should dedupe uppercase generic font family name",
+      "input": "h1{font-family:Helvetica,Arial,SANS-SERIF,SANS-SERIF}",
+      "expected": "h1{font-family:Helvetica,Arial,SANS-SERIF}"
+    },
+    {
+      "test": "should discard the rest of the declaration after a keyword",
+      "input": "h1{font-family:Arial,sans-serif,Arial,\"Trebuchet MS\"}",
+      "expected": "h1{font-family:Arial,sans-serif}"
+    },
+    {
+      "test": "should convert the font shorthand property",
+      "input": "h1{font:italic small-caps normal 13px/150% \"Helvetica Neue\", sans-serif}",
+      "expected": "h1{font:italic small-caps normal 13px/150% Helvetica Neue,sans-serif}"
+    },
+    {
+      "test": "should convert shorthand with zero unit line height",
+      "input": "h1{font:italic small-caps normal 13px/1.5 \"Helvetica Neue\", sans-serif}",
+      "expected": "h1{font:italic small-caps normal 13px/1.5 Helvetica Neue,sans-serif}"
+    },
+    {
+      "test": "should convert the font shorthand property with upperlower keyword, unquoted",
+      "input": "h1{font:italic Helvetica Neue,sans-serif,Arial}",
+      "expected": "h1{font:italic Helvetica Neue,sans-serif}"
+    },
+    {
+      "test": "should convert the font shorthand property with uppercase keyword, unquoted",
+      "input": "h1{font:italic Helvetica Neue,SANS-SERIF,Arial}",
+      "expected": "h1{font:italic Helvetica Neue,SANS-SERIF}"
+    },
+    {
+      "test": "should join identifiers in the shorthand property",
+      "input": "h1{font:italic \"Bond 007\",sans-serif}",
+      "expected": "h1{font:italic Bond\\ 007,sans-serif}"
+    },
+    {
+      "test": "should join non-digit identifiers in the shorthand property",
+      "input": "h1{font:italic \"Bond !\",serif}",
+      "expected": "h1{font:italic Bond \\!,serif}"
+    },
+    {
+      "test": "should correctly escape special characters at the start",
+      "input": "h1{font-family:\"$42\"}",
+      "expected": "h1{font-family:\\$42}"
+    },
+    {
+      "test": "should correctly escape special characters at the end",
+      "input": "h1{font-family:Helvetica Neue\\ }",
+      "expected": "h1{font-family:Helvetica Neue\\ }",
+      "passthrough": true
+    },
+    {
+      "test": "should correctly escape multiple special with numbers font name",
+      "input": "h1{font-family:\\31 \\ 2\\ 3\\ 4\\ 5}",
+      "expected": "h1{font-family:\\31 \\ 2\\ 3\\ 4\\ 5}",
+      "passthrough": true
+    },
+    {
+      "test": "should correctly escape multiple ` `",
+      "input": "h1{font-family:f \\  \\  \\ \\ o \\  \\  \\ \\ o}",
+      "expected": "h1{font-family:f \\  \\  \\ \\ o \\  \\  \\ \\ o}",
+      "passthrough": true
+    },
+    {
+      "test": "should correctly escape only spaces font name",
+      "input": "h1{font-family:\\ \\ \\ }",
+      "expected": "h1{font-family:\\ \\ \\ }",
+      "passthrough": true
+    },
+    {
+      "test": "should correctly escape only two spaces font name",
+      "input": "h1{font-family:\"  \"}",
+      "expected": "h1{font-family:\"  \"}",
+      "passthrough": true
+    },
+    {
+      "test": "should correctly escape only spaces font name with quotes",
+      "input": "h1{font-family:\"     \"}",
+      "expected": "h1{font-family:\"     \"}",
+      "passthrough": true
+    },
+    {
+      "test": "should unquote multiple escape `[` characters",
+      "input": "h1{font-family:\"STHeiti Light [STXihei]\"}",
+      "expected": "h1{font-family:\"STHeiti Light [STXihei]\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle font names (2)",
+      "input": "h1{font-family:FF Din Pro,FF Din Pro Medium}",
+      "expected": "h1{font-family:FF Din Pro,FF Din Pro Medium}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle rem values",
+      "input": "h1{font:bold 2.2rem/.9 \"Open Sans Condensed\", sans-serif}",
+      "expected": "h1{font:700 2.2rem/.9 Open Sans Condensed,sans-serif}"
+    },
+    {
+      "test": "should pass through when it doesn't find a font property",
+      "input": "h1{color:black;text-decoration:none}",
+      "expected": "h1{color:black;text-decoration:none}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove duplicates",
+      "input": "h1{font-family:Helvetica,Helvetica}",
+      "expected": "h1{font-family:Helvetica,Helvetica}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove after keyword",
+      "input": "h1{font-family:serif,Times}",
+      "expected": "h1{font-family:serif,Times}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove quotes",
+      "input": "h1{font-family:\"Glyphicons Halflings\",\"Arial\"}",
+      "expected": "h1{font-family:\"Glyphicons Halflings\",\"Arial\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not dedupe lower case monospace",
+      "input": "font-family:monospace,monospace",
+      "expected": "font-family:monospace,monospace",
+      "passthrough": true
+    },
+    {
+      "test": "should not dedupe uppercase monospace",
+      "input": "font-family:MONOSPACE,MONOSPACE",
+      "expected": "font-family:MONOSPACE,MONOSPACE",
+      "passthrough": true
+    },
+    {
+      "test": "should not dedupe monospace (2)",
+      "input": "font:italic small-caps normal 13px/150% monospace,monospace",
+      "expected": "font:italic small-caps normal 13px/150% monospace,monospace",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle custom props",
+      "input": ":root{--sans:Helvetica}header{font-family:var(--sans)}",
+      "expected": ":root{--sans:Helvetica}header{font-family:var(--sans)}",
+      "passthrough": true
+    },
+    {
+      "test": "should minify font-weight",
+      "input": "h1{font-weight:bold}",
+      "expected": "h1{font-weight:700}"
+    },
+    {
+      "test": "should minify font-weight #1",
+      "input": "h1{font-weight:normal}",
+      "expected": "h1{font-weight:400}"
+    },
+    {
+      "test": "should minify uppercase font-weight",
+      "input": "h1{font-weight:BOLD}",
+      "expected": "h1{font-weight:700}"
+    },
+    {
+      "test": "should minify uppercase font-weight #1",
+      "input": "h1{font-style:normal;font-weight:normal}",
+      "expected": "h1{font-style:normal;font-weight:400}"
+    },
+    {
+      "test": "should minify uppercase font-weight #2",
+      "input": "h1{font-weight:normal;font-style:normal}",
+      "expected": "h1{font-weight:400;font-style:normal}"
+    },
+    {
+      "test": "should pass through not minimized font-weight",
+      "input": "h1{font-weight:500}",
+      "expected": "h1{font-weight:500}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through not minimized font-weight #1",
+      "input": "h1{font-weight:lighter}",
+      "expected": "h1{font-weight:lighter}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through unrelated font lowercase properties",
+      "input": "h1{font-style:normal}",
+      "expected": "h1{font-style:normal}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through unrelated font uppercase properties",
+      "input": "h1{font-style:NORMAL}",
+      "expected": "h1{font-style:NORMAL}",
+      "passthrough": true
+    },
+    {
+      "test": "should minify font property",
+      "input": "h1{font:BOLD italic 20px Times New Roman}",
+      "expected": "h1{font:700 italic 20px Times New Roman}"
+    },
+    {
+      "test": "should minify font property #2",
+      "input": "h1{font:var(--foo) 1.2em Fira Sans,serif}",
+      "expected": "h1{font:var(--foo) 1.2em Fira Sans,serif}",
+      "passthrough": true
+    },
+    {
+      "test": "should minify font property #3",
+      "input": "h1{font:var(--foo) bold 16px/2 cursive}",
+      "expected": "h1{font:var(--foo) 700 16px/2 cursive}"
+    },
+    {
+      "test": "should minify font property #4",
+      "input": "h1{font:italic var(--foo) bold 16px/2 cursive}",
+      "expected": "h1{font:italic var(--foo) 700 16px/2 cursive}"
+    },
+    {
+      "test": "should minify font property #5",
+      "input": "h1{font:italic 1.2em \"Helvetica Neue\", var(--foo)}",
+      "expected": "h1{font:italic 1.2em Helvetica Neue,var(--foo)}"
+    },
+    {
+      "test": "should minify font property #6",
+      "input": "h1{font:oblique 10deg 10px \"Helvetica Neue\"}",
+      "expected": "h1{font:oblique 10deg 10px Helvetica Neue}"
+    },
+    {
+      "test": "should pass through css variables in font",
+      "input": "h1{font:var(--font-size)}",
+      "expected": "h1{font:var(--font-size)}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font #2",
+      "input": "h1{font:var(--font-size) sans-serif}",
+      "expected": "h1{font:var(--font-size) sans-serif}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font #3",
+      "input": "h1{font:var(--font-family),sans-serif}",
+      "expected": "h1{font:var(--font-family),sans-serif}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font #4",
+      "input": "h1{font:italic 1.2em var(--foo)}",
+      "expected": "h1{font:italic 1.2em var(--foo)}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font #5",
+      "input": "h1{font:italic 1.2em sans-serif,var(--foo)}",
+      "expected": "h1{font:italic 1.2em sans-serif,var(--foo)}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font #6",
+      "input": "h1{font:italic var(--foo),monospace}",
+      "expected": "h1{font:italic var(--foo),monospace}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font #7",
+      "input": "h1{font:italic var(--foo) monospace}",
+      "expected": "h1{font:italic var(--foo) monospace}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font #8",
+      "input": "h1{font:italic monospace,var(--foo)}",
+      "expected": "h1{font:italic monospace,var(--foo)}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font #9",
+      "input": "h1{font:italic monospace,var(--foo)}",
+      "expected": "h1{font:italic monospace,var(--foo)}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font-weight",
+      "input": "h1{font-weight:var(--font-size)}",
+      "expected": "h1{font-weight:var(--font-size)}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font-family",
+      "input": "h1{font-family:var(--font-size)}",
+      "expected": "h1{font-family:var(--font-size)}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables in font-family #2",
+      "input": "h1{font-family:var(--font-size), Helvetica}",
+      "expected": "h1{font-family:var(--font-size), Helvetica}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through env variables in font-weight",
+      "input": "h1{font-weight:env(--font-size)}",
+      "expected": "h1{font-weight:env(--font-size)}",
+      "passthrough": true
+    }
+  ]
+}

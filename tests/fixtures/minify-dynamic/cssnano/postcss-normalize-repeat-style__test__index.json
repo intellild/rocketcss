@@ -1,0 +1,247 @@
+{
+  "upstream": "packages/postcss-normalize-repeat-style/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should pass through two value syntax",
+      "input": "background:space round",
+      "expected": "background:space round",
+      "passthrough": true
+    },
+    {
+      "test": "should convert repeat no-repeat to repeat-x",
+      "input": "background:#000 url(cat.jpg) repeat no-repeat 50%",
+      "expected": "background:#000 url(cat.jpg) repeat-x 50%"
+    },
+    {
+      "test": "should convert repeat no-repeat to repeat-x",
+      "input": "background-repeat:repeat no-repeat",
+      "expected": "background-repeat:repeat-x"
+    },
+    {
+      "test": "should convert repeat no-repeat to repeat-x",
+      "input": "background-repeat:#000 url(cat.jpg) repeat no-repeat 50%,#000 url(cat.jpg) repeat no-repeat 50%",
+      "expected": "background-repeat:#000 url(cat.jpg) repeat-x 50%,#000 url(cat.jpg) repeat-x 50%"
+    },
+    {
+      "test": "should convert repeat no-repeat to repeat-x",
+      "input": "background-repeat:repeat no-repeat,repeat no-repeat",
+      "expected": "background-repeat:repeat-x,repeat-x"
+    },
+    {
+      "test": "should convert repeat no-repeat to repeat-x",
+      "input": "mask-repeat:repeat no-repeat",
+      "expected": "mask-repeat:repeat-x"
+    },
+    {
+      "test": "should convert no-repeat repeat to repeat-y",
+      "input": "background:#000 url(cat.jpg) no-repeat repeat 50%",
+      "expected": "background:#000 url(cat.jpg) repeat-y 50%"
+    },
+    {
+      "test": "should convert no-repeat repeat to repeat-y",
+      "input": "background-repeat:no-repeat repeat",
+      "expected": "background-repeat:repeat-y"
+    },
+    {
+      "test": "should convert no-repeat repeat to repeat-y",
+      "input": "background-repeat:#000 url(cat.jpg) no-repeat repeat 50%,#000 url(cat.jpg) no-repeat repeat 50%",
+      "expected": "background-repeat:#000 url(cat.jpg) repeat-y 50%,#000 url(cat.jpg) repeat-y 50%"
+    },
+    {
+      "test": "should convert no-repeat repeat to repeat-y",
+      "input": "background-repeat:no-repeat repeat,no-repeat repeat",
+      "expected": "background-repeat:repeat-y,repeat-y"
+    },
+    {
+      "test": "should convert no-repeat repeat to repeat-y",
+      "input": "mask-repeat:no-repeat repeat",
+      "expected": "mask-repeat:repeat-y"
+    },
+    {
+      "test": "should convert repeat repeat to repeat",
+      "input": "background:#000 url(cat.jpg) repeat repeat 50%",
+      "expected": "background:#000 url(cat.jpg) repeat 50%"
+    },
+    {
+      "test": "should convert repeat repeat to repeat",
+      "input": "background-repeat:repeat repeat",
+      "expected": "background-repeat:repeat"
+    },
+    {
+      "test": "should convert repeat repeat to repeat",
+      "input": "background-repeat:#000 url(cat.jpg) repeat repeat 50%,#000 url(cat.jpg) repeat repeat 50%",
+      "expected": "background-repeat:#000 url(cat.jpg) repeat 50%,#000 url(cat.jpg) repeat 50%"
+    },
+    {
+      "test": "should convert repeat repeat to repeat",
+      "input": "background-repeat:repeat repeat,repeat repeat",
+      "expected": "background-repeat:repeat,repeat"
+    },
+    {
+      "test": "should convert repeat repeat to repeat",
+      "input": "mask-repeat:repeat repeat",
+      "expected": "mask-repeat:repeat"
+    },
+    {
+      "test": "should convert space space to space",
+      "input": "background:#000 url(cat.jpg) space space 50%",
+      "expected": "background:#000 url(cat.jpg) space 50%"
+    },
+    {
+      "test": "should convert space space to space",
+      "input": "background-repeat:space space",
+      "expected": "background-repeat:space"
+    },
+    {
+      "test": "should convert space space to space",
+      "input": "background-repeat:#000 url(cat.jpg) space space 50%,#000 url(cat.jpg) space space 50%",
+      "expected": "background-repeat:#000 url(cat.jpg) space 50%,#000 url(cat.jpg) space 50%"
+    },
+    {
+      "test": "should convert space space to space",
+      "input": "background-repeat:space space,space space",
+      "expected": "background-repeat:space,space"
+    },
+    {
+      "test": "should convert space space to space",
+      "input": "mask-repeat:space space",
+      "expected": "mask-repeat:space"
+    },
+    {
+      "test": "should convert round round to round",
+      "input": "background:#000 url(cat.jpg) round round 50%",
+      "expected": "background:#000 url(cat.jpg) round 50%"
+    },
+    {
+      "test": "should convert round round to round",
+      "input": "background-repeat:round round",
+      "expected": "background-repeat:round"
+    },
+    {
+      "test": "should convert round round to round",
+      "input": "background-repeat:#000 url(cat.jpg) round round 50%,#000 url(cat.jpg) round round 50%",
+      "expected": "background-repeat:#000 url(cat.jpg) round 50%,#000 url(cat.jpg) round 50%"
+    },
+    {
+      "test": "should convert round round to round",
+      "input": "background-repeat:round round,round round",
+      "expected": "background-repeat:round,round"
+    },
+    {
+      "test": "should convert round round to round",
+      "input": "mask-repeat:round round",
+      "expected": "mask-repeat:round"
+    },
+    {
+      "test": "should convert no-repeat no-repeat to no-repeat",
+      "input": "background:#000 url(cat.jpg) no-repeat no-repeat 50%",
+      "expected": "background:#000 url(cat.jpg) no-repeat 50%"
+    },
+    {
+      "test": "should convert no-repeat no-repeat to no-repeat",
+      "input": "background-repeat:no-repeat no-repeat",
+      "expected": "background-repeat:no-repeat"
+    },
+    {
+      "test": "should convert no-repeat no-repeat to no-repeat",
+      "input": "background-repeat:#000 url(cat.jpg) no-repeat no-repeat 50%,#000 url(cat.jpg) no-repeat no-repeat 50%",
+      "expected": "background-repeat:#000 url(cat.jpg) no-repeat 50%,#000 url(cat.jpg) no-repeat 50%"
+    },
+    {
+      "test": "should convert no-repeat no-repeat to no-repeat",
+      "input": "background-repeat:no-repeat no-repeat,no-repeat no-repeat",
+      "expected": "background-repeat:no-repeat,no-repeat"
+    },
+    {
+      "test": "should convert no-repeat no-repeat to no-repeat",
+      "input": "mask-repeat:no-repeat no-repeat",
+      "expected": "mask-repeat:no-repeat"
+    },
+    {
+      "test": "should normalize uppercase property and value",
+      "input": "BACKGROUND:#000 url(cat.jpg) REPEAT NO-REPEAT 50%",
+      "expected": "BACKGROUND:#000 url(cat.jpg) repeat-x 50%"
+    },
+    {
+      "test": "should pass through when there are no repeat values",
+      "input": "background:url(cat.jpg)",
+      "expected": "background:url(cat.jpg)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through when there are no repeat values (2)",
+      "input": "background:#000 url(cat.jpg)",
+      "expected": "background:#000 url(cat.jpg)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through the single value syntax",
+      "input": "background:#000 url(cat.jpg) repeat",
+      "expected": "background:#000 url(cat.jpg) repeat",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through with var",
+      "input": "background-repeat: var(--foo)",
+      "expected": "background-repeat: var(--foo)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through with var #1",
+      "input": "background-repeat: center var(--foo)",
+      "expected": "background-repeat: center var(--foo)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through with var #2",
+      "input": "background-repeat: right 100px var(--test)",
+      "expected": "background-repeat: right 100px var(--test)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through with var #3",
+      "input": "background: var(--foo)",
+      "expected": "background: var(--foo)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through with var #4",
+      "input": "background: url(\"../../media/examples/star.png\") center var(--foo);",
+      "expected": "background: url(\"../../media/examples/star.png\") center var(--foo);",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through with env",
+      "input": "background-position: env(--foo)",
+      "expected": "background-position: env(--foo)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through with constant",
+      "input": "background-position: constant(--foo)",
+      "expected": "background-position: constant(--foo)",
+      "passthrough": true
+    },
+    {
+      "test": "should normalize background position with var and multiple background",
+      "input": "background: url(\"/media/examples/lizard.png\") repeat no-repeat, url(\"/media/examples/lizard.png\") var(--foo)",
+      "expected": "background: url(\"/media/examples/lizard.png\") repeat-x, url(\"/media/examples/lizard.png\") var(--foo)"
+    },
+    {
+      "test": "should normalize background position with var and multiple background #1",
+      "input": "background: url(\"/media/examples/lizard.png\") var(--foo), url(\"/media/examples/lizard.png\") repeat no-repeat",
+      "expected": "background: url(\"/media/examples/lizard.png\") var(--foo), url(\"/media/examples/lizard.png\") repeat-x"
+    },
+    {
+      "test": "should normalize background position with var and multiple background #2",
+      "input": "background: url(\"/media/examples/lizard.png\") repeat no-repeat, url(\"/media/examples/lizard.png\") repeat var(--foo)",
+      "expected": "background: url(\"/media/examples/lizard.png\") repeat-x, url(\"/media/examples/lizard.png\") repeat var(--foo)"
+    },
+    {
+      "test": "should normalize background position with var and multiple background #3",
+      "input": "background: url(\"/media/examples/lizard.png\") repeat var(--foo), url(\"/media/examples/lizard.png\") repeat no-repeat",
+      "expected": "background: url(\"/media/examples/lizard.png\") repeat var(--foo), url(\"/media/examples/lizard.png\") repeat-x"
+    }
+  ]
+}

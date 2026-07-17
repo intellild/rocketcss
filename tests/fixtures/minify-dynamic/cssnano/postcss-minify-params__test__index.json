@@ -1,0 +1,287 @@
+{
+  "upstream": "packages/postcss-minify-params/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should normalise @media queries",
+      "input": "@media SCREEN ,\tprint {h1{color:red}}@media print,screen{h2{color:blue}}",
+      "expected": "@media SCREEN,print {h1{color:red}}@media print,screen{h2{color:blue}}"
+    },
+    {
+      "test": "should normalise @media queries (uppercase)",
+      "input": "@MEDIA SCREEN ,\tPRINT {h1{color:red}}@MEDIA PRINT,SCREEN{h2{color:blue}}",
+      "expected": "@MEDIA PRINT,SCREEN {h1{color:red}}@MEDIA PRINT,SCREEN{h2{color:blue}}"
+    },
+    {
+      "test": "should normalise @media queries (2)",
+      "input": "@media only screen \n and ( min-width: 400px, min-height: 500px ){h1{color:blue}}",
+      "expected": "@media only screen and (min-width:400px,min-height:500px){h1{color:blue}}"
+    },
+    {
+      "test": "should normalise @media queries (3)",
+      "input": "@media (min-height: 680px),(min-height: 680px){h1{color:red}}",
+      "expected": "@media (min-height:680px){h1{color:red}}"
+    },
+    {
+      "test": "should normalise @media queries (3) (lowercase and uppercase)",
+      "input": "@media (min-height: 680px),(MIN-HEIGHT: 680PX){h1{color:red}}",
+      "expected": "@media (min-height:680px){h1{color:red}}",
+      "upstreamSkip": true
+    },
+    {
+      "test": "should normalise \"all\" in @media queries",
+      "input": "@media all{h1{color:blue}}",
+      "expected": "@media{h1{color:blue}}"
+    },
+    {
+      "test": "should normalise \"all\" in @media queries (uppercase)",
+      "input": "@MEDIA ALL{h1{color:blue}}",
+      "expected": "@MEDIA{h1{color:blue}}"
+    },
+    {
+      "test": "should not normalise \"all\" in @media queries",
+      "input": "@media all{h1{color:blue}}",
+      "expected": "@media all{h1{color:blue}}"
+    },
+    {
+      "test": "should not normalise \"all\" in @media queries based on Browserslist config [legacy] env",
+      "input": "@media all{h1{color:blue}}",
+      "expected": "@media all{h1{color:blue}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not normalise \"all\" in @media queries based on Browserslist config [legacy] env using webpack file path",
+      "input": "@media all{h1{color:blue}}",
+      "expected": "@media all{h1{color:blue}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not normalise \"all\" in @media queries based on Browserslist config [legacy] env using custom path",
+      "input": "@media all{h1{color:blue}}",
+      "expected": "@media all{h1{color:blue}}",
+      "passthrough": true
+    },
+    {
+      "test": "should normalise \"all\" in @media queries based on Browserslist config [modern] env",
+      "input": "@media all{h1{color:blue}}",
+      "expected": "@media{h1{color:blue}}"
+    },
+    {
+      "test": "should normalise \"all\" in @media queries based on Browserslist config [modern] env using webpack file path",
+      "input": "@media all{h1{color:blue}}",
+      "expected": "@media{h1{color:blue}}"
+    },
+    {
+      "test": "should normalise \"all\" in @media queries based on Browserslist config [modern] env using custom path",
+      "input": "@media all{h1{color:blue}}",
+      "expected": "@media{h1{color:blue}}"
+    },
+    {
+      "test": "should normalise \"all and\" in @media queries",
+      "input": "@media all and (min-width:500px){h1{color:blue}}",
+      "expected": "@media (min-width:500px){h1{color:blue}}"
+    },
+    {
+      "test": "should normalise \"all and\" in @media queries (uppercase)",
+      "input": "@media ALL AND (min-width:500px){h1{color:blue}}",
+      "expected": "@media (min-width:500px){h1{color:blue}}"
+    },
+    {
+      "test": "should not normalise \"not all and\" in @media queries",
+      "input": "@media not all and (min-width: 768px){h1{color:blue}}",
+      "expected": "@media not all and (min-width:768px){h1{color:blue}}"
+    },
+    {
+      "test": "should not remove \"all\" from other at-rules",
+      "input": "@foo all;",
+      "expected": "@foo all;",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @keyframe from & 100% in other values",
+      "input": "@keyframes test{x-from-tag{color:red}5100%{color:blue}}",
+      "expected": "@keyframes test{x-from-tag{color:red}5100%{color:blue}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not parse at rules without params",
+      "input": "@font-face{font-family:test;src:local(test)}",
+      "expected": "@font-face{font-family:test;src:local(test)}",
+      "passthrough": true
+    },
+    {
+      "test": "should reduce min-aspect-ratio",
+      "input": "@media (min-aspect-ratio: 32/18){h1{color:blue}}",
+      "expected": "@media (min-aspect-ratio:16/9){h1{color:blue}}"
+    },
+    {
+      "test": "should reduce min-aspect-ratio (uppercase)",
+      "input": "@media (MIN-ASPECT-RATIO: 32/18){h1{color:blue}}",
+      "expected": "@media (MIN-ASPECT-RATIO:16/9){h1{color:blue}}"
+    },
+    {
+      "test": "should reduce max-aspect-ratio",
+      "input": "@media (max-aspect-ratio: 48000000/32000000){h1{color:blue}}",
+      "expected": "@media (max-aspect-ratio:3/2){h1{color:blue}}"
+    },
+    {
+      "test": "should multiply aspect ratio",
+      "input": "@media (max-aspect-ratio: 1.5/1){h1{color:blue}}",
+      "expected": "@media (max-aspect-ratio:3/2){h1{color:blue}}"
+    },
+    {
+      "test": "should multiply aspect ratio (2)",
+      "input": "@media (max-aspect-ratio: .5 / 1){h1{color:blue}}",
+      "expected": "@media (max-aspect-ratio:1/2){h1{color:blue}}"
+    },
+    {
+      "test": "should normalise @supports queries",
+      "input": "@supports (display: grid) {}",
+      "expected": "@supports (display:grid) {}"
+    },
+    {
+      "test": "should normalise @supports with not",
+      "input": "@supports not (display: grid) {}",
+      "expected": "@supports not (display:grid) {}"
+    },
+    {
+      "test": "should normalise @supports with multiple conditions",
+      "input": "@supports ((text-align-last: justify) or (-moz-text-align-last: justify)) {}",
+      "expected": "@supports ((text-align-last:justify) or (-moz-text-align-last:justify)) {}"
+    },
+    {
+      "test": "should normalise @supports with var",
+      "input": "@supports (--foo: green) {}",
+      "expected": "@supports (--foo:green) {}"
+    },
+    {
+      "test": "should normalise @supports with :is",
+      "input": "@supports not selector(:is(a, b)) {}",
+      "expected": "@supports not selector(:is(a,b)) {}"
+    },
+    {
+      "test": "should normalize space in custom property values",
+      "input": "@supports (--foo:  ){html{background:green}}",
+      "expected": "@supports (--foo: ){html{background:green}}"
+    },
+    {
+      "test": "should minimize custom properties with multiple conditions",
+      "input": "@supports ((--foo:  ) or (--bar: green )){html{background:green}}",
+      "expected": "@supports ((--foo: ) or (--bar:green)){html{background:green}}"
+    },
+    {
+      "test": "should not throw on empty parentheses",
+      "input": "@media (){h1{color:blue}}",
+      "expected": "@media (){h1{color:blue}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @value",
+      "input": "@value vertical, center from './Flex.mod.css';",
+      "expected": "@value vertical, center from './Flex.mod.css';",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @value (uppercase)",
+      "input": "@VALUE vertical, center from './Flex.mod.css';",
+      "expected": "@VALUE vertical, center from './Flex.mod.css';",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @page",
+      "input": "@page :first { margin: 0; }",
+      "expected": "@page :first { margin: 0; }",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @page (uppercase)",
+      "input": "@PAGE :first { margin: 0; }",
+      "expected": "@PAGE :first { margin: 0; }",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @charset",
+      "input": "@charset \"utf-8\";",
+      "expected": "@charset \"utf-8\";",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @charset (uppercase)",
+      "input": "@CHARSET \"utf-8\";",
+      "expected": "@CHARSET \"utf-8\";",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @import",
+      "input": "@import url(\"fineprint.css\") print;",
+      "expected": "@import url(\"fineprint.css\") print;",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @import (uppercase)",
+      "input": "@IMPORT url(\"fineprint.css\") print;",
+      "expected": "@IMPORT url(\"fineprint.css\") print;",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @namespace",
+      "input": "@namespace svg url(http://www.w3.org/2000/svg);",
+      "expected": "@namespace svg url(http://www.w3.org/2000/svg);",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @namespace (uppercase)",
+      "input": "@NAMESPACE svg url(http://www.w3.org/2000/svg);",
+      "expected": "@NAMESPACE svg url(http://www.w3.org/2000/svg);",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @font-face",
+      "input": "@font-face {}",
+      "expected": "@font-face {}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @font-face (uppercase)",
+      "input": "@FONT-FACE {}",
+      "expected": "@FONT-FACE {}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @viewport",
+      "input": "@viewport {}",
+      "expected": "@viewport {}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @viewport (uppercase)",
+      "input": "@VIEWPORT {}",
+      "expected": "@VIEWPORT {}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @counter-style",
+      "input": "@counter-style thumbs {}",
+      "expected": "@counter-style thumbs {}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @counter-style (uppercase)",
+      "input": "@COUNTER-STYLE thumbs {}",
+      "expected": "@COUNTER-STYLE thumbs {}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @font-feature-values",
+      "input": "@font-feature-values Font One {}",
+      "expected": "@font-feature-values Font One {}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @font-feature-values (uppercase)",
+      "input": "@FONT-FEATURE-VALUES Font One {}",
+      "expected": "@FONT-FEATURE-VALUES Font One {}",
+      "passthrough": true
+    }
+  ]
+}

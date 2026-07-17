@@ -1,0 +1,42 @@
+{
+  "upstream": "packages/postcss-normalize-charset/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should add a charset if a file contains non-ascii",
+      "input": "a{content:\"©\"}",
+      "expected": "@charset \"utf-8\";\na{content:\"©\"}"
+    },
+    {
+      "test": "should move up first existing charset",
+      "input": "b{жизнь:калька}@charset \"windows-1251\";a{content:\"©\"}",
+      "expected": "@charset \"windows-1251\";b{жизнь:калька}a{content:\"©\"}"
+    },
+    {
+      "test": "should remove extra charset rules",
+      "input": "a{content:\"©\"}@charset \"utf-8\";@charset \"windows-1251\";",
+      "expected": "@charset \"utf-8\";\na{content:\"©\"}"
+    },
+    {
+      "test": "should remove all charset rules if a file doesn't contain non-ascii",
+      "input": "a{content:\"c\"}@charset \"utf-8\";@charset \"windows-1251\";",
+      "expected": "a{content:\"c\"}"
+    },
+    {
+      "test": "should not add a charset with add set to false",
+      "input": "a{content:\"©\"}",
+      "expected": "a{content:\"©\"}",
+      "passthrough": true
+    },
+    {
+      "test": "add on",
+      "input": "a{content:\"©\"}",
+      "expected": "@charset \"utf-8\";\na{content:\"©\"}"
+    },
+    {
+      "test": "add off",
+      "input": "a{content:\"©\"}",
+      "expected": "a{content:\"©\"}"
+    }
+  ]
+}

@@ -1,0 +1,343 @@
+{
+  "upstream": "packages/postcss-discard-comments/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should remove non-special comments",
+      "input": "h1{font-weight:700!important/*test comment*/}",
+      "expected": "h1{font-weight:700!important}"
+    },
+    {
+      "test": "should remove non-special comments 2",
+      "input": "h1{/*test comment*/font-weight:700}",
+      "expected": "h1{font-weight:700}"
+    },
+    {
+      "test": "should remove non-special comments 3",
+      "input": "/*test comment*/h1{font-weight:700}/*test comment*/",
+      "expected": "h1{font-weight:700}"
+    },
+    {
+      "test": "should remove non-special comments 4",
+      "input": "h1{font-weight:/*test comment*/700}",
+      "expected": "h1{font-weight:700}"
+    },
+    {
+      "test": "should remove non-special comments 5",
+      "input": "h1{margin:10px/*test*/20px}",
+      "expected": "h1{margin:10px 20px}"
+    },
+    {
+      "test": "should remove non-special comments 6",
+      "input": "h1{margin:10px /*test*/ 20px /*test*/ 30px /*test*/ 40px}",
+      "expected": "h1{margin:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should remove non-special comments 7",
+      "input": "/*comment*/*/*comment*/{margin:10px}",
+      "expected": "*{margin:10px}"
+    },
+    {
+      "test": "should remove non-special comments 8",
+      "input": "h1,/*comment*/ h2, h3/*comment*/{margin:20px}",
+      "expected": "h1, h2, h3{margin:20px}"
+    },
+    {
+      "test": "should remove non-special comments 9",
+      "input": "@keyframes /*test*/ fade{0%{opacity:0}to{opacity:1}}",
+      "expected": "@keyframes fade{0%{opacity:0}to{opacity:1}}"
+    },
+    {
+      "test": "should remove non-special comments 10",
+      "input": "@media only screen /*desktop*/ and (min-width:900px){body{margin:0 auto}}",
+      "expected": "@media only screen and (min-width:900px){body{margin:0 auto}}"
+    },
+    {
+      "test": "should remove non-special comments 11",
+      "input": "@media only screen and (min-width:900px)/*test*/{body{margin:0 auto}}",
+      "expected": "@media only screen and (min-width:900px){body{margin:0 auto}}"
+    },
+    {
+      "test": "should remove non-special comments 12",
+      "input": "h1{margin/*test*/:20px}",
+      "expected": "h1{margin:20px}"
+    },
+    {
+      "test": "should remove non-special comments 13",
+      "input": "h1{margin:20px! /* test */ important}",
+      "expected": "h1{margin:20px!important}"
+    },
+    {
+      "test": "should keep special comments",
+      "input": "h1{font-weight:700!important/*!test comment*/}",
+      "expected": "h1{font-weight:700!important/*!test comment*/}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 2",
+      "input": "h1{/*!test comment*/font-weight:700}",
+      "expected": "h1{/*!test comment*/font-weight:700}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 3",
+      "input": "/*!test comment*/h1{font-weight:700}/*!test comment*/",
+      "expected": "/*!test comment*/h1{font-weight:700}/*!test comment*/",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 4",
+      "input": "h1{font-weight:/*!test comment*/700}",
+      "expected": "h1{font-weight:/*!test comment*/700}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 5",
+      "input": "h1{margin:10px/*!test*/20px}",
+      "expected": "h1{margin:10px/*!test*/20px}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 6",
+      "input": "h1{margin:10px /*!test*/ 20px /*!test*/ 30px /*!test*/ 40px}",
+      "expected": "h1{margin:10px /*!test*/ 20px /*!test*/ 30px /*!test*/ 40px}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 7",
+      "input": "/*!comment*/*/*!comment*/{margin:10px}",
+      "expected": "/*!comment*/*/*!comment*/{margin:10px}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 8",
+      "input": "h1,/*!comment*/h2,h3/*!comment*/{margin:20px}",
+      "expected": "h1,/*!comment*/h2,h3/*!comment*/{margin:20px}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 9",
+      "input": "@keyframes /*!test*/ fade{0%{opacity:0}to{opacity:1}}",
+      "expected": "@keyframes /*!test*/ fade{0%{opacity:0}to{opacity:1}}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 10",
+      "input": "@media only screen /*!desktop*/ and (min-width:900px){body{margin:0 auto}}",
+      "expected": "@media only screen /*!desktop*/ and (min-width:900px){body{margin:0 auto}}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 11",
+      "input": "@media only screen and (min-width:900px)/*!test*/{body{margin:0 auto}}",
+      "expected": "@media only screen and (min-width:900px)/*!test*/{body{margin:0 auto}}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 12",
+      "input": "h1{margin/*!test*/:20px}",
+      "expected": "h1{margin/*!test*/:20px}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 13",
+      "input": "h1{margin:20px! /*! test */ important}",
+      "expected": "h1{margin:20px! /*! test */ important}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 14",
+      "input": "h1 /*!test comment*/, h2{color:#00f}",
+      "expected": "h1 /*!test comment*/, h2{color:#00f}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep special comments 15",
+      "input": "h1 /*!test comment*/ span, h2{color:#00f}",
+      "expected": "h1 /*!test comment*/ span, h2{color:#00f}",
+      "passthrough": true
+    },
+    {
+      "test": "should remove comments marked as @ but keep other",
+      "input": "/* keep *//*@ remove */h1{color:#000;/*@ remove */font-weight:700}",
+      "expected": "/* keep */h1{color:#000;font-weight:700}"
+    },
+    {
+      "test": "should remove all important comments, with a flag",
+      "input": "/*!license*/h1{font-weight:700}/*!license 2*/h2{color:#000}",
+      "expected": "h1{font-weight:700}h2{color:#000}"
+    },
+    {
+      "test": "should remove all important comments but the first, with a flag",
+      "input": "/*!license*/h1{font-weight:700}/*!license 2*/h2{color:#000}",
+      "expected": "/*!license*/h1{font-weight:700}h2{color:#000}"
+    },
+    {
+      "test": "should remove non-special comments that have exclamation marks",
+      "input": "/* This makes a heading black! Wow! */h1{color:#000}",
+      "expected": "h1{color:#000}"
+    },
+    {
+      "test": "should remove block comments",
+      "input": "/*\n\n# Pagination\n\n...\n\n*/.pagination{color:#000}",
+      "expected": ".pagination{color:#000}"
+    },
+    {
+      "test": "should remove only a comment",
+      "input": ".a /*comment*/ [attr=\"/* not a comment */\"]{color:#000}",
+      "expected": ".a [attr=\"/* not a comment */\"]{color:#000}"
+    },
+    {
+      "test": "should remove only a comment 2",
+      "input": ".a [attr=\"/* not a comment */\"] /*comment*/, .b {color:#000}",
+      "expected": ".a [attr=\"/* not a comment */\"], .b{color:#000}"
+    },
+    {
+      "test": "should remove only a comment 3",
+      "input": ":not(/*comment*/ [attr=\"/* not a comment */\"]){color:#000}",
+      "expected": ":not( [attr=\"/* not a comment */\"]){color:#000}"
+    },
+    {
+      "test": "should remove comments in selector",
+      "input": ".x/*comment*/.y{color:#000}",
+      "expected": ".x.y{color:#000}"
+    },
+    {
+      "test": "should remove comments in pseudo-class-function",
+      "input": ":not(/*comment*/.foo){color:#000}",
+      "expected": ":not(.foo){color:#000}"
+    },
+    {
+      "test": "should remove comments in @rule param",
+      "input": "@media/*a*/screen/*b*/and/*c*/(min-width:/*d*/900px)/*e*/{color: red}",
+      "expected": "@media screen and (min-width: 900px){color:red}"
+    },
+    {
+      "test": "should pass through when it doesn't find a comment",
+      "input": "h1{color:#000;font-weight:700}",
+      "expected": "h1{color:#000;font-weight:700}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through at rules without comments",
+      "input": "@page{body{font-size:1em}}",
+      "expected": "@page{body{font-size:1em}}",
+      "passthrough": true
+    },
+    {
+      "test": "should work with single line comments",
+      "input": "//!wow\n//wow\nh1{//color:red\n}",
+      "expected": "//!wow\nh1{\n}"
+    },
+    {
+      "test": "should handle comments from other plugins",
+      "input": "$color: red; :root { box-shadow: inset 0 -10px 12px 0 $color, /* some comment */ inset 0 0 5px 0 $color; }",
+      "expected": ":root{ box-shadow:inset 0 -10px 12px 0 red, inset 0 0 5px 0 red; }"
+    },
+    {
+      "test": "should not remove comments inside URL strings with double quotes",
+      "input": "h1{background:url(\"http://example.com/*comment*/\")}",
+      "expected": "h1{background:url(\"http://example.com/*comment*/\")}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove comments inside URL strings with single quotes",
+      "input": "h1{background:url('http://example.com/*comment*/')}",
+      "expected": "h1{background:url('http://example.com/*comment*/')}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove comments inside content property with double quotes",
+      "input": "h1::before{content:\"/* not a comment */\"}",
+      "expected": "h1::before{content:\"/* not a comment */\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove comments inside content property with single quotes",
+      "input": "h1::before{content:'/* not a comment */'}",
+      "expected": "h1::before{content:'/* not a comment */'}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle escaped quotes in strings",
+      "input": "h1::before{content:\"escaped quote: \\\"/* not comment */\\\"\"}",
+      "expected": "h1::before{content:\"escaped quote: \\\"/* not comment */\\\"\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle escaped quotes in single quote strings",
+      "input": "h1::before{content:'escaped quote: \\'/* not comment */\\''}",
+      "expected": "h1::before{content:'escaped quote: \\'/* not comment */\\''}",
+      "passthrough": true
+    },
+    {
+      "test": "should remove real comments but preserve string comments",
+      "input": "h1{background:url(\"http://example.com/*fake*/\") /* real comment */}",
+      "expected": "h1{background:url(\"http://example.com/*fake*/\")}"
+    },
+    {
+      "test": "should handle complex mixed scenarios",
+      "input": ".class{background:url(\"data:image/svg+xml,<svg>/*fake*/</svg>\") /* real */; content:\"/*fake*/\" /* real */}",
+      "expected": ".class{background:url(\"data:image/svg+xml,<svg>/*fake*/</svg>\"); content:\"/*fake*/\"}"
+    },
+    {
+      "test": "should handle multiple strings with comments",
+      "input": "h1{content:\"/*fake1*/\" /* real1 */; background:url(\"/*fake2*/\") /* real2 */}",
+      "expected": "h1{content:\"/*fake1*/\"; background:url(\"/*fake2*/\")}"
+    },
+    {
+      "test": "should handle unclosed strings gracefully",
+      "input": "h1{content:\"closed string\" /* comment */; color:red}",
+      "expected": "h1{content:\"closed string\"; color:red}"
+    },
+    {
+      "test": "should handle empty strings",
+      "input": "h1{content:\"\" /* comment */; background:url('') /* comment */}",
+      "expected": "h1{content:\"\"; background:url('')}"
+    },
+    {
+      "test": "should handle nested quotes correctly",
+      "input": "h1{content:\"outer \\\"inner /* comment */ inner\\\" outer\"}",
+      "expected": "h1{content:\"outer \\\"inner /* comment */ inner\\\" outer\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle data URLs with embedded CSS",
+      "input": "h1{background:url(\"data:text/css,.test{color:red/*comment*/}\")}",
+      "expected": "h1{background:url(\"data:text/css,.test{color:red/*comment*/}\")}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle SVG data URLs with comments",
+      "input": "h1{background:url(\"data:image/svg+xml;utf8,<svg>\\3c !-- comment -->\\3c style>/*css comment*/\\3c /style></svg>\")}",
+      "expected": "h1{background:url(\"data:image/svg+xml;utf8,<svg>\\3c !-- comment -->\\3c style>/*css comment*/\\3c /style></svg>\")}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle calc() with string values",
+      "input": "h1{width:calc(100% - 20px) /* comment */; content:\"calc(/*fake*/)\" /* real */}",
+      "expected": "h1{width:calc(100% - 20px); content:\"calc(/*fake*/)\"}"
+    },
+    {
+      "test": "should handle attribute selectors with comments in strings",
+      "input": "[data-content=\"/* not comment */\"] /* real comment */ {color:red}",
+      "expected": "[data-content=\"/* not comment */\"]{color:red}"
+    },
+    {
+      "test": "should handle multiple escaped characters",
+      "input": "h1{content:\"\\22 /* not comment */ \\22 \"}",
+      "expected": "h1{content:\"\\22 /* not comment */ \\22 \"}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle backslash at end of string",
+      "input": "h1{content:\"test\\\\\"} /* comment */",
+      "expected": "h1{content:\"test\\\\\"}"
+    },
+    {
+      "test": "should handle comments in keyframe names with strings",
+      "input": "@keyframes \"slide-in\" /* comment */ {from{opacity:0}}",
+      "expected": "@keyframes \"slide-in\"{from{opacity:0}}"
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "upstream": "packages/postcss-normalize-display-values/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should pass through \"block ruby\"",
+      "input": "display:block ruby;",
+      "expected": "display:block ruby;",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through single values",
+      "input": "display:block;",
+      "expected": "display:block;",
+      "passthrough": true
+    },
+    {
+      "test": "display: block flow => display: block",
+      "input": "display:block flow",
+      "expected": "display:block"
+    },
+    {
+      "test": "display: block flow-root => display: flow-root",
+      "input": "display:block flow-root",
+      "expected": "display:flow-root"
+    },
+    {
+      "test": "display: inline flow => display: inline",
+      "input": "display:inline flow",
+      "expected": "display:inline"
+    },
+    {
+      "test": "display: inline flow-root => display: inline-block",
+      "input": "display:inline flow-root",
+      "expected": "display:inline-block"
+    },
+    {
+      "test": "display: run-in flow => display: run-in",
+      "input": "display:run-in flow",
+      "expected": "display:run-in"
+    },
+    {
+      "test": "display: list-item block flow => display: list-item",
+      "input": "display:list-item block flow",
+      "expected": "display:list-item"
+    },
+    {
+      "test": "display: inline flow list-item => display: inline list-item",
+      "input": "display:inline flow list-item",
+      "expected": "display:inline list-item"
+    },
+    {
+      "test": "display: block flex => display: flex",
+      "input": "display:block flex",
+      "expected": "display:flex"
+    },
+    {
+      "test": "display: inline flex => display: inline-flex",
+      "input": "display:inline flex",
+      "expected": "display:inline-flex"
+    },
+    {
+      "test": "display: block grid => display: grid",
+      "input": "display:block grid",
+      "expected": "display:grid"
+    },
+    {
+      "test": "display: inline grid => display: inline-grid",
+      "input": "display:inline grid",
+      "expected": "display:inline-grid"
+    },
+    {
+      "test": "display: inline ruby => display: ruby",
+      "input": "display:inline ruby",
+      "expected": "display:ruby"
+    },
+    {
+      "test": "display: block table => display: table",
+      "input": "display:block table",
+      "expected": "display:table"
+    },
+    {
+      "test": "display: inline table => display: inline-table",
+      "input": "display:inline table",
+      "expected": "display:inline-table"
+    },
+    {
+      "test": "display: table-cell flow => display: table-cell",
+      "input": "display:table-cell flow",
+      "expected": "display:table-cell"
+    },
+    {
+      "test": "display: table-caption flow => display: table-caption",
+      "input": "display:table-caption flow",
+      "expected": "display:table-caption"
+    },
+    {
+      "test": "display: ruby-base flow => display: ruby-base",
+      "input": "display:ruby-base flow",
+      "expected": "display:ruby-base"
+    },
+    {
+      "test": "display: ruby-text flow => display: ruby-text",
+      "input": "display:ruby-text flow",
+      "expected": "display:ruby-text"
+    },
+    {
+      "test": "display: block flow => display: block (uppercase property and values)",
+      "input": "DISPLAY:BLOCK FLOW",
+      "expected": "DISPLAY:block"
+    },
+    {
+      "test": "should pass through variables",
+      "input": "display:var(--foo)",
+      "expected": "display:var(--foo)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through variables #1",
+      "input": "display:var(--foo) var(--bar)",
+      "expected": "display:var(--foo) var(--bar)",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through invalid syntax",
+      "input": "display:",
+      "expected": "display:",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through not display property",
+      "input": "something-display: block flow",
+      "expected": "something-display: block flow",
+      "passthrough": true
+    }
+  ]
+}

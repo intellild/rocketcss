@@ -1,0 +1,71 @@
+{
+  "upstream": "packages/postcss-discard-empty/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should remove empty @ rules",
+      "input": "@font-face;",
+      "expected": ""
+    },
+    {
+      "test": "should remove empty @ rules (2)",
+      "input": "@font-face {}",
+      "expected": ""
+    },
+    {
+      "test": "should not mangle @ rules with decls",
+      "input": "@font-face {font-family: Helvetica}",
+      "expected": "@font-face {font-family: Helvetica}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @ rules with parameters",
+      "input": "@charset \"utf-8\";",
+      "expected": "@charset \"utf-8\";",
+      "passthrough": true
+    },
+    {
+      "test": "should remove empty rules",
+      "input": "h1{}h2{}h4{}h5,h6{}",
+      "expected": ""
+    },
+    {
+      "test": "should remove empty declarations",
+      "input": "h1{color:}",
+      "expected": ""
+    },
+    {
+      "test": "should remove null selectors",
+      "input": "{color:blue}",
+      "expected": ""
+    },
+    {
+      "test": "should remove null selectors in media queries",
+      "input": "@media screen, print {{}}",
+      "expected": ""
+    },
+    {
+      "test": "should remove empty media queries",
+      "input": "@media screen, print {h1,h2{}}",
+      "expected": ""
+    },
+    {
+      "test": "should not be responsible for removing comments",
+      "input": "h1{/*comment*/}",
+      "expected": "h1{/*comment*/}",
+      "passthrough": true
+    },
+    {
+      "test": "should preserve empty custom properties",
+      "input": "*{--tw-shadow:; --something-else: ;}",
+      "expected": "*{--tw-shadow:; --something-else: ;}",
+      "passthrough": true
+    },
+    {
+      "test": "should preserve empty layers",
+      "input": "@layer a {}\n@layer b {}\n\n@layer b {\n  foo {\n    color: red;\n  }\n}\n\n@layer a {\n  bar {\n    color: green;\n  }\n}",
+      "expected": "@layer a {}\n@layer b {}\n\n@layer b {\n  foo {\n    color: red;\n  }\n}\n\n@layer a {\n  bar {\n    color: green;\n  }\n}",
+      "passthrough": true
+    }
+  ]
+}

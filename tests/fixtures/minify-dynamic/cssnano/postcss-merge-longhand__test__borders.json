@@ -1,0 +1,11 @@
+{
+  "upstream": "packages/postcss-merge-longhand/test/borders.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should merge to form a border-trbl-width definition",
+      "input": "h1{border-undefined-width:1px;border-undefined-width:1px;border-undefined-width:1px;border-undefined-width:1px}",
+      "expected": "h1{border-width:1px}"
+    }
+  ]
+}

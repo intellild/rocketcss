@@ -1,0 +1,71 @@
+{
+  "upstream": "packages/postcss-normalize-whitespace/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should trim whitespace from nested functions",
+      "input": "h1{width:calc(10px - ( 100px / var(--test) ))}",
+      "expected": "h1{width:calc(10px - (100px / var(--test)))}"
+    },
+    {
+      "test": "should trim whitespace from nested functions (uppercase \"calc\")",
+      "input": "h1{width:CALC(10px - ( 100px / var(--test) ))}",
+      "expected": "h1{width:CALC(10px - (100px / var(--test)))}"
+    },
+    {
+      "test": "should trim whitespace from css variables",
+      "input": "h1{width:var(--foo, calc(10px + 10px))}",
+      "expected": "h1{width:var(--foo,calc(10px + 10px))}"
+    },
+    {
+      "test": "should trim whitespace from env variables",
+      "input": "h1{width:env(--foo, calc(10px + 10px))}",
+      "expected": "h1{width:env(--foo,calc(10px + 10px))}"
+    },
+    {
+      "test": "should trim whitespace from var with calc",
+      "input": "h1{width:var(--foo, calc(10px * 10px))}",
+      "expected": "h1{width:var(--foo,calc(10px * 10px))}"
+    },
+    {
+      "test": "should trim space around custom property",
+      "input": "h1{--prop:  }",
+      "expected": "h1{--prop: }"
+    },
+    {
+      "test": "should add space around empty custom property",
+      "input": "h1{--prop:}",
+      "expected": "h1{--prop: }"
+    },
+    {
+      "test": "should not trim spaces inside of nested var function",
+      "input": "div{background:var(--my-var, var(--my-background, pink, ))}",
+      "expected": "div{background:var(--my-var,var(--my-background,pink, ))}"
+    },
+    {
+      "test": "should not trim spaces inside of var inside calc function",
+      "input": "div {height: calc(var(--text-xxxl, ) * var(--text-scale-ratio-up, ))}",
+      "expected": "div{height:calc(var(--text-xxxl, ) * var(--text-scale-ratio-up, ))}"
+    },
+    {
+      "test": "should not trim spaces inside of var function",
+      "input": "div{border-radius:10px var(--foobar, )}",
+      "expected": "div{border-radius:10px var(--foobar, )}"
+    },
+    {
+      "test": "should not trim spaces inside of env function",
+      "input": "div{ border-radius:env(border-rad, ) }",
+      "expected": "div{border-radius:env(border-rad, )}"
+    },
+    {
+      "test": "should not trim spaces inside of constant function",
+      "input": "div{ border-radius:constant(border-rad, ) }",
+      "expected": "div{border-radius:constant(border-rad, )}"
+    },
+    {
+      "test": "should not trim spaces inside of env function",
+      "input": "div{ border-radius:var(border-rad, ) }",
+      "expected": "div{border-radius:var(border-rad, )}"
+    }
+  ]
+}

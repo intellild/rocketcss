@@ -6,6 +6,7 @@ use std::{
 
 mod codegen;
 mod minify;
+mod minify_dynamic;
 mod parser;
 mod visitor;
 

@@ -1,0 +1,185 @@
+{
+  "upstream": "packages/postcss-normalize-string/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should prefer double quotes by default",
+      "input": "p:after{content:\"\"}",
+      "expected": "p:after{content:\"\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should transform single quotes to double quotes by default",
+      "input": "p:after{content:''}",
+      "expected": "p:after{content:\"\"}"
+    },
+    {
+      "test": "should transform double quotes to single quotes via an option",
+      "input": "p:after{content:\"\"}",
+      "expected": "p:after{content:''}"
+    },
+    {
+      "test": "should keep single quotes inside a double quoted string intact",
+      "input": "p:after{content:\"'string' is intact\"}",
+      "expected": "p:after{content:\"'string' is intact\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep double quotes inside a single quoted string intact",
+      "input": "p:after{content:'\"string\" is intact'}",
+      "expected": "p:after{content:'\"string\" is intact'}",
+      "passthrough": true
+    },
+    {
+      "test": "should transform escaped single quotation marks if possible",
+      "input": "p:after{content:'\\'string\\' is intact'}",
+      "expected": "p:after{content:\"'string' is intact\"}"
+    },
+    {
+      "test": "should transform escaped double quotation marks if possible",
+      "input": "p:after{content:\"\\\"string\\\" is intact\"}",
+      "expected": "p:after{content:'\"string\" is intact'}"
+    },
+    {
+      "test": "should not transform quotation marks when mixed",
+      "input": "p:after{content:\"\\\"string\\\" is 'intact'\"}",
+      "expected": "p:after{content:\"\\\"string\\\" is 'intact'\"}",
+      "passthrough": true
+    },
+    {
+      "test": "should not transform quotation marks when mixed (2)",
+      "input": "p:after{content:'\"string\" is \\'intact\\''}",
+      "expected": "p:after{content:'\"string\" is \\'intact\\''}",
+      "passthrough": true
+    },
+    {
+      "test": "should transform escaped single quotation marks when mixed",
+      "input": "p:after{content:'\\'string\\' is \\\"intact\\\"'}",
+      "expected": "p:after{content:'\\'string\\' is \"intact\"'}"
+    },
+    {
+      "test": "should transform escaped double quotation marks when mixed",
+      "input": "p:after{content:\"\\'string\\' is \\\"intact\\\"\"}",
+      "expected": "p:after{content:\"'string' is \\\"intact\\\"\"}"
+    },
+    {
+      "test": "should work with the attr function",
+      "input": "p:after{content:'(' attr(href) ')'}",
+      "expected": "p:after{content:\"(\" attr(href) \")\"}"
+    },
+    {
+      "test": "should join multiple line strings",
+      "input": "p:after{content:\" > this is some really\\\n                     long text which is broken\\\n                     over several lines.\"}",
+      "expected": "p:after{content:\" > this is some really                     long text which is broken                     over several lines.\"}"
+    },
+    {
+      "test": "should work with quotes",
+      "input": "q{quotes:'«' \"»\"}",
+      "expected": "q{quotes:\"«\" \"»\"}"
+    },
+    {
+      "test": "should work with language overrides",
+      "input": "p{font-language-override:'DAN'}",
+      "expected": "p{font-language-override:\"DAN\"}"
+    },
+    {
+      "test": "should work with css grids",
+      "input": "p{grid-template:'a a a' \"b b b\"}",
+      "expected": "p{grid-template:\"a a a\" \"b b b\"}"
+    },
+    {
+      "test": "should work with css grids (2)",
+      "input": "p{grid-template-areas:'a a a' \"b b b\"}",
+      "expected": "p{grid-template-areas:\"a a a\" \"b b b\"}"
+    },
+    {
+      "test": "should work with list styles",
+      "input": "ul{list-style-type:'-'}",
+      "expected": "ul{list-style-type:\"-\"}"
+    },
+    {
+      "test": "should work with text emphasis styles",
+      "input": "p{text-emphasis-style:'\\25B2'}",
+      "expected": "p{text-emphasis-style:\"\\25B2\"}"
+    },
+    {
+      "test": "should work with text overflow",
+      "input": "p{text-overflow:'…' '…'}",
+      "expected": "p{text-overflow:\"…\" \"…\"}"
+    },
+    {
+      "test": "should work with font",
+      "input": "p{font:1em/1.5 'slab serif'}",
+      "expected": "p{font:1em/1.5 \"slab serif\"}"
+    },
+    {
+      "test": "should work with font family",
+      "input": "p{font-family:'slab serif'}",
+      "expected": "p{font-family:\"slab serif\"}"
+    },
+    {
+      "test": "should work with font feature settings",
+      "input": "p{font-feature-settings:'frac'}",
+      "expected": "p{font-feature-settings:\"frac\"}"
+    },
+    {
+      "test": "should work with web fonts",
+      "input": "@font-face{font-family:'slab serif';src:local('slab serif'),url(slab.ttf) format('truetype')}",
+      "expected": "@font-face{font-family:\"slab serif\";src:local(\"slab serif\"),url(slab.ttf) format(\"truetype\")}"
+    },
+    {
+      "test": "should remove unnecessary backslashes in urls",
+      "input": "p{background:url('http://example.com/foo\\'bar.jpg')}",
+      "expected": "p{background:url(\"http://example.com/foo'bar.jpg\")}"
+    },
+    {
+      "test": "should remove unnecessary backslashes in urls #1",
+      "input": "p{background:url(\"http://example.com/foo\\\"bar.jpg\")}",
+      "expected": "p{background:url('http://example.com/foo\"bar.jpg')}"
+    },
+    {
+      "test": "should work in attribute selectors",
+      "input": "[rel='external link']{color:#00f}",
+      "expected": "[rel=\"external link\"]{color:#00f}"
+    },
+    {
+      "test": "should change strings (1)",
+      "input": "[a=\"escaped quotes \\\" h1, h1, h1 \\\" h1, h1, h1\"]{color:#00f}",
+      "expected": "[a='escaped quotes \" h1, h1, h1 \" h1, h1, h1']{color:#00f}"
+    },
+    {
+      "test": "should change strings (2)",
+      "input": "[a='escaped quotes \\' h1, h1, h1 \\' h1, h1, h1']{color:#00f}",
+      "expected": "[a=\"escaped quotes ' h1, h1, h1 ' h1, h1, h1\"]{color:#00f}"
+    },
+    {
+      "test": "should work for @import",
+      "input": "@import url('foo.css')",
+      "expected": "@import url(\"foo.css\")"
+    },
+    {
+      "test": "should work for grid-columsn",
+      "input": "div{grid-column: span 2;}",
+      "expected": "div{grid-column: span 2;}",
+      "passthrough": true
+    },
+    {
+      "test": "should work for grid-columsn #2",
+      "input": "div{grid-column: span 2 / 1;}",
+      "expected": "div{grid-column: span 2 / 1;}",
+      "passthrough": true
+    },
+    {
+      "test": "should work for grid-columsn #3",
+      "input": "div{grid-column: \"span 2\";}",
+      "expected": "div{grid-column: \"span 2\";}",
+      "passthrough": true
+    },
+    {
+      "test": "should work for columns",
+      "input": "div{columns: 2 auto;}",
+      "expected": "div{columns: 2 auto;}",
+      "passthrough": true
+    }
+  ]
+}

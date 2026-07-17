@@ -1,0 +1,540 @@
+{
+  "upstream": "packages/postcss-convert-values/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should convert milliseconds to seconds",
+      "input": "h1{transition-duration:500ms}",
+      "expected": "h1{transition-duration:.5s}"
+    },
+    {
+      "test": "should convert 0ms to 0s",
+      "input": "h1{animation:opacity 0ms 1000ms}",
+      "expected": "h1{animation:opacity 0s 1s}"
+    },
+    {
+      "test": "should convert seconds to milliseconds",
+      "input": "h1{transition-duration:.005s}",
+      "expected": "h1{transition-duration:5ms}"
+    },
+    {
+      "test": "should not convert negative milliseconds to seconds",
+      "input": "h1{animation-duration:-569ms}",
+      "expected": "h1{animation-duration:-569ms}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove the unit from zero values (duration)",
+      "input": "h1{transition-duration:0s}",
+      "expected": "h1{transition-duration:0s}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove the unit from zero values (custom properties)",
+      "input": "h1{--my-variable:0px}",
+      "expected": "h1{--my-variable:0px}",
+      "passthrough": true
+    },
+    {
+      "test": "should not convert values in custom properties by default",
+      "input": "h1{--my-variable:500ms}",
+      "expected": "h1{--my-variable:500ms}",
+      "passthrough": true
+    },
+    {
+      "test": "should convert values in custom properties when transformCustomProperties is true",
+      "input": "h1{--my-variable:500ms}",
+      "expected": "h1{--my-variable:.5s}"
+    },
+    {
+      "test": "should remove unnecessary plus signs",
+      "input": "h1{width:+14px}",
+      "expected": "h1{width:14px}"
+    },
+    {
+      "test": "should convert px to pc",
+      "input": "h1{width:16px}",
+      "expected": "h1{width:1pc}"
+    },
+    {
+      "test": "should convert px to pt",
+      "input": "h1{width:120px}",
+      "expected": "h1{width:90pt}"
+    },
+    {
+      "test": "should convert px to in",
+      "input": "h1{width:192px}",
+      "expected": "h1{width:2in}"
+    },
+    {
+      "test": "should not convert in to px",
+      "input": "h1{width:192in}",
+      "expected": "h1{width:192in}",
+      "passthrough": true
+    },
+    {
+      "test": "should strip the units from length properties",
+      "input": "h1{margin: 0em 0% 0px 0pc}",
+      "expected": "h1{margin: 0 0 0 0}"
+    },
+    {
+      "test": "should trim trailing zeros",
+      "input": "h1{width:109.00000000000px}",
+      "expected": "h1{width:109px}"
+    },
+    {
+      "test": "should trim trailing zeros + unit",
+      "input": "h1{width:0.00px}",
+      "expected": "h1{width:0}"
+    },
+    {
+      "test": "should trim trailing zeros without unit",
+      "input": "h1{width:100.00%}",
+      "expected": "h1{width:100%}"
+    },
+    {
+      "test": "should preserve opacities defined as percentages",
+      "input": "h1{opacity:100%}",
+      "expected": "h1{opacity:100%}",
+      "passthrough": true
+    },
+    {
+      "test": "should remove unit from opacity: 0%",
+      "input": "h1{opacity:0%}",
+      "expected": "h1{opacity:0}"
+    },
+    {
+      "test": "should not mangle flex basis",
+      "input": "h1{flex-basis:0%}",
+      "expected": "h1{flex-basis:0%}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle flex basis (2)",
+      "input": "h1{FLEX-BASIC:0%}",
+      "expected": "h1{FLEX-BASIC:0%}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle values without units",
+      "input": "h1{z-index:5}",
+      "expected": "h1{z-index:5}",
+      "passthrough": true
+    },
+    {
+      "test": "should operate in calc values",
+      "input": "h1{width:calc(192px + 2em - (0px * 4))}",
+      "expected": "h1{width:calc(2in + 2em - (0px * 4))}"
+    },
+    {
+      "test": "should operate in calc values (2)",
+      "input": "h1{width:CALC(192px + 2em - (0px * 4))}",
+      "expected": "h1{width:CALC(2in + 2em - (0px * 4))}"
+    },
+    {
+      "test": "should not convert zero values in calc",
+      "input": "h1{width:calc(0em)}",
+      "expected": "h1{width:calc(0em)}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle values outside of its domain",
+      "input": "h1{background:url(a.png)}",
+      "expected": "h1{background:url(a.png)}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle values outside of its domain (2)",
+      "input": "h1{background:URL(a.png)}",
+      "expected": "h1{background:URL(a.png)}",
+      "passthrough": true
+    },
+    {
+      "test": "should optimise fractions",
+      "input": "h1{opacity:1.}h2{opacity:.0}",
+      "expected": "h1{opacity:1}h2{opacity:0}"
+    },
+    {
+      "test": "should optimise fractions with units",
+      "input": "h1{width:10.px}h2{width:.0px}",
+      "expected": "h1{width:10px}h2{width:0}"
+    },
+    {
+      "test": "should optimise fractions inside calc",
+      "input": "h1{width:calc(10.px + .0px)}",
+      "expected": "h1{width:calc(10px + 0px)}"
+    },
+    {
+      "test": "should handle leading zero in rem values",
+      "input": ".one{top:0.25rem}",
+      "expected": ".one{top:.25rem}"
+    },
+    {
+      "test": "should handle slash separated values",
+      "input": ".one{background: 50% .0%/100.0% 100.0%}",
+      "expected": ".one{background: 50% 0/100% 100%}"
+    },
+    {
+      "test": "should handle comma separated values",
+      "input": ".one{background: 50% .0% ,100.0% 100.0%}",
+      "expected": ".one{background: 50% 0 ,100% 100%}"
+    },
+    {
+      "test": "should not mangle duration values",
+      "input": ".long{animation-duration:2s}",
+      "expected": ".long{animation-duration:2s}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle padding values",
+      "input": "h1{padding:10px 20px 30px 40px}h2{padding:10px 20px 30px}h3{padding:10px 20px}h4{padding:10px}",
+      "expected": "h1{padding:10px 20px 30px 40px}h2{padding:10px 20px 30px}h3{padding:10px 20px}h4{padding:10px}",
+      "passthrough": true
+    },
+    {
+      "test": "should trim leading zeroes from negative values",
+      "input": "h1,h2{letter-spacing:-0.1rem}",
+      "expected": "h1,h2{letter-spacing:-.1rem}"
+    },
+    {
+      "test": "should support viewports units",
+      "input": "h1,h2{letter-spacing:-0.1vmin}",
+      "expected": "h1,h2{letter-spacing:-.1vmin}"
+    },
+    {
+      "test": "should support ch units",
+      "input": "a{line-height:1.1ch}",
+      "expected": "a{line-height:1.1ch}",
+      "passthrough": true
+    },
+    {
+      "test": "should support PX units",
+      "input": "h1{font-size:20PX}",
+      "expected": "h1{font-size:20PX}"
+    },
+    {
+      "test": "should not mangle data urls",
+      "input": ".has-svg:before{content:url(\"data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"-0.5 0 20 15\"><rect fill=\"white\" stroke=\"none\" transform=\"rotate(45 4.0033 8.87436)\" height=\"5\" width=\"6.32304\" y=\"6.37436\" x=\"0.84178\"></rect><rect fill=\"white\" stroke=\"none\" transform=\"rotate(45 11.1776 7.7066)\" width=\"5\" height=\"16.79756\" y=\"-0.69218\" x=\"8.67764\"></rect></svg>\")}",
+      "expected": ".has-svg:before{content:url(\"data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"-0.5 0 20 15\"><rect fill=\"white\" stroke=\"none\" transform=\"rotate(45 4.0033 8.87436)\" height=\"5\" width=\"6.32304\" y=\"6.37436\" x=\"0.84178\"></rect><rect fill=\"white\" stroke=\"none\" transform=\"rotate(45 11.1776 7.7066)\" width=\"5\" height=\"16.79756\" y=\"-0.69218\" x=\"8.67764\"></rect></svg>\")}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle data urls (2)",
+      "input": ".has-svg:before{content:URL(\"data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"-0.5 0 20 15\"><rect fill=\"white\" stroke=\"none\" transform=\"rotate(45 4.0033 8.87436)\" height=\"5\" width=\"6.32304\" y=\"6.37436\" x=\"0.84178\"></rect><rect fill=\"white\" stroke=\"none\" transform=\"rotate(45 11.1776 7.7066)\" width=\"5\" height=\"16.79756\" y=\"-0.69218\" x=\"8.67764\"></rect></svg>\")}",
+      "expected": ".has-svg:before{content:URL(\"data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" viewBox=\"-0.5 0 20 15\"><rect fill=\"white\" stroke=\"none\" transform=\"rotate(45 4.0033 8.87436)\" height=\"5\" width=\"6.32304\" y=\"6.37436\" x=\"0.84178\"></rect><rect fill=\"white\" stroke=\"none\" transform=\"rotate(45 11.1776 7.7066)\" width=\"5\" height=\"16.79756\" y=\"-0.69218\" x=\"8.67764\"></rect></svg>\")}",
+      "passthrough": true
+    },
+    {
+      "test": "should convert angle units",
+      "input": "h1{transform: rotate(0.25turn);transform: rotate(0.25TURN)}",
+      "expected": "h1{transform: rotate(90deg);transform: rotate(90deg)}"
+    },
+    {
+      "test": "should not convert length units",
+      "input": "h1{transition-duration:500ms; width:calc(192px + 2em); width:+14px; letter-spacing:-0.1VMIN}",
+      "expected": "h1{transition-duration:.5s; width:calc(192px + 2em); width:14px; letter-spacing:-.1VMIN}"
+    },
+    {
+      "test": "should not convert time units",
+      "input": "h1{transition-duration:500ms; width:calc(192px + 2em); width:+14px; letter-spacing:-0.1VMIN}",
+      "expected": "h1{transition-duration:500ms; width:calc(2in + 2em); width:14px; letter-spacing:-.1VMIN}"
+    },
+    {
+      "test": "should not convert angle units",
+      "input": "h1{transform: rotate(0.25turn);transform: rotate(0.25TURN)}",
+      "expected": "h1{transform: rotate(.25turn);transform: rotate(.25TURN)}"
+    },
+    {
+      "test": "should not remove units from angle values",
+      "input": "h1{transform:rotate(0deg)}",
+      "expected": "h1{transform:rotate(0deg)}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove units from angle values (2)",
+      "input": "h1{transform:rotate(0turn)}",
+      "expected": "h1{transform:rotate(0turn)}",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove unit with zero value in hsl and hsla functions",
+      "input": "h1{color:hsl(0, 0%, 244%); background:hsl(0, 0%, 0%)}",
+      "expected": "h1{color:hsl(0, 0%, 244%); background:hsl(0, 0%, 0%)}",
+      "passthrough": true
+    },
+    {
+      "test": "should strip trailing zeroes from percentage heights",
+      "input": "h1{height:12.500%}",
+      "expected": "h1{height:12.5%}"
+    },
+    {
+      "test": "should not strip the percentage from 0 in max-height, height, and min-width props",
+      "input": "h1{height:0%;max-height:0%;min-width:0%}",
+      "expected": "h1{height:0%;max-height:0%;min-width:0%}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in max-height, height, and min-width props based on Browserslist config [legacy] env",
+      "input": "h1{height:0%;max-height:0%;min-width:0%}",
+      "expected": "h1{height:0%;max-height:0%;min-width:0%}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in max-height, height, and min-width props based on Browserslist config [legacy] env using webpack file path",
+      "input": "h1{height:0%;max-height:0%;min-width:0%}",
+      "expected": "h1{height:0%;max-height:0%;min-width:0%}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in max-height, height, and min-width props based on Browserslist config [legacy] env using custom path",
+      "input": "h1{height:0%;max-height:0%;min-width:0%}",
+      "expected": "h1{height:0%;max-height:0%;min-width:0%}",
+      "passthrough": true
+    },
+    {
+      "test": "should strip the percentage from 0 in max-height, height, and min-width props based on Browserslist config [modern] env",
+      "input": "h1{height:0%;max-height:0%;min-width:0%}",
+      "expected": "h1{height:0;max-height:0;min-width:0}"
+    },
+    {
+      "test": "should strip the percentage from 0 in max-height, height, and min-width props based on Browserslist config [modern] env using webpack file path",
+      "input": "h1{height:0%;max-height:0%;min-width:0%}",
+      "expected": "h1{height:0;max-height:0;min-width:0}"
+    },
+    {
+      "test": "should strip the percentage from 0 in max-height, height, and min-width props based on Browserslist config [modern] env using custom path",
+      "input": "h1{height:0%;max-height:0%;min-width:0%}",
+      "expected": "h1{height:0;max-height:0;min-width:0}"
+    },
+    {
+      "test": "should not crash when analysing a declaration with one parent",
+      "input": "width:0",
+      "expected": "width:0",
+      "passthrough": true
+    },
+    {
+      "test": "should strip the unit from 0 in max-height & height props",
+      "input": "h1{height:0em;max-height:0em}",
+      "expected": "h1{height:0;max-height:0}"
+    },
+    {
+      "test": "should strip the unit from 0 in max-height & height props (2)",
+      "input": "h1{height:0em;MAX-HEIGHT:0em}",
+      "expected": "h1{height:0;MAX-HEIGHT:0}"
+    },
+    {
+      "test": "should round pixel values to two decimal places",
+      "input": "h1{right:6.66667px}",
+      "expected": "h1{right:6.67px}"
+    },
+    {
+      "test": "should round pixel values with customisable precision",
+      "input": "h1{right:6.66667px}",
+      "expected": "h1{right:7px}"
+    },
+    {
+      "test": "should not round pixel values to two decimal places by default",
+      "input": "h1{right:6.66667px}",
+      "expected": "h1{right:6.66667px}",
+      "passthrough": true
+    },
+    {
+      "test": "should clamp opacity to 1 maximum",
+      "input": "h1{opacity:150;opacity:15;opacity:1.5}",
+      "expected": "h1{opacity:1;opacity:1;opacity:1}"
+    },
+    {
+      "test": "should clamp opacity to 0 minimum",
+      "input": "h1{opacity:-0.5;opacity:-5;opacity:-50}",
+      "expected": "h1{opacity:0;opacity:0;opacity:0}"
+    },
+    {
+      "test": "should keep stripping zeroes from opacity",
+      "input": "h1{opacity:0.0625}",
+      "expected": "h1{opacity:.0625}"
+    },
+    {
+      "test": "should keep stripping zeroes from opacity (2)",
+      "input": "h1{OPACITY:0.0625}",
+      "expected": "h1{OPACITY:.0625}"
+    },
+    {
+      "test": "should handle global values for opacity",
+      "input": "h1{opacity:initial}",
+      "expected": "h1{opacity:initial}",
+      "passthrough": true
+    },
+    {
+      "test": "should clamp shape-image-threshold to 1 maximum",
+      "input": "h1{shape-image-threshold:150;shape-image-threshold:15;shape-image-threshold:1.5}",
+      "expected": "h1{shape-image-threshold:1;shape-image-threshold:1;shape-image-threshold:1}"
+    },
+    {
+      "test": "should clamp shape-image-threshold to 1 maximum (2)",
+      "input": "h1{SHAPE-IMAGE-THRESHOLD:150;SHAPE-IMAGE-THRESHOLD:15;SHAPE-IMAGE-THRESHOLD:1.5}",
+      "expected": "h1{SHAPE-IMAGE-THRESHOLD:1;SHAPE-IMAGE-THRESHOLD:1;SHAPE-IMAGE-THRESHOLD:1}"
+    },
+    {
+      "test": "should clamp shape-image-threshold to 0 minimum",
+      "input": "h1{shape-image-threshold:-0.5;shape-image-threshold:-5;shape-image-threshold:-50}",
+      "expected": "h1{shape-image-threshold:0;shape-image-threshold:0;shape-image-threshold:0}"
+    },
+    {
+      "test": "should handle global values for shape-image-threshold",
+      "input": "h1{shape-image-threshold:initial}",
+      "expected": "h1{shape-image-threshold:initial}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep stripping zeroes from shape-image-threshold",
+      "input": "h1{shape-image-threshold:0.0625}",
+      "expected": "h1{shape-image-threshold:.0625}"
+    },
+    {
+      "test": "should keep unit in line-height (issue 768)",
+      "input": "h1{line-height:0rem}",
+      "expected": "h1{line-height:0rem}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep unit in max()",
+      "input": "h1{margin:max(0px)}",
+      "expected": "h1{margin:max(0px)}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep unit in max() (2)",
+      "input": "h1{margin:max(1px + 2em,0px)}",
+      "expected": "h1{margin:max(1px + 2em,0px)}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep unit in min()",
+      "input": "h1{margin:min(0px)}",
+      "expected": "h1{margin:min(0px)}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep unit in min() (2)",
+      "input": "h1{margin:min(1px + 2em,0px)}",
+      "expected": "h1{margin:min(1px + 2em,0px)}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep unit in clamp()",
+      "input": "h1{margin:clamp(0px)}",
+      "expected": "h1{margin:clamp(0px)}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep unit in clamp() (2)",
+      "input": "h1{margin:clamp(1px + 2em,0px)}",
+      "expected": "h1{margin:clamp(1px + 2em,0px)}",
+      "passthrough": true
+    },
+    {
+      "test": "should keep unknown units or hacks",
+      "input": "h1{top:0\\9\\0;left:0lightyear}",
+      "expected": "h1{top:0\\9\\0;left:0lightyear}",
+      "passthrough": true
+    },
+    {
+      "test": "should not try to convert keyframe names in animation",
+      "input": "h1{ -webkit-animation: e836684w2 } h2{ animation: e836684w2 }",
+      "expected": "h1{ -webkit-animation: e836684w2 } h2{ animation: e836684w2 }",
+      "passthrough": true
+    },
+    {
+      "test": "should not try to convert keyframe names in animation (case 2)",
+      "input": "\n.e4yw0Q {\n    animation: e4yw0Q;\n}\n\n@keyframes e4yw0Q {}\n    ",
+      "expected": "\n.e4yw0Q {\n    animation: e4yw0Q;\n}\n\n@keyframes e4yw0Q {}\n    ",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in SVG animation, for IE (stroke-dasharray)",
+      "input": "@keyframes a{0%{stroke-dasharray:200%}to{stroke-dasharray:0%}}",
+      "expected": "@keyframes a{0%{stroke-dasharray:200%}to{stroke-dasharray:0%}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in SVG animation, for IE (stroke-dashoffset)",
+      "input": "@keyframes a{0%{stroke-dashoffset:200%}to{stroke-dashoffset:0%}}",
+      "expected": "@keyframes a{0%{stroke-dashoffset:200%}to{stroke-dashoffset:0%}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in SVG animation, for IE (stroke-width)",
+      "input": "@keyframes a{0%{stroke-width:200%}to{stroke-width:0%}}",
+      "expected": "@keyframes a{0%{stroke-width:200%}to{stroke-width:0%}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in SVG animation, for IE (STROKE-DASHARRAY) (2)",
+      "input": "@KEYFRAMES a{0%{STROKE-DASHARRAY:200%}to{STROKE-DASHARRAY:0%}}",
+      "expected": "@KEYFRAMES a{0%{STROKE-DASHARRAY:200%}to{STROKE-DASHARRAY:0%}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in SVG animation, for IE (STROKE-DASHOFFSET) (2)",
+      "input": "@KEYFRAMES a{0%{STROKE-DASHOFFSET:200%}to{STROKE-DASHOFFSET:0%}}",
+      "expected": "@KEYFRAMES a{0%{STROKE-DASHOFFSET:200%}to{STROKE-DASHOFFSET:0%}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in SVG animation, for IE (STROKE-WIDTH) (2)",
+      "input": "@KEYFRAMES a{0%{STROKE-WIDTH:200%}to{STROKE-WIDTH:0%}}",
+      "expected": "@KEYFRAMES a{0%{STROKE-WIDTH:200%}to{STROKE-WIDTH:0%}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not convert ascent and descent-override",
+      "input": "@font-face {descent-override:0%;ascent-override:0%;line-gap-override:0%;size-adjust:0%;font-stretch:0%}",
+      "expected": "@font-face {descent-override:0%;ascent-override:0%;line-gap-override:0%;size-adjust:0%;font-stretch:0%}",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from 0 in @property, for initial-value",
+      "input": "@property --percent{syntax:'<percentage>';inherits:false;initial-value:0%;}",
+      "expected": "@property --percent{syntax:'<percentage>';inherits:false;initial-value:0%;}"
+    },
+    {
+      "test": "should not strip the percentage from 0 in @property, for initial-value (syntax string in double quotes)",
+      "input": "@property --percent{syntax:\"<percentage>\";inherits:false;initial-value:0%;}",
+      "expected": "@property --percent{syntax:\"<percentage>\";inherits:false;initial-value:0%;}"
+    },
+    {
+      "test": "should not strip the percentage from 0 in @property, for initial-value (length-percentage)",
+      "input": "@property --percent{syntax:'<length-percentage>';inherits:false;initial-value:0%;}",
+      "expected": "@property --percent{syntax:'<length-percentage>';inherits:false;initial-value:0%;}"
+    },
+    {
+      "test": "should not strip the percentage from 0 in @property, for initial-value (length-percentage, syntax string in double quotes)",
+      "input": "@property --percent{syntax:\"<length-percentage>\";inherits:false;initial-value:0%;}",
+      "expected": "@property --percent{syntax:\"<length-percentage>\";inherits:false;initial-value:0%;}"
+    },
+    {
+      "test": "should not strip the percentage from background-color",
+      "input": "background-color:color-mix(#000, #FFF 0%);",
+      "expected": "background-color:color-mix(#000, #FFF 0%);",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from box-shadow",
+      "input": "box-shadow:inset 0 0 0 250pc hsla(0,0%,100%,.7215686275)",
+      "expected": "box-shadow:inset 0 0 0 250pc hsla(0,0%,100%,.7215686275)",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip the percentage from linear()",
+      "input": "transition-timing-function: linear(0 0%, 1 100%)",
+      "expected": "transition-timing-function: linear(0 0%, 1 100%)",
+      "passthrough": true
+    },
+    {
+      "test": "should not strip percentage from border-image-width",
+      "input": "@keyframes test {0% {border-image-width: 0 0 100% 0%;}}",
+      "expected": "@keyframes test {0% {border-image-width: 0 0 100% 0%;}}",
+      "passthrough": true
+    }
+  ]
+}

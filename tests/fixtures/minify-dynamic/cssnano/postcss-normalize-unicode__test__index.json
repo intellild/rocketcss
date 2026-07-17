@@ -1,0 +1,124 @@
+{
+  "upstream": "packages/postcss-normalize-unicode/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should convert a unicode range to a wildcard range",
+      "input": "@font-face{font-family:test;unicode-range:u+2b00-2bff}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+2b??}*{font-family:test}"
+    },
+    {
+      "test": "should convert a unicode range to a wildcard range (2)",
+      "input": "@font-face{font-family:test;unicode-range:u+1e00-1eff}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+1e??}*{font-family:test}"
+    },
+    {
+      "test": "should convert a unicode range to a wildcard range (3)",
+      "input": "@font-face{font-family:test;unicode-range:u+2120-212f}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+212?}*{font-family:test}"
+    },
+    {
+      "test": "should convert a unicode range to a wildcard range (4)",
+      "input": "@font-face{font-family:test;unicode-range:u+2100-21ff}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+21??}*{font-family:test}"
+    },
+    {
+      "test": "should convert a unicode range to a wildcard range (5)",
+      "input": "@font-face{font-family:test;unicode-range:u+2000-2fff}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+2???}*{font-family:test}"
+    },
+    {
+      "test": "should pass through a unicode range that cannot be reduced",
+      "input": "@font-face{font-family:test;unicode-range:u+0-7f}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+0-7f}*{font-family:test}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through a unicode range that cannot be reduced (2)",
+      "input": "@font-face{font-family:test;unicode-range:u+2125-2128}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+2125-2128}*{font-family:test}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through a unicode range that cannot be reduced (3)",
+      "input": "@font-face{font-family:test;unicode-range:u+2012-2f12}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+2012-2f12}*{font-family:test}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through a unicode range that cannot be reduced (4)",
+      "input": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through css variables",
+      "input": "@font-face{font-family:test;unicode-range:var(--caseInsensitive)}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:var(--caseInsensitive)}*{font-family:test}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through env variables",
+      "input": "@font-face{font-family:test;unicode-range:env(foo-bar)}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:env(foo-bar)}*{font-family:test}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through initial",
+      "input": "@font-face{font-family:test;unicode-range:initial}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:initial}*{font-family:test}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through unknown property",
+      "input": "new-property: u+2b00-2bff",
+      "expected": "new-property: u+2b00-2bff",
+      "passthrough": true
+    },
+    {
+      "test": "should downcase the unicode-range property/value pair",
+      "input": "@font-face{font-family:test;UNICODE-RANGE:U+07-F}*{font-family:test}",
+      "expected": "@font-face{font-family:test;UNICODE-RANGE:u+07-f}*{font-family:test}"
+    },
+    {
+      "test": "should upcase the \"u\" prefix (IE)",
+      "input": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:U+2002-2ff2}*{font-family:test}"
+    },
+    {
+      "test": "should upcase the \"u\" prefix (Edge 15)",
+      "input": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:U+2002-2ff2}*{font-family:test}"
+    },
+    {
+      "test": "should upcase the \"u\" prefix based on Browserslist config [legacy] env",
+      "input": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:U+2002-2ff2}*{font-family:test}"
+    },
+    {
+      "test": "should upcase the \"u\" prefix based on Browserslist config [legacy] env using webpack file path",
+      "input": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:U+2002-2ff2}*{font-family:test}"
+    },
+    {
+      "test": "should upcase the \"u\" prefix based on Browserslist config [legacy] env using custom path",
+      "input": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:U+2002-2ff2}*{font-family:test}"
+    },
+    {
+      "test": "should downcase the \"u\" prefix based on Browserslist config [modern] env",
+      "input": "@font-face{font-family:test;unicode-range:U+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}"
+    },
+    {
+      "test": "should downcase the \"u\" prefix based on Browserslist config [modern] env using webpack file path",
+      "input": "@font-face{font-family:test;unicode-range:U+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}"
+    },
+    {
+      "test": "should downcase the \"u\" prefix based on Browserslist config [modern] env using custom path",
+      "input": "@font-face{font-family:test;unicode-range:U+2002-2ff2}*{font-family:test}",
+      "expected": "@font-face{font-family:test;unicode-range:u+2002-2ff2}*{font-family:test}"
+    }
+  ]
+}

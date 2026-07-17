@@ -1,0 +1,46 @@
+{
+  "upstream": "packages/postcss-discard-unused/test/namespace.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should remove unused prefixed namespace",
+      "input": "@namespace svg url(http://www.w3.org/2000/svg);a{color:blue}",
+      "expected": "a{color:blue}"
+    },
+    {
+      "test": "should remove invalid namespace",
+      "input": "@namespace",
+      "expected": ""
+    },
+    {
+      "test": "shouldn't remove default namespace",
+      "input": "@namespace url(http://www.w3.org/2000/svg)",
+      "expected": "@namespace url(http://www.w3.org/2000/svg)",
+      "passthrough": true
+    },
+    {
+      "test": "shouldn't remove used prefixed namespace",
+      "input": "@namespace svg url(http://www.w3.org/2000/svg);svg|a{color:blue}",
+      "expected": "@namespace svg url(http://www.w3.org/2000/svg);svg|a{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "shouldn't remove prefixed namespace in case of universal selector",
+      "input": "@namespace svg url(http://www.w3.org/2000/svg);*|a{color:blue}",
+      "expected": "@namespace svg url(http://www.w3.org/2000/svg);*|a{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "shouldn't remove when namespace is used in attribute selector",
+      "input": "@namespace xlink url('http://www.w3.org/1999/xlink');svg:hover use[xlink|href*=facebook]{fill:blue}",
+      "expected": "@namespace xlink url('http://www.w3.org/1999/xlink');svg:hover use[xlink|href*=facebook]{fill:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "shouldn't remove unused prefixed namespace",
+      "input": "@namespace svg url(http://www.w3.org/2000/svg)",
+      "expected": "@namespace svg url(http://www.w3.org/2000/svg)",
+      "passthrough": true
+    }
+  ]
+}
