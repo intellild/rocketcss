@@ -42,11 +42,18 @@ cargo bench -p rocketcss_benchmark --bench minify
 ```
 
 The minifier benchmark compares `rocketcss`, Lightning CSS, and cssnano using the
-same unminified Bootstrap and Tailwind inputs. Each measured iteration includes
-parsing, minification, and serialization. cssnano runs in a persistent Node.js
-process per input; its processor is initialized once, so Node startup is
-excluded. The cssnano measurement includes the Rust/Node IPC round trip because
-Divan measures the worker request from the Rust side.
+same unminified Bootstrap and Tailwind inputs. `rocketcss` and Lightning CSS are
+measured as separate parse, minify, and codegen stages; input preparation for the
+minify and codegen stages is excluded from their measurements. cssnano still runs
+the full pipeline in a persistent Node.js process per input; its processor is
+initialized once, so Node startup is excluded. The cssnano measurement includes
+the Rust/Node IPC round trip because Divan measures the worker request from the
+Rust side.
+
+The `Benchmark` workflow publishes one table per input with parse, minify,
+codegen, and total columns. The `rocketcss` and Lightning CSS totals sum their
+three measured stage medians, while the cssnano total is its measured end-to-end
+median and its stage cells are left blank.
 
 `rocketcss` currently runs only node-local, in-place normalization, while the other
 tools include broader cross-rule passes. Treat this as an implementation-cost
@@ -55,7 +62,7 @@ comparison rather than feature-equivalent minifier throughput.
 By default, the benchmark loads cssnano from a sibling `cssnano` checkout. When
 that checkout is not available, the cssnano comparison is skipped instead of
 failing the benchmark run. The manually dispatched `Benchmark` workflow checks
-out a pinned cssnano revision and publishes both input comparisons to the job
+out a pinned cssnano revision and publishes the per-input tables to the job
 summary. Set `CSSNANO_DIR` when it lives elsewhere, and set `NODE` to override
 the Node.js executable:
 
