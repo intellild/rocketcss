@@ -1,5 +1,8 @@
 # Parser fixtures intentionally include invalid and minified CSS.
 tests/fixtures/
 
+# Synced upstream test sources stay byte-for-byte identical to upstream.
+tests/upstream-sources/
+
 # Benchmark inputs preserve their upstream formatting.
 tasks/benchmark/files/

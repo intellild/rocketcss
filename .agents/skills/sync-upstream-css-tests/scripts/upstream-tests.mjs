@@ -24,7 +24,7 @@ import { $, chalk } from "zx";
 $.verbose = false;
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, "../../..");
+const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, "../../../..");
 const DEFAULT_SNAPSHOT_ROOT = path.join(
   REPOSITORY_ROOT,
   "tests/upstream-sources",
@@ -291,7 +291,7 @@ async function localFixtureSummary() {
     "utf8",
   );
   const skipFunction = harnessSource.slice(
-    harnessSource.indexOf("fn requires_nonlocal_or_rebuilding_transform"),
+    harnessSource.indexOf("fn still_requires_unsupported_transform"),
   );
   const skippedPatterns = [
     ...skipFunction.matchAll(/"(\/(?:cssnano|lightningcss)\/[^"\n]+\/)"/g),

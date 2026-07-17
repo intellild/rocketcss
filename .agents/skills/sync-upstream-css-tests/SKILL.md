@@ -40,14 +40,38 @@ Override them with `--lightningcss`, `--cssnano`, `LIGHTNINGCSS_DIR`, or
 `CSSNANO_DIR`. Use `--project lightningcss` or `--project cssnano` to limit the
 operation. Use `--snapshot` for isolated validation in a temporary directory.
 
-After synchronizing, port relevant cases into `tests/fixtures/minify`. If a
+After synchronizing, port relevant cases into `../../../tests/fixtures/minify`. If a
 case cannot run yet, preserve it and add an explicit skip in
-`tests/src/minify.rs`; do not report it as covered.
+`../../../tests/src/minify.rs`; do not report it as covered.
 
 The implementation is in `scripts/upstream-tests.mjs`. Keep its file selection
 rules broad enough to include `test`, `tests`, and `__tests__` directories,
 JavaScript `*.test.*`/`*.spec.*` files, CSSNano test helpers, and Rust files
 containing inline tests.
+
+## Dynamic fixtures
+
+CSSNano builds many cases dynamically — helpers wrap values in declaration
+templates and suites loop over keyword lists — so static source snapshots and
+hand-ported fixtures cannot capture them. Record those cases into runnable
+specs:
+
+```sh
+pnpm record-dynamic-cases
+```
+
+The recorder (`scripts/record-dynamic-cases.mjs`) executes the upstream test
+files with `node:test` and `util/testHelpers.js` stubbed, and writes every
+concrete `(input, expected)` pair to `../../../tests/fixtures/minify-dynamic/cssnano`.
+Run it after `pnpm upstream-tests sync`; by default it reads the checked-in
+snapshot. Pass `--cssnano /path/to/cssnano` to record from a live checkout,
+which also captures cases built from runtime data files the snapshot omits
+(the log marks files with `stubbed requires` when that happens).
+
+`../../../tests/src/minify_dynamic.rs` expands and runs the recorded cases at
+test time. Cases RocketCSS cannot handle yet stay in the specs and are skipped
+explicitly in `still_requires_unsupported_transform`, mirroring the static
+skip list.
 
 ## Parser corpus
 
