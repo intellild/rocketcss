@@ -137,6 +137,28 @@ impl ToCss for BackgroundRepeat {
 
 impl ToCss for Background<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        if matches!(&*self.image, Image::None)
+            && is_zero_background_position(&self.position)
+            && matches!(
+                &*self.size,
+                BackgroundSize::Explicit { height, width }
+                    if matches!(&**height, LengthPercentageOrAuto::Auto)
+                        && matches!(&**width, LengthPercentageOrAuto::Auto)
+            )
+            && matches!(
+                &*self.repeat,
+                BackgroundRepeat {
+                    x: BackgroundRepeatKeyword::Repeat,
+                    y: BackgroundRepeatKeyword::Repeat,
+                }
+            )
+            && self.attachment == BackgroundAttachment::Scroll
+            && self.origin == BackgroundOrigin::PaddingBox
+            && self.clip == BackgroundClip::BorderBox
+        {
+            return self.color.to_css(dest);
+        }
+
         self.image.to_css(dest)?;
         dest.write_char(' ')?;
         self.position.to_css(dest)?;
@@ -161,6 +183,18 @@ impl ToCss for Background<'_> {
         dest.write_char(' ')?;
         self.color.to_css(dest)
     }
+}
+
+fn is_zero_background_position(position: &BackgroundPosition<'_>) -> bool {
+    fn is_zero(component: &PositionComponent<'_, impl Sized>) -> bool {
+        matches!(
+            component,
+            PositionComponent::Length(value)
+                if matches!(&**value, DimensionPercentage::Percentage(0.0) | DimensionPercentage::Zero)
+        )
+    }
+
+    is_zero(&position.x) && is_zero(&position.y)
 }
 
 impl ToCss for BoxShadow<'_> {

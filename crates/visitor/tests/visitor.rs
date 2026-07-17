@@ -104,6 +104,10 @@ fn mutable_visitor_can_transform_typed_nodes() {
     assert!(matches!(
         rule.declarations.declarations[0],
         Declaration::Color(ref color)
-            if matches!(**color, CssColor::Rgba(RGBA { red: 1, green: 0, blue: 0, alpha: 255 }))
+            if matches!(
+                **color,
+                CssColor::Known(color)
+                    if color.rgba() == RGBA { red: 1, green: 0, blue: 0, alpha: 255 }
+            )
     ));
 }

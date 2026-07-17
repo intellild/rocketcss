@@ -453,6 +453,14 @@ mod tests {
     }
 
     #[test]
+    fn preserves_blue_identifiers_in_untyped_values() {
+        assert_eq!(
+            run("a{--theme:blue;unknown:blue;background:blue;color:blue}"),
+            "a{--theme:blue;unknown:blue;background:#00f;color:#00f}"
+        );
+    }
+
+    #[test]
     fn folds_calc_values_in_the_existing_function_node() {
         let mut options = MinifyOptions::default();
         options

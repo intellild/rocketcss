@@ -4,6 +4,7 @@ impl ToCss for CssColor<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::CurrentColor => dest.write_str("currentColor"),
+            Self::Known(value) => value.rgba().to_css(dest),
             Self::Rgba(value) => value.to_css(dest),
             Self::Lab(value) => value.to_css(dest),
             Self::Predefined(value) => value.to_css(dest),

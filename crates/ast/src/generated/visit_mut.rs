@@ -20,6 +20,10 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
+    fn visit_known_color(&mut self, node: &mut KnownColor) {
+        VisitMut::visit_mut_children(node, self);
+    }
+    #[inline]
     fn visit_rgba(&mut self, node: &mut RGBA) {
         VisitMut::visit_mut_children(node, self);
     }
