@@ -983,3 +983,358 @@ normalize it during an explicitly enabled transform or minification pass.
 - Guardrail: a legacy direction-selector fallback can raise specificity. Use
   `:where()` only when targets support it; otherwise retain native syntax or
   document the unavoidable semantic-versus-cascade tradeoff.
+
+## 2026-07-17: issue batch 27
+
+### [#1292: Chaining pseudo-class after ::picker is not allowed](https://github.com/parcel-bundler/lightningcss/issues/1292)
+
+- Category: pseudo-element compatibility and selector validation.
+- Status: RocketCSS parses `select::picker(select):not(:popover-open)` as a
+  valid selector chain. The parser currently maps `::picker` to
+  `PseudoElement::CustomFunction { name: "picker", .. }` and does not reject
+  pseudo-classes following pseudo-elements. There is no chaining validation.
+- Test coverage: `preserves_picker_pseudo_element_and_allows_chaining_pseudo_class`
+  in `crates/parser/tests/parser.rs` verifies the full selector chain parses.
+- Guardrail: if validation is tightened in the future, preserve the chained
+  `:not(:popover-open)` and report a diagnostic rather than discarding it.
+
+### [#1291: Unexpected display:flex transform with vendor prefixes](https://github.com/parcel-bundler/lightningcss/issues/1291)
+
+- Category: target-aware vendor-prefix removal.
+- Status: RocketCSS preserves authored `display: flex` alongside vendor-prefixed
+  variants (`-webkit-box`, `-moz-box`, `-ms-flexbox`). It has no browser-target
+  model and therefore does not remove prefix declarations.
+- Guardrail: future target-aware prefix removal must keep the unprefixed
+  declaration and drop only vendor-prefixed versions that are proven redundant
+  for the target set. Never remove `display: flex` while keeping prefixed
+  fallbacks.
+
+### [#1286: Unexpected transformation of x units in image-set()](https://github.com/parcel-bundler/lightningcss/issues/1286)
+
+- Category: target-aware resolution-unit lowering in image-set().
+- Status: RocketCSS has typed `ImageSet` and `Resolution` AST nodes and
+  preserves `1x` resolution units as authored. It has no browser-target model
+  and therefore does not convert `x` to `dppx`.
+- Guardrail: future target-aware unit conversion must only convert `x` to
+  `dppx` when all targets support `dppx` in `image-set()`. When variables or
+  unsupported targets are present, preserve authored `x` units.
+
+### [#1283: animation-timeline:view() incorrectly merged into shorthand](https://github.com/parcel-bundler/lightningcss/issues/1283)
+
+- Category: animation shorthand expansion and scroll-driven animation
+  compatibility.
+- Status: RocketCSS does **not** have this bug. Animation properties are parsed
+  as unparsed tokens (no typed shorthand expansion). The minifier reorders
+  values within each shorthand layer but does not merge `animation-timeline`
+  into the `animation` shorthand. Minifier tests confirm `animation-timeline:
+  view()` and `animation-timeline: scroll()` are preserved as separate
+  declarations.
+- Test coverage: `preserves_cascade_sensitive_declaration_order` and
+  `preserves_scroll_driven_animation_duration_auto_semantics` in
+  `crates/minify/src/lib.rs`.
+
+### [#1279: Simplify division of like units to unitless constant](https://github.com/parcel-bundler/lightningcss/issues/1279)
+
+- Category: calc-value simplification optimization.
+- Status: RocketCSS has typed calc values but does not perform unit-cancellation
+  simplification (e.g., `calc(4px / 2px)` to `2`).
+- Guardrail: any future simplification must only cancel identical units and
+  preserve the original value when cancellation is not provable (variables,
+  unknown units, mixed units). Never guess unit identity.
+
+### [#1272: Support for color-interpolation-method in gradients](https://github.com/parcel-bundler/lightningcss/issues/1272)
+
+- Category: evolving CSS Color Level 4 gradient syntax.
+- Status: RocketCSS has no typed representation for `<color-interpolation-method>`
+  in gradients. The `in <color-space>` syntax before gradient color stops is
+  not parsed.
+- Current preservation: gradient functions with unrecognized interpolation
+  methods are retained as recursive function tokens in unparsed declarations.
+- Guardrail: preserve the full gradient function tokens including the
+  interpolation method, color space, and hue modifier until a typed
+  representation exists. Never strip or reorder the method argument.
+
+## 2026-07-17: issue batch 28
+
+### [#1260: Incompatible selectors dropped after rule merging](https://github.com/parcel-bundler/lightningcss/issues/1260)
+
+- Category: target-aware selector splitting and rule-merging ordering.
+- Status: RocketCSS has no browser-target model, no selector splitting, and no
+  rule merging. Incompatible selectors are preserved as authored.
+- Guardrail: future rule merging must materialize incompatible selector rules
+  before draining declarations into a merged rule. Never drop a selector branch
+  because its declarations were consumed by a prior merge.
+
+### [#1256: view-transition-name: match-element incorrectly transformed](https://github.com/parcel-bundler/lightningcss/issues/1256)
+
+- Category: CSS Modules scoped-name transformation.
+- Status: RocketCSS has no CSS Modules compilation. `view-transition-name` is a
+  known property with typed values; `match-element` is a CSS keyword, not a
+  custom identifier.
+- Guardrail: future module scoping must treat `match-element` as a reserved
+  keyword and never hash or rename it. `auto` and `none` have the same
+  constraint.
+
+### [#1255: Support Relative Alpha Colors (alpha() function)](https://github.com/parcel-bundler/lightningcss/issues/1255)
+
+- Category: evolving CSS Color Level 5 relative color syntax.
+- Status: RocketCSS has no typed `alpha()` function or relative color
+  representation. The `alpha()` function is retained as a recursive function
+  token in an unparsed declaration.
+- Guardrail: preserve the complete `alpha()` function, its color argument, and
+  optional alpha modifier until a typed representation exists.
+
+### [#1252: Colour precision too high](https://github.com/parcel-bundler/lightningcss/issues/1252)
+
+- Category: color value rounding and precision normalization.
+- Status: RocketCSS has no color conversion or target-based color fallback
+  generation. Authored color values are preserved as-is; no additional precision
+  is introduced.
+- Guardrail: future color conversion must round near-zero lab/oklab a/b channels
+  to 0 when they are below the precision threshold. Never introduce floating-point
+  noise that makes visually identical colors differ.
+
+### [#1246: Logical border-radius polyfill hoisted into pseudo classes](https://github.com/parcel-bundler/lightningcss/issues/1246)
+
+- Category: target-aware logical-property lowering and nesting.
+- Status: RocketCSS has no logical-property lowering or browser-target model.
+  `border-start-start-radius` and other logical border-radius properties are
+  preserved as authored.
+- Guardrail: future logical-property lowering must apply to the base rule and
+  its nested pseudo-class branches independently. The `:lang()` wrapper required
+  for direction detection must be added to each branch without removing the
+  base-rule declaration.
+
+### [#1244: ::details-content::before pseudo element chaining errors](https://github.com/parcel-bundler/lightningcss/issues/1244)
+
+- Category: element-backed pseudo-element chaining compatibility.
+- Status: RocketCSS parses `::details-content::before` successfully. The parser
+  maps `::details-content` to `PseudoElement::Custom { name: "details-content" }`
+  and chains `::before` via `PseudoElement::Before`. The parser does not reject
+  pseudo-element chains.
+- Test coverage: `preserves_details_content_chained_with_before_pseudo_element`
+  in `crates/parser/tests/parser.rs` verifies the full chain parses.
+- Guardrail: if validation is tightened, `::details-content` must be recognized
+  as an element-backed pseudo-element that allows subsequent pseudo-elements and
+  pseudo-classes, per the spec's element-backed exception.
+
+## 2026-07-17: issue batch 29
+
+### [#1239: Pseudo-element arg inside :has()/:is()/:where() is dropped](https://github.com/parcel-bundler/lightningcss/issues/1239)
+
+- Category: selector validation and lossless preservation.
+- Status: RocketCSS parses `video:not(:has(::backdrop))` as a valid selector
+  chain and preserves the `::backdrop` pseudo-element inside `:has()`. The
+  parser does not drop pseudo-element arguments from forgiving selectors.
+- Test coverage: `preserves_pseudo_element_arg_inside_has_selector` in
+  `crates/parser/tests/parser.rs` verifies the selector is preserved.
+- Guardrail: never drop a pseudo-element argument from `:has()`, `:is()`, or
+  `:where()` — an empty `()` is invalid and the original argument has defined
+  browser behavior even if the spec is unsettled.
+
+### [#1234: Transpile font-width to font-stretch](https://github.com/parcel-bundler/lightningcss/issues/1234)
+
+- Category: target-aware property alias transpilation.
+- Status: RocketCSS has no browser-target model and preserves `font-width` as a
+  separate known property.
+- Guardrail: `font-width` and `font-stretch` are aliases in the spec. A future
+  transpilation pass may emit one or both based on targets, but never silently
+  drop the authored property.
+
+### [#1225: Minification reorders duplicate declarations with var()](https://github.com/parcel-bundler/lightningcss/issues/1225)
+
+- Category: declaration deduplication and variable safety.
+- Status: RocketCSS minifies declarations but does not reorder them across
+  shorthand/longhand boundaries. `position`, `direction`, and `unicode-bidi`
+  with `var()` are preserved in authored order.
+- Guardrail: deduplication must never reorder a declaration containing `var()`
+  after a shorthand that resets it. Variable-containing values are opaque and
+  must preserve their cascade position.
+
+### [#1224: New color-mix() features](https://github.com/parcel-bundler/lightningcss/issues/1224)
+
+- Category: evolving CSS Color Level 5 syntax.
+- Status: RocketCSS has no typed `color-mix()` representation. The function
+  is retained as recursive function tokens in unparsed declarations.
+- Guardrail: preserve the complete `color-mix()` tokens including optional
+  interpolation method and variadic color arguments. When typed representation
+  is added, the optional `<color-interpolation-method>` must default to `oklab`
+  and variadic arguments must be supported.
+
+### [#1222: @layer ordering declaration silently dropped](https://github.com/parcel-bundler/lightningcss/issues/1222)
+
+- Category: cascade-layer ordering and rule merging.
+- Status: RocketCSS preserves `@layer` statements and blocks in authored order.
+  It does not merge or drop layer ordering declarations.
+- Guardrail: `@layer one, two;` is a statement that establishes layer order and
+  must never be dropped even when followed by `@layer` blocks. It is distinct
+  from `@layer one { ... }` which defines layer contents.
+
+### [#1221: font-family: monospace, monospace should not deduplicate](https://github.com/parcel-bundler/lightningcss/issues/1221)
+
+- Category: font-family deduplication and browser quirks compatibility.
+- Status: RocketCSS currently deduplicates `monospace, monospace` to
+  `monospace` in its minifier. This is a known issue — the duplication is
+  load-bearing for legacy browser font-size behavior where `monospace` alone
+  defaults to a smaller size.
+- Current behavior: the `font_family_deduplication_is_configurable` test
+  already allows disabling deduplication via `DEDUPLICATE_LISTS` flag.
+- Guardrail: `monospace` appearing as the sole family after deduplication
+  must be preserved as `monospace, monospace` to avoid changing font-size
+  rendering in browsers. This applies only to `monospace` as the only family;
+  `monospace, serif` need not duplicate.
+
+### [#1211: :-webkit-any(:lang()) and :-moz-any(:lang()) rules dropped](https://github.com/parcel-bundler/lightningcss/issues/1211)
+
+- Category: target-aware vendor-prefix selector removal.
+- Status: RocketCSS preserves `:-webkit-any()` and `:-moz-any()` as typed
+  `SelectorComponent::Any` selectors. It has no browser-target model and
+  therefore does not drop them.
+- Guardrail: future target-aware prefix removal must only drop vendor-prefixed
+  selectors when the unprefixed equivalent is supported by all targets. When
+  all rules containing a selector would be dropped, preserve the complete rule.
+
+### [#1210: Support multiple comma-separated queries in @container](https://github.com/parcel-bundler/lightningcss/issues/1210)
+
+- Category: evolving CSS Containment Level 3 syntax.
+- Status: RocketCSS has typed `@container` rule support. Multiple comma-separated
+  container queries are not yet parsed.
+- Current preservation: `@container` rules with multiple comma-separated
+  queries may fall back to unparsed prelude tokens.
+- Guardrail: comma-separated queries in `@container` represent OR semantics
+  and must be parsed as a list of conditions. Until supported, preserve the
+  complete prelude.
+
+### [#1207: Property reordering causes font shorthand to override longhands](https://github.com/parcel-bundler/lightningcss/issues/1207)
+
+- Category: minification property ordering and cascade safety.
+- Status: RocketCSS does not reorder declarations across shorthand/longhand
+  boundaries. The `font` shorthand and `font-variant-numeric` longhand are
+  preserved in authored order.
+- Guardrail: a shorthand must never be moved after a longhand it resets.
+  `font` resets all `font-variant-*` sub-properties, so `font-variant-numeric`
+  must remain after `font` in the cascade.
+
+### [#1214: transition shorthand incorrectly combines inherit](https://github.com/parcel-bundler/lightningcss/issues/1214)
+
+- Category: shorthand expansion with CSS-wide keywords.
+- Status: RocketCSS parses transition properties as unparsed tokens and does
+  not expand or collapse shorthands. `transition: inherit` and
+  `transition-property: bar` are preserved as separate declarations.
+- Guardrail: `inherit`, `initial`, `unset`, and `revert` are CSS-wide keywords
+  that cannot be meaningfully combined with longhand sub-properties. A shorthand
+  with a CSS-wide keyword must not be expanded or merged with longhands.
+
+### [#1202: :has-slotted is flagged as invalid](https://github.com/parcel-bundler/lightningcss/issues/1202)
+
+- Category: selector validation and evolving spec syntax.
+- Status: RocketCSS parses `:has-slotted` as `PseudoClass::Custom` and
+  preserves it without warnings. The parser has no validation step that flags
+  unknown pseudo-classes.
+- Test coverage: `preserves_has_slotted_pseudo_class` in
+  `crates/parser/tests/parser.rs` verifies the pseudo-class is preserved.
+- Guardrail: `:has-slotted` is a valid pseudo-class per the CSS Shadow Parts
+  spec. Never suggest it should be a pseudo-element or flag it as a typo.
+
+## 2026-07-17: issue batch 30
+
+### [#1182: place-self shorthand incorrectly collapses justify-self:auto](https://github.com/parcel-bundler/lightningcss/issues/1182)
+
+- Category: shorthand expansion and cascade safety.
+- Status: RocketCSS parses `align-self` and `justify-self` as separate known
+  properties and does not collapse them into `place-self`. No shorthand
+  expansion or collapse exists for these properties.
+- Guardrail: `place-self: self-start` is not equivalent to `align-self:
+  self-start; justify-self: auto` because `auto` resolves to `stretch` in grid
+  layout. Never collapse distinct longhands into a shorthand without proving
+  the default values match.
+
+### [#1177: CSS Parsing error for ::scroll-marker](https://github.com/parcel-bundler/lightningcss/issues/1177)
+
+- Category: evolving CSS Overflow Module Level 5 syntax.
+- Status: RocketCSS parses `::scroll-marker`, `::scroll-marker-group`, and
+  `::scroll-button` as `PseudoElement::Custom`, preserving them losslessly.
+  No typed AST variants exist for these experimental pseudo-elements.
+- Test coverage: `preserves_scroll_button_and_scroll_marker_pseudo_elements`
+  in `crates/parser/tests/parser.rs`.
+- Guardrail: experimental pseudo-elements must round-trip as custom variants
+  until the spec stabilizes. Never flag them as errors or suggest they are
+  pseudo-classes.
+
+### [#1175: Without targets nesting produces invalid CSS](https://github.com/parcel-bundler/lightningcss/issues/1175)
+
+- Category: CSS nesting serialization and target-aware lowering.
+- Status: RocketCSS preserves native nesting without lowering. It does not add
+  `&` to bare child selectors and does not produce invalid output.
+- Guardrail: nesting serialization must distinguish authored implicit nesting
+  from explicit `&`. Bare class and type selectors must remain unchanged by
+  default. Only target-aware lowering may add `&` for forms unsupported by
+  those targets.
+
+### [#1146: border-image shorthand incorrectly parsed as empty value](https://github.com/parcel-bundler/lightningcss/issues/1146)
+
+- Category: shorthand expansion and lossless preservation.
+- Status: RocketCSS has no typed `border-image` shorthand expansion. The
+  shorthand and its longhands are preserved as authored.
+- Guardrail: `border-image: none; border-image-source: unknown` must not
+  produce an empty `border-image` value. When a longhand value is unknown or
+  invalid, preserve the complete declaration pair.
+
+### [#1103: Keyframe including invalid code is removed](https://github.com/parcel-bundler/lightningcss/issues/1103)
+
+- Category: error recovery and keyframe rule preservation.
+- Status: RocketCSS preserves `@keyframes` rules with their keyframe selectors
+  and declarations. Invalid `@supports` nested inside keyframes would be
+  rejected in strict mode but preserved in recovery.
+- Guardrail: browsers ignore invalid constructs inside keyframes (like
+  `@supports`) but preserve the valid declarations. Recovery must preserve the
+  valid keyframe content while discarding only the invalid nested rule.
+
+### [#1084: CSS properties sorting breaks cascade](https://github.com/parcel-bundler/lightningcss/issues/1084)
+
+- Category: minification property ordering and cascade safety.
+- Status: RocketCSS does not reorder declarations across shorthand/longhand
+  boundaries. `transition-behavior: allow-discrete` remains after `transition`
+  shorthand in authored order.
+- Guardrail: `transition` shorthand resets `transition-behavior`. A longhand
+  that appears after the shorthand must not be moved before it. Declaration
+  reordering must be constrained to same-property or cascade-safe groups.
+
+### [#1073: Nested :has(+ &) is rewritten incorrectly](https://github.com/parcel-bundler/lightningcss/issues/1073)
+
+- Category: nesting lowering and relative selector correctness.
+- Status: RocketCSS preserves native nesting without lowering. `:has(+ &)` is
+  preserved as authored.
+- Guardrail: `:has(+ &)` in a nested context means "the parent has a preceding
+  sibling matching this". Lifting this to `:has(+ .container .style-previous)`
+  changes the selector semantics. Any future nesting lowering must prove
+  selector equivalence before lifting.
+
+### [#1072: CSS Parsing error for :scroll-button](https://github.com/parcel-bundler/lightningcss/issues/1072)
+
+- Category: evolving CSS Overflow Module Level 5 pseudo-class syntax.
+- Status: RocketCSS parses `:scroll-button` as `PseudoClass::Custom` and
+  preserves it losslessly. The parser has no typed variant for this
+  experimental pseudo-class.
+- Test coverage: included in `preserves_scroll_button_and_scroll_marker_pseudo_elements`.
+- Guardrail: `:scroll-button` is a pseudo-class (not a pseudo-element). Never
+  suggest the `::` spelling or flag it as a typo.
+
+### [#1069: Fails to parse range syntax in container style queries](https://github.com/parcel-bundler/lightningcss/issues/1069)
+
+- Category: evolving CSS Conditional Rules Level 5 syntax.
+- Status: RocketCSS has typed `@container` rule support but does not parse
+  range syntax like `style(1em < 20px)` in container queries. Unknown prelude
+  syntax falls back to generic token preservation.
+- Guardrail: `@container style(1em < 20px)` must be preserved with its
+  complete prelude and block. Until range syntax is supported, treat unknown
+  style-query syntax as a preservation barrier.
+
+### [#1067: Adjacent vendor pseudo-elements aren't merged](https://github.com/parcel-bundler/lightningcss/issues/1067)
+
+- Category: rule merging and vendor-prefix pseudo-element identity.
+- Status: RocketCSS does not merge adjacent style rules. Identical vendor
+  pseudo-element selectors are preserved as separate rules.
+- Guardrail: `::-webkit-scrollbar` is a vendor-specific pseudo-element. Rule
+  merging must prove selector identity before collapsing declarations. Never
+  merge rules with different pseudo-elements or different selector lists.

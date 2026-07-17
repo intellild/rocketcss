@@ -1152,3 +1152,142 @@ fn extracts_source_directives_in_parser_layer() {
     assert_eq!(parser.current_source_url(), Some("original.scss"));
     assert_eq!(parser.current_source_map_url(), Some("style.css.map"));
 }
+
+#[test]
+fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
+    let allocator = Allocator::new();
+    let source = "select::picker(select):not(:popover-open) { color: red }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 1);
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.selectors.len(), 1);
+
+    let selector = &rule.selectors[0];
+    assert_eq!(selector.len(), 3);
+
+    assert!(matches!(
+        &selector[0],
+        SelectorComponent::LocalName { name: "select", .. }
+    ));
+
+    assert!(matches!(
+        &selector[1],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::CustomFunction { name: "picker", .. })
+    ));
+
+    assert!(matches!(
+        &selector[2],
+        SelectorComponent::Negation(_)
+    ));
+
+    assert_eq!(rule.declarations.declarations.len(), 1);
+}
+
+#[test]
+fn preserves_details_content_chained_with_before_pseudo_element() {
+    let allocator = Allocator::new();
+    let source = "::details-content::before { background-color: red }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 1);
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.selectors.len(), 1);
+
+    let selector = &rule.selectors[0];
+    assert_eq!(selector.len(), 2);
+
+    assert!(matches!(
+        &selector[0],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Custom { name: "details-content" })
+    ));
+
+    assert!(matches!(
+        &selector[1],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Before)
+    ));
+
+    let Declaration::BackgroundColor(_) = &rule.declarations.declarations[0] else {
+        panic!("expected background-color declaration")
+    };
+}
+
+#[test]
+fn preserves_has_slotted_pseudo_class() {
+    let allocator = Allocator::new();
+    let source = "slot:has-slotted { display: none }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.selectors.len(), 1);
+
+    let selector = &rule.selectors[0];
+    assert_eq!(selector.len(), 2);
+
+    assert!(matches!(
+        &selector[0],
+        SelectorComponent::LocalName { name: "slot", .. }
+    ));
+
+    assert!(matches!(
+        &selector[1],
+        SelectorComponent::PseudoClass(pc)
+            if matches!(**pc, PseudoClass::Custom { name: "has-slotted" })
+    ));
+}
+
+#[test]
+fn preserves_pseudo_element_arg_inside_has_selector() {
+    let allocator = Allocator::new();
+    let source = "video:not(:has(::backdrop)) { color: red }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.selectors.len(), 1);
+
+    let selector = &rule.selectors[0];
+    assert_eq!(selector.len(), 2);
+
+    assert!(matches!(
+        &selector[0],
+        SelectorComponent::LocalName { name: "video", .. }
+    ));
+
+    assert!(matches!(
+        &selector[1],
+        SelectorComponent::Negation(_)
+    ));
+}
+
+#[test]
+fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
+    let allocator = Allocator::new();
+    let source = "::scroll-button { color: red } .carousel > *::scroll-marker { content: '' }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 2);
+
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected scroll-button style rule")
+    };
+    assert!(matches!(
+        &rule.selectors[0][0],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Custom { name: "scroll-button" })
+    ));
+
+    let CssRule::Style(rule) = &sheet.rules[1] else {
+        panic!("expected scroll-marker style rule")
+    };
+    assert!(matches!(
+        &rule.selectors[0][3],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Custom { name: "scroll-marker" })
+    ));
+}

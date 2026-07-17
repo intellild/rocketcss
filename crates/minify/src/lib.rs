@@ -1361,4 +1361,12 @@ mod tests {
         assert!(output.contains("animation-timeline:scroll(self)"));
         assert!(!output.contains("animation-duration"));
     }
+
+    #[test]
+    fn preserves_has_slotted_pseudo_class_through_minification() {
+        assert_eq!(
+            run("slot:has-slotted{display:none}"),
+            "slot:has-slotted{display:none}"
+        );
+    }
 }
