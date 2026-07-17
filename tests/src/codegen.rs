@@ -20,3 +20,26 @@ fn prints_expected_css() {
         assert_eq!(actual, expected, "fixture: {}", input.display());
     }
 }
+
+#[test]
+fn preserves_leading_license_comments_in_all_output_modes() {
+    let allocator = Allocator::new();
+    let stylesheet = parse(
+        "/*! first */ /*! second */ /* ordinary */ a { color: red; }",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .expect("stylesheet should parse");
+
+    let pretty = stylesheet
+        .to_css_string(PrinterOptions { prettify: true })
+        .expect("stylesheet should print in pretty mode");
+    let compact = stylesheet
+        .to_css_string(PrinterOptions { prettify: false })
+        .expect("stylesheet should print in compact mode");
+
+    assert!(pretty.starts_with("/*! first */\n/*! second */\n"));
+    assert!(compact.starts_with("/*! first *//*! second */"));
+    assert!(!pretty.contains("ordinary"));
+    assert!(!compact.contains("ordinary"));
+}

@@ -984,6 +984,7 @@ fn minify_unparsed_declaration<'ast, 'cx>(
     cx.value_context = crate::properties::value_context(
         &value.property_id,
         cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
+        cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any),
         cx.is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
     );
     value.minify(cx);

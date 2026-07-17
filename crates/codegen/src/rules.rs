@@ -2056,7 +2056,7 @@ impl ToCss for UnknownAtRule<'_> {
         serialize_identifier(self.name, dest)?;
         if !self.prelude.is_empty() {
             dest.write_char(' ')?;
-            crate::token::write_token_list(&self.prelude, dest)?;
+            crate::token::write_token_list_trimmed(&self.prelude, dest)?;
         }
         if let Some(block) = &self.block {
             write_block(dest, |dest| crate::token::write_token_list(block, dest))

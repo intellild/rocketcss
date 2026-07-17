@@ -348,6 +348,7 @@ fn invalid_selector_reports_source_location() {
 
     assert_eq!(error.filename, "broken.css");
     assert_eq!(error.location.line, 0);
+    assert_eq!(error.location.column, 4);
     assert!(matches!(
         error.kind,
         rocketcss_parser::ParserError::InvalidSelector
@@ -678,6 +679,35 @@ fn enforces_import_and_namespace_order_like_lightningcss() {
         CssRule::Charset(rule)
             if rule.encoding == "UTF-8" && rule.span == Span::new(0, 17)
     ));
+
+    let interrupted_import = parse(
+        "@import \"a.css\";\n@layer reset,base;\n@import \"b.css\" layer(base);",
+        &allocator,
+        ParserOptions {
+            filename: "layers.css",
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        interrupted_import.kind,
+        rocketcss_parser::ParserError::UnexpectedImportRule
+    ));
+    assert_eq!(interrupted_import.filename, "layers.css");
+    assert_eq!(interrupted_import.location.line, 2);
+    assert!(
+        interrupted_import
+            .to_string()
+            .contains("initial @layer statements")
+    );
+
+    let initial_layers = parse(
+        "@layer reset,base;@import \"a.css\";@import \"b.css\";",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(initial_layers.rules.len(), 3);
 }
 
 #[test]
@@ -758,6 +788,52 @@ fn declaration_error_recovery_continues_at_semicolon() {
     assert!(matches!(
         &style.declarations.declarations[0],
         Declaration::Width(_)
+    ));
+}
+
+#[test]
+fn declaration_like_identifier_requires_explicit_error_recovery() {
+    let allocator = Allocator::new();
+    let source = r#"div {
+        width: 100px;
+        height: 100px;
+        background: #dd6b4d;
+        fhbj32brjb3;
+    }"#;
+
+    let error = parse(source, &allocator, ParserOptions::default()).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        rocketcss_parser::ParserError::InvalidDeclaration
+    ));
+
+    let sheet = parse(
+        source,
+        &allocator,
+        ParserOptions {
+            error_recovery: true,
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style")
+    };
+
+    assert_eq!(style.declarations.declarations.len(), 3);
+    assert!(style.rules.is_empty());
+    assert!(matches!(
+        style.declarations.declarations[0],
+        Declaration::Width(_)
+    ));
+    assert!(matches!(
+        style.declarations.declarations[1],
+        Declaration::Height(_)
+    ));
+    assert!(matches!(
+        &style.declarations.declarations[2],
+        Declaration::Unparsed(value)
+            if matches!(&*value.property_id, PropertyId::Background)
     ));
 }
 
@@ -945,6 +1021,29 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
 }
 
 #[test]
+#[ignore = "the overlay property does not have typed metadata yet"]
+fn recognizes_overlay_as_a_known_property() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        "a{overlay:auto;overlay:var(--state)}",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+
+    assert!(style.declarations.declarations.iter().all(|declaration| {
+        !matches!(
+            declaration,
+            Declaration::Unparsed(value)
+                if matches!(&*value.property_id, PropertyId::Custom("overlay"))
+        )
+    }));
+}
+
+#[test]
 fn parses_property_view_transition_palette_and_nest_rules() {
     let allocator = Allocator::new();
     let source = r#"
@@ -989,6 +1088,54 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         panic!("expected style")
     };
     assert!(matches!(&style.rules[0], CssRule::Nesting(_)));
+}
+
+#[test]
+fn rejects_property_rules_nested_in_style_rules() {
+    let allocator = Allocator::new();
+    let error = parse(
+        r#".example{@property --angle{syntax:"<angle>";inherits:true;initial-value:0turn}animation:spin 3s linear infinite}"#,
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error.kind,
+        rocketcss_parser::ParserError::InvalidAtRule("property")
+    ));
+}
+
+#[test]
+fn parses_property_initial_value_edge_cases_losslessly() {
+    let allocator = Allocator::new();
+    let source = r#"
+        @property --omitted { syntax: "*"; inherits: false; }
+        @property --empty { syntax: "*"; inherits: false; initial-value:; }
+        @property --ordered {
+          initial-value: 25px;
+          inherits: true;
+          syntax: "<length>";
+        }
+    "#;
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 3);
+
+    let CssRule::Property(omitted) = &sheet.rules[0] else {
+        panic!("expected omitted property registration")
+    };
+    assert!(omitted.initial_value.is_none());
+
+    let CssRule::Property(empty) = &sheet.rules[1] else {
+        panic!("expected empty property registration")
+    };
+    assert!(empty.initial_value.is_some());
+
+    let CssRule::Property(ordered) = &sheet.rules[2] else {
+        panic!("expected ordered property registration")
+    };
+    assert!(ordered.inherits);
+    assert!(ordered.initial_value.is_some());
 }
 
 #[test]

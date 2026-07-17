@@ -140,6 +140,8 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
             &node.property_id,
             self.cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
             self.cx
+                .is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any),
+            self.cx
                 .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
         node.visit_mut_children(self);
@@ -178,7 +180,12 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
                     | context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
                 false,
             ),
-            KnownFunction::ColorMix | KnownFunction::Linear => self.cx.value_context.set_enabled(
+            KnownFunction::ColorMix => self.cx.value_context.set_enabled(
+                context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE
+                    | context::ValueContextFlags::MINIFY_COLORS,
+                false,
+            ),
+            KnownFunction::Linear => self.cx.value_context.set_enabled(
                 context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
                 false,
             ),
@@ -328,6 +335,17 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "unparsed selectors must remain an unforgiving-list barrier"]
+    fn preserves_unparsed_selector_list_barriers() {
+        assert_eq!(
+            run_with_error_recovery(
+                ".valid,(font-[family-name:var(--font-*)]),#also-valid{color:red}"
+            ),
+            ".valid,(font-[family-name:var(--font-*)]),#also-valid{color:red}"
+        );
+    }
+
+    #[test]
     fn removes_style_rules_containing_only_unparsed_selectors() {
         assert_eq!(
             run_with_error_recovery("(font-[family-name:var(--font-*)]) { color: red }"),
@@ -346,6 +364,11 @@ mod tests {
             "a{transition-duration:.5s;transform:rotate(90deg)}"
         );
         assert_eq!(run("a{MARGIN:1px 1px 1px 1px}"), "a{margin:1px}");
+    }
+
+    #[test]
+    fn leaves_invalid_nonzero_unitless_lengths_unchanged() {
+        assert_eq!(run("a{width:100}"), "a{width:100}");
     }
 
     #[test]
@@ -368,11 +391,15 @@ mod tests {
         );
         assert_eq!(
             run("a{font-family:A,var(--family),a,serif}"),
-            "a{font-family:A,serif}"
+            "a{font-family:A,var(--family),serif}"
         );
         assert_eq!(
             run("a{font-family:A,serif,Helvetica;font-family:A,serif}"),
             "a{font-family:A,serif}"
+        );
+        assert_eq!(
+            run("a{font-family:Inter,system-ui,sans-serif}"),
+            "a{font-family:Inter,system-ui,sans-serif}"
         );
 
         let allocator = Allocator::new();
@@ -390,7 +417,7 @@ mod tests {
             panic!("expected typed font-family declaration")
         };
         assert!(matches!(families[0], FontFamily::Custom("A")));
-        assert!(matches!(families[1], FontFamily::Tombstone));
+        assert!(matches!(families[1], FontFamily::Unparsed(_)));
         assert!(matches!(families[2], FontFamily::Tombstone));
         assert!(matches!(families[3], FontFamily::Serif));
     }
@@ -414,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_font_family_declarations_containing_only_tombstones() {
+    fn preserves_font_family_declarations_with_unparsed_values() {
         let allocator = Allocator::new();
         let mut stylesheet = parse(
             "a{font-family:var(--family);font-family:slab inherit}",
@@ -430,14 +457,14 @@ mod tests {
             rule.declarations
                 .declarations
                 .iter()
-                .all(Declaration::is_tombstone)
+                .all(|declaration| matches!(declaration, Declaration::FontFamily(_)))
         );
-        assert_eq!(stats.declarations_removed, 2);
+        assert_eq!(stats.declarations_removed, 0);
         assert_eq!(
             stylesheet
                 .to_css_string(PrinterOptions { prettify: false })
                 .unwrap(),
-            "a{}"
+            "a{font-family:var(--family);font-family:slab inherit}"
         );
     }
 
@@ -477,6 +504,56 @@ mod tests {
     }
 
     #[test]
+    fn preserves_three_dimensional_zero_translation() {
+        assert_eq!(
+            run("a{transform:translate3d(0,0,0)}"),
+            "a{transform:translateZ(0)}"
+        );
+    }
+
+    #[test]
+    fn preserves_partial_animation_shorthand_with_infinite_iteration_count() {
+        assert_eq!(run(".foo{animation:infinite}"), ".foo{animation:infinite}");
+    }
+
+    #[test]
+    fn preserves_icss_export_syntax_without_module_semantics() {
+        assert_eq!(run(":export{rowCount:4}"), ":export{rowCount:4}");
+    }
+
+    #[test]
+    fn preserves_individual_transform_properties_as_independent_declarations() {
+        assert_eq!(
+            run(".foo{scale:1.5;translate:1rem;transform:skew(-25deg)}"),
+            ".foo{scale:1.5;translate:1rem;transform:skew(-25deg)}"
+        );
+        assert_eq!(
+            run(".bar{transform:skew(-25deg);scale:1.5;translate:1rem}"),
+            ".bar{transform:skew(-25deg);scale:1.5;translate:1rem}"
+        );
+        assert_eq!(
+            run(
+                ".bar{transition:scale .3s linear;transform:skew(10deg);scale:1.5;translate:1em}.bar:hover{scale:2}"
+            ),
+            ".bar{transition:scale .3s linear;transform:skew(10deg);scale:1.5;translate:1em}.bar:hover{scale:2}"
+        );
+    }
+
+    #[test]
+    fn preserves_authored_image_set_fallbacks_without_generating_duplicates() {
+        assert_eq!(
+            run("a{background-image:image-set(\"a.png\" 1x)}"),
+            "a{background-image:image-set(\"a.png\" 1x)}"
+        );
+        assert_eq!(
+            run(
+                "a{background-image:-webkit-image-set(\"a.png\" 1x);background-image:image-set(\"a.png\" 1x)}"
+            ),
+            "a{background-image:-webkit-image-set(\"a.png\" 1x);background-image:image-set(\"a.png\" 1x)}"
+        );
+    }
+
+    #[test]
     fn dispatches_known_functions_without_repeated_name_matching() {
         assert_eq!(
             run("a{color:RGB(255 0 0);transform:ROTATEZ(1turn)}"),
@@ -501,8 +578,46 @@ mod tests {
     }
 
     #[test]
+    fn accepts_and_minifies_native_nested_rules_without_a_feature_flag() {
+        assert_eq!(
+            run("h1.b{color:red}h1{.b{color:red}}"),
+            "h1.b{color:red}h1{.b{color:red}}"
+        );
+        assert_eq!(
+            run(".top{sub{--prop:value}& .sub{--prop:value}}"),
+            ".top{sub{--prop:value}& .sub{--prop:value}}"
+        );
+    }
+
+    #[test]
+    fn preserves_unknown_units_in_media_queries() {
+        assert_eq!(
+            run("@media screen and (max-width:_1000customPx_){.test{color:red}}"),
+            "@media screen and (max-width:_1000customPx_){.test{color:red}}"
+        );
+        assert_eq!(
+            run("@media (max-width:1000customPx){.test{color:red}}"),
+            "@media (max-width:1000customPx){.test{color:red}}"
+        );
+        assert_eq!(
+            run("@media screen and (min-width:1020 px) and (max-width:739 px){.foo{color:red}}"),
+            "@media screen and (min-width:1020 px) and (max-width:739 px){.foo{color:red}}"
+        );
+        assert_eq!(
+            run(
+                "@media (min-width:740px) and (max-width:1019px) and (min-width:1020px) and (max-width:1135px){.foo{color:red}}"
+            ),
+            "@media (width>=740px) and (width<=1019px) and (width>=765pt) and (width<=1135px){.foo{color:red}}"
+        );
+    }
+
+    #[test]
     fn deduplicates_selectors_with_structural_hashes() {
         assert_eq!(run("h1,h2,h1,h2{color:red}"), "h1,h2{color:red}");
+        assert_eq!(
+            run(".foo,.bar:baz{color:green}"),
+            ".foo,.bar:baz{color:green}"
+        );
         assert_eq!(
             run("a:custom(1),b,a:custom(1),a:custom(2),b{color:red}"),
             "a:custom(1),b,a:custom(2){color:red}"
@@ -515,8 +630,69 @@ mod tests {
             run("a:is(.x,.x,.y),a:is(.x,.x,.y){color:red}"),
             "a:is(.x,.x,.y){color:red}"
         );
+        assert_eq!(run("a{&,&{color:red}}"), "a{&{color:red}}");
+    }
+    #[test]
+    fn preserves_rules_with_long_child_selectors() {
+        assert_eq!(
+            run(".depict.plp .filters .body .input-row > .left{align-items:center;display:flex}"),
+            ".depict.plp .filters .body .input-row>.left{align-items:center;display:flex}"
+        );
     }
 
+    #[test]
+    fn avoids_expanding_transition_shorthand_and_property() {
+        assert_eq!(
+            run(
+                ".foo{transition:all .2s cubic-bezier(.4,0,.2,1);transition-property:height,width,transform,max-width,left,right,top,bottom,box-shadow}"
+            ),
+            ".foo{transition:all .2s cubic-bezier(.4,0,.2,1);transition-property:height,width,transform,max-width,left,right,top,bottom,box-shadow}"
+        );
+    }
+
+    #[test]
+    fn preserves_vendor_prefixes_in_supports_conditions() {
+        assert_eq!(
+            run(
+                "@supports ((display:-webkit-box) and (-webkit-box-orient:vertical) and (-webkit-line-clamp:3)){.foo{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3}}"
+            ),
+            "@supports ((display:-webkit-box) and (-webkit-box-orient:vertical) and (-webkit-line-clamp:3)){.foo{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3}}"
+        );
+        assert_eq!(
+            run(
+                "@supports (color:color(display-p3 0 0 0)){:root,:host{--theme:color(display-p3 1 0 0)}}"
+            ),
+            "@supports (color:color(display-p3 0 0 0)){:root,:host{--theme:color(display-p3 1 0 0)}}"
+        );
+    }
+
+    #[test]
+    fn preserves_variables_in_the_all_property() {
+        assert_eq!(
+            run(".boop{margin:1px;all:var(--all,revert-layer);margin-left:2px}"),
+            ".boop{margin:1px;all:var(--all,revert-layer);margin-left:2px}"
+        );
+    }
+
+    #[test]
+    #[ignore = "browser targets are not implemented yet"]
+    fn emits_safari_14_safe_zero_media_lengths() {
+        assert_eq!(
+            run("@media (min-width:0){a{color:red}}"),
+            "@media (min-width:0px){a{color:red}}"
+        );
+    }
+
+    #[test]
+    #[ignore = "provably false media query elimination is not implemented"]
+    fn removes_provably_false_media_queries() {
+        assert_eq!(
+            run(
+                "@media (min-width:740px) and (max-width:1019px) and (min-width:1020px) and (max-width:1135px){.foo{color:red}}"
+            ),
+            ""
+        );
+    }
     #[test]
     fn selector_deduplication_is_configurable() {
         let mut options = MinifyOptions::default();
@@ -556,6 +732,12 @@ mod tests {
         );
         assert_eq!(run("a{--x:1;--x:1}"), "a{--x:1}");
         assert_eq!(run("a{unknown:value;unknown:value}"), "a{unknown:value}");
+        assert_eq!(
+            run(
+                ".aligncenter{clear:both;clear:both;clip:auto;clip:auto;margin-left:auto;margin-left:auto;margin-right:auto;margin-right:auto;display:block;display:block}"
+            ),
+            ".aligncenter{clear:both;clip:auto;margin-left:auto;margin-right:auto;display:block}"
+        );
         assert_eq!(
             run(
                 "a{width:1px;height:1px;top:1px;right:1px;bottom:1px;left:1px;color:red;opacity:1;z-index:1;width:1px}"
@@ -598,6 +780,38 @@ mod tests {
     }
 
     #[test]
+    fn preserves_prefixed_and_standard_backdrop_filter_fallbacks() {
+        assert_eq!(
+            run(".a{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}"),
+            ".a{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}"
+        );
+        assert_eq!(
+            run(".b{-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}"),
+            ".b{-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}"
+        );
+        assert_eq!(
+            run("a{-webkit-text-size-adjust:none;text-size-adjust:none}"),
+            "a{-webkit-text-size-adjust:none;text-size-adjust:none}"
+        );
+        assert_eq!(
+            run("b{text-size-adjust:none;-webkit-text-size-adjust:none}"),
+            "b{text-size-adjust:none;-webkit-text-size-adjust:none}"
+        );
+    }
+
+    #[test]
+    fn preserves_authored_text_decoration_prefixes_without_duplication() {
+        assert_eq!(
+            run("a{color:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}"),
+            "a{color:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}"
+        );
+        assert_eq!(
+            run("a{text-decoration:inherit;-webkit-text-decoration:inherit}"),
+            "a{text-decoration:inherit;-webkit-text-decoration:inherit}"
+        );
+    }
+
+    #[test]
     fn preserves_declaration_fallbacks_and_importance() {
         assert_eq!(
             run("a{width:1px;width:2px;width:1px}"),
@@ -606,6 +820,157 @@ mod tests {
         assert_eq!(
             run("a{width:1px;width:1px!important}"),
             "a{width:1px;width:1px !important}"
+        );
+        assert_eq!(
+            run(
+                ".foo{color:red;color:var(--my-red);background-color:blue;background-color:var(--my-blue)}"
+            ),
+            ".foo{color:red;color:var(--my-red);background-color:#00f;background-color:var(--my-blue)}"
+        );
+        assert_eq!(
+            run(".test{font-size:36px;color:green}.test{color:var(--foo,revert-rule)}"),
+            ".test{font-size:36px;color:green}.test{color:var(--foo,revert-rule)}"
+        );
+        assert_eq!(
+            run("a{width:-webkit-fill-available;width:-moz-available;width:stretch}"),
+            "a{width:-webkit-fill-available;width:-moz-available;width:stretch}"
+        );
+    }
+
+    #[test]
+    fn preserves_light_dark_and_color_scheme_without_lowering() {
+        assert_eq!(
+            run(
+                ":root{--background:light-dark(white,black)}p{background:var(--background);color-scheme:dark}"
+            ),
+            ":root{--background:light-dark(#fff,#000)}p{background:var(--background);color-scheme:dark}"
+        );
+        assert_eq!(
+            run(
+                "a{border-bottom:1px solid light-dark(var(--light),var(--dark));border-color:light-dark(white,black)}"
+            ),
+            "a{border-bottom:1px solid light-dark(var(--light),var(--dark));border-color:light-dark(#fff,#000)}"
+        );
+        assert_eq!(
+            run(
+                ".dark{color-scheme:only dark}.light{color-scheme:only light}.alt{color-scheme:dark only}"
+            ),
+            ".dark{color-scheme:only dark}.light{color-scheme:only light}.alt{color-scheme:dark only}"
+        );
+        assert_eq!(
+            run(":host{color-scheme:inherit}a{color-scheme:normal}"),
+            ":host{color-scheme:inherit}a{color-scheme:normal}"
+        );
+    }
+
+    #[test]
+    fn minifies_color_keywords_in_variable_fallbacks_by_property_context() {
+        assert_eq!(
+            run("#foo{color:white}#bar{color:var(--c, white)}"),
+            "#foo{color:#fff}#bar{color:var(--c,#fff)}"
+        );
+        assert_eq!(
+            run("a{font-family:var(--family,white)}"),
+            "a{font-family:var(--family,white)}"
+        );
+    }
+
+    #[test]
+    fn preserves_cascade_sensitive_declaration_order() {
+        assert_eq!(
+            run(".item{animation:fade both;animation-timeline:scroll(root block)}"),
+            ".item{animation:fade both;animation-timeline:scroll(root block)}"
+        );
+        assert_eq!(
+            run(
+                ".header{height:1px;height:var(--header-height);block-size:auto;block-size:calc-size(auto)}"
+            ),
+            ".header{height:1px;height:var(--header-height);block-size:auto;block-size:calc-size(auto)}"
+        );
+        assert_eq!(
+            run(
+                ".foo{animation:linear foo;animation-timeline:view();animation-range:entry-crossing 1% exit-crossing 100%}"
+            ),
+            ".foo{animation:foo linear;animation-timeline:view();animation-range:entry-crossing 1% exit-crossing 100%}"
+        );
+    }
+
+    #[test]
+    fn preserves_authored_legacy_grid_fallbacks_without_targets() {
+        assert_eq!(
+            run(
+                ".grid{display:-ms-grid;display:grid;grid-auto-columns:1fr;grid-column-gap:16px;grid-row-gap:16px;-ms-grid-columns:1fr 1fr 1fr;grid-template-columns:1fr 1fr 1fr;-ms-grid-rows:auto;grid-template-rows:auto}"
+            ),
+            ".grid{display:-ms-grid;display:grid;grid-auto-columns:1fr;grid-column-gap:1pc;grid-row-gap:1pc;-ms-grid-columns:1fr 1fr 1fr;grid-template-columns:1fr 1fr 1fr;-ms-grid-rows:auto;grid-template-rows:auto}"
+        );
+    }
+
+    #[test]
+    fn preserves_new_viewport_units_instead_of_approximating_them() {
+        assert_eq!(
+            run(
+                "a{height:100dvh;min-height:100svh;max-height:100lvh;width:100dvw;min-width:100svw;max-width:100lvw}"
+            ),
+            "a{height:100dvh;min-height:100svh;max-height:100lvh;width:100dvw;min-width:100svw;max-width:100lvw}"
+        );
+    }
+
+    #[test]
+    fn preserves_logical_overflow_alongside_physical_fallbacks() {
+        assert_eq!(
+            run("a{overflow-inline:auto;overflow-block:scroll;overflow-x:hidden}"),
+            "a{overflow-inline:auto;overflow-block:scroll;overflow-x:hidden}"
+        );
+    }
+
+    #[test]
+    fn preserves_pseudo_elements_inside_where_instead_of_emptying_it() {
+        assert_eq!(
+            run(".language-diff :where(.inserted::before){content:'+'}"),
+            ".language-diff :where(.inserted:before){content:\"+\"}"
+        );
+    }
+
+    #[test]
+    fn preserves_oklch_variables_when_fallback_generation_is_unavailable() {
+        assert_eq!(
+            run(
+                ".text-red-200{--tw-text-opacity:1;color:oklch(92.19% .04 20/var(--tw-text-opacity))}"
+            ),
+            ".text-red-200{--tw-text-opacity:1;color:oklch(92.19% .04 20/var(--tw-text-opacity))}"
+        );
+        assert_eq!(
+            run("a{color:oklch(var(--channels)/var(--alpha))}"),
+            "a{color:oklch(var(--channels)/var(--alpha))}"
+        );
+    }
+
+    #[test]
+    fn preserves_powerless_color_channels_inside_color_mix() {
+        assert_eq!(
+            run("a{background:color-mix(in hsl,var(--primary) 40%,hsl(193 100% 100%) 60%)}"),
+            "a{background:color-mix(in hsl,var(--primary) 40%,hsl(193 100% 100%) 60%)}"
+        );
+    }
+
+    #[test]
+    fn disabling_value_normalization_preserves_authored_color_functions() {
+        let mut options = MinifyOptions::default();
+        options.flags.remove(Options::NORMALIZE_VALUES);
+        assert_eq!(
+            run_with_options(
+                "a{color:rgb(255 255 255);background:hsl(40 50% 50%)}",
+                options
+            ),
+            "a{color:rgb(255 255 255);background:hsl(40 50% 50%)}"
+        );
+    }
+
+    #[test]
+    fn canonicalizes_zero_legacy_media_features_to_safari_safe_ranges() {
+        assert_eq!(
+            run("@media (min-width:0){a{color:red}}"),
+            "@media (width>=0){a{color:red}}"
         );
     }
 
@@ -807,12 +1172,28 @@ mod tests {
     }
 
     #[test]
+    fn folds_static_calc_in_custom_properties_but_preserves_dynamic_terms() {
+        assert_eq!(
+            run(":root{--static:calc(10px + 20px);--dynamic:calc(10px + var(--bar))}"),
+            ":root{--static:30px;--dynamic:calc(10px + var(--bar))}"
+        );
+    }
+
+    #[test]
     fn custom_property_transforms_are_configurable() {
         let mut options = MinifyOptions::default();
         options.flags.remove(Options::TRANSFORM_CUSTOM_PROPERTIES);
         assert_eq!(
             run_with_options("a{--color:rgb(0 0 0);--size:calc(3px * 2)}", options),
             "a{--color:rgb(0 0 0);--size:calc(3px * 2)}"
+        );
+    }
+
+    #[test]
+    fn minifies_supported_colors_in_custom_properties() {
+        assert_eq!(
+            run("a{--white:white;--hex:#FFFFFF;--dynamic:var(--color)}"),
+            "a{--white:#fff;--hex:#fff;--dynamic:var(--color)}"
         );
     }
 
@@ -834,32 +1215,32 @@ mod tests {
     fn property_context_dispatches_by_property_id() {
         let animation = PropertyId::Animation(VendorPrefix::WEBKIT);
         assert_eq!(
-            properties::value_context(&animation, true, true).property,
+            properties::value_context(&animation, true, true, true).property,
             context::PropertyContext::Animation
         );
         assert_eq!(
-            properties::value_context(&animation, false, true).property,
+            properties::value_context(&animation, false, true, true).property,
             context::PropertyContext::TimingFunction
         );
 
         let border = PropertyId::Border;
         assert_eq!(
-            properties::value_context(&border, true, true).property,
+            properties::value_context(&border, true, true, true).property,
             context::PropertyContext::Border
         );
         assert_eq!(
-            properties::value_context(&border, false, true).property,
+            properties::value_context(&border, false, true, true).property,
             context::PropertyContext::Generic
         );
 
         let columns = PropertyId::from_name("CoLuMnS");
         assert_eq!(columns, PropertyId::Columns(VendorPrefix::NONE));
         assert_eq!(
-            properties::value_context(&columns, true, true).property,
+            properties::value_context(&columns, true, true, true).property,
             context::PropertyContext::Columns
         );
         assert_eq!(
-            properties::value_context(&columns, false, true).property,
+            properties::value_context(&columns, false, true, true).property,
             context::PropertyContext::Generic
         );
 
@@ -875,11 +1256,11 @@ mod tests {
             "-webkit-animation"
         );
         assert_eq!(
-            properties::value_context(&prefixed_animation, true, true).property,
+            properties::value_context(&prefixed_animation, true, true, true).property,
             context::PropertyContext::Animation
         );
         assert_eq!(
-            properties::value_context(&prefixed_animation, false, true).property,
+            properties::value_context(&prefixed_animation, false, true, true).property,
             context::PropertyContext::TimingFunction
         );
     }
@@ -915,5 +1296,37 @@ mod tests {
             panic!("expected token value")
         };
         (property.value.as_ptr(), &**token)
+    }
+    #[test]
+    fn minifies_nested_calc_groups_without_panicking_or_losing_units() {
+        let output = run("a{height:calc((100dvh - 10.5rem) + (4vh + 230px))}");
+        for unit in ["100dvh", "10.5rem", "4vh", "230px"] {
+            assert!(output.contains(unit), "missing {unit} in {output}");
+        }
+        assert_eq!(run(&output), output);
+    }
+
+    #[test]
+    fn preserves_dynamic_logical_values_and_user_select_fallbacks() {
+        assert_eq!(
+            run("a{margin-inline:var(--m);margin-inline:calc(var(--gap) + 1px)}"),
+            "a{margin-inline:var(--m);margin-inline:calc(var(--gap) + 1px)}"
+        );
+        assert_eq!(
+            run("a{-webkit-user-select:auto;user-select:all}"),
+            "a{-webkit-user-select:auto;user-select:all}"
+        );
+    }
+
+    #[test]
+    fn preserves_prefixed_mask_image_variable_fallbacks_without_duplication() {
+        const SOURCE: &str = ".foo{-webkit-mask-image:url(./foo.svg);mask-image:url(./foo.svg)}.bar{-webkit-mask-image:var(--foo);mask-image:var(--foo)}.fallback{-webkit-mask-image:var(--foo,url(./fallback.svg));mask-image:var(--foo,url(./fallback.svg))}";
+        assert_eq!(run(SOURCE), SOURCE);
+    }
+
+    #[test]
+    fn preserves_nested_layer_statement_and_block_order() {
+        const SOURCE: &str = "@layer one,one.a,one.b;@layer one{@layer b{.test1{color:red}}}@layer one.a{.test1{color:green}}";
+        assert_eq!(run(SOURCE), SOURCE);
     }
 }
