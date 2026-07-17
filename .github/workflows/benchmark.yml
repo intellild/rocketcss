@@ -77,7 +77,7 @@ jobs:
             echo "- Commit: [\`${GITHUB_SHA::7}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})"
             echo "- Runner: \`${RUNNER_OS} ${RUNNER_ARCH}\`"
             echo "- Inputs: \`tasks/benchmark/files/bootstrap.css\`, \`tasks/benchmark/files/tailwind.css\`"
-            echo "- Scope: parse, minify, and serialize"
+            echo "- Scope: parse, minify, and codegen medians; total sums the stages (cssnano is measured end-to-end only)"
             echo "- Samples per minifier and input: \`${{ inputs.sample_count }}\`"
             echo
 

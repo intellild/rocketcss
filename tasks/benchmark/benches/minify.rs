@@ -11,56 +11,166 @@ use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_allocator::Allocator;
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss};
+use rocketcss_parser::prelude::StyleSheet;
 
 fn main() {
     divan::main();
 }
 
-#[divan::bench(args = BENCH_CASES)]
-fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
-    bencher
-        .counter(BytesCount::of_str(case.source))
-        .bench_local(|| {
-            let allocator = Allocator::new();
-            let mut stylesheet = rocketcss_parser::parse(
-                black_box(case.source),
-                &allocator,
-                rocketcss_parser::ParserOptions {
-                    error_recovery: true,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-            rocketcss_minify::minify(&mut stylesheet, rocketcss_minify::MinifyOptions::default());
-            let mut output = String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
-            stylesheet
-                .to_css(&mut Printer::new(
-                    &mut output,
-                    PrinterOptions { prettify: false },
-                ))
-                .unwrap();
-            black_box(output);
-        });
+/// Owns a parsed stylesheet together with the allocator that backs its arena
+/// storage, so the minify and codegen stages can be measured without parsing.
+struct ParsedStyleSheet {
+    // Fields are dropped in declaration order, so the stylesheet is dropped
+    // before the allocator that owns its arena storage.
+    stylesheet: StyleSheet<'static>,
+    _allocator: Box<Allocator>,
 }
 
-#[divan::bench(args = BENCH_CASES)]
-fn lightningcss(bencher: Bencher<'_, '_>, case: BenchCase) {
-    use lightningcss::stylesheet::{MinifyOptions, ParserOptions, PrinterOptions, StyleSheet};
+impl ParsedStyleSheet {
+    fn new(source: &'static str) -> Self {
+        let allocator = Box::new(Allocator::new());
 
-    bencher
-        .counter(BytesCount::of_str(case.source))
-        .bench_local(|| {
-            let mut stylesheet =
-                StyleSheet::parse(black_box(case.source), ParserOptions::default()).unwrap();
-            stylesheet.minify(MinifyOptions::default()).unwrap();
-            let output = stylesheet
-                .to_css(PrinterOptions {
-                    minify: true,
-                    ..PrinterOptions::default()
-                })
+        // The allocator remains at a stable heap address and is owned by this
+        // input for at least as long as the stylesheet.
+        let allocator_ref: &'static Allocator = unsafe { &*std::ptr::from_ref(&*allocator) };
+        let stylesheet = rocketcss_parser::parse(
+            source,
+            allocator_ref,
+            rocketcss_parser::ParserOptions {
+                error_recovery: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        Self {
+            stylesheet,
+            _allocator: allocator,
+        }
+    }
+
+    fn minified(source: &'static str) -> Self {
+        let mut input = Self::new(source);
+        rocketcss_minify::minify(
+            &mut input.stylesheet,
+            rocketcss_minify::MinifyOptions::default(),
+        );
+        input
+    }
+}
+
+mod parse {
+    use super::*;
+
+    #[divan::bench(args = BENCH_CASES)]
+    fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
+        bencher
+            .counter(BytesCount::of_str(case.source))
+            .bench_local(|| {
+                let allocator = Allocator::new();
+                let stylesheet = rocketcss_parser::parse(
+                    black_box(case.source),
+                    &allocator,
+                    rocketcss_parser::ParserOptions {
+                        error_recovery: true,
+                        ..Default::default()
+                    },
+                )
                 .unwrap();
-            black_box(output);
-        });
+                black_box(stylesheet);
+            });
+    }
+
+    #[divan::bench(args = BENCH_CASES)]
+    fn lightningcss(bencher: Bencher<'_, '_>, case: BenchCase) {
+        use lightningcss::stylesheet::{ParserOptions, StyleSheet};
+
+        bencher
+            .counter(BytesCount::of_str(case.source))
+            .bench_local(|| {
+                let stylesheet =
+                    StyleSheet::parse(black_box(case.source), ParserOptions::default()).unwrap();
+                black_box(stylesheet);
+            });
+    }
+}
+
+mod minify {
+    use super::*;
+
+    #[divan::bench(args = BENCH_CASES)]
+    fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
+        bencher
+            .counter(BytesCount::of_str(case.source))
+            .with_inputs(|| ParsedStyleSheet::new(case.source))
+            .bench_local_values(|mut input| {
+                black_box(rocketcss_minify::minify(
+                    &mut input.stylesheet,
+                    rocketcss_minify::MinifyOptions::default(),
+                ));
+            });
+    }
+
+    #[divan::bench(args = BENCH_CASES)]
+    fn lightningcss(bencher: Bencher<'_, '_>, case: BenchCase) {
+        use lightningcss::stylesheet::{MinifyOptions, ParserOptions, StyleSheet};
+
+        bencher
+            .counter(BytesCount::of_str(case.source))
+            .with_inputs(|| StyleSheet::parse(case.source, ParserOptions::default()).unwrap())
+            .bench_local_values(|mut stylesheet| {
+                stylesheet.minify(MinifyOptions::default()).unwrap();
+                black_box(stylesheet);
+            });
+    }
+}
+
+mod codegen {
+    use super::*;
+
+    #[divan::bench(args = BENCH_CASES)]
+    fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
+        bencher
+            .counter(BytesCount::of_str(case.source))
+            .with_inputs(|| ParsedStyleSheet::minified(case.source))
+            .bench_local_values(|input| {
+                let mut output = String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
+                input
+                    .stylesheet
+                    .to_css(&mut Printer::new(
+                        &mut output,
+                        PrinterOptions { prettify: false },
+                    ))
+                    .unwrap();
+                black_box(output);
+            });
+    }
+
+    #[divan::bench(args = BENCH_CASES)]
+    fn lightningcss(bencher: Bencher<'_, '_>, case: BenchCase) {
+        use lightningcss::stylesheet::{
+            MinifyOptions, ParserOptions, PrinterOptions as LightningPrinterOptions, StyleSheet,
+        };
+
+        bencher
+            .counter(BytesCount::of_str(case.source))
+            .with_inputs(|| {
+                let mut stylesheet =
+                    StyleSheet::parse(case.source, ParserOptions::default()).unwrap();
+                stylesheet.minify(MinifyOptions::default()).unwrap();
+                stylesheet
+            })
+            .bench_local_values(|stylesheet| {
+                black_box(
+                    stylesheet
+                        .to_css(LightningPrinterOptions {
+                            minify: true,
+                            ..LightningPrinterOptions::default()
+                        })
+                        .unwrap(),
+                );
+            });
+    }
 }
 
 struct CssnanoWorker {
@@ -149,17 +259,25 @@ impl Drop for CssnanoWorker {
     }
 }
 
-#[divan::bench(args = BENCH_CASES)]
-fn cssnano(bencher: Bencher<'_, '_>, case: BenchCase) {
-    let Some(mut cssnano) = CssnanoWorker::spawn(case) else {
-        // Skip the comparison instead of failing the benchmark run when the
-        // cssnano checkout is unavailable. Set CSSNANO_DIR to enable it locally.
-        eprintln!(
-            "skipping cssnano benchmark: cssnano checkout not found (set CSSNANO_DIR to enable)"
-        );
-        return;
-    };
-    bencher
-        .counter(BytesCount::of_str(case.source))
-        .bench_local(|| black_box(cssnano.run(1)));
+/// End-to-end pipeline measurement for cssnano, which cannot be split into
+/// per-stage measurements from Rust. The published tables leave its parse,
+/// minify, and codegen cells blank; the rocketcss and Lightning CSS totals are
+/// the sums of their measured stages instead of separate runs.
+mod total {
+    use super::*;
+
+    #[divan::bench(args = BENCH_CASES)]
+    fn cssnano(bencher: Bencher<'_, '_>, case: BenchCase) {
+        let Some(mut cssnano) = CssnanoWorker::spawn(case) else {
+            // Skip the comparison instead of failing the benchmark run when the
+            // cssnano checkout is unavailable. Set CSSNANO_DIR to enable it locally.
+            eprintln!(
+                "skipping cssnano benchmark: cssnano checkout not found (set CSSNANO_DIR to enable)"
+            );
+            return;
+        };
+        bencher
+            .counter(BytesCount::of_str(case.source))
+            .bench_local(|| black_box(cssnano.run(1)));
+    }
 }

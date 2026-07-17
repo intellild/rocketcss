@@ -11,11 +11,50 @@ const DISPLAY_NAMES = new Map([
 const DISPLAY_ORDER = new Map(
   [...DISPLAY_NAMES.keys()].map((name, index) => [name, index]),
 );
+const STAGES = ["parse", "minify", "codegen"];
+const STAGE_DISPLAY_NAMES = new Map([
+  ["parse", "Parse"],
+  ["minify", "Minify"],
+  ["codegen", "Codegen"],
+]);
+const TOTAL_STAGE = "total";
+const TRACKED_STAGES = new Set([...STAGES, TOTAL_STAGE]);
+
+const TIME_PATTERN = /^([\d.]+)\s*(ps|ns|µs|us|ms|s)$/;
+const TIME_UNIT_NANOS = new Map([
+  ["ps", 1e-3],
+  ["ns", 1],
+  ["µs", 1e3],
+  ["us", 1e3],
+  ["ms", 1e6],
+  ["s", 1e9],
+]);
+const TIME_FORMAT_SCALES = [
+  ["s", 1e9],
+  ["ms", 1e6],
+  ["µs", 1e3],
+  ["ns", 1],
+];
+
+function parseTime(value) {
+  const match = value.match(TIME_PATTERN);
+  if (!match) {
+    return null;
+  }
+  return Number(match[1]) * TIME_UNIT_NANOS.get(match[2]);
+}
+
+function formatTime(nanos) {
+  const [unit, scale] =
+    TIME_FORMAT_SCALES.find(([, unitScale]) => nanos >= unitScale) ??
+    TIME_FORMAT_SCALES.at(-1);
+  return `${Number((nanos / scale).toPrecision(4))} ${unit}`;
+}
 
 export function parseResults(output) {
   const lines = output.replace(ANSI_ESCAPE_PATTERN, "").split(/\r?\n/);
   const results = [];
-  let currentMinifier = null;
+  const groups = [];
 
   for (let index = 0; index < lines.length; index++) {
     const match = lines[index].match(/^([│ ]*)[├╰]─\s+(\S+)(?:\s+(.+))?$/);
@@ -24,62 +63,70 @@ export function parseResults(output) {
     }
 
     const [, treePrefix, label, timingColumns = ""] = match;
-    if (treePrefix.length === 0 && DISPLAY_NAMES.has(label)) {
-      currentMinifier = label;
-    }
+    const depth = Math.floor(treePrefix.length / 3);
+    groups.length = depth;
+    groups.push(label);
 
     const timings = timingColumns.split("│").map((value) => value.trim());
     if (timings.length < 6 || timings[0] === "") {
       continue;
     }
 
-    const name = treePrefix.length === 0 ? label : currentMinifier;
-    if (name === null) {
-      continue;
-    }
-
-    const throughputLine = lines[index + 1] ?? "";
-    const throughputs = throughputLine
-      .replace(/^[│ ]+/, "")
-      .split("│")
-      .map((value) => value.trim());
+    // Stage benchmarks nest their rows as stage -> minifier -> input.
+    const stage = depth >= 2 ? groups[0] : null;
+    const name = depth === 0 ? label : groups[depth - 1];
 
     results.push({
+      stage,
       name,
-      caseName: treePrefix.length === 0 ? null : label,
-      fastest: timings[0],
-      slowest: timings[1],
+      caseName: depth === 0 ? null : label,
       median: timings[2],
-      mean: timings[3],
-      samples: timings[4],
-      iterations: timings[5],
-      meanThroughput: throughputs[3] || "—",
     });
   }
 
-  return results.sort((left, right) => {
-    const caseOrder = (left.caseName ?? "").localeCompare(right.caseName ?? "");
-    return caseOrder !== 0
-      ? caseOrder
-      : (DISPLAY_ORDER.get(left.name) ?? Number.MAX_SAFE_INTEGER) -
-          (DISPLAY_ORDER.get(right.name) ?? Number.MAX_SAFE_INTEGER);
-  });
+  return results;
 }
 
 function escapeCell(value) {
   return String(value).replaceAll("|", "\\|");
 }
 
-function formatTable(results) {
+function totalCell(stages) {
+  const measured = stages.get(TOTAL_STAGE);
+  if (measured) {
+    return measured.median;
+  }
+
+  // rocketcss and Lightning CSS totals are the sums of their measured stages.
+  const stageTimes = STAGES.map((stage) => {
+    const result = stages.get(stage);
+    return result ? parseTime(result.median) : null;
+  });
+  if (stageTimes.some((time) => time === null)) {
+    return "—";
+  }
+  return formatTime(stageTimes.reduce((sum, time) => sum + time, 0));
+}
+
+function formatTable(byName) {
   const rows = [
-    "| Minifier | Fastest | Median | Mean | Slowest | Mean throughput | Samples | Iterations |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    "| Minifier | Parse | Minify | Codegen | Total |",
+    "| --- | ---: | ---: | ---: | ---: |",
   ];
 
-  for (const result of results) {
-    const name = DISPLAY_NAMES.get(result.name) ?? result.name;
+  const names = [...byName.keys()].sort(
+    (left, right) =>
+      (DISPLAY_ORDER.get(left) ?? Number.MAX_SAFE_INTEGER) -
+      (DISPLAY_ORDER.get(right) ?? Number.MAX_SAFE_INTEGER),
+  );
+
+  for (const name of names) {
+    const stages = byName.get(name);
+    const displayName = DISPLAY_NAMES.get(name) ?? name;
+    const cells = STAGES.map((stage) => stages.get(stage)?.median ?? "—");
+    cells.push(totalCell(stages));
     rows.push(
-      `| ${escapeCell(name)} | ${escapeCell(result.fastest)} | ${escapeCell(result.median)} | ${escapeCell(result.mean)} | ${escapeCell(result.slowest)} | ${escapeCell(result.meanThroughput)} | ${escapeCell(result.samples)} | ${escapeCell(result.iterations)} |`,
+      `| ${escapeCell(displayName)} | ${cells.map(escapeCell).join(" | ")} |`,
     );
   }
 
@@ -87,27 +134,27 @@ function formatTable(results) {
 }
 
 export function formatResults(output) {
-  const results = parseResults(output);
+  const results = parseResults(output).filter(
+    (result) => result.stage !== null && TRACKED_STAGES.has(result.stage),
+  );
   if (results.length === 0) {
     return "_No benchmark results could be parsed._";
-  }
-
-  if (results.every((result) => result.caseName === null)) {
-    return formatTable(results);
   }
 
   const cases = new Map();
   for (const result of results) {
     const caseName = result.caseName ?? "other";
-    const caseResults = cases.get(caseName) ?? [];
-    caseResults.push(result);
-    cases.set(caseName, caseResults);
+    const byName = cases.get(caseName) ?? new Map();
+    const stages = byName.get(result.name) ?? new Map();
+    stages.set(result.stage, result);
+    byName.set(result.name, stages);
+    cases.set(caseName, byName);
   }
 
   return [...cases]
+    .sort(([left], [right]) => left.localeCompare(right))
     .map(
-      ([caseName, caseResults]) =>
-        `### \`${caseName}\`\n\n${formatTable(caseResults)}`,
+      ([caseName, byName]) => `### \`${caseName}\`\n\n${formatTable(byName)}`,
     )
     .join("\n\n");
 }
