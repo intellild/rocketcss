@@ -74,6 +74,11 @@ fn try_parse_typed_declaration<'i, 't>(
         PropertyId::BackgroundColor => parse!(|input| {
             CssColor::parse(input).map(|value| Declaration::BackgroundColor(allocator.boxed(value)))
         }),
+        PropertyId::Background => parse!(|input| {
+            let mut values = allocator.vec();
+            values.push(Background::parse(input)?);
+            Ok(Declaration::Background(values))
+        }),
         PropertyId::Opacity => {
             parse!(|input| parse_opacity(input).map(Declaration::Opacity))
         }

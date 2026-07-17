@@ -1,5 +1,5 @@
 ---
-name: rocketcss-betst-practices
+name: rocketcss-best-practices
 description: Review and implement RocketCSS changes with type-directed dispatch, shared matching abstractions, compact state, lossless serialization, and behavior-preserving verification. Use for RocketCSS feature work, refactors, bug fixes, and code review.
 ---
 

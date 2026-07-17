@@ -1,13 +1,15 @@
 # rocketcss_minify
 
 `rocketcss_minify` walks an arena-backed `rocketcss_ast::StyleSheet` and applies
-node-local normalization in place. It does not merge or remove rules, analyze
-multiple declaration blocks, or allocate replacement AST nodes. Within one
-declaration block, a single-pass IR removes exact duplicates, merges compatible
-physical margin/padding longhands, and folds simple longhand overrides into an
-earlier shorthand. Fallback chains, logical-property barriers, and declarations
-with different importance are preserved. Compact output formatting is selected
-separately with `rocketcss_codegen::PrinterOptions { minify: true }`.
+normalization in place without allocating replacement AST nodes. Within one
+declaration block, and across physically adjacent style rules with structurally
+equal selectors, a shared single-pass declaration IR removes exact duplicates,
+merges compatible physical margin/padding longhands, and folds simple longhand
+overrides into an earlier shorthand. Adjacent blocks retain their arena
+allocations and are serialized through a backward merge chain. Nested content
+remains an ordering barrier. Fallback chains, logical-property barriers, and
+declarations with different importance are preserved. Compact output formatting
+is selected separately with `rocketcss_codegen::PrinterOptions { minify: true }`.
 
 ```rust
 use rocketcss_allocator::Allocator;

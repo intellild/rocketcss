@@ -44,17 +44,6 @@ impl Minify for TokenOrValue<'_> {
                 **token = minify_hex_color(value);
                 cx.record_value_normalized();
             }
-            Token::Ident(value)
-                if cx
-                    .value_context
-                    .is_enabled(ValueContextFlags::MINIFY_COLORS) =>
-            {
-                let Some(replacement) = minify_color_keyword(value) else {
-                    return;
-                };
-                **token = replacement;
-                cx.record_value_normalized();
-            }
             Token::Dimension { unit, value } => {
                 if *value == 0.0
                     && cx
@@ -112,21 +101,6 @@ fn minify_hex_color<'a>(value: &'a str) -> Token<'a> {
         "f0ffff" => Token::Ident("azure"),
         "808080" => Token::Ident("gray"),
         _ => Token::MinifiedHash(value),
-    )
-}
-
-fn minify_color_keyword(value: &str) -> Option<Token<'static>> {
-    match_ignore_ascii_case!(
-        value,
-        "red" => Some(Token::Ident("red")),
-        "blue" => Some(Token::Ident("blue")),
-        "black" => Some(Token::MinifiedHash("000")),
-        "white" => Some(Token::MinifiedHash("fff")),
-        "yellow" => Some(Token::MinifiedHash("ff0")),
-        "fuchsia" | "magenta" => Some(Token::MinifiedHash("f0f")),
-        "lightgreen" => Some(Token::MinifiedHash("90ee90")),
-        "grey" => Some(Token::Ident("grey")),
-        _ => None,
     )
 }
 

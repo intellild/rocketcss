@@ -1,3 +1,4 @@
+mod adjacent;
 mod calc;
 mod color;
 mod declaration_block;
@@ -15,6 +16,7 @@ use rocketcss_ast::{
 
 use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlags};
 
+pub(crate) use adjacent::merge_adjacent_style_rules;
 pub(crate) use declaration_block::DeclarationBlockMinifier;
 pub(crate) use url::normalize_url_text;
 

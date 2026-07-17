@@ -19,6 +19,10 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
+    fn visit_known_color(&mut self, node: &KnownColor) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
     fn visit_rgba(&mut self, node: &RGBA) {
         Visit::visit_children(node, self);
     }

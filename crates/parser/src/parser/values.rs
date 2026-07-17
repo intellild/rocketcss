@@ -1,6 +1,7 @@
 use super::stylesheet::check_depth;
 use crate::prelude::*;
 
+mod background;
 mod box_model;
 mod font;
 mod multicol;

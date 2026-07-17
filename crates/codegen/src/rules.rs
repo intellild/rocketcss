@@ -137,6 +137,28 @@ impl ToCss for BackgroundRepeat {
 
 impl ToCss for Background<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        if matches!(&*self.image, Image::None)
+            && is_zero_background_position(&self.position)
+            && matches!(
+                &*self.size,
+                BackgroundSize::Explicit { height, width }
+                    if matches!(&**height, LengthPercentageOrAuto::Auto)
+                        && matches!(&**width, LengthPercentageOrAuto::Auto)
+            )
+            && matches!(
+                &*self.repeat,
+                BackgroundRepeat {
+                    x: BackgroundRepeatKeyword::Repeat,
+                    y: BackgroundRepeatKeyword::Repeat,
+                }
+            )
+            && self.attachment == BackgroundAttachment::Scroll
+            && self.origin == BackgroundOrigin::PaddingBox
+            && self.clip == BackgroundClip::BorderBox
+        {
+            return self.color.to_css(dest);
+        }
+
         self.image.to_css(dest)?;
         dest.write_char(' ')?;
         self.position.to_css(dest)?;
@@ -161,6 +183,18 @@ impl ToCss for Background<'_> {
         dest.write_char(' ')?;
         self.color.to_css(dest)
     }
+}
+
+fn is_zero_background_position(position: &BackgroundPosition<'_>) -> bool {
+    fn is_zero(component: &PositionComponent<'_, impl Sized>) -> bool {
+        matches!(
+            component,
+            PositionComponent::Length(value)
+                if matches!(&**value, DimensionPercentage::Percentage(0.0) | DimensionPercentage::Zero)
+        )
+    }
+
+    is_zero(&position.x) && is_zero(&position.y)
 }
 
 impl ToCss for BoxShadow<'_> {
@@ -1370,6 +1404,11 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
     let mut first = true;
     let mut last_without_block = false;
     for rule in rules {
+        if matches!(rule, CssRule::Style(style)
+            if style.selectors.iter().all(Selector::is_tombstone))
+        {
+            continue;
+        }
         if !first {
             if !last_without_block
                 || !matches!(
@@ -1447,9 +1486,60 @@ fn write_declarations<PrinterT: PrinterTrait>(
     Ok(())
 }
 
+fn declaration_chain_is_output_empty(tail: &DeclarationBlock<'_>) -> bool {
+    let mut current = tail;
+    loop {
+        if !current.is_output_empty() {
+            return false;
+        }
+        let Some(previous) = current.previous_merged() else {
+            return true;
+        };
+        current = previous.get().get_ref();
+    }
+}
+
+fn write_declaration_chain<PrinterT: PrinterTrait>(
+    tail: &DeclarationBlock<'_>,
+    dest: &mut PrinterT,
+    last_semicolon: LastSemicolon,
+) -> fmt::Result {
+    write_declaration_chain_recursive(tail, dest, last_semicolon).map(|_| ())
+}
+
+fn write_declaration_chain_recursive<PrinterT: PrinterTrait>(
+    current: &DeclarationBlock<'_>,
+    dest: &mut PrinterT,
+    last_semicolon: LastSemicolon,
+) -> Result<bool, fmt::Error> {
+    let current_is_empty = current.is_output_empty();
+    let wrote_previous = if let Some(previous) = current.previous_merged() {
+        write_declaration_chain_recursive(
+            previous.get().get_ref(),
+            dest,
+            if current_is_empty {
+                last_semicolon
+            } else {
+                LastSemicolon::Required
+            },
+        )?
+    } else {
+        false
+    };
+
+    if current_is_empty {
+        return Ok(wrote_previous);
+    }
+    if wrote_previous {
+        dest.new_line()?;
+    }
+    write_declarations(current, dest, last_semicolon)?;
+    Ok(true)
+}
+
 impl ToCss for DeclarationBlock<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_declarations(self, dest, LastSemicolon::Omit)
+        write_declaration_chain(self, dest, LastSemicolon::Omit)
     }
 }
 
@@ -1458,7 +1548,7 @@ fn write_declaration_block<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
 ) -> fmt::Result {
     write_block(dest, |dest| {
-        write_declarations(declarations, dest, LastSemicolon::Optional)
+        write_declaration_chain(declarations, dest, LastSemicolon::Optional)
     })
 }
 
@@ -1526,7 +1616,7 @@ impl ToCss for StyleRule<'_> {
         }
         self.selectors.to_css(dest)?;
         write_block(dest, |dest| {
-            write_declarations(
+            write_declaration_chain(
                 &self.declarations,
                 dest,
                 if self.rules.is_empty() {
@@ -1535,7 +1625,7 @@ impl ToCss for StyleRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
+            if !declaration_chain_is_output_empty(&self.declarations) && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             write_rule_list(&self.rules, dest)

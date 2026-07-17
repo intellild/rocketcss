@@ -405,12 +405,14 @@ pub struct StyleRule<'a> {
     pub vendor_prefix: VendorPrefix,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Visit)]
 #[visit(pinned)]
 pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, Declaration<'a>>,
     #[visit(skip)]
     pub declarations_importance: BitVec<'a>,
+    #[visit(skip)]
+    previous_merged: Option<rocketcss_allocator::Ref<'a, DeclarationBlock<'a>>>,
     #[visit(skip)]
     _pin: PhantomPinned,
 }
@@ -421,6 +423,7 @@ impl<'a> DeclarationBlock<'a> {
         Self {
             declarations: allocator.vec(),
             declarations_importance: BitVec::new(allocator),
+            previous_merged: None,
             _pin: PhantomPinned,
         }
     }
@@ -435,6 +438,23 @@ impl<'a> DeclarationBlock<'a> {
     pub fn push_pinned(mut self: Pin<&mut Self>, declaration: Declaration<'a>, important: bool) {
         // SAFETY: pushing into the declaration vector does not move the block.
         unsafe { self.as_mut().get_unchecked_mut() }.push(declaration, important);
+    }
+
+    /// Returns the declaration block immediately preceding this block in a
+    /// merged output chain.
+    #[inline]
+    pub fn previous_merged(&self) -> Option<rocketcss_allocator::Ref<'a, DeclarationBlock<'a>>> {
+        self.previous_merged
+    }
+
+    /// Sets the preceding declaration block without moving this pinned block.
+    #[inline]
+    pub fn set_previous_merged(
+        mut self: Pin<&mut Self>,
+        previous: Option<rocketcss_allocator::Ref<'a, DeclarationBlock<'a>>>,
+    ) {
+        // SAFETY: assigning a pointer-sized field does not move the pinned block.
+        unsafe { self.as_mut().get_unchecked_mut() }.previous_merged = previous;
     }
 
     #[inline]
@@ -473,6 +493,13 @@ impl<'a> DeclarationBlock<'a> {
     pub fn iter_live(&self) -> impl DoubleEndedIterator<Item = (&Declaration<'a>, bool)> {
         self.iter()
             .filter(|(declaration, _)| !declaration.is_tombstone())
+    }
+}
+
+impl PartialEq for DeclarationBlock<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.declarations == other.declarations
+            && self.declarations_importance == other.declarations_importance
     }
 }
 

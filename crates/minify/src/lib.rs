@@ -32,7 +32,7 @@ pub fn minify<'a>(stylesheet: &mut StyleSheet<'a>, options: MinifyOptions) -> Mi
     cx.stats()
 }
 
-/// Adapter for running node-local minification in a visitor plugin pipeline.
+/// Adapter for running in-place minification in a visitor plugin pipeline.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MinifyPlugin {
     options: MinifyOptions,
@@ -86,6 +86,11 @@ pub(crate) fn minify_style_sheet<'ast, 'cx>(
         declaration_blocks,
     };
     stylesheet.visit_mut(&mut minifier);
+    rules::merge_adjacent_style_rules(
+        &mut stylesheet.rules,
+        &mut minifier.declaration_blocks,
+        &mut minifier.cx,
+    );
     let Minifier { cx: result, .. } = minifier;
     *cx = result;
 }
@@ -448,6 +453,14 @@ mod tests {
     }
 
     #[test]
+    fn preserves_blue_identifiers_in_untyped_values() {
+        assert_eq!(
+            run("a{--theme:blue;unknown:blue;background:blue;color:blue}"),
+            "a{--theme:blue;unknown:blue;background:#00f;color:#00f}"
+        );
+    }
+
+    #[test]
     fn folds_calc_values_in_the_existing_function_node() {
         let mut options = MinifyOptions::default();
         options
@@ -476,10 +489,10 @@ mod tests {
     }
 
     #[test]
-    fn preserves_rule_structure() {
+    fn preserves_rule_boundaries_while_merging_adjacent_styles() {
         assert_eq!(
             run("a{}a{color:red}a{color:red} @media print{a{}}"),
-            "a{}a{color:red}a{color:red}@media print{a{}}"
+            "a{color:red}@media print{a{}}"
         );
         assert_eq!(
             run("@charset 'UTF-8'; @import 'theme.css'; a{color:red}"),
@@ -594,6 +607,105 @@ mod tests {
             run("a{width:1px;width:1px!important}"),
             "a{width:1px;width:1px !important}"
         );
+    }
+
+    #[test]
+    fn merges_adjacent_equal_selector_declaration_blocks() {
+        assert_eq!(
+            run("h1{color:red;background:blue}h1{color:red}"),
+            "h1{background:#00f;color:red}"
+        );
+        assert_eq!(
+            run("a{width:1px}a{height:2px}a{opacity:.5}"),
+            "a{width:1px;height:2px;opacity:.5}"
+        );
+    }
+
+    #[test]
+    fn runs_box_ir_across_adjacent_blocks() {
+        assert_eq!(
+            run("a{margin-top:1px;margin-right:2px}a{margin-bottom:3px;margin-left:4px}"),
+            "a{margin:1px 2px 3px 4px}"
+        );
+        assert_eq!(
+            run("a{padding:1px}a{padding-left:2px}"),
+            "a{padding:1px 1px 1px 2px}"
+        );
+    }
+
+    #[test]
+    fn preserves_cross_block_fallbacks_and_importance() {
+        assert_eq!(
+            run("a{width:1px}a{width:2px}a{width:1px}"),
+            "a{width:1px;width:2px;width:1px}"
+        );
+        assert_eq!(
+            run("a{color:red!important}a{color:blue}"),
+            "a{color:red !important;color:#00f}"
+        );
+    }
+
+    #[test]
+    fn respects_nested_content_as_a_forward_merge_barrier() {
+        assert_eq!(
+            run(".a{color:red;& .child{display:block}}.a{color:blue}"),
+            ".a{color:red;& .child{display:block}}.a{color:#00f}"
+        );
+        assert_eq!(
+            run(".a{color:red}.a{color:blue;& .child{display:block}}"),
+            ".a{color:red;color:#00f;& .child{display:block}}"
+        );
+        assert_eq!(
+            run(".a{color:red;& .child{display:block};color:green}.a{color:blue}"),
+            ".a{color:red;& .child{display:block}color:green}.a{color:#00f}"
+        );
+    }
+
+    #[test]
+    fn merges_only_inside_the_current_sibling_scope() {
+        assert_eq!(
+            run("a{color:red}b{display:block}a{color:blue}"),
+            "a{color:red}b{display:block}a{color:#00f}"
+        );
+        assert_eq!(
+            run("@media print{a{color:red}a{background:blue}}"),
+            "@media print{a{color:red;background:#00f}}"
+        );
+    }
+
+    #[test]
+    fn adjacent_rule_merging_is_configurable() {
+        let mut options = MinifyOptions::default();
+        options.flags.remove(Options::MERGE_ADJACENT_RULES);
+
+        assert_eq!(
+            run_with_options("a{color:red}a{background:blue}", options),
+            "a{color:red}a{background:#00f}"
+        );
+    }
+
+    #[test]
+    fn adjacent_rule_merging_is_idempotent() {
+        let allocator = Allocator::new();
+        let mut stylesheet = parse(
+            "a{width:1px}a{height:2px}a{width:1px}",
+            &allocator,
+            ParserOptions::default(),
+        )
+        .unwrap();
+
+        minify(&mut stylesheet, MinifyOptions::default());
+        let once = stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap();
+        let second_stats = minify(&mut stylesheet, MinifyOptions::default());
+        let twice = stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap();
+
+        assert_eq!(once, "a{height:2px;width:1px}");
+        assert_eq!(twice, once);
+        assert_eq!(second_stats.declarations_removed, 0);
     }
 
     #[test]

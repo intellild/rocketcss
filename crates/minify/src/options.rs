@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 bitflags! {
-    /// Individually configurable node-local minification passes.
+    /// Individually configurable minification passes.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct Options: u32 {
         /// Remove ordinary comments from token lists.
@@ -28,6 +28,8 @@ bitflags! {
         const NORMALIZE_URLS = 1 << 10;
         /// Transform values inside custom properties.
         const TRANSFORM_CUSTOM_PROPERTIES = 1 << 11;
+        /// Merge physically adjacent style rules with equal selectors.
+        const MERGE_ADJACENT_RULES = 1 << 12;
     }
 }
 
@@ -41,10 +43,10 @@ pub enum OptionsOp {
     None,
 }
 
-/// Options controlling local, in-place syntax-tree minification.
+/// Options controlling in-place syntax-tree minification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MinifyOptions {
-    /// Enabled node-local minification passes.
+    /// Enabled minification passes.
     pub flags: Options,
     /// Decimal precision for pixel lengths; disables cross-unit conversion.
     pub length_precision: Option<u8>,
@@ -75,7 +77,8 @@ impl Default for MinifyOptions {
                 | Options::CONVERT_EXTENDED_LENGTH_UNITS
                 | Options::CONVERT_ZERO_PERCENTAGES
                 | Options::DEDUPLICATE_LISTS
-                | Options::TRANSFORM_CUSTOM_PROPERTIES,
+                | Options::TRANSFORM_CUSTOM_PROPERTIES
+                | Options::MERGE_ADJACENT_RULES,
             length_precision: None,
             calc_precision: None,
         }

@@ -1,10 +1,19 @@
-use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_allocator::Ref;
+use rocketcss_codegen::{Printer, PrinterOptions, ToCss};
 use rocketcss_parser::prelude::*;
 
 fn parse_stylesheet(source: &str) -> StyleSheet<'static> {
     let source = std::boxed::Box::leak(source.to_owned().into_boxed_str());
     let allocator = std::boxed::Box::leak(std::boxed::Box::new(Allocator::new()));
     parse(source, allocator, ParserOptions::default()).unwrap()
+}
+
+#[test]
+fn printer_remains_send_for_a_send_writer() {
+    fn assert_send<T: Send>(_: T) {}
+
+    let mut output = String::new();
+    assert_send(Printer::new(&mut output, PrinterOptions::default()));
 }
 
 #[test]
@@ -257,6 +266,36 @@ fn declaration_block_skips_tombstones() {
             .unwrap(),
         "all: initial;\nall: inherit !important"
     );
+}
+
+#[test]
+fn merged_declaration_blocks_serialize_from_chain_head() {
+    let mut stylesheet = parse_stylesheet("a{width:1px}a{height:2px}");
+    let [CssRule::Style(first), CssRule::Style(second)] = &mut stylesheet.rules[..] else {
+        panic!("expected two style rules")
+    };
+    let previous = Ref::from_pinned_box(&first.declarations);
+    second
+        .declarations
+        .as_mut()
+        .set_previous_merged(Some(previous));
+    for selector in first.selectors.iter_mut() {
+        *selector = Selector::Tombstone;
+    }
+
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: false })
+            .unwrap(),
+        "a{width:1px;height:2px}"
+    );
+
+    let pretty = stylesheet
+        .to_css_string(PrinterOptions { prettify: true })
+        .unwrap();
+    assert_eq!(pretty.matches("a {").count(), 1);
+    assert!(pretty.trim_start().starts_with("a {"));
+    assert!(!pretty.starts_with('\n'));
 }
 
 #[test]

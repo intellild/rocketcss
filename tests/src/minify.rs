@@ -35,8 +35,6 @@ fn minifies_upstream_fixtures() {
 fn still_requires_unsupported_transform(input: &Path) -> bool {
     let path = input.to_string_lossy();
     let unsupported_cases = [
-        "/cssnano/discard-duplicates/declarations/",
-        "/cssnano/discard-duplicates/partial/",
         "/cssnano/discard-empty/rules/",
         "/cssnano/discard-overridden/counter-style/",
         "/cssnano/discard-overridden/keyframes/",

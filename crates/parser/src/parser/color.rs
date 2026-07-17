@@ -8,52 +8,14 @@ impl<'i> Parse<'i> for CssColor<'i> {
             ValueToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => {
                 Ok(CssColor::CurrentColor)
             }
-            ValueToken::Ident(name) => named_color(name)
-                .map(CssColor::Rgba)
+            ValueToken::Ident(name) => KnownColor::from_name(name)
+                .map(CssColor::Known)
                 .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),
             ValueToken::Hash(value) | ValueToken::IdHash(value) => parse_hex_color(value)
                 .map(CssColor::Rgba)
                 .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
-    }
-}
-
-pub(super) fn named_color(name: &str) -> Option<RGBA> {
-    match_ignore_ascii_case!(
-        name,
-        "transparent" => Some(RGBA {
-            red: 0,
-            green: 0,
-            blue: 0,
-            alpha: 0,
-        }),
-        "black" => Some(rgba(0, 0, 0)),
-        "silver" => Some(rgba(192, 192, 192)),
-        "gray" => Some(rgba(128, 128, 128)),
-        "white" => Some(rgba(255, 255, 255)),
-        "maroon" => Some(rgba(128, 0, 0)),
-        "red" => Some(rgba(255, 0, 0)),
-        "purple" => Some(rgba(128, 0, 128)),
-        "fuchsia" => Some(rgba(255, 0, 255)),
-        "green" => Some(rgba(0, 128, 0)),
-        "lime" => Some(rgba(0, 255, 0)),
-        "olive" => Some(rgba(128, 128, 0)),
-        "yellow" => Some(rgba(255, 255, 0)),
-        "navy" => Some(rgba(0, 0, 128)),
-        "blue" => Some(rgba(0, 0, 255)),
-        "teal" => Some(rgba(0, 128, 128)),
-        "aqua" => Some(rgba(0, 255, 255)),
-        _ => None,
-    )
-}
-
-const fn rgba(red: u8, green: u8, blue: u8) -> RGBA {
-    RGBA {
-        red,
-        green,
-        blue,
-        alpha: 255,
     }
 }
 

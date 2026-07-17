@@ -112,7 +112,7 @@ fn parses_style_rule_selectors_and_declarations() {
     assert!(matches!(
         &rule.declarations.declarations[0],
         Declaration::Color(value)
-            if matches!(**value, rocketcss_ast::CssColor::Rgba(rocketcss_ast::RGBA { red: 255, green: 0, blue: 0, alpha: 255 }))
+            if matches!(**value, rocketcss_ast::CssColor::Known(KnownColor::Red))
     ));
     assert!(matches!(
         &rule.declarations.declarations[1],
@@ -126,6 +126,39 @@ fn parses_style_rule_selectors_and_declarations() {
     assert!(!rule.declarations.is_important(0));
     assert!(rule.declarations.is_important(1));
     assert!(!rule.declarations.is_important(2));
+}
+
+#[test]
+fn parses_named_colors_as_known_color_nodes() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        "a { color: blue; background-color: lightgreen; background: blue }",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+
+    assert!(matches!(
+        &rule.declarations.declarations[0],
+        Declaration::Color(value)
+            if matches!(**value, CssColor::Known(KnownColor::Blue))
+    ));
+    assert!(matches!(
+        &rule.declarations.declarations[1],
+        Declaration::BackgroundColor(value)
+            if matches!(**value, CssColor::Known(KnownColor::Lightgreen))
+    ));
+    assert!(matches!(
+        &rule.declarations.declarations[2],
+        Declaration::Background(values)
+            if matches!(
+                &*values[0].color,
+                CssColor::Known(KnownColor::Blue)
+            )
+    ));
 }
 
 #[test]
