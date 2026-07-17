@@ -1470,35 +1470,37 @@ fn write_declaration_chain<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
 ) -> fmt::Result {
-    let mut blocks = std::vec::Vec::new();
-    let mut current = tail;
-    blocks.push(current);
-    while let Some(previous) = current.previous_merged() {
-        current = previous.get().get_ref();
-        blocks.push(current);
-    }
+    write_declaration_chain_recursive(tail, dest, last_semicolon).map(|_| ())
+}
 
-    let mut live = blocks
-        .into_iter()
-        .rev()
-        .filter(|block| !block.is_output_empty())
-        .peekable();
-    while let Some(block) = live.next() {
-        let has_next_block = live.peek().is_some();
-        write_declarations(
-            block,
+fn write_declaration_chain_recursive<PrinterT: PrinterTrait>(
+    current: &DeclarationBlock<'_>,
+    dest: &mut PrinterT,
+    last_semicolon: LastSemicolon,
+) -> Result<bool, fmt::Error> {
+    let current_is_empty = current.is_output_empty();
+    let wrote_previous = if let Some(previous) = current.previous_merged() {
+        write_declaration_chain_recursive(
+            previous.get().get_ref(),
             dest,
-            if has_next_block {
-                LastSemicolon::Required
-            } else {
+            if current_is_empty {
                 last_semicolon
+            } else {
+                LastSemicolon::Required
             },
-        )?;
-        if has_next_block {
-            dest.new_line()?;
-        }
+        )?
+    } else {
+        false
+    };
+
+    if current_is_empty {
+        return Ok(wrote_previous);
     }
-    Ok(())
+    if wrote_previous {
+        dest.new_line()?;
+    }
+    write_declarations(current, dest, last_semicolon)?;
+    Ok(true)
 }
 
 impl ToCss for DeclarationBlock<'_> {

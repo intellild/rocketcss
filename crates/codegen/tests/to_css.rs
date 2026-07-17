@@ -1,11 +1,19 @@
 use rocketcss_allocator::Ref;
-use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_codegen::{Printer, PrinterOptions, ToCss};
 use rocketcss_parser::prelude::*;
 
 fn parse_stylesheet(source: &str) -> StyleSheet<'static> {
     let source = std::boxed::Box::leak(source.to_owned().into_boxed_str());
     let allocator = std::boxed::Box::leak(std::boxed::Box::new(Allocator::new()));
     parse(source, allocator, ParserOptions::default()).unwrap()
+}
+
+#[test]
+fn printer_remains_send_for_a_send_writer() {
+    fn assert_send<T: Send>(_: T) {}
+
+    let mut output = String::new();
+    assert_send(Printer::new(&mut output, PrinterOptions::default()));
 }
 
 #[test]
