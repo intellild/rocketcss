@@ -1,0 +1,663 @@
+{
+  "upstream": "packages/postcss-ordered-values/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should order border consistently",
+      "input": "h1{border:1px solid red;border:1px red solid;border:solid 1px red;border:solid red 1px;border:red solid 1px;border:red 1px solid}",
+      "expected": "h1{border:1px solid red;border:1px solid red;border:1px solid red;border:1px solid red;border:1px solid red;border:1px solid red}"
+    },
+    {
+      "test": "should order border consistently (uppercase property and value)",
+      "input": "h1{BORDER:1PX SOLID RED;BORDER:1PX RED SOLID;BORDER:SOLID 1PX RED;BORDER:SOLID RED 1PX;BORDER:RED SOLID 1PX;BORDER:RED 1PX SOLID}",
+      "expected": "h1{BORDER:1PX SOLID RED;BORDER:1PX SOLID RED;BORDER:1PX SOLID RED;BORDER:1PX SOLID RED;BORDER:1PX SOLID RED;BORDER:1PX SOLID RED}"
+    },
+    {
+      "test": "should order border with two properties",
+      "input": "h1{border:solid 1px}",
+      "expected": "h1{border:1px solid}"
+    },
+    {
+      "test": "invalid border property should remain invalid",
+      "input": "h1{border: 0 0 7px 7px solid black}",
+      "expected": "h1{border: 0 0 7px 7px solid black}"
+    },
+    {
+      "test": "should order border with color functions",
+      "input": "h1{border:rgba(255,255,255,0.5) dashed thick}",
+      "expected": "h1{border:thick dashed rgba(255,255,255,0.5)}"
+    },
+    {
+      "test": "should order border with width function",
+      "input": "p{border-left: min(10px, 1vw) solid red;}",
+      "expected": "p{border-left: min(10px, 1vw) solid red;}",
+      "passthrough": true
+    },
+    {
+      "test": "should order border longhand",
+      "input": "h1{border-left:solid 2px red;border-right:#fff 3px dashed;border-top:dotted #000 1px;border-bottom:4px navy groove}",
+      "expected": "h1{border-left:2px solid red;border-right:3px dashed #fff;border-top:1px dotted #000;border-bottom:4px groove navy}"
+    },
+    {
+      "test": "should order width currentColor",
+      "input": "h1{border:solid 2vmin currentColor}",
+      "expected": "h1{border:2vmin solid currentColor}"
+    },
+    {
+      "test": "should skip border:inherit",
+      "input": "h1{border:inherit}",
+      "expected": "h1{border:inherit}",
+      "passthrough": true
+    },
+    {
+      "test": "should skip border:initial",
+      "input": "h1{border:initial}",
+      "expected": "h1{border:initial}",
+      "passthrough": true
+    },
+    {
+      "test": "should skip border:unset",
+      "input": "h1{border:unset}",
+      "expected": "h1{border:unset}",
+      "passthrough": true
+    },
+    {
+      "test": "should order outline consistently",
+      "input": "h1{outline:solid red .6em}",
+      "expected": "h1{outline:.6em solid red}"
+    },
+    {
+      "test": "should order outline(outline-color is invert)",
+      "input": "h1{outline:solid invert 1px}",
+      "expected": "h1{outline:1px solid invert}"
+    },
+    {
+      "test": "should handle -webkit-focus-ring & auto",
+      "input": "h1{outline:-webkit-focus-ring-color 5px auto}",
+      "expected": "h1{outline:5px auto -webkit-focus-ring-color}"
+    },
+    {
+      "test": "should order flex-flow",
+      "input": "h1{flex-flow: wrap column}",
+      "expected": "h1{flex-flow: column wrap}"
+    },
+    {
+      "test": "should order flex-flow (uppercase property and value)",
+      "input": "h1{FLEX-FLOW: WRAP COLUMN}",
+      "expected": "h1{FLEX-FLOW: COLUMN WRAP}"
+    },
+    {
+      "test": "should order flex-flow #1",
+      "input": "h1{flex-flow: row-reverse wrap-reverse}",
+      "expected": "h1{flex-flow: row-reverse wrap-reverse}"
+    },
+    {
+      "test": "should skip flex-flow:inherit",
+      "input": "h1{flex-flow:inherit}",
+      "expected": "h1{flex-flow:inherit}",
+      "passthrough": true
+    },
+    {
+      "test": "should skip flex-flow:unset",
+      "input": "h1{flex-flow: unset}",
+      "expected": "h1{flex-flow: unset}",
+      "passthrough": true
+    },
+    {
+      "test": "should skip flex: 1 0 auto",
+      "input": "h1{flex: 1 0 auto;}",
+      "expected": "h1{flex: 1 0 auto;}",
+      "passthrough": true
+    },
+    {
+      "test": "should skip flex: 0 1 auto",
+      "input": "h1{flex: 0 1 auto;}",
+      "expected": "h1{flex: 0 1 auto;}",
+      "passthrough": true
+    },
+    {
+      "test": "should support calc width in borders",
+      "input": "h1 {border: solid red calc(20px - 10px);}",
+      "expected": "h1 {border: calc(20px - 10px) solid red;}"
+    },
+    {
+      "test": "should order box-shadow consistently (1)",
+      "input": "h1{box-shadow:2px 5px red}",
+      "expected": "h1{box-shadow:2px 5px red}"
+    },
+    {
+      "test": "should order box-shadow consistently (2)",
+      "input": "h1{box-shadow:red 2px 5px}",
+      "expected": "h1{box-shadow:2px 5px red}"
+    },
+    {
+      "test": "should order box-shadow consistently (2) (uppercase property and value)",
+      "input": "h1{BOX-SHADOW:RED 2PX 5PX}",
+      "expected": "h1{BOX-SHADOW:2PX 5PX RED}"
+    },
+    {
+      "test": "should order box-shadow consistently (3)",
+      "input": "h1{box-shadow:2px 5px 10px red}",
+      "expected": "h1{box-shadow:2px 5px 10px red}"
+    },
+    {
+      "test": "should order box-shadow consistently (4)",
+      "input": "h1{box-shadow:red 2px 5px 10px}",
+      "expected": "h1{box-shadow:2px 5px 10px red}"
+    },
+    {
+      "test": "should order box-shadow consistently (5)",
+      "input": "h1{box-shadow:inset red 2px 5px 10px}",
+      "expected": "h1{box-shadow:inset 2px 5px 10px red}"
+    },
+    {
+      "test": "should order box-shadow consistently (6)",
+      "input": "h1{box-shadow:red 2px 5px 10px inset}",
+      "expected": "h1{box-shadow:inset 2px 5px 10px red}"
+    },
+    {
+      "test": "should order box-shadow consistently (6) (uppercase \"inset\")",
+      "input": "h1{box-shadow:red 2px 5px 10px INSET}",
+      "expected": "h1{box-shadow:INSET 2px 5px 10px red}"
+    },
+    {
+      "test": "should order box-shadow consistently (7)",
+      "input": "h1{box-shadow:2px 5px 10px red inset}",
+      "expected": "h1{box-shadow:inset 2px 5px 10px red}"
+    },
+    {
+      "test": "should order box-shadow consistently (8)",
+      "input": "h1{box-shadow:red 2px 5px,blue 2px 5px}",
+      "expected": "h1{box-shadow:2px 5px red,2px 5px blue}"
+    },
+    {
+      "test": "should order box-shadow consistently (9)",
+      "input": "h1{box-shadow:red 2px 5px 10px inset,blue inset 2px 5px 10px}",
+      "expected": "h1{box-shadow:inset 2px 5px 10px red,inset 2px 5px 10px blue}"
+    },
+    {
+      "test": "should order box-shadow consistently (10)",
+      "input": "h1{box-shadow:red 2px 5px 10px inset,blue 2px 5px 10px inset}",
+      "expected": "h1{box-shadow:inset 2px 5px 10px red,inset 2px 5px 10px blue}"
+    },
+    {
+      "test": "should order box-shadow consistently (11)",
+      "input": "h1{box-shadow:rgba(255, 0, 0, 0.5) 2px 5px 10px inset}",
+      "expected": "h1{box-shadow:inset 2px 5px 10px rgba(255, 0, 0, 0.5)}"
+    },
+    {
+      "test": "should order box-shadow consistently (12)",
+      "input": "h1{box-shadow:0 0 3px}",
+      "expected": "h1{box-shadow:0 0 3px}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through box-shadow values that contain calc()",
+      "input": "h1{box-shadow: inset 0 calc(1em + 1px) 0 1px red}",
+      "expected": "h1{box-shadow: inset 0 calc(1em + 1px) 0 1px red}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through box-shadow values that contain calc() (uppercase \"calc\")",
+      "input": "h1{box-shadow: inset 0 CALC(1em + 1px) 0 1px red}",
+      "expected": "h1{box-shadow: inset 0 CALC(1em + 1px) 0 1px red}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through box-shadow values that contain prefixed calc()",
+      "input": "h1{box-shadow: inset 0 -webkit-calc(1em + 1px) 0 1px red}",
+      "expected": "h1{box-shadow: inset 0 -webkit-calc(1em + 1px) 0 1px red}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through invalid box-shadow values",
+      "input": "h1{box-shadow:1px solid rgba(34,36,38,.15)}",
+      "expected": "h1{box-shadow:1px solid rgba(34,36,38,.15)}",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through important comments (border)",
+      "input": "border: 1px /*!wow*/ red solid",
+      "expected": "border: 1px /*!wow*/ red solid",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through important comments (box-shadow)",
+      "input": "box-shadow: 0 1px 3px /*!wow*/ red",
+      "expected": "box-shadow: 0 1px 3px /*!wow*/ red",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through important comments (flex-flow)",
+      "input": "flex-flow: row-reverse /*!wow*/ wrap-reverse",
+      "expected": "flex-flow: row-reverse /*!wow*/ wrap-reverse",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through important comments (transition)",
+      "input": "transition: ease-out width /*!wow*/ .5s 2s",
+      "expected": "transition: ease-out width /*!wow*/ .5s 2s",
+      "passthrough": true
+    },
+    {
+      "test": "should pass through important comments (animation)",
+      "input": "animation: bounce /*!wow*/ 1s linear 2s 5 normal none running",
+      "expected": "animation: bounce /*!wow*/ 1s linear 2s 5 normal none running",
+      "passthrough": true
+    },
+    {
+      "test": "should order transition consistently (1)",
+      "input": "transition: width .5s ease-out 2s",
+      "expected": "transition: width .5s ease-out 2s",
+      "passthrough": true
+    },
+    {
+      "test": "should order transition consistently (2)",
+      "input": "transition: ease-out width .5s 2s",
+      "expected": "transition: width .5s ease-out 2s"
+    },
+    {
+      "test": "should order transition consistently (2) (uppercase property and value)",
+      "input": "TRANSITION: EASE-OUT WIDTH .5S 2S",
+      "expected": "TRANSITION: WIDTH .5S EASE-OUT 2S"
+    },
+    {
+      "test": "should order transition consistently (3)",
+      "input": "transition: ease-out .5s width 2s",
+      "expected": "transition: width .5s ease-out 2s"
+    },
+    {
+      "test": "should order transition consistently (4)",
+      "input": "transition: .5s 2s width ease-out",
+      "expected": "transition: width .5s ease-out 2s"
+    },
+    {
+      "test": "should order transition consistently (5)",
+      "input": "transition: .5s 2s width steps(5, start)",
+      "expected": "transition: width .5s steps(5, start) 2s"
+    },
+    {
+      "test": "should order transition consistently (6)",
+      "input": "transition: .5s 2s width cubic-bezier(0, 0.3, 0.6, 1)",
+      "expected": "transition: width .5s cubic-bezier(0, 0.3, 0.6, 1) 2s"
+    },
+    {
+      "test": "should order transition consistently (6) (uppercase \"cubic-bezier\")",
+      "input": "transition: .5s 2s width CUBIC-BEZIER(0, 0.3, 0.6, 1)",
+      "expected": "transition: width .5s CUBIC-BEZIER(0, 0.3, 0.6, 1) 2s"
+    },
+    {
+      "test": "should order transition consistently (7)",
+      "input": "transition: .5s 2s width ease-out,.8s 1s height ease",
+      "expected": "transition: width .5s ease-out 2s,height .8s ease 1s"
+    },
+    {
+      "test": "should order transition consistently (8)",
+      "input": "-webkit-transition: ease-out width .5s 2s",
+      "expected": "-webkit-transition: width .5s ease-out 2s"
+    },
+    {
+      "test": "should order animation consistently (1)",
+      "input": "animation: bounce 1s linear 2s 3 normal none running",
+      "expected": "animation: bounce 1s linear 2s 3 normal none running",
+      "passthrough": true
+    },
+    {
+      "test": "should order animation consistently (2)",
+      "input": "animation: running none normal 3 1s 2s linear bounce",
+      "expected": "animation: bounce 1s linear 2s 3 normal none running"
+    },
+    {
+      "test": "should order animation consistently (2) (uppercase property and value)",
+      "input": "ANIMATION: RUNNING NONE NORMAL 3 1S 2S LINEAR BOUNCE",
+      "expected": "ANIMATION: BOUNCE 1S LINEAR 2S 3 NORMAL NONE RUNNING"
+    },
+    {
+      "test": "should order animation consistently (3) (timing function keywords)",
+      "input": "animation: ease-in-out 1s bounce",
+      "expected": "animation: bounce 1s ease-in-out"
+    },
+    {
+      "test": "should order animation consistently (3) (steps timing function)",
+      "input": "animation: steps(3, start) 1s bounce",
+      "expected": "animation: bounce 1s steps(3, start)"
+    },
+    {
+      "test": "should order animation consistently (3) (cubic-bezier timing function)",
+      "input": "animation: cubic-bezier(0, 0.3, 0.6, 1) 1s bounce",
+      "expected": "animation: bounce 1s cubic-bezier(0, 0.3, 0.6, 1)"
+    },
+    {
+      "test": "should order animation consistently (3) (frames timing function)",
+      "input": "animation: frames(3) 1s bounce",
+      "expected": "animation: bounce 1s frames(3)"
+    },
+    {
+      "test": "should order animation consistently (4) (iteration count as number)",
+      "input": "animation: 3 1s bounce",
+      "expected": "animation: bounce 1s 3"
+    },
+    {
+      "test": "should order animation consistently (4) (iteration count as infinite)",
+      "input": "animation: infinite 1s bounce",
+      "expected": "animation: bounce 1s infinite"
+    },
+    {
+      "test": "should order animation consistently (5) (do not reorder times)",
+      "input": "animation: 1s 2s bounce",
+      "expected": "animation: bounce 1s 2s"
+    },
+    {
+      "test": "should order animation consistently (5.1) (do not reorder times)",
+      "input": "animation: 1s bounce 2s",
+      "expected": "animation: bounce 1s 2s"
+    },
+    {
+      "test": "should order animation consistently (6) (direction \"normal\")",
+      "input": "animation: normal 1s bounce",
+      "expected": "animation: bounce 1s normal"
+    },
+    {
+      "test": "should order animation consistently (6) (direction \"reverse\")",
+      "input": "animation: reverse 1s bounce",
+      "expected": "animation: bounce 1s reverse"
+    },
+    {
+      "test": "should order animation consistently (6) (direction \"alternate\")",
+      "input": "animation: alternate 1s bounce",
+      "expected": "animation: bounce 1s alternate"
+    },
+    {
+      "test": "should order animation consistently (6) (direction \"alternate-reverse\")",
+      "input": "animation: alternate-reverse 1s bounce",
+      "expected": "animation: bounce 1s alternate-reverse"
+    },
+    {
+      "test": "should order animation consistently (7) (fill mode \"none\")",
+      "input": "animation: none 1s bounce",
+      "expected": "animation: bounce 1s none"
+    },
+    {
+      "test": "should order animation consistently (7) (fill mode \"forwards\")",
+      "input": "animation: forwards 1s bounce",
+      "expected": "animation: bounce 1s forwards"
+    },
+    {
+      "test": "should order animation consistently (7) (fill mode \"backwards\")",
+      "input": "animation: backwards 1s bounce",
+      "expected": "animation: bounce 1s backwards"
+    },
+    {
+      "test": "should order animation consistently (7) (fill mode \"both\")",
+      "input": "animation: both 1s bounce",
+      "expected": "animation: bounce 1s both"
+    },
+    {
+      "test": "should order animation consistently (8) (play state \"running\")",
+      "input": "animation: running 1s bounce",
+      "expected": "animation: bounce 1s running"
+    },
+    {
+      "test": "should order animation consistently (8) (play state \"paused\")",
+      "input": "animation: paused 1s bounce",
+      "expected": "animation: bounce 1s paused"
+    },
+    {
+      "test": "should order animation consistently (9) (assigns keyframe name last when it matches a keyword)",
+      "input": "animation: none 1s linear 2s both",
+      "expected": "animation: both 1s linear 2s none"
+    },
+    {
+      "test": "should order animation consistently (9.1) (assigns keyframe name last when it matches a keyword)",
+      "input": "animation: ease 1s linear",
+      "expected": "animation: linear 1s ease"
+    },
+    {
+      "test": "should order animation consistently (10) (handle multiple animation values)",
+      "input": "animation: 1s 2s bounce linear, 8s 1s shake ease",
+      "expected": "animation: bounce 1s linear 2s,shake 8s ease 1s"
+    },
+    {
+      "test": "should order animation consistently (10) (process prefixed -webkit-animation)",
+      "input": "-webkit-animation: linear bounce 1s 2s",
+      "expected": "-webkit-animation: bounce 1s linear 2s"
+    },
+    {
+      "test": "should order animation consistently (11) (process prefixed -moz-animation)",
+      "input": "-moz-animation: linear bounce 1s 2s",
+      "expected": "-moz-animation: bounce 1s linear 2s"
+    },
+    {
+      "test": "should abort ordering when a var is detected (animation)",
+      "input": "animation: bounce /*!wow*/ 1s var(--linear) 2s 5 normal none running",
+      "expected": "animation: bounce /*!wow*/ 1s var(--linear) 2s 5 normal none running",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (animation) (uppercase \"var\")",
+      "input": "animation: bounce /*!wow*/ 1s var(--linear) 2s 5 normal none running",
+      "expected": "animation: bounce /*!wow*/ 1s var(--linear) 2s 5 normal none running",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (transition)",
+      "input": "transition: .5s 2s width var(--ease)",
+      "expected": "transition: .5s 2s width var(--ease)",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (transition) (uppercase \"var\")",
+      "input": "transition: .5s 2s width VAR(--ease)",
+      "expected": "transition: .5s 2s width VAR(--ease)",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (flex-flow)",
+      "input": "flex-flow: wrap var(--column)",
+      "expected": "flex-flow: wrap var(--column)",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (flex-flow) (uppercase \"var\")",
+      "input": "flex-flow: wrap VAR(--column)",
+      "expected": "flex-flow: wrap VAR(--column)",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (box-shadow)",
+      "input": "box-shadow: 0 1px 3px var(--red)",
+      "expected": "box-shadow: 0 1px 3px var(--red)",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (box-shadow) (uppercase \"var\")",
+      "input": "box-shadow: 0 1px 3px VAR(--red)",
+      "expected": "box-shadow: 0 1px 3px VAR(--red)",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (border)",
+      "input": "border: solid 1px var(--red)",
+      "expected": "border: solid 1px var(--red)",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a var is detected (border) (uppercase \"var\")",
+      "input": "border: solid 1px VAR(--red)",
+      "expected": "border: solid 1px VAR(--red)",
+      "passthrough": true
+    },
+    {
+      "test": "should abort when consumed via css loader",
+      "input": "border: ___CSS_LOADER_IMPORT___0___ solid ___CSS_LOADER_IMPORT___1___;",
+      "expected": "border: ___CSS_LOADER_IMPORT___0___ solid ___CSS_LOADER_IMPORT___1___;",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a env is detected (border)",
+      "input": "border-bottom:env(safe-area-inset-bottom) solid transparent",
+      "expected": "border-bottom:env(safe-area-inset-bottom) solid transparent",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a env is detected (border) (uppercase)",
+      "input": "border-bottom:ENV(safe-area-inset-bottom) solid transparent",
+      "expected": "border-bottom:ENV(safe-area-inset-bottom) solid transparent",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a constant is detected (border)",
+      "input": "border-bottom:constant(safe-area-inset-bottom) solid transparent",
+      "expected": "border-bottom:constant(safe-area-inset-bottom) solid transparent",
+      "passthrough": true
+    },
+    {
+      "test": "should abort ordering when a constant is detected (border) (uppercase)",
+      "input": "border-bottom:CONSTANT(safe-area-inset-bottom) solid transparent",
+      "expected": "border-bottom:CONSTANT(safe-area-inset-bottom) solid transparent",
+      "passthrough": true
+    },
+    {
+      "test": "should order border-block",
+      "input": "border-inline: dashed blue 5px; border-inline-end: red solid .5em; border-block-end: dashed blue 5px; border-block: 5px solid red;border-block-start: rgba(0, 30, 105, 0.8) solid 1px;",
+      "expected": "border-inline: 5px dashed blue; border-inline-end: .5em solid red; border-block-end: 5px dashed blue; border-block: 5px solid red;border-block-start: 1px solid rgba(0, 30, 105, 0.8);"
+    },
+    {
+      "test": "should order columns only if unit is mentioned",
+      "input": "h1 {columns: 2 auto;columns: auto 12em;columns: auto auto;}",
+      "expected": "h1 {columns: 2 auto;columns: 12em auto;columns: auto auto;}"
+    },
+    {
+      "test": "should order columns declarations width first",
+      "input": "h1 {columns: 2 20px;}",
+      "expected": "h1 {columns: 20px 2;}"
+    },
+    {
+      "test": "should preserve already ordered columns declaration",
+      "input": "h1 {columns: 20px 2;}",
+      "expected": "h1 {columns: 20px 2;}",
+      "passthrough": true
+    },
+    {
+      "test": "should not crash on invalid columns declarations",
+      "input": "h1 {columns: 2px 2px; columns: inherit 3rem; columns: 3rem 2 12em;}",
+      "expected": "h1 {columns: 2px 2px; columns: 3rem inherit; columns: 3rem 2 12em;}"
+    },
+    {
+      "test": "should order column-rule like border",
+      "input": "h1 {column-rule: solid 8px;column-rule: inset 2px #33f;}",
+      "expected": "h1 {column-rule: 8px solid;column-rule: 2px inset #33f;}"
+    },
+    {
+      "test": "should order grid-auto-flow",
+      "input": "grid-auto-flow: column;grid-auto-flow: dense column; grid-auto-flow: unset;grid-auto-flow: row dense;",
+      "expected": "grid-auto-flow: column;grid-auto-flow: column dense; grid-auto-flow: unset;grid-auto-flow: row dense;"
+    },
+    {
+      "test": "should order grid-column-gap",
+      "input": "grid-column-gap: normal; grid-column-gap: normal 3%; grid-column-gap: 3em normal;",
+      "expected": "grid-column-gap: normal; grid-column-gap: normal 3%; grid-column-gap: normal 3em;"
+    },
+    {
+      "test": "should order grid-row-gap",
+      "input": "grid-row-gap: normal; grid-row-gap: normal 3%; grid-row-gap: 3em normal;",
+      "expected": "grid-row-gap: normal; grid-row-gap: normal 3%; grid-row-gap: normal 3em;"
+    },
+    {
+      "test": "should order grid-column",
+      "input": "grid-column: 2 / 4; grid-column: 2 span / 7; grid-column: auto;grid-column: 3;grid-column: custom-indent-name / 3;",
+      "expected": "grid-column: 2 /  4; grid-column: span 2 /  7; grid-column: auto;grid-column: 3;grid-column: custom-indent-name /  3;"
+    },
+    {
+      "test": "should order grid-row",
+      "input": "grid-row: 2 / 4; grid-row: 2 span / 7; grid-row: auto;grid-row: 3;grid-row: custom-indent-name / 3;",
+      "expected": "grid-row: 2 /  4; grid-row: span 2 /  7; grid-row: auto;grid-row: 3;grid-row: custom-indent-name /  3;"
+    },
+    {
+      "test": "should order grid-row-start",
+      "input": "grid-row-start: 2 / 4; grid-row-start: 2 span / 7; grid-row-start: auto;grid-row-start: 3;grid-row-start: custom-indent-name / 3;",
+      "expected": "grid-row-start: 2 /  4; grid-row-start: span 2 /  7; grid-row-start: auto;grid-row-start: 3;grid-row-start: custom-indent-name /  3;"
+    },
+    {
+      "test": "should order grid-row-end",
+      "input": "grid-row-end: 2 / 4; grid-row-end: 2 span / 7; grid-row-end: auto;grid-row-end: 3;grid-row-end: custom-indent-name / 3;",
+      "expected": "grid-row-end: 2 /  4; grid-row-end: span 2 /  7; grid-row-end: auto;grid-row-end: 3;grid-row-end: custom-indent-name /  3;"
+    },
+    {
+      "test": "should order grid-column-start",
+      "input": "grid-column-start: 2 / 4; grid-column-start: 2 span / 7; grid-column-start: auto;grid-column-start: 3;grid-column-start: custom-indent-name / 3;",
+      "expected": "grid-column-start: 2 /  4; grid-column-start: span 2 /  7; grid-column-start: auto;grid-column-start: 3;grid-column-start: custom-indent-name /  3;"
+    },
+    {
+      "test": "should order grid-column-end",
+      "input": "grid-column-end: 2 / 4; grid-column-end: 2 span / 7; grid-column-end: auto;grid-column-end: 3;grid-column-end: custom-indent-name / 3;",
+      "expected": "grid-column-end: 2 /  4; grid-column-end: span 2 /  7; grid-column-end: auto;grid-column-end: 3;grid-column-end: custom-indent-name /  3;"
+    },
+    {
+      "test": "should order list-style 1",
+      "input": "ul{list-style: unset}",
+      "expected": "ul{list-style: unset}"
+    },
+    {
+      "test": "should order list-style 2",
+      "input": "ul{list-style: none}",
+      "expected": "ul{list-style: none}"
+    },
+    {
+      "test": "should order list-style 3",
+      "input": "ul{list-style: square inside}",
+      "expected": "ul{list-style: square inside}"
+    },
+    {
+      "test": "should order list-style 4",
+      "input": "ul{list-style: inside square}",
+      "expected": "ul{list-style: square inside}"
+    },
+    {
+      "test": "should order list-style 5",
+      "input": "ul{list-style: square unset}",
+      "expected": "ul{list-style: square unset}"
+    },
+    {
+      "test": "should order list-style 6",
+      "input": "ul{list-style: inside none}",
+      "expected": "ul{list-style: none inside}"
+    },
+    {
+      "test": "should order list-style 7",
+      "input": "ul{list-style: unset inside}",
+      "expected": "ul{list-style: unset inside}"
+    },
+    {
+      "test": "should order list-style 8",
+      "input": "ul{list-style: circle unset none}",
+      "expected": "ul{list-style: circle unset none}"
+    },
+    {
+      "test": "should order list-style 9",
+      "input": "ul{list-style: circle url(\"https://mdn.mozillademos.org/files/11981/starsolid.gif\")}",
+      "expected": "ul{list-style: circle  url(\"https://mdn.mozillademos.org/files/11981/starsolid.gif\")}"
+    },
+    {
+      "test": "should order list-style 10",
+      "input": "ul{list-style: circle none}",
+      "expected": "ul{list-style: circle none}"
+    },
+    {
+      "test": "should order list-style 11",
+      "input": "ul{list-style: unset none circle}",
+      "expected": "ul{list-style: unset none circle}"
+    },
+    {
+      "test": "should order list-style 12",
+      "input": "ul{list-style: circle url(\"https://mdn.mozillademos.org/files/11981/starsolid.gif\") none}",
+      "expected": "ul{list-style: circle none  url(\"https://mdn.mozillademos.org/files/11981/starsolid.gif\")}"
+    },
+    {
+      "test": "should order list-style 13",
+      "input": "ul{list-style: unknown unset none}",
+      "expected": "ul{list-style: unknown unset none}",
+      "passthrough": true
+    }
+  ]
+}

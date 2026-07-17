@@ -1,0 +1,105 @@
+{
+  "upstream": "packages/postcss-discard-unused/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should remove unused counter styles",
+      "input": "@counter-style custom{system:extends decimal;suffix:\"> \"}",
+      "expected": ""
+    },
+    {
+      "test": "should be aware of extensions",
+      "input": "@counter-style custom{system:extends decimal;suffix:\"> \"}@counter-style custom2{system:extends custom;suffix:\"| \"}a{list-style: custom2}",
+      "expected": "@counter-style custom{system:extends decimal;suffix:\"> \"}@counter-style custom2{system:extends custom;suffix:\"| \"}a{list-style: custom2}",
+      "passthrough": true
+    },
+    {
+      "test": "should remove unused counters & keep used counters",
+      "input": "@counter-style custom{system:extends decimal;suffix:\"> \"}@counter-style custom2{system:extends decimal;suffix:\"| \"}a{list-style: custom2}",
+      "expected": "@counter-style custom2{system:extends decimal;suffix:\"| \"}a{list-style: custom2}"
+    },
+    {
+      "test": "should remove counter styles if they have no identifier",
+      "input": "@counter-style {system:extends decimal;suffix:\"> \"}",
+      "expected": ""
+    },
+    {
+      "test": "should remove unused keyframes",
+      "input": "@keyframes fadeOut{0%{opacity:1}to{opacity:0}}",
+      "expected": ""
+    },
+    {
+      "test": "should remove unused keyframes & keep used keyframes",
+      "input": "@keyframes fadeOut{0%{opacity:1}to{opacity:0}}@keyframes fadeIn{0%{opacity:0}to{opacity:1}}a{animation-name:fadeIn}",
+      "expected": "@keyframes fadeIn{0%{opacity:0}to{opacity:1}}a{animation-name:fadeIn}"
+    },
+    {
+      "test": "should remove keyframes if they have no identifier",
+      "input": "@keyframes {0%{opacity:0}to{opacity:1}}",
+      "expected": ""
+    },
+    {
+      "test": "should support multiple animations",
+      "input": "@keyframes one{0%{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes two{0%{border-width:0;opacity:0}}.loader{animation:one 1250ms infinite linear,two .3s ease-out both}",
+      "expected": "@keyframes one{0%{transform:rotate(0deg)}to{transform:rotate(360deg)}}@keyframes two{0%{border-width:0;opacity:0}}.loader{animation:one 1250ms infinite linear,two .3s ease-out both}",
+      "passthrough": true
+    },
+    {
+      "test": "should remove unused fonts",
+      "input": "@font-face {font-family:\"Does Not Exist\";src:url(\"fonts/does-not-exist.ttf\") format(\"truetype\")}",
+      "expected": ""
+    },
+    {
+      "test": "should remove unused fonts (2)",
+      "input": "@font-face {font-family:\"Does Not Exist\";src:url(\"fonts/does-not-exist.ttf\") format(\"truetype\")}@font-face {font-family:\"Does Exist\";src: url(\"fonts/does-exist.ttf\") format(\"truetype\")}",
+      "expected": ""
+    },
+    {
+      "test": "should remove unused fonts & keep used fonts",
+      "input": "@font-face {font-family:\"Does Not Exist\";src:url(\"fonts/does-not-exist.ttf\") format(\"truetype\")}@font-face {font-family:\"Does Exist\";src: url(\"fonts/does-exist.ttf\") format(\"truetype\")}body{font-family:\"Does Exist\",Helvetica,Arial,sans-serif}",
+      "expected": "@font-face {font-family:\"Does Exist\";src: url(\"fonts/does-exist.ttf\") format(\"truetype\")}body{font-family:\"Does Exist\",Helvetica,Arial,sans-serif}"
+    },
+    {
+      "test": "should work with the font shorthand",
+      "input": "@font-face {font-family:\"Does Exist\";src: url(\"fonts/does-exist.ttf\") format(\"truetype\")}body{font: 10px/1.5 \"Does Exist\",Helvetica,Arial,sans-serif}",
+      "expected": "@font-face {font-family:\"Does Exist\";src: url(\"fonts/does-exist.ttf\") format(\"truetype\")}body{font: 10px/1.5 \"Does Exist\",Helvetica,Arial,sans-serif}",
+      "passthrough": true
+    },
+    {
+      "test": "should not be responsible for normalising fonts",
+      "input": "@font-face {font-family:\"Does Exist\";src:url(\"fonts/does-exist.ttf\") format(\"truetype\")}body{font-family:Does Exist}",
+      "expected": "body{font-family:Does Exist}"
+    },
+    {
+      "test": "should remove font faces if they have no font-family property",
+      "input": "@font-face {src:url(\"fonts/does-not-exist.ttf\") format(\"truetype\")}",
+      "expected": ""
+    },
+    {
+      "test": "should not remove fonts used with a different casing",
+      "input": "@font-face {font-family:\"DoEs ExIst\";src: url(\"fonts/does-exist.ttf\") format(\"truetype\")}body{font: 10px/1.5 \"does exisT\",Helvetica,Arial,sans-serif}",
+      "expected": "@font-face {font-family:\"DoEs ExIst\";src: url(\"fonts/does-exist.ttf\") format(\"truetype\")}body{font: 10px/1.5 \"does exisT\",Helvetica,Arial,sans-serif}",
+      "passthrough": true
+    },
+    {
+      "test": "shouldn't remove font fames",
+      "input": "@font-face {src:url(\"fonts/does-not-exist.ttf\") format(\"truetype\")}@keyframes {0%{opacity:0}to{opacity:1}}@counter-style custom{system:extends decimal;suffix:\"> \"}",
+      "expected": "@font-face {src:url(\"fonts/does-not-exist.ttf\") format(\"truetype\")}"
+    },
+    {
+      "test": "shouldn't remove keyframes if they have no identifier",
+      "input": "@keyframes {0%{opacity:0}to{opacity:1}}@font-face {src:url(\"fonts/does-not-exist.ttf\") format(\"truetype\")}@counter-style custom{system:extends decimal;suffix:\"> \"}",
+      "expected": "@keyframes {0%{opacity:0}to{opacity:1}}"
+    },
+    {
+      "test": "shouldn't remove unused counter styles",
+      "input": "@counter-style custom{system:extends decimal;suffix:\"> \"}@font-face {src:url(\"fonts/does-not-exist.ttf\") format(\"truetype\")}@keyframes {0%{opacity:0}to{opacity:1}}",
+      "expected": "@counter-style custom{system:extends decimal;suffix:\"> \"}"
+    },
+    {
+      "test": "should not crash with empty layers",
+      "input": "@layer a;",
+      "expected": "@layer a;"
+    }
+  ]
+}

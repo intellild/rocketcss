@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sync upstream CSS tests"
+  short_description: "Audit and sync Lightning CSS and CSSNano tests"
+  default_prompt: "Use $sync-upstream-css-tests to compare RocketCSS minify fixtures with local Lightning CSS and CSSNano tests, then report or synchronize upstream drift."

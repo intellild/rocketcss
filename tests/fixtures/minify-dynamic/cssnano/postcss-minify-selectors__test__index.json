@@ -1,0 +1,638 @@
+{
+  "upstream": "packages/postcss-minify-selectors/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should trim spaces in simple selectors",
+      "input": "h1,  h2,  h3{color:blue}",
+      "expected": "h1,h2,h3{color:blue}"
+    },
+    {
+      "test": "should trim spaces around combinators",
+      "input": "h1 + p, h1 > p, h1 ~ p{color:blue}",
+      "expected": "h1+p,h1>p,h1~p{color:blue}"
+    },
+    {
+      "test": "should not trim meaningful spaces",
+      "input": "H2 p,h1 p{color:blue}",
+      "expected": "H2 p,h1 p{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should reduce meaningful spaces",
+      "input": "h1    p,h2     p{color:blue}",
+      "expected": "h1 p,h2 p{color:blue}"
+    },
+    {
+      "test": "should remove qualified universal selectors",
+      "input": "*#id,*.test,*:not(.green),*[href]{color:blue}",
+      "expected": "#id,.test,:not(.green),[href]{color:blue}"
+    },
+    {
+      "test": "should remove complex qualified universal selectors",
+      "input": "[class] + *[href] *:not(*.green){color:blue}",
+      "expected": "[class]+[href] :not(.green){color:blue}"
+    },
+    {
+      "test": "should remove complex qualified universal selectors (2)",
+      "input": "*:not(*.green) ~ *{color:blue}",
+      "expected": ":not(.green)~*{color:blue}"
+    },
+    {
+      "test": "should not remove meaningful universal selectors",
+      "input": "* + *, * > *, * h1, * ~ *{color:blue}",
+      "expected": "* h1,*+*,*>*,*~*{color:blue}"
+    },
+    {
+      "test": "should preserve the universal selector between comments",
+      "input": "/*comment*/*/*comment*/{color:blue}",
+      "expected": "/*comment*/*/*comment*/{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should preserve the universal selector in attribute selectors",
+      "input": "h1[class=\" *.js \"] + *.js{color:blue}",
+      "expected": "h1[class=\" *.js \"]+.js{color:blue}"
+    },
+    {
+      "test": "should preserve the universal selector in filenames",
+      "input": "[filename=\"*.js\"]{color:blue}",
+      "expected": "[filename=\"*.js\"]{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should preserve the universal selector in file globs",
+      "input": "[glob=\"/**/*.js\"]{color:blue}",
+      "expected": "[glob=\"/**/*.js\"]{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should preserve escaped zero plus sequences",
+      "input": ".\\31 0\\+,.\\31 5\\+,.\\32 0\\+{color:blue}",
+      "expected": ".\\31 0\\+,.\\31 5\\+,.\\32 0\\+{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle deep combinators",
+      "input": "body /deep/ .theme-element{color:blue}",
+      "expected": "body/deep/.theme-element{color:blue}"
+    },
+    {
+      "test": "should sort",
+      "input": ".item1, .item2, .item10, .item11{color:blue}",
+      "expected": ".item1,.item10,.item11,.item2{color:blue}"
+    },
+    {
+      "test": "should not sort",
+      "input": ".item1, .item2, .item10, .item11{color:blue}",
+      "expected": ".item1,.item2,.item10,.item11{color:blue}"
+    },
+    {
+      "test": "should dedupe selectors",
+      "input": "h1,h2,h3,h4,h5,h5,h6{color:blue}",
+      "expected": "h1,h2,h3,h4,h5,h6{color:blue}"
+    },
+    {
+      "test": "should trim spaces in :not()",
+      "input": "h1:not(.article, .comments){color:blue}",
+      "expected": "h1:not(.article,.comments){color:blue}"
+    },
+    {
+      "test": "should trim spaces in :not() (2)",
+      "input": "h1:not(.article, .comments), h2:not(.lead, .recommendation){color:blue}",
+      "expected": "h1:not(.article,.comments),h2:not(.lead,.recommendation){color:blue}"
+    },
+    {
+      "test": "should dedupe simple selectors inside :not()",
+      "input": "h1:not(h2, h3, h4, h5, h5, h6){color:blue}",
+      "expected": "h1:not(h2,h3,h4,h5,h6){color:blue}"
+    },
+    {
+      "test": "should normalise attribute selectors",
+      "input": "a[   color=   \"blue\"    ]{color:blue}",
+      "expected": "a[color=blue]{color:blue}"
+    },
+    {
+      "test": "should normalise attribute selectors (2)",
+      "input": "a[class^=\"options[\"]:after{color:blue}",
+      "expected": "a[class^=\"options[\"]:after{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should normalise attribute selectors (3)",
+      "input": "a[class=\"woop_woop_woop\"]{color:blue}",
+      "expected": "a[class=woop_woop_woop]{color:blue}"
+    },
+    {
+      "test": "should normalise attribute selectors (4)",
+      "input": "a[class=\"woop \\\nwoop woop\"]{color:blue}",
+      "expected": "a[class=\"woop woop woop\"]{color:blue}"
+    },
+    {
+      "test": "should normalise attribute selectors (5)",
+      "input": "a[   color   =   \"blue\"    ]{color:blue}",
+      "expected": "a[color=blue]{color:blue}"
+    },
+    {
+      "test": "should normalise attribute selectors (6)",
+      "input": "a[color=\"blue\"   i   ]{color:blue}",
+      "expected": "a[color=blue i]{color:blue}"
+    },
+    {
+      "test": "should normalise attribute selectors (7)",
+      "input": "a[   target   ]{color:blue}",
+      "expected": "a[target]{color:blue}"
+    },
+    {
+      "test": "should convert @keyframe from & 100%",
+      "input": "@keyframes test{from{color:red}100%{color:blue}}",
+      "expected": "@keyframes test{0%{color:red}to{color:blue}}"
+    },
+    {
+      "test": "should convert @keyframe from & 100% (2)",
+      "input": "@keyframes test{FROM{color:red}100%{color:blue}}",
+      "expected": "@keyframes test{0%{color:red}to{color:blue}}"
+    },
+    {
+      "test": "should not mangle @keyframe from & 100% in other values",
+      "input": "@keyframes test{x-from-tag{color:red}5100%{color:blue}}",
+      "expected": "@keyframes test{x-from-tag{color:red}5100%{color:blue}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle @keyframe 100% in named timeline range names and percentages",
+      "input": "@keyframes test{entry 100%{color:red}}",
+      "expected": "@keyframes test{entry 100%{color:red}}",
+      "passthrough": true
+    },
+    {
+      "test": "should not be responsible for normalising comments",
+      "input": "h1 /*!test comment*/, h2{color:blue}",
+      "expected": "h1 /*!test comment*/,h2{color:blue}"
+    },
+    {
+      "test": "should not be responsible for normalising coments (2)",
+      "input": "/*!test   comment*/h1, h2{color:blue}",
+      "expected": "/*!test   comment*/h1,h2{color:blue}"
+    },
+    {
+      "test": "should transform ::before to :before",
+      "input": "h1::before{color:blue}",
+      "expected": "h1:before{color:blue}"
+    },
+    {
+      "test": "should transform ::before to :before (2)",
+      "input": "h1::BEFORE{color:blue}",
+      "expected": "h1:BEFORE{color:blue}"
+    },
+    {
+      "test": "should transform ::after to :after",
+      "input": "h1::after{color:blue}",
+      "expected": "h1:after{color:blue}"
+    },
+    {
+      "test": "should transform ::first-letter to :first-letter",
+      "input": "h1::first-letter{color:blue}",
+      "expected": "h1:first-letter{color:blue}"
+    },
+    {
+      "test": "should transform ::first-line to :first-line",
+      "input": "h1::first-line{color:blue}",
+      "expected": "h1:first-line{color:blue}"
+    },
+    {
+      "test": "should not change strings",
+      "input": ":not([attr=\"  h1       a + b /* not a comment */ end of :not  from 100% \"]){color:blue}",
+      "expected": ":not([attr=\"  h1       a + b /* not a comment */ end of :not  from 100% \"]){color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not change strings (2)",
+      "input": ":not([attr=\"  h1       a + b /* not a comment */ not end of `:not`:  )  from 100% \"]){color:blue}",
+      "expected": ":not([attr=\"  h1       a + b /* not a comment */ not end of `:not`:  )  from 100% \"]){color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not change strings (3)",
+      "input": "[a=\":not( *.b, h1, h1 )\"]{color:blue}",
+      "expected": "[a=\":not( *.b, h1, h1 )\"]{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not change strings (4)",
+      "input": "[a=\"escaped quotes \\\" h1, h1, h1 \\\" h1, h1, h1\"]{color:blue}",
+      "expected": "[a=\"escaped quotes \\\" h1, h1, h1 \\\" h1, h1, h1\"]{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not change strings (5)",
+      "input": "[a='escaped quotes \\' h1, h1, h1 \\' h1, h1, h1']{color:blue}",
+      "expected": "[a='escaped quotes \\' h1, h1, h1 \\' h1, h1, h1']{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not change strings (6)",
+      "input": "[a='½']{color:blue}",
+      "expected": "[a='½']{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should transform qualified attribute selector inside not",
+      "input": ":not( *[href=\"foo\"] ){color:blue}",
+      "expected": ":not([href=foo]){color:blue}"
+    },
+    {
+      "test": "should not mangle attribute selectors",
+      "input": "[class*=\" icon-\"]+.label, [class^=\"icon-\"]+.label{color:blue}",
+      "expected": "[class*=\" icon-\"]+.label,[class^=icon-]+.label{color:blue}"
+    },
+    {
+      "test": "should not mangle attribute selectors (2)",
+      "input": ".control-group-inline>input[type=\"radio\"]{color:blue}",
+      "expected": ".control-group-inline>input[type=radio]{color:blue}"
+    },
+    {
+      "test": "should not mangle quoted attribute selectors that contain =",
+      "input": ".parent>.child[data-attr~=\"key1=1\"]{color:blue}",
+      "expected": ".parent>.child[data-attr~=\"key1=1\"]{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle .from/#from etc",
+      "input": "#from,.from{color:blue}",
+      "expected": "#from,.from{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle pseudo classes",
+      "input": ".btn-group>.btn:last-child:not(:first-child),.btn-group>.dropdown-toggle:not(:first-child){color:blue}",
+      "expected": ".btn-group>.btn:last-child:not(:first-child),.btn-group>.dropdown-toggle:not(:first-child){color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not mangle pseudo classes (2)",
+      "input": ".btn-group>.btn-group:first-child:not(:last-child)>.btn:last-child,.btn-group>.btn-group:first-child:not(:last-child)>.dropdown-toggle{color:blue}",
+      "expected": ".btn-group>.btn-group:first-child:not(:last-child)>.btn:last-child,.btn-group>.btn-group:first-child:not(:last-child)>.dropdown-toggle{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should not throw on polymer mixins",
+      "input": "--my-toolbar-theme:{color:blue};",
+      "expected": "--my-toolbar-theme:{color:blue};",
+      "passthrough": true
+    },
+    {
+      "test": "should not throw on polymer mixins (2)",
+      "input": "paper-button{--paper-button-ink-color:#009688}",
+      "expected": "paper-button{--paper-button-ink-color:#009688}",
+      "passthrough": true
+    },
+    {
+      "test": "should not unquote a single hyphen as an attribute value",
+      "input": "[title=\"-\"]{color:blue}",
+      "expected": "[title=\"-\"]{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle case insensitive attribute selectors with extra spaces",
+      "input": "[title=\"foo\"   i    ]{color:blue}",
+      "expected": "[title=foo i]{color:blue}"
+    },
+    {
+      "test": "should not remove quotes around an empty attribute selector",
+      "input": "[title=\"\"]{color:blue}",
+      "expected": "[title=\"\"]{color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should convert :nth-child(1) to :first-child",
+      "input": "p:nth-child(1){color:blue}",
+      "expected": "p:first-child{color:blue}"
+    },
+    {
+      "test": "should convert :nth-child(1) to :first-child (2)",
+      "input": "p:NTH-CHILD(1){color:blue}",
+      "expected": "p:first-child{color:blue}"
+    },
+    {
+      "test": "should convert :nth-child(2n + 1) to :nth-child(odd)",
+      "input": "p:nth-child(2n + 1){color:blue}",
+      "expected": "p:nth-child(odd){color:blue}"
+    },
+    {
+      "test": "should convert :nth-child(even) to :nth-child(2n)",
+      "input": "p:nth-child(even){color:blue}",
+      "expected": "p:nth-child(2n){color:blue}"
+    },
+    {
+      "test": "should convert :nth-child(even) to :nth-child(2n) (2)",
+      "input": "p:nth-child(EVEN){color:blue}",
+      "expected": "p:nth-child(2n){color:blue}"
+    },
+    {
+      "test": "should convert :nth-of-type(1) to :first-of-type",
+      "input": "p:nth-of-type(1){color:blue}",
+      "expected": "p:first-of-type{color:blue}"
+    },
+    {
+      "test": "should convert :nth-of-type(2n + 1) to :nth-of-type(odd)",
+      "input": "p:nth-of-type(2n + 1){color:blue}",
+      "expected": "p:nth-of-type(odd){color:blue}"
+    },
+    {
+      "test": "should convert :nth-of-type(2n + 1) to :nth-of-type(odd) (2)",
+      "input": "p:nth-of-type(2N + 1){color:blue}",
+      "expected": "p:nth-of-type(odd){color:blue}"
+    },
+    {
+      "test": "should convert :nth-of-type(even) to :nth-of-type(2n)",
+      "input": "p:nth-of-type(even){color:blue}",
+      "expected": "p:nth-of-type(2n){color:blue}"
+    },
+    {
+      "test": "should convert :nth-last-child(1) to :last-child",
+      "input": "p:nth-last-child(1){color:blue}",
+      "expected": "p:last-child{color:blue}"
+    },
+    {
+      "test": "should convert :nth-last-child(2n + 1) to :nth-last-child(odd)",
+      "input": "p:nth-last-child(2n + 1){color:blue}",
+      "expected": "p:nth-last-child(odd){color:blue}"
+    },
+    {
+      "test": "should convert :nth-last-child(even) to :nth-last-child(2n)",
+      "input": "p:nth-last-child(even){color:blue}",
+      "expected": "p:nth-last-child(2n){color:blue}"
+    },
+    {
+      "test": "should convert :nth-last-of-type(1) to :last-of-type",
+      "input": "p:nth-last-of-type(1){color:blue}",
+      "expected": "p:last-of-type{color:blue}"
+    },
+    {
+      "test": "should convert :nth-last-of-type(2n + 1) to :nth-last-of-type(odd)",
+      "input": "p:nth-last-of-type(2n + 1){color:blue}",
+      "expected": "p:nth-last-of-type(odd){color:blue}"
+    },
+    {
+      "test": "should handle :nth-last-of-type(2n + 2)",
+      "input": "p:nth-last-of-type(2n + 2){color:blue}",
+      "expected": "p:nth-last-of-type(2n+2){color:blue}"
+    },
+    {
+      "test": "should convert :nth-last-of-type(even) to :nth-last-of-type(2n)",
+      "input": "p:nth-last-of-type(even){color:blue}",
+      "expected": "p:nth-last-of-type(2n){color:blue}"
+    },
+    {
+      "test": "should handle first/last of type without parameters",
+      "input": "body>h2:not(:first-of-type):not(:last-of-type){color:blue}",
+      "expected": "body>h2:not(:first-of-type):not(:last-of-type){color:blue}",
+      "passthrough": true
+    },
+    {
+      "test": "should handle attribute selector and namespace",
+      "input": "::slotted([foo|bar])",
+      "expected": "::slotted([foo|bar])",
+      "passthrough": true
+    },
+    {
+      "test": "should handle attribute selector and namespace #2",
+      "input": "div[*|att] {  }",
+      "expected": "div[*|att] {  }",
+      "passthrough": true
+    },
+    {
+      "test": "should handle attribute selector and namespace #3",
+      "input": "div[|att] {  }",
+      "expected": "div[|att] {  }",
+      "passthrough": true
+    },
+    {
+      "test": "should handle attribute selector and namespace #3",
+      "input": "div[att] {  }",
+      "expected": "div[att] {  }",
+      "passthrough": true
+    },
+    {
+      "test": "should not remove equal selectors parts which aren't duplicates #1402",
+      "input": ":where(a,:not(a)) {  }",
+      "expected": ":where(a,:not(a)) {  }"
+    },
+    {
+      "test": "should not remove equal selectors parts which aren't duplicates #1216",
+      "input": ":where(:nth-child(7),:nth-child(7)~*) {  }",
+      "expected": ":where(:nth-child(7),:nth-child(7)~*) {  }"
+    },
+    {
+      "test": "fold: MDN level-1 section headings example",
+      "input": "section h1, article h1, aside h1, nav h1{font-size:25px}",
+      "expected": ":is(article,aside,nav,section) h1{font-size:25px}"
+    },
+    {
+      "test": "fold: common suffix with multiple selectors",
+      "input": "section h1,article h1,aside h1,nav h1{font-size:25px}",
+      "expected": ":is(article,aside,nav,section) h1{font-size:25px}"
+    },
+    {
+      "test": "fold: common prefix with multiple selectors",
+      "input": ".foo .a .x,.foo .b .x,.foo .c .x{color:red}",
+      "expected": ".foo :is(.a,.b,.c) .x{color:red}"
+    },
+    {
+      "test": "fold: common prefix and suffix",
+      "input": ".nav .item .home,.nav .item .shop,.nav .item .help{color:red}",
+      "expected": ".nav .item :is(.help,.home,.shop){color:red}"
+    },
+    {
+      "test": "no-fold: combinator in middle (MDN deep list-style example, 16-way)",
+      "input": "ol ol ul,ol ul ul,ol menu ul,ol dir ul,ul ol ul,ul ul ul,ul menu ul,ul dir ul,menu ol ul,menu ul ul,menu menu ul,menu dir ul,dir ol ul,dir ul ul,dir menu ul,dir dir ul{list-style:square}",
+      "expected": "dir dir ul,dir menu ul,dir ol ul,dir ul ul,menu dir ul,menu menu ul,menu ol ul,menu ul ul,ol dir ul,ol menu ul,ol ol ul,ol ul ul,ul dir ul,ul menu ul,ul ol ul,ul ul ul{list-style:square}"
+    },
+    {
+      "test": "fold: pseudo-class in middle (same specificity)",
+      "input": ".btn a:hover,.btn a:focus,.btn a:active{color:red}",
+      "expected": ".btn :is(a:active,a:focus,a:hover){color:red}"
+    },
+    {
+      "test": "no-fold: functional pseudo in middle (outside allowlist)",
+      "input": ".box :not(.a) .x,.box :not(.b) .x,.box :not(.c) .x{color:red}",
+      "expected": ".box :not(.a) .x,.box :not(.b) .x,.box :not(.c) .x{color:red}"
+    },
+    {
+      "test": "fold: universal selector in common part stays outside `:is()`",
+      "input": ".a * .x,.b * .x,.c * .x{color:red}",
+      "expected": ":is(.a,.b,.c) * .x{color:red}"
+    },
+    {
+      "test": "fold: child combinator in common prefix",
+      "input": ".wrap > .a .x,.wrap > .b .x,.wrap > .c .x{color:red}",
+      "expected": ".wrap>:is(.a,.b,.c) .x{color:red}"
+    },
+    {
+      "test": "fold: sibling combinator in common prefix",
+      "input": ".a~.m,.a~.n,.a~.o{color:red}",
+      "expected": ".a~:is(.m,.n,.o){color:red}"
+    },
+    {
+      "test": "fold: adjacent-sibling combinator in common prefix",
+      "input": ".a+.m,.a+.n,.a+.o{color:red}",
+      "expected": ".a+:is(.m,.n,.o){color:red}"
+    },
+    {
+      "test": "fold: compound selector (multi-class) in common prefix",
+      "input": ".menu.open a,.menu.open b,.menu.open c{color:red}",
+      "expected": ".menu.open :is(a,b,c){color:red}"
+    },
+    {
+      "test": "fold: multi-simple compound middle with same specificity",
+      "input": ".root a.x b,.root a.y b,.root a.z b{color:red}",
+      "expected": ".root :is(a.x,a.y,a.z) b{color:red}"
+    },
+    {
+      "test": "fold: ids in middle (all same specificity)",
+      "input": "#a .x,#b .x,#c .x{color:red}",
+      "expected": ":is(#a,#b,#c) .x{color:red}"
+    },
+    {
+      "test": "fold: attribute selectors with matching specificity",
+      "input": "[data-a] .item .x,[data-b] .item .x,[data-c] .item .x{color:red}",
+      "expected": ":is([data-a],[data-b],[data-c]) .item .x{color:red}"
+    },
+    {
+      "test": "fold: pseudo-class after compound in common prefix",
+      "input": ".tab:hover .a,.tab:hover .b,.tab:hover .c{color:red}",
+      "expected": ".tab:hover :is(.a,.b,.c){color:red}"
+    },
+    {
+      "test": "fold: does not touch nested `&` selectors",
+      "input": "& .a .x,& .b .x,& .c .x{color:red}",
+      "expected": "& :is(.a,.b,.c) .x{color:red}"
+    },
+    {
+      "test": "fold: dedupes identical middles",
+      "input": ".foo .a .x,.foo .a .x,.foo .b .x{color:red}",
+      "expected": ".foo :is(.a,.b) .x{color:red}"
+    },
+    {
+      "test": "fold: survives duplicates being removed before fold",
+      "input": ".a .x,.a .x,.a .y,.a .z{color:red}",
+      "expected": ".a :is(.x,.y,.z){color:red}"
+    },
+    {
+      "test": "no-fold: 2-selector pair without byte savings is left alone",
+      "input": "ol li a, ul li a{color:red}",
+      "expected": "ol li a,ul li a{color:red}"
+    },
+    {
+      "test": "no-fold: byte-neutral 2-selector child-combinator case",
+      "input": ".foo>.a,.foo>.b{color:red}",
+      "expected": ".foo>.a,.foo>.b{color:red}"
+    },
+    {
+      "test": "no-fold: only fires when strictly shorter",
+      "input": "a c,b c{color:red}",
+      "expected": "a c,b c{color:red}"
+    },
+    {
+      "test": "no-fold: rejects mixed-specificity middles (id vs class)",
+      "input": ".a b,#x b,.c b{color:red}",
+      "expected": "#x b,.a b,.c b{color:red}"
+    },
+    {
+      "test": "no-fold: rejects mixed-specificity middles (tag vs class)",
+      "input": "ol li a,ul li a,.menu li a{color:red}",
+      "expected": ".menu li a,ol li a,ul li a{color:red}"
+    },
+    {
+      "test": "no-fold: rejects universal vs tag in middle (different specificity)",
+      "input": "* h1,body h1{font-size:1rem}",
+      "expected": "* h1,body h1{font-size:1rem}"
+    },
+    {
+      "test": "no-fold: rejects :not() with differing inner specificity",
+      "input": ".p :not(.a) b,.p :not(#x) b{color:red}",
+      "expected": ".p :not(#x) b,.p :not(.a) b{color:red}"
+    },
+    {
+      "test": "no-fold: rejects pseudo-element in middle",
+      "input": ".a::before,.b::before,.c::before{content:\"\"}",
+      "expected": ".a:before,.b:before,.c:before{content:\"\"}"
+    },
+    {
+      "test": "no-fold: rejects legacy single-colon pseudo-element in middle",
+      "input": ".a:before,.b:before,.c:before{content:\"\"}",
+      "expected": ".a:before,.b:before,.c:before{content:\"\"}"
+    },
+    {
+      "test": "no-fold: rejects pseudo-element that survived `::` → `:` shortening",
+      "input": ".t a:hover::after,.t b:hover::after,.t c:hover::after{content:\"x\"}",
+      "expected": ".t a:hover:after,.t b:hover:after,.t c:hover:after{content:\"x\"}"
+    },
+    {
+      "test": "no-fold: pseudo-element in common part stays put (not pulled into `:is()`)",
+      "input": "a::before h1,b::before h1,c::before h1{content:\"x\"}",
+      "expected": "a:before h1,b:before h1,c:before h1{content:\"x\"}"
+    },
+    {
+      "test": "no-fold: keyframes percentages are untouched (no combinator context)",
+      "input": "@keyframes k{0%,50%,to{opacity:0}}",
+      "expected": "@keyframes k{0%,50%,to{opacity:0}}"
+    },
+    {
+      "test": "no-fold: rejects combinator in middle when prefix is non-empty (child)",
+      "input": ".card>.header>.title,.card>.footer>.meta{color:red}",
+      "expected": ".card>.footer>.meta,.card>.header>.title{color:red}"
+    },
+    {
+      "test": "no-fold: rejects combinator in middle when prefix is non-empty (descendant)",
+      "input": ".x .a .b,.x .c .d{color:red}",
+      "expected": ".x .a .b,.x .c .d{color:red}"
+    },
+    {
+      "test": "no-fold: already-nested `:is()` when result would not be shorter",
+      "input": ":is(.a,.b) .x,:is(.c,.d) .x{color:red}",
+      "expected": ":is(.a,.b) .x,:is(.c,.d) .x{color:red}"
+    },
+    {
+      "test": "no-fold: idempotent on already-folded output",
+      "input": ":is(article,aside,nav,section) h1{font-size:25px}",
+      "expected": ":is(article,aside,nav,section) h1{font-size:25px}"
+    },
+    {
+      "test": "no-fold: single-selector rules",
+      "input": ".foo .bar{color:red}",
+      "expected": ".foo .bar{color:red}"
+    },
+    {
+      "test": "no-fold: mixin-like selectors",
+      "input": ".mixin:{color:red}",
+      "expected": ".mixin:{color:red}"
+    },
+    {
+      "test": "fold: disabled by convertToIs=false",
+      "input": "section h1,article h1,aside h1,nav h1{font-size:25px}",
+      "expected": "article h1,aside h1,nav h1,section h1{font-size:25px}"
+    },
+    {
+      "test": "fold: disabled when browserslist does not support :is() (IE 11)",
+      "input": "section h1,article h1,aside h1,nav h1{font-size:25px}",
+      "expected": "article h1,aside h1,nav h1,section h1{font-size:25px}"
+    },
+    {
+      "test": "fold: disabled when any target in a list is unsupported",
+      "input": "section h1,article h1,aside h1,nav h1{font-size:25px}",
+      "expected": "article h1,aside h1,nav h1,section h1{font-size:25px}"
+    },
+    {
+      "test": "fold: honours sort=false (does not re-sort middles after fold)",
+      "input": ".foo .z .x,.foo .a .x,.foo .m .x{color:red}",
+      "expected": ".foo :is(.z,.a,.m) .x{color:red}"
+    },
+    {
+      "test": "fold: sort=true reorders middles alphabetically",
+      "input": ".foo .z .x,.foo .a .x,.foo .m .x{color:red}",
+      "expected": ".foo :is(.a,.m,.z) .x{color:red}"
+    }
+  ]
+}

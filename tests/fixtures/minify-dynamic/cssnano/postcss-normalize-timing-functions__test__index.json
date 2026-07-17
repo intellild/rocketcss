@@ -1,0 +1,1582 @@
+{
+  "upstream": "packages/postcss-normalize-timing-functions/test/index.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "input": "animation:fade 3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "animation:fade 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-animation:fade 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "input": "animation-timing-function:cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "animation-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-animation-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "input": "transition:color 3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "transition:color 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-transition:color 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "input": "transition-timing-function:cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "transition-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-transition-timing-function:ease"
+    },
+    {
+      "test": "CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "input": "animation:fade 3s CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "expected": "animation:fade 3s ease"
+    },
+    {
+      "test": "CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "input": "-webkit-animation:fade 3s CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-animation:fade 3s ease"
+    },
+    {
+      "test": "CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "input": "animation-timing-function:CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "expected": "animation-timing-function:ease"
+    },
+    {
+      "test": "CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "input": "-webkit-animation-timing-function:CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-animation-timing-function:ease"
+    },
+    {
+      "test": "CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "input": "transition:color 3s CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "expected": "transition:color 3s ease"
+    },
+    {
+      "test": "CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "input": "-webkit-transition:color 3s CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-transition:color 3s ease"
+    },
+    {
+      "test": "CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "input": "transition-timing-function:CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "expected": "transition-timing-function:ease"
+    },
+    {
+      "test": "CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "input": "-webkit-transition-timing-function:CUBIC-BEZIER(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-transition-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1)",
+      "input": "animation:fade 3s cubic-bezier(0, 0, 1, 1)",
+      "expected": "animation:fade 3s linear"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0, 0, 1, 1)",
+      "expected": "-webkit-animation:fade 3s linear"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1)",
+      "input": "animation-timing-function:cubic-bezier(0, 0, 1, 1)",
+      "expected": "animation-timing-function:linear"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0, 0, 1, 1)",
+      "expected": "-webkit-animation-timing-function:linear"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1)",
+      "input": "transition:color 3s cubic-bezier(0, 0, 1, 1)",
+      "expected": "transition:color 3s linear"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0, 0, 1, 1)",
+      "expected": "-webkit-transition:color 3s linear"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1)",
+      "input": "transition-timing-function:cubic-bezier(0, 0, 1, 1)",
+      "expected": "transition-timing-function:linear"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0, 0, 1, 1)",
+      "expected": "-webkit-transition-timing-function:linear"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 1, 1)",
+      "input": "animation:fade 3s cubic-bezier(0.42, 0, 1, 1)",
+      "expected": "animation:fade 3s ease-in"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 1, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0.42, 0, 1, 1)",
+      "expected": "-webkit-animation:fade 3s ease-in"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 1, 1)",
+      "input": "animation-timing-function:cubic-bezier(0.42, 0, 1, 1)",
+      "expected": "animation-timing-function:ease-in"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 1, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0.42, 0, 1, 1)",
+      "expected": "-webkit-animation-timing-function:ease-in"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 1, 1)",
+      "input": "transition:color 3s cubic-bezier(0.42, 0, 1, 1)",
+      "expected": "transition:color 3s ease-in"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 1, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0.42, 0, 1, 1)",
+      "expected": "-webkit-transition:color 3s ease-in"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 1, 1)",
+      "input": "transition-timing-function:cubic-bezier(0.42, 0, 1, 1)",
+      "expected": "transition-timing-function:ease-in"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 1, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0.42, 0, 1, 1)",
+      "expected": "-webkit-transition-timing-function:ease-in"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 0.58, 1)",
+      "input": "animation:fade 3s cubic-bezier(0, 0, 0.58, 1)",
+      "expected": "animation:fade 3s ease-out"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 0.58, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0, 0, 0.58, 1)",
+      "expected": "-webkit-animation:fade 3s ease-out"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 0.58, 1)",
+      "input": "animation-timing-function:cubic-bezier(0, 0, 0.58, 1)",
+      "expected": "animation-timing-function:ease-out"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 0.58, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0, 0, 0.58, 1)",
+      "expected": "-webkit-animation-timing-function:ease-out"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 0.58, 1)",
+      "input": "transition:color 3s cubic-bezier(0, 0, 0.58, 1)",
+      "expected": "transition:color 3s ease-out"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 0.58, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0, 0, 0.58, 1)",
+      "expected": "-webkit-transition:color 3s ease-out"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 0.58, 1)",
+      "input": "transition-timing-function:cubic-bezier(0, 0, 0.58, 1)",
+      "expected": "transition-timing-function:ease-out"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 0.58, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0, 0, 0.58, 1)",
+      "expected": "-webkit-transition-timing-function:ease-out"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 0.58, 1)",
+      "input": "animation:fade 3s cubic-bezier(0.42, 0, 0.58, 1)",
+      "expected": "animation:fade 3s ease-in-out"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 0.58, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0.42, 0, 0.58, 1)",
+      "expected": "-webkit-animation:fade 3s ease-in-out"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 0.58, 1)",
+      "input": "animation-timing-function:cubic-bezier(0.42, 0, 0.58, 1)",
+      "expected": "animation-timing-function:ease-in-out"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 0.58, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0.42, 0, 0.58, 1)",
+      "expected": "-webkit-animation-timing-function:ease-in-out"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 0.58, 1)",
+      "input": "transition:color 3s cubic-bezier(0.42, 0, 0.58, 1)",
+      "expected": "transition:color 3s ease-in-out"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 0.58, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0.42, 0, 0.58, 1)",
+      "expected": "-webkit-transition:color 3s ease-in-out"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 0.58, 1)",
+      "input": "transition-timing-function:cubic-bezier(0.42, 0, 0.58, 1)",
+      "expected": "transition-timing-function:ease-in-out"
+    },
+    {
+      "test": "cubic-bezier(0.42, 0, 0.58, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0.42, 0, 0.58, 1)",
+      "expected": "-webkit-transition-timing-function:ease-in-out"
+    },
+    {
+      "test": "steps(1, start)",
+      "input": "animation:fade 3s steps(1, start)",
+      "expected": "animation:fade 3s step-start"
+    },
+    {
+      "test": "steps(1, start)",
+      "input": "-webkit-animation:fade 3s steps(1, start)",
+      "expected": "-webkit-animation:fade 3s step-start"
+    },
+    {
+      "test": "steps(1, start)",
+      "input": "animation-timing-function:steps(1, start)",
+      "expected": "animation-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, start)",
+      "input": "-webkit-animation-timing-function:steps(1, start)",
+      "expected": "-webkit-animation-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, start)",
+      "input": "transition:color 3s steps(1, start)",
+      "expected": "transition:color 3s step-start"
+    },
+    {
+      "test": "steps(1, start)",
+      "input": "-webkit-transition:color 3s steps(1, start)",
+      "expected": "-webkit-transition:color 3s step-start"
+    },
+    {
+      "test": "steps(1, start)",
+      "input": "transition-timing-function:steps(1, start)",
+      "expected": "transition-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, start)",
+      "input": "-webkit-transition-timing-function:steps(1, start)",
+      "expected": "-webkit-transition-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, START)",
+      "input": "animation:fade 3s steps(1, START)",
+      "expected": "animation:fade 3s step-start"
+    },
+    {
+      "test": "steps(1, START)",
+      "input": "-webkit-animation:fade 3s steps(1, START)",
+      "expected": "-webkit-animation:fade 3s step-start"
+    },
+    {
+      "test": "steps(1, START)",
+      "input": "animation-timing-function:steps(1, START)",
+      "expected": "animation-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, START)",
+      "input": "-webkit-animation-timing-function:steps(1, START)",
+      "expected": "-webkit-animation-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, START)",
+      "input": "transition:color 3s steps(1, START)",
+      "expected": "transition:color 3s step-start"
+    },
+    {
+      "test": "steps(1, START)",
+      "input": "-webkit-transition:color 3s steps(1, START)",
+      "expected": "-webkit-transition:color 3s step-start"
+    },
+    {
+      "test": "steps(1, START)",
+      "input": "transition-timing-function:steps(1, START)",
+      "expected": "transition-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, START)",
+      "input": "-webkit-transition-timing-function:steps(1, START)",
+      "expected": "-webkit-transition-timing-function:step-start"
+    },
+    {
+      "test": "STEPS(1, start)",
+      "input": "animation:fade 3s STEPS(1, start)",
+      "expected": "animation:fade 3s step-start"
+    },
+    {
+      "test": "STEPS(1, start)",
+      "input": "-webkit-animation:fade 3s STEPS(1, start)",
+      "expected": "-webkit-animation:fade 3s step-start"
+    },
+    {
+      "test": "STEPS(1, start)",
+      "input": "animation-timing-function:STEPS(1, start)",
+      "expected": "animation-timing-function:step-start"
+    },
+    {
+      "test": "STEPS(1, start)",
+      "input": "-webkit-animation-timing-function:STEPS(1, start)",
+      "expected": "-webkit-animation-timing-function:step-start"
+    },
+    {
+      "test": "STEPS(1, start)",
+      "input": "transition:color 3s STEPS(1, start)",
+      "expected": "transition:color 3s step-start"
+    },
+    {
+      "test": "STEPS(1, start)",
+      "input": "-webkit-transition:color 3s STEPS(1, start)",
+      "expected": "-webkit-transition:color 3s step-start"
+    },
+    {
+      "test": "STEPS(1, start)",
+      "input": "transition-timing-function:STEPS(1, start)",
+      "expected": "transition-timing-function:step-start"
+    },
+    {
+      "test": "STEPS(1, start)",
+      "input": "-webkit-transition-timing-function:STEPS(1, start)",
+      "expected": "-webkit-transition-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, jump-start)",
+      "input": "animation:fade 3s steps(1, jump-start)",
+      "expected": "animation:fade 3s step-start"
+    },
+    {
+      "test": "steps(1, jump-start)",
+      "input": "-webkit-animation:fade 3s steps(1, jump-start)",
+      "expected": "-webkit-animation:fade 3s step-start"
+    },
+    {
+      "test": "steps(1, jump-start)",
+      "input": "animation-timing-function:steps(1, jump-start)",
+      "expected": "animation-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, jump-start)",
+      "input": "-webkit-animation-timing-function:steps(1, jump-start)",
+      "expected": "-webkit-animation-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, jump-start)",
+      "input": "transition:color 3s steps(1, jump-start)",
+      "expected": "transition:color 3s step-start"
+    },
+    {
+      "test": "steps(1, jump-start)",
+      "input": "-webkit-transition:color 3s steps(1, jump-start)",
+      "expected": "-webkit-transition:color 3s step-start"
+    },
+    {
+      "test": "steps(1, jump-start)",
+      "input": "transition-timing-function:steps(1, jump-start)",
+      "expected": "transition-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, jump-start)",
+      "input": "-webkit-transition-timing-function:steps(1, jump-start)",
+      "expected": "-webkit-transition-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, JUMP-START)",
+      "input": "animation:fade 3s steps(1, JUMP-START)",
+      "expected": "animation:fade 3s step-start"
+    },
+    {
+      "test": "steps(1, JUMP-START)",
+      "input": "-webkit-animation:fade 3s steps(1, JUMP-START)",
+      "expected": "-webkit-animation:fade 3s step-start"
+    },
+    {
+      "test": "steps(1, JUMP-START)",
+      "input": "animation-timing-function:steps(1, JUMP-START)",
+      "expected": "animation-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, JUMP-START)",
+      "input": "-webkit-animation-timing-function:steps(1, JUMP-START)",
+      "expected": "-webkit-animation-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, JUMP-START)",
+      "input": "transition:color 3s steps(1, JUMP-START)",
+      "expected": "transition:color 3s step-start"
+    },
+    {
+      "test": "steps(1, JUMP-START)",
+      "input": "-webkit-transition:color 3s steps(1, JUMP-START)",
+      "expected": "-webkit-transition:color 3s step-start"
+    },
+    {
+      "test": "steps(1, JUMP-START)",
+      "input": "transition-timing-function:steps(1, JUMP-START)",
+      "expected": "transition-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, JUMP-START)",
+      "input": "-webkit-transition-timing-function:steps(1, JUMP-START)",
+      "expected": "-webkit-transition-timing-function:step-start"
+    },
+    {
+      "test": "STEPS(1, jump-start)",
+      "input": "animation:fade 3s STEPS(1, jump-start)",
+      "expected": "animation:fade 3s step-start"
+    },
+    {
+      "test": "STEPS(1, jump-start)",
+      "input": "-webkit-animation:fade 3s STEPS(1, jump-start)",
+      "expected": "-webkit-animation:fade 3s step-start"
+    },
+    {
+      "test": "STEPS(1, jump-start)",
+      "input": "animation-timing-function:STEPS(1, jump-start)",
+      "expected": "animation-timing-function:step-start"
+    },
+    {
+      "test": "STEPS(1, jump-start)",
+      "input": "-webkit-animation-timing-function:STEPS(1, jump-start)",
+      "expected": "-webkit-animation-timing-function:step-start"
+    },
+    {
+      "test": "STEPS(1, jump-start)",
+      "input": "transition:color 3s STEPS(1, jump-start)",
+      "expected": "transition:color 3s step-start"
+    },
+    {
+      "test": "STEPS(1, jump-start)",
+      "input": "-webkit-transition:color 3s STEPS(1, jump-start)",
+      "expected": "-webkit-transition:color 3s step-start"
+    },
+    {
+      "test": "STEPS(1, jump-start)",
+      "input": "transition-timing-function:STEPS(1, jump-start)",
+      "expected": "transition-timing-function:step-start"
+    },
+    {
+      "test": "STEPS(1, jump-start)",
+      "input": "-webkit-transition-timing-function:STEPS(1, jump-start)",
+      "expected": "-webkit-transition-timing-function:step-start"
+    },
+    {
+      "test": "steps(1, end)",
+      "input": "animation:fade 3s steps(1, end)",
+      "expected": "animation:fade 3s step-end"
+    },
+    {
+      "test": "steps(1, end)",
+      "input": "-webkit-animation:fade 3s steps(1, end)",
+      "expected": "-webkit-animation:fade 3s step-end"
+    },
+    {
+      "test": "steps(1, end)",
+      "input": "animation-timing-function:steps(1, end)",
+      "expected": "animation-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, end)",
+      "input": "-webkit-animation-timing-function:steps(1, end)",
+      "expected": "-webkit-animation-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, end)",
+      "input": "transition:color 3s steps(1, end)",
+      "expected": "transition:color 3s step-end"
+    },
+    {
+      "test": "steps(1, end)",
+      "input": "-webkit-transition:color 3s steps(1, end)",
+      "expected": "-webkit-transition:color 3s step-end"
+    },
+    {
+      "test": "steps(1, end)",
+      "input": "transition-timing-function:steps(1, end)",
+      "expected": "transition-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, end)",
+      "input": "-webkit-transition-timing-function:steps(1, end)",
+      "expected": "-webkit-transition-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, END)",
+      "input": "animation:fade 3s steps(1, END)",
+      "expected": "animation:fade 3s step-end"
+    },
+    {
+      "test": "steps(1, END)",
+      "input": "-webkit-animation:fade 3s steps(1, END)",
+      "expected": "-webkit-animation:fade 3s step-end"
+    },
+    {
+      "test": "steps(1, END)",
+      "input": "animation-timing-function:steps(1, END)",
+      "expected": "animation-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, END)",
+      "input": "-webkit-animation-timing-function:steps(1, END)",
+      "expected": "-webkit-animation-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, END)",
+      "input": "transition:color 3s steps(1, END)",
+      "expected": "transition:color 3s step-end"
+    },
+    {
+      "test": "steps(1, END)",
+      "input": "-webkit-transition:color 3s steps(1, END)",
+      "expected": "-webkit-transition:color 3s step-end"
+    },
+    {
+      "test": "steps(1, END)",
+      "input": "transition-timing-function:steps(1, END)",
+      "expected": "transition-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, END)",
+      "input": "-webkit-transition-timing-function:steps(1, END)",
+      "expected": "-webkit-transition-timing-function:step-end"
+    },
+    {
+      "test": "STEPS(1, end)",
+      "input": "animation:fade 3s STEPS(1, end)",
+      "expected": "animation:fade 3s step-end"
+    },
+    {
+      "test": "STEPS(1, end)",
+      "input": "-webkit-animation:fade 3s STEPS(1, end)",
+      "expected": "-webkit-animation:fade 3s step-end"
+    },
+    {
+      "test": "STEPS(1, end)",
+      "input": "animation-timing-function:STEPS(1, end)",
+      "expected": "animation-timing-function:step-end"
+    },
+    {
+      "test": "STEPS(1, end)",
+      "input": "-webkit-animation-timing-function:STEPS(1, end)",
+      "expected": "-webkit-animation-timing-function:step-end"
+    },
+    {
+      "test": "STEPS(1, end)",
+      "input": "transition:color 3s STEPS(1, end)",
+      "expected": "transition:color 3s step-end"
+    },
+    {
+      "test": "STEPS(1, end)",
+      "input": "-webkit-transition:color 3s STEPS(1, end)",
+      "expected": "-webkit-transition:color 3s step-end"
+    },
+    {
+      "test": "STEPS(1, end)",
+      "input": "transition-timing-function:STEPS(1, end)",
+      "expected": "transition-timing-function:step-end"
+    },
+    {
+      "test": "STEPS(1, end)",
+      "input": "-webkit-transition-timing-function:STEPS(1, end)",
+      "expected": "-webkit-transition-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, jump-end)",
+      "input": "animation:fade 3s steps(1, jump-end)",
+      "expected": "animation:fade 3s step-end"
+    },
+    {
+      "test": "steps(1, jump-end)",
+      "input": "-webkit-animation:fade 3s steps(1, jump-end)",
+      "expected": "-webkit-animation:fade 3s step-end"
+    },
+    {
+      "test": "steps(1, jump-end)",
+      "input": "animation-timing-function:steps(1, jump-end)",
+      "expected": "animation-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, jump-end)",
+      "input": "-webkit-animation-timing-function:steps(1, jump-end)",
+      "expected": "-webkit-animation-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, jump-end)",
+      "input": "transition:color 3s steps(1, jump-end)",
+      "expected": "transition:color 3s step-end"
+    },
+    {
+      "test": "steps(1, jump-end)",
+      "input": "-webkit-transition:color 3s steps(1, jump-end)",
+      "expected": "-webkit-transition:color 3s step-end"
+    },
+    {
+      "test": "steps(1, jump-end)",
+      "input": "transition-timing-function:steps(1, jump-end)",
+      "expected": "transition-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, jump-end)",
+      "input": "-webkit-transition-timing-function:steps(1, jump-end)",
+      "expected": "-webkit-transition-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, JUMP-END)",
+      "input": "animation:fade 3s steps(1, JUMP-END)",
+      "expected": "animation:fade 3s step-end"
+    },
+    {
+      "test": "steps(1, JUMP-END)",
+      "input": "-webkit-animation:fade 3s steps(1, JUMP-END)",
+      "expected": "-webkit-animation:fade 3s step-end"
+    },
+    {
+      "test": "steps(1, JUMP-END)",
+      "input": "animation-timing-function:steps(1, JUMP-END)",
+      "expected": "animation-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, JUMP-END)",
+      "input": "-webkit-animation-timing-function:steps(1, JUMP-END)",
+      "expected": "-webkit-animation-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, JUMP-END)",
+      "input": "transition:color 3s steps(1, JUMP-END)",
+      "expected": "transition:color 3s step-end"
+    },
+    {
+      "test": "steps(1, JUMP-END)",
+      "input": "-webkit-transition:color 3s steps(1, JUMP-END)",
+      "expected": "-webkit-transition:color 3s step-end"
+    },
+    {
+      "test": "steps(1, JUMP-END)",
+      "input": "transition-timing-function:steps(1, JUMP-END)",
+      "expected": "transition-timing-function:step-end"
+    },
+    {
+      "test": "steps(1, JUMP-END)",
+      "input": "-webkit-transition-timing-function:steps(1, JUMP-END)",
+      "expected": "-webkit-transition-timing-function:step-end"
+    },
+    {
+      "test": "STEPS(1, jump-end)",
+      "input": "animation:fade 3s STEPS(1, jump-end)",
+      "expected": "animation:fade 3s step-end"
+    },
+    {
+      "test": "STEPS(1, jump-end)",
+      "input": "-webkit-animation:fade 3s STEPS(1, jump-end)",
+      "expected": "-webkit-animation:fade 3s step-end"
+    },
+    {
+      "test": "STEPS(1, jump-end)",
+      "input": "animation-timing-function:STEPS(1, jump-end)",
+      "expected": "animation-timing-function:step-end"
+    },
+    {
+      "test": "STEPS(1, jump-end)",
+      "input": "-webkit-animation-timing-function:STEPS(1, jump-end)",
+      "expected": "-webkit-animation-timing-function:step-end"
+    },
+    {
+      "test": "STEPS(1, jump-end)",
+      "input": "transition:color 3s STEPS(1, jump-end)",
+      "expected": "transition:color 3s step-end"
+    },
+    {
+      "test": "STEPS(1, jump-end)",
+      "input": "-webkit-transition:color 3s STEPS(1, jump-end)",
+      "expected": "-webkit-transition:color 3s step-end"
+    },
+    {
+      "test": "STEPS(1, jump-end)",
+      "input": "transition-timing-function:STEPS(1, jump-end)",
+      "expected": "transition-timing-function:step-end"
+    },
+    {
+      "test": "STEPS(1, jump-end)",
+      "input": "-webkit-transition-timing-function:STEPS(1, jump-end)",
+      "expected": "-webkit-transition-timing-function:step-end"
+    },
+    {
+      "test": "steps(1)",
+      "input": "animation:fade 3s steps(1)",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "steps(1)",
+      "input": "-webkit-animation:fade 3s steps(1)",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "steps(1)",
+      "input": "animation-timing-function:steps(1)",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "steps(1)",
+      "input": "-webkit-animation-timing-function:steps(1)",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "steps(1)",
+      "input": "transition:color 3s steps(1)",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "steps(1)",
+      "input": "-webkit-transition:color 3s steps(1)",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "steps(1)",
+      "input": "transition-timing-function:steps(1)",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "steps(1)",
+      "input": "-webkit-transition-timing-function:steps(1)",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "STEPS(1)",
+      "input": "animation:fade 3s STEPS(1)",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "STEPS(1)",
+      "input": "-webkit-animation:fade 3s STEPS(1)",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "STEPS(1)",
+      "input": "animation-timing-function:STEPS(1)",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "STEPS(1)",
+      "input": "-webkit-animation-timing-function:STEPS(1)",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "STEPS(1)",
+      "input": "transition:color 3s STEPS(1)",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "STEPS(1)",
+      "input": "-webkit-transition:color 3s STEPS(1)",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "STEPS(1)",
+      "input": "transition-timing-function:STEPS(1)",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "STEPS(1)",
+      "input": "-webkit-transition-timing-function:STEPS(1)",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "steps(5,start)",
+      "input": "animation:fade 3s steps(5,start)",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "steps(5,start)",
+      "input": "-webkit-animation:fade 3s steps(5,start)",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "steps(5,start)",
+      "input": "animation-timing-function:steps(5,start)",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "steps(5,start)",
+      "input": "-webkit-animation-timing-function:steps(5,start)",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "steps(5,start)",
+      "input": "transition:color 3s steps(5,start)",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "steps(5,start)",
+      "input": "-webkit-transition:color 3s steps(5,start)",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "steps(5,start)",
+      "input": "transition-timing-function:steps(5,start)",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "steps(5,start)",
+      "input": "-webkit-transition-timing-function:steps(5,start)",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "steps(10, end)",
+      "input": "animation:fade 3s steps(10, end)",
+      "expected": "animation:fade 3s steps(10)"
+    },
+    {
+      "test": "steps(10, end)",
+      "input": "-webkit-animation:fade 3s steps(10, end)",
+      "expected": "-webkit-animation:fade 3s steps(10)"
+    },
+    {
+      "test": "steps(10, end)",
+      "input": "animation-timing-function:steps(10, end)",
+      "expected": "animation-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, end)",
+      "input": "-webkit-animation-timing-function:steps(10, end)",
+      "expected": "-webkit-animation-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, end)",
+      "input": "transition:color 3s steps(10, end)",
+      "expected": "transition:color 3s steps(10)"
+    },
+    {
+      "test": "steps(10, end)",
+      "input": "-webkit-transition:color 3s steps(10, end)",
+      "expected": "-webkit-transition:color 3s steps(10)"
+    },
+    {
+      "test": "steps(10, end)",
+      "input": "transition-timing-function:steps(10, end)",
+      "expected": "transition-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, end)",
+      "input": "-webkit-transition-timing-function:steps(10, end)",
+      "expected": "-webkit-transition-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, jump-end)",
+      "input": "animation:fade 3s steps(10, jump-end)",
+      "expected": "animation:fade 3s steps(10)"
+    },
+    {
+      "test": "steps(10, jump-end)",
+      "input": "-webkit-animation:fade 3s steps(10, jump-end)",
+      "expected": "-webkit-animation:fade 3s steps(10)"
+    },
+    {
+      "test": "steps(10, jump-end)",
+      "input": "animation-timing-function:steps(10, jump-end)",
+      "expected": "animation-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, jump-end)",
+      "input": "-webkit-animation-timing-function:steps(10, jump-end)",
+      "expected": "-webkit-animation-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, jump-end)",
+      "input": "transition:color 3s steps(10, jump-end)",
+      "expected": "transition:color 3s steps(10)"
+    },
+    {
+      "test": "steps(10, jump-end)",
+      "input": "-webkit-transition:color 3s steps(10, jump-end)",
+      "expected": "-webkit-transition:color 3s steps(10)"
+    },
+    {
+      "test": "steps(10, jump-end)",
+      "input": "transition-timing-function:steps(10, jump-end)",
+      "expected": "transition-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, jump-end)",
+      "input": "-webkit-transition-timing-function:steps(10, jump-end)",
+      "expected": "-webkit-transition-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, END)",
+      "input": "animation:fade 3s steps(10, END)",
+      "expected": "animation:fade 3s steps(10)"
+    },
+    {
+      "test": "steps(10, END)",
+      "input": "-webkit-animation:fade 3s steps(10, END)",
+      "expected": "-webkit-animation:fade 3s steps(10)"
+    },
+    {
+      "test": "steps(10, END)",
+      "input": "animation-timing-function:steps(10, END)",
+      "expected": "animation-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, END)",
+      "input": "-webkit-animation-timing-function:steps(10, END)",
+      "expected": "-webkit-animation-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, END)",
+      "input": "transition:color 3s steps(10, END)",
+      "expected": "transition:color 3s steps(10)"
+    },
+    {
+      "test": "steps(10, END)",
+      "input": "-webkit-transition:color 3s steps(10, END)",
+      "expected": "-webkit-transition:color 3s steps(10)"
+    },
+    {
+      "test": "steps(10, END)",
+      "input": "transition-timing-function:steps(10, END)",
+      "expected": "transition-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, END)",
+      "input": "-webkit-transition-timing-function:steps(10, END)",
+      "expected": "-webkit-transition-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, JUMP-END)",
+      "input": "animation:fade 3s steps(10, JUMP-END)",
+      "expected": "animation:fade 3s steps(10)"
+    },
+    {
+      "test": "steps(10, JUMP-END)",
+      "input": "-webkit-animation:fade 3s steps(10, JUMP-END)",
+      "expected": "-webkit-animation:fade 3s steps(10)"
+    },
+    {
+      "test": "steps(10, JUMP-END)",
+      "input": "animation-timing-function:steps(10, JUMP-END)",
+      "expected": "animation-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, JUMP-END)",
+      "input": "-webkit-animation-timing-function:steps(10, JUMP-END)",
+      "expected": "-webkit-animation-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, JUMP-END)",
+      "input": "transition:color 3s steps(10, JUMP-END)",
+      "expected": "transition:color 3s steps(10)"
+    },
+    {
+      "test": "steps(10, JUMP-END)",
+      "input": "-webkit-transition:color 3s steps(10, JUMP-END)",
+      "expected": "-webkit-transition:color 3s steps(10)"
+    },
+    {
+      "test": "steps(10, JUMP-END)",
+      "input": "transition-timing-function:steps(10, JUMP-END)",
+      "expected": "transition-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(10, JUMP-END)",
+      "input": "-webkit-transition-timing-function:steps(10, JUMP-END)",
+      "expected": "-webkit-transition-timing-function:steps(10)"
+    },
+    {
+      "test": "steps(15)",
+      "input": "animation:fade 3s steps(15)",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "steps(15)",
+      "input": "-webkit-animation:fade 3s steps(15)",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "steps(15)",
+      "input": "animation-timing-function:steps(15)",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "steps(15)",
+      "input": "-webkit-animation-timing-function:steps(15)",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "steps(15)",
+      "input": "transition:color 3s steps(15)",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "steps(15)",
+      "input": "-webkit-transition:color 3s steps(15)",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "steps(15)",
+      "input": "transition-timing-function:steps(15)",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "steps(15)",
+      "input": "-webkit-transition-timing-function:steps(15)",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "var(--anim1)",
+      "input": "animation:fade 3s var(--anim1)",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "var(--anim1)",
+      "input": "-webkit-animation:fade 3s var(--anim1)",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "var(--anim1)",
+      "input": "animation-timing-function:var(--anim1)",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "var(--anim1)",
+      "input": "-webkit-animation-timing-function:var(--anim1)",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "var(--anim1)",
+      "input": "transition:color 3s var(--anim1)",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "var(--anim1)",
+      "input": "-webkit-transition:color 3s var(--anim1)",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "var(--anim1)",
+      "input": "transition-timing-function:var(--anim1)",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "var(--anim1)",
+      "input": "-webkit-transition-timing-function:var(--anim1)",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "VAR(--anim1)",
+      "input": "animation:fade 3s VAR(--anim1)",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "VAR(--anim1)",
+      "input": "-webkit-animation:fade 3s VAR(--anim1)",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "VAR(--anim1)",
+      "input": "animation-timing-function:VAR(--anim1)",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "VAR(--anim1)",
+      "input": "-webkit-animation-timing-function:VAR(--anim1)",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "VAR(--anim1)",
+      "input": "transition:color 3s VAR(--anim1)",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "VAR(--anim1)",
+      "input": "-webkit-transition:color 3s VAR(--anim1)",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "VAR(--anim1)",
+      "input": "transition-timing-function:VAR(--anim1)",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "VAR(--anim1)",
+      "input": "-webkit-transition-timing-function:VAR(--anim1)",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "input": "animation:fade 3s cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "input": "animation-timing-function:cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "input": "transition:color 3s cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "input": "transition-timing-function:cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0.25, var(--foo), 0.25, 1)",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "input": "animation:fade 3s cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "input": "-webkit-animation:fade 3s cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "input": "animation-timing-function:cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "input": "-webkit-animation-timing-function:cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "input": "transition:color 3s cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "input": "-webkit-transition:color 3s cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "input": "transition-timing-function:cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "input": "-webkit-transition-timing-function:cubic-bezier(var(--foo), var(--bar), var(--baz), var(--foz))",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "should pass through broken syntax",
+      "input": "h1{animation:}",
+      "expected": "h1{animation:}",
+      "passthrough": true
+    },
+    {
+      "test": "cubic-bezier()",
+      "input": "animation:fade 3s cubic-bezier()",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "cubic-bezier()",
+      "input": "-webkit-animation:fade 3s cubic-bezier()",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "cubic-bezier()",
+      "input": "animation-timing-function:cubic-bezier()",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier()",
+      "input": "-webkit-animation-timing-function:cubic-bezier()",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier()",
+      "input": "transition:color 3s cubic-bezier()",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "cubic-bezier()",
+      "input": "-webkit-transition:color 3s cubic-bezier()",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "cubic-bezier()",
+      "input": "transition-timing-function:cubic-bezier()",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier()",
+      "input": "-webkit-transition-timing-function:cubic-bezier()",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "input": "animation:fade 3s cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "input": "animation-timing-function:cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "input": "transition:color 3s cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "input": "transition-timing-function:cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0, 0, 1, 1, 1, 1)",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, start())",
+      "input": "animation:fade 3s fade 3s steps(10, start())",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, start())",
+      "input": "-webkit-animation:fade 3s fade 3s steps(10, start())",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, start())",
+      "input": "animation-timing-function:fade 3s steps(10, start())",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, start())",
+      "input": "-webkit-animation-timing-function:fade 3s steps(10, start())",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, start())",
+      "input": "transition:color 3s fade 3s steps(10, start())",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, start())",
+      "input": "-webkit-transition:color 3s fade 3s steps(10, start())",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, start())",
+      "input": "transition-timing-function:fade 3s steps(10, start())",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, start())",
+      "input": "-webkit-transition-timing-function:fade 3s steps(10, start())",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-start())",
+      "input": "animation:fade 3s fade 3s steps(10, jump-start())",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-start())",
+      "input": "-webkit-animation:fade 3s fade 3s steps(10, jump-start())",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-start())",
+      "input": "animation-timing-function:fade 3s steps(10, jump-start())",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-start())",
+      "input": "-webkit-animation-timing-function:fade 3s steps(10, jump-start())",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-start())",
+      "input": "transition:color 3s fade 3s steps(10, jump-start())",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-start())",
+      "input": "-webkit-transition:color 3s fade 3s steps(10, jump-start())",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-start())",
+      "input": "transition-timing-function:fade 3s steps(10, jump-start())",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-start())",
+      "input": "-webkit-transition-timing-function:fade 3s steps(10, jump-start())",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, end())",
+      "input": "animation:fade 3s fade 3s steps(10, end())",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, end())",
+      "input": "-webkit-animation:fade 3s fade 3s steps(10, end())",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, end())",
+      "input": "animation-timing-function:fade 3s steps(10, end())",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, end())",
+      "input": "-webkit-animation-timing-function:fade 3s steps(10, end())",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, end())",
+      "input": "transition:color 3s fade 3s steps(10, end())",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, end())",
+      "input": "-webkit-transition:color 3s fade 3s steps(10, end())",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, end())",
+      "input": "transition-timing-function:fade 3s steps(10, end())",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, end())",
+      "input": "-webkit-transition-timing-function:fade 3s steps(10, end())",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-end())",
+      "input": "animation:fade 3s fade 3s steps(10, jump-end())",
+      "expected": "animation:fade 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-end())",
+      "input": "-webkit-animation:fade 3s fade 3s steps(10, jump-end())",
+      "expected": "-webkit-animation:fade 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-end())",
+      "input": "animation-timing-function:fade 3s steps(10, jump-end())",
+      "expected": "animation-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-end())",
+      "input": "-webkit-animation-timing-function:fade 3s steps(10, jump-end())",
+      "expected": "-webkit-animation-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-end())",
+      "input": "transition:color 3s fade 3s steps(10, jump-end())",
+      "expected": "transition:color 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-end())",
+      "input": "-webkit-transition:color 3s fade 3s steps(10, jump-end())",
+      "expected": "-webkit-transition:color 3s undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-end())",
+      "input": "transition-timing-function:fade 3s steps(10, jump-end())",
+      "expected": "transition-timing-function:undefined"
+    },
+    {
+      "test": "fade 3s steps(10, jump-end())",
+      "input": "-webkit-transition-timing-function:fade 3s steps(10, jump-end())",
+      "expected": "-webkit-transition-timing-function:undefined"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1) #1",
+      "input": "animation:fade 3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "animation:fade 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1) #1",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-animation:fade 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1) #1",
+      "input": "animation-timing-function:cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "animation-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1) #1",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-animation-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1) #1",
+      "input": "transition:color 3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "transition:color 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1) #1",
+      "input": "-webkit-transition:color 3s cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-transition:color 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1) #1",
+      "input": "transition-timing-function:cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "transition-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.25, 0.1, 0.25, 1) #1",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0.25, 0.1, 0.25, 1)",
+      "expected": "-webkit-transition-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "input": "animation:fade 3s cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "expected": "animation:fade 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "expected": "-webkit-animation:fade 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "input": "animation-timing-function:cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "expected": "animation-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "expected": "-webkit-animation-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "input": "transition:color 3s cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "expected": "transition:color 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "expected": "-webkit-transition:color 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "input": "transition-timing-function:cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "expected": "transition-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0.250, 0.10, 0.250, 1)",
+      "expected": "-webkit-transition-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "input": "animation:fade 3s cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "expected": "animation:fade 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "input": "-webkit-animation:fade 3s cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "expected": "-webkit-animation:fade 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "input": "animation-timing-function:cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "expected": "animation-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "input": "-webkit-animation-timing-function:cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "expected": "-webkit-animation-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "input": "transition:color 3s cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "expected": "transition:color 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "input": "-webkit-transition:color 3s cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "expected": "-webkit-transition:color 3s ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "input": "transition-timing-function:cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "expected": "transition-timing-function:ease"
+    },
+    {
+      "test": "cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "input": "-webkit-transition-timing-function:cubic-bezier(0.250, 1e-1px, 0.250, 1)",
+      "expected": "-webkit-transition-timing-function:ease"
+    },
+    {
+      "test": "should supports multiple timing functions (animation-timing-function)",
+      "input": "h1{animation-timing-function: cubic-bezier(0, 0, 1, 1), cubic-bezier(0, 0, 1, 1), steps(1, start)}",
+      "expected": "h1{animation-timing-function: linear, linear, step-start}"
+    },
+    {
+      "test": "should supports multiple timing functions (transition-timing-function)",
+      "input": "h1{transition-timing-function: cubic-bezier(0, 0, 1, 1), cubic-bezier(0, 0, 1, 1), steps(1, start)}",
+      "expected": "h1{transition-timing-function: linear, linear, step-start}"
+    }
+  ]
+}

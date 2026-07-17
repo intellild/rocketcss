@@ -1,0 +1,966 @@
+{
+  "upstream": "packages/postcss-merge-longhand/test/boxBase.js",
+  "revision": "26c943569ea56fd71932f35a039860e6e53e06e9",
+  "cases": [
+    {
+      "test": "should merge margin values",
+      "input": "h1{margin-top:10px;margin-right:20px;margin-bottom:30px;margin-left:40px}",
+      "expected": "h1{margin:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should merge MARGIN values",
+      "input": "h1{MARGIN-top:10px;MARGIN-right:20px;MARGIN-bottom:30px;MARGIN-left:40px}",
+      "expected": "h1{margin:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should merge padding values",
+      "input": "h1{padding-top:10px;padding-right:20px;padding-bottom:30px;padding-left:40px}",
+      "expected": "h1{padding:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should merge PADDING values",
+      "input": "h1{PADDING-top:10px;PADDING-right:20px;PADDING-bottom:30px;PADDING-left:40px}",
+      "expected": "h1{padding:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should merge margin values with !important",
+      "input": "h1{margin-top:10px!important;margin-right:20px!important;margin-bottom:30px!important;margin-left:40px!important}",
+      "expected": "h1{margin:10px 20px 30px 40px!important}"
+    },
+    {
+      "test": "should merge MARGIN values with !important",
+      "input": "h1{MARGIN-top:10px!important;MARGIN-right:20px!important;MARGIN-bottom:30px!important;MARGIN-left:40px!important}",
+      "expected": "h1{margin:10px 20px 30px 40px!important}"
+    },
+    {
+      "test": "should merge padding values with !important",
+      "input": "h1{padding-top:10px!important;padding-right:20px!important;padding-bottom:30px!important;padding-left:40px!important}",
+      "expected": "h1{padding:10px 20px 30px 40px!important}"
+    },
+    {
+      "test": "should merge PADDING values with !important",
+      "input": "h1{PADDING-top:10px!important;PADDING-right:20px!important;PADDING-bottom:30px!important;PADDING-left:40px!important}",
+      "expected": "h1{padding:10px 20px 30px 40px!important}"
+    },
+    {
+      "test": "should merge & then condense margin values",
+      "input": "h1{margin-top:10px;margin-bottom:10px;margin-left:10px;margin-right:10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should merge & then condense MARGIN values",
+      "input": "h1{MARGIN-top:10px;MARGIN-bottom:10px;MARGIN-left:10px;MARGIN-right:10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should merge & then condense padding values",
+      "input": "h1{padding-top:10px;padding-bottom:10px;padding-left:10px;padding-right:10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should merge & then condense PADDING values",
+      "input": "h1{PADDING-top:10px;PADDING-bottom:10px;PADDING-left:10px;PADDING-right:10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should not merge margin values with mixed !important",
+      "input": "h1{margin-top:10px!important;margin-right:20px;margin-bottom:30px!important;margin-left:40px}",
+      "expected": "h1{margin-top:10px!important;margin-right:20px;margin-bottom:30px!important;margin-left:40px}"
+    },
+    {
+      "test": "should not merge MARGIN values with mixed !important",
+      "input": "h1{MARGIN-top:10px!important;MARGIN-right:20px;MARGIN-bottom:30px!important;MARGIN-left:40px}",
+      "expected": "h1{MARGIN-top:10px!important;MARGIN-right:20px;MARGIN-bottom:30px!important;MARGIN-left:40px}"
+    },
+    {
+      "test": "should not merge padding values with mixed !important",
+      "input": "h1{padding-top:10px!important;padding-right:20px;padding-bottom:30px!important;padding-left:40px}",
+      "expected": "h1{padding-top:10px!important;padding-right:20px;padding-bottom:30px!important;padding-left:40px}"
+    },
+    {
+      "test": "should not merge PADDING values with mixed !important",
+      "input": "h1{PADDING-top:10px!important;PADDING-right:20px;PADDING-bottom:30px!important;PADDING-left:40px}",
+      "expected": "h1{PADDING-top:10px!important;PADDING-right:20px;PADDING-bottom:30px!important;PADDING-left:40px}"
+    },
+    {
+      "test": "should convert 4 values to 1 (margin)",
+      "input": "h1{margin:10px 10px 10px 10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should convert 4 values to 1 (MARGIN)",
+      "input": "h1{MARGIN:10px 10px 10px 10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should convert 4 values to 1 (padding)",
+      "input": "h1{padding:10px 10px 10px 10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should convert 4 values to 1 (PADDING)",
+      "input": "h1{PADDING:10px 10px 10px 10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should convert 3 values to 1 (margin)",
+      "input": "h1{margin:10px 10px 10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should convert 3 values to 1 (MARGIN)",
+      "input": "h1{MARGIN:10px 10px 10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should convert 3 values to 1 (padding)",
+      "input": "h1{padding:10px 10px 10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should convert 3 values to 1 (PADDING)",
+      "input": "h1{PADDING:10px 10px 10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should convert 3 values to 2 (margin)",
+      "input": "h1{margin:10px 20px 10px}",
+      "expected": "h1{margin:10px 20px}"
+    },
+    {
+      "test": "should convert 3 values to 2 (MARGIN)",
+      "input": "h1{MARGIN:10px 20px 10px}",
+      "expected": "h1{margin:10px 20px}"
+    },
+    {
+      "test": "should convert 3 values to 2 (padding)",
+      "input": "h1{padding:10px 20px 10px}",
+      "expected": "h1{padding:10px 20px}"
+    },
+    {
+      "test": "should convert 3 values to 2 (PADDING)",
+      "input": "h1{PADDING:10px 20px 10px}",
+      "expected": "h1{padding:10px 20px}"
+    },
+    {
+      "test": "should convert 2 values to 1 (margin)",
+      "input": "h1{margin:10px 10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should convert 2 values to 1 (MARGIN)",
+      "input": "h1{MARGIN:10px 10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should convert 2 values to 1 (padding)",
+      "input": "h1{padding:10px 10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should convert 2 values to 1 (PADDING)",
+      "input": "h1{PADDING:10px 10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should convert 1 value to 1 (margin)",
+      "input": "h1{margin:10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should convert 1 value to 1 (MARGIN)",
+      "input": "h1{MARGIN:10px}",
+      "expected": "h1{margin:10px}"
+    },
+    {
+      "test": "should convert 1 value to 1 (padding)",
+      "input": "h1{padding:10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should convert 1 value to 1 (PADDING)",
+      "input": "h1{PADDING:10px}",
+      "expected": "h1{padding:10px}"
+    },
+    {
+      "test": "should convert 4 values to 2 (margin)",
+      "input": "h1{margin:10px 20px 10px 20px}",
+      "expected": "h1{margin:10px 20px}"
+    },
+    {
+      "test": "should convert 4 values to 2 (MARGIN)",
+      "input": "h1{MARGIN:10px 20px 10px 20px}",
+      "expected": "h1{margin:10px 20px}"
+    },
+    {
+      "test": "should convert 4 values to 2 (padding)",
+      "input": "h1{padding:10px 20px 10px 20px}",
+      "expected": "h1{padding:10px 20px}"
+    },
+    {
+      "test": "should convert 4 values to 2 (PADDING)",
+      "input": "h1{PADDING:10px 20px 10px 20px}",
+      "expected": "h1{padding:10px 20px}"
+    },
+    {
+      "test": "should convert 4 values to 3 (margin)",
+      "input": "h1{margin:10px 20px 30px 20px}",
+      "expected": "h1{margin:10px 20px 30px}"
+    },
+    {
+      "test": "should convert 4 values to 3 (MARGIN)",
+      "input": "h1{MARGIN:10px 20px 30px 20px}",
+      "expected": "h1{margin:10px 20px 30px}"
+    },
+    {
+      "test": "should convert 4 values to 3 (padding)",
+      "input": "h1{padding:10px 20px 30px 20px}",
+      "expected": "h1{padding:10px 20px 30px}"
+    },
+    {
+      "test": "should convert 4 values to 3 (PADDING)",
+      "input": "h1{PADDING:10px 20px 30px 20px}",
+      "expected": "h1{padding:10px 20px 30px}"
+    },
+    {
+      "test": "should convert 4 values to 4 (margin)",
+      "input": "h1{margin:10px 20px 30px 40px}",
+      "expected": "h1{margin:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should convert 4 values to 4 (MARGIN)",
+      "input": "h1{MARGIN:10px 20px 30px 40px}",
+      "expected": "h1{margin:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should convert 4 values to 4 (padding)",
+      "input": "h1{padding:10px 20px 30px 40px}",
+      "expected": "h1{padding:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should convert 4 values to 4 (PADDING)",
+      "input": "h1{PADDING:10px 20px 30px 40px}",
+      "expected": "h1{padding:10px 20px 30px 40px}"
+    },
+    {
+      "test": "should not mangle calc values (margin)",
+      "input": "h1{margin:1px 1px calc(0.5em + 1px)}",
+      "expected": "h1{margin:1px 1px calc(0.5em + 1px)}"
+    },
+    {
+      "test": "should not mangle calc values (MARGIN)",
+      "input": "h1{MARGIN:1px 1px calc(0.5em + 1px)}",
+      "expected": "h1{margin:1px 1px calc(0.5em + 1px)}"
+    },
+    {
+      "test": "should not mangle calc values (padding)",
+      "input": "h1{padding:1px 1px calc(0.5em + 1px)}",
+      "expected": "h1{padding:1px 1px calc(0.5em + 1px)}"
+    },
+    {
+      "test": "should not mangle calc values (PADDING)",
+      "input": "h1{PADDING:1px 1px calc(0.5em + 1px)}",
+      "expected": "h1{padding:1px 1px calc(0.5em + 1px)}"
+    },
+    {
+      "test": "should merge margin-left with margin",
+      "input": "h1{margin:10px 20px;margin-left:10px}",
+      "expected": "h1{margin:10px 20px 10px 10px}"
+    },
+    {
+      "test": "should merge MARGIN-left with MARGIN",
+      "input": "h1{MARGIN:10px 20px;MARGIN-left:10px}",
+      "expected": "h1{margin:10px 20px 10px 10px}"
+    },
+    {
+      "test": "should merge padding-left with padding",
+      "input": "h1{padding:10px 20px;padding-left:10px}",
+      "expected": "h1{padding:10px 20px 10px 10px}"
+    },
+    {
+      "test": "should merge PADDING-left with PADDING",
+      "input": "h1{PADDING:10px 20px;PADDING-left:10px}",
+      "expected": "h1{padding:10px 20px 10px 10px}"
+    },
+    {
+      "test": "should merge !important and normal margin values",
+      "input": "h1{margin-left:10px;margin-left:20px!important;margin-right:10px;margin-right:20px!important;margin-top:10px;margin-top:20px!important;margin-bottom:10px;margin-bottom:20px!important}",
+      "expected": "h1{margin:10px;margin:20px!important}"
+    },
+    {
+      "test": "should merge !important and normal MARGIN values",
+      "input": "h1{MARGIN-left:10px;MARGIN-left:20px!important;MARGIN-right:10px;MARGIN-right:20px!important;MARGIN-top:10px;MARGIN-top:20px!important;MARGIN-bottom:10px;MARGIN-bottom:20px!important}",
+      "expected": "h1{margin:10px;margin:20px!important}"
+    },
+    {
+      "test": "should merge !important and normal padding values",
+      "input": "h1{padding-left:10px;padding-left:20px!important;padding-right:10px;padding-right:20px!important;padding-top:10px;padding-top:20px!important;padding-bottom:10px;padding-bottom:20px!important}",
+      "expected": "h1{padding:10px;padding:20px!important}"
+    },
+    {
+      "test": "should merge !important and normal PADDING values",
+      "input": "h1{PADDING-left:10px;PADDING-left:20px!important;PADDING-right:10px;PADDING-right:20px!important;PADDING-top:10px;PADDING-top:20px!important;PADDING-bottom:10px;PADDING-bottom:20px!important}",
+      "expected": "h1{padding:10px;padding:20px!important}"
+    },
+    {
+      "test": "should not merge declarations with hacks (margin)",
+      "input": "h1{margin:4px 0;_margin-top:1px}",
+      "expected": "h1{margin:4px 0;_margin-top:1px}"
+    },
+    {
+      "test": "should not merge declarations with hacks (MARGIN)",
+      "input": "h1{MARGIN:4px 0;_MARGIN-top:1px}",
+      "expected": "h1{margin:4px 0;_MARGIN-top:1px}"
+    },
+    {
+      "test": "should not merge declarations with hacks (padding)",
+      "input": "h1{padding:4px 0;_padding-top:1px}",
+      "expected": "h1{padding:4px 0;_padding-top:1px}"
+    },
+    {
+      "test": "should not merge declarations with hacks (PADDING)",
+      "input": "h1{PADDING:4px 0;_PADDING-top:1px}",
+      "expected": "h1{padding:4px 0;_PADDING-top:1px}"
+    },
+    {
+      "test": "should not merge declarations with hacks (margin) (2)",
+      "input": "h1{margin:4px 0;margin-top:1px\\9}",
+      "expected": "h1{margin:4px 0;margin-top:1px\\9}"
+    },
+    {
+      "test": "should not merge declarations with hacks (MARGIN) (2)",
+      "input": "h1{MARGIN:4px 0;MARGIN-top:1px\\9}",
+      "expected": "h1{margin:4px 0;MARGIN-top:1px\\9}"
+    },
+    {
+      "test": "should not merge declarations with hacks (padding) (2)",
+      "input": "h1{padding:4px 0;padding-top:1px\\9}",
+      "expected": "h1{padding:4px 0;padding-top:1px\\9}"
+    },
+    {
+      "test": "should not merge declarations with hacks (PADDING) (2)",
+      "input": "h1{PADDING:4px 0;PADDING-top:1px\\9}",
+      "expected": "h1{padding:4px 0;PADDING-top:1px\\9}"
+    },
+    {
+      "test": "should convert 2 values to 1 with an unrelated inherit (margin)",
+      "input": ".ui.table td{margin:0.71428571em 0.71428571em;text-align:inherit}",
+      "expected": ".ui.table td{margin:0.71428571em;text-align:inherit}"
+    },
+    {
+      "test": "should convert 2 values to 1 with an unrelated inherit (MARGIN)",
+      "input": ".ui.table td{MARGIN:0.71428571em 0.71428571em;text-align:inherit}",
+      "expected": ".ui.table td{margin:0.71428571em;text-align:inherit}"
+    },
+    {
+      "test": "should convert 2 values to 1 with an unrelated inherit (padding)",
+      "input": ".ui.table td{padding:0.71428571em 0.71428571em;text-align:inherit}",
+      "expected": ".ui.table td{padding:0.71428571em;text-align:inherit}"
+    },
+    {
+      "test": "should convert 2 values to 1 with an unrelated inherit (PADDING)",
+      "input": ".ui.table td{PADDING:0.71428571em 0.71428571em;text-align:inherit}",
+      "expected": ".ui.table td{padding:0.71428571em;text-align:inherit}"
+    },
+    {
+      "test": "should not explode margin: inherit",
+      "input": "h1{margin:inherit}",
+      "expected": "h1{margin:inherit}"
+    },
+    {
+      "test": "should not explode MARGIN: inherit",
+      "input": "h1{MARGIN:inherit}",
+      "expected": "h1{MARGIN:inherit}"
+    },
+    {
+      "test": "should not explode padding: inherit",
+      "input": "h1{padding:inherit}",
+      "expected": "h1{padding:inherit}"
+    },
+    {
+      "test": "should not explode PADDING: inherit",
+      "input": "h1{PADDING:inherit}",
+      "expected": "h1{PADDING:inherit}"
+    },
+    {
+      "test": "should not explode margin: inherit (uppercase)",
+      "input": "h1{margin:INHERIT}",
+      "expected": "h1{margin:INHERIT}"
+    },
+    {
+      "test": "should not explode MARGIN: inherit (uppercase)",
+      "input": "h1{MARGIN:INHERIT}",
+      "expected": "h1{MARGIN:INHERIT}"
+    },
+    {
+      "test": "should not explode padding: inherit (uppercase)",
+      "input": "h1{padding:INHERIT}",
+      "expected": "h1{padding:INHERIT}"
+    },
+    {
+      "test": "should not explode PADDING: inherit (uppercase)",
+      "input": "h1{PADDING:INHERIT}",
+      "expected": "h1{PADDING:INHERIT}"
+    },
+    {
+      "test": "should not merge declarations with hacks (margin) #3",
+      "input": "h1{margin:4px 0 0 0;margin-top:1px\\9}",
+      "expected": "h1{margin:4px 0 0;margin-top:1px\\9}"
+    },
+    {
+      "test": "should not merge declarations with hacks (MARGIN) #3",
+      "input": "h1{MARGIN:4px 0 0 0;MARGIN-top:1px\\9}",
+      "expected": "h1{margin:4px 0 0;MARGIN-top:1px\\9}"
+    },
+    {
+      "test": "should not merge declarations with hacks (padding) #3",
+      "input": "h1{padding:4px 0 0 0;padding-top:1px\\9}",
+      "expected": "h1{padding:4px 0 0;padding-top:1px\\9}"
+    },
+    {
+      "test": "should not merge declarations with hacks (PADDING) #3",
+      "input": "h1{PADDING:4px 0 0 0;PADDING-top:1px\\9}",
+      "expected": "h1{padding:4px 0 0;PADDING-top:1px\\9}"
+    },
+    {
+      "test": "should preserve nesting level (margin)",
+      "input": "section{h1{margin:0 48px}}",
+      "expected": "section{h1{margin:0 48px}}"
+    },
+    {
+      "test": "should preserve nesting level (MARGIN)",
+      "input": "section{h1{MARGIN:0 48px}}",
+      "expected": "section{h1{margin:0 48px}}"
+    },
+    {
+      "test": "should preserve nesting level (padding)",
+      "input": "section{h1{padding:0 48px}}",
+      "expected": "section{h1{padding:0 48px}}"
+    },
+    {
+      "test": "should preserve nesting level (PADDING)",
+      "input": "section{h1{PADDING:0 48px}}",
+      "expected": "section{h1{padding:0 48px}}"
+    },
+    {
+      "test": "should override shorthand property (margin)",
+      "input": "h1{margin:10px;margin-left:5px}",
+      "expected": "h1{margin:10px 10px 10px 5px}"
+    },
+    {
+      "test": "should override shorthand property (MARGIN)",
+      "input": "h1{MARGIN:10px;MARGIN-left:5px}",
+      "expected": "h1{margin:10px 10px 10px 5px}"
+    },
+    {
+      "test": "should override shorthand property (padding)",
+      "input": "h1{padding:10px;padding-left:5px}",
+      "expected": "h1{padding:10px 10px 10px 5px}"
+    },
+    {
+      "test": "should override shorthand property (PADDING)",
+      "input": "h1{PADDING:10px;PADDING-left:5px}",
+      "expected": "h1{padding:10px 10px 10px 5px}"
+    },
+    {
+      "test": "should overwrite some margin props and save fallbacks",
+      "input": "h1{margin-top:10px;margin-right:var(--variable);margin-right:15px;margin-bottom:var(--variable);margin-bottom:20px;margin-left:25px;margin-top:var(--variable);margin-left:var(--variable)}",
+      "expected": "h1{margin:10px 15px 20px 25px;margin-top:var(--variable);margin-left:var(--variable)}"
+    },
+    {
+      "test": "should overwrite some MARGIN props and save fallbacks",
+      "input": "h1{MARGIN-top:10px;MARGIN-right:var(--variable);MARGIN-right:15px;MARGIN-bottom:var(--variable);MARGIN-bottom:20px;MARGIN-left:25px;MARGIN-top:var(--variable);MARGIN-left:var(--variable)}",
+      "expected": "h1{margin:10px 15px 20px 25px;MARGIN-top:var(--variable);MARGIN-left:var(--variable)}"
+    },
+    {
+      "test": "should overwrite some padding props and save fallbacks",
+      "input": "h1{padding-top:10px;padding-right:var(--variable);padding-right:15px;padding-bottom:var(--variable);padding-bottom:20px;padding-left:25px;padding-top:var(--variable);padding-left:var(--variable)}",
+      "expected": "h1{padding:10px 15px 20px 25px;padding-top:var(--variable);padding-left:var(--variable)}"
+    },
+    {
+      "test": "should overwrite some PADDING props and save fallbacks",
+      "input": "h1{PADDING-top:10px;PADDING-right:var(--variable);PADDING-right:15px;PADDING-bottom:var(--variable);PADDING-bottom:20px;PADDING-left:25px;PADDING-top:var(--variable);PADDING-left:var(--variable)}",
+      "expected": "h1{padding:10px 15px 20px 25px;PADDING-top:var(--variable);PADDING-left:var(--variable)}"
+    },
+    {
+      "test": "should not explode margin props with custom properties",
+      "input": "h1{margin-bottom:var(--variable)}",
+      "expected": "h1{margin-bottom:var(--variable)}"
+    },
+    {
+      "test": "should not explode MARGIN props with custom properties",
+      "input": "h1{MARGIN-bottom:var(--variable)}",
+      "expected": "h1{MARGIN-bottom:var(--variable)}"
+    },
+    {
+      "test": "should not explode padding props with custom properties",
+      "input": "h1{padding-bottom:var(--variable)}",
+      "expected": "h1{padding-bottom:var(--variable)}"
+    },
+    {
+      "test": "should not explode PADDING props with custom properties",
+      "input": "h1{PADDING-bottom:var(--variable)}",
+      "expected": "h1{PADDING-bottom:var(--variable)}"
+    },
+    {
+      "test": "should preserve case of custom properties (margin)",
+      "input": "h1{margin-top:10px;margin-right:var(--fooBar);margin-right:15px;margin-bottom:var(--fooBar);margin-bottom:20px;margin-left:25px;margin-top:var(--fooBar);margin-left:var(--fooBar)}",
+      "expected": "h1{margin:10px 15px 20px 25px;margin-top:var(--fooBar);margin-left:var(--fooBar)}"
+    },
+    {
+      "test": "should preserve case of custom properties (MARGIN)",
+      "input": "h1{MARGIN-top:10px;MARGIN-right:var(--fooBar);MARGIN-right:15px;MARGIN-bottom:var(--fooBar);MARGIN-bottom:20px;MARGIN-left:25px;MARGIN-top:var(--fooBar);MARGIN-left:var(--fooBar)}",
+      "expected": "h1{margin:10px 15px 20px 25px;MARGIN-top:var(--fooBar);MARGIN-left:var(--fooBar)}"
+    },
+    {
+      "test": "should preserve case of custom properties (padding)",
+      "input": "h1{padding-top:10px;padding-right:var(--fooBar);padding-right:15px;padding-bottom:var(--fooBar);padding-bottom:20px;padding-left:25px;padding-top:var(--fooBar);padding-left:var(--fooBar)}",
+      "expected": "h1{padding:10px 15px 20px 25px;padding-top:var(--fooBar);padding-left:var(--fooBar)}"
+    },
+    {
+      "test": "should preserve case of custom properties (PADDING)",
+      "input": "h1{PADDING-top:10px;PADDING-right:var(--fooBar);PADDING-right:15px;PADDING-bottom:var(--fooBar);PADDING-bottom:20px;PADDING-left:25px;PADDING-top:var(--fooBar);PADDING-left:var(--fooBar)}",
+      "expected": "h1{padding:10px 15px 20px 25px;PADDING-top:var(--fooBar);PADDING-left:var(--fooBar)}"
+    },
+    {
+      "test": "should not merge incomplete margin props where one has an unset property",
+      "input": "h1{margin-bottom:10px;margin-top:unset;margin-left:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:unset;margin-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete MARGIN props where one has an unset property",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:unset;MARGIN-left:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:unset;MARGIN-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete padding props where one has an unset property",
+      "input": "h1{padding-bottom:10px;padding-top:unset;padding-left:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:unset;padding-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete PADDING props where one has an unset property",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:unset;PADDING-left:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:unset;PADDING-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete margin props where one has an unset property (uppercase)",
+      "input": "h1{margin-bottom:10px;margin-top:UNSET;margin-left:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:UNSET;margin-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete MARGIN props where one has an unset property (uppercase)",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:UNSET;MARGIN-left:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:UNSET;MARGIN-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete padding props where one has an unset property (uppercase)",
+      "input": "h1{padding-bottom:10px;padding-top:UNSET;padding-left:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:UNSET;padding-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete PADDING props where one has an unset property (uppercase)",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:UNSET;PADDING-left:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:UNSET;PADDING-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete margin props where one has an initial property",
+      "input": "h1{margin-bottom:10px;margin-top:initial;margin-left:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:initial;margin-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete MARGIN props where one has an initial property",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:initial;MARGIN-left:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:initial;MARGIN-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete padding props where one has an initial property",
+      "input": "h1{padding-bottom:10px;padding-top:initial;padding-left:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:initial;padding-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete PADDING props where one has an initial property",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:initial;PADDING-left:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:initial;PADDING-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete margin props where one has an initial property (uppercase)",
+      "input": "h1{margin-bottom:10px;margin-top:INITIAL;margin-left:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:INITIAL;margin-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete MARGIN props where one has an initial property (uppercase)",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:INITIAL;MARGIN-left:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:INITIAL;MARGIN-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete padding props where one has an initial property (uppercase)",
+      "input": "h1{padding-bottom:10px;padding-top:INITIAL;padding-left:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:INITIAL;padding-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete PADDING props where one has an initial property (uppercase)",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:INITIAL;PADDING-left:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:INITIAL;PADDING-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete margin props where one has an inherit property",
+      "input": "h1{margin-bottom:10px;margin-top:inherit;margin-left:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:inherit;margin-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete MARGIN props where one has an inherit property",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:inherit;MARGIN-left:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:inherit;MARGIN-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete padding props where one has an inherit property",
+      "input": "h1{padding-bottom:10px;padding-top:inherit;padding-left:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:inherit;padding-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete PADDING props where one has an inherit property",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:inherit;PADDING-left:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:inherit;PADDING-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete margin props where one has an inherit property (uppercase)",
+      "input": "h1{margin-bottom:10px;margin-top:INHERIT;margin-left:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:INHERIT;margin-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete MARGIN props where one has an inherit property (uppercase)",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:INHERIT;MARGIN-left:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:INHERIT;MARGIN-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete padding props where one has an inherit property (uppercase)",
+      "input": "h1{padding-bottom:10px;padding-top:INHERIT;padding-left:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:INHERIT;padding-left:20px}"
+    },
+    {
+      "test": "should not merge incomplete PADDING props where one has an inherit property (uppercase)",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:INHERIT;PADDING-left:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:INHERIT;PADDING-left:20px}"
+    },
+    {
+      "test": "should not merge complete margin props where one has an unset property",
+      "input": "h1{margin-bottom:10px;margin-top:unset;margin-left:20px;margin-right:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:unset;margin-left:20px;margin-right:20px}"
+    },
+    {
+      "test": "should not merge complete MARGIN props where one has an unset property",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:unset;MARGIN-left:20px;MARGIN-right:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:unset;MARGIN-left:20px;MARGIN-right:20px}"
+    },
+    {
+      "test": "should not merge complete padding props where one has an unset property",
+      "input": "h1{padding-bottom:10px;padding-top:unset;padding-left:20px;padding-right:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:unset;padding-left:20px;padding-right:20px}"
+    },
+    {
+      "test": "should not merge complete PADDING props where one has an unset property",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:unset;PADDING-left:20px;PADDING-right:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:unset;PADDING-left:20px;PADDING-right:20px}"
+    },
+    {
+      "test": "should not merge complete margin props where one has an unset property (uppercase)",
+      "input": "h1{margin-bottom:10px;margin-top:UNSET;margin-left:20px;margin-right:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:UNSET;margin-left:20px;margin-right:20px}"
+    },
+    {
+      "test": "should not merge complete MARGIN props where one has an unset property (uppercase)",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:UNSET;MARGIN-left:20px;MARGIN-right:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:UNSET;MARGIN-left:20px;MARGIN-right:20px}"
+    },
+    {
+      "test": "should not merge complete padding props where one has an unset property (uppercase)",
+      "input": "h1{padding-bottom:10px;padding-top:UNSET;padding-left:20px;padding-right:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:UNSET;padding-left:20px;padding-right:20px}"
+    },
+    {
+      "test": "should not merge complete PADDING props where one has an unset property (uppercase)",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:UNSET;PADDING-left:20px;PADDING-right:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:UNSET;PADDING-left:20px;PADDING-right:20px}"
+    },
+    {
+      "test": "should not merge complete margin props where one has an initial property",
+      "input": "h1{margin-bottom:10px;margin-top:initial;margin-left:20px;margin-right:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:initial;margin-left:20px;margin-right:20px}"
+    },
+    {
+      "test": "should not merge complete MARGIN props where one has an initial property",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:initial;MARGIN-left:20px;MARGIN-right:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:initial;MARGIN-left:20px;MARGIN-right:20px}"
+    },
+    {
+      "test": "should not merge complete padding props where one has an initial property",
+      "input": "h1{padding-bottom:10px;padding-top:initial;padding-left:20px;padding-right:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:initial;padding-left:20px;padding-right:20px}"
+    },
+    {
+      "test": "should not merge complete PADDING props where one has an initial property",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:initial;PADDING-left:20px;PADDING-right:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:initial;PADDING-left:20px;PADDING-right:20px}"
+    },
+    {
+      "test": "should not merge complete margin props where one has an initial property (uppercase)",
+      "input": "h1{margin-bottom:10px;margin-top:INITIAL;margin-left:20px;margin-right:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:INITIAL;margin-left:20px;margin-right:20px}"
+    },
+    {
+      "test": "should not merge complete MARGIN props where one has an initial property (uppercase)",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:INITIAL;MARGIN-left:20px;MARGIN-right:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:INITIAL;MARGIN-left:20px;MARGIN-right:20px}"
+    },
+    {
+      "test": "should not merge complete padding props where one has an initial property (uppercase)",
+      "input": "h1{padding-bottom:10px;padding-top:INITIAL;padding-left:20px;padding-right:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:INITIAL;padding-left:20px;padding-right:20px}"
+    },
+    {
+      "test": "should not merge complete PADDING props where one has an initial property (uppercase)",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:INITIAL;PADDING-left:20px;PADDING-right:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:INITIAL;PADDING-left:20px;PADDING-right:20px}"
+    },
+    {
+      "test": "should not merge complete margin props where one has an inherit property",
+      "input": "h1{margin-bottom:10px;margin-top:inherit;margin-left:20px;margin-right:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:inherit;margin-left:20px;margin-right:20px}"
+    },
+    {
+      "test": "should not merge complete MARGIN props where one has an inherit property",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:inherit;MARGIN-left:20px;MARGIN-right:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:inherit;MARGIN-left:20px;MARGIN-right:20px}"
+    },
+    {
+      "test": "should not merge complete padding props where one has an inherit property",
+      "input": "h1{padding-bottom:10px;padding-top:inherit;padding-left:20px;padding-right:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:inherit;padding-left:20px;padding-right:20px}"
+    },
+    {
+      "test": "should not merge complete PADDING props where one has an inherit property",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:inherit;PADDING-left:20px;PADDING-right:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:inherit;PADDING-left:20px;PADDING-right:20px}"
+    },
+    {
+      "test": "should not merge complete margin props where one has an inherit property (uppercase)",
+      "input": "h1{margin-bottom:10px;margin-top:INHERIT;margin-left:20px;margin-right:20px}",
+      "expected": "h1{margin-bottom:10px;margin-top:INHERIT;margin-left:20px;margin-right:20px}"
+    },
+    {
+      "test": "should not merge complete MARGIN props where one has an inherit property (uppercase)",
+      "input": "h1{MARGIN-bottom:10px;MARGIN-top:INHERIT;MARGIN-left:20px;MARGIN-right:20px}",
+      "expected": "h1{MARGIN-bottom:10px;MARGIN-top:INHERIT;MARGIN-left:20px;MARGIN-right:20px}"
+    },
+    {
+      "test": "should not merge complete padding props where one has an inherit property (uppercase)",
+      "input": "h1{padding-bottom:10px;padding-top:INHERIT;padding-left:20px;padding-right:20px}",
+      "expected": "h1{padding-bottom:10px;padding-top:INHERIT;padding-left:20px;padding-right:20px}"
+    },
+    {
+      "test": "should not merge complete PADDING props where one has an inherit property (uppercase)",
+      "input": "h1{PADDING-bottom:10px;PADDING-top:INHERIT;PADDING-left:20px;PADDING-right:20px}",
+      "expected": "h1{PADDING-bottom:10px;PADDING-top:INHERIT;PADDING-left:20px;PADDING-right:20px}"
+    },
+    {
+      "test": "should not merge margin props where there is a mix of reserved properties",
+      "input": "h1{margin-bottom:unset;margin-top:initial;margin-left:inherit;margin-right:initial}",
+      "expected": "h1{margin-bottom:unset;margin-top:initial;margin-left:inherit;margin-right:initial}"
+    },
+    {
+      "test": "should not merge MARGIN props where there is a mix of reserved properties",
+      "input": "h1{MARGIN-bottom:unset;MARGIN-top:initial;MARGIN-left:inherit;MARGIN-right:initial}",
+      "expected": "h1{MARGIN-bottom:unset;MARGIN-top:initial;MARGIN-left:inherit;MARGIN-right:initial}"
+    },
+    {
+      "test": "should not merge padding props where there is a mix of reserved properties",
+      "input": "h1{padding-bottom:unset;padding-top:initial;padding-left:inherit;padding-right:initial}",
+      "expected": "h1{padding-bottom:unset;padding-top:initial;padding-left:inherit;padding-right:initial}"
+    },
+    {
+      "test": "should not merge PADDING props where there is a mix of reserved properties",
+      "input": "h1{PADDING-bottom:unset;PADDING-top:initial;PADDING-left:inherit;PADDING-right:initial}",
+      "expected": "h1{PADDING-bottom:unset;PADDING-top:initial;PADDING-left:inherit;PADDING-right:initial}"
+    },
+    {
+      "test": "should not merge margin props where there is a mix of reserved properties (uppercase)",
+      "input": "h1{margin-bottom:UNSET;margin-top:INITIAL;margin-left:INHERIT;margin-right:INITIAL}",
+      "expected": "h1{margin-bottom:UNSET;margin-top:INITIAL;margin-left:INHERIT;margin-right:INITIAL}"
+    },
+    {
+      "test": "should not merge MARGIN props where there is a mix of reserved properties (uppercase)",
+      "input": "h1{MARGIN-bottom:UNSET;MARGIN-top:INITIAL;MARGIN-left:INHERIT;MARGIN-right:INITIAL}",
+      "expected": "h1{MARGIN-bottom:UNSET;MARGIN-top:INITIAL;MARGIN-left:INHERIT;MARGIN-right:INITIAL}"
+    },
+    {
+      "test": "should not merge padding props where there is a mix of reserved properties (uppercase)",
+      "input": "h1{padding-bottom:UNSET;padding-top:INITIAL;padding-left:INHERIT;padding-right:INITIAL}",
+      "expected": "h1{padding-bottom:UNSET;padding-top:INITIAL;padding-left:INHERIT;padding-right:INITIAL}"
+    },
+    {
+      "test": "should not merge PADDING props where there is a mix of reserved properties (uppercase)",
+      "input": "h1{PADDING-bottom:UNSET;PADDING-top:INITIAL;PADDING-left:INHERIT;PADDING-right:INITIAL}",
+      "expected": "h1{PADDING-bottom:UNSET;PADDING-top:INITIAL;PADDING-left:INHERIT;PADDING-right:INITIAL}"
+    },
+    {
+      "test": "should merge margin props when they are all unset",
+      "input": "h1{margin-bottom:unset;margin-top:unset;margin-left:unset;margin-right:unset}",
+      "expected": "h1{margin:unset}"
+    },
+    {
+      "test": "should merge MARGIN props when they are all unset",
+      "input": "h1{MARGIN-bottom:unset;MARGIN-top:unset;MARGIN-left:unset;MARGIN-right:unset}",
+      "expected": "h1{margin:unset}"
+    },
+    {
+      "test": "should merge padding props when they are all unset",
+      "input": "h1{padding-bottom:unset;padding-top:unset;padding-left:unset;padding-right:unset}",
+      "expected": "h1{padding:unset}"
+    },
+    {
+      "test": "should merge PADDING props when they are all unset",
+      "input": "h1{PADDING-bottom:unset;PADDING-top:unset;PADDING-left:unset;PADDING-right:unset}",
+      "expected": "h1{padding:unset}"
+    },
+    {
+      "test": "should merge margin props when they are all unset (uppercase)",
+      "input": "h1{margin-bottom:UNSET;margin-top:UNSET;margin-left:UNSET;margin-right:UNSET}",
+      "expected": "h1{margin:UNSET}"
+    },
+    {
+      "test": "should merge MARGIN props when they are all unset (uppercase)",
+      "input": "h1{MARGIN-bottom:UNSET;MARGIN-top:UNSET;MARGIN-left:UNSET;MARGIN-right:UNSET}",
+      "expected": "h1{margin:UNSET}"
+    },
+    {
+      "test": "should merge padding props when they are all unset (uppercase)",
+      "input": "h1{padding-bottom:UNSET;padding-top:UNSET;padding-left:UNSET;padding-right:UNSET}",
+      "expected": "h1{padding:UNSET}"
+    },
+    {
+      "test": "should merge PADDING props when they are all unset (uppercase)",
+      "input": "h1{PADDING-bottom:UNSET;PADDING-top:UNSET;PADDING-left:UNSET;PADDING-right:UNSET}",
+      "expected": "h1{padding:UNSET}"
+    },
+    {
+      "test": "should merge margin props when they are all initial",
+      "input": "h1{margin-bottom:initial;margin-top:initial;margin-left:initial;margin-right:initial}",
+      "expected": "h1{margin:initial}"
+    },
+    {
+      "test": "should merge MARGIN props when they are all initial",
+      "input": "h1{MARGIN-bottom:initial;MARGIN-top:initial;MARGIN-left:initial;MARGIN-right:initial}",
+      "expected": "h1{margin:initial}"
+    },
+    {
+      "test": "should merge padding props when they are all initial",
+      "input": "h1{padding-bottom:initial;padding-top:initial;padding-left:initial;padding-right:initial}",
+      "expected": "h1{padding:initial}"
+    },
+    {
+      "test": "should merge PADDING props when they are all initial",
+      "input": "h1{PADDING-bottom:initial;PADDING-top:initial;PADDING-left:initial;PADDING-right:initial}",
+      "expected": "h1{padding:initial}"
+    },
+    {
+      "test": "should merge margin props when they are all initial (uppercase)",
+      "input": "h1{margin-bottom:INITIAL;margin-top:INITIAL;margin-left:INITIAL;margin-right:INITIAL}",
+      "expected": "h1{margin:INITIAL}"
+    },
+    {
+      "test": "should merge MARGIN props when they are all initial (uppercase)",
+      "input": "h1{MARGIN-bottom:INITIAL;MARGIN-top:INITIAL;MARGIN-left:INITIAL;MARGIN-right:INITIAL}",
+      "expected": "h1{margin:INITIAL}"
+    },
+    {
+      "test": "should merge padding props when they are all initial (uppercase)",
+      "input": "h1{padding-bottom:INITIAL;padding-top:INITIAL;padding-left:INITIAL;padding-right:INITIAL}",
+      "expected": "h1{padding:INITIAL}"
+    },
+    {
+      "test": "should merge PADDING props when they are all initial (uppercase)",
+      "input": "h1{PADDING-bottom:INITIAL;PADDING-top:INITIAL;PADDING-left:INITIAL;PADDING-right:INITIAL}",
+      "expected": "h1{padding:INITIAL}"
+    },
+    {
+      "test": "should merge margin props when they are all inherit",
+      "input": "h1{margin-bottom:inherit;margin-top:inherit;margin-left:inherit;margin-right:inherit}",
+      "expected": "h1{margin:inherit}"
+    },
+    {
+      "test": "should merge MARGIN props when they are all inherit",
+      "input": "h1{MARGIN-bottom:inherit;MARGIN-top:inherit;MARGIN-left:inherit;MARGIN-right:inherit}",
+      "expected": "h1{margin:inherit}"
+    },
+    {
+      "test": "should merge padding props when they are all inherit",
+      "input": "h1{padding-bottom:inherit;padding-top:inherit;padding-left:inherit;padding-right:inherit}",
+      "expected": "h1{padding:inherit}"
+    },
+    {
+      "test": "should merge PADDING props when they are all inherit",
+      "input": "h1{PADDING-bottom:inherit;PADDING-top:inherit;PADDING-left:inherit;PADDING-right:inherit}",
+      "expected": "h1{padding:inherit}"
+    },
+    {
+      "test": "should merge margin props when they are all inherit (uppercase)",
+      "input": "h1{margin-bottom:INHERIT;margin-top:INHERIT;margin-left:INHERIT;margin-right:INHERIT}",
+      "expected": "h1{margin:INHERIT}"
+    },
+    {
+      "test": "should merge MARGIN props when they are all inherit (uppercase)",
+      "input": "h1{MARGIN-bottom:INHERIT;MARGIN-top:INHERIT;MARGIN-left:INHERIT;MARGIN-right:INHERIT}",
+      "expected": "h1{margin:INHERIT}"
+    },
+    {
+      "test": "should merge padding props when they are all inherit (uppercase)",
+      "input": "h1{padding-bottom:INHERIT;padding-top:INHERIT;padding-left:INHERIT;padding-right:INHERIT}",
+      "expected": "h1{padding:INHERIT}"
+    },
+    {
+      "test": "should merge PADDING props when they are all inherit (uppercase)",
+      "input": "h1{PADDING-bottom:INHERIT;PADDING-top:INHERIT;PADDING-left:INHERIT;PADDING-right:INHERIT}",
+      "expected": "h1{padding:INHERIT}"
+    },
+    {
+      "test": "should not merge margin props when one has a revert property",
+      "input": "h1{margin:10px;margin-left:revert}",
+      "expected": "h1{margin:10px;margin-left:revert}"
+    },
+    {
+      "test": "should not merge MARGIN props when one has a revert property",
+      "input": "h1{MARGIN:10px;MARGIN-left:revert}",
+      "expected": "h1{margin:10px;MARGIN-left:revert}"
+    },
+    {
+      "test": "should not merge padding props when one has a revert property",
+      "input": "h1{padding:10px;padding-left:revert}",
+      "expected": "h1{padding:10px;padding-left:revert}"
+    },
+    {
+      "test": "should not merge PADDING props when one has a revert property",
+      "input": "h1{PADDING:10px;PADDING-left:revert}",
+      "expected": "h1{padding:10px;PADDING-left:revert}"
+    },
+    {
+      "test": "should handle empty margin properties",
+      "input": "h1{margin:;}",
+      "expected": "h1{margin:;}"
+    },
+    {
+      "test": "should handle empty MARGIN properties",
+      "input": "h1{MARGIN:;}",
+      "expected": "h1{MARGIN:;}"
+    },
+    {
+      "test": "should handle empty padding properties",
+      "input": "h1{padding:;}",
+      "expected": "h1{padding:;}"
+    },
+    {
+      "test": "should handle empty PADDING properties",
+      "input": "h1{PADDING:;}",
+      "expected": "h1{PADDING:;}"
+    }
+  ]
+}
