@@ -12,6 +12,16 @@ use std::{
 /// handle never affects the pointee. Accessors preserve the pointee's pinning
 /// guarantee.
 ///
+/// # Soundness trade-off
+///
+/// `Ref` is a detached handle rather than a Rust borrow. Pinning guarantees a
+/// stable address, but the type system cannot prevent the owning pinned box
+/// from being mutably accessed while a shared reference returned by [`Ref::get`]
+/// is alive. Current users rely on phase separation: declaration blocks are
+/// mutated while minifying and only read through merge links while generating
+/// code. Using `Ref` outside such an access discipline requires redesigning the
+/// ownership boundary or making shared dereferencing unsafe.
+///
 /// `Ref` is a shared handle and intentionally does not provide safe mutable access:
 ///
 /// ```compile_fail
