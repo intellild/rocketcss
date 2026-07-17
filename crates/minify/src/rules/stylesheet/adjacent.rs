@@ -1,5 +1,5 @@
 use rocketcss_allocator::{Ref, vec::Vec};
-use rocketcss_ast::{CssRule, DeclarationBlock, Selector, SelectorList, StyleRule};
+use rocketcss_ast::{CssRule, Selector, SelectorList, StyleRule};
 
 use super::DeclarationBlockMinifier;
 use crate::{MinifyContext, Options, OptionsOp};
@@ -95,13 +95,13 @@ fn merge_run<'ast, 'scratch>(
 ) where
     'ast: 'scratch,
 {
-    let mut blocks = run
-        .iter()
-        .map(|rule| match rule {
-            CssRule::Style(style) => Ref::from_pinned_box(&style.declarations),
-            _ => unreachable!("eligible runs contain only style rules"),
-        })
-        .collect::<std::vec::Vec<Ref<'ast, DeclarationBlock<'ast>>>>();
+    let mut blocks = minifier.allocator().vec();
+    for rule in run.iter() {
+        let CssRule::Style(style) = rule else {
+            unreachable!("eligible runs contain only style rules")
+        };
+        blocks.push(Ref::from_pinned_box(&style.declarations));
+    }
     minifier.minify_sequence(&mut blocks, cx);
 
     let run_len = run.len();

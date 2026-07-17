@@ -11,6 +11,17 @@ use std::{
 /// The arena owns the referenced allocation, so copying or dropping this
 /// handle never affects the pointee. Accessors preserve the pointee's pinning
 /// guarantee.
+///
+/// `Ref` is a shared handle and intentionally does not provide safe mutable access:
+///
+/// ```compile_fail
+/// use rocketcss_allocator::{Allocator, Ref};
+///
+/// let allocator = Allocator::new();
+/// let mut value = allocator.pinned(1);
+/// let mut reference = Ref::from_pin(value.as_mut());
+/// let _ = reference.get_mut();
+/// ```
 #[repr(transparent)]
 pub struct Ref<'a, T: 'a> {
     pointer: NonNull<T>,
@@ -42,10 +53,16 @@ impl<'a, T> Ref<'a, T> {
         unsafe { Pin::new_unchecked(self.pointer.as_ref()) }
     }
 
+    /// Returns mutable pinned access to the pointee.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure no other handle or reference accesses the pointee
+    /// for the duration of the returned borrow.
     #[inline]
-    pub fn get_mut(&mut self) -> Pin<&mut T> {
-        // SAFETY: mutable access is tied to the exclusive borrow of this
-        // handle, and the pointee remains pinned in its arena allocation.
+    pub unsafe fn get_mut_unchecked(&mut self) -> Pin<&mut T> {
+        // SAFETY: the caller guarantees unique access, and the arena allocation
+        // keeps the pointee at a stable address.
         unsafe { Pin::new_unchecked(self.pointer.as_mut()) }
     }
 }
@@ -118,5 +135,22 @@ mod tests {
         let reference = Ref::from_pinned_box(&value);
 
         assert_eq!(reference.get().value, 42);
+    }
+
+    #[test]
+    fn permits_explicitly_unsafe_unique_mutation() {
+        let allocator = Allocator::new();
+        let mut value = allocator.pinned(PinnedValue {
+            value: 42,
+            _pin: PhantomPinned,
+        });
+        let mut reference = Ref::from_pin(value.as_mut());
+
+        // SAFETY: this is the only handle used to access the pointee here.
+        let pinned = unsafe { reference.get_mut_unchecked() };
+        // SAFETY: changing the integer field does not move the pinned value.
+        unsafe { pinned.get_unchecked_mut() }.value = 7;
+
+        assert_eq!(reference.get().value, 7);
     }
 }

@@ -7,6 +7,7 @@ use rocketcss_ast::{
     Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, VendorPrefix,
     match_ignore_ascii_case,
 };
+use std::pin::Pin;
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
@@ -82,26 +83,29 @@ impl KnownDeclarationKey {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-struct DeclarationLocation(u64);
+struct DeclarationLocation(u32);
 
 impl DeclarationLocation {
-    const EMPTY: Self = Self(u64::MAX);
+    const INDEX_BITS: u32 = 16;
+    const INDEX_MASK: u32 = u16::MAX as u32;
+    const MAX_COUNT: usize = u16::MAX as usize;
+    const EMPTY: Self = Self(u32::MAX);
 
     #[inline]
     fn new(block: usize, declaration: usize) -> Self {
-        debug_assert!(block <= u32::MAX as usize);
-        debug_assert!(declaration <= u32::MAX as usize);
-        Self(((block as u64) << 32) | declaration as u64)
+        debug_assert!(block < Self::MAX_COUNT);
+        debug_assert!(declaration < Self::MAX_COUNT);
+        Self(((block as u32) << Self::INDEX_BITS) | declaration as u32)
     }
 
     #[inline]
     fn block(self) -> usize {
-        (self.0 >> 32) as usize
+        (self.0 >> Self::INDEX_BITS) as usize
     }
 
     #[inline]
     fn declaration(self) -> usize {
-        self.0 as u32 as usize
+        (self.0 & Self::INDEX_MASK) as usize
     }
 }
 
@@ -205,57 +209,42 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-enum DeclarationBlocks<'sequence, 'ast> {
-    Single(&'sequence mut DeclarationBlock<'ast>),
-    Linked(&'sequence mut [Ref<'ast, DeclarationBlock<'ast>>]),
+struct DeclarationSequence<'sequence, 'reference, 'ast> {
+    blocks: &'sequence mut [Ref<'reference, DeclarationBlock<'ast>>],
 }
 
-struct DeclarationSequence<'sequence, 'ast> {
-    blocks: DeclarationBlocks<'sequence, 'ast>,
-}
-
-impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
+impl<'sequence, 'reference, 'ast> DeclarationSequence<'sequence, 'reference, 'ast>
+where
+    'ast: 'reference,
+{
     #[inline]
-    fn single(block: &'sequence mut DeclarationBlock<'ast>) -> Self {
-        Self {
-            blocks: DeclarationBlocks::Single(block),
-        }
-    }
-
-    #[inline]
-    fn linked(blocks: &'sequence mut [Ref<'ast, DeclarationBlock<'ast>>]) -> Self {
-        Self {
-            blocks: DeclarationBlocks::Linked(blocks),
-        }
+    fn new(blocks: &'sequence mut [Ref<'reference, DeclarationBlock<'ast>>]) -> Self {
+        Self { blocks }
     }
 
     #[inline]
     fn block_count(&self) -> usize {
-        match &self.blocks {
-            DeclarationBlocks::Single(_) => 1,
-            DeclarationBlocks::Linked(blocks) => blocks.len(),
-        }
+        self.blocks.len()
+    }
+
+    #[inline]
+    fn locations_fit(&self) -> bool {
+        let block_count = self.block_count();
+        block_count <= DeclarationLocation::MAX_COUNT
+            && (0..block_count)
+                .all(|block| self.block(block).len() <= DeclarationLocation::MAX_COUNT)
     }
 
     #[inline]
     fn block(&self, index: usize) -> &DeclarationBlock<'ast> {
-        match &self.blocks {
-            DeclarationBlocks::Single(block) => block,
-            DeclarationBlocks::Linked(blocks) => blocks[index].get().get_ref(),
-        }
+        self.blocks[index].get().get_ref()
     }
 
     #[inline]
     fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast> {
-        match &mut self.blocks {
-            DeclarationBlocks::Single(block) => block,
-            DeclarationBlocks::Linked(blocks) => {
-                // SAFETY: adjacent-rule collection supplies every arena block
-                // exactly once, and this sequence is the only mutable access
-                // path while declaration IR is running.
-                unsafe { blocks[index].get_mut().get_unchecked_mut() }
-            }
-        }
+        // SAFETY: every block appears exactly once in the sequence, and the
+        // exclusive slice borrow is the only access path while the IR runs.
+        unsafe { self.blocks[index].get_mut_unchecked().get_unchecked_mut() }
     }
 
     #[inline]
@@ -290,14 +279,21 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 }
 
 pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
+    allocator: &'scratch Allocator,
     ir: DeclarationIr<'scratch, 'ast>,
 }
 
 impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     pub(crate) fn new(allocator: &'scratch Allocator) -> Self {
         Self {
+            allocator,
             ir: DeclarationIr::new(allocator),
         }
+    }
+
+    #[inline]
+    pub(crate) fn allocator(&self) -> &'scratch Allocator {
+        self.allocator
     }
 
     #[inline]
@@ -309,25 +305,32 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         if block.len() < 2 {
             return;
         }
-        let mut sequence = DeclarationSequence::single(block);
-        self.minify_non_trivial(&mut sequence, cx);
+        // SAFETY: the reference is confined to this call and the block is not
+        // moved while declaration IR is running.
+        let mut block = Ref::from_pin(unsafe { Pin::new_unchecked(block) });
+        self.minify_sequence(std::slice::from_mut(&mut block), cx);
     }
 
     fn minify_non_trivial(
         &mut self,
-        sequence: &mut DeclarationSequence<'_, 'ast>,
+        sequence: &mut DeclarationSequence<'_, '_, 'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
+        if !sequence.locations_fit() {
+            return;
+        }
         self.ir.clear();
         deduplicate_declarations(sequence, &mut self.ir, cx);
     }
 
-    pub(crate) fn minify_sequence(
+    pub(crate) fn minify_sequence<'reference>(
         &mut self,
-        blocks: &mut [Ref<'ast, DeclarationBlock<'ast>>],
+        blocks: &mut [Ref<'reference, DeclarationBlock<'ast>>],
         cx: &mut MinifyContext<'scratch>,
-    ) {
-        let mut sequence = DeclarationSequence::linked(blocks);
+    ) where
+        'ast: 'reference,
+    {
+        let mut sequence = DeclarationSequence::new(blocks);
         self.minify_non_trivial(&mut sequence, cx);
     }
 }
@@ -387,7 +390,7 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
 }
 
 fn deduplicate_declarations<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     ir: &mut DeclarationIr<'scratch, 'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) where
@@ -410,7 +413,7 @@ fn deduplicate_declarations<'scratch, 'ast>(
 }
 
 fn deduplicate_exact_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
     declarations: &mut DeclarationMap<'scratch, 'ast>,
@@ -442,7 +445,7 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
 }
 
 fn process_box_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
     ir: &mut DeclarationIr<'scratch, 'ast>,
@@ -618,7 +621,7 @@ fn is_box_component(value: &TokenOrValue<'_>, family: BoxFamily) -> bool {
 }
 
 fn fold_box_side_override(
-    sequence: &mut DeclarationSequence<'_, '_>,
+    sequence: &mut DeclarationSequence<'_, '_, '_>,
     shorthand: DeclarationLocation,
     longhand: DeclarationLocation,
     family: BoxFamily,
@@ -779,7 +782,7 @@ fn clone_simple_token_or_value<'a>(
 }
 
 fn merge_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -814,7 +817,7 @@ where
 }
 
 fn merge_typed_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     [top, right, bottom, left]: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -884,7 +887,7 @@ where
 }
 
 fn merge_unparsed_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -968,7 +971,7 @@ fn record_merged_longhands(
 }
 
 fn minify_unparsed_declaration<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     location: DeclarationLocation,
     cx: &mut MinifyContext<'cx>,
 ) where
@@ -1008,6 +1011,16 @@ fn declaration_contains_variable(declaration: &Declaration<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn declaration_location_fits_in_one_word() {
+        assert_eq!(std::mem::size_of::<DeclarationLocation>(), 4);
+
+        let location = DeclarationLocation::new(0x1234, 0xabcd);
+        assert_eq!(location.block(), 0x1234);
+        assert_eq!(location.declaration(), 0xabcd);
+        assert_ne!(location, DeclarationLocation::EMPTY);
+    }
 
     #[test]
     fn known_declaration_key_round_trips_packed_fields() {
