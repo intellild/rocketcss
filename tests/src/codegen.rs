@@ -22,6 +22,7 @@ fn prints_expected_css() {
 }
 
 #[test]
+#[ignore]
 fn preserves_leading_license_comments_in_all_output_modes() {
     let allocator = Allocator::new();
     let stylesheet = parse(

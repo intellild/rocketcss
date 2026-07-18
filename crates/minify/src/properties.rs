@@ -122,10 +122,7 @@ fn starts_with_ignore_ascii_case(value: &str, prefix: &str) -> bool {
 
 pub(crate) fn custom_property_context(cx: &MinifyContext) -> ValueContext {
     let mut value_context = ValueContext::default();
-    value_context.set_enabled(
-        ValueContextFlags::MINIFY_COLORS,
-        cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any),
-    );
+    value_context.set_enabled(ValueContextFlags::MINIFY_COLORS, false);
     value_context.set_enabled(
         ValueContextFlags::SKIP_VALUE_TRANSFORMS,
         cx.is_enabled(Options::TRANSFORM_CUSTOM_PROPERTIES, OptionsOp::None),
