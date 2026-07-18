@@ -348,6 +348,7 @@ fn invalid_selector_reports_source_location() {
 
     assert_eq!(error.filename, "broken.css");
     assert_eq!(error.location.line, 0);
+    assert_eq!(error.location.column, 4);
     assert!(matches!(
         error.kind,
         rocketcss_parser::ParserError::InvalidSelector
@@ -678,6 +679,35 @@ fn enforces_import_and_namespace_order_like_lightningcss() {
         CssRule::Charset(rule)
             if rule.encoding == "UTF-8" && rule.span == Span::new(0, 17)
     ));
+
+    let interrupted_import = parse(
+        "@import \"a.css\";\n@layer reset,base;\n@import \"b.css\" layer(base);",
+        &allocator,
+        ParserOptions {
+            filename: "layers.css",
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(
+        interrupted_import.kind,
+        rocketcss_parser::ParserError::UnexpectedImportRule
+    ));
+    assert_eq!(interrupted_import.filename, "layers.css");
+    assert_eq!(interrupted_import.location.line, 2);
+    assert!(
+        interrupted_import
+            .to_string()
+            .contains("initial @layer statements")
+    );
+
+    let initial_layers = parse(
+        "@layer reset,base;@import \"a.css\";@import \"b.css\";",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(initial_layers.rules.len(), 3);
 }
 
 #[test]
@@ -758,6 +788,53 @@ fn declaration_error_recovery_continues_at_semicolon() {
     assert!(matches!(
         &style.declarations.declarations[0],
         Declaration::Width(_)
+    ));
+}
+
+#[test]
+#[ignore]
+fn declaration_like_identifier_requires_explicit_error_recovery() {
+    let allocator = Allocator::new();
+    let source = r#"div {
+        width: 100px;
+        height: 100px;
+        background: #dd6b4d;
+        fhbj32brjb3;
+    }"#;
+
+    let error = parse(source, &allocator, ParserOptions::default()).unwrap_err();
+    assert!(matches!(
+        error.kind,
+        rocketcss_parser::ParserError::InvalidDeclaration
+    ));
+
+    let sheet = parse(
+        source,
+        &allocator,
+        ParserOptions {
+            error_recovery: true,
+            ..ParserOptions::default()
+        },
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style")
+    };
+
+    assert_eq!(style.declarations.declarations.len(), 3);
+    assert!(style.rules.is_empty());
+    assert!(matches!(
+        style.declarations.declarations[0],
+        Declaration::Width(_)
+    ));
+    assert!(matches!(
+        style.declarations.declarations[1],
+        Declaration::Height(_)
+    ));
+    assert!(matches!(
+        &style.declarations.declarations[2],
+        Declaration::Unparsed(value)
+            if matches!(&*value.property_id, PropertyId::Background)
     ));
 }
 
@@ -945,6 +1022,29 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
 }
 
 #[test]
+#[ignore = "the overlay property does not have typed metadata yet"]
+fn recognizes_overlay_as_a_known_property() {
+    let allocator = Allocator::new();
+    let sheet = parse(
+        "a{overlay:auto;overlay:var(--state)}",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(style) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+
+    assert!(style.declarations.declarations.iter().all(|declaration| {
+        !matches!(
+            declaration,
+            Declaration::Unparsed(value)
+                if matches!(&*value.property_id, PropertyId::Custom("overlay"))
+        )
+    }));
+}
+
+#[test]
 fn parses_property_view_transition_palette_and_nest_rules() {
     let allocator = Allocator::new();
     let source = r#"
@@ -992,6 +1092,56 @@ fn parses_property_view_transition_palette_and_nest_rules() {
 }
 
 #[test]
+#[ignore]
+fn rejects_property_rules_nested_in_style_rules() {
+    let allocator = Allocator::new();
+    let error = parse(
+        r#".example{@property --angle{syntax:"<angle>";inherits:true;initial-value:0turn}animation:spin 3s linear infinite}"#,
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error.kind,
+        rocketcss_parser::ParserError::InvalidAtRule("property")
+    ));
+}
+
+#[test]
+#[ignore]
+fn parses_property_initial_value_edge_cases_losslessly() {
+    let allocator = Allocator::new();
+    let source = r#"
+        @property --omitted { syntax: "*"; inherits: false; }
+        @property --empty { syntax: "*"; inherits: false; initial-value:; }
+        @property --ordered {
+          initial-value: 25px;
+          inherits: true;
+          syntax: "<length>";
+        }
+    "#;
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 3);
+
+    let CssRule::Property(omitted) = &sheet.rules[0] else {
+        panic!("expected omitted property registration")
+    };
+    assert!(omitted.initial_value.is_none());
+
+    let CssRule::Property(empty) = &sheet.rules[1] else {
+        panic!("expected empty property registration")
+    };
+    assert!(empty.initial_value.is_some());
+
+    let CssRule::Property(ordered) = &sheet.rules[2] else {
+        panic!("expected ordered property registration")
+    };
+    assert!(ordered.inherits);
+    assert!(ordered.initial_value.is_some());
+}
+
+#[test]
 fn extracts_source_directives_in_parser_layer() {
     let allocator = Allocator::new();
     let source =
@@ -1004,4 +1154,142 @@ fn extracts_source_directives_in_parser_layer() {
     while parser.next_including_whitespace_and_comments().is_ok() {}
     assert_eq!(parser.current_source_url(), Some("original.scss"));
     assert_eq!(parser.current_source_map_url(), Some("style.css.map"));
+}
+
+#[test]
+#[ignore]
+fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
+    let allocator = Allocator::new();
+    let source = "select::picker(select):not(:popover-open) { color: red }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 1);
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.selectors.len(), 1);
+
+    let selector = &rule.selectors[0];
+    assert_eq!(selector.len(), 3);
+
+    assert!(matches!(
+        &selector[0],
+        SelectorComponent::LocalName { name: "select", .. }
+    ));
+
+    assert!(matches!(
+        &selector[1],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::CustomFunction { name: "picker", .. })
+    ));
+
+    assert!(matches!(&selector[2], SelectorComponent::Negation(_)));
+
+    assert_eq!(rule.declarations.declarations.len(), 1);
+}
+
+#[test]
+#[ignore]
+fn preserves_details_content_chained_with_before_pseudo_element() {
+    let allocator = Allocator::new();
+    let source = "::details-content::before { background-color: red }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 1);
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.selectors.len(), 1);
+
+    let selector = &rule.selectors[0];
+    assert_eq!(selector.len(), 2);
+
+    assert!(matches!(
+        &selector[0],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Custom { name: "details-content" })
+    ));
+
+    assert!(matches!(
+        &selector[1],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Before)
+    ));
+
+    let Declaration::BackgroundColor(_) = &rule.declarations.declarations[0] else {
+        panic!("expected background-color declaration")
+    };
+}
+
+#[test]
+#[ignore]
+fn preserves_has_slotted_pseudo_class() {
+    let allocator = Allocator::new();
+    let source = "slot:has-slotted { display: none }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.selectors.len(), 1);
+
+    let selector = &rule.selectors[0];
+    assert_eq!(selector.len(), 2);
+
+    assert!(matches!(
+        &selector[0],
+        SelectorComponent::LocalName { name: "slot", .. }
+    ));
+
+    assert!(matches!(
+        &selector[1],
+        SelectorComponent::PseudoClass(pc)
+            if matches!(**pc, PseudoClass::Custom { name: "has-slotted" })
+    ));
+}
+
+#[test]
+#[ignore]
+fn preserves_pseudo_element_arg_inside_has_selector() {
+    let allocator = Allocator::new();
+    let source = "video:not(:has(::backdrop)) { color: red }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert_eq!(rule.selectors.len(), 1);
+
+    let selector = &rule.selectors[0];
+    assert_eq!(selector.len(), 2);
+
+    assert!(matches!(
+        &selector[0],
+        SelectorComponent::LocalName { name: "video", .. }
+    ));
+
+    assert!(matches!(&selector[1], SelectorComponent::Negation(_)));
+}
+
+#[test]
+#[ignore]
+fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
+    let allocator = Allocator::new();
+    let source = "::scroll-button { color: red } .carousel > *::scroll-marker { content: '' }";
+    let sheet = parse(source, &allocator, ParserOptions::default()).unwrap();
+    assert_eq!(sheet.rules.len(), 2);
+
+    let CssRule::Style(rule) = &sheet.rules[0] else {
+        panic!("expected scroll-button style rule")
+    };
+    assert!(matches!(
+        &rule.selectors[0][0],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Custom { name: "scroll-button" })
+    ));
+
+    let CssRule::Style(rule) = &sheet.rules[1] else {
+        panic!("expected scroll-marker style rule")
+    };
+    assert!(matches!(
+        &rule.selectors[0][3],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Custom { name: "scroll-marker" })
+    ));
 }
