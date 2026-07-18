@@ -3,3 +3,9 @@
     display: none;
   }
 }
+
+@media (aspect-ratio: 1/1) {
+  .ratio {
+    color: red;
+  }
+}

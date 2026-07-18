@@ -134,10 +134,10 @@ impl ToCss for Resolution {
 
 impl ToCss for Ratio {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        serialize_number(self.0, dest)?;
-        if self.1 != 1.0 {
+        serialize_number(self.numerator, dest)?;
+        if self.explicit_denominator {
             dest.write_char('/')?;
-            serialize_number(self.1, dest)?;
+            serialize_number(self.denominator, dest)?;
         }
         Ok(())
     }

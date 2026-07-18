@@ -187,33 +187,44 @@ impl Minify for Ratio {
     where
         Self: 'cx,
     {
-        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
-            || self.0 <= 0.0
-            || self.1 <= 0.0
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
+            reduce_ratio(self, cx);
+        }
+        if self.explicit_denominator
+            && self.denominator == 1.0
+            && cx.is_enabled(Options::CONVERT_RATIOS, OptionsOp::And)
         {
-            return;
+            self.explicit_denominator = false;
+            cx.record_value_normalized();
         }
-        let mut scale = 1_u64;
-        while scale < 1_000_000
-            && (!is_near_integer(self.0 * scale as f32) || !is_near_integer(self.1 * scale as f32))
-        {
-            scale *= 10;
-        }
-        let left = (self.0 * scale as f32).round() as u64;
-        let right = (self.1 * scale as f32).round() as u64;
-        let divisor = gcd(left, right);
-        if divisor == 0 {
-            return;
-        }
-        let reduced_left = (left / divisor) as f32;
-        let reduced_right = (right / divisor) as f32;
-        if reduced_left == self.0 && reduced_right == self.1 {
-            return;
-        }
-        self.0 = reduced_left;
-        self.1 = reduced_right;
-        cx.record_value_normalized();
     }
+}
+
+fn reduce_ratio(ratio: &mut Ratio, cx: &mut MinifyContext) {
+    if ratio.numerator <= 0.0 || ratio.denominator <= 0.0 {
+        return;
+    }
+    let mut scale = 1_u64;
+    while scale < 1_000_000
+        && (!is_near_integer(ratio.numerator * scale as f32)
+            || !is_near_integer(ratio.denominator * scale as f32))
+    {
+        scale *= 10;
+    }
+    let left = (ratio.numerator * scale as f32).round() as u64;
+    let right = (ratio.denominator * scale as f32).round() as u64;
+    let divisor = gcd(left, right);
+    if divisor == 0 {
+        return;
+    }
+    let reduced_left = (left / divisor) as f32;
+    let reduced_right = (right / divisor) as f32;
+    if reduced_left == ratio.numerator && reduced_right == ratio.denominator {
+        return;
+    }
+    ratio.numerator = reduced_left;
+    ratio.denominator = reduced_right;
+    cx.record_value_normalized();
 }
 
 pub(crate) fn minify_dimension(

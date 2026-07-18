@@ -1,1 +1,2 @@
 .foo{aspect-ratio:2 / 3}
+@media (aspect-ratio: 1/1){.foo{color:red}}

@@ -712,13 +712,13 @@ fn parse_ratio<'i, 't>(
 ) -> Result<Ratio, ParseError<'i, ParserError<'i>>> {
     let numerator = input.expect_number()?;
     let denominator = if input.try_parse(|input| input.expect_delim('/')).is_ok() {
-        input.expect_number()?
+        Some(input.expect_number()?)
     } else if require_slash {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     } else {
-        1.0
+        None
     };
-    Ok(Ratio(numerator, denominator))
+    Ok(Ratio::new(numerator, denominator))
 }
 
 fn parse_environment_variable<'i, 't>(
