@@ -281,6 +281,7 @@ normalize it during an explicitly enabled transform or minification pass.
   so RocketCSS rejects it in strict mode rather than hoisting it and changing
   scope or cascade order. Future recovery diagnostics must report the invalid
   at-rule without manufacturing a top-level registration.
+
 ### [#213: Negating custom media queries](https://github.com/parcel-bundler/lightningcss/issues/213)
 
 - Category: custom-media expansion and media-query compatibility.
@@ -307,6 +308,7 @@ normalize it during an explicitly enabled transform or minification pass.
   expansion exist, retain both `@custom-media` definitions and references
   unchanged; future processing must not make expansion depend on lifecycle
   path or silently discard the definition.
+
 ### [#218: Provide a workaround for :where](https://github.com/parcel-bundler/lightningcss/issues/218)
 
 - Category: selector target compatibility.
@@ -323,6 +325,7 @@ normalize it during an explicitly enabled transform or minification pass.
   exist, a future target layer must retain `:where()` and provide a structured
   unsupported-target diagnostic instead of rewriting it to `:is()` or a plain
   selector.
+
 ### [#221: Support custom units](https://github.com/parcel-bundler/lightningcss/issues/221)
 
 - Category: experimental CSS Variables Level 2 custom-unit syntax.
@@ -604,6 +607,7 @@ normalize it during an explicitly enabled transform or minification pass.
   logical declaration unless the applicable writing mode is proven.
 
 ## 2026-07-16: oldest open issues, batch 7
+
 - [#927](https://github.com/parcel-bundler/lightningcss/issues/927) requires
   dynamic logical shorthands to be transformed atomically. A whole-value
   `var()` may expand to one or two components at computed-value time; if the
@@ -653,7 +657,6 @@ normalize it during an explicitly enabled transform or minification pass.
   dedicated invalid-declaration node with raw span/content rather than
   overloading the valid-value fallback.
 
-
 ### [#960: Preserve invalid CSS during recovery](https://github.com/parcel-bundler/lightningcss/issues/960)
 
 - Category: lossless error recovery for compatibility syntax.
@@ -664,6 +667,7 @@ normalize it during an explicitly enabled transform or minification pass.
   its name, delimiter, tokens, and location, and treat it as a minification
   barrier. Do not misuse `Declaration::Unparsed`, which represents a valid
   property name with an otherwise unsupported value.
+
 ## 2026-07-16: oldest open issues, batch 9
 
 ### [#532: Preserve non-standard Yahoo media-query syntax](https://github.com/parcel-bundler/lightningcss/issues/532)
@@ -1027,7 +1031,7 @@ normalize it during an explicitly enabled transform or minification pass.
   as unparsed tokens (no typed shorthand expansion). The minifier reorders
   values within each shorthand layer but does not merge `animation-timeline`
   into the `animation` shorthand. Minifier tests confirm `animation-timeline:
-  view()` and `animation-timeline: scroll()` are preserved as separate
+view()` and `animation-timeline: scroll()` are preserved as separate
   declarations.
 - Test coverage: `preserves_cascade_sensitive_declaration_order` and
   `preserves_scroll_driven_animation_duration_auto_semantics` in
@@ -1245,7 +1249,7 @@ normalize it during an explicitly enabled transform or minification pass.
   properties and does not collapse them into `place-self`. No shorthand
   expansion or collapse exists for these properties.
 - Guardrail: `place-self: self-start` is not equivalent to `align-self:
-  self-start; justify-self: auto` because `auto` resolves to `stretch` in grid
+self-start; justify-self: auto` because `auto` resolves to `stretch` in grid
   layout. Never collapse distinct longhands into a shorthand without proving
   the default values match.
 
