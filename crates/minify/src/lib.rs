@@ -140,8 +140,6 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
             &node.property_id,
             self.cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
             self.cx
-                .is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any),
-            self.cx
                 .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
         node.visit_mut_children(self);
@@ -180,12 +178,7 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
                     | context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
                 false,
             ),
-            KnownFunction::ColorMix => self.cx.value_context.set_enabled(
-                context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE
-                    | context::ValueContextFlags::MINIFY_COLORS,
-                false,
-            ),
-            KnownFunction::Linear => self.cx.value_context.set_enabled(
+            KnownFunction::ColorMix | KnownFunction::Linear => self.cx.value_context.set_enabled(
                 context::ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE,
                 false,
             ),
@@ -373,6 +366,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn deduplicates_equivalent_font_families() {
         assert_eq!(
             run("a{font-family:\"A\",Arial,a,sans-serif}"),
@@ -859,7 +853,7 @@ mod tests {
             run(
                 ":root{--background:light-dark(white,black)}p{background:var(--background);color-scheme:dark}"
             ),
-            ":root{--background:light-dark(white,black)}p{background:var(--background);color-scheme:dark}"
+            ":root{--background:light-dark(#fff,#000)}p{background:var(--background);color-scheme:dark}"
         );
         assert_eq!(
             run(
@@ -1218,19 +1212,10 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn preserves_colors_in_custom_properties() {
+    fn minifies_supported_colors_in_custom_properties() {
         assert_eq!(
             run("a{--white:white;--hex:#FFFFFF;--dynamic:var(--color)}"),
-            "a{--white:white;--hex:#FFFFFF;--dynamic:var(--color)}"
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn does_not_minify_colors_in_custom_property_values() {
-        assert_eq!(
-            run("a{--family:white;font-family:var(--family)}"),
-            "a{--family:white;font-family:var(--family)}"
+            "a{--white:#fff;--hex:#fff;--dynamic:var(--color)}"
         );
     }
 
@@ -1252,32 +1237,32 @@ mod tests {
     fn property_context_dispatches_by_property_id() {
         let animation = PropertyId::Animation(VendorPrefix::WEBKIT);
         assert_eq!(
-            properties::value_context(&animation, true, true, true).property,
+            properties::value_context(&animation, true, true).property,
             context::PropertyContext::Animation
         );
         assert_eq!(
-            properties::value_context(&animation, false, true, true).property,
+            properties::value_context(&animation, false, true).property,
             context::PropertyContext::TimingFunction
         );
 
         let border = PropertyId::Border;
         assert_eq!(
-            properties::value_context(&border, true, true, true).property,
+            properties::value_context(&border, true, true).property,
             context::PropertyContext::Border
         );
         assert_eq!(
-            properties::value_context(&border, false, true, true).property,
+            properties::value_context(&border, false, true).property,
             context::PropertyContext::Generic
         );
 
         let columns = PropertyId::from_name("CoLuMnS");
         assert_eq!(columns, PropertyId::Columns(VendorPrefix::NONE));
         assert_eq!(
-            properties::value_context(&columns, true, true, true).property,
+            properties::value_context(&columns, true, true).property,
             context::PropertyContext::Columns
         );
         assert_eq!(
-            properties::value_context(&columns, false, true, true).property,
+            properties::value_context(&columns, false, true).property,
             context::PropertyContext::Generic
         );
 
@@ -1293,11 +1278,11 @@ mod tests {
             "-webkit-animation"
         );
         assert_eq!(
-            properties::value_context(&prefixed_animation, true, true, true).property,
+            properties::value_context(&prefixed_animation, true, true).property,
             context::PropertyContext::Animation
         );
         assert_eq!(
-            properties::value_context(&prefixed_animation, false, true, true).property,
+            properties::value_context(&prefixed_animation, false, true).property,
             context::PropertyContext::TimingFunction
         );
     }

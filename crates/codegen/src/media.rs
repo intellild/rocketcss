@@ -40,7 +40,7 @@ impl ToCss for MediaQuery<'_> {
             let wrote_type = !matches!(self.media_type, MediaType::All);
             if wrote_type || self.qualifier.is_some() {
                 self.media_type.to_css(dest)?;
-                dest.write_str(" and ")?;
+                dest.write_char(' ')?;
             }
             return crate::token::write_token_list_trimmed(tokens, dest);
         }

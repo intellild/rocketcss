@@ -8,8 +8,15 @@ impl<'a> Minify for Vec<'a, FontFamily<'a>> {
     where
         Self: 'cx,
     {
+        for family in self.iter_mut() {
+            if matches!(family, FontFamily::Unparsed(_)) {
+                *family = FontFamily::Tombstone;
+                cx.record_value_normalized();
+            }
+        }
+
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any)
-            && let Some(generic) = self.iter().position(is_terminal_generic)
+            && let Some(generic) = self.iter().position(FontFamily::is_generic)
             && self[..generic].iter().any(|family| !family.is_tombstone())
             && self[generic + 1..]
                 .iter()
@@ -41,17 +48,6 @@ impl<'a> Minify for Vec<'a, FontFamily<'a>> {
             }
         }
     }
-}
-
-fn is_terminal_generic(family: &FontFamily<'_>) -> bool {
-    matches!(
-        family,
-        FontFamily::Serif
-            | FontFamily::SansSerif
-            | FontFamily::Cursive
-            | FontFamily::Fantasy
-            | FontFamily::Monospace
-    )
 }
 
 fn equivalent(left: &FontFamily<'_>, right: &FontFamily<'_>) -> bool {

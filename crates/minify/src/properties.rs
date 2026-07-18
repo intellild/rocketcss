@@ -8,7 +8,6 @@ use crate::{
 pub(crate) fn value_context(
     property_id: &PropertyId<'_>,
     order_values: bool,
-    normalize_values: bool,
     convert_zero_percentages: bool,
 ) -> ValueContext {
     let property = if order_values {
@@ -57,7 +56,7 @@ pub(crate) fn value_context(
     );
     cx.set_enabled(
         ValueContextFlags::MINIFY_COLORS,
-        normalize_values && should_minify_colors(property_id),
+        should_minify_colors(property_id),
     );
     cx
 }
@@ -122,7 +121,6 @@ fn starts_with_ignore_ascii_case(value: &str, prefix: &str) -> bool {
 
 pub(crate) fn custom_property_context(cx: &MinifyContext) -> ValueContext {
     let mut value_context = ValueContext::default();
-    value_context.set_enabled(ValueContextFlags::MINIFY_COLORS, false);
     value_context.set_enabled(
         ValueContextFlags::SKIP_VALUE_TRANSFORMS,
         cx.is_enabled(Options::TRANSFORM_CUSTOM_PROPERTIES, OptionsOp::None),
