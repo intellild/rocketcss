@@ -187,33 +187,53 @@ impl Minify for Ratio {
     where
         Self: 'cx,
     {
-        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
-            || self.0 <= 0.0
-            || self.1 <= 0.0
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
+            reduce_ratio(self, cx);
+        }
+        if let Self::Fraction(numerator, denominator) = *self
+            && denominator == 1.0
+            && cx.is_enabled(Options::CONVERT_RATIOS, OptionsOp::And)
         {
-            return;
+            *self = Self::Number(numerator);
+            cx.record_value_normalized();
         }
-        let mut scale = 1_u64;
-        while scale < 1_000_000
-            && (!is_near_integer(self.0 * scale as f32) || !is_near_integer(self.1 * scale as f32))
-        {
-            scale *= 10;
-        }
-        let left = (self.0 * scale as f32).round() as u64;
-        let right = (self.1 * scale as f32).round() as u64;
-        let divisor = gcd(left, right);
-        if divisor == 0 {
-            return;
-        }
-        let reduced_left = (left / divisor) as f32;
-        let reduced_right = (right / divisor) as f32;
-        if reduced_left == self.0 && reduced_right == self.1 {
-            return;
-        }
-        self.0 = reduced_left;
-        self.1 = reduced_right;
-        cx.record_value_normalized();
     }
+}
+
+fn reduce_ratio(ratio: &mut Ratio, cx: &mut MinifyContext) {
+    let Ratio::Fraction(numerator, denominator) = *ratio else {
+        return;
+    };
+    if numerator <= 0.0 || denominator <= 0.0 {
+        return;
+    }
+    let mut scale = 1_u64;
+    while scale < 1_000_000
+        && (!is_near_integer(numerator * scale as f32)
+            || !is_near_integer(denominator * scale as f32))
+    {
+        scale *= 10;
+    }
+    let scaled_numerator = numerator * scale as f32;
+    let scaled_denominator = denominator * scale as f32;
+    // The scale cap can be reached while a side is still far from an integer;
+    // rounding then would corrupt the ratio (e.g. `1e-7/1e-6` into `0/1`).
+    if !is_near_integer(scaled_numerator) || !is_near_integer(scaled_denominator) {
+        return;
+    }
+    let left = scaled_numerator.round() as u64;
+    let right = scaled_denominator.round() as u64;
+    let divisor = gcd(left, right);
+    if divisor == 0 {
+        return;
+    }
+    let reduced_left = (left / divisor) as f32;
+    let reduced_right = (right / divisor) as f32;
+    if reduced_left == numerator && reduced_right == denominator {
+        return;
+    }
+    *ratio = Ratio::Fraction(reduced_left, reduced_right);
+    cx.record_value_normalized();
 }
 
 pub(crate) fn minify_dimension(

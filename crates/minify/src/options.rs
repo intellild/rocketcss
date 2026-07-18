@@ -30,6 +30,10 @@ bitflags! {
         const TRANSFORM_CUSTOM_PROPERTIES = 1 << 11;
         /// Merge physically adjacent style rules with equal selectors.
         const MERGE_ADJACENT_RULES = 1 << 12;
+        /// Allow a ratio with denominator 1 to be written as a bare number
+        /// (`1/1` → `1`). Disabled by default because some browsers
+        /// misinterpret the bare-number form.
+        const CONVERT_RATIOS = 1 << 13;
     }
 }
 

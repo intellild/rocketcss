@@ -106,8 +106,28 @@ pub enum Resolution {
     Dppx(f32),
 }
 
+/// A CSS `<ratio>` value.
+///
+/// The variants record whether the source wrote the `/ <number>` part, so
+/// serialization reproduces the original expression instead of normalizing by
+/// value.
 #[derive(Debug, PartialEq, Visit)]
-pub struct Ratio(pub f32, pub f32);
+pub enum Ratio {
+    /// `<number>` with the denominator omitted.
+    Number(f32),
+    /// `<number> / <number>` with an explicit denominator.
+    Fraction(f32, f32),
+}
+
+impl Ratio {
+    /// `denominator` is `None` when the source omitted `/ <number>`.
+    pub fn new(numerator: f32, denominator: Option<f32>) -> Self {
+        match denominator {
+            Some(denominator) => Self::Fraction(numerator, denominator),
+            None => Self::Number(numerator),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Angle {
