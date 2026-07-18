@@ -19,6 +19,10 @@ fn main() {
 
 /// Owns a parsed stylesheet together with the allocator that backs its arena
 /// storage, so the minify and codegen stages can be measured without parsing.
+///
+/// Stage benchmarks consume this through `bench_local_refs` so the stylesheet
+/// and its arena stay alive until Divan stops timing the sample; dropping them
+/// inside the timed section would add teardown time to the stage measurement.
 struct ParsedStyleSheet {
     // Fields are dropped in declaration order, so the stylesheet is dropped
     // before the allocator that owns its arena storage.
@@ -103,7 +107,7 @@ mod minify {
         bencher
             .counter(BytesCount::of_str(case.source))
             .with_inputs(|| ParsedStyleSheet::new(case.source))
-            .bench_local_values(|mut input| {
+            .bench_local_refs(|input| {
                 black_box(rocketcss_minify::minify(
                     &mut input.stylesheet,
                     rocketcss_minify::MinifyOptions::default(),
@@ -118,7 +122,7 @@ mod minify {
         bencher
             .counter(BytesCount::of_str(case.source))
             .with_inputs(|| StyleSheet::parse(case.source, ParserOptions::default()).unwrap())
-            .bench_local_values(|mut stylesheet| {
+            .bench_local_refs(|stylesheet| {
                 stylesheet.minify(MinifyOptions::default()).unwrap();
                 black_box(stylesheet);
             });
@@ -133,7 +137,7 @@ mod codegen {
         bencher
             .counter(BytesCount::of_str(case.source))
             .with_inputs(|| ParsedStyleSheet::minified(case.source))
-            .bench_local_values(|input| {
+            .bench_local_refs(|input| {
                 let mut output = String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
                 input
                     .stylesheet
@@ -160,7 +164,7 @@ mod codegen {
                 stylesheet.minify(MinifyOptions::default()).unwrap();
                 stylesheet
             })
-            .bench_local_values(|stylesheet| {
+            .bench_local_refs(|stylesheet| {
                 black_box(
                     stylesheet
                         .to_css(LightningPrinterOptions {
