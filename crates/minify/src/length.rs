@@ -214,8 +214,15 @@ fn reduce_ratio(ratio: &mut Ratio, cx: &mut MinifyContext) {
     {
         scale *= 10;
     }
-    let left = (numerator * scale as f32).round() as u64;
-    let right = (denominator * scale as f32).round() as u64;
+    let scaled_numerator = numerator * scale as f32;
+    let scaled_denominator = denominator * scale as f32;
+    // The scale cap can be reached while a side is still far from an integer;
+    // rounding then would corrupt the ratio (e.g. `1e-7/1e-6` into `0/1`).
+    if !is_near_integer(scaled_numerator) || !is_near_integer(scaled_denominator) {
+        return;
+    }
+    let left = scaled_numerator.round() as u64;
+    let right = scaled_denominator.round() as u64;
     let divisor = gcd(left, right);
     if divisor == 0 {
         return;

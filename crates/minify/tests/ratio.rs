@@ -66,3 +66,26 @@ fn never_invents_a_denominator() {
         );
     }
 }
+
+#[test]
+fn keeps_ratio_when_scaled_values_stay_non_integral() {
+    for flags in [default_flags(), default_flags() | Options::CONVERT_RATIOS] {
+        assert_eq!(
+            minify_css(
+                "@media (aspect-ratio: 0.0000001/0.000001){.foo{color:red}}",
+                flags
+            ),
+            "@media (aspect-ratio:1e-7/.000001){.foo{color:red}}"
+        );
+    }
+}
+
+#[test]
+fn still_reduces_when_scaling_reaches_integers() {
+    for flags in [default_flags(), default_flags() | Options::CONVERT_RATIOS] {
+        assert_eq!(
+            minify_css("@media (aspect-ratio: 0.1/0.3){.foo{color:red}}", flags),
+            "@media (aspect-ratio:1/3){.foo{color:red}}"
+        );
+    }
+}
