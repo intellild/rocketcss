@@ -190,40 +190,42 @@ impl Minify for Ratio {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
             reduce_ratio(self, cx);
         }
-        if self.explicit_denominator
-            && self.denominator == 1.0
+        if let Self::Fraction(numerator, denominator) = *self
+            && denominator == 1.0
             && cx.is_enabled(Options::CONVERT_RATIOS, OptionsOp::And)
         {
-            self.explicit_denominator = false;
+            *self = Self::Number(numerator);
             cx.record_value_normalized();
         }
     }
 }
 
 fn reduce_ratio(ratio: &mut Ratio, cx: &mut MinifyContext) {
-    if ratio.numerator <= 0.0 || ratio.denominator <= 0.0 {
+    let Ratio::Fraction(numerator, denominator) = *ratio else {
+        return;
+    };
+    if numerator <= 0.0 || denominator <= 0.0 {
         return;
     }
     let mut scale = 1_u64;
     while scale < 1_000_000
-        && (!is_near_integer(ratio.numerator * scale as f32)
-            || !is_near_integer(ratio.denominator * scale as f32))
+        && (!is_near_integer(numerator * scale as f32)
+            || !is_near_integer(denominator * scale as f32))
     {
         scale *= 10;
     }
-    let left = (ratio.numerator * scale as f32).round() as u64;
-    let right = (ratio.denominator * scale as f32).round() as u64;
+    let left = (numerator * scale as f32).round() as u64;
+    let right = (denominator * scale as f32).round() as u64;
     let divisor = gcd(left, right);
     if divisor == 0 {
         return;
     }
     let reduced_left = (left / divisor) as f32;
     let reduced_right = (right / divisor) as f32;
-    if reduced_left == ratio.numerator && reduced_right == ratio.denominator {
+    if reduced_left == numerator && reduced_right == denominator {
         return;
     }
-    ratio.numerator = reduced_left;
-    ratio.denominator = reduced_right;
+    *ratio = Ratio::Fraction(reduced_left, reduced_right);
     cx.record_value_normalized();
 }
 

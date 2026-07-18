@@ -108,23 +108,23 @@ pub enum Resolution {
 
 /// A CSS `<ratio>` value.
 ///
-/// `explicit_denominator` records whether the source wrote the `/` separator,
-/// so serialization reproduces the original expression instead of normalizing
-/// by value.
+/// The variants record whether the source wrote the `/ <number>` part, so
+/// serialization reproduces the original expression instead of normalizing by
+/// value.
 #[derive(Debug, PartialEq, Visit)]
-pub struct Ratio {
-    pub numerator: f32,
-    pub denominator: f32,
-    pub explicit_denominator: bool,
+pub enum Ratio {
+    /// `<number>` with the denominator omitted.
+    Number(f32),
+    /// `<number> / <number>` with an explicit denominator.
+    Fraction(f32, f32),
 }
 
 impl Ratio {
     /// `denominator` is `None` when the source omitted `/ <number>`.
     pub fn new(numerator: f32, denominator: Option<f32>) -> Self {
-        Self {
-            numerator,
-            denominator: denominator.unwrap_or(1.0),
-            explicit_denominator: denominator.is_some(),
+        match denominator {
+            Some(denominator) => Self::Fraction(numerator, denominator),
+            None => Self::Number(numerator),
         }
     }
 }
