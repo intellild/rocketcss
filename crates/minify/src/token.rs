@@ -746,42 +746,42 @@ fn sort_animation_layer(values: &mut Vec<'_, TokenOrValue<'_>>, start: usize, en
     };
     let mut ranks = [0u8; 16];
     let mut time_count = 0;
-    let last_timing = (0..count)
-        .rev()
-        .find(|&position| is_timing_value(&values[items[position]]));
-    let last_direction = (0..count).rev().find(|&position| {
-        token_ident(&values[items[position]]).is_some_and(is_animation_direction)
-    });
-    let last_fill = (0..count).rev().find(|&position| {
-        token_ident(&values[items[position]]).is_some_and(is_animation_fill_mode)
-    });
-    let last_play = (0..count).rev().find(|&position| {
-        token_ident(&values[items[position]]).is_some_and(is_animation_play_state)
-    });
+    let mut timing_claimed = false;
+    let mut count_claimed = false;
+    let mut direction_claimed = false;
+    let mut fill_claimed = false;
+    let mut play_claimed = false;
+    // The first value matching a keyword class claims it; later duplicates are
+    // ambiguous and treated as the keyframes name (rank 0), mirroring upstream
+    // postcss-ordered-values.
     for position in 0..count {
         let value = &values[items[position]];
         ranks[position] = if is_time_value(value) {
             time_count += 1;
-            if time_count == 1 { 1 } else { 3 }
-        } else if is_timing_value(value) && last_timing == Some(position) {
+            match time_count {
+                1 => 1,
+                2 => 3,
+                _ => 0,
+            }
+        } else if is_timing_value(value) && !timing_claimed {
+            timing_claimed = true;
             2
-        } else if matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::Number(_)))
+        } else if (matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::Number(_)))
             || token_ident(value).is_some_and(
                 |value| match_ignore_ascii_case!(value, "infinite" => true, _ => false),
-            )
+            ))
+            && !count_claimed
         {
+            count_claimed = true;
             4
-        } else if token_ident(value).is_some_and(is_animation_direction)
-            && last_direction == Some(position)
-        {
+        } else if token_ident(value).is_some_and(is_animation_direction) && !direction_claimed {
+            direction_claimed = true;
             5
-        } else if token_ident(value).is_some_and(is_animation_fill_mode)
-            && last_fill == Some(position)
-        {
+        } else if token_ident(value).is_some_and(is_animation_fill_mode) && !fill_claimed {
+            fill_claimed = true;
             6
-        } else if token_ident(value).is_some_and(is_animation_play_state)
-            && last_play == Some(position)
-        {
+        } else if token_ident(value).is_some_and(is_animation_play_state) && !play_claimed {
+            play_claimed = true;
             7
         } else if is_variable(value) {
             return false;
@@ -832,7 +832,15 @@ fn is_timing_value(value: &TokenOrValue<'_>) -> bool {
                 | KnownFunction::CubicBezier
                 | KnownFunction::Linear
                 | KnownFunction::Frames
-        ))
+        )
+        // A timing function minified to an identifier (e.g. `cubic-bezier(0.25,0.1,0.25,1)`
+        // → `ease`) keeps its timing rank even though its kind was reclassified.
+        || (function.is_identifier()
+            && match_ignore_ascii_case!(
+                function.name(),
+                "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end" => true,
+                _ => false,
+            )))
 }
 
 fn collect_layer_items(
@@ -960,56 +968,30 @@ fn minify_ordered_columns(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut Minif
         cx.record_value_normalized();
         return;
     }
-    let mut changed = false;
-    if count > 2 {
-        values.truncate(items[1] + 1);
-        changed = true;
-    }
-    if count >= 2
-        && columns_rank(&values[items[0]]).zip(columns_rank(&values[items[1]])) == Some((1, 0))
-    {
+    // Mirror upstream postcss-ordered-values: reorder only a two-component
+    // value holding exactly one width (has a unit) and one other component;
+    // anything else (e.g. `3rem 2 12em`) is left untouched.
+    if count == 2 && !columns_has_unit(&values[items[0]]) && columns_has_unit(&values[items[1]]) {
         values.swap(items[0], items[1]);
-        changed = true;
-    }
-    if changed {
         cx.record_value_normalized();
     }
 }
 
-fn columns_rank(value: &TokenOrValue<'_>) -> Option<u8> {
+fn columns_has_unit(value: &TokenOrValue<'_>) -> bool {
     match value {
-        TokenOrValue::Length(_) => Some(0),
-        TokenOrValue::Token(token) => match **token {
-            Token::Dimension { .. } => Some(0),
-            Token::Number(_) => Some(1),
-            Token::Ident(value) if match_ignore_ascii_case!(value, "auto" => true, _ => false) => {
-                Some(1)
-            }
-            _ => None,
-        },
-        _ => None,
+        TokenOrValue::Length(_) => true,
+        TokenOrValue::Token(token) => {
+            matches!(**token, Token::Percentage(_) | Token::Dimension { .. })
+        }
+        _ => false,
     }
 }
 
 fn minify_ordered_border(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+    // Extra components of one class (e.g. the widths in `0 0 7px 7px solid
+    // black`) keep their relative order instead of being dropped, so invalid
+    // values round-trip unchanged like upstream postcss-ordered-values.
     let mut changed = sort_layer_by_rank(values, 0, values.len(), border_value_rank);
-    loop {
-        let mut items = values
-            .iter()
-            .enumerate()
-            .filter(|(_, value)| !is_whitespace(value));
-        let Some((first_index, first)) = items.next() else {
-            break;
-        };
-        let Some((second_index, second)) = items.next() else {
-            break;
-        };
-        if border_value_rank(first) != Some(0) || border_value_rank(second) != Some(0) {
-            break;
-        }
-        drop(values.drain(first_index..second_index));
-        changed = true;
-    }
     let mut item_count = 0;
     let mut last_item = None;
     for (index, value) in values.iter().enumerate() {

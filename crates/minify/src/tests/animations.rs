@@ -1,13 +1,11 @@
 use super::*;
 
 #[test]
-#[ignore]
 fn preserves_partial_animation_shorthand_with_infinite_iteration_count() {
     assert_eq!(run(".foo{animation:infinite}"), ".foo{animation:infinite}");
 }
 
 #[test]
-#[ignore]
 fn avoids_expanding_transition_shorthand_and_property() {
     assert_eq!(
         run(
@@ -18,7 +16,6 @@ fn avoids_expanding_transition_shorthand_and_property() {
 }
 
 #[test]
-#[ignore]
 fn preserves_cascade_sensitive_declaration_order() {
     assert_eq!(
         run(".item{animation:fade both;animation-timeline:scroll(root block)}"),
@@ -39,7 +36,6 @@ fn preserves_cascade_sensitive_declaration_order() {
 }
 
 #[test]
-#[ignore]
 fn preserves_scroll_driven_animation_duration_auto_semantics() {
     const SOURCE: &str = ".overflowContainer{animation:--keyframes-top-scroll-border step-end,--keyframes-bottom-scroll-border step-end reverse;animation-timeline:scroll(self)}";
     let output = run(SOURCE);

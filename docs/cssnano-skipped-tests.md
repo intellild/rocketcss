@@ -2,24 +2,23 @@
 
 Snapshot of the CSSNano-derived test cases RocketCSS currently skips, grouped
 by the scenario each skip corresponds to. Recorded 2026-07-18 on branch
-`docs/cssnano-skipped-tests`.
+`feat/ordered-values`.
 
 Skip sources:
 
 - Dynamic specs: `tests/fixtures/minify-dynamic/cssnano/*.json` — 32 specs,
-  2105 cases, **1072 skipped**. Skip logic lives in
+  2105 cases, **852 skipped**. Skip logic lives in
   `still_requires_unsupported_transform` at `tests/src/minify_dynamic.rs`
-  (129 pattern entries) plus per-case `upstreamSkip: true` flags.
+  (138 pattern entries) plus per-case `upstreamSkip: true` flags.
 - Static fixtures: `tests/fixtures/minify/cssnano/` — **4 directories skipped**
   via `still_requires_unsupported_transform` at `tests/src/minify.rs`.
 
-## 1. Whole plugins not implemented (10 plugins, 400 cases)
+## 1. Whole plugins not implemented (9 plugins, 276 cases)
 
 The entire spec file is skipped (empty `text_pattern`).
 
 | Plugin                   | Cases | Scenario                                                  |
 | ------------------------ | ----- | --------------------------------------------------------- |
-| ordered-values           | 124   | Shorthand value ordering (border, flex, column-rule, ...) |
 | merge-rules              | 87    | Cross-rule declaration merging                            |
 | reduce-idents            | 45    | @keyframes / counter identifier renaming                  |
 | columns (merge-longhand) | 34    | column-* merging                                          |
@@ -30,16 +29,18 @@ The entire spec file is skipped (empty `text_pattern`).
 | zindex                   | 13    | z-index rebasing                                          |
 | borders (merge-longhand) | 1     | border longhand merging                                   |
 
-## 2. Shorthand canonical-order divergence (timing-functions, 213 cases)
+## 2. Upstream helper emits `undefined` (timing-functions, 112 cases)
 
-- `animation:` 79 + `transition:` 78 — cssnano keeps the upstream value order
-  while RocketCSS canonicalizes `fade 3s ease` to `fade ease 3s`; the outputs
-  differ on ordering alone.
-- `undefined` 56 — upstream's `testPassthrough(t, fixture)` helper is called
+The `animation:` and `transition:` shorthand timing cases now pass: the
+animation shorthand parses into a typed `Animation` AST whose canonical
+serialization matches cssnano, and a timing function minified to a keyword
+keeps its timing rank in the transition token path.
+
+- `undefined` 112 — upstream's `testPassthrough(t, fixture)` helper is called
   without the fixture argument, so the recorded expectation is literally
   "undefined"; these cases carry no upstream signal.
 
-## 3. Full-pipeline vs single-plugin expectations (~150 cases)
+## 3. Full-pipeline vs single-plugin expectations (~160 cases)
 
 Upstream expectations come from one plugin in isolation, but the harness runs
 the full minify pipeline, so RocketCSS legitimately minifies further:
@@ -53,6 +54,8 @@ the full minify pipeline, so RocketCSS legitimately minifies further:
   normalizes `100%` to `to` (1), merges equivalent declarations (1).
 - repeat-style (9), normalize-whitespace (4), reduce-transforms (4): pipeline
   folds `var()`/`env()` fallbacks and calc.
+- ordered-values: pipeline dedups identical declarations (2), converts colors
+  (4), folds calc (1), strips url quotes (2).
 - boxBase nesting level (4), convert-values (5), colormin calc (2),
   minify-params (2), normalize-url (1).
 
@@ -61,7 +64,8 @@ the full minify pipeline, so RocketCSS legitimately minifies further:
 - minify-selectors: `:is()` folding (39), `:not()` simplification (13),
   universal selector removal (9), selector sorting (1).
 - discard-comments: important-comment preservation (29), comment AST
-  retention (1).
+  retention (1). ordered-values: upstream aborts ordering when an important
+  comment is present (2).
 - normalize-url: path normalization (9), port removal (2), url whitespace
   trimming (4), case handling (1).
 - convert-values: 0% stripping policy (21), value rounding (3), opacity
@@ -104,6 +108,9 @@ The transform exists but chooses a different output than upstream:
   variants (6), color case (1).
 - discard-comments / unique-selectors: comment-in-string / comment-in-selector
   handling (9).
+- ordered-values: trailing `currentColor` stripped from borders (1), ambiguous
+  keyframe-keyword names serialize round-trip-safely instead of upstream's
+  order (2).
 - minify-params: @media keyword case (13). normalize-string: unescape vs
   percent-encode (2). minify-selectors: `::before` case (1).
 
@@ -124,9 +131,6 @@ uppercase)` is flagged `upstreamSkip: true` in the recorded spec.
 
 ## Biggest work items
 
-1. The 10 unimplemented plugins (400 cases), led by ordered-values (124) and
-   merge-rules (87).
-2. Aligning (or deliberately diverging on) animation/transition shorthand
-   canonical order (157 actionable cases).
-3. Deciding per-case whether full-pipeline divergences (~150 cases) should
+1. The 9 unimplemented plugins (276 cases), led by merge-rules (87).
+2. Deciding per-case whether full-pipeline divergences (~160 cases) should
    update the recorded expectation or narrow pipeline behavior.

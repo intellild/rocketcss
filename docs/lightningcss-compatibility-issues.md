@@ -973,8 +973,9 @@ normalize it during an explicitly enabled transform or minification pass.
 ### [#1012: Preserve auto animation duration for scroll timelines](https://github.com/parcel-bundler/lightningcss/issues/1012)
 
 - Category: scroll-driven animation shorthand compatibility.
-- Status: RocketCSS preserves unparsed animation shorthand and timeline tokens,
-  so it neither expands the shorthand nor inserts `animation-duration:0s`.
+- Status: RocketCSS parses the animation shorthand into a typed `Animation`
+  AST without expanding it or inserting `animation-duration:0s`; values the
+  typed grammar cannot represent stay unparsed.
 - Guardrail: typed shorthand expansion must represent `auto` duration before
   expanding scroll-driven animations. Never substitute `0s` for a value whose
   computed default is `auto`.

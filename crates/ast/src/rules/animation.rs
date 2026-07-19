@@ -28,13 +28,16 @@ pub struct AnimationRange<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Animation<'a> {
-    pub delay: Box<'a, Time>,
-    pub direction: AnimationDirection,
-    pub duration: Box<'a, Time>,
-    pub fill_mode: AnimationFillMode,
-    pub iteration_count: Box<'a, AnimationIterationCount>,
-    pub name: Box<'a, AnimationName<'a>>,
-    pub play_state: AnimationPlayState,
-    pub timeline: Box<'a, AnimationTimeline<'a>>,
-    pub timing_function: Box<'a, EasingFunction>,
+    /// Each component is `Some` only when it was explicitly present in the
+    /// shorthand, so serialization preserves authored defaults while printing
+    /// them in canonical order.
+    pub delay: Option<Box<'a, Time>>,
+    pub direction: Option<AnimationDirection>,
+    pub duration: Option<Box<'a, Time>>,
+    pub fill_mode: Option<AnimationFillMode>,
+    pub iteration_count: Option<Box<'a, AnimationIterationCount>>,
+    pub name: Option<Box<'a, AnimationName<'a>>>,
+    pub play_state: Option<AnimationPlayState>,
+    pub timeline: Option<Box<'a, AnimationTimeline<'a>>>,
+    pub timing_function: Option<Box<'a, EasingFunction>>,
 }

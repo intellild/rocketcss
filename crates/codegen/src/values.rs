@@ -1011,6 +1011,9 @@ impl ToCss for EasingFunction {
             Self::EaseOut => dest.write_str("ease-out"),
             Self::EaseInOut => dest.write_str("ease-in-out"),
             Self::CubicBezier { x1, x2, y1, y2 } => {
+                if (*x1, *y1, *x2, *y2) == (0.0, 0.0, 1.0, 1.0) {
+                    return dest.write_str("linear");
+                }
                 if (*x1, *y1, *x2, *y2) == (0.25, 0.1, 0.25, 1.0) {
                     return dest.write_str("ease");
                 }
@@ -1033,10 +1036,19 @@ impl ToCss for EasingFunction {
                 dest.write_char(')')
             }
             Self::Steps { count, position } => {
+                if *count == 1 {
+                    match position {
+                        StepPosition::Start => return dest.write_str("step-start"),
+                        StepPosition::End => return dest.write_str("step-end"),
+                        _ => {}
+                    }
+                }
                 dest.write_str("steps(")?;
                 serialize_int(*count, dest)?;
-                dest.delim(Delimiter::Comma)?;
-                position.to_css(dest)?;
+                if !matches!(position, StepPosition::End) {
+                    dest.delim(Delimiter::Comma)?;
+                    position.to_css(dest)?;
+                }
                 dest.write_char(')')
             }
         }

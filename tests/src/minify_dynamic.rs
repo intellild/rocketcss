@@ -195,27 +195,68 @@ fn still_requires_unsupported_transform(
             "unused at-rule removal not implemented",
         ),
         ("zindex", "", "z-index rebasing not implemented"),
+        ("svgo", "", "SVG optimization out of scope"),
+        // postcss-ordered-values: the ordering transform is implemented, but
+        // the recorded expectations come from the plugin in isolation while
+        // the harness runs the full minify pipeline.
         (
             "ordered-values",
-            "",
-            "shorthand value ordering not implemented",
+            "should order border consistently",
+            "pipeline dedups identical declarations",
         ),
-        ("svgo", "", "SVG optimization out of scope"),
+        (
+            "ordered-values",
+            "color functions",
+            "pipeline converts colors",
+        ),
+        (
+            "ordered-values",
+            "currentColor",
+            "pipeline strips initial currentcolor",
+        ),
+        (
+            "ordered-values",
+            "calc width in borders",
+            "pipeline folds calc",
+        ),
+        (
+            "ordered-values",
+            "box-shadow consistently (11)",
+            "pipeline converts colors",
+        ),
+        (
+            "ordered-values",
+            "invalid box-shadow",
+            "pipeline converts colors",
+        ),
+        (
+            "ordered-values",
+            "important comments (border)",
+            "upstream aborts ordering on comments",
+        ),
+        (
+            "ordered-values",
+            "important comments (transition)",
+            "upstream aborts ordering on comments",
+        ),
+        ("ordered-values", "border-block", "pipeline converts colors"),
+        (
+            "ordered-values",
+            "assigns keyframe name last",
+            "upstream reorders ambiguous keyword names into a non-round-trip-safe order",
+        ),
+        (
+            "ordered-values",
+            "list-style 9",
+            "pipeline strips url quotes",
+        ),
+        (
+            "ordered-values",
+            "list-style 12",
+            "pipeline strips url quotes",
+        ),
         ("borders", "", "border longhand merging not implemented"),
         ("columns", "", "column merging not implemented"),
-        // cssnano keeps the upstream order in animation/transition shorthands
-        // while RocketCSS canonicalizes `fade 3s ease` to `fade ease 3s`, so
-        // every shorthand-wrapped timing case diverges on ordering alone.
-        (
-            "timing-functions",
-            "animation:",
-            "shorthand canonical order differs",
-        ),
-        (
-            "timing-functions",
-            "transition:",
-            "shorthand canonical order differs",
-        ),
         // Upstream's testPassthrough(t, fixture) helper is called without the
         // fixture argument, so the recorded expectation is literally
         // "undefined"; these cases carry no upstream signal.
