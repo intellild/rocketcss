@@ -97,4 +97,3 @@ fn font_family_deduplication_is_configurable() {
         "a{font-family:A,serif,Helvetica}"
     );
 }
-

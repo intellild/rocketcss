@@ -1,1 +1,2 @@
+mod animation;
 mod font;

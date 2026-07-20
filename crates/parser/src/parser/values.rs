@@ -1,11 +1,13 @@
 use super::stylesheet::check_depth;
 use crate::prelude::*;
 
+mod animation;
 mod background;
 mod box_model;
 mod font;
 mod multicol;
 
+pub(super) use animation::{parse_animation_list, value_contains_comment};
 pub(super) use font::parse_font_family_list;
 
 pub(super) fn single_token<'a, 'i>(value: &'a [TokenOrValue<'i>]) -> Option<&'a ValueToken<'i>> {

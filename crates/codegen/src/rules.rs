@@ -660,23 +660,44 @@ impl ToCss for AnimationRange<'_> {
 
 impl ToCss for Animation<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        self.name.to_css(dest)?;
-        dest.write_char(' ')?;
-        self.duration.to_css(dest)?;
-        dest.write_char(' ')?;
-        self.timing_function.to_css(dest)?;
-        dest.write_char(' ')?;
-        self.delay.to_css(dest)?;
-        dest.write_char(' ')?;
-        self.iteration_count.to_css(dest)?;
-        dest.write_char(' ')?;
-        self.direction.to_css(dest)?;
-        dest.write_char(' ')?;
-        self.fill_mode.to_css(dest)?;
-        dest.write_char(' ')?;
-        self.play_state.to_css(dest)?;
-        dest.write_char(' ')?;
-        self.timeline.to_css(dest)
+        // Components print in their stored order: authored order after
+        // parsing, canonical order after the ORDER_VALUES minify pass, which
+        // also moves a name colliding with a keyword class behind that class.
+        for (index, component) in self.components.iter().enumerate() {
+            if index > 0 {
+                dest.write_char(' ')?;
+            }
+            // A quoted name colliding with a keyword class must stay quoted
+            // unless the class appears before it; unquoted it would reparse
+            // into the class slot.
+            if let AnimationComponent::Name(name) = component
+                && let AnimationName::String(value) = &**name
+                && name.keyword_class().is_some_and(|class| {
+                    !self.components[..index]
+                        .iter()
+                        .any(|component| component.keyword_class() == Some(class))
+                })
+            {
+                serialize_string(value, dest)?;
+                continue;
+            }
+            component.to_css(dest)?;
+        }
+        Ok(())
+    }
+}
+
+impl ToCss for AnimationComponent<'_> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        match self {
+            Self::Name(value) => value.to_css(dest),
+            Self::Duration(value) | Self::Delay(value) => value.to_css(dest),
+            Self::TimingFunction(value) => value.to_css(dest),
+            Self::IterationCount(value) => value.to_css(dest),
+            Self::Direction(value) => value.to_css(dest),
+            Self::FillMode(value) => value.to_css(dest),
+            Self::PlayState(value) => value.to_css(dest),
+        }
     }
 }
 

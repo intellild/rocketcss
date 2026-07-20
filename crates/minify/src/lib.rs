@@ -134,6 +134,11 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
         node.minify(&mut self.cx);
     }
 
+    fn visit_animation(&mut self, node: &mut Animation<'ast>) {
+        node.visit_mut_children(self);
+        node.minify(&mut self.cx);
+    }
+
     fn visit_unparsed_property(&mut self, node: &mut UnparsedProperty<'ast>) {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::value_context(
@@ -259,7 +264,6 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
         node.minify(&mut self.cx);
     }
 }
-
 
 #[cfg(test)]
 mod tests;

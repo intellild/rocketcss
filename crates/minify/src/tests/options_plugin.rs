@@ -1,8 +1,8 @@
 use super::*;
 
+use crate::MinifyStats;
 use crate::context;
 use crate::properties;
-use crate::MinifyStats;
 use rocketcss_ast::{PropertyId, VendorPrefix};
 
 #[test]
