@@ -1036,7 +1036,7 @@ view()` and `animation-timeline: scroll()` are preserved as separate
   declarations.
 - Test coverage: `preserves_cascade_sensitive_declaration_order` and
   `preserves_scroll_driven_animation_duration_auto_semantics` in
-  `crates/minify/src/lib.rs`.
+  `crates/nano/src/lib.rs`.
 
 ### [#1279: Simplify division of like units to unitless constant](https://github.com/parcel-bundler/lightningcss/issues/1279)
 

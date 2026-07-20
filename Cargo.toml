@@ -31,7 +31,7 @@ rocketcss_allocator = { version = "0.1.0", path = "crates/allocator" }
 rocketcss_ast       = { version = "0.1.0", path = "crates/ast" }
 rocketcss_codegen   = { version = "0.1.0", path = "crates/codegen" }
 rocketcss_macros    = { version = "0.1.0", path = "crates/macros" }
-rocketcss_minify    = { version = "0.1.0", path = "crates/minify" }
+rocketcss_nano      = { version = "0.1.0", path = "crates/nano" }
 rocketcss_parser    = { version = "0.1.0", path = "crates/parser" }
 rocketcss_visitor   = { version = "0.1.0", path = "crates/visitor" }
 

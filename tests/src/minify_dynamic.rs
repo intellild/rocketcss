@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use rocketcss_allocator::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss};
-use rocketcss_minify::{MinifyOptions, minify};
+use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
 use crate::read_fixture;
