@@ -1,0 +1,41 @@
+Cargo.lock
+  s_2d2c6aa98be5f8::t_e0bf85654a405e 1256,1288,1316
+crates/nano/Cargo.toml
+  s_2d2c6aa98be5f8::t_d578c5ecba4400 3
+crates/nano/README.md
+  s_2d2c6aa98be5f8::t_f52cb0cf95fa6d 1,3,17
+crates/nano/tests/ratio.rs
+  s_2d2c6aa98be5f8::t_c664824b6b0583 3
+docs/lightningcss-compatibility-issues.md
+  s_2d2c6aa98be5f8::t_7ca2ab41bc767c 1039
+tasks/benchmark/Cargo.toml
+  s_2d2c6aa98be5f8::t_721dcc4c56e15a 15
+tasks/benchmark/benches/minify.rs
+  s_2d2c6aa98be5f8::t_b97b70bbfd5777 58,60,111,113
+tasks/benchmark/benches/pipeline.rs
+  s_2d2c6aa98be5f8::t_15024884689ff4 79,81,93,95
+tests/Cargo.toml
+  s_2d2c6aa98be5f8::t_da740a620df7b4 16
+tests/src/minify.rs
+  s_2d2c6aa98be5f8::t_b2fb84afae4798 5
+tests/src/minify_dynamic.rs
+  s_2d2c6aa98be5f8::t_b9f0b715bc5dba 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "55cc60818c99fbd77f24dead16953fcf1e6fbbe7",
+  "prompts": {},
+  "sessions": {
+    "s_2d2c6aa98be5f8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7eed-d53f-78b2-92a6-cf32a33f4dbe",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
