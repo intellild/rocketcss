@@ -67,9 +67,7 @@ fn box_ir_preserves_fallback_and_logical_property_barriers() {
         "a{margin-top:1px;margin-inline-start:2px;margin-right:3px;margin-bottom:4px;margin-left:5px}"
     );
     assert_eq!(
-        run(
-            "a{padding-top:1px!important;padding-right:1px;padding-bottom:1px;padding-left:1px}"
-        ),
+        run("a{padding-top:1px!important;padding-right:1px;padding-bottom:1px;padding-left:1px}"),
         "a{padding-top:1px !important;padding-right:1px;padding-bottom:1px;padding-left:1px}"
     );
 }

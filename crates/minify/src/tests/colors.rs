@@ -76,9 +76,7 @@ fn minifies_color_keywords_in_variable_fallbacks_by_property_context() {
 #[ignore]
 fn preserves_oklch_variables_when_fallback_generation_is_unavailable() {
     assert_eq!(
-        run(
-            ".text-red-200{--tw-text-opacity:1;color:oklch(92.19% .04 20/var(--tw-text-opacity))}"
-        ),
+        run(".text-red-200{--tw-text-opacity:1;color:oklch(92.19% .04 20/var(--tw-text-opacity))}"),
         ".text-red-200{--tw-text-opacity:1;color:oklch(92.19% .04 20/var(--tw-text-opacity))}"
     );
     assert_eq!(
@@ -102,7 +100,10 @@ fn disabling_value_normalization_preserves_authored_color_functions() {
     let mut options = MinifyOptions::default();
     options.flags.remove(Options::NORMALIZE_VALUES);
     assert_eq!(
-        run_with_options("a{color:rgb(255 255 255);background:hsl(40 50% 50%)}", options),
+        run_with_options(
+            "a{color:rgb(255 255 255);background:hsl(40 50% 50%)}",
+            options
+        ),
         "a{color:rgb(255 255 255);background:hsl(40 50% 50%)}"
     );
 }

@@ -265,6 +265,5 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
     }
 }
 
-
 #[cfg(test)]
 mod tests;

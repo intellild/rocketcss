@@ -32,9 +32,7 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
 #[ignore = "unparsed selectors must remain an unforgiving-list barrier"]
 fn preserves_unparsed_selector_list_barriers() {
     assert_eq!(
-        run_with_error_recovery(
-            ".valid,(font-[family-name:var(--font-*)]),#also-valid{color:red}"
-        ),
+        run_with_error_recovery(".valid,(font-[family-name:var(--font-*)]),#also-valid{color:red}"),
         ".valid,(font-[family-name:var(--font-*)]),#also-valid{color:red}"
     );
 }
@@ -50,7 +48,10 @@ fn removes_style_rules_containing_only_unparsed_selectors() {
 #[test]
 fn deduplicates_selectors_with_structural_hashes() {
     assert_eq!(run("h1,h2,h1,h2{color:red}"), "h1,h2{color:red}");
-    assert_eq!(run(".foo,.bar:baz{color:green}"), ".foo,.bar:baz{color:green}");
+    assert_eq!(
+        run(".foo,.bar:baz{color:green}"),
+        ".foo,.bar:baz{color:green}"
+    );
     assert_eq!(
         run("a:custom(1),b,a:custom(1),a:custom(2),b{color:red}"),
         "a:custom(1),b,a:custom(2){color:red}"
