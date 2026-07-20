@@ -17,17 +17,17 @@ Skip sources:
 
 The entire spec file is skipped (empty `text_pattern`).
 
-| Plugin                   | Cases | Scenario                                                  |
-| ------------------------ | ----- | --------------------------------------------------------- |
-| merge-rules              | 87    | Cross-rule declaration merging                            |
-| reduce-idents            | 45    | @keyframes / counter identifier renaming                  |
-| columns (merge-longhand) | 34    | column-* merging                                          |
-| svgo                     | 29    | Inline SVG optimization (explicitly out of scope)         |
-| discard-unused           | 26    | Unused @font-face / @keyframes / ... removal              |
-| merge-idents             | 23    | Cross-rule identifier merging                             |
-| reduce-initial           | 18    | initial-value substitution                                |
-| zindex                   | 13    | z-index rebasing                                          |
-| borders (merge-longhand) | 1     | border longhand merging                                   |
+| Plugin                   | Cases | Scenario                                          |
+| ------------------------ | ----- | ------------------------------------------------- |
+| merge-rules              | 87    | Cross-rule declaration merging                    |
+| reduce-idents            | 45    | @keyframes / counter identifier renaming          |
+| columns (merge-longhand) | 34    | column-* merging                                  |
+| svgo                     | 29    | Inline SVG optimization (explicitly out of scope) |
+| discard-unused           | 26    | Unused @font-face / @keyframes / ... removal      |
+| merge-idents             | 23    | Cross-rule identifier merging                     |
+| reduce-initial           | 18    | initial-value substitution                        |
+| zindex                   | 13    | z-index rebasing                                  |
+| borders (merge-longhand) | 1     | border longhand merging                           |
 
 ## 2. Upstream helper emits `undefined` (timing-functions, 112 cases)
 
