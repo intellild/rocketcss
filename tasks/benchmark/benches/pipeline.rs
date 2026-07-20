@@ -76,9 +76,9 @@ fn minify(bencher: Bencher<'_, '_>, case: BenchCase) {
         })
         .bench_local_values(|mut inputs| {
             for input in &mut inputs {
-                black_box(rocketcss_minify::minify(
+                black_box(rocketcss_nano::minify(
                     &mut input.stylesheet,
-                    rocketcss_minify::MinifyOptions::default(),
+                    rocketcss_nano::MinifyOptions::default(),
                 ));
             }
         });
@@ -90,9 +90,9 @@ fn codegen(bencher: Bencher<'_, '_>, case: BenchCase) {
         .counter(processed_bytes(case))
         .with_inputs(|| {
             let mut input = ParsedStyleSheet::new(case.source);
-            rocketcss_minify::minify(
+            rocketcss_nano::minify(
                 &mut input.stylesheet,
-                rocketcss_minify::MinifyOptions::default(),
+                rocketcss_nano::MinifyOptions::default(),
             );
             input
         })

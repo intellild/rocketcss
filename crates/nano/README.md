@@ -1,6 +1,6 @@
-# rocketcss_minify
+# rocketcss_nano
 
-`rocketcss_minify` walks an arena-backed `rocketcss_ast::StyleSheet` and applies
+`rocketcss_nano` walks an arena-backed `rocketcss_ast::StyleSheet` and applies
 normalization in place without allocating replacement AST nodes. Within one
 declaration block, and across physically adjacent style rules with structurally
 equal selectors, a shared single-pass declaration IR removes exact duplicates,
@@ -14,7 +14,7 @@ is selected separately with `rocketcss_codegen::PrinterOptions { minify: true }`
 ```rust
 use rocketcss_allocator::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss};
-use rocketcss_minify::{MinifyOptions, minify};
+use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
 let allocator = Allocator::new();

@@ -1,6 +1,6 @@
 use rocketcss_allocator::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss};
-use rocketcss_minify::{MinifyOptions, Options, minify};
+use rocketcss_nano::{MinifyOptions, Options, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
 fn minify_css(source: &str, flags: Options) -> String {

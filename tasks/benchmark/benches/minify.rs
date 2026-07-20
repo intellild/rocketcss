@@ -55,9 +55,9 @@ impl ParsedStyleSheet {
 
     fn minified(source: &'static str) -> Self {
         let mut input = Self::new(source);
-        rocketcss_minify::minify(
+        rocketcss_nano::minify(
             &mut input.stylesheet,
-            rocketcss_minify::MinifyOptions::default(),
+            rocketcss_nano::MinifyOptions::default(),
         );
         input
     }
@@ -108,9 +108,9 @@ mod minify {
             .counter(BytesCount::of_str(case.source))
             .with_inputs(|| ParsedStyleSheet::new(case.source))
             .bench_local_refs(|input| {
-                black_box(rocketcss_minify::minify(
+                black_box(rocketcss_nano::minify(
                     &mut input.stylesheet,
-                    rocketcss_minify::MinifyOptions::default(),
+                    rocketcss_nano::MinifyOptions::default(),
                 ));
             });
     }

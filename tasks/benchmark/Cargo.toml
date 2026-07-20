@@ -12,7 +12,7 @@ lightningcss        = { workspace = true }
 mimalloc            = { workspace = true }
 rocketcss_allocator = { workspace = true }
 rocketcss_codegen   = { workspace = true }
-rocketcss_minify    = { workspace = true }
+rocketcss_nano      = { workspace = true }
 rocketcss_parser    = { workspace = true }
 rustc-hash          = { workspace = true }
 stylo               = { workspace = true }
