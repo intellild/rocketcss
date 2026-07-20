@@ -1,0 +1,21 @@
+AGENTS.md
+  s_2d2c6aa98be5f8::t_79e4341c88b2a5 15-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c0f7b64bea27d0ac57ba2b77c26cb50bb052a6f3",
+  "prompts": {},
+  "sessions": {
+    "s_2d2c6aa98be5f8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7eed-d53f-78b2-92a6-cf32a33f4dbe",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
