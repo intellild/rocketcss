@@ -12,3 +12,7 @@
 - Do not add ID-only property lists, hand-written known variants, or parallel name/discriminant mappings.
 - Use `Declaration::Unparsed` only as a lossless fallback for values the typed parser cannot represent, such as variables—not as a substitute for a missing AST node.
 - `PropertyId::Custom` and internal sentinel variants are exempt.
+
+## Formatting
+
+- After modifying files, run the appropriate formatter before considering the work complete. For Rust changes, run `cargo fmt --all`; for other file types, use the repository-configured formatter when available.
