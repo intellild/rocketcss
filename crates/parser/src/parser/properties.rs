@@ -1,6 +1,6 @@
 use super::values::{
     collect_tokens, css_wide_keyword, parse_animation_list, parse_font_family_list,
-    remove_important, trim_leading_whitespace,
+    remove_important, trim_leading_whitespace, value_contains_comment,
 };
 use crate::prelude::*;
 
@@ -104,9 +104,11 @@ fn try_parse_typed_declaration<'i, 't>(
         PropertyId::GridRowGap => parse!(|input| {
             GapValue::parse(input).map(|value| Declaration::GridRowGap(allocator.boxed(value)))
         }),
-        PropertyId::Animation(prefix) => parse!(|input| {
-            parse_animation_list(input).map(|values| Declaration::Animation(values, *prefix))
-        }),
+        PropertyId::Animation(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_animation_list(input).map(|values| Declaration::Animation(values, *prefix))
+            })
+        }
         property_id @ (PropertyId::Width
         | PropertyId::Height
         | PropertyId::MinWidth

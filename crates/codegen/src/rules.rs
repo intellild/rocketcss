@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use rocketcss_ast::match_ignore_ascii_case;
 
 fn write_space_separated<PrinterT: PrinterTrait, T: ToCss>(
     values: &[&T],
@@ -661,109 +660,45 @@ impl ToCss for AnimationRange<'_> {
 
 impl ToCss for Animation<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        // Only components explicitly present in the shorthand are printed, in
-        // canonical order. A name that collides with a keyword class is
-        // printed last, with the collided class printed even at its initial
-        // value, so a reparse claims the class first — printing the name
-        // first would silently swap it with the class value (e.g. `ease 1s
-        // linear` must not become `linear 1s ease`, which reparses as name
-        // `ease` with timing-function `linear`).
-        let mut written = false;
-        macro_rules! write_component {
-            ($component:expr) => {
-                if let Some(component) = &$component {
-                    if written {
-                        dest.write_char(' ')?;
-                    }
-                    component.to_css(dest)?;
-                    written = true;
-                }
-            };
+        // Components print in their stored order: authored order after
+        // parsing, canonical order after the ORDER_VALUES minify pass, which
+        // also moves a name colliding with a keyword class behind that class.
+        for (index, component) in self.components.iter().enumerate() {
+            if index > 0 {
+                dest.write_char(' ')?;
+            }
+            // A quoted name colliding with a keyword class must stay quoted
+            // unless the class appears before it; unquoted it would reparse
+            // into the class slot.
+            if let AnimationComponent::Name(name) = component
+                && let AnimationName::String(value) = &**name
+                && name.keyword_class().is_some_and(|class| {
+                    !self.components[..index]
+                        .iter()
+                        .any(|component| component.keyword_class() == Some(class))
+                })
+            {
+                serialize_string(value, dest)?;
+                continue;
+            }
+            component.to_css(dest)?;
         }
-        macro_rules! write_keyword {
-            ($keyword:literal) => {
-                if written {
-                    dest.write_char(' ')?;
-                }
-                dest.write_str($keyword)?;
-                written = true;
-            };
-        }
-        let collision = self.name.as_deref().and_then(name_collision);
-        if collision.is_none() {
-            write_component!(self.name);
-        }
-        write_component!(self.duration);
-        if matches!(collision, Some(NameCollision::TimingFunction))
-            && self.timing_function.is_none()
-        {
-            write_keyword!("ease");
-        } else {
-            write_component!(self.timing_function);
-        }
-        write_component!(self.delay);
-        if matches!(collision, Some(NameCollision::IterationCount))
-            && self.iteration_count.is_none()
-        {
-            write_keyword!("1");
-        } else {
-            write_component!(self.iteration_count);
-        }
-        if matches!(collision, Some(NameCollision::Direction)) && self.direction.is_none() {
-            write_keyword!("normal");
-        } else {
-            write_component!(self.direction);
-        }
-        if matches!(collision, Some(NameCollision::FillMode)) && self.fill_mode.is_none() {
-            write_keyword!("none");
-        } else {
-            write_component!(self.fill_mode);
-        }
-        if matches!(collision, Some(NameCollision::PlayState)) && self.play_state.is_none() {
-            write_keyword!("running");
-        } else {
-            write_component!(self.play_state);
-        }
-        if collision.is_some() {
-            write_component!(self.name);
-        }
-        write_component!(self.timeline);
-        // A valid shorthand always has at least one component.
-        debug_assert!(written);
         Ok(())
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum NameCollision {
-    TimingFunction,
-    IterationCount,
-    Direction,
-    FillMode,
-    PlayState,
-}
-
-// The keyword class a keyframes name collides with on reparse, mirroring the
-// disambiguation in lightningcss and stylo. Quoted names are printed without
-// quotes unless they are CSS-wide keywords or `none`, so they collide like
-// idents; the `none` name is excluded because fill-mode's initial value is
-// already `none`.
-fn name_collision(name: &AnimationName<'_>) -> Option<NameCollision> {
-    let name = match name {
-        AnimationName::Ident(name) | AnimationName::String(name) => *name,
-        AnimationName::None => return None,
-    };
-    match_ignore_ascii_case!(
-        name,
-        "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end" =>
-            Some(NameCollision::TimingFunction),
-        "infinite" => Some(NameCollision::IterationCount),
-        "normal" | "reverse" | "alternate" | "alternate-reverse" =>
-            Some(NameCollision::Direction),
-        "forwards" | "backwards" | "both" => Some(NameCollision::FillMode),
-        "running" | "paused" => Some(NameCollision::PlayState),
-        _ => None,
-    )
+impl ToCss for AnimationComponent<'_> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        match self {
+            Self::Name(value) => value.to_css(dest),
+            Self::Duration(value) | Self::Delay(value) => value.to_css(dest),
+            Self::TimingFunction(value) => value.to_css(dest),
+            Self::IterationCount(value) => value.to_css(dest),
+            Self::Direction(value) => value.to_css(dest),
+            Self::FillMode(value) => value.to_css(dest),
+            Self::PlayState(value) => value.to_css(dest),
+        }
+    }
 }
 
 fn write_numbers<PrinterT: PrinterTrait>(values: &[f32], dest: &mut PrinterT) -> fmt::Result {

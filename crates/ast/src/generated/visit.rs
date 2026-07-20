@@ -167,6 +167,14 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
+    fn visit_animation_component(&mut self, node: &AnimationComponent<'a>) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
+    fn visit_animation_keyword_class(&mut self, node: &AnimationKeywordClass) {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
     fn visit_supports_rule(&mut self, node: &SupportsRule<'a>) {
         Visit::visit_children(node, self);
     }

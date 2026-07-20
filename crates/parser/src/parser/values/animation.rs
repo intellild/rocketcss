@@ -155,94 +155,72 @@ impl<'i> Parse<'i> for AnimationName<'i> {
 impl<'i> Parse<'i> for Animation<'i> {
     fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
-        let mut duration = None;
-        let mut timing_function = None;
-        let mut delay = None;
-        let mut iteration_count = None;
-        let mut direction = None;
-        let mut fill_mode = None;
-        let mut play_state = None;
-        let mut name = None;
+        let mut components = allocator.vec();
+        let mut duration_claimed = false;
+        let mut timing_function_claimed = false;
+        let mut delay_claimed = false;
+        let mut iteration_count_claimed = false;
+        let mut direction_claimed = false;
+        let mut fill_mode_claimed = false;
+        let mut play_state_claimed = false;
+        let mut name_claimed = false;
 
         // Component classes are claimed in a fixed order with the keyframes
         // name as the last resort, mirroring lightningcss and stylo. The first
         // <time> is the duration and the second the delay; a keyword whose
         // class is already claimed (e.g. `ease 1s linear`) falls through to
-        // the name. animation-timeline is never parsed from the shorthand.
+        // the name. Components are kept in authored order so round-tripping
+        // is lossless; animation-timeline is never parsed from the shorthand.
         while !input.is_exhausted() {
-            if duration.is_none()
-                && let Ok(value) = input.try_parse(Time::parse)
-            {
-                duration = Some(allocator.boxed(value));
+            if !duration_claimed && let Ok(value) = input.try_parse(Time::parse) {
+                duration_claimed = true;
+                components.push(AnimationComponent::Duration(allocator.boxed(value)));
                 continue;
             }
-            if timing_function.is_none()
-                && let Ok(value) = input.try_parse(EasingFunction::parse)
-            {
-                timing_function = Some(allocator.boxed(value));
+            if !timing_function_claimed && let Ok(value) = input.try_parse(EasingFunction::parse) {
+                timing_function_claimed = true;
+                components.push(AnimationComponent::TimingFunction(allocator.boxed(value)));
                 continue;
             }
-            if delay.is_none()
-                && let Ok(value) = input.try_parse(Time::parse)
-            {
-                delay = Some(allocator.boxed(value));
+            if !delay_claimed && let Ok(value) = input.try_parse(Time::parse) {
+                delay_claimed = true;
+                components.push(AnimationComponent::Delay(allocator.boxed(value)));
                 continue;
             }
-            if iteration_count.is_none()
+            if !iteration_count_claimed
                 && let Ok(value) = input.try_parse(AnimationIterationCount::parse)
             {
-                iteration_count = Some(allocator.boxed(value));
+                iteration_count_claimed = true;
+                components.push(AnimationComponent::IterationCount(allocator.boxed(value)));
                 continue;
             }
-            if direction.is_none()
-                && let Ok(value) = input.try_parse(AnimationDirection::parse)
-            {
-                direction = Some(value);
+            if !direction_claimed && let Ok(value) = input.try_parse(AnimationDirection::parse) {
+                direction_claimed = true;
+                components.push(AnimationComponent::Direction(value));
                 continue;
             }
-            if fill_mode.is_none()
-                && let Ok(value) = input.try_parse(AnimationFillMode::parse)
-            {
-                fill_mode = Some(value);
+            if !fill_mode_claimed && let Ok(value) = input.try_parse(AnimationFillMode::parse) {
+                fill_mode_claimed = true;
+                components.push(AnimationComponent::FillMode(value));
                 continue;
             }
-            if play_state.is_none()
-                && let Ok(value) = input.try_parse(AnimationPlayState::parse)
-            {
-                play_state = Some(value);
+            if !play_state_claimed && let Ok(value) = input.try_parse(AnimationPlayState::parse) {
+                play_state_claimed = true;
+                components.push(AnimationComponent::PlayState(value));
                 continue;
             }
-            if name.is_none()
-                && let Ok(value) = input.try_parse(AnimationName::parse)
-            {
-                name = Some(allocator.boxed(value));
+            if !name_claimed && let Ok(value) = input.try_parse(AnimationName::parse) {
+                name_claimed = true;
+                components.push(AnimationComponent::Name(allocator.boxed(value)));
                 continue;
             }
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
 
-        if duration.is_none()
-            && timing_function.is_none()
-            && delay.is_none()
-            && iteration_count.is_none()
-            && direction.is_none()
-            && fill_mode.is_none()
-            && play_state.is_none()
-            && name.is_none()
-        {
+        if components.is_empty() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self {
-            delay,
-            direction,
-            duration,
-            fill_mode,
-            iteration_count,
-            name,
-            play_state,
-            timeline: None,
-            timing_function,
-        })
+        Ok(Self { components })
     }
 }
 
@@ -258,4 +236,37 @@ pub(crate) fn parse_animation_list<'i, 't>(
         }
     }
     Ok(values)
+}
+
+// The typed component parsers skip comments, which the typed AST cannot
+// retain, so values containing comments must stay unparsed.
+pub(crate) fn value_contains_comment<'i, 't>(input: &mut Parser<'i, 't>) -> bool {
+    let start = input.state();
+    let contains = input
+        .parse_until_before(Delimiter::Bang | Delimiter::Semicolon, scan_comment)
+        .unwrap_or(false);
+    input.reset(&start);
+    contains
+}
+
+fn scan_comment<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<bool, ParseError<'i, ParserError<'i>>> {
+    let mut found = false;
+    loop {
+        let token = match input.next_including_whitespace_and_comments() {
+            Ok(token) => token.clone(),
+            Err(_) => return Ok(found),
+        };
+        match token {
+            ValueToken::Comment(_) => found = true,
+            ValueToken::Function(_)
+            | ValueToken::ParenthesisBlock
+            | ValueToken::SquareBracketBlock
+            | ValueToken::CurlyBracketBlock => {
+                found |= input.parse_nested_block(scan_comment)?;
+            }
+            _ => {}
+        }
+    }
 }

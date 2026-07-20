@@ -67,6 +67,15 @@ fn leaves_value_order_untouched_when_ordering_is_disabled() {
         flags: MinifyOptions::default().flags & !Options::ORDER_VALUES,
         ..MinifyOptions::default()
     };
+    // The typed shorthand keeps authored order unless ORDER_VALUES runs.
+    assert_eq!(
+        run_with_options("a{animation:3s ease fade}", options),
+        "a{animation:3s ease fade}"
+    );
+    assert_eq!(
+        run_with_options("a{animation:ease 1s linear}", options),
+        "a{animation:ease 1s linear}"
+    );
     assert_eq!(
         run_with_options("a{animation:ease 1s var(--easing)}", options),
         "a{animation:ease 1s var(--easing)}"
@@ -74,6 +83,32 @@ fn leaves_value_order_untouched_when_ordering_is_disabled() {
     assert_eq!(
         run_with_options("a{border:solid 1px red}", options),
         "a{border:solid 1px red}"
+    );
+}
+
+#[test]
+fn keeps_comments_in_animation_values_on_the_unparsed_path() {
+    // The typed component parsers skip comments, so values containing
+    // comments stay unparsed where they are retained.
+    let allocator = Allocator::new();
+    let stylesheet = parse(
+        "a{animation:bounce /*!wow*/ 1s linear}",
+        &allocator,
+        ParserOptions::default(),
+    )
+    .unwrap();
+    let CssRule::Style(rule) = &stylesheet.rules[0] else {
+        panic!("expected style rule")
+    };
+    assert!(matches!(
+        rule.declarations.declarations[0],
+        Declaration::Unparsed(_)
+    ));
+    assert_eq!(
+        stylesheet
+            .to_css_string(PrinterOptions { prettify: true })
+            .unwrap(),
+        "a {\n  animation: bounce /*!wow*/ 1s linear;\n}\n"
     );
 }
 
