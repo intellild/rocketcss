@@ -3,8 +3,8 @@ use rocketcss_allocator::{
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 use rocketcss_ast::{
-    Declaration, DeclarationBlock, EqIgnoringTombstones, KnownFunction, LengthValue, Margin,
-    Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, VendorPrefix,
+    CSSWideOr, Columns, Declaration, DeclarationBlock, EqIgnoringTombstones, KnownFunction,
+    LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, VendorPrefix,
     match_ignore_ascii_case,
 };
 use std::pin::Pin;
@@ -191,6 +191,34 @@ struct BoxFamilyIr<'a> {
     shorthand: DeclarationLocation,
 }
 
+#[derive(Debug)]
+struct ColumnsIr<'a> {
+    pending_longhands: Vec<'a, DeclarationLocation>,
+    count: DeclarationLocation,
+    width: DeclarationLocation,
+    shorthand: DeclarationLocation,
+}
+
+impl<'a> ColumnsIr<'a> {
+    #[inline]
+    fn new(allocator: &'a Allocator) -> Self {
+        Self {
+            pending_longhands: allocator.vec(),
+            count: DeclarationLocation::EMPTY,
+            width: DeclarationLocation::EMPTY,
+            shorthand: DeclarationLocation::EMPTY,
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.pending_longhands.clear();
+        self.count = DeclarationLocation::EMPTY;
+        self.width = DeclarationLocation::EMPTY;
+        self.shorthand = DeclarationLocation::EMPTY;
+    }
+}
+
 impl<'a> BoxFamilyIr<'a> {
     #[inline]
     fn new(allocator: &'a Allocator) -> Self {
@@ -340,6 +368,8 @@ struct DeclarationIr<'scratch, 'ast> {
     declarations: DeclarationMap<'scratch, 'ast>,
     boxes: [[BoxFamilyIr<'scratch>; 2]; BoxFamily::COUNT],
     dirty_boxes: u8,
+    columns: [[ColumnsIr<'scratch>; 2]; 5],
+    dirty_columns: u16,
 }
 
 impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
@@ -348,6 +378,8 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
             declarations: DeclarationMap::new(allocator),
             boxes: std::array::from_fn(|_| std::array::from_fn(|_| BoxFamilyIr::new(allocator))),
             dirty_boxes: 0,
+            columns: std::array::from_fn(|_| std::array::from_fn(|_| ColumnsIr::new(allocator))),
+            dirty_columns: 0,
         }
     }
 
@@ -355,6 +387,7 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
     fn clear(&mut self) {
         self.declarations.clear();
         self.clear_boxes();
+        self.clear_columns();
     }
 
     #[inline]
@@ -387,6 +420,43 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
         }
         self.dirty_boxes = 0;
     }
+
+    #[inline]
+    fn columns(
+        &mut self,
+        prefix: VendorPrefix,
+        important: bool,
+    ) -> Option<&mut ColumnsIr<'scratch>> {
+        let prefix = vendor_prefix_index(prefix)?;
+        let importance = usize::from(important);
+        self.dirty_columns |= 1 << (prefix * 2 + importance);
+        Some(&mut self.columns[prefix][importance])
+    }
+
+    #[inline]
+    fn clear_columns(&mut self) {
+        for prefix in 0..5 {
+            for importance in 0..2 {
+                let bit = 1 << (prefix * 2 + importance);
+                if self.dirty_columns & bit != 0 {
+                    self.columns[prefix][importance].clear();
+                }
+            }
+        }
+        self.dirty_columns = 0;
+    }
+}
+
+#[inline]
+fn vendor_prefix_index(prefix: VendorPrefix) -> Option<usize> {
+    match prefix {
+        VendorPrefix::NONE => Some(0),
+        VendorPrefix::WEBKIT => Some(1),
+        VendorPrefix::MOZ => Some(2),
+        VendorPrefix::MS => Some(3),
+        VendorPrefix::O => Some(4),
+        _ => None,
+    }
 }
 
 fn deduplicate_declarations<'scratch, 'ast>(
@@ -404,12 +474,224 @@ fn deduplicate_declarations<'scratch, 'ast>(
                 continue;
             }
             let important = sequence.is_important(current);
+            if process_columns_declaration(sequence, current, important, ir, cx) {
+                continue;
+            }
             if process_box_declaration(sequence, current, important, ir, cx) {
                 continue;
             }
             deduplicate_exact_declaration(sequence, current, important, &mut ir.declarations, cx);
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ColumnsProperty {
+    Shorthand(VendorPrefix),
+    Width(VendorPrefix),
+    Count(VendorPrefix),
+    BarrierAll,
+}
+
+fn process_columns_declaration<'scratch, 'ast>(
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    current: DeclarationLocation,
+    important: bool,
+    ir: &mut DeclarationIr<'scratch, 'ast>,
+    cx: &mut MinifyContext<'scratch>,
+) -> bool
+where
+    'ast: 'scratch,
+{
+    let Some(property) = columns_property(sequence.declaration(current)) else {
+        return false;
+    };
+    if matches!(property, ColumnsProperty::BarrierAll) {
+        ir.clear_columns();
+        return false;
+    }
+    let prefix = match property {
+        ColumnsProperty::Shorthand(prefix)
+        | ColumnsProperty::Width(prefix)
+        | ColumnsProperty::Count(prefix) => prefix,
+        ColumnsProperty::BarrierAll => unreachable!(),
+    };
+    let Some(state) = ir.columns(prefix, important) else {
+        return false;
+    };
+
+    match property {
+        ColumnsProperty::Shorthand(_) => {
+            let can_override = can_override_columns_longhands(sequence.declaration(current));
+            if can_override {
+                for &location in &state.pending_longhands {
+                    if !sequence.declaration(location).is_tombstone() {
+                        sequence.replace(location, Declaration::Tombstone);
+                        cx.record_declaration_removed();
+                    }
+                }
+            }
+            state.clear();
+            if can_override {
+                state.shorthand = current;
+            }
+            false
+        }
+        ColumnsProperty::Width(_) | ColumnsProperty::Count(_) => {
+            let component = match property {
+                ColumnsProperty::Width(_) => &mut state.width,
+                ColumnsProperty::Count(_) => &mut state.count,
+                _ => unreachable!(),
+            };
+            let shorthand = state.shorthand;
+            if *component == DeclarationLocation::EMPTY
+                && shorthand != DeclarationLocation::EMPTY
+                && !sequence.declaration(shorthand).is_tombstone()
+                && fold_columns_override(sequence, shorthand, current, prefix)
+            {
+                cx.record_declaration_removed();
+                return true;
+            }
+
+            state.pending_longhands.push(current);
+            *component = current;
+            if state.width == DeclarationLocation::EMPTY
+                || state.count == DeclarationLocation::EMPTY
+            {
+                return false;
+            }
+            if merge_columns_longhands(sequence, state.width, state.count, prefix, cx) {
+                let target = std::cmp::max(state.width, state.count);
+                state.clear();
+                state.shorthand = target;
+            }
+            false
+        }
+        ColumnsProperty::BarrierAll => unreachable!(),
+    }
+}
+
+#[inline]
+fn columns_property(declaration: &Declaration<'_>) -> Option<ColumnsProperty> {
+    let property_id = match declaration {
+        Declaration::Columns(_, prefix) => return Some(ColumnsProperty::Shorthand(*prefix)),
+        Declaration::ColumnWidth(_, prefix) => return Some(ColumnsProperty::Width(*prefix)),
+        Declaration::ColumnCount(_, prefix) => return Some(ColumnsProperty::Count(*prefix)),
+        Declaration::All(_) => return Some(ColumnsProperty::BarrierAll),
+        Declaration::Unparsed(value) => &*value.property_id,
+        _ => return None,
+    };
+    match property_id {
+        PropertyId::Columns(prefix) => Some(ColumnsProperty::Shorthand(*prefix)),
+        PropertyId::ColumnWidth(prefix) => Some(ColumnsProperty::Width(*prefix)),
+        PropertyId::ColumnCount(prefix) => Some(ColumnsProperty::Count(*prefix)),
+        PropertyId::All => Some(ColumnsProperty::BarrierAll),
+        _ => None,
+    }
+}
+
+fn can_override_columns_longhands(declaration: &Declaration<'_>) -> bool {
+    matches!(declaration, Declaration::Columns(..))
+}
+
+fn fold_columns_override(
+    sequence: &mut DeclarationSequence<'_, '_, '_>,
+    shorthand: DeclarationLocation,
+    longhand: DeclarationLocation,
+    prefix: VendorPrefix,
+) -> bool {
+    debug_assert!(shorthand < longhand);
+    let mut longhand_declaration = sequence.replace(longhand, Declaration::Tombstone);
+    let folded = match (
+        sequence.declaration_mut(shorthand),
+        &mut longhand_declaration,
+    ) {
+        (
+            Declaration::Columns(CSSWideOr::Value(value), shorthand_prefix),
+            Declaration::ColumnWidth(CSSWideOr::Value(width), longhand_prefix),
+        ) if *shorthand_prefix == prefix && *longhand_prefix == prefix => {
+            std::mem::swap(&mut value.width, width);
+            true
+        }
+        (
+            Declaration::Columns(CSSWideOr::Value(value), shorthand_prefix),
+            Declaration::ColumnCount(CSSWideOr::Value(count), longhand_prefix),
+        ) if *shorthand_prefix == prefix && *longhand_prefix == prefix => {
+            std::mem::swap(&mut value.count, count);
+            true
+        }
+        _ => false,
+    };
+    if !folded {
+        sequence.replace(longhand, longhand_declaration);
+    }
+    folded
+}
+
+fn merge_columns_longhands<'ast, 'cx>(
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    width: DeclarationLocation,
+    count: DeclarationLocation,
+    prefix: VendorPrefix,
+    cx: &mut MinifyContext<'cx>,
+) -> bool
+where
+    'ast: 'cx,
+{
+    let target = std::cmp::max(width, count);
+    let allocator = sequence.allocator(target);
+    if matches!(sequence.declaration(width), Declaration::ColumnWidth(CSSWideOr::Value(_), value_prefix) if *value_prefix == prefix)
+        && matches!(sequence.declaration(count), Declaration::ColumnCount(CSSWideOr::Value(_), value_prefix) if *value_prefix == prefix)
+    {
+        let Declaration::ColumnWidth(CSSWideOr::Value(width_value), _) =
+            sequence.replace(width, Declaration::Tombstone)
+        else {
+            unreachable!("typed columns IR validates column-width")
+        };
+        let Declaration::ColumnCount(CSSWideOr::Value(count_value), _) =
+            sequence.replace(count, Declaration::Tombstone)
+        else {
+            unreachable!("typed columns IR validates column-count")
+        };
+        sequence.replace(
+            target,
+            Declaration::Columns(
+                CSSWideOr::Value(allocator.boxed(Columns {
+                    count: count_value,
+                    width: width_value,
+                })),
+                prefix,
+            ),
+        );
+        cx.record_declaration_removed();
+        return true;
+    }
+
+    let values_are_equal_css_wide = matches!(
+        (sequence.declaration(width), sequence.declaration(count)),
+        (
+            Declaration::ColumnWidth(CSSWideOr::CSSWide(width), width_prefix),
+            Declaration::ColumnCount(CSSWideOr::CSSWide(count), count_prefix),
+        ) if *width_prefix == prefix && *count_prefix == prefix && width == count
+    );
+    if !values_are_equal_css_wide {
+        return false;
+    }
+
+    let width_declaration = sequence.replace(width, Declaration::Tombstone);
+    let count_declaration = sequence.replace(count, Declaration::Tombstone);
+    let Declaration::ColumnWidth(CSSWideOr::CSSWide(keyword), _) = width_declaration else {
+        unreachable!("typed columns IR validates CSS-wide column-width")
+    };
+    let Declaration::ColumnCount(CSSWideOr::CSSWide(_), _) = count_declaration else {
+        unreachable!("typed columns IR validates CSS-wide column-count")
+    };
+    sequence.replace(
+        target,
+        Declaration::Columns(CSSWideOr::CSSWide(keyword), prefix),
+    );
+    cx.record_declaration_removed();
+    true
 }
 
 fn deduplicate_exact_declaration<'scratch, 'ast>(

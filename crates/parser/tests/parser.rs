@@ -918,7 +918,7 @@ fn parses_font_family_into_typed_ast_nodes() {
 fn parses_known_multicol_and_legacy_gap_ast_nodes() {
     let allocator = Allocator::new();
     let sheet = parse(
-        "a { -webkit-column-rule: red solid 1px; columns: 3 10px; grid-column-gap: 10%; grid-row-gap: normal; columns: var(--count); }",
+        "a { -webkit-column-rule: red solid 1px; columns: 3 10px; grid-column-gap: 10%; grid-row-gap: normal; columns: var(--count); column-width: INHERIT; columns: REVERT-LAYER; }",
         &allocator,
         ParserOptions::default(),
     )
@@ -938,7 +938,7 @@ fn parses_known_multicol_and_legacy_gap_ast_nodes() {
     ));
     assert!(matches!(
         &declarations[1],
-        Declaration::Columns(value, prefix)
+        Declaration::Columns(CSSWideOr::Value(value), prefix)
             if *prefix == VendorPrefix::NONE
                 && matches!(value.count, ColumnCount::Integer(3))
                 && matches!(&*value.width, ColumnWidth::Length(_))
@@ -956,6 +956,16 @@ fn parses_known_multicol_and_legacy_gap_ast_nodes() {
         &declarations[4],
         Declaration::Unparsed(value)
             if matches!(&*value.property_id, PropertyId::Columns(VendorPrefix::NONE))
+    ));
+    assert!(matches!(
+        &declarations[5],
+        Declaration::ColumnWidth(CSSWideOr::CSSWide(CSSWideKeyword::Inherit), prefix)
+            if *prefix == VendorPrefix::NONE
+    ));
+    assert!(matches!(
+        &declarations[6],
+        Declaration::Columns(CSSWideOr::CSSWide(CSSWideKeyword::RevertLayer), prefix)
+            if *prefix == VendorPrefix::NONE
     ));
 }
 

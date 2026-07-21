@@ -16,6 +16,15 @@ impl ToCss for VendorPrefix {
     }
 }
 
+impl<T: ToCss> ToCss for CSSWideOr<T> {
+    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        match self {
+            Self::Value(value) => value.to_css(dest),
+            Self::CSSWide(keyword) => keyword.to_css(dest),
+        }
+    }
+}
+
 impl ToCss for PropertyId<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.vendor_prefix().to_css(dest)?;

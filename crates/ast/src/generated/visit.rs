@@ -1394,6 +1394,13 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
+    fn visit_css_wide_or<T>(&mut self, node: &CSSWideOr<T>)
+    where
+        T: Visit<'a>,
+    {
+        Visit::visit_children(node, self);
+    }
+    #[inline]
     fn visit_custom_property_name(&mut self, node: &CustomPropertyName<'a>) {
         Visit::visit_children(node, self);
     }

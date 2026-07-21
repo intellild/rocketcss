@@ -256,7 +256,6 @@ fn still_requires_unsupported_transform(
             "pipeline strips url quotes",
         ),
         ("borders", "", "border longhand merging not implemented"),
-        ("columns", "", "column merging not implemented"),
         // Upstream's testPassthrough(t, fixture) helper is called without the
         // fixture argument, so the recorded expectation is literally
         // "undefined"; these cases carry no upstream signal.
