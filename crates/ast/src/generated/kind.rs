@@ -337,6 +337,7 @@ pub enum AstType {
     WebKitMaskComposite,
     WebKitMaskSourceType,
     CSSWideKeyword,
+    CSSWideOr,
     CustomPropertyName,
     ClipPath,
     GeometryBox,

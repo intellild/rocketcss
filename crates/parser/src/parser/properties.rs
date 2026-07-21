@@ -95,8 +95,34 @@ fn try_parse_typed_declaration<'i, 't>(
             ColumnRule::parse(input)
                 .map(|value| Declaration::ColumnRule(allocator.boxed(value), *prefix))
         }),
+        PropertyId::ColumnWidth(prefix) => parse!(|input| {
+            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
+                return Ok(Declaration::ColumnWidth(
+                    CSSWideOr::CSSWide(keyword),
+                    *prefix,
+                ));
+            }
+            ColumnWidth::parse(input).map(|value| {
+                Declaration::ColumnWidth(CSSWideOr::Value(allocator.boxed(value)), *prefix)
+            })
+        }),
+        PropertyId::ColumnCount(prefix) => parse!(|input| {
+            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
+                return Ok(Declaration::ColumnCount(
+                    CSSWideOr::CSSWide(keyword),
+                    *prefix,
+                ));
+            }
+            ColumnCount::parse(input)
+                .map(|value| Declaration::ColumnCount(CSSWideOr::Value(value), *prefix))
+        }),
         PropertyId::Columns(prefix) => parse!(|input| {
-            Columns::parse(input).map(|value| Declaration::Columns(allocator.boxed(value), *prefix))
+            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
+                return Ok(Declaration::Columns(CSSWideOr::CSSWide(keyword), *prefix));
+            }
+            Columns::parse(input).map(|value| {
+                Declaration::Columns(CSSWideOr::Value(allocator.boxed(value)), *prefix)
+            })
         }),
         PropertyId::GridColumnGap => parse!(|input| {
             GapValue::parse(input).map(|value| Declaration::GridColumnGap(allocator.boxed(value)))
@@ -138,6 +164,13 @@ fn try_parse_typed_declaration<'i, 't>(
         }),
         _ => None,
     }
+}
+
+fn parse_css_wide_keyword<'i, 't>(
+    input: &mut Parser<'i, 't>,
+) -> Result<CSSWideKeyword, ParseError<'i, ParserError<'i>>> {
+    let ident = input.expect_ident()?;
+    css_wide_keyword(ident).ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
 }
 
 fn parse_declaration_end<'i, 't>(input: &mut Parser<'i, 't>) -> Option<bool> {

@@ -7,13 +7,13 @@ by the scenario each skip corresponds to. Recorded 2026-07-18 on branch
 Skip sources:
 
 - Dynamic specs: `tests/fixtures/minify-dynamic/cssnano/*.json` — 32 specs,
-  2105 cases, **852 skipped**. Skip logic lives in
+  2105 cases, **818 skipped**. Skip logic lives in
   `still_requires_unsupported_transform` at `tests/src/minify_dynamic.rs`
-  (138 pattern entries) plus per-case `upstreamSkip: true` flags.
+  (137 pattern entries) plus per-case `upstreamSkip: true` flags.
 - Static fixtures: `tests/fixtures/minify/cssnano/` — **4 directories skipped**
   via `still_requires_unsupported_transform` at `tests/src/minify.rs`.
 
-## 1. Whole plugins not implemented (9 plugins, 276 cases)
+## 1. Whole plugins not implemented (8 plugins, 242 cases)
 
 The entire spec file is skipped (empty `text_pattern`).
 
@@ -21,7 +21,6 @@ The entire spec file is skipped (empty `text_pattern`).
 | ------------------------ | ----- | ------------------------------------------------- |
 | merge-rules              | 87    | Cross-rule declaration merging                    |
 | reduce-idents            | 45    | @keyframes / counter identifier renaming          |
-| columns (merge-longhand) | 34    | column-* merging                                  |
 | svgo                     | 29    | Inline SVG optimization (explicitly out of scope) |
 | discard-unused           | 26    | Unused @font-face / @keyframes / ... removal      |
 | merge-idents             | 23    | Cross-rule identifier merging                     |
@@ -131,6 +130,6 @@ uppercase)` is flagged `upstreamSkip: true` in the recorded spec.
 
 ## Biggest work items
 
-1. The 9 unimplemented plugins (276 cases), led by merge-rules (87).
+1. The whole-plugin gaps in Section 1, led by merge-rules (87 cases).
 2. Deciding per-case whether full-pipeline divergences (~160 cases) should
    update the recorded expectation or narrow pipeline behavior.

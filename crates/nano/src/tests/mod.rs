@@ -10,6 +10,7 @@ mod at_rules;
 mod box_model;
 mod calc_units;
 mod colors;
+mod columns;
 mod custom_properties;
 mod declarations;
 mod fonts;
