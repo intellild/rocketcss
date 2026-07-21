@@ -1,0 +1,21 @@
+docs/cssnano-skipped-tests.md
+  s_669dd041852abb::t_ce3dae4a4f0ba0 133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "80c3b1d60201cba7415e2252b0e805debce99324",
+  "prompts": {},
+  "sessions": {
+    "s_669dd041852abb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7f22-3bdb-7173-8497-78d4a805ca62",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
