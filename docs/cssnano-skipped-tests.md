@@ -130,6 +130,6 @@ uppercase)` is flagged `upstreamSkip: true` in the recorded spec.
 
 ## Biggest work items
 
-1. The 9 unimplemented plugins (276 cases), led by merge-rules (87).
+1. The whole-plugin gaps in Section 1, led by merge-rules (87 cases).
 2. Deciding per-case whether full-pipeline divergences (~160 cases) should
    update the recorded expectation or narrow pipeline behavior.
