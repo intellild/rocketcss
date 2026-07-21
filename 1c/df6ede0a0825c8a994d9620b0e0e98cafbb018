@@ -1,0 +1,27 @@
+crates/nano/README.md
+  s_669dd041852abb::t_c1c612a06bbca6 8-14
+crates/nano/src/tests/columns.rs
+  s_669dd041852abb::t_0babb0899080ca 1-57
+crates/nano/src/tests/mod.rs
+  s_669dd041852abb::t_50caf5bb9063be 13
+docs/cssnano-skipped-tests.md
+  s_669dd041852abb::t_f61ada7a68328c 10,12,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "1cdf6ede0a0825c8a994d9620b0e0e98cafbb018",
+  "prompts": {},
+  "sessions": {
+    "s_669dd041852abb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f7f22-3bdb-7173-8497-78d4a805ca62",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
