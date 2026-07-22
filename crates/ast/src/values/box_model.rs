@@ -1,10 +1,10 @@
 use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum Display<'a> {
+pub enum Display {
     Keyword(DisplayKeyword),
     Pair {
-        inside: Box<'a, DisplayInside>,
+        inside: DisplayInside,
         is_list_item: bool,
         outside: DisplayOutside,
     },

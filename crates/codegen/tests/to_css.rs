@@ -118,7 +118,7 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
     assert!(matches!(query.media_type, MediaType::All));
     assert!(query.qualifier.is_none());
     assert!(matches!(
-        query.condition.as_deref(),
+        query.condition.as_ref(),
         Some(MediaCondition::Unknown(_))
     ));
     assert_eq!(
@@ -496,12 +496,9 @@ fn merged_declaration_blocks_serialize_from_chain_head() {
     let [CssRule::Style(first), CssRule::Style(second)] = &mut stylesheet.rules[..] else {
         panic!("expected two style rules")
     };
-    let previous = Ref::from_pinned_box(&first.declarations);
-    second
-        .declarations
-        .as_mut()
-        .set_previous_merged(Some(previous));
-    for selector in first.selectors.iter_mut() {
+    let previous = Ref::from_pinned_box(first);
+    second.as_mut().set_previous_merged(Some(previous));
+    for selector in first.as_mut().selectors_mut().iter_mut() {
         *selector = Selector::Tombstone;
     }
 

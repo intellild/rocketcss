@@ -188,11 +188,11 @@ pub(super) fn parse_custom_media<'i>(
     let mut query_parser = Parser::new(&mut query_input);
     let condition = MediaCondition::Unknown(collect_tokens(&mut query_parser, allocator, 0)?);
     let mut media_queries = allocator.vec();
-    media_queries.push(MediaQuery {
-        condition: Some(allocator.boxed(condition)),
+    media_queries.push(allocator.boxed(MediaQuery {
+        condition: Some(condition),
         media_type: MediaType::All,
         qualifier: None,
-    });
+    }));
     Ok((name, MediaList { media_queries }))
 }
 
@@ -267,7 +267,7 @@ pub(super) fn parse_keyframe_list<'i, 't>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         keyframes.push(Keyframe {
-            declarations: allocator.pinned(declarations),
+            declarations,
             selectors,
         });
     }
@@ -276,7 +276,7 @@ pub(super) fn parse_keyframe_list<'i, 't>(
 
 pub(super) fn parse_keyframe_selector<'i>(
     input: &mut Parser<'i, '_>,
-) -> Result<KeyframeSelector<'i>, ParseError<'i, ParserError<'i>>> {
+) -> Result<KeyframeSelector, ParseError<'i, ParserError<'i>>> {
     match input.next()? {
         ValueToken::Percentage(value) if (0.0..=1.0).contains(value) => {
             Ok(KeyframeSelector::Percentage(*value))
@@ -296,9 +296,7 @@ pub(super) fn parse_keyframe_selector<'i>(
             );
             let percentage = input.expect_percentage()?;
             Ok(KeyframeSelector::TimelineRangePercentage(
-                input
-                    .allocator()
-                    .boxed(TimelineRangePercentage { name, percentage }),
+                TimelineRangePercentage { name, percentage },
             ))
         }
         _ => Err(input.new_custom_error(ParserError::InvalidValue)),
@@ -504,7 +502,7 @@ pub(super) fn parse_page_body<'i, 't>(
                     parse_declaration_block(input, allocator, options, depth + 1)
                 })?;
                 Ok(Some(PageMarginRule {
-                    declarations: allocator.pinned(declarations),
+                    declarations,
                     span: span_from(&start, input.position()),
                     margin_box,
                 }))

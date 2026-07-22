@@ -1,12 +1,10 @@
 use crate::*;
-use std::pin::Pin;
-
 #[derive(Debug, PartialEq, Visit)]
-pub enum KeyframeSelector<'a> {
+pub enum KeyframeSelector {
     Percentage(f32),
     From,
     To,
-    TimelineRangePercentage(Box<'a, TimelineRangePercentage>),
+    TimelineRangePercentage(TimelineRangePercentage),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -25,8 +23,8 @@ pub struct KeyframesRule<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Keyframe<'a> {
-    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
-    pub selectors: Vec<'a, KeyframeSelector<'a>>,
+    pub declarations: DeclarationBlock<'a>,
+    pub selectors: Vec<'a, KeyframeSelector>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

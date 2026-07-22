@@ -10,7 +10,7 @@ pub struct SupportsRule<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct CounterStyleRule<'a> {
-    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
+    pub declarations: DeclarationBlock<'a>,
     pub span: Span,
     pub name: &'a str,
 }
@@ -37,18 +37,18 @@ pub struct MozDocumentRule<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub struct NestingRule<'a> {
     pub span: Span,
-    pub style: Box<'a, StyleRule<'a>>,
+    pub style: Pin<Box<'a, StyleRule<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct NestedDeclarationsRule<'a> {
-    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
+    pub declarations: DeclarationBlock<'a>,
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ViewportRule<'a> {
-    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
+    pub declarations: DeclarationBlock<'a>,
     pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
@@ -91,7 +91,7 @@ pub struct StartingStyleRule<'a> {
 pub struct PositionTryRule<'a> {
     pub span: Span,
     pub name: &'a str,
-    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
+    pub declarations: DeclarationBlock<'a>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

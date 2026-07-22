@@ -250,7 +250,7 @@ impl ToCss for WebKitGradient<'_> {
     }
 }
 
-impl ToCss for LineDirection<'_> {
+impl ToCss for LineDirection {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Angle(value) => value.to_css(dest),
@@ -360,7 +360,7 @@ impl ToCss for Circle<'_> {
     }
 }
 
-impl<S: ToCss> ToCss for WebKitGradientPointComponent<'_, S> {
+impl<S: ToCss> ToCss for WebKitGradientPointComponent<S> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Center => dest.write_str("center"),
@@ -405,7 +405,7 @@ impl ToCss for LengthPercentageOrAuto<'_> {
     }
 }
 
-impl ToCss for Display<'_> {
+impl ToCss for Display {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Keyword(value) => value.to_css(dest),
@@ -416,11 +416,11 @@ impl ToCss for Display<'_> {
             } => {
                 if *is_list_item
                     && matches!(outside, DisplayOutside::Block)
-                    && matches!(&**inside, DisplayInside::Flow)
+                    && matches!(inside, DisplayInside::Flow)
                 {
                     return dest.write_str("list-item");
                 }
-                match (outside, &**inside) {
+                match (outside, inside) {
                     (DisplayOutside::Block, DisplayInside::Flow) => dest.write_str("block")?,
                     (DisplayOutside::Inline, DisplayInside::Flow) => dest.write_str("inline")?,
                     (DisplayOutside::Block, DisplayInside::FlowRoot) => {
@@ -927,7 +927,7 @@ impl ToCss for GridLine<'_> {
     }
 }
 
-impl ToCss for FontWeight<'_> {
+impl ToCss for FontWeight {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Absolute(value) => value.to_css(dest),
@@ -969,7 +969,7 @@ impl ToCss for FontStretch {
     }
 }
 
-impl ToCss for FontStyle<'_> {
+impl ToCss for FontStyle {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -1218,7 +1218,7 @@ impl ToCss for Translate<'_> {
     }
 }
 
-impl ToCss for Scale<'_> {
+impl ToCss for Scale {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),

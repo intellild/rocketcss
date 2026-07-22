@@ -23,7 +23,7 @@ pub struct BorderImageSlice<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderImage<'a> {
     pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
-    pub repeat: Box<'a, BorderImageRepeat>,
+    pub repeat: BorderImageRepeat,
     pub slice: Box<'a, BorderImageSlice<'a>>,
     pub source: Box<'a, Image<'a>>,
     pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,

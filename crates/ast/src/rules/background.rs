@@ -7,9 +7,9 @@ pub struct Position<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct WebKitGradientPoint<'a> {
-    pub x: Box<'a, WebKitGradientPointComponent<'a, HorizontalPositionKeyword>>,
-    pub y: Box<'a, WebKitGradientPointComponent<'a, VerticalPositionKeyword>>,
+pub struct WebKitGradientPoint {
+    pub x: WebKitGradientPointComponent<HorizontalPositionKeyword>,
+    pub y: WebKitGradientPointComponent<VerticalPositionKeyword>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -28,7 +28,7 @@ pub struct ImageSet<'a> {
 pub struct ImageSetOption<'a> {
     pub file_type: Option<&'a str>,
     pub image: Box<'a, Image<'a>>,
-    pub resolution: Box<'a, Resolution>,
+    pub resolution: Resolution,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -51,7 +51,7 @@ pub struct Background<'a> {
     pub image: Box<'a, Image<'a>>,
     pub origin: BackgroundOrigin,
     pub position: Box<'a, BackgroundPosition<'a>>,
-    pub repeat: Box<'a, BackgroundRepeat>,
+    pub repeat: BackgroundRepeat,
     pub size: Box<'a, BackgroundSize<'a>>,
 }
 

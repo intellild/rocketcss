@@ -13,25 +13,19 @@ pub enum Transform<'a> {
             Box<'a, Length<'a>>,
         ),
     ),
-    Scale((Box<'a, NumberOrPercentage>, Box<'a, NumberOrPercentage>)),
-    ScaleX(Box<'a, NumberOrPercentage>),
-    ScaleY(Box<'a, NumberOrPercentage>),
-    ScaleZ(Box<'a, NumberOrPercentage>),
-    Scale3d(
-        (
-            Box<'a, NumberOrPercentage>,
-            Box<'a, NumberOrPercentage>,
-            Box<'a, NumberOrPercentage>,
-        ),
-    ),
-    Rotate(Box<'a, Angle>),
-    RotateX(Box<'a, Angle>),
-    RotateY(Box<'a, Angle>),
-    RotateZ(Box<'a, Angle>),
-    Rotate3d((f32, f32, f32, Box<'a, Angle>)),
-    Skew((Box<'a, Angle>, Box<'a, Angle>)),
-    SkewX(Box<'a, Angle>),
-    SkewY(Box<'a, Angle>),
+    Scale((NumberOrPercentage, NumberOrPercentage)),
+    ScaleX(NumberOrPercentage),
+    ScaleY(NumberOrPercentage),
+    ScaleZ(NumberOrPercentage),
+    Scale3d((NumberOrPercentage, NumberOrPercentage, NumberOrPercentage)),
+    Rotate(Angle),
+    RotateX(Angle),
+    RotateY(Angle),
+    RotateZ(Angle),
+    Rotate3d((f32, f32, f32, Angle)),
+    Skew((Angle, Angle)),
+    SkewX(Angle),
+    SkewY(Angle),
     Perspective(Box<'a, Length<'a>>),
     Matrix(Box<'a, MatrixForFloat>),
     Matrix3d(Box<'a, Matrix3DForFloat>),
@@ -75,11 +69,11 @@ pub enum Translate<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum Scale<'a> {
+pub enum Scale {
     None,
     Xyz {
-        x: Box<'a, NumberOrPercentage>,
-        y: Box<'a, NumberOrPercentage>,
-        z: Box<'a, NumberOrPercentage>,
+        x: NumberOrPercentage,
+        y: NumberOrPercentage,
+        z: NumberOrPercentage,
     },
 }

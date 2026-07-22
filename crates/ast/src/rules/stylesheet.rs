@@ -23,12 +23,12 @@ pub struct MediaRule<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MediaList<'a> {
-    pub media_queries: Vec<'a, MediaQuery<'a>>,
+    pub media_queries: Vec<'a, Box<'a, MediaQuery<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MediaQuery<'a> {
-    pub condition: Option<Box<'a, MediaCondition<'a>>>,
+    pub condition: Option<MediaCondition<'a>>,
     pub media_type: MediaType<'a>,
     pub qualifier: Option<Qualifier>,
 }
@@ -43,7 +43,7 @@ pub struct LengthValue {
 pub struct EnvironmentVariable<'a> {
     pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
     pub indices: Vec<'a, i32>,
-    pub name: Box<'a, EnvironmentVariableName<'a>>,
+    pub name: EnvironmentVariableName<'a>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -60,7 +60,7 @@ pub struct Variable<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct DashedIdentReference<'a> {
-    pub from: Option<Box<'a, Specifier<'a>>>,
+    pub from: Option<Specifier<'a>>,
     pub ident: &'a str,
 }
 
@@ -396,25 +396,85 @@ pub struct ImportRule<'a> {
     pub url: &'a str,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Visit)]
+#[visit(pinned)]
 pub struct StyleRule<'a> {
-    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
+    pub declarations: DeclarationBlock<'a>,
     pub span: Span,
     pub rules: Vec<'a, CssRule<'a>>,
-    pub selectors: Box<'a, SelectorList<'a>>,
+    pub selectors: SelectorList<'a>,
     pub vendor_prefix: VendorPrefix,
+    #[visit(skip)]
+    previous_merged: Option<Ref<'a, StyleRule<'a>>>,
+    #[visit(skip)]
+    _pin: PhantomPinned,
+}
+
+impl PartialEq for StyleRule<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.declarations == other.declarations
+            && self.span == other.span
+            && self.rules == other.rules
+            && self.selectors == other.selectors
+            && self.vendor_prefix == other.vendor_prefix
+    }
+}
+
+impl<'a> StyleRule<'a> {
+    #[inline]
+    pub fn new(
+        declarations: DeclarationBlock<'a>,
+        span: Span,
+        rules: Vec<'a, CssRule<'a>>,
+        selectors: SelectorList<'a>,
+        vendor_prefix: VendorPrefix,
+    ) -> Self {
+        Self {
+            declarations,
+            span,
+            rules,
+            selectors,
+            vendor_prefix,
+            previous_merged: None,
+            _pin: PhantomPinned,
+        }
+    }
+
+    #[inline]
+    pub fn previous_merged(&self) -> Option<Ref<'a, StyleRule<'a>>> {
+        self.previous_merged
+    }
+
+    #[inline]
+    pub fn set_previous_merged(mut self: Pin<&mut Self>, previous: Option<Ref<'a, StyleRule<'a>>>) {
+        // SAFETY: assigning the link does not move the pinned style rule.
+        unsafe { self.as_mut().get_unchecked_mut() }.previous_merged = previous;
+    }
+
+    #[inline]
+    pub fn declarations_mut(self: Pin<&mut Self>) -> &mut DeclarationBlock<'a> {
+        // SAFETY: DeclarationBlock is Unpin and remains stored in place.
+        &mut unsafe { self.get_unchecked_mut() }.declarations
+    }
+
+    #[inline]
+    pub fn rules_mut(self: Pin<&mut Self>) -> &mut Vec<'a, CssRule<'a>> {
+        // SAFETY: the rules vector may move its elements, but not the pinned owner.
+        &mut unsafe { self.get_unchecked_mut() }.rules
+    }
+
+    #[inline]
+    pub fn selectors_mut(self: Pin<&mut Self>) -> &mut SelectorList<'a> {
+        // SAFETY: the selector vector may move its elements, but not the pinned owner.
+        &mut unsafe { self.get_unchecked_mut() }.selectors
+    }
 }
 
 #[derive(Debug, Visit)]
-#[visit(pinned)]
 pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, Declaration<'a>>,
     #[visit(skip)]
     pub declarations_importance: BitVec<'a>,
-    #[visit(skip)]
-    previous_merged: Option<rocketcss_allocator::Ref<'a, DeclarationBlock<'a>>>,
-    #[visit(skip)]
-    _pin: PhantomPinned,
 }
 
 impl<'a> DeclarationBlock<'a> {
@@ -423,8 +483,6 @@ impl<'a> DeclarationBlock<'a> {
         Self {
             declarations: allocator.vec(),
             declarations_importance: BitVec::new(allocator),
-            previous_merged: None,
-            _pin: PhantomPinned,
         }
     }
 
@@ -432,29 +490,6 @@ impl<'a> DeclarationBlock<'a> {
     pub fn push(&mut self, declaration: Declaration<'a>, important: bool) {
         self.declarations.push(declaration);
         self.declarations_importance.push(important);
-    }
-
-    #[inline]
-    pub fn push_pinned(mut self: Pin<&mut Self>, declaration: Declaration<'a>, important: bool) {
-        // SAFETY: pushing into the declaration vector does not move the block.
-        unsafe { self.as_mut().get_unchecked_mut() }.push(declaration, important);
-    }
-
-    /// Returns the declaration block immediately preceding this block in a
-    /// merged output chain.
-    #[inline]
-    pub fn previous_merged(&self) -> Option<rocketcss_allocator::Ref<'a, DeclarationBlock<'a>>> {
-        self.previous_merged
-    }
-
-    /// Sets the preceding declaration block without moving this pinned block.
-    #[inline]
-    pub fn set_previous_merged(
-        mut self: Pin<&mut Self>,
-        previous: Option<rocketcss_allocator::Ref<'a, DeclarationBlock<'a>>>,
-    ) {
-        // SAFETY: assigning a pointer-sized field does not move the pinned block.
-        unsafe { self.as_mut().get_unchecked_mut() }.previous_merged = previous;
     }
 
     #[inline]

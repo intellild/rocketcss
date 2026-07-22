@@ -121,15 +121,12 @@ impl<'ast> VisitorMut<'ast> for Minifier<'ast, '_> {
         }
     }
 
-    fn visit_declaration_block(&mut self, mut node: std::pin::Pin<&mut DeclarationBlock<'ast>>) {
-        node.as_mut().visit_mut_children(self);
-        // SAFETY: minification mutates fields in place and never moves the
-        // pinned declaration block itself.
-        self.declaration_blocks
-            .minify(unsafe { node.as_mut().get_unchecked_mut() }, &mut self.cx);
+    fn visit_declaration_block(&mut self, node: &mut DeclarationBlock<'ast>) {
+        node.visit_mut_children(self);
+        self.declaration_blocks.minify(node, &mut self.cx);
     }
 
-    fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'ast>) {
+    fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector) {
         node.visit_mut_children(self);
         node.minify(&mut self.cx);
     }

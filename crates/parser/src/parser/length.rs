@@ -2,18 +2,17 @@ use crate::prelude::*;
 
 impl<'i> Parse<'i> for Length<'i> {
     fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let location = input.current_source_location();
         match input.next()?.clone() {
             ValueToken::Dimension { unit, value } => {
                 let unit = parse_length_unit(&unit)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Self::Value(allocator.boxed(LengthValue { unit, value })))
+                Ok(Self::Value(LengthValue { unit, value }))
             }
-            ValueToken::Number(0.0) => Ok(Self::Value(allocator.boxed(LengthValue {
+            ValueToken::Number(0.0) => Ok(Self::Value(LengthValue {
                 unit: LengthUnit::Px,
                 value: 0.0,
-            }))),
+            })),
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
     }
@@ -21,16 +20,13 @@ impl<'i> Parse<'i> for Length<'i> {
 
 impl<'i> Parse<'i> for LengthPercentage<'i> {
     fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let location = input.current_source_location();
         match input.next()?.clone() {
             ValueToken::Percentage(value) => Ok(Self::Percentage(value)),
             ValueToken::Dimension { unit, value } => {
                 let unit = parse_length_unit(&unit)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Self::Dimension(
-                    allocator.boxed(LengthValue { unit, value }),
-                ))
+                Ok(Self::Dimension(LengthValue { unit, value }))
             }
             ValueToken::Number(0.0) => Ok(Self::Zero),
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
@@ -71,14 +67,14 @@ impl<'i> Parse<'i> for Size<'i> {
                 let unit = parse_length_unit(&unit)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
                 Ok(Size::LengthPercentage(allocator.boxed(
-                    DimensionPercentage::Dimension(allocator.boxed(LengthValue { unit, value })),
+                    DimensionPercentage::Dimension(LengthValue { unit, value }),
                 )))
             }
             ValueToken::Number(0.0) => Ok(Size::LengthPercentage(allocator.boxed(
-                DimensionPercentage::Dimension(allocator.boxed(LengthValue {
+                DimensionPercentage::Dimension(LengthValue {
                     unit: LengthUnit::Px,
                     value: 0.0,
-                })),
+                }),
             ))),
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }

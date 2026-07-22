@@ -23,10 +23,10 @@ impl<'i> Parse<'i> for Background<'i> {
                 x: zero_position(allocator),
                 y: zero_position(allocator),
             }),
-            repeat: allocator.boxed(BackgroundRepeat {
+            repeat: BackgroundRepeat {
                 x: BackgroundRepeatKeyword::Repeat,
                 y: BackgroundRepeatKeyword::Repeat,
-            }),
+            },
             size: allocator.boxed(BackgroundSize::Explicit {
                 height: allocator.boxed(LengthPercentageOrAuto::Auto),
                 width: allocator.boxed(LengthPercentageOrAuto::Auto),

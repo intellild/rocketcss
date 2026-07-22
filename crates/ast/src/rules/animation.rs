@@ -2,8 +2,8 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Transition<'a> {
-    pub delay: Box<'a, Time>,
-    pub duration: Box<'a, Time>,
+    pub delay: Time,
+    pub duration: Time,
     pub property: Box<'a, PropertyId<'a>>,
     pub timing_function: Box<'a, EasingFunction>,
 }
@@ -37,10 +37,10 @@ pub struct Animation<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum AnimationComponent<'a> {
     Name(Box<'a, AnimationName<'a>>),
-    Duration(Box<'a, Time>),
+    Duration(Time),
     TimingFunction(Box<'a, EasingFunction>),
-    Delay(Box<'a, Time>),
-    IterationCount(Box<'a, AnimationIterationCount>),
+    Delay(Time),
+    IterationCount(AnimationIterationCount),
     Direction(AnimationDirection),
     FillMode(AnimationFillMode),
     PlayState(AnimationPlayState),

@@ -11,12 +11,12 @@ pub enum Image<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum Gradient<'a> {
     Linear {
-        direction: Box<'a, LineDirection<'a>>,
+        direction: LineDirection,
         items: Vec<'a, GradientItem<'a, LengthValue>>,
         vendor_prefix: VendorPrefix,
     },
     RepeatingLinear {
-        direction: Box<'a, LineDirection<'a>>,
+        direction: LineDirection,
         items: Vec<'a, GradientItem<'a, LengthValue>>,
         vendor_prefix: VendorPrefix,
     },
@@ -33,12 +33,12 @@ pub enum Gradient<'a> {
         vendor_prefix: VendorPrefix,
     },
     Conic {
-        angle: Box<'a, Angle>,
+        angle: Angle,
         items: Vec<'a, GradientItem<'a, Angle>>,
         position: Box<'a, Position<'a>>,
     },
     RepeatingConic {
-        angle: Box<'a, Angle>,
+        angle: Angle,
         items: Vec<'a, GradientItem<'a, Angle>>,
         position: Box<'a, Position<'a>>,
     },
@@ -48,22 +48,22 @@ pub enum Gradient<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum WebKitGradient<'a> {
     Linear {
-        from: Box<'a, WebKitGradientPoint<'a>>,
-        to: Box<'a, WebKitGradientPoint<'a>>,
+        from: Box<'a, WebKitGradientPoint>,
+        to: Box<'a, WebKitGradientPoint>,
         stops: Vec<'a, WebKitColorStop<'a>>,
     },
     Radial {
-        from: Box<'a, WebKitGradientPoint<'a>>,
+        from: Box<'a, WebKitGradientPoint>,
         start_radius: f32,
-        to: Box<'a, WebKitGradientPoint<'a>>,
+        to: Box<'a, WebKitGradientPoint>,
         end_radius: f32,
         stops: Vec<'a, WebKitColorStop<'a>>,
     },
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum LineDirection<'a> {
-    Angle(Box<'a, Angle>),
+pub enum LineDirection {
+    Angle(Angle),
     Horizontal(HorizontalPositionKeyword),
     Vertical(VerticalPositionKeyword),
     Corner {
@@ -95,7 +95,7 @@ pub enum GradientItem<'a, D> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum DimensionPercentage<'a, D> {
-    Dimension(Box<'a, D>),
+    Dimension(D),
     Percentage(f32),
     /// A unitless zero produced by target-aware minification.
     Zero,
@@ -145,9 +145,9 @@ pub enum Circle<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum WebKitGradientPointComponent<'a, S> {
+pub enum WebKitGradientPointComponent<S> {
     Center,
-    Number(Box<'a, NumberOrPercentage>),
+    Number(NumberOrPercentage),
     Side(S),
 }
 

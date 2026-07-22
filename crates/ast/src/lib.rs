@@ -68,9 +68,19 @@ const _: () = {
     assert!(size_of::<KnownFunction>() == 1);
     assert!(size_of::<CssRule<'_>>() == 16);
     assert!(size_of::<Declaration<'_>>() == 32);
+    assert!(size_of::<TokenOrValue<'_>>() == 24);
     assert!(size_of::<Token<'_>>() == 24);
     assert!(size_of::<CssColor<'_>>() == 16);
     assert!(size_of::<Length<'_>>() == 16);
+    assert!(size_of::<ParsedComponent<'_>>() == 32);
+    assert!(size_of::<AnimationComponent<'_>>() == 16);
+    assert!(size_of::<Filter<'_>>() == 16);
+    assert!(size_of::<Transform<'_>>() == 32);
+    assert!(size_of::<KeyframeSelector>() == 8);
+    assert!(size_of::<Display>() == 4);
+    assert!(size_of::<PlaceContent>() == 4);
+    assert!(size_of::<PlaceSelf>() == 4);
+    assert!(size_of::<PlaceItems>() == 4);
 };
 
 #[cfg(test)]
@@ -84,7 +94,7 @@ mod tests {
         let rule = PositionTryRule {
             span: Span::new(4, 42),
             name: "--fallback",
-            declarations: allocator.pinned(DeclarationBlock::new(&allocator)),
+            declarations: DeclarationBlock::new(&allocator),
         };
         let rule = CssRule::PositionTry(allocator.boxed(rule));
 
@@ -104,19 +114,31 @@ mod tests {
     }
 
     #[test]
-    fn declaration_block_remains_pinned_when_its_container_grows() {
+    fn pinned_style_rule_remains_stable_when_its_container_grows() {
         let allocator = Allocator::new();
-        let first = allocator.pinned(DeclarationBlock::new(&allocator));
-        let first_ptr = first.as_ref().get_ref() as *const DeclarationBlock<'_>;
+        let first = allocator.pinned(StyleRule::new(
+            DeclarationBlock::new(&allocator),
+            DUMMY_SP,
+            allocator.vec(),
+            allocator.vec(),
+            VendorPrefix::NONE,
+        ));
+        let first_ptr = first.as_ref().get_ref() as *const StyleRule<'_>;
         let mut blocks = allocator.vec();
         blocks.push(first);
 
         for _ in 0..32 {
-            blocks.push(allocator.pinned(DeclarationBlock::new(&allocator)));
+            blocks.push(allocator.pinned(StyleRule::new(
+                DeclarationBlock::new(&allocator),
+                DUMMY_SP,
+                allocator.vec(),
+                allocator.vec(),
+                VendorPrefix::NONE,
+            )));
         }
 
         assert_eq!(
-            blocks[0].as_ref().get_ref() as *const DeclarationBlock<'_>,
+            blocks[0].as_ref().get_ref() as *const StyleRule<'_>,
             first_ptr,
         );
     }

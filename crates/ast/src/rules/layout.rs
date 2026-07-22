@@ -1,9 +1,9 @@
 use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct AspectRatio<'a> {
+pub struct AspectRatio {
     pub auto: bool,
-    pub ratio: Option<Box<'a, Ratio>>,
+    pub ratio: Option<Ratio>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -46,21 +46,21 @@ pub struct Flex<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PlaceContent<'a> {
-    pub align: Box<'a, AlignContent>,
-    pub justify: Box<'a, JustifyContent>,
+pub struct PlaceContent {
+    pub align: AlignContent,
+    pub justify: JustifyContent,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PlaceSelf<'a> {
-    pub align: Box<'a, AlignSelf>,
-    pub justify: Box<'a, JustifySelf>,
+pub struct PlaceSelf {
+    pub align: AlignSelf,
+    pub justify: JustifySelf,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PlaceItems<'a> {
-    pub align: Box<'a, AlignItems>,
-    pub justify: Box<'a, JustifyItems>,
+pub struct PlaceItems {
+    pub align: AlignItems,
+    pub justify: JustifyItems,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -91,12 +91,12 @@ pub enum ColumnCount {
 #[derive(Debug, PartialEq, Visit)]
 pub struct Columns<'a> {
     pub count: ColumnCount,
-    pub width: Box<'a, ColumnWidth<'a>>,
+    pub width: ColumnWidth<'a>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct TrackRepeat<'a> {
-    pub count: Box<'a, RepeatCount>,
+    pub count: RepeatCount,
     pub line_names: Vec<'a, Vec<'a, &'a str>>,
     pub track_sizes: Vec<'a, TrackSize<'a>>,
 }
@@ -118,7 +118,7 @@ pub struct GridTemplate<'a> {
 pub struct Grid<'a> {
     pub areas: Box<'a, GridTemplateAreas<'a>>,
     pub auto_columns: Vec<'a, TrackSize<'a>>,
-    pub auto_flow: Box<'a, GridAutoFlow>,
+    pub auto_flow: GridAutoFlow,
     pub auto_rows: Vec<'a, TrackSize<'a>>,
     pub columns: Box<'a, TrackSizing<'a>>,
     pub rows: Box<'a, TrackSizing<'a>>,
