@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, hash::Hasher};
 
 use rocketcss_allocator::Ref;
 use rocketcss_ast::{DeclarationBlock, VendorPrefix};
@@ -101,6 +101,7 @@ impl HistoryTraversal {
 
 pub(super) struct RuleState {
     pub(super) ast_slot: usize,
+    pub(super) selector_summary: SelectorSummary,
     pub(super) live: bool,
     pub(super) previous_live: Option<RuleId>,
     pub(super) next_live: Option<RuleId>,
@@ -111,6 +112,37 @@ pub(super) struct RuleState {
     pub(super) history: HistoryId,
     pub(super) retained_child_count: u32,
     pub(super) order_label: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct SelectorSummary {
+    pub(super) hash: u64,
+    pub(super) live_len: u32,
+    pub(super) vendor_prefixes: u8,
+    pub(super) materializable: bool,
+}
+
+#[derive(Default)]
+pub(super) struct PrecomputedHasher {
+    hash: Option<u64>,
+}
+
+impl Hasher for PrecomputedHasher {
+    #[inline]
+    fn write(&mut self, _: &[u8]) {
+        unreachable!("precomputed hash map keys must write one u64")
+    }
+
+    #[inline]
+    fn write_u64(&mut self, hash: u64) {
+        debug_assert!(self.hash.is_none());
+        self.hash = Some(hash);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash.expect("precomputed hash was not written")
+    }
 }
 
 pub(super) struct SequenceState<'ast> {
@@ -166,6 +198,7 @@ pub(super) enum EdgeStatus {
 pub(super) struct EdgeState {
     pub(super) left: RuleId,
     pub(super) right: RuleId,
+    pub(super) same_selector: bool,
     pub(super) status: EdgeStatus,
 }
 

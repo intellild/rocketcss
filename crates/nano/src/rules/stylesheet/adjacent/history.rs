@@ -3,6 +3,8 @@ use std::{
     hash::{Hash, Hasher},
 };
 
+use ahash::AHasher;
+
 use super::{
     equal_live_selectors,
     scheduler::Stabilizer,
@@ -110,19 +112,11 @@ where
     }
 
     fn selector_history_hash(&self, rule: RuleId) -> u64 {
-        let rule = self.rule(rule);
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        rule.vendor_prefix.bits().hash(&mut hasher);
-        let mut len = 0usize;
-        for selector in rule
-            .selectors
-            .iter()
-            .filter(|selector| !selector.is_tombstone())
-        {
-            selector.hash(&mut hasher);
-            len += 1;
-        }
-        len.hash(&mut hasher);
+        let summary = self.rule_states[rule.index()].selector_summary;
+        let mut hasher = AHasher::default();
+        self.rule(rule).vendor_prefix.bits().hash(&mut hasher);
+        summary.hash.hash(&mut hasher);
+        summary.live_len.hash(&mut hasher);
         hasher.finish()
     }
 }

@@ -10,6 +10,7 @@ license     = "Apache-2.0"
 repository  = "https://github.com/intellild/rocketcss"
 
 [workspace.dependencies]
+ahash          = "0.8.12"
 allocator-api2 = "=0.2.21"
 bitflags       = "2.13.0"
 bumpalo        = "3.20.3"

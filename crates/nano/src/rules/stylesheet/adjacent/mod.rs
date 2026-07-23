@@ -4,13 +4,19 @@ mod partial;
 mod scheduler;
 mod state;
 
+use std::hash::{Hash, Hasher};
+
+use ahash::AHasher;
 use rocketcss_allocator::{Ref, vec::Vec};
-use rocketcss_ast::{CssRule, DeclarationBlock, SelectorList, StyleRule};
+use rocketcss_ast::{
+    Combinator, CssRule, DeclarationBlock, PseudoElement, Selector, SelectorComponent,
+    SelectorList, StyleRule, VendorPrefix,
+};
 
 use super::DeclarationBlockMinifier;
 use crate::{MinifyContext, Options, OptionsOp};
 use scheduler::stabilize_rule_list;
-use state::{CascadeScope, HistoryTraversal};
+use state::{CascadeScope, HistoryTraversal, SelectorSummary};
 
 pub(crate) fn merge_adjacent_style_rules<'ast, 'scratch>(
     rules: &mut Vec<'ast, CssRule<'ast>>,
@@ -249,4 +255,93 @@ fn equal_live_selectors(left: &SelectorList<'_>, right: &SelectorList<'_>) -> bo
     left.iter()
         .filter(|selector| !selector.is_tombstone())
         .eq(right.iter().filter(|selector| !selector.is_tombstone()))
+}
+
+fn summarize_selectors(selectors: &SelectorList<'_>) -> SelectorSummary {
+    let mut hasher = AHasher::default();
+    let mut live_len = 0usize;
+    let mut vendor_prefixes = 0;
+    let mut materializable = true;
+    for selector in selectors.iter().filter(|selector| !selector.is_tombstone()) {
+        selector.hash(&mut hasher);
+        live_len += 1;
+        let Selector::Parsed(components) = selector else {
+            materializable = false;
+            continue;
+        };
+        for component in components {
+            materializable &= selector_component_is_materializable(component);
+            vendor_prefixes |= selector_component_vendor_prefixes(component);
+        }
+    }
+    live_len.hash(&mut hasher);
+    SelectorSummary {
+        hash: hasher.finish(),
+        live_len: u32::try_from(live_len).expect("selector list length exceeds u32"),
+        vendor_prefixes,
+        materializable,
+    }
+}
+
+fn selector_component_is_materializable(component: &SelectorComponent<'_>) -> bool {
+    match component {
+        SelectorComponent::Combinator(Combinator::Descendant)
+        | SelectorComponent::ExplicitAnyNamespace
+        | SelectorComponent::ExplicitNoNamespace
+        | SelectorComponent::DefaultNamespace(_)
+        | SelectorComponent::Namespace { .. }
+        | SelectorComponent::ExplicitUniversalType
+        | SelectorComponent::LocalName { .. }
+        | SelectorComponent::Id(_)
+        | SelectorComponent::Class(_)
+        | SelectorComponent::Root
+        | SelectorComponent::Empty
+        | SelectorComponent::Scope
+        | SelectorComponent::Nth(_)
+        | SelectorComponent::Part(_)
+        | SelectorComponent::Nesting => true,
+        SelectorComponent::PseudoElement(pseudo) => simple_pseudo_element_is_materializable(pseudo),
+        _ => false,
+    }
+}
+
+fn simple_pseudo_element_is_materializable(pseudo: &PseudoElement<'_>) -> bool {
+    matches!(
+        pseudo,
+        PseudoElement::After
+            | PseudoElement::Before
+            | PseudoElement::FirstLine
+            | PseudoElement::FirstLetter
+            | PseudoElement::DetailsContent
+            | PseudoElement::TargetText
+            | PseudoElement::SearchText
+            | PseudoElement::Selection(_)
+            | PseudoElement::Placeholder(_)
+            | PseudoElement::HighlightFunction { .. }
+            | PseudoElement::Marker
+            | PseudoElement::Backdrop(_)
+            | PseudoElement::FileSelectorButton(_)
+            | PseudoElement::WebKitScrollbar(_)
+            | PseudoElement::Cue
+            | PseudoElement::CueRegion
+            | PseudoElement::ViewTransition
+            | PseudoElement::PickerFunction { .. }
+            | PseudoElement::PickerIcon
+            | PseudoElement::Checkmark
+            | PseudoElement::GrammarError
+            | PseudoElement::SpellingError
+    )
+}
+
+fn selector_component_vendor_prefixes(component: &SelectorComponent<'_>) -> u8 {
+    let SelectorComponent::PseudoElement(pseudo) = component else {
+        return 0;
+    };
+    match &**pseudo {
+        PseudoElement::Selection(prefix)
+        | PseudoElement::Placeholder(prefix)
+        | PseudoElement::Backdrop(prefix)
+        | PseudoElement::FileSelectorButton(prefix) => prefix.bits() & !VendorPrefix::NONE.bits(),
+        _ => 0,
+    }
 }

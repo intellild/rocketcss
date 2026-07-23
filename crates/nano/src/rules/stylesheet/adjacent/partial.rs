@@ -1,9 +1,10 @@
 use std::hash::{Hash, Hasher};
 
+use ahash::AHasher;
 use rocketcss_allocator::{Allocator, boxed::Box, prelude::AdaptiveHashSet};
 use rocketcss_ast::{
     Combinator, CssRule, Declaration, DeclarationBlock, EqIgnoringTombstones, PropertyId,
-    PseudoElement, Selector, SelectorComponent, SelectorList, Span, StyleRule, VendorPrefix,
+    PseudoElement, Selector, SelectorComponent, SelectorList, Span, StyleRule,
 };
 
 use super::{
@@ -99,7 +100,7 @@ where
             let state = &self.edges[edge.index()];
             (state.left, state.right)
         };
-        if !self.pair_is_eligible(left, right) {
+        if !self.pair_is_eligible(edge) {
             return None;
         }
         let left_sequence = self.rule_states[left.index()].sequence;
@@ -122,7 +123,11 @@ where
             let mut members = std::vec![left, right];
             let mut current = right;
             while let Some(next) = self.rule_states[current.index()].next_live {
-                if !self.pair_is_eligible(current, next) {
+                let next_edge = self.rule_states[current.index()]
+                    .next_edge
+                    .expect("live neighbors have an edge");
+                debug_assert_eq!(self.edges[next_edge.index()].right, next);
+                if !self.pair_is_eligible(next_edge) {
                     break;
                 }
                 let sequence = self.rule_states[next.index()].sequence;
@@ -187,8 +192,12 @@ where
                     }
                     if index > 0 {
                         let previous = members[index - 1];
+                        let Some(edge) = self.rule_states[previous.index()].next_edge else {
+                            return false;
+                        };
                         if self.rule_states[previous.index()].next_live != Some(member)
-                            || !self.pair_is_eligible(previous, member)
+                            || self.edges[edge.index()].right != member
+                            || !self.pair_is_eligible(edge)
                         {
                             return false;
                         }
@@ -218,7 +227,7 @@ where
                 ..
             } => {
                 self.edge_is_current(candidate.edge)
-                    && self.pair_is_eligible(*left, *right)
+                    && self.pair_is_eligible(candidate.edge)
                     && self.sequences[self.rule_states[left.index()].sequence.index()].revision
                         == *left_revision
                     && self.sequences[self.rule_states[right.index()].sequence.index()].revision
@@ -227,16 +236,20 @@ where
         }
     }
 
-    fn pair_is_eligible(&self, left: RuleId, right: RuleId) -> bool {
+    fn pair_is_eligible(&self, edge: EdgeId) -> bool {
+        let edge = &self.edges[edge.index()];
+        let left = edge.left;
+        let right = edge.right;
         let left_rule = self.rule(left);
         let right_rule = self.rule(right);
+        let left_summary = self.rule_states[left.index()].selector_summary;
+        let right_summary = self.rule_states[right.index()].selector_summary;
         left_rule.rules.is_empty()
             && left_rule.vendor_prefix == right_rule.vendor_prefix
-            && !super::equal_live_selectors(&left_rule.selectors, &right_rule.selectors)
-            && selector_vendor_prefixes(&left_rule.selectors)
-                == selector_vendor_prefixes(&right_rule.selectors)
-            && selectors_are_materializable(&left_rule.selectors)
-            && selectors_are_materializable(&right_rule.selectors)
+            && !edge.same_selector
+            && left_summary.vendor_prefixes == right_summary.vendor_prefixes
+            && left_summary.materializable
+            && right_summary.materializable
     }
 
     fn ensure_sequence_summary(&mut self, sequence: SequenceId) {
@@ -250,7 +263,7 @@ where
         }
         let entries = self.sequences[sequence.index()].blocks.clone();
         let mut occurrences = std::vec::Vec::new();
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = AHasher::default();
         for entry in entries {
             let block = self.entry_block(entry);
             for (index, (declaration, important)) in block.get().get_ref().iter().enumerate() {
@@ -258,7 +271,7 @@ where
                     continue;
                 }
                 let history_context = self.cascade_scope.declaration_context(important);
-                let mut occurrence_hasher = std::collections::hash_map::DefaultHasher::new();
+                let mut occurrence_hasher = AHasher::default();
                 history_context.hash(&mut occurrence_hasher);
                 if let Some((property, prefix)) = declaration.known_id_and_prefix() {
                     0u8.hash(&mut occurrence_hasher);
@@ -342,6 +355,29 @@ where
             .expect("summary is initialized")
             .summary
             .occurrences;
+        if left.is_empty() || right.is_empty() {
+            return None;
+        }
+        if left.len() == 1 {
+            return right
+                .iter()
+                .enumerate()
+                .find_map(|(right_start, &right_occurrence)| {
+                    (self.occurrences_equal(left[0], right_occurrence)
+                        && self.movement_is_safe(left, right, 0, right_start, 1))
+                    .then_some((0, right_start, 1))
+                });
+        }
+        if right.len() == 1 {
+            return left
+                .iter()
+                .enumerate()
+                .find_map(|(left_start, &left_occurrence)| {
+                    (self.occurrences_equal(left_occurrence, right[0])
+                        && self.movement_is_safe(left, right, left_start, 0, 1))
+                    .then_some((left_start, 0, 1))
+                });
+        }
         let mut previous = std::vec![0usize; right.len() + 1];
         let mut current = std::vec![0usize; right.len() + 1];
         let mut best_len = 0;
@@ -520,6 +556,7 @@ where
         let vendor_prefix = self.rule(first).vendor_prefix;
         let order_label = self.allocate_order_between(first, second);
         let slot = self.storage.len();
+        let selector_summary = super::summarize_selectors(&selectors);
         self.storage
             .push(Some(CssRule::Style(allocator.boxed(StyleRule {
                 declarations: allocator.pinned(shared_declarations),
@@ -551,6 +588,7 @@ where
         });
         self.rule_states.push(RuleState {
             ast_slot: slot,
+            selector_summary,
             live: true,
             previous_live: None,
             next_live: None,
@@ -784,66 +822,6 @@ fn property_relation(property: PropertyId<'_>) -> Option<PropertyRelation> {
     })
 }
 
-fn selectors_are_materializable(selectors: &SelectorList<'_>) -> bool {
-    selectors
-        .iter()
-        .filter(|selector| !selector.is_tombstone())
-        .all(selector_is_materializable)
-}
-
-fn selector_is_materializable(selector: &Selector<'_>) -> bool {
-    let Selector::Parsed(components) = selector else {
-        return false;
-    };
-    components.iter().all(|component| match component {
-        SelectorComponent::Combinator(Combinator::Descendant)
-        | SelectorComponent::ExplicitAnyNamespace
-        | SelectorComponent::ExplicitNoNamespace
-        | SelectorComponent::DefaultNamespace(_)
-        | SelectorComponent::Namespace { .. }
-        | SelectorComponent::ExplicitUniversalType
-        | SelectorComponent::LocalName { .. }
-        | SelectorComponent::Id(_)
-        | SelectorComponent::Class(_)
-        | SelectorComponent::Root
-        | SelectorComponent::Empty
-        | SelectorComponent::Scope
-        | SelectorComponent::Nth(_)
-        | SelectorComponent::Part(_)
-        | SelectorComponent::Nesting => true,
-        SelectorComponent::PseudoElement(pseudo) => simple_pseudo_element_is_materializable(pseudo),
-        _ => false,
-    })
-}
-
-fn simple_pseudo_element_is_materializable(pseudo: &PseudoElement<'_>) -> bool {
-    matches!(
-        pseudo,
-        PseudoElement::After
-            | PseudoElement::Before
-            | PseudoElement::FirstLine
-            | PseudoElement::FirstLetter
-            | PseudoElement::DetailsContent
-            | PseudoElement::TargetText
-            | PseudoElement::SearchText
-            | PseudoElement::Selection(_)
-            | PseudoElement::Placeholder(_)
-            | PseudoElement::HighlightFunction { .. }
-            | PseudoElement::Marker
-            | PseudoElement::Backdrop(_)
-            | PseudoElement::FileSelectorButton(_)
-            | PseudoElement::WebKitScrollbar(_)
-            | PseudoElement::Cue
-            | PseudoElement::CueRegion
-            | PseudoElement::ViewTransition
-            | PseudoElement::PickerFunction { .. }
-            | PseudoElement::PickerIcon
-            | PseudoElement::Checkmark
-            | PseudoElement::GrammarError
-            | PseudoElement::SpellingError
-    )
-}
-
 fn clone_selector_union<'ast>(
     lists: &[&SelectorList<'ast>],
     allocator: &'ast Allocator,
@@ -942,26 +920,4 @@ fn clone_simple_pseudo_element<'ast>(pseudo: &PseudoElement<'ast>) -> Option<Pse
         PseudoElement::SpellingError => PseudoElement::SpellingError,
         _ => return None,
     })
-}
-
-fn selector_vendor_prefixes(selectors: &SelectorList<'_>) -> u8 {
-    selectors
-        .iter()
-        .filter_map(Selector::as_parsed)
-        .flatten()
-        .fold(0, |prefixes, component| {
-            prefixes
-                | match component {
-                    SelectorComponent::PseudoElement(pseudo) => match &**pseudo {
-                        PseudoElement::Selection(prefix)
-                        | PseudoElement::Placeholder(prefix)
-                        | PseudoElement::Backdrop(prefix)
-                        | PseudoElement::FileSelectorButton(prefix) => {
-                            prefix.bits() & !VendorPrefix::NONE.bits()
-                        }
-                        _ => 0,
-                    },
-                    _ => 0,
-                }
-        })
 }

@@ -36,6 +36,18 @@ fn fingerprint_matches_still_require_exact_value_equality() {
 }
 
 #[test]
+fn factors_a_single_declaration_sequence_without_dense_dp_rows() {
+    assert_minifies_idempotently(
+        "a{color:red}b{width:1px;color:red}",
+        "a,b{color:red}b{width:1px}",
+    );
+    assert_minifies_idempotently(
+        "a{width:1px;color:red}b{color:red}",
+        "a{width:1px}a,b{color:red}",
+    );
+}
+
+#[test]
 fn importance_is_part_of_the_declaration_history_context() {
     assert_minifies_idempotently(
         "a{color:red!important}b{color:red}",

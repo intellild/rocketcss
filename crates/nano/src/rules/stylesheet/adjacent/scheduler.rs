@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::BuildHasherDefault,
+};
 
 use rocketcss_allocator::{Ref, vec::Vec};
 use rocketcss_ast::{CssRule, DeclarationBlock, StyleRule};
@@ -8,8 +11,10 @@ use super::{
     partial::{FactorCandidate, FactorCandidateId},
     state::{
         CascadeScope, DeclarationEntryId, DeclarationEntryState, EdgeId, EdgeState, EdgeStatus,
-        HistoryId, RuleId, RuleState, SegmentId, SequenceId, SequenceState, WorkQueues,
+        HistoryId, PrecomputedHasher, RuleId, RuleState, SegmentId, SequenceId, SequenceState,
+        WorkQueues,
     },
+    summarize_selectors,
 };
 use crate::MinifyContext;
 
@@ -39,7 +44,8 @@ pub(super) struct Stabilizer<'list, 'scratch, 'ast> {
     pub(super) sequences: std::vec::Vec<SequenceState<'ast>>,
     pub(super) declaration_entries: std::vec::Vec<DeclarationEntryState<'ast>>,
     pub(super) histories: std::vec::Vec<super::state::HistoryState>,
-    pub(super) history_buckets: HashMap<u64, std::vec::Vec<HistoryId>>,
+    pub(super) history_buckets:
+        HashMap<u64, std::vec::Vec<HistoryId>, BuildHasherDefault<PrecomputedHasher>>,
     pub(super) edges: std::vec::Vec<EdgeState>,
     pub(super) queues: WorkQueues,
     pub(super) candidates: std::vec::Vec<Option<FactorCandidate>>,
@@ -80,7 +86,7 @@ where
             sequences: std::vec::Vec::new(),
             declaration_entries: std::vec::Vec::new(),
             histories: std::vec::Vec::new(),
-            history_buckets: HashMap::new(),
+            history_buckets: HashMap::default(),
             edges: std::vec::Vec::new(),
             queues: WorkQueues::default(),
             candidates: std::vec::Vec::new(),
@@ -115,11 +121,15 @@ where
             }
 
             let rule_id = RuleId(self.rule_states.len() as u32);
-            let blocks = {
+            let (blocks, selector_summary, retained_child_count) = {
                 let CssRule::Style(rule) = self.storage[slot].as_ref().expect("stored rule") else {
                     unreachable!()
                 };
-                declaration_chain(&rule.declarations)
+                (
+                    declaration_chain(&rule.declarations),
+                    summarize_selectors(&rule.selectors),
+                    rule.rules.len() as u32,
+                )
             };
             let sequence_id = SequenceId(self.sequences.len() as u32);
             let mut entry_ids = std::vec::Vec::with_capacity(blocks.len());
@@ -142,12 +152,9 @@ where
                 owner: rule_id,
             });
 
-            let retained_child_count = match self.storage[slot].as_ref().expect("stored rule") {
-                CssRule::Style(rule) => rule.rules.len() as u32,
-                _ => unreachable!(),
-            };
             self.rule_states.push(RuleState {
                 ast_slot: slot,
+                selector_summary,
                 live: true,
                 previous_live,
                 next_live: None,
@@ -247,7 +254,7 @@ where
             self.edges[edge.index()].status = EdgeStatus::Stale;
             return;
         }
-        if !self.can_merge_same_selector(left, right) {
+        if !self.can_merge_same_selector(edge) {
             self.classify_existing_edge(edge);
             return;
         }
@@ -283,13 +290,18 @@ where
         self.changed = true;
     }
 
-    fn can_merge_same_selector(&self, left: RuleId, right: RuleId) -> bool {
+    fn can_merge_same_selector(&self, edge: EdgeId) -> bool {
+        let edge = &self.edges[edge.index()];
+        if !edge.same_selector {
+            return false;
+        }
+        let left = edge.left;
+        let right = edge.right;
         let left_rule = self.rule(left);
         let right_rule = self.rule(right);
         left_rule.rules.is_empty()
             && left_rule.vendor_prefix == right_rule.vendor_prefix
             && right_rule.declarations.previous_merged().is_none()
-            && equal_live_selectors(&left_rule.selectors, &right_rule.selectors)
     }
 
     pub(super) fn edge_is_current(&self, edge: EdgeId) -> bool {
@@ -335,16 +347,12 @@ where
     }
 
     fn classify_existing_edge(&mut self, edge: EdgeId) {
-        let (left, right) = {
-            let state = &self.edges[edge.index()];
-            (state.left, state.right)
-        };
-        if self.can_merge_same_selector(left, right) {
+        if self.can_merge_same_selector(edge) {
             if self.edges[edge.index()].status != EdgeStatus::DirtySameSelector {
                 self.edges[edge.index()].status = EdgeStatus::DirtySameSelector;
                 self.queues.same_selector.push_back(edge);
             }
-        } else if equal_live_selectors(&self.rule(left).selectors, &self.rule(right).selectors) {
+        } else if self.edges[edge.index()].same_selector {
             self.edges[edge.index()].status = EdgeStatus::Stable;
         } else if self.edges[edge.index()].status != EdgeStatus::DirtyPartial {
             self.edges[edge.index()].status = EdgeStatus::DirtyPartial;
@@ -364,23 +372,33 @@ where
             self.rule_states[left.index()].segment,
             self.rule_states[right.index()].segment
         );
+        let same_selector = self.selectors_equal(left, right);
         let edge = EdgeId(self.edges.len() as u32);
         self.edges.push(EdgeState {
             left,
             right,
+            same_selector,
             status: EdgeStatus::Stable,
         });
         self.rule_states[left.index()].next_live = Some(right);
         self.rule_states[left.index()].next_edge = Some(edge);
         self.rule_states[right.index()].previous_live = Some(left);
         self.rule_states[right.index()].previous_edge = Some(edge);
-        if prioritize_same_selector && self.can_merge_same_selector(left, right) {
+        if prioritize_same_selector && self.can_merge_same_selector(edge) {
             self.edges[edge.index()].status = EdgeStatus::DirtySameSelector;
             self.queues.same_selector.push_front(edge);
         } else {
             self.classify_existing_edge(edge);
         }
         edge
+    }
+
+    fn selectors_equal(&self, left: RuleId, right: RuleId) -> bool {
+        let left_summary = self.rule_states[left.index()].selector_summary;
+        let right_summary = self.rule_states[right.index()].selector_summary;
+        left_summary.live_len == right_summary.live_len
+            && left_summary.hash == right_summary.hash
+            && equal_live_selectors(&self.rule(left).selectors, &self.rule(right).selectors)
     }
 
     fn stale_edge(&mut self, edge: EdgeId) {
