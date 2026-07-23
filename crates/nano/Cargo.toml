@@ -4,6 +4,7 @@ name    = "rocketcss_nano"
 version = "0.1.0"
 
 [dependencies]
+ahash               = { workspace = true }
 bitflags            = { workspace = true }
 rocketcss_allocator = { workspace = true }
 rocketcss_ast       = { workspace = true }

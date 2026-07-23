@@ -399,7 +399,16 @@ pub(super) fn pseudo_element(name: &str) -> PseudoElement<'_> {
         "first-line" => PseudoElement::FirstLine,
         "first-letter" => PseudoElement::FirstLetter,
         "marker" => PseudoElement::Marker,
+        "selection" => PseudoElement::Selection(VendorPrefix::NONE),
+        "-webkit-selection" => PseudoElement::Selection(VendorPrefix::WEBKIT),
+        "-moz-selection" => PseudoElement::Selection(VendorPrefix::MOZ),
+        "-ms-selection" => PseudoElement::Selection(VendorPrefix::MS),
+        "-o-selection" => PseudoElement::Selection(VendorPrefix::O),
         "placeholder" => PseudoElement::Placeholder(VendorPrefix::NONE),
+        "-webkit-placeholder" => PseudoElement::Placeholder(VendorPrefix::WEBKIT),
+        "-moz-placeholder" => PseudoElement::Placeholder(VendorPrefix::MOZ),
+        "-ms-placeholder" => PseudoElement::Placeholder(VendorPrefix::MS),
+        "-o-placeholder" => PseudoElement::Placeholder(VendorPrefix::O),
         _ => PseudoElement::Custom { name },
     )
 }

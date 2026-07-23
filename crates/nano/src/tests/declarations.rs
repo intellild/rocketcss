@@ -98,13 +98,13 @@ fn preserves_declaration_fallbacks_and_importance() {
 }
 
 #[test]
-fn preserves_cross_block_fallbacks_and_importance() {
+fn preserves_cross_block_fallbacks_and_removes_overridden_normal_values() {
     assert_eq!(
         run("a{width:1px}a{width:2px}a{width:1px}"),
         "a{width:1px;width:2px;width:1px}"
     );
     assert_eq!(
         run("a{color:red!important}a{color:blue}"),
-        "a{color:red !important;color:#00f}"
+        "a{color:red !important}"
     );
 }

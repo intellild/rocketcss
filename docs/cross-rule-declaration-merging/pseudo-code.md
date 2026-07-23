@@ -1,0 +1,620 @@
+# Cross-rule declaration merging: pseudocode
+
+## Document map
+
+- [Overall design](./overall.md)
+- [Non-goals](./non-goal.md)
+- [Detailed state machine](./detailed-state-machine.md)
+- [Pseudocode](./pseudo-code.md)
+
+This file shows control flow only. State ownership and transition requirements
+are normative in [Detailed state machine](./detailed-state-machine.md).
+
+## Typed context keys
+
+```rust,ignore
+enum EffectiveSelectorResult<'ast> {
+    Live(EffectiveSelectorKey<'ast>),
+    KnownNoMatch,
+    OpaqueBarrier,
+}
+
+enum ConditionalAtRuleFrameKey<'ast> {
+    Media(MediaQueryListKey<'ast>),
+    Supports(SupportsConditionKey<'ast>),
+    Container {
+        name: Option<ContainerNameKey<'ast>>,
+        query: ContainerQueryKey<'ast>,
+    },
+}
+
+struct ConditionalAtRuleContextKey<'ast> {
+    frames: Vec<ConditionalAtRuleFrameKey<'ast>>,
+}
+
+struct DeclarationHistoryContextKey<'ast> {
+    at_rules: ConditionalAtRuleContextKey<'ast>,
+    layer: LayerContextKey,
+    origin: CascadeOriginKey,
+    phase: CascadePhaseKey,
+}
+
+struct EffectiveRuleKey<'ast> {
+    history_segment: HistorySegmentId,
+    context: DeclarationHistoryContextKey<'ast>,
+    selectors: EffectiveSelectorKey<'ast>,
+}
+
+struct EmissionIdentity {
+    wrapper_kind: StyleWrapperKind,
+    vendor_prefix: VendorPrefix,
+    selector_serialization_context: SelectorSerializationContextKey,
+}
+```
+
+`ConditionalAtRuleContextKey::push` returns a new immutable/interned key. It
+does not mutate the caller's stack.
+
+Layer, origin, and phase keys are compared only for exact equality. The merge
+pass consumes these opaque keys but does not interpret at-rule or cascade
+semantics.
+
+## Selector resolution
+
+```rust,ignore
+fn resolve_effective_selectors(
+    parent: Option<EffectiveSelectorContext>,
+    local: LocalSelectorListRef,
+) -> EffectiveSelectorResult {
+    if selector_list_is_proven_non_output(local) {
+        return KnownNoMatch;
+    }
+
+    if local.contains_recovered_or_unparsed_syntax()
+        || !nesting_positions_are_valid(local)
+        || !pseudo_element_nesting_is_valid(parent, local)
+        || !css_modules_context_is_resolved(local)
+    {
+        return OpaqueBarrier;
+    }
+
+    let Some(resolved) = resolve_selector_ast(parent, local) else {
+        return OpaqueBarrier;
+    };
+    Live(intern_effective_selector_key(resolved))
+}
+```
+
+Any unhandled resolver case returns `OpaqueBarrier`, not a guessed identity.
+
+## Source-ordered discovery
+
+```rust,ignore
+fn discover(
+    rules: &mut RuleList,
+    parent: Option<EffectiveSelectorContext>,
+    at_rules: ConditionalAtRuleContextKey,
+    state: &mut MergeState,
+) {
+    coalesce_adjacent_equal_conditional_blocks(rules, &at_rules);
+
+    let list = state.lists.register(rules, parent, at_rules);
+
+    for input_rule in rules {
+        match input_rule {
+            CssRule::Style(style) => {
+                discover_style(style, list, parent, at_rules, state);
+            }
+
+            CssRule::NestedDeclarations(rule) => {
+                discover_nested_declarations(
+                    rule,
+                    list,
+                    parent,
+                    at_rules,
+                    state,
+                );
+            }
+
+            CssRule::Media(rule) => {
+                end_local_rule_list_segment(list, state);
+                discover(
+                    &mut rule.rules,
+                    parent,
+                    at_rules.push(Media(rule.query.key())),
+                    state,
+                );
+            }
+
+            CssRule::Supports(rule) => {
+                end_local_rule_list_segment(list, state);
+                discover(
+                    &mut rule.rules,
+                    parent,
+                    at_rules.push(Supports(rule.condition.key())),
+                    state,
+                );
+            }
+
+            CssRule::Container(rule) => {
+                end_local_rule_list_segment(list, state);
+                discover(
+                    &mut rule.rules,
+                    parent,
+                    at_rules.push(Container {
+                        name: rule.name.key(),
+                        query: rule.condition.key(),
+                    }),
+                    state,
+                );
+            }
+
+            _ => {
+                register_retained_unsupported_rule(input_rule, state);
+                end_local_rule_list_segment(list, state);
+                state.current_history_segment += 1;
+            }
+        }
+
+        stabilize_s1_and_histories(state);
+    }
+}
+```
+
+## Style-rule discovery
+
+```rust,ignore
+fn discover_style(
+    style: &mut StyleRule,
+    list: RuleListId,
+    parent: Option<EffectiveSelectorContext>,
+    at_rules: ConditionalAtRuleContextKey,
+    state: &mut MergeState,
+) {
+    match resolve_effective_selectors(parent, style.selectors) {
+        KnownNoMatch => {
+            register_non_output_subtree(style, state);
+        }
+
+        OpaqueBarrier => {
+            register_retained_opaque_subtree(style, state);
+            end_local_rule_list_segment(list, state);
+            state.current_history_segment += 1;
+        }
+
+        Live(effective) => {
+            let current = state.rules.append_style(
+                list,
+                current_rule_list_segment(list, state),
+                style,
+                effective,
+                emission_identity(style),
+            );
+
+            let key = EffectiveRuleKey {
+                history_segment: state.current_history_segment,
+                at_rules,
+                selectors: effective,
+            };
+
+            register_leading_declaration_sequence(
+                current,
+                key,
+                next_source_order_key(state),
+                state,
+            );
+
+            // S1 is eager and has priority.
+            let current = coalesce_same_selector_run(current, state);
+            register_sequence_occurrences_in_history(current, state);
+
+            discover_style_children(style, effective, at_rules, state);
+            refresh_retained_child_count(current, state);
+
+            if let Some(edge) = previous_live_edge(current, state) {
+                mark_edge_dirty(edge, state);
+            }
+        }
+    }
+}
+```
+
+## Nested declaration discovery
+
+```rust,ignore
+fn discover_nested_declarations(
+    rule: &mut NestedDeclarationsRule,
+    list: RuleListId,
+    parent: Option<EffectiveSelectorContext>,
+    at_rules: ConditionalAtRuleContextKey,
+    state: &mut MergeState,
+) {
+    let key = EffectiveRuleKey {
+        history_segment: state.current_history_segment,
+        at_rules,
+        selectors: parent_match_key(parent),
+    };
+
+    let entry = register_nested_declarations(
+        rule,
+        key,
+        next_source_order_key(state),
+        state,
+    );
+
+    insert_history_entry_by_source_order(key, entry, state);
+    dirty_history(key, state);
+
+    // A live NDR participates in S2 but cannot be skipped by S1/S3.
+    end_local_rule_list_segment(list, state);
+}
+```
+
+## History insertion
+
+```rust,ignore
+fn insert_history_entry_by_source_order(
+    key: EffectiveRuleKey,
+    entry: DeclarationEntryId,
+    state: &mut MergeState,
+) {
+    let order = state.declaration_entries[entry].source_order;
+    state.histories[key].entries.insert(order, entry);
+    state.histories[key].generation += 1;
+    state.dirty_histories.insert(key);
+}
+```
+
+An implementation may rebuild the ordered history instead of supporting
+incremental ordered insertion.
+
+## Edge invalidation and classification
+
+```rust,ignore
+fn mark_edge_dirty(edge: Edge, state: &mut MergeState) {
+    state.candidates.remove(&edge);
+    state.dirty_same_selector_edges.remove(&edge);
+    state.dirty_partial_edges.remove(&edge);
+
+    if !is_live_edge(edge, state)
+        || !same_rule_list_segment(edge, state)
+        || !same_emission_identity(edge, state)
+    {
+        return;
+    }
+
+    if state.rules[edge.left].retained_child_count != 0 {
+        return;
+    }
+
+    if exact_effective_rule_keys_equal(edge, state) {
+        state.dirty_same_selector_edges.insert(edge);
+    } else {
+        state.dirty_partial_edges.insert(edge);
+    }
+}
+```
+
+## S1 eligibility and commit
+
+```rust,ignore
+fn is_s1_eligible_now(edge: Edge, state: &MergeState) -> bool {
+    is_live_edge(edge, state)
+        && same_rule_list_segment(edge, state)
+        && same_emission_identity(edge, state)
+        && exact_effective_rule_keys_equal(edge, state)
+        && state.rules[edge.left].retained_child_count == 0
+}
+
+fn commit_s1(edge: Edge, state: &mut MergeState) {
+    if !is_s1_eligible_now(edge, state) {
+        return;
+    }
+
+    let neighborhood = snapshot_neighborhood(edge, state);
+    remove_old_incident_work(neighborhood, state);
+
+    let left_sequence = state.rules[edge.left].leading_sequence.unwrap();
+    let right_sequence = state.rules[edge.right].leading_sequence.unwrap();
+
+    let combined = concatenate_sequences(
+        left_sequence,
+        right_sequence,
+        edge.right,
+        state,
+    );
+
+    state.rules[edge.right].leading_sequence = Some(combined);
+    retire_as_output_storage(edge.left, state);
+    reconnect_with_right_owner(neighborhood, edge.right, state);
+
+    dirty_sequence_history(combined, state);
+    classify_final_incident_edges(edge.right, state);
+}
+```
+
+History occurrences and their semantic source-order keys are preserved.
+
+## Declaration resolver
+
+```rust,ignore
+enum DeclarationResolution<'ast> {
+    NoChange,
+    Apply(DeclarationEditPlan<'ast>),
+}
+
+struct DeclarationEditPlan<'ast> {
+    edits: Vec<DeclarationOccurrenceEdit<'ast>>,
+}
+
+enum DeclarationOccurrenceEdit<'ast> {
+    Tombstone(DeclarationOccurrenceId),
+    ReplaceWith {
+        occurrence: DeclarationOccurrenceId,
+        declarations: TypedDeclarationPlan<'ast>,
+    },
+}
+```
+
+```rust,ignore
+fn apply_declaration_edit(
+    edit: DeclarationOccurrenceEdit,
+    state: &mut MergeState,
+) {
+    let entry = owning_entry(edit, state);
+    let sequence = state.declaration_entries[entry].owning_sequence;
+    let key = state.declaration_entries[entry].effective_rule;
+
+    apply_typed_lossless_edit(edit, state);
+
+    state.declaration_entries[entry].declaration_revision += 1;
+    state.declaration_sequences[sequence].aggregate_revision += 1;
+    state.histories[key].generation += 1;
+
+    invalidate_sequence_candidates(sequence, state);
+    dirty_sequence_incident_edges(sequence, state);
+    update_logical_liveness(entry, state);
+}
+```
+
+## S2 local fixed point
+
+```rust,ignore
+fn prune_effective_rule_history_to_local_fixed_point(
+    key: EffectiveRuleKey,
+    state: &mut MergeState,
+) -> HistoryPruneResult {
+    let mut changed = Set::new();
+
+    loop {
+        let start_generation = state.histories[key].generation;
+        let ordered_entries =
+            state.histories[key].entries.in_semantic_order();
+
+        for relationship in declaration_relationships(ordered_entries, state) {
+            match resolve_typed_declarations(relationship, state) {
+                NoChange => {}
+                Apply(plan) => {
+                    for edit in plan.edits {
+                        changed.insert(owning_entry(edit, state));
+                        apply_declaration_edit(edit, state);
+                    }
+                }
+            }
+        }
+
+        if state.histories[key].generation == start_generation {
+            break;
+        }
+    }
+
+    HistoryPruneResult {
+        changed_entries: changed,
+        final_generation: state.histories[key].generation,
+    }
+}
+```
+
+Lossless shorthand expansion is one-way within this pass.
+
+## S3 candidate validity
+
+```rust,ignore
+fn candidate_is_valid(
+    candidate: &PartialMergeCandidate,
+    state: &MergeState,
+) -> bool {
+    let edge = candidate.edge;
+    let left = state.rules.get(edge.left);
+    let right = state.rules.get(edge.right);
+
+    let (Some(left_id), Some(right_id)) = (
+        left.leading_sequence,
+        right.leading_sequence,
+    ) else {
+        return false;
+    };
+
+    let left_sequence = state.declaration_sequences.get(left_id);
+    let right_sequence = state.declaration_sequences.get(right_id);
+
+    left.live
+        && right.live
+        && left.owning_list == edge.list
+        && right.owning_list == edge.list
+        && left.list_segment == edge.segment
+        && right.list_segment == edge.segment
+        && left.next_live == Some(edge.right)
+        && right.previous_live == Some(edge.left)
+        && left.at_rule_context == right.at_rule_context
+        && left.emission_identity == right.emission_identity
+        && left.retained_child_count == 0
+        && left_sequence.aggregate_revision
+            == candidate.left_sequence_revision
+        && right_sequence.aggregate_revision
+            == candidate.right_sequence_revision
+        && declaration_plan_is_still_valid(candidate.plan, state)
+        && selector_plan_can_be_materialized(candidate.plan.selectors, state)
+}
+```
+
+## Atomic S3 commit
+
+```rust,ignore
+fn commit_partial_merge(
+    candidate: PartialMergeCandidate,
+    state: &mut MergeState,
+) {
+    if !candidate_is_valid(&candidate, state) {
+        mark_edge_dirty(candidate.edge, state);
+        return;
+    }
+
+    // Complete every fallible selector operation before endpoint mutation.
+    let local_selectors = deep_materialize_selector_union(
+        candidate.plan.selectors,
+        state.allocator,
+    );
+    let Some(local_selectors) =
+        canonicalize_and_validate_synthesized_selectors(local_selectors)
+    else {
+        invalidate_candidate(candidate, state);
+        return;
+    };
+
+    let effective = resolve_effective_selectors(
+        parent_context(candidate.edge, state),
+        local_selectors,
+    );
+    let Live(effective) = effective else {
+        invalidate_candidate(candidate, state);
+        return;
+    };
+
+    let old = snapshot_neighborhood(candidate.edge, state);
+    remove_old_incident_work(old, state);
+    apply_endpoint_declaration_plans(&candidate.plan, state);
+
+    let shared = create_synthesized_style_rule(
+        candidate.edge,
+        local_selectors,
+        effective,
+        candidate.plan.common,
+        candidate.plan.insertion_order,
+        state,
+    );
+
+    insert_synthesized_history_entry_by_source_order(shared, state);
+    recompute_endpoint_liveness(candidate.edge, state);
+    reconnect_final_neighborhood_once(old, shared, state);
+
+    dirty_all_affected_histories(candidate.edge, shared, state);
+    classify_all_final_incident_edges(old, shared, state);
+}
+```
+
+The concrete implementation prepares every fallible selector operation before
+applying endpoint edits. A transactional implementation is also valid if abort
+cannot leave partial mutation.
+
+## Logical empty transition
+
+```rust,ignore
+fn rule_became_logically_empty(rule: RuleId, state: &mut MergeState) {
+    let previous = state.rules[rule].previous_live;
+    let next = state.rules[rule].next_live;
+
+    remove_edge_work(previous, Some(rule), state);
+    remove_edge_work(Some(rule), next, state);
+    unlink_live_rule(rule, state);
+
+    if let (Some(previous), Some(next)) = (previous, next)
+        && state.rules[previous].list_segment
+            == state.rules[next].list_segment
+    {
+        mark_edge_dirty(
+            Edge::new_between(previous, next, state),
+            state,
+        );
+    }
+
+    propagate_retained_child_change_to_ancestors(rule, state);
+    state.deferred_s4_removals.insert(rule);
+}
+```
+
+S3 complete factoring uses its atomic commit path instead of invoking this
+function separately for both endpoints.
+
+## Stabilization
+
+```rust,ignore
+fn stabilize(state: &mut MergeState) {
+    loop {
+        if let Some(edge) = state.dirty_same_selector_edges.pop() {
+            if is_s1_eligible_now(edge, state) {
+                commit_s1(edge, state);
+            }
+            continue;
+        }
+
+        if let Some(key) = state.dirty_histories.pop() {
+            let result =
+                prune_effective_rule_history_to_local_fixed_point(key, state);
+
+            for entry in result.changed_entries {
+                declaration_entry_changed_after_history_fixpoint(
+                    entry,
+                    state,
+                );
+            }
+
+            state.histories[key].consumed_generation =
+                result.final_generation;
+
+            if state.histories[key].generation
+                == state.histories[key].consumed_generation
+            {
+                state.dirty_histories.remove(&key);
+            }
+
+            continue;
+        }
+
+        if let Some(edge) = state.dirty_partial_edges.pop() {
+            if is_s3_eligible_now(edge, state) {
+                recompute_partial_candidate(edge, state);
+            }
+            continue;
+        }
+
+        let Some(candidate) = leftmost_candidate(state) else {
+            break;
+        };
+
+        if !candidate_is_valid(candidate, state) {
+            mark_edge_dirty(candidate.edge, state);
+            continue;
+        }
+
+        commit_partial_merge(candidate, state);
+    }
+
+    assert_all_history_generations_consumed(state);
+    remove_logically_empty_nodes_post_order(state);
+}
+```
+
+## Completion invariant
+
+```rust,ignore
+fn is_complete(state: &MergeState) -> bool {
+    state.dirty_same_selector_edges.is_empty()
+        && state.dirty_partial_edges.is_empty()
+        && state.dirty_histories.is_empty()
+        && state.candidates.is_empty()
+        && state.histories.values().all(|history| {
+            history.generation == history.consumed_generation
+        })
+}
+```

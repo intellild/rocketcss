@@ -28,7 +28,7 @@ bitflags! {
         const NORMALIZE_URLS = 1 << 10;
         /// Transform values inside custom properties.
         const TRANSFORM_CUSTOM_PROPERTIES = 1 << 11;
-        /// Merge physically adjacent style rules with equal selectors.
+        /// Merge and prune declarations across compatible style-rule edges.
         const MERGE_ADJACENT_RULES = 1 << 12;
         /// Allow a ratio with denominator 1 to be written as a bare number
         /// (`1/1` → `1`). Disabled by default because some browsers

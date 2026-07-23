@@ -5,6 +5,7 @@ use std::{
 };
 
 mod codegen;
+mod cross_rule_declaration_merging;
 mod minify;
 mod minify_dynamic;
 mod parser;
