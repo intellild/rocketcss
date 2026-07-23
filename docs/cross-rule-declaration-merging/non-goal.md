@@ -26,15 +26,14 @@ condition equality.
 
 ## Cascade contexts
 
-The initial design does not model non-conditional cascade contexts such as:
+Declaration histories carry exact layer, origin, and cascade-phase keys, but
+the pass does not interpret their semantics. Separately authored `@layer`
+blocks remain distinct contexts even when their names are equal. The design
+does not attempt to model layer order, important-layer reversal, cross-origin
+ordering, phase ordering, or `revert-layer`.
 
-- `@layer`;
-- `@scope`; or
-- `@starting-style`.
-
-These constructs are retained barriers. In particular, the design does not
-attempt to model layer order, important-layer reversal, `revert-layer`, scope
-proximity, or starting-style application phase.
+`@scope` and `@starting-style` remain retained barriers. Scope proximity and
+starting-style application semantics are not modeled.
 
 ## Non-style and global at-rules
 

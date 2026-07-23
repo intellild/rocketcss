@@ -1424,7 +1424,7 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
 ) -> fmt::Result {
     let mut first = true;
     let mut last_without_block = false;
-    for rule in rules {
+    for (index, rule) in rules.iter().enumerate() {
         if matches!(rule, CssRule::Style(style)
             if style.selectors.iter().all(Selector::is_tombstone))
         {
@@ -1446,7 +1446,23 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
             }
         }
         first = false;
-        rule.to_css(dest)?;
+        if let CssRule::NestedDeclarations(rule) = rule {
+            let has_following_output = rules[index + 1..].iter().any(|rule| {
+                !matches!(rule, CssRule::Style(style)
+                    if style.selectors.iter().all(Selector::is_tombstone))
+            });
+            write_declarations(
+                &rule.declarations,
+                dest,
+                if has_following_output {
+                    LastSemicolon::Required
+                } else {
+                    LastSemicolon::Optional
+                },
+            )?;
+        } else {
+            rule.to_css(dest)?;
+        }
         last_without_block = matches!(
             rule,
             CssRule::Charset(_)

@@ -122,9 +122,16 @@ struct ConditionalAtRuleContextKey<'ast> {
     frames: Vec<ConditionalAtRuleFrameKey<'ast>>,
 }
 
+struct DeclarationHistoryContextKey<'ast> {
+    at_rules: ConditionalAtRuleContextKey<'ast>,
+    layer: LayerContextKey,
+    origin: CascadeOriginKey,
+    phase: CascadePhaseKey,
+}
+
 struct EffectiveRuleKey<'ast> {
     history_segment: HistorySegmentId,
-    at_rules: ConditionalAtRuleContextKey<'ast>,
+    context: DeclarationHistoryContextKey<'ast>,
     selectors: EffectiveSelectorKey<'ast>,
 }
 ```
@@ -142,6 +149,20 @@ Stack order and multiplicity are significant:
 
 Repeated nested `@container` frames are not collapsed because each frame may
 select a different ancestor container.
+
+### Cascade context
+
+Layer, cascade origin, and cascade phase are declaration-history inputs. Two
+declarations may share a history only when all three keys are exactly equal.
+The merge pass treats these as opaque structural keys: it does not calculate
+layer order, equate separately authored layer blocks by name, move declarations
+between layers or origins, or infer relationships between cascade phases.
+
+Within the current author-stylesheet API, the origin key is `Author`. Normal
+and important declarations have distinct phase keys. Each authored `@layer`
+block receives a distinct traversal identity, including when two blocks use the
+same name; recognizing those blocks as one semantic layer is deferred at-rule
+work.
 
 ### Structural and emission identity
 

@@ -3,9 +3,9 @@ use rocketcss_allocator::{
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 use rocketcss_ast::{
-    CSSWideOr, Columns, Declaration, DeclarationBlock, EqIgnoringTombstones, KnownFunction,
-    LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, VendorPrefix,
-    match_ignore_ascii_case,
+    CSSWideKeyword, CSSWideOr, Columns, Declaration, DeclarationBlock, EqIgnoringTombstones,
+    KnownFunction, LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty,
+    VendorPrefix, match_ignore_ascii_case,
 };
 use std::pin::Pin;
 
@@ -159,6 +159,36 @@ impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
             location,
         )
     }
+
+    #[inline]
+    fn get_known(
+        &self,
+        property_id: u32,
+        vendor_prefix: VendorPrefix,
+        important: bool,
+    ) -> Option<DeclarationLocation> {
+        self.known
+            .get(&KnownDeclarationKey::new(
+                property_id,
+                vendor_prefix,
+                important,
+            ))
+            .copied()
+    }
+
+    #[inline]
+    fn get_unknown(
+        &self,
+        property_id: PropertyId<'ast>,
+        important: bool,
+    ) -> Option<DeclarationLocation> {
+        self.unknown
+            .get(&UnknownDeclarationKey {
+                property_id,
+                important,
+            })
+            .copied()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -307,21 +337,14 @@ where
 }
 
 pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
-    allocator: &'scratch Allocator,
     ir: DeclarationIr<'scratch, 'ast>,
 }
 
 impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     pub(crate) fn new(allocator: &'scratch Allocator) -> Self {
         Self {
-            allocator,
             ir: DeclarationIr::new(allocator),
         }
-    }
-
-    #[inline]
-    pub(crate) fn allocator(&self) -> &'scratch Allocator {
-        self.allocator
     }
 
     #[inline]
@@ -474,6 +497,9 @@ fn deduplicate_declarations<'scratch, 'ast>(
                 continue;
             }
             let important = sequence.is_important(current);
+            if process_all_declaration(sequence, current, important, cx) {
+                ir.clear();
+            }
             if process_columns_declaration(sequence, current, important, ir, cx) {
                 continue;
             }
@@ -704,11 +730,35 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
     'ast: 'scratch,
 {
     let declaration = sequence.declaration(current);
-    let previous = if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix() {
+    let previous_with_opposite_importance =
+        if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix() {
+            declarations.get_known(property_id, vendor_prefix, !important)
+        } else {
+            declarations.get_unknown(
+                declaration
+                    .property_id()
+                    .expect("tombstones are skipped before exact deduplication"),
+                !important,
+            )
+        };
+
+    if let Some(previous) = previous_with_opposite_importance
+        && !sequence.declaration(previous).is_tombstone()
+        && !important
+    {
+        sequence.replace(current, Declaration::Tombstone);
+        cx.record_declaration_removed();
+        return;
+    }
+
+    let previous = if let Some((property_id, vendor_prefix)) =
+        sequence.declaration(current).known_id_and_prefix()
+    {
         declarations.insert_known(property_id, vendor_prefix, important, current)
     } else {
         declarations.insert_unknown(
-            declaration
+            sequence
+                .declaration(current)
                 .property_id()
                 .expect("tombstones are skipped before exact deduplication"),
             important,
@@ -717,12 +767,73 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
     };
     if let Some(previous) = previous
         && !sequence.declaration(previous).is_tombstone()
-        && sequence
-            .declaration(previous)
-            .eq_ignoring_tombstones(sequence.declaration(current))
     {
-        sequence.replace(previous, Declaration::Tombstone);
-        cx.record_declaration_removed();
+        let equal = sequence
+            .declaration(previous)
+            .eq_ignoring_tombstones(sequence.declaration(current));
+        let unknown_last_wins = matches!(
+            (
+                sequence.declaration(previous),
+                sequence.declaration(current)
+            ),
+            (
+                Declaration::Unparsed(previous),
+                Declaration::Unparsed(current)
+            ) if matches!(
+                (&*previous.property_id, &*current.property_id),
+                (PropertyId::Custom(_), PropertyId::Custom(_))
+            )
+        );
+        if equal || unknown_last_wins {
+            sequence.replace(previous, Declaration::Tombstone);
+            cx.record_declaration_removed();
+        }
+    }
+}
+
+fn process_all_declaration(
+    sequence: &mut DeclarationSequence<'_, '_, '_>,
+    current: DeclarationLocation,
+    important: bool,
+    cx: &mut MinifyContext<'_>,
+) -> bool {
+    if !matches!(
+        sequence.declaration(current),
+        Declaration::All(CSSWideKeyword::Initial | CSSWideKeyword::Inherit | CSSWideKeyword::Unset)
+    ) {
+        return false;
+    }
+
+    for block in 0..=current.block() {
+        let end = if block == current.block() {
+            current.declaration()
+        } else {
+            sequence.block(block).len()
+        };
+        for declaration in 0..end {
+            let previous = DeclarationLocation::new(block, declaration);
+            if sequence.declaration(previous).is_tombstone()
+                || (!important && sequence.is_important(previous))
+                || !is_reset_by_all(sequence.declaration(previous))
+            {
+                continue;
+            }
+            sequence.replace(previous, Declaration::Tombstone);
+            cx.record_declaration_removed();
+        }
+    }
+    true
+}
+
+fn is_reset_by_all(declaration: &Declaration<'_>) -> bool {
+    match declaration {
+        Declaration::Custom(_) | Declaration::Direction(_) | Declaration::UnicodeBidi(_) => false,
+        Declaration::Unparsed(value) => !matches!(
+            &*value.property_id,
+            PropertyId::Direction | PropertyId::UnicodeBidi
+        ),
+        Declaration::Tombstone => false,
+        _ => true,
     }
 }
 

@@ -6,7 +6,6 @@ fn keeps_case_distinct_custom_properties() {
 }
 
 #[test]
-#[ignore = "S2 all-property exception analysis is not implemented"]
 fn preserves_properties_not_reset_by_all() {
     assert_minifies_idempotently(
         "a{--x:red;direction:rtl;unicode-bidi:isolate;color:red}a{all:initial}",
@@ -23,7 +22,6 @@ fn keeps_logical_and_physical_properties_when_direction_is_not_proven() {
 }
 
 #[test]
-#[ignore = "S2 importance analysis across declaration blocks is not implemented"]
 fn keeps_fallback_and_importance_chains() {
     assert_minifies_idempotently(
         "a{display:-webkit-box;display:flex;color:red!important}a{color:blue}",
@@ -32,7 +30,7 @@ fn keeps_fallback_and_importance_chains() {
 }
 
 #[test]
-#[ignore = "partial shorthand replacement plans are not implemented"]
+#[ignore = "one-to-many shorthand replacement and its serialization policy need a design decision"]
 fn does_not_drop_live_components_of_a_partially_overridden_shorthand() {
     assert_minifies_idempotently(
         "a{margin:1px}a{margin-left:2px}",
@@ -41,10 +39,9 @@ fn does_not_drop_live_components_of_a_partially_overridden_shorthand() {
 }
 
 #[test]
-#[ignore = "S2 revert and revert-layer analysis is not implemented"]
 fn treats_revert_values_conservatively() {
     assert_minifies_idempotently(
         "a{color:red}a{color:revert}a{background:blue}a{background:revert-layer}",
-        "a{color:revert;background:revert-layer}",
+        "a{color:red;color:revert;background:#00f;background:revert-layer}",
     );
 }

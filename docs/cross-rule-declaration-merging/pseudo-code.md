@@ -32,9 +32,16 @@ struct ConditionalAtRuleContextKey<'ast> {
     frames: Vec<ConditionalAtRuleFrameKey<'ast>>,
 }
 
+struct DeclarationHistoryContextKey<'ast> {
+    at_rules: ConditionalAtRuleContextKey<'ast>,
+    layer: LayerContextKey,
+    origin: CascadeOriginKey,
+    phase: CascadePhaseKey,
+}
+
 struct EffectiveRuleKey<'ast> {
     history_segment: HistorySegmentId,
-    at_rules: ConditionalAtRuleContextKey<'ast>,
+    context: DeclarationHistoryContextKey<'ast>,
     selectors: EffectiveSelectorKey<'ast>,
 }
 
@@ -47,6 +54,10 @@ struct EmissionIdentity {
 
 `ConditionalAtRuleContextKey::push` returns a new immutable/interned key. It
 does not mutate the caller's stack.
+
+Layer, origin, and phase keys are compared only for exact equality. The merge
+pass consumes these opaque keys but does not interpret at-rule or cascade
+semantics.
 
 ## Selector resolution
 

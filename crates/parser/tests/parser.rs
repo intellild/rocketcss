@@ -518,6 +518,32 @@ fn parses_namespace_deep_and_empty_where_selectors() {
 }
 
 #[test]
+fn parses_selection_and_placeholder_vendor_prefixes_into_typed_selectors() {
+    let allocator = Allocator::new();
+    let selectors = SelectorList::parse_string(
+        "::-MoZ-selection,::-webkit-placeholder,::placeholder",
+        &allocator,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        &selectors[0][0],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Selection(VendorPrefix::MOZ))
+    ));
+    assert!(matches!(
+        &selectors[1][0],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Placeholder(VendorPrefix::WEBKIT))
+    ));
+    assert!(matches!(
+        &selectors[2][0],
+        SelectorComponent::PseudoElement(element)
+            if matches!(**element, PseudoElement::Placeholder(VendorPrefix::NONE))
+    ));
+}
+
+#[test]
 fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
     let allocator = Allocator::new();
     let sheet = parse(

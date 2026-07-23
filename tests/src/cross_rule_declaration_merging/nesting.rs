@@ -1,7 +1,6 @@
 use super::assert_minifies_idempotently;
 
 #[test]
-#[ignore = "NestedDeclarationsRule adjacency barriers are not modeled by the cross-rule IR"]
 fn nested_declarations_break_style_rule_adjacency() {
     assert_minifies_idempotently(
         ":where(.x,.y){&:where(.x){color:red}color:blue;&:where(.y){color:red}}",
@@ -18,7 +17,6 @@ fn opaque_at_rule_content_keeps_ancestor_style_rule_live() {
 }
 
 #[test]
-#[ignore = "effective-selector resolution is not implemented"]
 fn resolves_multiple_and_functional_nesting_selectors() {
     assert_minifies_idempotently(
         ".a{&+&{color:red}:where(&){color:blue}:has(&){display:block}}",
@@ -27,16 +25,14 @@ fn resolves_multiple_and_functional_nesting_selectors() {
 }
 
 #[test]
-#[ignore = "effective-selector pseudo-element validation is not implemented"]
 fn treats_pseudo_element_nesting_as_a_conservative_barrier() {
     assert_minifies_idempotently(
         ".a::before{&{color:red}}.a::before{color:blue}",
-        ".a::before{&{color:red}}.a::before{color:#00f}",
+        ".a:before{&{color:red}}.a:before{color:#00f}",
     );
 }
 
 #[test]
-#[ignore = "@nest is not modeled by the cross-rule IR"]
 fn preserves_at_nest_wrapper_identity() {
     assert_minifies_idempotently(
         ".p{@nest & .a{x:1}@nest & .b{x:1}}",

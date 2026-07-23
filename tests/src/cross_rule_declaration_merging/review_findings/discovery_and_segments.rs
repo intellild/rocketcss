@@ -4,7 +4,6 @@ use super::assert_minifies_idempotently;
 // being discovered. S2 may empty the leading declaration before the child has
 // incremented retained_child_count.
 #[test]
-#[ignore = "discovery-in-progress ancestor pinning is not implemented"]
 fn does_not_unlink_a_parent_before_child_discovery_finishes() {
     assert_minifies_idempotently(
         ".a{color:red!important}.middle{display:block}.a{color:blue;.child{display:block}}",
@@ -15,7 +14,6 @@ fn does_not_unlink_a_parent_before_child_discovery_finishes() {
 // Review finding P0/P2: removing a live NestedDeclarationsRule barrier must
 // join its two RuleListSegmentIds before the newly exposed edge is classified.
 #[test]
-#[ignore = "dynamic rule-list segment union is not implemented"]
 fn joins_segments_after_a_nested_declarations_barrier_becomes_empty() {
     assert_minifies_idempotently(
         ".parent{color:red!important;.a{x:1}color:blue;.a{y:2}}",
@@ -27,7 +25,6 @@ fn joins_segments_after_a_nested_declarations_barrier_becomes_empty() {
 // a logical barrier before S4, so S1 sees the newly adjacent rules in the same
 // pass.
 #[test]
-#[ignore = "logical retirement and segment union for empty conditional wrappers is not implemented"]
 fn joins_segments_after_an_empty_conditional_wrapper() {
     assert_minifies_idempotently("a{x:1}@media screen{}a{y:2}", "a{x:1;y:2}");
 }
@@ -35,7 +32,6 @@ fn joins_segments_after_an_empty_conditional_wrapper() {
 // Review finding P2: a barrier that is already output-empty when discovery
 // begins must not survive until a post-stabilization S4 cleanup.
 #[test]
-#[ignore = "initially empty nested-declaration barriers are not retired during discovery"]
 fn ignores_an_initially_empty_nested_declarations_barrier() {
     assert_minifies_idempotently(
         ".parent{.a{x:1}font-family:var(--family);font-family:slab inherit;.b{x:1}}",

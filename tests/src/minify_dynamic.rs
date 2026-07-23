@@ -182,7 +182,6 @@ fn still_requires_unsupported_transform(
             "",
             "initial-value substitution not implemented",
         ),
-        ("merge-rules", "", "cross-rule merging not implemented"),
         (
             "merge-idents",
             "",
@@ -256,6 +255,129 @@ fn still_requires_unsupported_transform(
             "pipeline strips url quotes",
         ),
         ("borders", "", "border longhand merging not implemented"),
+        // postcss-merge-rules cases that require behavior outside the current
+        // cross-rule design or whose plugin-only expectation intentionally
+        // differs from RocketCSS's full minify pipeline.
+        (
+            "merge-rules",
+            "different property order",
+            "declaration reordering is not part of the current movement proof",
+        ),
+        (
+            "merge-rules",
+            "should not merge across media queries",
+            "pipeline converts media-query lengths",
+        ),
+        (
+            "merge-rules",
+            "some-animation",
+            "pipeline normalizes 100% keyframes to `to`",
+        ),
+        (
+            "merge-rules",
+            "container queries",
+            "pipeline converts container-query lengths",
+        ),
+        (
+            "merge-rules",
+            "font-weight:bold",
+            "pipeline normalizes font-weight keywords",
+        ),
+        (
+            "merge-rules",
+            "cssnano#36 [case 3]",
+            "cssnano profitability policy is not part of the current design",
+        ),
+        (
+            "merge-rules",
+            "merge multiple values",
+            "equal-value retirement preserves a different declaration occurrence order",
+        ),
+        (
+            "merge-rules",
+            "opposite direction",
+            "candidate selection policy differs from the design's leftmost policy",
+        ),
+        (
+            "merge-rules",
+            "output would be longer",
+            "profitability thresholds are a deferred design choice",
+        ),
+        (
+            "merge-rules",
+            "width: 100px",
+            "pipeline converts absolute lengths",
+        ),
+        (
+            "merge-rules",
+            "text-* properties (3)",
+            "the upstream plugin reorders the common declaration sequence",
+        ),
+        (
+            "merge-rules",
+            "text-* properties (4)",
+            "the upstream plugin reorders the common declaration sequence",
+        ),
+        (
+            "merge-rules",
+            "incorrectly extract transform properties",
+            "pipeline normalizes 100% keyframes to `to`",
+        ),
+        (
+            "merge-rules",
+            "incorrectly extract margin properties",
+            "pipeline folds typed margin overrides before cross-rule analysis",
+        ),
+        (
+            "merge-rules",
+            "selector hacks",
+            "parser: legacy star-property hack",
+        ),
+        (
+            "merge-rules",
+            "comment nodes",
+            "comment removal and color normalization make the plugin-only expectation diverge",
+        ),
+        (
+            "merge-rules",
+            "deduping declarations",
+            "the full pipeline deduplicates declarations before rule merging",
+        ),
+        (
+            "merge-rules",
+            "deduping selectors",
+            "the design canonicalizes synthesized selector unions immediately",
+        ),
+        (
+            "merge-rules",
+            "font face rules",
+            "font normalization and candidate selection differ in the full pipeline",
+        ),
+        (
+            "merge-rules",
+            "properties with vendor prefixes",
+            "an unknown adjacent property prevents a typed movement proof",
+        ),
+        (
+            "merge-rules",
+            "property order and do nothing (2)",
+            "pipeline minifies long hexadecimal colors",
+        ),
+        (
+            "merge-rules",
+            "property order and do nothing (3)",
+            "flex shorthand fallback dependencies are not modeled",
+        ),
+        (
+            "merge-rules",
+            "property order and do nothing (5)",
+            "pipeline normalizes color spelling and case",
+        ),
+        (
+            "merge-rules",
+            "Browserslist config [legacy]",
+            "browser-target configuration is not represented by the fixture harness",
+        ),
         // Upstream's testPassthrough(t, fixture) helper is called without the
         // fixture argument, so the recorded expectation is literally
         // "undefined"; these cases carry no upstream signal.

@@ -65,6 +65,7 @@ struct RuleState<'ast> {
     selector_state: SelectorState<'ast>,
     local_selectors: LocalSelectorListRef<'ast>,
     at_rule_context: ConditionalAtRuleContextKey<'ast>,
+    cascade_context: CascadeContextKey,
     emission_identity: EmissionIdentity,
     leading_sequence: Option<DeclarationSequenceId>,
     live: bool,
@@ -77,6 +78,7 @@ struct RuleState<'ast> {
 struct DeclarationEntryState<'ast> {
     origin: DeclarationOrigin,
     effective_rule: EffectiveRuleKey<'ast>,
+    cascade_phase: CascadePhaseKey,
     declarations: DeclarationBlockRef<'ast>,
     source_order: SemanticSourceOrderKey,
     owning_sequence: DeclarationSequenceId,
