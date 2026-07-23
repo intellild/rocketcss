@@ -269,6 +269,7 @@ impl<'a> BoxFamilyIr<'a> {
 
 struct DeclarationSequence<'sequence, 'reference, 'ast> {
     blocks: &'sequence mut [Ref<'reference, DeclarationBlock<'ast>>],
+    changed_block_indices: &'sequence mut std::vec::Vec<usize>,
 }
 
 impl<'sequence, 'reference, 'ast> DeclarationSequence<'sequence, 'reference, 'ast>
@@ -276,8 +277,14 @@ where
     'ast: 'reference,
 {
     #[inline]
-    fn new(blocks: &'sequence mut [Ref<'reference, DeclarationBlock<'ast>>]) -> Self {
-        Self { blocks }
+    fn new(
+        blocks: &'sequence mut [Ref<'reference, DeclarationBlock<'ast>>],
+        changed_block_indices: &'sequence mut std::vec::Vec<usize>,
+    ) -> Self {
+        Self {
+            blocks,
+            changed_block_indices,
+        }
     }
 
     #[inline]
@@ -312,6 +319,7 @@ where
 
     #[inline]
     fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
+        self.changed_block_indices.push(location.block());
         &mut self.block_mut(location.block()).declarations[location.declaration()]
     }
 
@@ -338,6 +346,11 @@ where
 
 pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
     ir: DeclarationIr<'scratch, 'ast>,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct SequenceMinifyResult {
+    pub(crate) changed_block_indices: std::vec::Vec<usize>,
 }
 
 impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
@@ -378,11 +391,16 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         &mut self,
         blocks: &mut [Ref<'reference, DeclarationBlock<'ast>>],
         cx: &mut MinifyContext<'scratch>,
-    ) where
+    ) -> SequenceMinifyResult
+    where
         'ast: 'reference,
     {
-        let mut sequence = DeclarationSequence::new(blocks);
+        let mut result = SequenceMinifyResult::default();
+        let mut sequence = DeclarationSequence::new(blocks, &mut result.changed_block_indices);
         self.minify_non_trivial(&mut sequence, cx);
+        result.changed_block_indices.sort_unstable();
+        result.changed_block_indices.dedup();
+        result
     }
 }
 
@@ -1404,6 +1422,9 @@ fn declaration_contains_variable(declaration: &Declaration<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rocketcss_allocator::{Allocator, Ref};
+    use rocketcss_ast::CssRule;
+    use rocketcss_parser::{ParserOptions, parse};
 
     #[test]
     fn declaration_location_fits_in_one_word() {
@@ -1423,5 +1444,33 @@ mod tests {
         assert_eq!(key.property_id(), 349);
         assert_eq!(key.vendor_prefix(), prefix);
         assert!(key.is_important());
+    }
+
+    #[test]
+    fn sequence_minify_result_reports_only_mutated_blocks() {
+        let ast_allocator = Allocator::new();
+        let scratch_allocator = Allocator::new();
+        let mut stylesheet = parse(
+            "a{color:red}a{color:red}a{background:red}",
+            &ast_allocator,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let mut blocks = stylesheet
+            .rules
+            .iter_mut()
+            .map(|rule| {
+                let CssRule::Style(rule) = rule else {
+                    unreachable!("fixture contains style rules")
+                };
+                Ref::from_pinned_box(&rule.declarations)
+            })
+            .collect::<std::vec::Vec<_>>();
+        let mut cx = MinifyContext::new(crate::MinifyOptions::default(), &scratch_allocator);
+        let mut minifier = DeclarationBlockMinifier::new(&scratch_allocator);
+
+        let result = minifier.minify_sequence(&mut blocks, &mut cx);
+
+        assert_eq!(result.changed_block_indices, [0]);
     }
 }
