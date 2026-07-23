@@ -39,3 +39,11 @@ fn preserves_at_nest_wrapper_identity() {
         ".p{@nest & .a{x:1}@nest & .b{x:1}}",
     );
 }
+
+#[test]
+fn treats_custom_vendor_pseudo_elements_as_factoring_barriers() {
+    assert_minifies_idempotently(
+        "::-webkit-input-placeholder{color:red}::placeholder{color:red}",
+        "::-webkit-input-placeholder{color:red}::placeholder{color:red}",
+    );
+}

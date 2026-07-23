@@ -1,4 +1,11 @@
-use rocketcss_allocator::{Allocator, Ref, boxed::Box, vec::Vec};
+use std::hash::{Hash, Hasher};
+
+use rocketcss_allocator::{
+    Allocator, Ref,
+    boxed::Box,
+    prelude::{AdaptiveHashMap, AdaptiveHashSet},
+    vec::Vec,
+};
 use rocketcss_ast::{
     CssRule, Declaration, DeclarationBlock, EqIgnoringTombstones, PropertyId, PseudoElement,
     Selector, SelectorComponent, SelectorList, Span, StyleRule, VendorPrefix,
@@ -64,6 +71,37 @@ enum CascadeOrigin {
 enum CascadePhase {
     Normal,
     Important,
+}
+
+#[derive(Clone, Copy)]
+struct SelectorHistoryKey<'list, 'ast> {
+    selectors: &'list SelectorList<'ast>,
+    vendor_prefix: VendorPrefix,
+}
+
+impl PartialEq for SelectorHistoryKey<'_, '_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.vendor_prefix == other.vendor_prefix
+            && equal_live_selectors(self.selectors, other.selectors)
+    }
+}
+
+impl Eq for SelectorHistoryKey<'_, '_> {}
+
+impl Hash for SelectorHistoryKey<'_, '_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.vendor_prefix.bits().hash(state);
+        let mut len = 0;
+        for selector in self
+            .selectors
+            .iter()
+            .filter(|selector| !selector.is_tombstone())
+        {
+            selector.hash(state);
+            len += 1;
+        }
+        len.hash(state);
+    }
 }
 
 #[derive(Default)]
@@ -145,7 +183,9 @@ fn merge_children<'ast, 'scratch>(
     let (children, child_scope) = match rule {
         CssRule::Media(rule) => (Some(&mut rule.rules), cascade_scope),
         CssRule::Style(rule) => {
-            prune_parent_declaration_history(rule, minifier, cx);
+            if cx.is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any) {
+                prune_parent_declaration_history(rule, minifier, cx);
+            }
             (Some(&mut rule.rules), cascade_scope)
         }
         CssRule::Supports(rule) => (Some(&mut rule.rules), cascade_scope),
@@ -197,20 +237,20 @@ fn coalesce_adjacent_conditional_rules(rules: &mut Vec<'_, CssRule<'_>>) -> bool
     while index + 1 < rules.len() {
         let equal = match (&rules[index], &rules[index + 1]) {
             (CssRule::Media(left), CssRule::Media(right)) => {
-                rule_list_has_output(&left.rules)
+                left.query == right.query
+                    && rule_list_has_output(&left.rules)
                     && rule_list_has_output(&right.rules)
-                    && left.query == right.query
             }
             (CssRule::Supports(left), CssRule::Supports(right)) => {
-                rule_list_has_output(&left.rules)
+                left.condition == right.condition
+                    && rule_list_has_output(&left.rules)
                     && rule_list_has_output(&right.rules)
-                    && left.condition == right.condition
             }
             (CssRule::Container(left), CssRule::Container(right)) => {
-                rule_list_has_output(&left.rules)
-                    && rule_list_has_output(&right.rules)
-                    && left.name == right.name
+                left.name == right.name
                     && left.condition == right.condition
+                    && rule_list_has_output(&left.rules)
+                    && rule_list_has_output(&right.rules)
             }
             _ => false,
         };
@@ -304,33 +344,35 @@ where
     let mut segment_start = 0;
     while segment_start < rules.len() {
         let segment_end = next_segment_end(rules, segment_start);
-        let mut processed = std::vec![false; segment_end - segment_start];
+        let mut history_indices =
+            AdaptiveHashMap::<SelectorHistoryKey<'_, '_>, usize>::new_in(cx.allocator());
+        let mut histories =
+            std::vec::Vec::<std::vec::Vec<Ref<'ast, DeclarationBlock<'ast>>>>::new();
 
-        for left in segment_start..segment_end {
-            let CssRule::Style(left_rule) = &rules[left] else {
+        for index in segment_start..segment_end {
+            let CssRule::Style(rule) = &rules[index] else {
                 continue;
             };
-            if !has_live_selector(left_rule) || processed[left - segment_start] {
+            if !has_live_selector(rule) {
                 continue;
             }
 
-            let mut blocks = std::vec::Vec::new();
-            collect_declaration_chain(&left_rule.declarations, &mut blocks);
-            processed[left - segment_start] = true;
+            let key = SelectorHistoryKey {
+                selectors: &rule.selectors,
+                vendor_prefix: rule.vendor_prefix,
+            };
+            let history = if let Some(history) = history_indices.get(&key) {
+                *history
+            } else {
+                let history = histories.len();
+                history_indices.insert(key, history);
+                histories.push(std::vec::Vec::new());
+                history
+            };
+            collect_declaration_chain(&rule.declarations, &mut histories[history]);
+        }
 
-            for right in left + 1..segment_end {
-                let CssRule::Style(right_rule) = &rules[right] else {
-                    continue;
-                };
-                if has_live_selector(right_rule)
-                    && left_rule.vendor_prefix == right_rule.vendor_prefix
-                    && equal_live_selectors(&left_rule.selectors, &right_rule.selectors)
-                {
-                    collect_declaration_chain(&right_rule.declarations, &mut blocks);
-                    processed[right - segment_start] = true;
-                }
-            }
-
+        for mut blocks in histories {
             if blocks.len() > 1 {
                 let removed_before = cx.stats().declarations_removed;
                 minifier.minify_sequence(&mut blocks, cx);
@@ -368,13 +410,17 @@ fn collect_declaration_ref_chain<'ast>(
     tail: Ref<'ast, DeclarationBlock<'ast>>,
     blocks: &mut std::vec::Vec<Ref<'ast, DeclarationBlock<'ast>>>,
 ) {
-    if let Some(previous) = tail.get().get_ref().previous_merged() {
-        collect_declaration_ref_chain(previous, blocks);
+    let chain_start = blocks.len();
+    let mut current = Some(tail);
+    while let Some(block) = current {
+        blocks.push(block);
+        current = block.get().get_ref().previous_merged();
     }
-    blocks.push(tail);
+    blocks[chain_start..].reverse();
 }
 
 fn merge_same_selector_edges(rules: &mut Vec<'_, CssRule<'_>>) -> bool {
+    let mut changed = false;
     let mut segment_start = 0;
     while segment_start < rules.len() {
         let segment_end = next_segment_end(rules, segment_start);
@@ -400,7 +446,7 @@ fn merge_same_selector_edges(rules: &mut Vec<'_, CssRule<'_>>) -> bool {
                 .as_mut()
                 .set_previous_merged(Some(Ref::from_pinned_box(&left_rule.declarations)));
             tombstone_selectors(left_rule);
-            return true;
+            changed = true;
         }
         segment_start = if segment_end == segment_start {
             segment_start + 1
@@ -408,7 +454,7 @@ fn merge_same_selector_edges(rules: &mut Vec<'_, CssRule<'_>>) -> bool {
             segment_end + usize::from(segment_end < rules.len())
         };
     }
-    false
+    changed
 }
 
 fn can_merge_same_selector(previous: &CssRule<'_>, current: &CssRule<'_>) -> bool {
@@ -426,6 +472,7 @@ fn factor_partial_edges<'ast>(
     cx: &mut MinifyContext<'_>,
     cascade_scope: CascadeScope,
 ) -> bool {
+    let mut plans = std::vec::Vec::new();
     let mut segment_start = 0;
     while segment_start < rules.len() {
         let segment_end = next_segment_end(rules, segment_start);
@@ -434,11 +481,15 @@ fn factor_partial_edges<'ast>(
                 |&index| matches!(&rules[index], CssRule::Style(rule) if has_live_selector(rule)),
             )
             .collect::<std::vec::Vec<_>>();
+        let mut last_selected_right = None;
         for edge in endpoints.windows(2) {
             let [left, right] = *edge else { unreachable!() };
+            if last_selected_right.is_some_and(|selected| left <= selected) {
+                continue;
+            }
             if let Some(plan) = prepare_partial_plan(rules, left, right, cascade_scope) {
-                commit_partial_plan(rules, plan, cx);
-                return true;
+                last_selected_right = Some(right);
+                plans.push(plan);
             }
         }
         segment_start = if segment_end == segment_start {
@@ -447,7 +498,16 @@ fn factor_partial_edges<'ast>(
             segment_end + usize::from(segment_end < rules.len())
         };
     }
-    false
+    let changed = !plans.is_empty();
+    let mut insertions = std::vec::Vec::with_capacity(plans.len());
+    for plan in plans {
+        let right = plan.right;
+        insertions.push((right, commit_partial_plan(rules, plan, cx)));
+    }
+    if changed {
+        rebuild_after_partial_plans(rules, insertions);
+    }
+    changed
 }
 
 struct PartialPlan<'ast> {
@@ -489,17 +549,22 @@ fn prepare_partial_plan<'ast>(
         return None;
     }
 
-    let allocator = rules.bump();
-    let selectors = clone_selector_union(&left_rule.selectors, &right_rule.selectors, allocator)?;
     let left_occurrences = declaration_occurrences(&left_rule.declarations, cascade_scope);
     let right_occurrences = declaration_occurrences(&right_rule.declarations, cascade_scope);
 
     let common = best_common_range(&left_occurrences, &right_occurrences);
     let (left_common_start, right_common_start, common_len) = match common {
         Some(common) => common,
-        None if left_occurrences.is_empty() && right_occurrences.is_empty() => (0, 0, 0),
+        None if left_occurrences.is_empty()
+            && right_occurrences.is_empty()
+            && right_rule.rules.is_empty() =>
+        {
+            (0, 0, 0)
+        }
         None => return None,
     };
+    let allocator = rules.bump();
+    let selectors = clone_selector_union(&left_rule.selectors, &right_rule.selectors, allocator)?;
 
     Some(PartialPlan {
         left,
@@ -752,7 +817,7 @@ fn commit_partial_plan<'ast>(
     rules: &mut Vec<'ast, CssRule<'ast>>,
     plan: PartialPlan<'ast>,
     cx: &mut MinifyContext<'_>,
-) {
+) -> CssRule<'ast> {
     let allocator = rules.bump();
     let mut shared_declarations = DeclarationBlock::new(allocator);
 
@@ -791,16 +856,33 @@ fn commit_partial_plan<'ast>(
             tombstone_selectors(right);
         }
     }
-    rules.insert(plan.right, shared);
-    let right_after_insert = plan.right + 1;
-    if right_empty
-        && matches!(&rules[right_after_insert], CssRule::Style(rule) if rule.rules.is_empty())
-    {
-        rules.remove(right_after_insert);
+    shared
+}
+
+fn rebuild_after_partial_plans<'ast>(
+    rules: &mut Vec<'ast, CssRule<'ast>>,
+    insertions: std::vec::Vec<(usize, CssRule<'ast>)>,
+) {
+    let allocator = rules.bump();
+    let capacity = rules.len() + insertions.len();
+    let old_rules = std::mem::replace(rules, Vec::with_capacity_in(capacity, allocator));
+    let mut insertions = insertions.into_iter().peekable();
+
+    for (index, rule) in old_rules.into_iter().enumerate() {
+        while insertions
+            .peek()
+            .is_some_and(|(insertion_index, _)| *insertion_index == index)
+        {
+            let (_, shared) = insertions.next().expect("peeked insertion exists");
+            rules.push(shared);
+        }
+        if !matches!(&rule, CssRule::Style(style)
+            if style.rules.is_empty() && !has_live_selector(style))
+        {
+            rules.push(rule);
+        }
     }
-    if left_empty && matches!(&rules[plan.left], CssRule::Style(rule) if rule.rules.is_empty()) {
-        rules.remove(plan.left);
-    }
+    debug_assert!(insertions.next().is_none());
 }
 
 fn occurrence_declaration(occurrence: DeclarationOccurrence<'_>) -> &Declaration<'_> {
@@ -848,12 +930,13 @@ fn clone_selector_union<'ast>(
     allocator: &'ast Allocator,
 ) -> Option<Box<'ast, SelectorList<'ast>>> {
     let mut union = allocator.vec();
+    let mut seen = AdaptiveHashSet::<_, 4>::new_in(allocator);
     for selector in left
         .iter()
         .chain(right)
         .filter(|selector| !selector.is_tombstone())
     {
-        if union.iter().any(|existing| existing == selector) {
+        if !seen.insert(selector) {
             continue;
         }
         union.push(clone_selector(selector, allocator)?);
@@ -941,7 +1024,7 @@ fn clone_simple_pseudo_element<'ast>(pseudo: &PseudoElement<'ast>) -> Option<Pse
         PseudoElement::Checkmark => PseudoElement::Checkmark,
         PseudoElement::GrammarError => PseudoElement::GrammarError,
         PseudoElement::SpellingError => PseudoElement::SpellingError,
-        PseudoElement::Custom { name } => PseudoElement::Custom { name },
+        PseudoElement::Custom { .. } => return None,
         _ => return None,
     })
 }

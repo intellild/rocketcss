@@ -19,3 +19,8 @@ fn invalidates_candidates_when_a_predecessor_block_changes() {
 fn complete_factoring_reconnects_the_live_chain_through_the_shared_rule() {
     assert_minifies_idempotently("p{y:1}a{x:1}b{x:1}q{y:1}", "p{y:1}a,b{x:1}q{y:1}");
 }
+
+#[test]
+fn rejects_zero_progress_partial_merge_plans() {
+    assert_minifies_idempotently("a{}b{c{x:1}}", "a{}b{c{x:1}}");
+}
