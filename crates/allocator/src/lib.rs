@@ -5,6 +5,7 @@ mod allocator_api;
 pub mod atom;
 pub mod bit_vec;
 pub mod boxed;
+pub mod ghost_cell;
 pub mod hash_map;
 pub mod hash_set;
 pub mod prelude;
@@ -13,6 +14,7 @@ pub mod reference;
 pub mod vec;
 pub mod wtf8;
 
+pub use ghost_cell::{GhostCell, GhostToken};
 pub use reference::Ref;
 
 pub trait CloneIn<'a>: Sized {
@@ -143,12 +145,30 @@ impl Allocator {
         Self { arena: Bump::new() }
     }
 
+    /// Runs `f` with a fresh mutation brand for cells allocated in this arena.
+    #[inline]
+    pub fn with_ghost<R>(
+        &self,
+        f: impl for<'ghost> FnOnce(GhostToken<'ghost>) -> R,
+    ) -> R {
+        GhostToken::scope(f)
+    }
+
     pub fn reset(&mut self) {
         self.arena.reset();
     }
 
     pub fn alloc<T>(&self, value: T) -> &mut T {
         self.arena.alloc(value)
+    }
+
+    /// Allocates an arena-owned cell carrying an independent `'ghost` brand.
+    #[inline]
+    pub fn alloc_ghost<'a, 'ghost, T>(
+        &'a self,
+        value: T,
+    ) -> &'a GhostCell<'ghost, T> {
+        self.alloc(GhostCell::new(value))
     }
 
     pub fn alloc_str(&self, s: &str) -> &str {
