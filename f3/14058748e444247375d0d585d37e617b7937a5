@@ -1,0 +1,27 @@
+tests/src/cross_rule_declaration_merging/declarations.rs
+  s_cc6606a8415446::t_a224439961fe66 1-50
+tests/src/cross_rule_declaration_merging/mod.rs
+  s_cc6606a8415446::t_28d1c82f037eb5 1-23
+tests/src/cross_rule_declaration_merging/nesting.rs
+  s_cc6606a8415446::t_4da8acfa287e6a 1-45
+tests/src/cross_rule_declaration_merging/state_machine.rs
+  s_cc6606a8415446::t_e9eacb1b137c51 1-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f314058748e444247375d0d585d37e617b7937a5",
+  "prompts": {},
+  "sessions": {
+    "s_cc6606a8415446": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8934-c3f3-75c0-8e2d-78bf11bc092f",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
