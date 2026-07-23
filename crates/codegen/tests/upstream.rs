@@ -2,7 +2,7 @@ use lightningcss::stylesheet::{
     ParserOptions as LightningParserOptions, PrinterOptions as LightningPrinterOptions,
     StyleSheet as LightningStyleSheet,
 };
-use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_codegen::{PrinterOptions, ToCssWithGhost};
 use rocketcss_parser::prelude::*;
 use serde_json::Value;
 
@@ -42,20 +42,23 @@ fn lightningcss_stylesheet_ast_to_css_corpus() {
             .code;
 
         let allocator = Allocator::new();
-        let stylesheet = parse(
-            source,
-            &allocator,
-            ParserOptions {
-                error_recovery,
-                ..ParserOptions::default()
-            },
-        )
-        .unwrap_or_else(|error| {
-            panic!("{name}: parser corpus stopped producing an AST: {error:?}")
+        let actual = allocator.with_ghost(|mut token| {
+            let stylesheet = parse(
+                source,
+                &allocator,
+                &mut token,
+                ParserOptions {
+                    error_recovery,
+                    ..ParserOptions::default()
+                },
+            )
+            .unwrap_or_else(|error| {
+                panic!("{name}: parser corpus stopped producing an AST: {error:?}")
+            });
+            stylesheet
+                .to_css_string(&token, PrinterOptions::default())
+                .expect("rocketcss AST should serialize")
         });
-        let actual = stylesheet
-            .to_css_string(PrinterOptions::default())
-            .expect("rocketcss AST should serialize");
         compared += 1;
 
         let canonical_actual = LightningStyleSheet::parse(

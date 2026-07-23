@@ -7,28 +7,32 @@ struct Rename {
     to: &'static str,
 }
 
-impl<'a> VisitorMut<'a> for Rename {
-    fn visit_selector_component(&mut self, component: &mut SelectorComponent<'a>) {
+impl<'a, 'ghost> VisitorMut<'a, 'ghost> for Rename {
+    fn visit_selector_component(
+        &mut self,
+        component: &mut SelectorComponent<'a>,
+        cx: &mut VisitMutContext<'_, 'ghost>,
+    ) {
         if let SelectorComponent::Class(name) = component
             && *name == self.from
         {
             *name = self.to;
         }
-        component.visit_mut_children(self);
+        component.visit_mut_children(self, cx);
     }
 }
 
 struct RecordPlugin(&'static str);
 
-impl<'a> Plugin<'a> for RecordPlugin {
+impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordPlugin {
     fn name(&self) -> &str {
         self.0
     }
 
     fn transform(
         &mut self,
-        _stylesheet: &mut StyleSheet<'a>,
-        context: &mut PluginContext<'a>,
+        _stylesheet: &mut StyleSheet<'a, 'ghost>,
+        context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         context
             .get_mut::<std::vec::Vec<&'static str>>()
@@ -41,45 +45,49 @@ impl<'a> Plugin<'a> for RecordPlugin {
 #[test]
 fn plugins_run_in_registration_order_and_share_context() {
     let allocator = Allocator::new();
-    let mut sheet = rocketcss_parser::parse(
-        ".first {}",
-        &allocator,
-        rocketcss_parser::ParserOptions::default(),
-    )
-    .unwrap();
-    let mut context = PluginContext::new(&allocator);
-    context.insert(std::vec::Vec::<&'static str>::new());
-    let mut plugins = Plugins::new();
-    plugins.add(RecordPlugin("one"));
-    plugins.add_visitor(
-        "first-rename",
-        Rename {
-            from: "first",
-            to: "middle",
-        },
-    );
-    plugins.add(RecordPlugin("two"));
-    plugins.add_visitor(
-        "second-rename",
-        Rename {
-            from: "middle",
-            to: "last",
-        },
-    );
+    allocator.with_ghost(|mut token| {
+        let mut sheet = rocketcss_parser::parse(
+            ".first {}",
+            &allocator,
+            &mut token,
+            rocketcss_parser::ParserOptions::default(),
+        )
+        .unwrap();
+        let mut context = PluginContext::new(&allocator, &mut token);
+        context.insert(std::vec::Vec::<&'static str>::new());
+        let mut plugins = Plugins::new();
+        plugins.add(RecordPlugin("one"));
+        plugins.add_visitor(
+            "first-rename",
+            Rename {
+                from: "first",
+                to: "middle",
+            },
+        );
+        plugins.add(RecordPlugin("two"));
+        plugins.add_visitor(
+            "second-rename",
+            Rename {
+                from: "middle",
+                to: "last",
+            },
+        );
 
-    plugins.run(&mut sheet, &mut context).unwrap();
+        plugins.run(&mut sheet, &mut context).unwrap();
 
-    assert_eq!(
-        context.get::<std::vec::Vec<&str>>().unwrap(),
-        &["one", "two"]
-    );
-    let CssRule::Style(rule) = &sheet.rules[0] else {
-        panic!("expected style rule")
-    };
-    assert!(matches!(
-        rule.selectors[0][0],
-        SelectorComponent::Class("last")
-    ));
+        assert_eq!(
+            context.get::<std::vec::Vec<&str>>().unwrap(),
+            &["one", "two"]
+        );
+        let CssRule::Style(rule) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let rule = rule.get(context.ghost_token());
+        assert!(matches!(
+            rule.selectors[0][0],
+            SelectorComponent::Class("last")
+        ));
+    });
 }
 
 #[derive(Debug)]
@@ -95,15 +103,15 @@ impl Error for ExpectedFailure {}
 
 struct FailingPlugin;
 
-impl<'a> Plugin<'a> for FailingPlugin {
+impl<'a, 'ghost> Plugin<'a, 'ghost> for FailingPlugin {
     fn name(&self) -> &str {
         "failing"
     }
 
     fn transform(
         &mut self,
-        _stylesheet: &mut StyleSheet<'a>,
-        _context: &mut PluginContext<'a>,
+        _stylesheet: &mut StyleSheet<'a, 'ghost>,
+        _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         Err(std::boxed::Box::new(ExpectedFailure))
     }
@@ -112,21 +120,24 @@ impl<'a> Plugin<'a> for FailingPlugin {
 #[test]
 fn plugin_errors_include_the_plugin_name() {
     let allocator = Allocator::new();
-    let mut sheet = rocketcss_parser::parse(
-        "a {}",
-        &allocator,
-        rocketcss_parser::ParserOptions::default(),
-    )
-    .unwrap();
-    let mut context = PluginContext::new(&allocator);
-    let mut plugins = Plugins::new();
-    plugins.add(FailingPlugin);
+    allocator.with_ghost(|mut token| {
+        let mut sheet = rocketcss_parser::parse(
+            "a {}",
+            &allocator,
+            &mut token,
+            rocketcss_parser::ParserOptions::default(),
+        )
+        .unwrap();
+        let mut context = PluginContext::new(&allocator, &mut token);
+        let mut plugins = Plugins::new();
+        plugins.add(FailingPlugin);
 
-    let error = plugins.run(&mut sheet, &mut context).unwrap_err();
+        let error = plugins.run(&mut sheet, &mut context).unwrap_err();
 
-    assert_eq!(error.plugin(), "failing");
-    assert_eq!(
-        error.to_string(),
-        "plugin `failing` failed: expected failure"
-    );
+        assert_eq!(error.plugin(), "failing");
+        assert_eq!(
+            error.to_string(),
+            "plugin `failing` failed: expected failure"
+        );
+    });
 }

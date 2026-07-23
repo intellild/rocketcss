@@ -4,11 +4,12 @@ use crate::prelude::*;
 pub(super) const MAX_NESTING_DEPTH: usize = 500;
 
 /// Parses a stylesheet using the span-only tokenizer and arena-backed AST.
-pub fn parse<'i>(
+pub fn parse<'i, 'ghost>(
     source: &'i str,
     allocator: &'i Allocator,
+    token: &mut GhostToken<'ghost>,
     options: ParserOptions<'i>,
-) -> Result<StyleSheet<'i>, Error<'i>> {
+) -> Result<StyleSheet<'i, 'ghost>, Error<'i>> {
     let mut input = ParserInput::new(source, allocator);
     let mut parser = Parser::new(&mut input);
     let mut license_comments = allocator.vec();
@@ -26,7 +27,7 @@ pub fn parse<'i>(
     }
     parser.reset(&state);
 
-    let rules = parse_rule_list(&mut parser, allocator, &options, 0)
+    let rules = parse_rule_list(&mut parser, allocator, token, &options, 0)
         .map_err(|error| into_error(error, options.filename))?;
     let source_map_url = parser.current_source_map_url();
     let mut sources = allocator.vec();

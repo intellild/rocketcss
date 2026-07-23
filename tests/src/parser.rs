@@ -9,8 +9,10 @@ fn parses_valid_fixtures() {
         let source = read_fixture(&path);
         let allocator = Allocator::new();
 
-        parse(&source, &allocator, ParserOptions::default()).unwrap_or_else(|error| {
-            panic!("{} should parse successfully: {error:?}", path.display())
+        allocator.with_ghost(|mut token| {
+            parse(&source, &allocator, &mut token, ParserOptions::default()).unwrap_or_else(
+                |error| panic!("{} should parse successfully: {error:?}", path.display()),
+            );
         });
     }
 }
@@ -21,10 +23,12 @@ fn rejects_invalid_fixtures() {
         let source = read_fixture(&path);
         let allocator = Allocator::new();
 
-        assert!(
-            parse(&source, &allocator, ParserOptions::default()).is_err(),
-            "{} should fail to parse",
-            path.display()
-        );
+        allocator.with_ghost(|mut token| {
+            assert!(
+                parse(&source, &allocator, &mut token, ParserOptions::default()).is_err(),
+                "{} should fail to parse",
+                path.display()
+            );
+        });
     }
 }

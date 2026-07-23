@@ -76,17 +76,20 @@ fn property_context_dispatches_by_property_id() {
 #[test]
 fn plugin_exposes_local_normalization_stats() {
     let allocator = Allocator::new();
-    let mut stylesheet = parse(
-        "a{width:16px;width:16px}",
-        &allocator,
-        ParserOptions::default(),
-    )
-    .unwrap();
-    let mut plugins = Plugins::new();
-    plugins.add(MinifyPlugin::default());
-    let mut plugin_context = PluginContext::new(&allocator);
-    plugins.run(&mut stylesheet, &mut plugin_context).unwrap();
-    let stats = plugin_context.get::<MinifyStats>().unwrap();
-    assert_eq!(stats.values_normalized, 2);
-    assert_eq!(stats.declarations_removed, 1);
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            "a{width:16px;width:16px}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let mut plugins = Plugins::new();
+        plugins.add(MinifyPlugin::default());
+        let mut plugin_context = PluginContext::new(&allocator, &mut token);
+        plugins.run(&mut stylesheet, &mut plugin_context).unwrap();
+        let stats = plugin_context.get::<MinifyStats>().unwrap();
+        assert_eq!(stats.values_normalized, 2);
+        assert_eq!(stats.declarations_removed, 1);
+    });
 }

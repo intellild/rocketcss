@@ -147,10 +147,7 @@ impl Allocator {
 
     /// Runs `f` with a fresh mutation brand for cells allocated in this arena.
     #[inline]
-    pub fn with_ghost<R>(
-        &self,
-        f: impl for<'ghost> FnOnce(GhostToken<'ghost>) -> R,
-    ) -> R {
+    pub fn with_ghost<R>(&self, f: impl for<'ghost> FnOnce(GhostToken<'ghost>) -> R) -> R {
         GhostToken::scope(f)
     }
 
@@ -164,11 +161,9 @@ impl Allocator {
 
     /// Allocates an arena-owned cell carrying an independent `'ghost` brand.
     #[inline]
-    pub fn alloc_ghost<'a, 'ghost, T>(
-        &'a self,
-        value: T,
-    ) -> &'a GhostCell<'ghost, T> {
-        self.alloc(GhostCell::new(value))
+    pub fn alloc_ghost<'a, 'ghost, T>(&'a self, value: T) -> &'a GhostCell<'a, 'ghost, T> {
+        let value = self.alloc(value);
+        self.alloc(GhostCell::from_mut(value))
     }
 
     pub fn alloc_str(&self, s: &str) -> &str {

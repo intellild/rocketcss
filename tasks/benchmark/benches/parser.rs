@@ -15,16 +15,19 @@ fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
         .counter(BytesCount::of_str(case.source))
         .bench_local(|| {
             let allocator = Allocator::new();
-            let stylesheet = rocketcss_parser::parse(
-                black_box(case.source),
-                &allocator,
-                rocketcss_parser::ParserOptions {
-                    error_recovery: true,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-            black_box(stylesheet);
+            allocator.with_ghost(|mut token| {
+                let stylesheet = rocketcss_parser::parse(
+                    black_box(case.source),
+                    &allocator,
+                    &mut token,
+                    rocketcss_parser::ParserOptions {
+                        error_recovery: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                black_box(stylesheet);
+            });
         });
 }
 

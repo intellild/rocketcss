@@ -322,6 +322,19 @@ fn generate_visitor(
     let reference = mode.reference();
     let visit = mode.visit_method();
     let visit_children = mode.visit_children_method();
+    let context = format_ident!(
+        "{}",
+        if matches!(mode, Mode::Read) {
+            "VisitContext"
+        } else {
+            "VisitMutContext"
+        }
+    );
+    let context_reference = if matches!(mode, Mode::Read) {
+        quote!(&)
+    } else {
+        quote!(&mut)
+    };
     let methods = nodes.iter().map(|node| {
         let method = visit_method(&node.ident);
         let (method_generics, ty, bounds) =
@@ -329,15 +342,21 @@ fn generate_visitor(
         if matches!(mode, Mode::Mut) && node.pinned {
             quote! {
                 #[inline]
-                fn #method #method_generics (&mut self, mut node: Pin<&mut #ty>) #bounds {
-                    #node_trait::#visit_children(&mut node, self);
-                }
+                fn #method #method_generics (
+                    &mut self,
+                    _node: Pin<&mut #ty>,
+                    _cx: &mut VisitMutContext<'_, 'ghost>,
+                ) #bounds {}
             }
         } else {
             quote! {
                 #[inline]
-                fn #method #method_generics (&mut self, node: #reference #ty) #bounds {
-                    #node_trait::#visit_children(node, self);
+                fn #method #method_generics (
+                    &mut self,
+                    node: #reference #ty,
+                    cx: #context_reference #context<'_, 'ghost>,
+                ) #bounds {
+                    #node_trait::#visit_children(node, self, cx);
                 }
             }
         }
@@ -365,12 +384,20 @@ fn generate_visitor(
         );
         quote! {
             #[inline]
-            fn #method #method_generics (&mut self, node: #reference #ty) #bounds {
-                self.#visit_children(node);
+            fn #method #method_generics (
+                &mut self,
+                node: #reference #ty,
+                cx: #context_reference #context<'_, 'ghost>,
+            ) #bounds {
+                self.#visit_children(node, cx);
             }
 
             #[doc = #visit_children_doc]
-            fn #visit_children #method_generics (&mut self, node: #reference #ty) #bounds {
+            fn #visit_children #method_generics (
+                &mut self,
+                node: #reference #ty,
+                cx: #context_reference #context<'_, 'ghost>,
+            ) #bounds {
                 let visitor = self;
                 visitor.enter_node(AstType::#variant);
                 #body
@@ -380,9 +407,21 @@ fn generate_visitor(
     });
 
     let str_method = if matches!(mode, Mode::Read) {
-        quote! { fn visit_str(&mut self, _value: &&'a str) {} }
+        quote! {
+            fn visit_str(
+                &mut self,
+                _value: &&'a str,
+                _cx: &VisitContext<'_, 'ghost>,
+            ) {}
+        }
     } else {
-        quote! { fn visit_str(&mut self, _value: &mut &'a str) {} }
+        quote! {
+            fn visit_str(
+                &mut self,
+                _value: &mut &'a str,
+                _cx: &mut VisitMutContext<'_, 'ghost>,
+            ) {}
+        }
     };
     let manual_methods = manual_methods(mode);
     let manual_impls = manual_impls(mode);
@@ -397,7 +436,7 @@ fn generate_visitor(
         #pin_import
 
         /// Typed callbacks invoked while traversing CSS AST nodes.
-        pub trait #visitor_trait<'a> {
+        pub trait #visitor_trait<'a, 'ghost> {
             #[inline]
             fn enter_node(&mut self, _kind: AstType) {}
 
@@ -413,18 +452,20 @@ fn generate_visitor(
         }
 
         /// Traversal implemented by CSS AST nodes.
-        pub trait #node_trait<'a> {
+        pub trait #node_trait<'a, 'ghost> {
             /// Dispatches this node to its typed visitor callback.
-            fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+            fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                 #reference self,
                 visitor: &mut VisitorT,
+                cx: #context_reference #context<'_, 'ghost>,
             );
 
             /// Continues traversal without redispatching this node's visitor callback.
             #[inline]
-            fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+            fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                 #reference self,
                 _visitor: &mut VisitorT,
+                _cx: #context_reference #context<'_, 'ghost>,
             ) {}
         }
 
@@ -437,20 +478,45 @@ fn manual_methods(mode: Mode) -> TokenStream {
     let reference = mode.reference();
     let node_trait = mode.node_trait();
     let visit_children = mode.visit_children_method();
+    let context = format_ident!(
+        "{}",
+        if matches!(mode, Mode::Read) {
+            "VisitContext"
+        } else {
+            "VisitMutContext"
+        }
+    );
+    let context_reference = if matches!(mode, Mode::Read) {
+        quote!(&)
+    } else {
+        quote!(&mut)
+    };
     quote! {
         #[inline]
-        fn visit_declaration(&mut self, node: #reference Declaration<'a>) {
-            #node_trait::#visit_children(node, self);
+        fn visit_declaration(
+            &mut self,
+            node: #reference Declaration<'a>,
+            cx: #context_reference #context<'_, 'ghost>,
+        ) {
+            #node_trait::#visit_children(node, self, cx);
         }
 
         #[inline]
-        fn visit_property_id(&mut self, node: #reference PropertyId<'a>) {
-            #node_trait::#visit_children(node, self);
+        fn visit_property_id(
+            &mut self,
+            node: #reference PropertyId<'a>,
+            cx: #context_reference #context<'_, 'ghost>,
+        ) {
+            #node_trait::#visit_children(node, self, cx);
         }
 
         #[inline]
-        fn visit_vendor_prefix(&mut self, node: #reference VendorPrefix) {
-            #node_trait::#visit_children(node, self);
+        fn visit_vendor_prefix(
+            &mut self,
+            node: #reference VendorPrefix,
+            cx: #context_reference #context<'_, 'ghost>,
+        ) {
+            #node_trait::#visit_children(node, self, cx);
         }
     }
 }
@@ -461,18 +527,33 @@ fn manual_impls(mode: Mode) -> TokenStream {
     let visit = mode.visit_method();
     let visit_children = mode.visit_children_method();
     let reference = mode.reference();
+    let context = format_ident!(
+        "{}",
+        if matches!(mode, Mode::Read) {
+            "VisitContext"
+        } else {
+            "VisitMutContext"
+        }
+    );
+    let context_reference = if matches!(mode, Mode::Read) {
+        quote!(&)
+    } else {
+        quote!(&mut)
+    };
     quote! {
-        impl<'a> #node_trait<'a> for VendorPrefix {
-            fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+        impl<'a, 'ghost> #node_trait<'a, 'ghost> for VendorPrefix {
+            fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                 #reference self,
                 visitor: &mut VisitorT,
+                cx: #context_reference #context<'_, 'ghost>,
             ) {
-                visitor.visit_vendor_prefix(self);
+                visitor.visit_vendor_prefix(self, cx);
             }
 
-            fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a>>(
+            fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                 #reference self,
                 visitor: &mut VisitorT,
+                _cx: #context_reference #context<'_, 'ghost>,
             ) {
                 visitor.enter_node(AstType::VendorPrefix);
                 visitor.leave_node(AstType::VendorPrefix);
@@ -489,54 +570,63 @@ fn container_impls(mode: Mode) -> TokenStream {
         quote! {
             macro_rules! impl_leaf_visit {
                 ($($ty:ty),+ $(,)?) => {$(
-                    impl<'a> #node_trait<'a> for $ty {
-                        fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    impl<'a, 'ghost> #node_trait<'a, 'ghost> for $ty {
+                        fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                             &self,
                             _visitor: &mut VisitorT,
+                            _cx: &VisitContext<'_, 'ghost>,
                         ) {}
                     }
                 )+};
             }
             impl_leaf_visit!(bool, char, f32, i32, u8, u16, u32, usize);
 
-            impl<'a, T: ?Sized + #node_trait<'a>> #node_trait<'a>
+            impl<'a, 'ghost, T: ?Sized + #node_trait<'a, 'ghost>>
+                #node_trait<'a, 'ghost>
                 for rocketcss_allocator::boxed::Box<'a, T>
             {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
                     visitor: &mut VisitorT,
+                    cx: &VisitContext<'_, 'ghost>,
                 ) {
-                    #node_trait::#visit(self.as_ref(), visitor);
+                    #node_trait::#visit(self.as_ref(), visitor, cx);
                 }
             }
-            impl<'a, T: #node_trait<'a> + Unpin> #node_trait<'a>
+            impl<'a, 'ghost, T: #node_trait<'a, 'ghost> + Unpin>
+                #node_trait<'a, 'ghost>
                 for rocketcss_allocator::vec::Vec<'a, T>
             {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
                     visitor: &mut VisitorT,
+                    cx: &VisitContext<'_, 'ghost>,
                 ) {
                     for value in self {
-                        #node_trait::#visit(value, visitor);
+                        #node_trait::#visit(value, visitor, cx);
                     }
                 }
             }
-            impl<'a, T: #node_trait<'a>> #node_trait<'a> for Option<T> {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+            impl<'a, 'ghost, T: #node_trait<'a, 'ghost>>
+                #node_trait<'a, 'ghost> for Option<T>
+            {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
                     visitor: &mut VisitorT,
+                    cx: &VisitContext<'_, 'ghost>,
                 ) {
                     if let Some(value) = self {
-                        #node_trait::#visit(value, visitor);
+                        #node_trait::#visit(value, visitor, cx);
                     }
                 }
             }
-            impl<'a> #node_trait<'a> for &'a str {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+            impl<'a, 'ghost> #node_trait<'a, 'ghost> for &'a str {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
                     visitor: &mut VisitorT,
+                    cx: &VisitContext<'_, 'ghost>,
                 ) {
-                    visitor.visit_str(self);
+                    visitor.visit_str(self, cx);
                 }
             }
         }
@@ -544,54 +634,63 @@ fn container_impls(mode: Mode) -> TokenStream {
         quote! {
             macro_rules! impl_leaf_visit_mut {
                 ($($ty:ty),+ $(,)?) => {$(
-                    impl<'a> #node_trait<'a> for $ty {
-                        fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                    impl<'a, 'ghost> #node_trait<'a, 'ghost> for $ty {
+                        fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                             &mut self,
                             _visitor: &mut VisitorT,
+                            _cx: &mut VisitMutContext<'_, 'ghost>,
                         ) {}
                     }
                 )+};
             }
             impl_leaf_visit_mut!(bool, char, f32, i32, u8, u16, u32, usize);
 
-            impl<'a, T: ?Sized + #node_trait<'a>> #node_trait<'a>
+            impl<'a, 'ghost, T: ?Sized + #node_trait<'a, 'ghost>>
+                #node_trait<'a, 'ghost>
                 for rocketcss_allocator::boxed::Box<'a, T>
             {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
                     visitor: &mut VisitorT,
+                    cx: &mut VisitMutContext<'_, 'ghost>,
                 ) {
-                    #node_trait::#visit(self.as_mut(), visitor);
+                    #node_trait::#visit(self.as_mut(), visitor, cx);
                 }
             }
-            impl<'a, T: #node_trait<'a> + Unpin> #node_trait<'a>
+            impl<'a, 'ghost, T: #node_trait<'a, 'ghost> + Unpin>
+                #node_trait<'a, 'ghost>
                 for rocketcss_allocator::vec::Vec<'a, T>
             {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
                     visitor: &mut VisitorT,
+                    cx: &mut VisitMutContext<'_, 'ghost>,
                 ) {
                     for value in self {
-                        #node_trait::#visit(value, visitor);
+                        #node_trait::#visit(value, visitor, cx);
                     }
                 }
             }
-            impl<'a, T: #node_trait<'a>> #node_trait<'a> for Option<T> {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+            impl<'a, 'ghost, T: #node_trait<'a, 'ghost>>
+                #node_trait<'a, 'ghost> for Option<T>
+            {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
                     visitor: &mut VisitorT,
+                    cx: &mut VisitMutContext<'_, 'ghost>,
                 ) {
                     if let Some(value) = self {
-                        #node_trait::#visit(value, visitor);
+                        #node_trait::#visit(value, visitor, cx);
                     }
                 }
             }
-            impl<'a> #node_trait<'a> for &'a str {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a>>(
+            impl<'a, 'ghost> #node_trait<'a, 'ghost> for &'a str {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
                     visitor: &mut VisitorT,
+                    cx: &mut VisitMutContext<'_, 'ghost>,
                 ) {
-                    visitor.visit_str(self);
+                    visitor.visit_str(self, cx);
                 }
             }
         }
@@ -610,7 +709,7 @@ fn visit_type(
     match ty {
         Type::Reference(reference) if matches!(&*reference.elem, Type::Path(path) if path.path.is_ident("str")) =>
         {
-            quote!(visitor.visit_str(#expression);)
+            quote!(visitor.visit_str(#expression, cx);)
         }
         Type::Reference(reference) => visit_type(
             mode,
@@ -657,7 +756,21 @@ fn visit_type(
             };
             let name = segment.ident.to_string();
             if name == "Pin" {
-                let Some(Type::Path(box_path)) = first_type_argument(&segment.arguments) else {
+                let Some(pin_target) = first_type_argument(&segment.arguments) else {
+                    return quote!();
+                };
+                if let Type::Reference(reference) = pin_target {
+                    return visit_type(
+                        mode,
+                        &reference.elem,
+                        quote!((#expression).as_ref()),
+                        known,
+                        aliases,
+                        generics,
+                        counter,
+                    );
+                }
+                let Type::Path(box_path) = pin_target else {
                     return quote!();
                 };
                 let Some(box_segment) = box_path.path.segments.last() else {
@@ -737,17 +850,43 @@ fn visit_type(
                     counter,
                 );
                 quote!(for #binding in (#expression).#iterator() { #inner })
+            } else if name == "GhostCell" {
+                if matches!(mode, Mode::Read) {
+                    quote! {
+                        cx.with_cell(#expression, |value, cx| {
+                            Visit::visit(value, visitor, cx);
+                        });
+                    }
+                } else {
+                    quote! {
+                        cx.with_cell(#expression, |value, cx| {
+                            VisitMut::visit(value, visitor, cx);
+                        });
+                    }
+                }
+            } else if name == "Ref" {
+                if matches!(mode, Mode::Read) {
+                    quote! {
+                        cx.with_ref(*#expression, |value, cx| {
+                            Visit::visit(value.get_ref(), visitor, cx);
+                        });
+                    }
+                } else {
+                    quote! {
+                        cx.visit_ref(*#expression, visitor);
+                    }
+                }
             } else if generics.contains(&name) {
                 let node_trait = mode.node_trait();
                 let visit = mode.visit_method();
-                quote!(#node_trait::#visit(#expression, visitor);)
+                quote!(#node_trait::#visit(#expression, visitor, cx);)
             } else if aliases.contains(&name) {
                 let method = visit_method(&segment.ident);
-                quote!(visitor.#method(#expression);)
+                quote!(visitor.#method(#expression, cx);)
             } else if known.contains(&name) {
                 let node_trait = mode.node_trait();
                 let visit = mode.visit_method();
-                quote!(#node_trait::#visit(#expression, visitor);)
+                quote!(#node_trait::#visit(#expression, visitor, cx);)
             } else {
                 quote!()
             }
@@ -787,7 +926,11 @@ fn type_tokens(ident: &Ident, generics: &Generics) -> TokenStream {
     let arguments = generics.params.iter().map(|param| match param {
         GenericParam::Lifetime(param) => {
             let lifetime = &param.lifetime;
-            quote!(#lifetime)
+            if lifetime.ident == "ghost" {
+                quote!('ghost)
+            } else {
+                quote!('a)
+            }
         }
         GenericParam::Type(param) => {
             let ident = &param.ident;
@@ -833,7 +976,7 @@ fn signature_parts(
     let bounds = if names.is_empty() {
         quote!()
     } else {
-        quote!(where #(#names: #node_trait<'a>),*)
+        quote!(where #(#names: #node_trait<'a, 'ghost>),*)
     };
     (method_generics, ty, bounds)
 }

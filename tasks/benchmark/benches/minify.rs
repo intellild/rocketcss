@@ -1,6 +1,7 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
@@ -8,9 +9,9 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
 use divan::{Bencher, black_box, counter::BytesCount};
-use rocketcss_allocator::Allocator;
+use rocketcss_allocator::{Allocator, GhostToken};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
-use rocketcss_codegen::{Printer, PrinterOptions, ToCss};
+use rocketcss_codegen::{Printer, PrinterOptions, ToCssWithGhost};
 use rocketcss_parser::prelude::StyleSheet;
 
 fn main() {
@@ -23,23 +24,24 @@ fn main() {
 /// Stage benchmarks consume this through `bench_local_refs` so the stylesheet
 /// and its arena stay alive until Divan stops timing the sample; dropping them
 /// inside the timed section would add teardown time to the stage measurement.
-struct ParsedStyleSheet {
+struct ParsedStyleSheet<'ghost> {
     // Fields are dropped in declaration order, so the stylesheet is dropped
     // before the allocator that owns its arena storage.
-    stylesheet: StyleSheet<'static>,
+    stylesheet: StyleSheet<'ghost, 'ghost>,
     _allocator: Box<Allocator>,
 }
 
-impl ParsedStyleSheet {
-    fn new(source: &'static str) -> Self {
+impl<'ghost> ParsedStyleSheet<'ghost> {
+    fn new(source: &'static str, token: &mut GhostToken<'ghost>) -> Self {
         let allocator = Box::new(Allocator::new());
 
         // The allocator remains at a stable heap address and is owned by this
         // input for at least as long as the stylesheet.
-        let allocator_ref: &'static Allocator = unsafe { &*std::ptr::from_ref(&*allocator) };
+        let allocator_ref: &'ghost Allocator = unsafe { &*std::ptr::from_ref(&*allocator) };
         let stylesheet = rocketcss_parser::parse(
             source,
             allocator_ref,
+            token,
             rocketcss_parser::ParserOptions {
                 error_recovery: true,
                 ..Default::default()
@@ -53,10 +55,11 @@ impl ParsedStyleSheet {
         }
     }
 
-    fn minified(source: &'static str) -> Self {
-        let mut input = Self::new(source);
+    fn minified(source: &'static str, token: &mut GhostToken<'ghost>) -> Self {
+        let mut input = Self::new(source, token);
         rocketcss_nano::minify(
             &mut input.stylesheet,
+            token,
             rocketcss_nano::MinifyOptions::default(),
         );
         input
@@ -72,16 +75,19 @@ mod parse {
             .counter(BytesCount::of_str(case.source))
             .bench_local(|| {
                 let allocator = Allocator::new();
-                let stylesheet = rocketcss_parser::parse(
-                    black_box(case.source),
-                    &allocator,
-                    rocketcss_parser::ParserOptions {
-                        error_recovery: true,
-                        ..Default::default()
-                    },
-                )
-                .unwrap();
-                black_box(stylesheet);
+                allocator.with_ghost(|mut token| {
+                    let stylesheet = rocketcss_parser::parse(
+                        black_box(case.source),
+                        &allocator,
+                        &mut token,
+                        rocketcss_parser::ParserOptions {
+                            error_recovery: true,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                    black_box(stylesheet);
+                });
             });
     }
 
@@ -104,15 +110,19 @@ mod minify {
 
     #[divan::bench(args = BENCH_CASES)]
     fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
-        bencher
-            .counter(BytesCount::of_str(case.source))
-            .with_inputs(|| ParsedStyleSheet::new(case.source))
-            .bench_local_refs(|input| {
-                black_box(rocketcss_nano::minify(
-                    &mut input.stylesheet,
-                    rocketcss_nano::MinifyOptions::default(),
-                ));
-            });
+        rocketcss_allocator::GhostToken::scope(|token| {
+            let token = RefCell::new(token);
+            bencher
+                .counter(BytesCount::of_str(case.source))
+                .with_inputs(|| ParsedStyleSheet::new(case.source, &mut token.borrow_mut()))
+                .bench_local_refs(|input| {
+                    black_box(rocketcss_nano::minify(
+                        &mut input.stylesheet,
+                        &mut token.borrow_mut(),
+                        rocketcss_nano::MinifyOptions::default(),
+                    ));
+                });
+        });
     }
 
     #[divan::bench(args = BENCH_CASES)]
@@ -134,20 +144,24 @@ mod codegen {
 
     #[divan::bench(args = BENCH_CASES)]
     fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
-        bencher
-            .counter(BytesCount::of_str(case.source))
-            .with_inputs(|| ParsedStyleSheet::minified(case.source))
-            .bench_local_refs(|input| {
-                let mut output = String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
-                input
-                    .stylesheet
-                    .to_css(&mut Printer::new(
-                        &mut output,
-                        PrinterOptions { prettify: false },
-                    ))
-                    .unwrap();
-                black_box(output);
-            });
+        rocketcss_allocator::GhostToken::scope(|token| {
+            let token = RefCell::new(token);
+            bencher
+                .counter(BytesCount::of_str(case.source))
+                .with_inputs(|| ParsedStyleSheet::minified(case.source, &mut token.borrow_mut()))
+                .bench_local_refs(|input| {
+                    let mut output =
+                        String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
+                    input
+                        .stylesheet
+                        .to_css_with_ghost(
+                            &token.borrow(),
+                            &mut Printer::new(&mut output, PrinterOptions { prettify: false }),
+                        )
+                        .unwrap();
+                    black_box(output);
+                });
+        });
     }
 
     #[divan::bench(args = BENCH_CASES)]

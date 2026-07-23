@@ -1,5 +1,7 @@
 use std::fmt::{self, Write};
 
+use rocketcss_allocator::GhostToken;
+
 /// Options controlling CSS serialization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PrinterOptions {
@@ -325,6 +327,26 @@ pub trait ToCss {
     fn to_css_string(&self, options: PrinterOptions) -> Result<String, fmt::Error> {
         let mut output = String::new();
         self.to_css(&mut Printer::new(&mut output, options))?;
+        Ok(output)
+    }
+}
+
+/// Serializes an AST node whose shared state is protected by a ghost token.
+pub trait ToCssWithGhost<'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result;
+
+    #[inline]
+    fn to_css_string(
+        &self,
+        token: &GhostToken<'ghost>,
+        options: PrinterOptions,
+    ) -> Result<String, fmt::Error> {
+        let mut output = String::new();
+        self.to_css_with_ghost(token, &mut Printer::new(&mut output, options))?;
         Ok(output)
     }
 }

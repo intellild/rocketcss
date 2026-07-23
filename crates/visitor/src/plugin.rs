@@ -5,8 +5,8 @@ use std::{
     fmt,
 };
 
-use rocketcss_allocator::Allocator;
-use rocketcss_ast::StyleSheet;
+use rocketcss_allocator::{Allocator, GhostToken};
+use rocketcss_ast::{StyleSheet, VisitMutContext};
 
 use crate::{VisitMut, VisitorMut};
 
@@ -14,16 +14,18 @@ use crate::{VisitMut, VisitorMut};
 pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
 /// Shared services available to every plugin in a pipeline.
-pub struct PluginContext<'a> {
+pub struct PluginContext<'a, 'token, 'ghost> {
     allocator: &'a Allocator,
+    token: &'token mut GhostToken<'ghost>,
     data: HashMap<TypeId, Box<dyn Any>>,
 }
 
-impl<'a> PluginContext<'a> {
+impl<'a, 'token, 'ghost> PluginContext<'a, 'token, 'ghost> {
     #[inline]
-    pub fn new(allocator: &'a Allocator) -> Self {
+    pub fn new(allocator: &'a Allocator, token: &'token mut GhostToken<'ghost>) -> Self {
         Self {
             allocator,
+            token,
             data: HashMap::new(),
         }
     }
@@ -32,6 +34,11 @@ impl<'a> PluginContext<'a> {
     #[inline]
     pub fn allocator(&self) -> &'a Allocator {
         self.allocator
+    }
+
+    #[inline]
+    pub fn ghost_token(&mut self) -> &mut GhostToken<'ghost> {
+        self.token
     }
 
     /// Inserts shared typed state, returning the previous value of that type.
@@ -66,28 +73,28 @@ impl<'a> PluginContext<'a> {
 /// The trait is object-safe so independently implemented plugins can be
 /// selected at runtime. Plugins that only need a typed mutable visitor can use
 /// [`VisitorPlugin`] or [`Plugins::add_visitor`].
-pub trait Plugin<'a> {
+pub trait Plugin<'a, 'ghost> {
     fn name(&self) -> &str;
 
     fn transform(
         &mut self,
-        stylesheet: &mut StyleSheet<'a>,
-        context: &mut PluginContext<'a>,
+        stylesheet: &mut StyleSheet<'a, 'ghost>,
+        context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError>;
 }
 
 /// Runs plugins in registration order over one stylesheet.
-pub struct Plugins<'plugin, 'a> {
-    plugins: Vec<Box<dyn Plugin<'a> + 'plugin>>,
+pub struct Plugins<'plugin, 'a, 'ghost> {
+    plugins: Vec<Box<dyn Plugin<'a, 'ghost> + 'plugin>>,
 }
 
-impl<'plugin, 'a> Default for Plugins<'plugin, 'a> {
+impl<'plugin, 'a, 'ghost> Default for Plugins<'plugin, 'a, 'ghost> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'plugin, 'a> Plugins<'plugin, 'a> {
+impl<'plugin, 'a, 'ghost> Plugins<'plugin, 'a, 'ghost> {
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -107,22 +114,22 @@ impl<'plugin, 'a> Plugins<'plugin, 'a> {
 
     pub fn add<P>(&mut self, plugin: P)
     where
-        P: Plugin<'a> + 'plugin,
+        P: Plugin<'a, 'ghost> + 'plugin,
     {
         self.plugins.push(Box::new(plugin));
     }
 
     pub fn add_visitor<V>(&mut self, name: &'static str, visitor: V)
     where
-        V: VisitorMut<'a> + 'plugin,
+        V: VisitorMut<'a, 'ghost> + 'plugin,
     {
         self.add(VisitorPlugin::new(name, visitor));
     }
 
     pub fn run(
         &mut self,
-        stylesheet: &mut StyleSheet<'a>,
-        context: &mut PluginContext<'a>,
+        stylesheet: &mut StyleSheet<'a, 'ghost>,
+        context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), PluginError> {
         for plugin in &mut self.plugins {
             plugin
@@ -164,7 +171,7 @@ impl<V> VisitorPlugin<V> {
     }
 }
 
-impl<'a, V: VisitorMut<'a>> Plugin<'a> for VisitorPlugin<V> {
+impl<'a, 'ghost, V: VisitorMut<'a, 'ghost>> Plugin<'a, 'ghost> for VisitorPlugin<V> {
     #[inline]
     fn name(&self) -> &str {
         self.name
@@ -172,10 +179,11 @@ impl<'a, V: VisitorMut<'a>> Plugin<'a> for VisitorPlugin<V> {
 
     fn transform(
         &mut self,
-        stylesheet: &mut StyleSheet<'a>,
-        _context: &mut PluginContext<'a>,
+        stylesheet: &mut StyleSheet<'a, 'ghost>,
+        context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
-        stylesheet.visit_mut(&mut self.visitor);
+        let mut visit_context = VisitMutContext::new(context.ghost_token());
+        stylesheet.visit_mut(&mut self.visitor, &mut visit_context);
         Ok(())
     }
 }

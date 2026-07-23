@@ -1418,15 +1418,20 @@ impl ToCss for DefaultAtRule {
     }
 }
 
-pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
-    rules: &[CssRule<'_>],
+pub(crate) fn write_rule_list<'ghost, PrinterT: PrinterTrait>(
+    rules: &[CssRule<'_, 'ghost>],
+    token: &GhostToken<'ghost>,
     dest: &mut PrinterT,
 ) -> fmt::Result {
     let mut first = true;
     let mut last_without_block = false;
     for rule in rules {
         if matches!(rule, CssRule::Style(style)
-            if style.selectors.iter().all(Selector::is_tombstone))
+            if style
+                .get(token)
+                .selectors
+                .iter()
+                .all(Selector::is_tombstone))
         {
             continue;
         }
@@ -1446,7 +1451,7 @@ pub(crate) fn write_rule_list<PrinterT: PrinterTrait>(
             }
         }
         first = false;
-        rule.to_css(dest)?;
+        rule.to_css_with_ghost(token, dest)?;
         last_without_block = matches!(
             rule,
             CssRule::Charset(_)
@@ -1507,36 +1512,42 @@ fn write_declarations<PrinterT: PrinterTrait>(
     Ok(())
 }
 
-fn style_rule_chain_is_output_empty(tail: &StyleRule<'_>) -> bool {
+fn style_rule_chain_is_output_empty<'ghost>(
+    tail: &StyleRule<'_, 'ghost>,
+    token: &GhostToken<'ghost>,
+) -> bool {
     let mut current = tail;
     loop {
-        if !current.declarations.is_output_empty() {
+        if !current.declarations.borrow(token).is_output_empty() {
             return false;
         }
         let Some(previous) = current.previous_merged() else {
             return true;
         };
-        current = previous.get().get_ref();
+        current = previous.get(token).get_ref();
     }
 }
 
-fn write_style_rule_declaration_chain<PrinterT: PrinterTrait>(
-    tail: &StyleRule<'_>,
+fn write_style_rule_declaration_chain<'ghost, PrinterT: PrinterTrait>(
+    tail: &StyleRule<'_, 'ghost>,
+    token: &GhostToken<'ghost>,
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
 ) -> fmt::Result {
-    write_style_rule_declaration_chain_recursive(tail, dest, last_semicolon).map(|_| ())
+    write_style_rule_declaration_chain_recursive(tail, token, dest, last_semicolon).map(|_| ())
 }
 
-fn write_style_rule_declaration_chain_recursive<PrinterT: PrinterTrait>(
-    current: &StyleRule<'_>,
+fn write_style_rule_declaration_chain_recursive<'ghost, PrinterT: PrinterTrait>(
+    current: &StyleRule<'_, 'ghost>,
+    token: &GhostToken<'ghost>,
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
 ) -> Result<bool, fmt::Error> {
-    let current_is_empty = current.declarations.is_output_empty();
+    let current_is_empty = current.declarations.borrow(token).is_output_empty();
     let wrote_previous = if let Some(previous) = current.previous_merged() {
         write_style_rule_declaration_chain_recursive(
-            previous.get().get_ref(),
+            previous.get(token).get_ref(),
+            token,
             dest,
             if current_is_empty {
                 last_semicolon
@@ -1554,7 +1565,7 @@ fn write_style_rule_declaration_chain_recursive<PrinterT: PrinterTrait>(
     if wrote_previous {
         dest.new_line()?;
     }
-    write_declarations(&current.declarations, dest, last_semicolon)?;
+    write_declarations(current.declarations.borrow(token), dest, last_semicolon)?;
     Ok(true)
 }
 
@@ -1573,8 +1584,12 @@ fn write_declaration_block<PrinterT: PrinterTrait>(
     })
 }
 
-impl ToCss for StyleSheet<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for StyleSheet<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         for (index, comment) in self.license_comments.iter().enumerate() {
             dest.write_str("/*")?;
             dest.write_str(comment)?;
@@ -1583,7 +1598,7 @@ impl ToCss for StyleSheet<'_> {
                 dest.new_line()?;
             }
         }
-        write_rule_list(&self.rules, dest)?;
+        write_rule_list(&self.rules, token, dest)?;
         if !self.rules.is_empty() {
             dest.new_line()?;
         }
@@ -1591,11 +1606,15 @@ impl ToCss for StyleSheet<'_> {
     }
 }
 
-impl ToCss for MediaRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for MediaRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@media ")?;
         self.query.to_css(dest)?;
-        write_block(dest, |dest| write_rule_list(&self.rules, dest))
+        write_block(dest, |dest| write_rule_list(&self.rules, token, dest))
     }
 }
 
@@ -1630,8 +1649,12 @@ impl ToCss for ImportRule<'_> {
     }
 }
 
-impl ToCss for StyleRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for StyleRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         if self.selectors.iter().all(Selector::is_tombstone) {
             return Ok(());
         }
@@ -1639,6 +1662,7 @@ impl ToCss for StyleRule<'_> {
         write_block(dest, |dest| {
             write_style_rule_declaration_chain(
                 self,
+                token,
                 dest,
                 if self.rules.is_empty() {
                     LastSemicolon::Optional
@@ -1646,16 +1670,20 @@ impl ToCss for StyleRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !style_rule_chain_is_output_empty(self) && !self.rules.is_empty() {
+            if !style_rule_chain_is_output_empty(self, token) && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
-            write_rule_list(&self.rules, dest)
+            write_rule_list(&self.rules, token, dest)
         })
     }
 }
 
-impl ToCss for KeyframesRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for KeyframesRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_char('@')?;
         self.vendor_prefix.to_css(dest)?;
         dest.write_str("keyframes ")?;
@@ -1671,17 +1699,21 @@ impl ToCss for KeyframesRule<'_> {
                 if index > 0 {
                     dest.blank_line()?;
                 }
-                keyframe.to_css(dest)?;
+                keyframe.to_css_with_ghost(token, dest)?;
             }
             Ok(())
         })
     }
 }
 
-impl ToCss for Keyframe<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for Keyframe<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         write_comma_separated(&self.selectors, dest)?;
-        write_declaration_block(&self.declarations, dest)
+        write_declaration_block(self.declarations.borrow(token), dest)
     }
 }
 
@@ -1827,8 +1859,12 @@ impl ToCss for FontFeatureDeclaration<'_> {
     }
 }
 
-impl ToCss for PageRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for PageRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@page")?;
         if !self.selectors.is_empty() {
             dest.write_char(' ')?;
@@ -1836,7 +1872,7 @@ impl ToCss for PageRule<'_> {
         }
         write_block(dest, |dest| {
             write_declarations(
-                &self.declarations,
+                self.declarations.borrow(token),
                 dest,
                 if self.rules.is_empty() {
                     LastSemicolon::Optional
@@ -1844,25 +1880,29 @@ impl ToCss for PageRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !self.declarations.is_output_empty() && !self.rules.is_empty() {
+            if !self.declarations.borrow(token).is_output_empty() && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             for (index, rule) in self.rules.iter().enumerate() {
                 if index > 0 {
                     dest.blank_line()?;
                 }
-                rule.to_css(dest)?;
+                rule.to_css_with_ghost(token, dest)?;
             }
             Ok(())
         })
     }
 }
 
-impl ToCss for PageMarginRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for PageMarginRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_char('@')?;
         self.margin_box.to_css(dest)?;
-        write_declaration_block(&self.declarations, dest)
+        write_declaration_block(self.declarations.borrow(token), dest)
     }
 }
 
@@ -1879,19 +1919,27 @@ impl ToCss for PageSelector<'_> {
     }
 }
 
-impl ToCss for SupportsRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for SupportsRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@supports ")?;
         self.condition.to_css(dest)?;
-        write_block(dest, |dest| write_rule_list(&self.rules, dest))
+        write_block(dest, |dest| write_rule_list(&self.rules, token, dest))
     }
 }
 
-impl ToCss for CounterStyleRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for CounterStyleRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@counter-style ")?;
         serialize_identifier(self.name, dest)?;
-        write_declaration_block(&self.declarations, dest)
+        write_declaration_block(self.declarations.borrow(token), dest)
     }
 }
 
@@ -1915,32 +1963,55 @@ impl ToCss for NamespaceRule<'_> {
     }
 }
 
-impl ToCss for MozDocumentRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for MozDocumentRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@-moz-document url-prefix()")?;
-        write_block(dest, |dest| write_rule_list(&self.rules, dest))
+        write_block(dest, |dest| write_rule_list(&self.rules, token, dest))
     }
 }
 
-impl ToCss for NestingRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for NestingRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@nest ")?;
-        self.style.to_css(dest)
+        self.style
+            .get(token)
+            .get_ref()
+            .to_css_with_ghost(token, dest)
     }
 }
 
-impl ToCss for NestedDeclarationsRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_declarations(&self.declarations, dest, LastSemicolon::Optional)
+impl<'ghost> ToCssWithGhost<'ghost> for NestedDeclarationsRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
+        write_declarations(
+            self.declarations.borrow(token),
+            dest,
+            LastSemicolon::Optional,
+        )
     }
 }
 
-impl ToCss for ViewportRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for ViewportRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_char('@')?;
         self.vendor_prefix.to_css(dest)?;
         dest.write_str("viewport")?;
-        write_declaration_block(&self.declarations, dest)
+        write_declaration_block(self.declarations.borrow(token), dest)
     }
 }
 
@@ -1978,14 +2049,18 @@ impl ToCss for LayerStatementRule<'_> {
     }
 }
 
-impl ToCss for LayerBlockRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for LayerBlockRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@layer")?;
         if let Some(name) = &self.name {
             dest.write_char(' ')?;
             write_layer_name(name, dest)?;
         }
-        write_block(dest, |dest| write_rule_list(&self.rules, dest))
+        write_block(dest, |dest| write_rule_list(&self.rules, token, dest))
     }
 }
 
@@ -2016,8 +2091,12 @@ impl ToCss for PropertyRule<'_> {
     }
 }
 
-impl ToCss for ContainerRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for ContainerRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@container")?;
         if let Some(name) = self.name {
             dest.write_char(' ')?;
@@ -2027,12 +2106,16 @@ impl ToCss for ContainerRule<'_> {
             dest.write_char(' ')?;
             condition.to_css(dest)?;
         }
-        write_block(dest, |dest| write_rule_list(&self.rules, dest))
+        write_block(dest, |dest| write_rule_list(&self.rules, token, dest))
     }
 }
 
-impl ToCss for ScopeRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for ScopeRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@scope")?;
         if let Some(start) = &self.scope_start {
             dest.write_str(" (")?;
@@ -2044,14 +2127,18 @@ impl ToCss for ScopeRule<'_> {
             end.to_css(dest)?;
             dest.write_char(')')?;
         }
-        write_block(dest, |dest| write_rule_list(&self.rules, dest))
+        write_block(dest, |dest| write_rule_list(&self.rules, token, dest))
     }
 }
 
-impl ToCss for StartingStyleRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for StartingStyleRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@starting-style")?;
-        write_block(dest, |dest| write_rule_list(&self.rules, dest))
+        write_block(dest, |dest| write_rule_list(&self.rules, token, dest))
     }
 }
 
@@ -2062,12 +2149,16 @@ impl ToCss for ViewTransitionRule<'_> {
     }
 }
 
-impl ToCss for PositionTryRule<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCssWithGhost<'ghost> for PositionTryRule<'_, 'ghost> {
+    fn to_css_with_ghost<PrinterT: PrinterTrait>(
+        &self,
+        token: &GhostToken<'ghost>,
+        dest: &mut PrinterT,
+    ) -> fmt::Result {
         dest.write_str("@position-try ")?;
         dest.write_str("--")?;
         serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
-        write_declaration_block(&self.declarations, dest)
+        write_declaration_block(self.declarations.borrow(token), dest)
     }
 }
 

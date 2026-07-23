@@ -75,25 +75,28 @@ fn box_ir_preserves_fallback_and_logical_property_barriers() {
 #[test]
 fn keeps_existing_token_storage() {
     let allocator = Allocator::new();
-    let mut stylesheet = parse(
-        "a{margin:1px 1px 1px 1px}",
-        &allocator,
-        ParserOptions::default(),
-    )
-    .unwrap();
-    let (buffer_before, token_before) = unparsed_value_storage(&stylesheet);
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            "a{margin:1px 1px 1px 1px}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let (buffer_before, token_before) = unparsed_value_storage(&stylesheet, &token);
 
-    minify(&mut stylesheet, MinifyOptions::default());
+        minify(&mut stylesheet, &mut token, MinifyOptions::default());
 
-    let (buffer_after, token_after) = unparsed_value_storage(&stylesheet);
-    assert_eq!(buffer_after, buffer_before);
-    assert_eq!(token_after, token_before);
-    assert_eq!(
-        stylesheet
-            .to_css_string(PrinterOptions { prettify: false })
-            .unwrap(),
-        "a{margin:1px}"
-    );
+        let (buffer_after, token_after) = unparsed_value_storage(&stylesheet, &token);
+        assert_eq!(buffer_after, buffer_before);
+        assert_eq!(token_after, token_before);
+        assert_eq!(
+            stylesheet
+                .to_css_string(&token, PrinterOptions { prettify: false })
+                .unwrap(),
+            "a{margin:1px}"
+        );
+    });
 }
 
 #[test]
@@ -108,13 +111,16 @@ fn runs_box_ir_across_adjacent_blocks() {
     );
 }
 
-fn unparsed_value_storage<'a>(
-    stylesheet: &StyleSheet<'a>,
+fn unparsed_value_storage<'a, 'ghost>(
+    stylesheet: &StyleSheet<'a, 'ghost>,
+    token: &rocketcss_allocator::GhostToken<'ghost>,
 ) -> (*const TokenOrValue<'a>, *const Token<'a>) {
     let CssRule::Style(rule) = &stylesheet.rules[0] else {
         panic!("expected style rule")
     };
-    let Declaration::Unparsed(property) = &rule.declarations.declarations[0] else {
+    let rule = rule.get(token);
+    let declarations = rule.get_ref().declarations.borrow(token);
+    let Declaration::Unparsed(property) = &declarations.declarations[0] else {
         panic!("expected unparsed property")
     };
     let TokenOrValue::Token(token) = &property.value[0] else {

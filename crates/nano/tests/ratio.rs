@@ -1,21 +1,25 @@
 use rocketcss_allocator::Allocator;
-use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_codegen::{PrinterOptions, ToCssWithGhost};
 use rocketcss_nano::{MinifyOptions, Options, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
 fn minify_css(source: &str, flags: Options) -> String {
     let allocator = Allocator::new();
-    let mut stylesheet = parse(source, &allocator, ParserOptions::default()).unwrap();
-    minify(
-        &mut stylesheet,
-        MinifyOptions {
-            flags,
-            ..MinifyOptions::default()
-        },
-    );
-    stylesheet
-        .to_css_string(PrinterOptions { prettify: false })
-        .unwrap()
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet =
+            parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
+        minify(
+            &mut stylesheet,
+            &mut token,
+            MinifyOptions {
+                flags,
+                ..MinifyOptions::default()
+            },
+        );
+        stylesheet
+            .to_css_string(&token, PrinterOptions { prettify: false })
+            .unwrap()
+    })
 }
 
 fn default_flags() -> Options {

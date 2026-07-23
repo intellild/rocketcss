@@ -14,16 +14,16 @@ pub enum KeyframesName<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct KeyframesRule<'a> {
-    pub keyframes: Vec<'a, Keyframe<'a>>,
+pub struct KeyframesRule<'a, 'ghost> {
+    pub keyframes: Vec<'a, Keyframe<'a, 'ghost>>,
     pub span: Span,
     pub name: Box<'a, KeyframesName<'a>>,
     pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Keyframe<'a> {
-    pub declarations: DeclarationBlock<'a>,
+pub struct Keyframe<'a, 'ghost> {
+    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
     pub selectors: Vec<'a, KeyframeSelector>,
 }
 

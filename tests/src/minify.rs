@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use rocketcss_allocator::Allocator;
-use rocketcss_codegen::{PrinterOptions, ToCss};
+use rocketcss_codegen::{PrinterOptions, ToCssWithGhost};
 use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
@@ -20,15 +20,17 @@ fn minifies_upstream_fixtures() {
         let source = read_fixture(&input);
         let expected = read_fixture(&expected_path(&input));
         let allocator = Allocator::new();
-        let mut stylesheet = parse(&source, &allocator, ParserOptions::default())
-            .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
+        allocator.with_ghost(|mut token| {
+            let mut stylesheet = parse(&source, &allocator, &mut token, ParserOptions::default())
+                .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
 
-        minify(&mut stylesheet, MinifyOptions::default());
-        let actual = stylesheet
-            .to_css_string(PrinterOptions { prettify: false })
-            .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
+            minify(&mut stylesheet, &mut token, MinifyOptions::default());
+            let actual = stylesheet
+                .to_css_string(&token, PrinterOptions { prettify: false })
+                .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
 
-        assert_eq!(actual, expected.trim_end(), "fixture: {}", input.display());
+            assert_eq!(actual, expected.trim_end(), "fixture: {}", input.display());
+        });
     }
 }
 

@@ -134,13 +134,14 @@ fn expand_visit(input: DeriveInput) -> syn::Result<TokenStream2> {
         ));
     }
 
-    let lifetime = visitor_lifetime(&input.generics)?;
+    let (ast_lifetime, ghost_lifetime) = visitor_lifetimes(&input.generics)?;
     let read = expand_visit_mode(
         VisitMode::Read,
         &input.ident,
         &input.generics,
         &input.data,
-        &lifetime,
+        &ast_lifetime,
+        &ghost_lifetime,
         false,
     )?;
     let mutable = expand_visit_mode(
@@ -148,7 +149,8 @@ fn expand_visit(input: DeriveInput) -> syn::Result<TokenStream2> {
         &input.ident,
         &input.generics,
         &input.data,
-        &lifetime,
+        &ast_lifetime,
+        &ghost_lifetime,
         attributes.pinned,
     )?;
 
@@ -163,37 +165,53 @@ fn expand_visit_mode(
     name: &Ident,
     generics: &Generics,
     data: &Data,
-    lifetime: &Lifetime,
+    ast_lifetime: &Lifetime,
+    ghost_lifetime: &Lifetime,
     pinned: bool,
 ) -> syn::Result<TokenStream2> {
     let visitor_trait = mode.visitor_trait();
     let node_trait = mode.node_trait();
     let visit = mode.visit_method();
     let visit_children = mode.visit_children_method();
+    let context = format_ident!(
+        "{}",
+        if matches!(mode, VisitMode::Read) {
+            "VisitContext"
+        } else {
+            "VisitMutContext"
+        }
+    );
+    let context_reference = if matches!(mode, VisitMode::Read) {
+        quote!(&)
+    } else {
+        quote!(&mut)
+    };
     let callback = format_ident!("visit_{}", name.to_string().to_case(Case::Snake));
     let body = visit_data(mode, data)?;
-    let impl_generics = impl_generics(generics, lifetime, &node_trait);
+    let impl_generics = impl_generics(generics, ast_lifetime, ghost_lifetime, &node_trait);
     let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
     let (_, type_generics, _) = generics.split_for_impl();
 
     if matches!(mode, VisitMode::Mut) && pinned {
         Ok(quote! {
             #[allow(clippy::match_same_arms, clippy::needless_borrow, unused_variables)]
-            impl #impl_generics crate::#node_trait<#lifetime>
+            impl #impl_generics crate::#node_trait<#ast_lifetime, #ghost_lifetime>
                 for ::core::pin::Pin<&mut #name #type_generics>
                 #where_clause
             {
                 #[inline]
-                fn #visit<VisitorT: ?Sized + crate::#visitor_trait<#lifetime>>(
+                fn #visit<VisitorT: ?Sized + crate::#visitor_trait<#ast_lifetime, #ghost_lifetime>>(
                     &mut self,
                     visitor: &mut VisitorT,
+                    cx: &mut crate::VisitMutContext<'_, #ghost_lifetime>,
                 ) {
-                    visitor.#callback(self.as_mut());
+                    visitor.#callback(self.as_mut(), cx);
                 }
 
-                fn #visit_children<VisitorT: ?Sized + crate::#visitor_trait<#lifetime>>(
+                fn #visit_children<VisitorT: ?Sized + crate::#visitor_trait<#ast_lifetime, #ghost_lifetime>>(
                     &mut self,
                     visitor: &mut VisitorT,
+                    cx: &mut crate::VisitMutContext<'_, #ghost_lifetime>,
                 ) {
                     visitor.enter_node(crate::AstType::#name);
                     // SAFETY: traversal mutates fields without moving the pinned node.
@@ -207,18 +225,22 @@ fn expand_visit_mode(
         let reference = mode.reference();
         Ok(quote! {
             #[allow(clippy::match_same_arms, clippy::needless_borrow, unused_variables)]
-            impl #impl_generics crate::#node_trait<#lifetime> for #name #type_generics #where_clause {
+            impl #impl_generics crate::#node_trait<#ast_lifetime, #ghost_lifetime>
+                for #name #type_generics #where_clause
+            {
                 #[inline]
-                fn #visit<VisitorT: ?Sized + crate::#visitor_trait<#lifetime>>(
+                fn #visit<VisitorT: ?Sized + crate::#visitor_trait<#ast_lifetime, #ghost_lifetime>>(
                     #reference self,
                     visitor: &mut VisitorT,
+                    cx: #context_reference crate::#context<'_, #ghost_lifetime>,
                 ) {
-                    visitor.#callback(self);
+                    visitor.#callback(self, cx);
                 }
 
-                fn #visit_children<VisitorT: ?Sized + crate::#visitor_trait<#lifetime>>(
+                fn #visit_children<VisitorT: ?Sized + crate::#visitor_trait<#ast_lifetime, #ghost_lifetime>>(
                     #reference self,
                     visitor: &mut VisitorT,
+                    cx: #context_reference crate::#context<'_, #ghost_lifetime>,
                 ) {
                     visitor.enter_node(crate::AstType::#name);
                     let node = self;
@@ -230,31 +252,50 @@ fn expand_visit_mode(
     }
 }
 
-fn visitor_lifetime(generics: &Generics) -> syn::Result<Lifetime> {
+fn visitor_lifetimes(generics: &Generics) -> syn::Result<(Lifetime, Lifetime)> {
     let lifetimes = generics.lifetimes().collect::<Vec<_>>();
     match lifetimes.as_slice() {
-        [] => Ok(parse_quote!('a)),
-        [lifetime] => Ok(lifetime.lifetime.clone()),
+        [] => Ok((parse_quote!('a), parse_quote!('ghost))),
+        [lifetime] => Ok((lifetime.lifetime.clone(), parse_quote!('ghost))),
+        [ast, ghost] if ghost.lifetime.ident == "ghost" => {
+            Ok((ast.lifetime.clone(), ghost.lifetime.clone()))
+        }
         _ => Err(syn::Error::new(
             generics.span(),
-            "Visit supports AST nodes with at most one lifetime parameter",
+            "Visit supports an AST lifetime and an optional `'ghost` lifetime",
         )),
     }
 }
 
-fn impl_generics(generics: &Generics, lifetime: &Lifetime, node_trait: &Ident) -> Generics {
+fn impl_generics(
+    generics: &Generics,
+    ast_lifetime: &Lifetime,
+    ghost_lifetime: &Lifetime,
+    node_trait: &Ident,
+) -> Generics {
     let mut impl_generics = generics.clone();
     if generics.lifetimes().next().is_none() {
         impl_generics
             .params
-            .insert(0, GenericParam::Lifetime(parse_quote!(#lifetime)));
+            .insert(0, GenericParam::Lifetime(parse_quote!(#ast_lifetime)));
+    }
+    if !generics
+        .lifetimes()
+        .any(|lifetime| lifetime.lifetime.ident == ghost_lifetime.ident)
+    {
+        impl_generics.params.insert(
+            usize::from(generics.lifetimes().next().is_some()),
+            GenericParam::Lifetime(parse_quote!(#ghost_lifetime)),
+        );
     }
     for type_parameter in generics.type_params() {
         let ident = &type_parameter.ident;
         impl_generics
             .make_where_clause()
             .predicates
-            .push(parse_quote!(#ident: crate::#node_trait<#lifetime>));
+            .push(parse_quote!(
+                #ident: crate::#node_trait<#ast_lifetime, #ghost_lifetime>
+            ));
     }
     impl_generics
 }
@@ -388,7 +429,7 @@ fn visit_field(
         attributes.with.as_ref()
     };
     if let Some(custom) = custom {
-        return Ok(quote!(#custom(#expression, visitor);));
+        return Ok(quote!(#custom(#expression, visitor, cx);));
     }
     visit_type(mode, &field.ty, expression, counter)
 }
@@ -401,7 +442,7 @@ fn visit_type(
 ) -> syn::Result<TokenStream2> {
     match ty {
         Type::Reference(reference) if matches!(&*reference.elem, Type::Path(path) if path.path.is_ident("str")) => {
-            Ok(quote!(visitor.visit_str(#expression);))
+            Ok(quote!(visitor.visit_str(#expression, cx);))
         }
         Type::Reference(reference) => visit_type(mode, &reference.elem, expression, counter),
         Type::Paren(paren) => visit_type(mode, &paren.elem, expression, counter),
@@ -434,10 +475,21 @@ fn visit_type(
             };
             let name = segment.ident.to_string();
             if name == "Pin" {
-                let Some(Type::Path(box_path)) = first_type_argument(&segment.arguments) else {
+                let Some(pin_target) = first_type_argument(&segment.arguments) else {
+                    return Err(syn::Error::new(segment.span(), "expected a Pin target"));
+                };
+                if let Type::Reference(reference) = pin_target {
+                    return visit_type(
+                        mode,
+                        &reference.elem,
+                        quote!((#expression).as_ref()),
+                        counter,
+                    );
+                }
+                let Type::Path(box_path) = pin_target else {
                     return Err(syn::Error::new(
-                        segment.span(),
-                        "Visit only supports Pin<Box<T>> fields",
+                        pin_target.span(),
+                        "Visit only supports Pin<Box<T>> and Pin<&T> fields",
                     ));
                 };
                 let Some(box_segment) = box_path.path.segments.last() else {
@@ -487,13 +539,43 @@ fn visit_type(
                 let iterator = mode.iterator();
                 let inner = visit_type(mode, inner_ty, quote!(#binding), counter)?;
                 Ok(quote!(for #binding in (#expression).#iterator() { #inner }))
+            } else if name == "GhostCell" {
+                let Some(_inner_ty) = first_type_argument(&segment.arguments) else {
+                    return Err(syn::Error::new(
+                        segment.span(),
+                        "expected a GhostCell value type",
+                    ));
+                };
+                let node_trait = mode.node_trait();
+                let visit = mode.visit_method();
+                Ok(quote! {
+                    cx.with_cell(#expression, |value, cx| {
+                        crate::#node_trait::#visit(value, visitor, cx);
+                    });
+                })
+            } else if name == "Ref" {
+                if matches!(mode, VisitMode::Read) {
+                    Ok(quote! {
+                        cx.with_ref(*#expression, |value, cx| {
+                            crate::Visit::visit(
+                                value.get_ref(),
+                                visitor,
+                                cx,
+                            );
+                        });
+                    })
+                } else {
+                    Ok(quote! {
+                        cx.visit_ref(*#expression, visitor);
+                    })
+                }
             } else if generated_visit_aliases::VISIT_ALIASES.contains(&name.as_str()) {
                 let method = format_ident!("visit_{}", name.to_case(Case::Snake));
-                Ok(quote!(visitor.#method(#expression);))
+                Ok(quote!(visitor.#method(#expression, cx);))
             } else {
                 let node_trait = mode.node_trait();
                 let visit = mode.visit_method();
-                Ok(quote!(crate::#node_trait::#visit(#expression, visitor);))
+                Ok(quote!(crate::#node_trait::#visit(#expression, visitor, cx);))
             }
         }
         _ => Err(syn::Error::new(
@@ -708,8 +790,10 @@ mod tests {
         };
 
         let expansion = expand_visit(input).unwrap().to_string();
-        assert!(expansion.contains("crate :: Visit < 'a >"));
-        assert!(expansion.contains("crate :: VisitMut < 'a >"));
+        assert!(expansion.contains("crate :: Visit < 'a , 'ghost >"));
+        assert!(expansion.contains("crate :: VisitMut < 'a , 'ghost >"));
+        assert!(expansion.contains("VisitContext < '_ , 'ghost >"));
+        assert!(expansion.contains("VisitMutContext < '_ , 'ghost >"));
         assert!(expansion.contains("get_unchecked_mut"));
         assert!(expansion.contains("node . child"));
         assert!(!expansion.contains("node . marker"));

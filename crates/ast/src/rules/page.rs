@@ -29,16 +29,16 @@ pub enum PagePseudoClass {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PageRule<'a> {
-    pub declarations: DeclarationBlock<'a>,
+pub struct PageRule<'a, 'ghost> {
+    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
     pub span: Span,
-    pub rules: Vec<'a, PageMarginRule<'a>>,
+    pub rules: Vec<'a, PageMarginRule<'a, 'ghost>>,
     pub selectors: Vec<'a, PageSelector<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PageMarginRule<'a> {
-    pub declarations: DeclarationBlock<'a>,
+pub struct PageMarginRule<'a, 'ghost> {
+    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
     pub span: Span,
     pub margin_box: PageMarginBox,
 }

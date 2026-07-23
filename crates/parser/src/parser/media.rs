@@ -1,12 +1,12 @@
 use super::{length::parse_length_unit, stylesheet::span_from, values::collect_tokens};
 use crate::prelude::*;
 
-pub(super) fn parse_import<'i>(
+pub(super) fn parse_import<'i, 'ghost>(
     prelude: &'i str,
     allocator: &'i Allocator,
     start: &ParserState,
     end: SourcePosition,
-) -> Result<CssRule<'i>, ParseError<'i, ParserError<'i>>> {
+) -> Result<CssRule<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
     let mut input = ParserInput::new(prelude, allocator);
     let mut parser = Parser::new(&mut input);
     let url = parser.expect_url_or_string()?;

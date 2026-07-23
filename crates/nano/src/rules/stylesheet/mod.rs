@@ -10,8 +10,8 @@ mod url;
 
 use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{
-    EnvironmentVariable, Function, FunctionReplacement, KnownFunction, LengthUnit, StyleSheet,
-    Token, TokenOrValue, Unit, Variable, match_ignore_ascii_case,
+    EnvironmentVariable, Function, FunctionReplacement, KnownFunction, LengthUnit, Token,
+    TokenOrValue, Unit, Variable, match_ignore_ascii_case,
 };
 
 use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlags};
@@ -19,15 +19,6 @@ use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlag
 pub(crate) use adjacent::merge_adjacent_style_rules;
 pub(crate) use declaration_block::DeclarationBlockMinifier;
 pub(crate) use url::normalize_url_text;
-
-impl Minify for StyleSheet<'_> {
-    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        crate::minify_style_sheet(self, cx);
-    }
-}
 
 fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     match value {

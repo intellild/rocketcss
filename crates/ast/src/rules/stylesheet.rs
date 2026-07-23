@@ -7,18 +7,18 @@ use std::{marker::PhantomPinned, pin::Pin};
 pub struct DefaultAtRule;
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct StyleSheet<'a> {
+pub struct StyleSheet<'a, 'ghost> {
     pub license_comments: Vec<'a, &'a str>,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
     pub source_map_urls: Vec<'a, Option<&'a str>>,
     pub sources: Vec<'a, &'a str>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct MediaRule<'a> {
+pub struct MediaRule<'a, 'ghost> {
     pub span: Span,
     pub query: MediaList<'a>,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -398,19 +398,19 @@ pub struct ImportRule<'a> {
 
 #[derive(Debug, Visit)]
 #[visit(pinned)]
-pub struct StyleRule<'a> {
-    pub declarations: DeclarationBlock<'a>,
+pub struct StyleRule<'a, 'ghost> {
+    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
     pub selectors: SelectorList<'a>,
     pub vendor_prefix: VendorPrefix,
     #[visit(skip)]
-    previous_merged: Option<Ref<'a, StyleRule<'a>>>,
+    previous_merged: Option<Ref<'a, 'ghost, StyleRule<'a, 'ghost>>>,
     #[visit(skip)]
     _pin: PhantomPinned,
 }
 
-impl PartialEq for StyleRule<'_> {
+impl PartialEq for StyleRule<'_, '_> {
     fn eq(&self, other: &Self) -> bool {
         self.declarations == other.declarations
             && self.span == other.span
@@ -420,12 +420,12 @@ impl PartialEq for StyleRule<'_> {
     }
 }
 
-impl<'a> StyleRule<'a> {
+impl<'a, 'ghost> StyleRule<'a, 'ghost> {
     #[inline]
     pub fn new(
-        declarations: DeclarationBlock<'a>,
+        declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
         span: Span,
-        rules: Vec<'a, CssRule<'a>>,
+        rules: Vec<'a, CssRule<'a, 'ghost>>,
         selectors: SelectorList<'a>,
         vendor_prefix: VendorPrefix,
     ) -> Self {
@@ -441,31 +441,28 @@ impl<'a> StyleRule<'a> {
     }
 
     #[inline]
-    pub fn previous_merged(&self) -> Option<Ref<'a, StyleRule<'a>>> {
+    pub fn previous_merged(&self) -> Option<Ref<'a, 'ghost, StyleRule<'a, 'ghost>>> {
         self.previous_merged
     }
 
     #[inline]
-    pub fn set_previous_merged(mut self: Pin<&mut Self>, previous: Option<Ref<'a, StyleRule<'a>>>) {
+    pub fn set_previous_merged(
+        mut self: Pin<&mut Self>,
+        previous: Option<Ref<'a, 'ghost, StyleRule<'a, 'ghost>>>,
+    ) {
         // SAFETY: assigning the link does not move the pinned style rule.
         unsafe { self.as_mut().get_unchecked_mut() }.previous_merged = previous;
     }
 
     #[inline]
-    pub fn declarations_mut(self: Pin<&mut Self>) -> &mut DeclarationBlock<'a> {
-        // SAFETY: DeclarationBlock is Unpin and remains stored in place.
-        &mut unsafe { self.get_unchecked_mut() }.declarations
-    }
-
-    #[inline]
-    pub fn rules_mut(self: Pin<&mut Self>) -> &mut Vec<'a, CssRule<'a>> {
-        // SAFETY: the rules vector may move its elements, but not the pinned owner.
+    pub fn rules_mut(self: Pin<&mut Self>) -> &mut Vec<'a, CssRule<'a, 'ghost>> {
+        // SAFETY: mutating the vector does not move its pinned owner.
         &mut unsafe { self.get_unchecked_mut() }.rules
     }
 
     #[inline]
     pub fn selectors_mut(self: Pin<&mut Self>) -> &mut SelectorList<'a> {
-        // SAFETY: the selector vector may move its elements, but not the pinned owner.
+        // SAFETY: mutating the vector does not move its pinned owner.
         &mut unsafe { self.get_unchecked_mut() }.selectors
     }
 }

@@ -3,29 +3,34 @@ use super::*;
 #[test]
 fn removes_unparsed_selectors_from_mixed_selector_lists() {
     let allocator = Allocator::new();
-    let mut stylesheet = parse(
-        ".valid, (font-[family-name:var(--font-*)]), #also-valid { color: red }",
-        &allocator,
-        ParserOptions {
-            error_recovery: true,
-            ..ParserOptions::default()
-        },
-    )
-    .unwrap();
-    let stats = minify(&mut stylesheet, MinifyOptions::default());
-    let CssRule::Style(rule) = &stylesheet.rules[0] else {
-        panic!("expected style rule")
-    };
-    assert!(matches!(rule.selectors[0], Selector::Parsed(_)));
-    assert!(matches!(rule.selectors[1], Selector::Tombstone));
-    assert!(matches!(rule.selectors[2], Selector::Parsed(_)));
-    assert_eq!(stats.values_normalized, 1);
-    assert_eq!(
-        stylesheet
-            .to_css_string(PrinterOptions { prettify: false })
-            .unwrap(),
-        ".valid,#also-valid{color:red}"
-    );
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            ".valid, (font-[family-name:var(--font-*)]), #also-valid { color: red }",
+            &allocator,
+            &mut token,
+            ParserOptions {
+                error_recovery: true,
+                ..ParserOptions::default()
+            },
+        )
+        .unwrap();
+        let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let rule = rule.get(&token);
+        let rule = rule.get_ref();
+        assert!(matches!(rule.selectors[0], Selector::Parsed(_)));
+        assert!(matches!(rule.selectors[1], Selector::Tombstone));
+        assert!(matches!(rule.selectors[2], Selector::Parsed(_)));
+        assert_eq!(stats.values_normalized, 1);
+        assert_eq!(
+            stylesheet
+                .to_css_string(&token, PrinterOptions { prettify: false })
+                .unwrap(),
+            ".valid,#also-valid{color:red}"
+        );
+    });
 }
 
 #[test]

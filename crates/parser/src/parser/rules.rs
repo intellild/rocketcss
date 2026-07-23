@@ -1,5 +1,4 @@
 use super::{
-    css_rule::parse_style_contents,
     properties::parse_declaration,
     selector::parse_selector_list,
     stylesheet::{check_depth, recover_declaration, span_from},
@@ -237,12 +236,12 @@ pub(super) fn parse_keyframes_name<'i>(
     Ok(name)
 }
 
-pub(super) fn parse_keyframe_list<'i, 't>(
+pub(super) fn parse_keyframe_list<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, Keyframe<'i>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, Keyframe<'i, 'ghost>>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut keyframes = allocator.vec();
     loop {
@@ -267,7 +266,7 @@ pub(super) fn parse_keyframe_list<'i, 't>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         keyframes.push(Keyframe {
-            declarations,
+            declarations: allocator.alloc_ghost(declarations),
             selectors,
         });
     }
@@ -309,10 +308,40 @@ pub(super) fn parse_declaration_block<'i, 't>(
     options: &ParserOptions<'i>,
     depth: usize,
 ) -> Result<DeclarationBlock<'i>, ParseError<'i, ParserError<'i>>> {
-    let (declarations, rules) = parse_style_contents(input, allocator, options, depth)?;
-    if !rules.is_empty() {
-        return Err(input.new_custom_error(ParserError::InvalidDeclaration));
+    check_depth(input, depth)?;
+    let mut declarations = DeclarationBlock::new(allocator);
+
+    loop {
+        let start = input.state();
+        let token = match input.next() {
+            Ok(token) => token.clone(),
+            Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
+            Err(error) => return Err(error.into()),
+        };
+        if matches!(token, ValueToken::Semicolon) {
+            continue;
+        }
+
+        let result = match token {
+            ValueToken::Ident(name) => {
+                input.expect_colon()?;
+                parse_declaration(input, allocator, name, depth)
+            }
+            _ => Err(input.new_custom_error(ParserError::InvalidDeclaration)),
+        };
+
+        match result {
+            Ok((declaration, important)) => {
+                declarations.push(declaration, important);
+            }
+            Err(_) if options.error_recovery => {
+                input.reset(&start);
+                recover_declaration(input);
+            }
+            Err(error) => return Err(error),
+        }
     }
+
     Ok(declarations)
 }
 
@@ -462,12 +491,15 @@ pub(super) fn parse_page_selectors<'i>(
     Ok(selectors)
 }
 
-pub(super) fn parse_page_body<'i, 't>(
+pub(super) fn parse_page_body<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<(DeclarationBlock<'i>, Vec<'i, PageMarginRule<'i>>), ParseError<'i, ParserError<'i>>> {
+) -> Result<
+    (DeclarationBlock<'i>, Vec<'i, PageMarginRule<'i, 'ghost>>),
+    ParseError<'i, ParserError<'i>>,
+> {
     let mut declarations = DeclarationBlock::new(allocator);
     let mut rules = allocator.vec();
 
@@ -502,7 +534,7 @@ pub(super) fn parse_page_body<'i, 't>(
                     parse_declaration_block(input, allocator, options, depth + 1)
                 })?;
                 Ok(Some(PageMarginRule {
-                    declarations,
+                    declarations: allocator.alloc_ghost(declarations),
                     span: span_from(&start, input.position()),
                     margin_box,
                 }))
