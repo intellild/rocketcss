@@ -5,6 +5,7 @@ use rocketcss_parser::{ParserOptions, parse};
 
 mod declarations;
 mod nesting;
+mod real_world;
 mod review_findings;
 mod state_machine;
 
