@@ -88,14 +88,20 @@ impl<T: ?Sized> fmt::Debug for GhostCell<'_, T> {
     }
 }
 
-impl<T: ?Sized> PartialEq for GhostCell<'_, T> {
+impl<T: PartialEq + ?Sized> PartialEq for GhostCell<'_, T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.value.get(), other.value.get())
+        if !std::ptr::eq(self.value.get(), other.value.get()) {
+            return false;
+        }
+        unsafe {
+            (*self.value.get()).eq(&*other.value.get())
+        }
+
     }
 }
 
-impl<T: ?Sized> Eq for GhostCell<'_, T> {}
+impl<T: Eq + ?Sized> Eq for GhostCell<'_, T> {}
 
 impl<'ghost, T> GhostCell<'ghost, T> {
     #[inline]
