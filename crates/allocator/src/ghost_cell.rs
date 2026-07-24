@@ -94,10 +94,8 @@ impl<T: PartialEq + ?Sized> PartialEq for GhostCell<'_, T> {
         if !std::ptr::eq(self.value.get(), other.value.get()) {
             return false;
         }
-        unsafe {
-            (*self.value.get()).eq(&*other.value.get())
-        }
-
+        // TODO: fix GhostCell Eq
+        unsafe { (*self.value.get()).eq(&*other.value.get()) }
     }
 }
 
