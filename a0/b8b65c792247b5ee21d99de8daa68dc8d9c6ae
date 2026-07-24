@@ -1,0 +1,25 @@
+crates/ast/src/rules/at_rule.rs
+  s_a0b85263ca7e1c::t_34c9aa82d10f46 11,38,43,49,92
+crates/macros/src/lib.rs
+  s_a0b85263ca7e1c::t_29532b8264b98f 524-554
+tasks/ast_tools/src/main.rs
+  s_a0b85263ca7e1c::t_59caa05eff1584 869-892
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a0b8b65c792247b5ee21d99de8daa68dc8d9c6ae",
+  "prompts": {},
+  "sessions": {
+    "s_a0b85263ca7e1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8370-eae5-7313-a85a-741d79036117",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
