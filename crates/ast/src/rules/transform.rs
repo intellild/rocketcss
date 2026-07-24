@@ -31,8 +31,8 @@ pub struct Matrix3DForFloat {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Rotate<'a> {
-    pub angle: Box<'a, Angle>,
+pub struct Rotate {
+    pub angle: Angle,
     pub x: f32,
     pub y: f32,
     pub z: f32,

@@ -29,10 +29,10 @@ fn merge_children<'ast, 'scratch>(
 {
     let children = match rule {
         CssRule::Media(rule) => Some(&mut rule.rules),
-        CssRule::Style(rule) => Some(&mut rule.rules),
+        CssRule::Style(rule) => Some(rule.as_mut().rules_mut()),
         CssRule::Supports(rule) => Some(&mut rule.rules),
         CssRule::MozDocument(rule) => Some(&mut rule.rules),
-        CssRule::Nesting(rule) => Some(&mut rule.style.rules),
+        CssRule::Nesting(rule) => Some(rule.style.as_mut().rules_mut()),
         CssRule::LayerBlock(rule) => Some(&mut rule.rules),
         CssRule::Container(rule) => Some(&mut rule.rules),
         CssRule::Scope(rule) => Some(&mut rule.rules),
@@ -72,7 +72,7 @@ fn can_merge(previous: &CssRule<'_>, current: &CssRule<'_>) -> bool {
         && previous.vendor_prefix == current.vendor_prefix
         && has_live_selector(previous)
         && has_live_selector(current)
-        && current.declarations.previous_merged().is_none()
+        && current.previous_merged().is_none()
         && equal_live_selectors(&previous.selectors, &current.selectors)
 }
 
@@ -96,11 +96,15 @@ fn merge_run<'ast, 'scratch>(
     'ast: 'scratch,
 {
     let mut blocks = minifier.allocator().vec();
-    for rule in run.iter() {
+    let mut styles = minifier.allocator().vec();
+    for rule in run.iter_mut() {
         let CssRule::Style(style) = rule else {
             unreachable!("eligible runs contain only style rules")
         };
-        blocks.push(Ref::from_pinned_box(&style.declarations));
+        styles.push(Ref::from_pinned_box(style));
+        blocks.push(Ref::from_pin(std::pin::Pin::new(
+            style.as_mut().declarations_mut(),
+        )));
     }
     minifier.minify_sequence(&mut blocks, cx);
 
@@ -110,13 +114,10 @@ fn merge_run<'ast, 'scratch>(
             unreachable!("eligible runs contain only style rules")
         };
         if index > 0 {
-            style
-                .declarations
-                .as_mut()
-                .set_previous_merged(Some(blocks[index - 1]));
+            style.as_mut().set_previous_merged(Some(styles[index - 1]));
         }
         if index + 1 < run_len {
-            for selector in style.selectors.iter_mut() {
+            for selector in style.as_mut().selectors_mut().iter_mut() {
                 *selector = Selector::Tombstone;
             }
         }

@@ -4,7 +4,7 @@ use rocketcss_allocator::{boxed::Box, vec::Vec};
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Length<'a> {
-    Value(Box<'a, LengthValue>),
+    Value(LengthValue),
     Calc(Box<'a, Calc<'a, Length<'a>>>),
 }
 

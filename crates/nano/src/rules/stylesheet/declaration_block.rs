@@ -333,9 +333,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         if block.len() < 2 {
             return;
         }
-        // SAFETY: the reference is confined to this call and the block is not
-        // moved while declaration IR is running.
-        let mut block = Ref::from_pin(unsafe { Pin::new_unchecked(block) });
+        let mut block = Ref::from_pin(Pin::new(block));
         self.minify_sequence(std::slice::from_mut(&mut block), cx);
     }
 
@@ -1054,10 +1052,10 @@ fn clone_simple_token_or_value<'a>(
         {
             Some(TokenOrValue::Token(allocator.boxed((**token).clone())))
         }
-        TokenOrValue::Length(length) => Some(TokenOrValue::Length(allocator.boxed(LengthValue {
+        TokenOrValue::Length(length) => Some(TokenOrValue::Length(LengthValue {
             unit: length.unit,
             value: length.value,
-        }))),
+        })),
         TokenOrValue::DashedIdent(value) => Some(TokenOrValue::DashedIdent(value)),
         _ => None,
     }

@@ -1,8 +1,8 @@
 use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum FontWeight<'a> {
-    Absolute(Box<'a, AbsoluteFontWeight>),
+pub enum FontWeight {
+    Absolute(AbsoluteFontWeight),
     Bolder,
     Lighter,
 }
@@ -161,10 +161,10 @@ impl<'a> EqIgnoringTombstones for Vec<'a, FontFamily<'a>> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum FontStyle<'a> {
+pub enum FontStyle {
     Normal,
     Italic,
-    Oblique(Box<'a, Angle>),
+    Oblique(Angle),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

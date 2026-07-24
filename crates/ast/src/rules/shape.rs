@@ -33,13 +33,13 @@ pub struct Point<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Mask<'a> {
-    pub clip: Box<'a, MaskClip>,
+    pub clip: MaskClip,
     pub composite: MaskComposite,
     pub image: Box<'a, Image<'a>>,
     pub mode: MaskMode,
     pub origin: GeometryBox,
     pub position: Box<'a, Position<'a>>,
-    pub repeat: Box<'a, BackgroundRepeat>,
+    pub repeat: BackgroundRepeat,
     pub size: Box<'a, BackgroundSize<'a>>,
 }
 
@@ -47,7 +47,7 @@ pub struct Mask<'a> {
 pub struct MaskBorder<'a> {
     pub mode: MaskBorderMode,
     pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
-    pub repeat: Box<'a, BorderImageRepeat>,
+    pub repeat: BorderImageRepeat,
     pub slice: Box<'a, BorderImageSlice<'a>>,
     pub source: Box<'a, Image<'a>>,
     pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,

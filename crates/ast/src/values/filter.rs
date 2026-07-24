@@ -9,14 +9,14 @@ pub enum FilterList<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum Filter<'a> {
     Blur(Box<'a, Length<'a>>),
-    Brightness(Box<'a, NumberOrPercentage>),
-    Contrast(Box<'a, NumberOrPercentage>),
-    Grayscale(Box<'a, NumberOrPercentage>),
-    HueRotate(Box<'a, Angle>),
-    Invert(Box<'a, NumberOrPercentage>),
-    Opacity(Box<'a, NumberOrPercentage>),
-    Saturate(Box<'a, NumberOrPercentage>),
-    Sepia(Box<'a, NumberOrPercentage>),
+    Brightness(NumberOrPercentage),
+    Contrast(NumberOrPercentage),
+    Grayscale(NumberOrPercentage),
+    HueRotate(Angle),
+    Invert(NumberOrPercentage),
+    Opacity(NumberOrPercentage),
+    Saturate(NumberOrPercentage),
+    Sepia(NumberOrPercentage),
     DropShadow(Box<'a, DropShadow<'a>>),
     Url(Box<'a, Url<'a>>),
 }

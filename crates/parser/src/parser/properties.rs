@@ -85,9 +85,7 @@ fn try_parse_typed_declaration<'i, 't>(
         PropertyId::Visibility => {
             parse!(|input| Visibility::parse(input).map(Declaration::Visibility))
         }
-        PropertyId::Display => parse!(|input| {
-            Display::parse(input).map(|value| Declaration::Display(allocator.boxed(value)))
-        }),
+        PropertyId::Display => parse!(|input| { Display::parse(input).map(Declaration::Display) }),
         PropertyId::FontFamily => {
             parse!(|input| parse_font_family_list(input, depth).map(Declaration::FontFamily))
         }
@@ -102,9 +100,8 @@ fn try_parse_typed_declaration<'i, 't>(
                     *prefix,
                 ));
             }
-            ColumnWidth::parse(input).map(|value| {
-                Declaration::ColumnWidth(CSSWideOr::Value(allocator.boxed(value)), *prefix)
-            })
+            ColumnWidth::parse(input)
+                .map(|value| Declaration::ColumnWidth(CSSWideOr::Value(value), *prefix))
         }),
         PropertyId::ColumnCount(prefix) => parse!(|input| {
             if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {

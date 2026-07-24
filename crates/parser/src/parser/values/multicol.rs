@@ -152,7 +152,7 @@ impl<'i> Parse<'i> for Columns<'i> {
         }
         Ok(Self {
             count: count.unwrap_or(ColumnCount::Auto),
-            width: allocator.boxed(width.unwrap_or(ColumnWidth::Auto)),
+            width: width.unwrap_or(ColumnWidth::Auto),
         })
     }
 }

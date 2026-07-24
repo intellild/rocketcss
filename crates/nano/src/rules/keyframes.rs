@@ -2,7 +2,7 @@ use rocketcss_ast::KeyframeSelector;
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
-impl Minify for KeyframeSelector<'_> {
+impl Minify for KeyframeSelector {
     fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
         Self: 'cx,

@@ -59,8 +59,8 @@ pub enum AnimationTimeline<'a> {
     Auto,
     None,
     DashedIdent(&'a str),
-    Scroll(Box<'a, ScrollTimeline>),
-    View(Box<'a, ViewTimeline<'a>>),
+    Scroll(ScrollTimeline),
+    View(ViewTimeline<'a>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

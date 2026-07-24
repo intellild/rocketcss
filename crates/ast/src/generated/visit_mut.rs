@@ -240,7 +240,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_web_kit_gradient_point(&mut self, node: &mut WebKitGradientPoint<'a>) {
+    fn visit_web_kit_gradient_point(&mut self, node: &mut WebKitGradientPoint) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -431,7 +431,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector<'a>) {
+    fn visit_keyframe_selector(&mut self, node: &mut KeyframeSelector) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -451,7 +451,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_aspect_ratio(&mut self, node: &mut AspectRatio<'a>) {
+    fn visit_aspect_ratio(&mut self, node: &mut AspectRatio) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -479,15 +479,15 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_place_content(&mut self, node: &mut PlaceContent<'a>) {
+    fn visit_place_content(&mut self, node: &mut PlaceContent) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_place_self(&mut self, node: &mut PlaceSelf<'a>) {
+    fn visit_place_self(&mut self, node: &mut PlaceSelf) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_place_items(&mut self, node: &mut PlaceItems<'a>) {
+    fn visit_place_items(&mut self, node: &mut PlaceItems) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -727,12 +727,12 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_style_rule(&mut self, node: &mut StyleRule<'a>) {
-        VisitMut::visit_mut_children(node, self);
+    fn visit_style_rule(&mut self, mut node: Pin<&mut StyleRule<'a>>) {
+        VisitMut::visit_mut_children(&mut node, self);
     }
     #[inline]
-    fn visit_declaration_block(&mut self, mut node: Pin<&mut DeclarationBlock<'a>>) {
-        VisitMut::visit_mut_children(&mut node, self);
+    fn visit_declaration_block(&mut self, node: &mut DeclarationBlock<'a>) {
+        VisitMut::visit_mut_children(node, self);
     }
     #[inline]
     fn visit_text_transform(&mut self, node: &mut TextTransform) {
@@ -767,7 +767,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_rotate(&mut self, node: &mut Rotate<'a>) {
+    fn visit_rotate(&mut self, node: &mut Rotate) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -1031,7 +1031,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_display(&mut self, node: &mut Display<'a>) {
+    fn visit_display(&mut self, node: &mut Display) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -1153,7 +1153,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_font_weight(&mut self, node: &mut FontWeight<'a>) {
+    fn visit_font_weight(&mut self, node: &mut FontWeight) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -1185,7 +1185,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_font_style(&mut self, node: &mut FontStyle<'a>) {
+    fn visit_font_style(&mut self, node: &mut FontStyle) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -1249,7 +1249,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_line_direction(&mut self, node: &mut LineDirection<'a>) {
+    fn visit_line_direction(&mut self, node: &mut LineDirection) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
@@ -1300,7 +1300,7 @@ pub trait VisitorMut<'a> {
     #[inline]
     fn visit_web_kit_gradient_point_component<S>(
         &mut self,
-        node: &mut WebKitGradientPointComponent<'a, S>,
+        node: &mut WebKitGradientPointComponent<S>,
     ) where
         S: VisitMut<'a>,
     {
@@ -1593,7 +1593,7 @@ pub trait VisitorMut<'a> {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]
-    fn visit_scale(&mut self, node: &mut Scale<'a>) {
+    fn visit_scale(&mut self, node: &mut Scale) {
         VisitMut::visit_mut_children(node, self);
     }
     #[inline]

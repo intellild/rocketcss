@@ -1,12 +1,13 @@
 use super::*;
 
 use rocketcss_allocator::boxed::Box;
+use std::pin::Pin;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum CssRule<'a> {
     Media(Box<'a, MediaRule<'a>>),
     Import(Box<'a, ImportRule<'a>>),
-    Style(Box<'a, StyleRule<'a>>),
+    Style(Pin<Box<'a, StyleRule<'a>>>),
     Keyframes(Box<'a, KeyframesRule<'a>>),
     FontFace(Box<'a, FontFaceRule<'a>>),
     FontPaletteValues(Box<'a, FontPaletteValuesRule<'a>>),

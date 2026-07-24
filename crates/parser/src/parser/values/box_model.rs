@@ -1,8 +1,7 @@
 use crate::prelude::*;
 
-impl<'i> Parse<'i> for Display<'i> {
+impl<'i> Parse<'i> for Display {
     fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let ident = input.expect_ident()?;
         let (outside, inside, is_list_item) = match_ignore_ascii_case!(
             ident,
@@ -31,7 +30,7 @@ impl<'i> Parse<'i> for Display<'i> {
             _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
         );
         Ok(Display::Pair {
-            inside: allocator.boxed(inside),
+            inside,
             is_list_item,
             outside,
         })

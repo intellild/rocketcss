@@ -5,7 +5,7 @@ pub enum FontFaceProperty<'a> {
     Source(Vec<'a, Source<'a>>),
     FontFamily(Box<'a, FontFamily<'a>>),
     FontStyle(Box<'a, FontFaceStyle<'a>>),
-    FontWeight(Box<'a, Size2D<'a, FontWeight<'a>>>),
+    FontWeight(Box<'a, Size2D<'a, FontWeight>>),
     FontStretch(Box<'a, Size2D<'a, FontStretch>>),
     UnicodeRange(Vec<'a, UnicodeRange>),
     Custom(Box<'a, CustomProperty<'a>>),
@@ -82,10 +82,10 @@ pub struct Font<'a> {
     pub family: Vec<'a, FontFamily<'a>>,
     pub line_height: Box<'a, LineHeight<'a>>,
     pub size: Box<'a, FontSize<'a>>,
-    pub stretch: Box<'a, FontStretch>,
-    pub style: Box<'a, FontStyle<'a>>,
+    pub stretch: FontStretch,
+    pub style: Box<'a, FontStyle>,
     pub variant_caps: FontVariantCaps,
-    pub weight: Box<'a, FontWeight<'a>>,
+    pub weight: Box<'a, FontWeight>,
 }
 #[derive(Debug, PartialEq, Visit)]
 pub struct FontFaceRule<'a> {

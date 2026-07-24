@@ -1,6 +1,4 @@
 use crate::*;
-use std::pin::Pin;
-
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum PageMarginBox {
     TopLeftCorner,
@@ -32,7 +30,7 @@ pub enum PagePseudoClass {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct PageRule<'a> {
-    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
+    pub declarations: DeclarationBlock<'a>,
     pub span: Span,
     pub rules: Vec<'a, PageMarginRule<'a>>,
     pub selectors: Vec<'a, PageSelector<'a>>,
@@ -40,7 +38,7 @@ pub struct PageRule<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct PageMarginRule<'a> {
-    pub declarations: Pin<Box<'a, DeclarationBlock<'a>>>,
+    pub declarations: DeclarationBlock<'a>,
     pub span: Span,
     pub margin_box: PageMarginBox,
 }

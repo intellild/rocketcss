@@ -72,7 +72,7 @@ impl ToCss for Position<'_> {
     }
 }
 
-impl ToCss for WebKitGradientPoint<'_> {
+impl ToCss for WebKitGradientPoint {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         self.x.to_css(dest)?;
         dest.write_char(' ')?;
@@ -146,7 +146,7 @@ impl ToCss for Background<'_> {
                         && matches!(&**width, LengthPercentageOrAuto::Auto)
             )
             && matches!(
-                &*self.repeat,
+                &self.repeat,
                 BackgroundRepeat {
                     x: BackgroundRepeatKeyword::Repeat,
                     y: BackgroundRepeatKeyword::Repeat,
@@ -211,7 +211,7 @@ impl ToCss for BoxShadow<'_> {
     }
 }
 
-impl ToCss for AspectRatio<'_> {
+impl ToCss for AspectRatio {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if self.auto {
             dest.write_str("auto")?;
@@ -419,7 +419,7 @@ macro_rules! place_pair {
     };
 }
 
-place_pair! { PlaceContent<'_>; PlaceSelf<'_>; PlaceItems<'_> }
+place_pair! { PlaceContent; PlaceSelf; PlaceItems }
 
 impl ToCss for Gap<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
@@ -472,7 +472,7 @@ impl ToCss for ColumnCount {
 
 impl ToCss for Columns<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        let width_is_auto = matches!(&*self.width, ColumnWidth::Auto);
+        let width_is_auto = matches!(&self.width, ColumnWidth::Auto);
         let count_is_auto = matches!(self.count, ColumnCount::Auto);
         if width_is_auto && count_is_auto {
             return dest.write_str("auto");
@@ -733,7 +733,7 @@ impl ToCss for Matrix3DForFloat {
     }
 }
 
-impl ToCss for Rotate<'_> {
+impl ToCss for Rotate {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         write_numbers(&[self.x, self.y, self.z], dest)?;
         dest.write_char(' ')?;
@@ -997,7 +997,7 @@ impl ToCss for FamilyName<'_> {
     }
 }
 
-impl ToCss for KeyframeSelector<'_> {
+impl ToCss for KeyframeSelector {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         match self {
             Self::Percentage(value) => {
@@ -1507,10 +1507,10 @@ fn write_declarations<PrinterT: PrinterTrait>(
     Ok(())
 }
 
-fn declaration_chain_is_output_empty(tail: &DeclarationBlock<'_>) -> bool {
+fn style_rule_chain_is_output_empty(tail: &StyleRule<'_>) -> bool {
     let mut current = tail;
     loop {
-        if !current.is_output_empty() {
+        if !current.declarations.is_output_empty() {
             return false;
         }
         let Some(previous) = current.previous_merged() else {
@@ -1520,22 +1520,22 @@ fn declaration_chain_is_output_empty(tail: &DeclarationBlock<'_>) -> bool {
     }
 }
 
-fn write_declaration_chain<PrinterT: PrinterTrait>(
-    tail: &DeclarationBlock<'_>,
+fn write_style_rule_declaration_chain<PrinterT: PrinterTrait>(
+    tail: &StyleRule<'_>,
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
 ) -> fmt::Result {
-    write_declaration_chain_recursive(tail, dest, last_semicolon).map(|_| ())
+    write_style_rule_declaration_chain_recursive(tail, dest, last_semicolon).map(|_| ())
 }
 
-fn write_declaration_chain_recursive<PrinterT: PrinterTrait>(
-    current: &DeclarationBlock<'_>,
+fn write_style_rule_declaration_chain_recursive<PrinterT: PrinterTrait>(
+    current: &StyleRule<'_>,
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
 ) -> Result<bool, fmt::Error> {
-    let current_is_empty = current.is_output_empty();
+    let current_is_empty = current.declarations.is_output_empty();
     let wrote_previous = if let Some(previous) = current.previous_merged() {
-        write_declaration_chain_recursive(
+        write_style_rule_declaration_chain_recursive(
             previous.get().get_ref(),
             dest,
             if current_is_empty {
@@ -1554,13 +1554,13 @@ fn write_declaration_chain_recursive<PrinterT: PrinterTrait>(
     if wrote_previous {
         dest.new_line()?;
     }
-    write_declarations(current, dest, last_semicolon)?;
+    write_declarations(&current.declarations, dest, last_semicolon)?;
     Ok(true)
 }
 
 impl ToCss for DeclarationBlock<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_declaration_chain(self, dest, LastSemicolon::Omit)
+        write_declarations(self, dest, LastSemicolon::Omit)
     }
 }
 
@@ -1569,7 +1569,7 @@ fn write_declaration_block<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
 ) -> fmt::Result {
     write_block(dest, |dest| {
-        write_declaration_chain(declarations, dest, LastSemicolon::Optional)
+        write_declarations(declarations, dest, LastSemicolon::Optional)
     })
 }
 
@@ -1637,8 +1637,8 @@ impl ToCss for StyleRule<'_> {
         }
         self.selectors.to_css(dest)?;
         write_block(dest, |dest| {
-            write_declaration_chain(
-                &self.declarations,
+            write_style_rule_declaration_chain(
+                self,
                 dest,
                 if self.rules.is_empty() {
                     LastSemicolon::Optional
@@ -1646,7 +1646,7 @@ impl ToCss for StyleRule<'_> {
                     LastSemicolon::Required
                 },
             )?;
-            if !declaration_chain_is_output_empty(&self.declarations) && !self.rules.is_empty() {
+            if !style_rule_chain_is_output_empty(self) && !self.rules.is_empty() {
                 dest.blank_line()?;
             }
             write_rule_list(&self.rules, dest)

@@ -259,7 +259,7 @@ fn parses_typed_media_conditions_and_features() {
     assert_eq!(rule.query.media_queries.len(), 5);
 
     assert!(matches!(
-        rule.query.media_queries[0].condition.as_deref(),
+        rule.query.media_queries[0].condition.as_ref(),
         Some(MediaCondition::Operation {
             operator: Operator::And,
             conditions,
@@ -281,13 +281,13 @@ fn parses_typed_media_conditions_and_features() {
         )
     ));
     assert!(matches!(
-        rule.query.media_queries[1].condition.as_deref(),
+        rule.query.media_queries[1].condition.as_ref(),
         Some(MediaCondition::Not(condition))
             if matches!(
-                &**condition,
+                condition.as_ref(),
                 MediaCondition::Feature(feature)
                     if matches!(
-                        &**feature,
+                        feature.as_ref(),
                         QueryFeature::Boolean {
                             name: MediaFeatureName::Standard(MediaFeatureId::Hover)
                         }
@@ -295,9 +295,9 @@ fn parses_typed_media_conditions_and_features() {
             )
     ));
     assert!(matches!(
-        rule.query.media_queries[2].condition.as_deref(),
+        rule.query.media_queries[2].condition.as_ref(),
         Some(MediaCondition::Feature(feature))
-            if matches!(&**feature, QueryFeature::Interval {
+            if matches!(feature.as_ref(), QueryFeature::Interval {
                 name: MediaFeatureName::Standard(MediaFeatureId::Width),
                 start_operator: MediaFeatureComparison::LessThan,
                 end_operator: MediaFeatureComparison::LessThanEqual,
@@ -309,10 +309,10 @@ fn parses_typed_media_conditions_and_features() {
         MediaType::Screen
     ));
     assert!(matches!(
-        rule.query.media_queries[3].condition.as_deref(),
+        rule.query.media_queries[3].condition.as_ref(),
         Some(MediaCondition::Feature(feature))
             if matches!(
-                &**feature,
+                feature.as_ref(),
                 QueryFeature::Plain {
                     name: MediaFeatureName::Standard(MediaFeatureId::Resolution),
                     value,
@@ -320,10 +320,10 @@ fn parses_typed_media_conditions_and_features() {
             )
     ));
     assert!(matches!(
-        rule.query.media_queries[4].condition.as_deref(),
+        rule.query.media_queries[4].condition.as_ref(),
         Some(MediaCondition::Feature(feature))
             if matches!(
-                &**feature,
+                feature.as_ref(),
                 QueryFeature::Range {
                     name: MediaFeatureName::Standard(MediaFeatureId::Width),
                     operator: MediaFeatureComparison::LessThanEqual,
@@ -941,7 +941,7 @@ fn parses_known_multicol_and_legacy_gap_ast_nodes() {
         Declaration::Columns(CSSWideOr::Value(value), prefix)
             if *prefix == VendorPrefix::NONE
                 && matches!(value.count, ColumnCount::Integer(3))
-                && matches!(&*value.width, ColumnWidth::Length(_))
+                && matches!(&value.width, ColumnWidth::Length(_))
     ));
     assert!(matches!(
         &declarations[2],

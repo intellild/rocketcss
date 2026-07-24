@@ -18,7 +18,7 @@ impl ToCss for MediaList<'_> {
 impl ToCss for MediaQuery<'_> {
     fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
         if let Some(condition) = &self.condition
-            && let MediaCondition::Unknown(tokens) = &**condition
+            && let MediaCondition::Unknown(tokens) = condition
         {
             if matches!(self.qualifier, Some(Qualifier::Not))
                 && matches!(self.media_type, MediaType::All)
@@ -65,7 +65,7 @@ impl ToCss for MediaQuery<'_> {
             }
             let needs_parens = (has_type || self.qualifier.is_some())
                 && matches!(
-                    **condition,
+                    *condition,
                     MediaCondition::Operation {
                         operator: Operator::Or,
                         ..

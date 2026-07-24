@@ -174,7 +174,7 @@ impl<'i> Parse<'i> for Animation<'i> {
         while !input.is_exhausted() {
             if !duration_claimed && let Ok(value) = input.try_parse(Time::parse) {
                 duration_claimed = true;
-                components.push(AnimationComponent::Duration(allocator.boxed(value)));
+                components.push(AnimationComponent::Duration(value));
                 continue;
             }
             if !timing_function_claimed && let Ok(value) = input.try_parse(EasingFunction::parse) {
@@ -184,14 +184,14 @@ impl<'i> Parse<'i> for Animation<'i> {
             }
             if !delay_claimed && let Ok(value) = input.try_parse(Time::parse) {
                 delay_claimed = true;
-                components.push(AnimationComponent::Delay(allocator.boxed(value)));
+                components.push(AnimationComponent::Delay(value));
                 continue;
             }
             if !iteration_count_claimed
                 && let Ok(value) = input.try_parse(AnimationIterationCount::parse)
             {
                 iteration_count_claimed = true;
-                components.push(AnimationComponent::IterationCount(allocator.boxed(value)));
+                components.push(AnimationComponent::IterationCount(value));
                 continue;
             }
             if !direction_claimed && let Ok(value) = input.try_parse(AnimationDirection::parse) {

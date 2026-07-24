@@ -254,8 +254,8 @@ fn mutable_visitor_controls_nested_function_entry_and_exit_order() {
 struct RemoveUnusedClass;
 
 impl<'a> VisitorMut<'a> for RemoveUnusedClass {
-    fn visit_style_rule(&mut self, rule: &mut StyleRule<'a>) {
-        for selector in rule.selectors.iter_mut() {
+    fn visit_style_rule(&mut self, mut rule: std::pin::Pin<&mut StyleRule<'a>>) {
+        for selector in rule.as_mut().selectors_mut().iter_mut() {
             let should_remove = matches!(
                 selector,
                 Selector::Parsed(components)

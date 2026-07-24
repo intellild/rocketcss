@@ -239,7 +239,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_web_kit_gradient_point(&mut self, node: &WebKitGradientPoint<'a>) {
+    fn visit_web_kit_gradient_point(&mut self, node: &WebKitGradientPoint) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -430,7 +430,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_keyframe_selector(&mut self, node: &KeyframeSelector<'a>) {
+    fn visit_keyframe_selector(&mut self, node: &KeyframeSelector) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -450,7 +450,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_aspect_ratio(&mut self, node: &AspectRatio<'a>) {
+    fn visit_aspect_ratio(&mut self, node: &AspectRatio) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -478,15 +478,15 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_place_content(&mut self, node: &PlaceContent<'a>) {
+    fn visit_place_content(&mut self, node: &PlaceContent) {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_place_self(&mut self, node: &PlaceSelf<'a>) {
+    fn visit_place_self(&mut self, node: &PlaceSelf) {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_place_items(&mut self, node: &PlaceItems<'a>) {
+    fn visit_place_items(&mut self, node: &PlaceItems) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -766,7 +766,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_rotate(&mut self, node: &Rotate<'a>) {
+    fn visit_rotate(&mut self, node: &Rotate) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -1030,7 +1030,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_display(&mut self, node: &Display<'a>) {
+    fn visit_display(&mut self, node: &Display) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -1152,7 +1152,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_font_weight(&mut self, node: &FontWeight<'a>) {
+    fn visit_font_weight(&mut self, node: &FontWeight) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -1184,7 +1184,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_font_style(&mut self, node: &FontStyle<'a>) {
+    fn visit_font_style(&mut self, node: &FontStyle) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -1248,7 +1248,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_line_direction(&mut self, node: &LineDirection<'a>) {
+    fn visit_line_direction(&mut self, node: &LineDirection) {
         Visit::visit_children(node, self);
     }
     #[inline]
@@ -1297,10 +1297,8 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_web_kit_gradient_point_component<S>(
-        &mut self,
-        node: &WebKitGradientPointComponent<'a, S>,
-    ) where
+    fn visit_web_kit_gradient_point_component<S>(&mut self, node: &WebKitGradientPointComponent<S>)
+    where
         S: Visit<'a>,
     {
         Visit::visit_children(node, self);
@@ -1589,7 +1587,7 @@ pub trait Visitor<'a> {
         Visit::visit_children(node, self);
     }
     #[inline]
-    fn visit_scale(&mut self, node: &Scale<'a>) {
+    fn visit_scale(&mut self, node: &Scale) {
         Visit::visit_children(node, self);
     }
     #[inline]

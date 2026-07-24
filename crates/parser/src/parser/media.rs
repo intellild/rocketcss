@@ -88,7 +88,7 @@ pub(super) fn parse_media_list<'i>(
             .or_else(|_| parse_unknown_media_query(input, allocator))
     })?;
     let mut media_queries = allocator.vec();
-    media_queries.extend(parsed);
+    media_queries.extend(parsed.into_iter().map(|query| allocator.boxed(query)));
     Ok(MediaList { media_queries })
 }
 
@@ -112,14 +112,14 @@ fn parse_media_query<'i, 't>(
             None
         } else {
             input.expect_ident_matching("and")?;
-            Some(allocator.boxed(parse_media_condition_or_unknown(input, allocator, false)?))
+            Some(parse_media_condition_or_unknown(input, allocator, false)?)
         };
         (qualifier, media_type, condition)
     } else {
         (
             None,
             MediaType::All,
-            Some(allocator.boxed(parse_media_condition_or_unknown(input, allocator, true)?)),
+            Some(parse_media_condition_or_unknown(input, allocator, true)?),
         )
     };
 
@@ -136,9 +136,9 @@ fn parse_unknown_media_query<'i, 't>(
     allocator: &'i Allocator,
 ) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
     Ok(MediaQuery {
-        condition: Some(allocator.boxed(MediaCondition::Unknown(collect_tokens(
+        condition: Some(MediaCondition::Unknown(collect_tokens(
             input, allocator, 0,
-        )?))),
+        )?)),
         media_type: MediaType::All,
         qualifier: None,
     })
@@ -671,7 +671,7 @@ fn media_feature_value_matches(value: &MediaFeatureValue<'_>, expected: MediaFea
 
 fn parse_length<'i, 't>(
     input: &mut Parser<'i, 't>,
-    allocator: &'i Allocator,
+    _allocator: &'i Allocator,
 ) -> Result<Length<'i>, ParseError<'i, ParserError<'i>>> {
     let (unit, value) = match input.next()? {
         ValueToken::Dimension { unit, value } => {
@@ -683,7 +683,7 @@ fn parse_length<'i, 't>(
         ValueToken::Number(value) if *value == 0.0 => (LengthUnit::Px, 0.0),
         _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
     };
-    Ok(Length::Value(allocator.boxed(LengthValue { unit, value })))
+    Ok(Length::Value(LengthValue { unit, value }))
 }
 
 fn parse_resolution<'i, 't>(
@@ -750,7 +750,7 @@ fn parse_environment_variable<'i, 't>(
         Ok(EnvironmentVariable {
             fallback,
             indices,
-            name: allocator.boxed(name),
+            name,
         })
     })
 }

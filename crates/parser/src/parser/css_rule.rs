@@ -106,7 +106,7 @@ pub(super) fn parse_group_rule_body<'i, 't>(
         rules.insert(
             0,
             CssRule::NestedDeclarations(allocator.boxed(rocketcss_ast::NestedDeclarationsRule {
-                declarations: allocator.pinned(declarations),
+                declarations,
                 span: span_from(&start, input.position()),
             })),
         );
@@ -310,7 +310,7 @@ pub(super) fn parse_at_rule<'i, 't>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         CssRule::CounterStyle(allocator.boxed(rocketcss_ast::CounterStyleRule {
-            declarations: allocator.pinned(declarations),
+            declarations,
             span: span_from(start, input.position()),
             name: counter_name,
         }))
@@ -322,7 +322,7 @@ pub(super) fn parse_at_rule<'i, 't>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         CssRule::Viewport(allocator.boxed(rocketcss_ast::ViewportRule {
-            declarations: allocator.pinned(declarations),
+            declarations,
             span: span_from(start, input.position()),
             vendor_prefix: at_rule_vendor_prefix(name),
         }))
@@ -340,7 +340,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         CssRule::PositionTry(allocator.boxed(rocketcss_ast::PositionTryRule {
             span: span_from(start, input.position()),
             name: position_name,
-            declarations: allocator.pinned(declarations),
+            declarations,
         }))
     } else if name.eq_ignore_ascii_case("-moz-document") {
         if !matches!(ending, Ending::Block) {
@@ -390,7 +390,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         let (declarations, rules) = input
             .parse_nested_block(|input| parse_page_body(input, allocator, options, depth + 1))?;
         CssRule::Page(allocator.boxed(PageRule {
-            declarations: allocator.pinned(declarations),
+            declarations,
             span: span_from(start, input.position()),
             rules,
             selectors,
@@ -459,13 +459,13 @@ pub(super) fn parse_at_rule<'i, 't>(
         let span = span_from(start, input.position());
         CssRule::Nesting(allocator.boxed(NestingRule {
             span,
-            style: allocator.boxed(StyleRule {
-                declarations: allocator.pinned(declarations),
+            style: allocator.pinned(StyleRule::new(
+                declarations,
                 span,
                 rules,
-                selectors: allocator.boxed(selectors),
-                vendor_prefix: VendorPrefix::NONE,
-            }),
+                selectors,
+                VendorPrefix::NONE,
+            )),
         }))
     } else {
         let block = if matches!(ending, Ending::Block) {
@@ -502,13 +502,13 @@ pub(super) fn parse_qualified_rule<'i, 't>(
     let (declarations, rules) = input
         .parse_nested_block(|input| parse_style_contents(input, allocator, options, depth + 1))?;
 
-    Ok(CssRule::Style(allocator.boxed(StyleRule {
-        declarations: allocator.pinned(declarations),
-        span: span_from(start, input.position()),
+    Ok(CssRule::Style(allocator.pinned(StyleRule::new(
+        declarations,
+        span_from(start, input.position()),
         rules,
-        selectors: allocator.boxed(selectors),
-        vendor_prefix: VendorPrefix::NONE,
-    })))
+        selectors,
+        VendorPrefix::NONE,
+    ))))
 }
 
 type StyleContents<'i> = (DeclarationBlock<'i>, Vec<'i, CssRule<'i>>);
@@ -550,15 +550,13 @@ pub(super) fn parse_style_contents<'i, 't>(
                                 declarations.push(declaration, important);
                             } else if let Some(CssRule::NestedDeclarations(rule)) = rules.last_mut()
                             {
-                                rule.declarations
-                                    .as_mut()
-                                    .push_pinned(declaration, important);
+                                rule.declarations.push(declaration, important);
                             } else {
                                 let mut nested = DeclarationBlock::new(allocator);
                                 nested.push(declaration, important);
                                 rules.push(CssRule::NestedDeclarations(allocator.boxed(
                                     NestedDeclarationsRule {
-                                        declarations: allocator.pinned(nested),
+                                        declarations: nested,
                                         span: DUMMY_SP,
                                     },
                                 )));
