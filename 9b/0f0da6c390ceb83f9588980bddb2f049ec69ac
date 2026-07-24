@@ -1,0 +1,55 @@
+crates/allocator/src/ghost_cell.rs
+  s_a0b85263ca7e1c::t_c8416eb42ccc26 1-7,24-27,39-41,73,100,108-111,114-116,120-123,126-127,138-139,141-142,144-145,152-155,164,174,176,180-181,183,185
+crates/allocator/src/reference.rs
+  s_a0b85263ca7e1c::t_0ea31a44c27ea4 7,11-12,15,18,20-29,39,47,63,72,78-81,99,102,106
+crates/ast/src/lib.rs
+  s_a0b85263ca7e1c::t_604f90463a03ba 31,128,136-137
+crates/ast/src/rules/stylesheet.rs
+  s_a0b85263ca7e1c::t_bd413c0ba2b951 402,426
+crates/ast/src/visit_context.rs
+  s_a0b85263ca7e1c::t_7bdc48ba84a402 20-21,57-58,108-110,135-178
+crates/codegen/src/rules.rs
+  s_a0b85263ca7e1c::t_c6933d20ccf354 1823-1824,1916-1921,1947-1951,1973-1978,2136-2140,2337,2346-2347,2370-2374,2416-2420,2471-2475,2487,2505-2509,2673-2677
+crates/codegen/tests/to_css.rs
+  s_a0b85263ca7e1c::t_8925cc7f68c027 54,57,212,305,337,340-343,346,627,632,678,680-681,683-688
+crates/macros/src/lib.rs
+  s_a0b85263ca7e1c::t_46cf101de9d601 501-508,551,557-564,567-571,574-578
+crates/nano/src/rules/stylesheet/adjacent.rs
+  s_a0b85263ca7e1c::t_725e7c76271953 34,39,106-107,142-144,155-156,160
+crates/nano/src/rules/stylesheet/declaration_block.rs
+  s_a0b85263ca7e1c::t_48ecaff3a9fc16 3,241,260,291,302,382
+crates/nano/src/tests/box_model.rs
+  s_a0b85263ca7e1c::t_9e114642a8c7d8 124-125
+crates/nano/src/tests/declarations.rs
+  s_a0b85263ca7e1c::t_d973a9abe91e9b 62-63
+crates/nano/src/tests/fonts.rs
+  s_a0b85263ca7e1c::t_9a905db03f69e2 48-49,75-76
+crates/nano/src/tests/selectors.rs
+  s_a0b85263ca7e1c::t_da7b66f4d9e04c 21
+crates/nano/src/tests/values.rs
+  s_a0b85263ca7e1c::t_08c474fbd83db8 105-106
+crates/parser/src/parser/css_rule.rs
+  s_a0b85263ca7e1c::t_4054fc2bf2ea25 466,472,511-516,561
+crates/parser/tests/parser.rs
+  s_a0b85263ca7e1c::t_b5d57fb75e9c50 97,114-115,117,122,126,130-132,150,154,159,164,188,195-197,400,407,431,461,689,814,822,842,844-852,875,877-885,887,924,927-935,938,942,946,967,969,1008,1010,1053,1055,1121,1123,1127,1136,1155,1161,1181,1187,1247,1336,1356-1359,1374,1393-1394,1411,1441,1469,1480
+tasks/ast_tools/src/main.rs
+  s_a0b85263ca7e1c::t_beb9e8267526f9 782-797,870-876,880,883-884,888
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9b0f0da6c390ceb83f9588980bddb2f049ec69ac",
+  "prompts": {},
+  "sessions": {
+    "s_a0b85263ca7e1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8370-eae5-7313-a85a-741d79036117",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
