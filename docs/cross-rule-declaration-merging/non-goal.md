@@ -3,6 +3,11 @@
 ## Document map
 
 - [Overall design](./overall.md)
+- [S1: same-selector coalescing](./s1-same-selector-coalescing.md)
+- [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md)
+- [S3: selector partial factoring](./s3-selector-partial-factoring.md)
+- [S4: AST reification planning](./s4-ast-reification-planning.md)
+- [S5: AST reification commit](./s5-ast-reification-commit.md)
 - [Non-goals](./non-goal.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
@@ -89,17 +94,26 @@ For exact selector-list identity, `a,b` is different from `b,a` and from `a`.
 The design does not:
 
 - remove a declaration based only on property-name equality;
+- treat `HashMap<PropertyId, Declaration>` as the final semantic result of a
+  declaration sequence;
+- eagerly replace every authored shorthand with physical longhand AST nodes;
+- collapse an ordered vendor or target fallback chain into one map value;
 - discard vendor fallbacks that may still be required by configured targets;
 - expand a shorthand containing variables or recovered/unknown syntax;
 - assume a logical property overrides a physical property without proving
   writing-mode and direction behavior;
 - treat `all` as resetting custom properties, `direction`, or `unicode-bidi`;
 - optimize `revert` or `revert-layer` without the required cascade context;
-- fold generated longhands back into shorthand during the same pass; or
+- feed an S4 representation-only shorthand recombination back into the S1-S3
+  semantic fixed point; or
 - commit a partial declaration edit without a typed, lossless replacement
   plan.
 
 Unknown declaration relationships produce `NoChange`.
+
+Virtual shorthand expansion belongs to the declaration-effect IR. It preserves
+the authored occurrence as an origin and records opaque affected-property
+bundles when lossless component values cannot be derived.
 
 ## Structural movement
 
@@ -127,12 +141,19 @@ The design does not:
 - retain a selector-dead parent's descendants as independently outputting
   rules.
 
+S4 determines logical retention and produces a complete AST reification plan,
+including the lossless declaration representation for every non-empty IR. It
+does not serialize CSS. S5 only commits that plan into the stylesheet AST.
+Code generation remains outside the minify pipeline and never consumes merge IR
+directly.
+
 ## Deferred implementation choices
 
 The following choices belong to later implementation design and must preserve
 the invariants in the other documents:
 
 - packed versus direct state representation;
+- dense known-property slots versus hash-indexed declaration effects;
 - stable `RuleId` allocation;
 - live-adjacency representation;
 - interning for selector and conditional-context keys;
@@ -140,10 +161,11 @@ the invariants in the other documents:
   source order;
 - eager versus lazy history maintenance;
 - physical conditional-block coalescing versus logical regions;
-- concrete declaration dependency analysis used by S3;
+- concrete storage encoding for metadata-generated affected-longhand and
+  may-alias sets;
 - target-aware selector compatibility;
 - profitability thresholds;
-- physical compaction versus output-time tombstones;
+- S4 representation-profitability and S5 physical-compaction policy;
 - small-vector and hash-table thresholds; and
 - concrete combined-span encoding after selector and declaration origins have
   been preserved.

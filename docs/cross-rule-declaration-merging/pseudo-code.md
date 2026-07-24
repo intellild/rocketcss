@@ -3,6 +3,11 @@
 ## Document map
 
 - [Overall design](./overall.md)
+- [S1: same-selector coalescing](./s1-same-selector-coalescing.md)
+- [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md)
+- [S3: selector partial factoring](./s3-selector-partial-factoring.md)
+- [S4: AST reification planning](./s4-ast-reification-planning.md)
+- [S5: AST reification commit](./s5-ast-reification-commit.md)
 - [Non-goals](./non-goal.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
@@ -58,6 +63,57 @@ does not mutate the caller's stack.
 Layer, origin, and phase keys are compared only for exact equality. The merge
 pass consumes these opaque keys but does not interpret at-rule or cascade
 semantics.
+
+## Declaration-effect IR construction
+
+```rust,ignore
+fn build_effect_ir(
+    sequence: DeclarationSequenceId,
+    state: &MergeState,
+) -> DeclarationEffectIr {
+    let mut ir = DeclarationEffectIr::new();
+
+    for entry in state.declaration_sequences[sequence].blocks {
+        for declaration in authored_occurrences(entry, state) {
+            let occurrence = match expand_typed_effects(declaration, state) {
+                Lossless(effects) => {
+                    let expansion = if effects.len() == 1 {
+                        Exact
+                    } else {
+                        VirtualShorthand
+                    };
+                    let live_effects = EffectLiveness::all(effects.len());
+                    EffectOccurrence {
+                        origin: declaration.id,
+                        effects,
+                        expansion,
+                        live_effects,
+                    }
+                }
+                Opaque(affected) => {
+                    let effects = affected.as_opaque_effects();
+                    let live_effects = EffectLiveness::all(effects.len());
+                    EffectOccurrence {
+                        origin: declaration.id,
+                        effects,
+                        expansion: Opaque,
+                        live_effects,
+                    }
+                }
+            };
+
+            ir.insert_in_source_order(occurrence);
+        }
+    }
+
+    ir
+}
+```
+
+`EffectIndex` maps canonical effect keys to ordered occurrence chains. Known
+properties may use dense metadata-generated slots; custom and opaque keys may
+use a hash map. Unknown relationships are conflicts, not proof of independence.
+Building this IR does not rewrite authored declarations.
 
 ## Selector resolution
 
@@ -203,6 +259,7 @@ fn discover_style(
                 next_source_order_key(state),
                 state,
             );
+            ensure_effect_ir(current.leading_sequence, state);
 
             // S1 is eager and has priority.
             let current = coalesce_same_selector_run(current, state);
@@ -338,37 +395,41 @@ History occurrences and their semantic source-order keys are preserved.
 ## Declaration resolver
 
 ```rust,ignore
-enum DeclarationResolution<'ast> {
+enum EffectResolution<'ast> {
     NoChange,
-    Apply(DeclarationEditPlan<'ast>),
+    Apply(EffectEditPlan<'ast>),
 }
 
-struct DeclarationEditPlan<'ast> {
-    edits: Vec<DeclarationOccurrenceEdit<'ast>>,
+struct EffectEditPlan<'ast> {
+    edits: Vec<EffectOccurrenceEdit<'ast>>,
 }
 
-enum DeclarationOccurrenceEdit<'ast> {
-    Tombstone(DeclarationOccurrenceId),
-    ReplaceWith {
-        occurrence: DeclarationOccurrenceId,
-        declarations: TypedDeclarationPlan<'ast>,
+enum EffectOccurrenceEdit<'ast> {
+    MarkEffectsDead {
+        occurrence: EffectOccurrenceId,
+        effects: EffectMask,
+    },
+    PlanReplacement {
+        occurrence: EffectOccurrenceId,
+        replacement: TypedEffectPlan<'ast>,
     },
 }
 ```
 
 ```rust,ignore
-fn apply_declaration_edit(
-    edit: DeclarationOccurrenceEdit,
+fn apply_effect_edit(
+    edit: EffectOccurrenceEdit,
     state: &mut MergeState,
 ) {
     let entry = owning_entry(edit, state);
     let sequence = state.declaration_entries[entry].owning_sequence;
     let key = state.declaration_entries[entry].effective_rule;
 
-    apply_typed_lossless_edit(edit, state);
+    apply_typed_lossless_effect_edit(edit, state);
 
     state.declaration_entries[entry].declaration_revision += 1;
     state.declaration_sequences[sequence].aggregate_revision += 1;
+    state.declaration_sequences[sequence].effects.revision += 1;
     state.histories[key].generation += 1;
 
     invalidate_sequence_candidates(sequence, state);
@@ -376,6 +437,9 @@ fn apply_declaration_edit(
     update_logical_liveness(entry, state);
 }
 ```
+
+`apply_effect_edit` changes semantic liveness and replacement plans only. The
+authored declaration AST remains intact until S5.
 
 ## S2 local fixed point
 
@@ -391,13 +455,13 @@ fn prune_effective_rule_history_to_local_fixed_point(
         let ordered_entries =
             state.histories[key].entries.in_semantic_order();
 
-        for relationship in declaration_relationships(ordered_entries, state) {
-            match resolve_typed_declarations(relationship, state) {
+        for relationship in effect_relationships(ordered_entries, state) {
+            match resolve_typed_effects(relationship, state) {
                 NoChange => {}
                 Apply(plan) => {
                     for edit in plan.edits {
                         changed.insert(owning_entry(edit, state));
-                        apply_declaration_edit(edit, state);
+                        apply_effect_edit(edit, state);
                     }
                 }
             }
@@ -453,7 +517,8 @@ fn candidate_is_valid(
             == candidate.left_sequence_revision
         && right_sequence.aggregate_revision
             == candidate.right_sequence_revision
-        && declaration_plan_is_still_valid(candidate.plan, state)
+        && effect_plan_is_still_valid(candidate.plan, state)
+        && effect_plan_is_losslessly_reifiable(candidate.plan, state)
         && selector_plan_can_be_materialized(candidate.plan.selectors, state)
 }
 ```
@@ -493,9 +558,9 @@ fn commit_partial_merge(
 
     let old = snapshot_neighborhood(candidate.edge, state);
     remove_old_incident_work(old, state);
-    apply_endpoint_declaration_plans(&candidate.plan, state);
+    apply_endpoint_effect_plans(&candidate.plan, state);
 
-    let shared = create_synthesized_style_rule(
+    let shared = create_logical_synthesized_style_rule(
         candidate.edge,
         local_selectors,
         effective,
@@ -514,8 +579,9 @@ fn commit_partial_merge(
 ```
 
 The concrete implementation prepares every fallible selector operation before
-applying endpoint edits. A transactional implementation is also valid if abort
-cannot leave partial mutation.
+applying endpoint effect edits. A transactional implementation is also valid if
+abort cannot leave partial semantic mutation. The synthesized rule is inserted
+into the AST only during S5.
 
 ## Logical empty transition
 
@@ -539,7 +605,7 @@ fn rule_became_logically_empty(rule: RuleId, state: &mut MergeState) {
     }
 
     propagate_retained_child_change_to_ancestors(rule, state);
-    state.deferred_s4_removals.insert(rule);
+    state.pending_s4_cleanup.insert(rule);
 }
 ```
 
@@ -601,14 +667,95 @@ fn stabilize(state: &mut MergeState) {
     }
 
     assert_all_history_generations_consumed(state);
-    remove_logically_empty_nodes_post_order(state);
+    finalize_s4_ast_plan(state);
 }
 ```
+
+## S4 logical cleanup and AST reification planning
+
+```rust,ignore
+fn finalize_s4_ast_plan(state: &mut MergeState) {
+    assert_semantic_fixed_point(state);
+
+    for node in state.ownership.post_order() {
+        match node {
+            Style(rule)
+                if effect_ir_is_empty(rule, state)
+                    && retained_child_count(rule, state) == 0
+                    && !is_retired_sequence_storage(rule, state) =>
+            {
+                state.ast_plan.remove(rule);
+            }
+            NestedDeclarations(rule)
+                if effect_ir_is_empty(rule, state) =>
+            {
+                state.ast_plan.remove(rule);
+            }
+            SupportedConditional(rule)
+                if retained_child_count(rule, state) == 0 =>
+            {
+                state.ast_plan.remove(rule);
+            }
+            KnownNoMatchSubtree(rule) => {
+                state.ast_plan.remove_subtree(rule);
+            }
+            _ => {}
+        }
+    }
+
+    for sequence in retained_sequences_in_semantic_order(state) {
+        let representation = choose_lossless_ast_representation(
+            state.declaration_sequences[sequence].effects,
+            authored_origins(sequence, state),
+        )
+        .expect("committed effect state is losslessly reifiable");
+        state.ast_plan.represent(
+            state.declaration_sequences[sequence].active_output_owner,
+            representation,
+        );
+    }
+
+    state.ast_plan.include_synthesized_rules(state);
+    assert_ast_plan_does_not_expose_unclassified_edges(state);
+}
+```
+
+## S5 AST reification commit
+
+```rust,ignore
+fn reify_ast(state: &mut MergeState) {
+    assert_semantic_fixed_point(state);
+    assert_ast_plan_complete(state);
+
+    apply_planned_declarations_and_importance(state);
+    apply_planned_synthesized_rules(state);
+    apply_planned_removals_and_compact_rule_lists(state);
+    clear_merge_only_storage_and_revisions(state);
+    state.reified = true;
+}
+```
+
+The minify-stage entry point sequences the semantic pass and AST commit:
+
+```rust,ignore
+fn run_cross_rule_merge(stylesheet: &mut Stylesheet) {
+    let mut state = discover_merge_state(stylesheet);
+    stabilize(&mut state);
+    reify_ast(&mut state);
+    assert!(is_minify_complete(&state));
+}
+```
+
+S4 may plan an authored shorthand plus later overrides, typed longhands for
+partially live virtual effects, or another proven equivalent representation.
+S5 makes no new semantic or profitability decision: it writes that plan into
+the final stylesheet AST. Code generation is a later, independent consumer of
+that AST.
 
 ## Completion invariant
 
 ```rust,ignore
-fn is_complete(state: &MergeState) -> bool {
+fn is_semantically_complete(state: &MergeState) -> bool {
     state.dirty_same_selector_edges.is_empty()
         && state.dirty_partial_edges.is_empty()
         && state.dirty_histories.is_empty()
@@ -616,5 +763,11 @@ fn is_complete(state: &MergeState) -> bool {
         && state.histories.values().all(|history| {
             history.generation == history.consumed_generation
         })
+}
+
+fn is_minify_complete(state: &MergeState) -> bool {
+    is_semantically_complete(state)
+        && state.ast_plan.is_complete()
+        && state.reified
 }
 ```

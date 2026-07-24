@@ -4,6 +4,16 @@
 
 - [Overall design](./overall.md): goals, semantic model, stage order, and
   correctness boundaries.
+- [S1: same-selector coalescing](./s1-same-selector-coalescing.md): S1 input,
+  output, transition examples, and cross-stage effects.
+- [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md): S2
+  history and occurrence states, edit results, and examples.
+- [S3: selector partial factoring](./s3-selector-partial-factoring.md): S3
+  candidate states, atomic commit outputs, and examples.
+- [S4: AST reification planning](./s4-ast-reification-planning.md): S4
+  retention and representation states, plan outputs, and examples.
+- [S5: AST reification commit](./s5-ast-reification-commit.md): S5 plan input,
+  AST output, commit ordering, and examples.
 - [Non-goals](./non-goal.md): deliberately unsupported transformations and
   deferred implementation choices.
 - [Detailed state machine](./detailed-state-machine.md): state ownership,
@@ -14,12 +24,26 @@
 ## Status
 
 This is a correctness-first design for merging and pruning declarations across
-style rules. Runtime, allocation, and hashing optimizations are intentionally
-deferred.
+style rules. Runtime, allocation, hashing, and final representation
+profitability optimizations are intentionally deferred.
 
-The pass operates after selector minification and canonicalization, but before
-code generation. All merge-state mutation must finish before code generation
-follows RocketCSS's pinned `previous_merged` declaration chains.
+The pass operates after selector minification and canonicalization. It builds a
+semantic declaration-effect IR, runs the merge state machine over that IR, and
+then reifies the stable result back into the stylesheet AST before minification
+returns. Code generation is not part of the minify pipeline: it receives only
+the reified AST and does not consume merge state or declaration-effect IR.
+
+```text
+stylesheet AST
+-> discovery and declaration-effect IR
+-> S1/S2/S3 semantic fixed point
+-> S4 AST reification plan
+-> S5 AST commit
+-> minify returns the rewritten AST
+
+later:
+rewritten AST -> code generation
+```
 
 ## Goals
 
@@ -36,8 +60,10 @@ The pass should:
    at-rule context stacks are structurally equal;
 6. coalesce adjacent conditional blocks with equal typed frames;
 7. remove nodes that become logically empty without losing opaque or retained
-   descendants; and
-8. reach an idempotent fixed point without changing cascade behavior.
+   descendants;
+8. reach an idempotent fixed point without changing cascade behavior; and
+9. reify the stable semantic result into a lossless AST representation before
+   code generation can observe it.
 
 Declaration order, fallback chains, importance, vendor prefixes, selector
 validity, source origin, and lossless serialization are correctness inputs. An
@@ -188,6 +214,75 @@ An S1/S3 edge also requires:
 Ordinary style rules and legacy `@nest` wrappers have different wrapper kinds.
 The initial implementation treats `@nest` as a retained barrier.
 
+## Declaration-effect IR
+
+The state machine operates on semantic declaration effects rather than treating
+one authored `PropertyId` as one final value. Each
+`DeclarationSequenceState` owns a `DeclarationEffectIr` built from all of its
+ordered declaration blocks:
+
+```rust,ignore
+struct DeclarationEffectIr<'ast> {
+    occurrences: Vec<EffectOccurrence<'ast>>,
+    index: EffectIndex<'ast>,
+    revision: Revision,
+}
+
+struct EffectOccurrence<'ast> {
+    origin: DeclarationOccurrenceId,
+    source_order: SemanticSourceOrderKey,
+    phase: CascadePhaseKey,
+    effects: SmallVec<EffectEntry<'ast>>,
+    expansion: EffectExpansion,
+    live: bool,
+}
+
+struct EffectEntry<'ast> {
+    key: EffectKey<'ast>,
+    value: EffectValue<'ast>,
+}
+
+enum EffectExpansion {
+    Exact,
+    VirtualShorthand,
+    Opaque,
+}
+```
+
+Known lossless shorthands are expanded virtually into canonical longhand
+effects. The authored declaration remains the source occurrence and is not
+eagerly replaced in the AST. For example:
+
+```css
+margin: 1px;
+margin-left: 2px;
+```
+
+has four virtual effects from the shorthand, of which the `margin-left`
+component is overridden by the second occurrence. Reification may still retain
+the compact authored shorthand plus its override.
+
+The effect index is an ordered multimap, not
+`HashMap<PropertyId, Declaration>`. Multiple values for one effect key may be a
+required fallback chain:
+
+```css
+display: -webkit-box;
+display: flex;
+```
+
+Importance, prefix and target compatibility, source order, custom-property
+identity, and cascade context remain part of occurrence semantics. Unknown
+values, variables that prevent lossless expansion, `all`, and unmodeled
+shorthands produce opaque or wildcard effects that conservatively conflict with
+every effect they may influence.
+
+The concrete index may use dense known-property slots plus a hash map for
+custom or opaque keys. A precomputed hash is an implementation optimization,
+not semantic identity. Property metadata must generate canonical affected
+longhands and may-alias information so S2 and S3 do not maintain parallel
+hand-written property-family tables.
+
 ## Nesting model
 
 The AST remains nested. Effective selectors are calculated as immutable
@@ -259,10 +354,11 @@ declarations may share an S2 history, but they do not form an S1/S3 edge.
 
 `S` means stage. The logical order is:
 
-1. **S1: same-selector coalescing**
-2. **S2: exact-effective-rule declaration pruning**
-3. **S3: selector partial factoring**
-4. **S4: empty-node cleanup**
+1. [**S1: same-selector coalescing**](./s1-same-selector-coalescing.md)
+2. [**S2: exact-effective-rule declaration pruning**](./s2-declaration-effect-pruning.md)
+3. [**S3: selector partial factoring**](./s3-selector-partial-factoring.md)
+4. [**S4: logical cleanup and AST reification planning**](./s4-ast-reification-planning.md)
+5. [**S5: AST reification commit**](./s5-ast-reification-commit.md)
 
 S1 and S2 always have priority over S3 candidate commit. S3 plans may be
 discovered early, but remain speculative until all histories capable of
@@ -270,12 +366,17 @@ changing their endpoints are stable.
 
 ### S1: same-selector coalescing
 
+The complete S1 input/output state enumeration and examples are in
+[S1: same-selector coalescing](./s1-same-selector-coalescing.md).
+
 S1 combines live-adjacent rules with equal effective rule keys and emission
 identities.
 
-RocketCSS keeps the right rule as the active output owner. The left
-declaration sequence is linked before the right sequence through
-`previous_merged`, and the left endpoint is retired from adjacency:
+RocketCSS keeps the right rule as the active output owner. The merge IR links
+the left declaration sequence before the right sequence, and the left endpoint
+is retired from adjacency. S4 plans whether the final ordered sequence is
+represented through `previous_merged` or compacted into another equivalent AST
+form, and S5 commits that choice:
 
 ```text
 left declaration blocks
@@ -293,8 +394,12 @@ sequences.
 
 ### S2: exact-effective-rule declaration pruning
 
-S2 processes all declaration entries with one exact `EffectiveRuleKey` in
-semantic source order. It only applies typed, lossless declaration edit plans.
+The complete S2 history, occurrence, and output state enumeration is in
+[S2: declaration-effect pruning](./s2-declaration-effect-pruning.md).
+
+S2 processes all declaration-effect occurrences with one exact
+`EffectiveRuleKey` in semantic source order. It only applies typed, lossless
+effect edit plans. Authored AST declarations remain origin records until S5.
 
 The resolver considers:
 
@@ -311,21 +416,25 @@ The resolver considers:
 The resolver returns a concrete edit plan:
 
 ```rust,ignore
-enum DeclarationResolution<'ast> {
+enum EffectResolution<'ast> {
     NoChange,
-    Apply(DeclarationEditPlan<'ast>),
+    Apply(EffectEditPlan<'ast>),
 }
 ```
 
-A partial shorthand override may replace the shorthand with still-live typed
-longhands only when the replacement is lossless. Variables, recovered syntax,
-unknown values, and unproven fallback behavior produce `NoChange`.
+A partial shorthand override marks individual virtual longhand effects live or
+dead. It does not eagerly expand the authored shorthand in the AST. Variables,
+recovered syntax, unknown values, and unproven fallback behavior produce opaque
+effects or `NoChange`.
 
 Each history is processed to a local fixed point before S3 can commit.
 
 ### S3: selector partial factoring
 
-S3 factors a safe common declaration sequence from two live-adjacent rules:
+The complete S3 candidate and atomic-commit state enumeration is in
+[S3: selector partial factoring](./s3-selector-partial-factoring.md).
+
+S3 factors a safe common effect sequence from two live-adjacent rules:
 
 ```text
 SL { DL }
@@ -343,29 +452,37 @@ sequences are empty.
 
 Validity requires:
 
-1. equal declaration occurrences, including importance and prefix;
+1. equal effect occurrences, including importance, prefix, compatibility, and
+   fallback position;
 2. preserved declaration order and fallback behavior;
 3. unchanged behavior for elements matching either or both selector lists;
 4. safe shorthand, logical/physical, variable, and `all` dependencies;
 5. valid target-compatible selector union;
 6. immediate selector filtering, normalization, and deduplication;
-7. source origin for every selector arm and moved declaration; and
-8. no retained child content on the left endpoint.
+7. source origin for every selector arm and moved declaration;
+8. no retained child content on the left endpoint; and
+9. a lossless S4 AST representation exists for every residual and synthesized
+   effect sequence.
 
 Endpoint selector ASTs are immutable and cannot be moved. Commit requires an
 arena-aware deep materialization of the selector union. If materialization or
 validation is unavailable, S3 is disabled.
 
-### S4: empty-node cleanup
+### S4: logical cleanup and AST reification planning
 
-S4 removes a selector-live style rule only when it has:
+The complete S4 retention, representation, and plan state enumeration is in
+[S4: AST reification planning](./s4-ast-reification-planning.md).
 
-- no live declarations;
+S4 finalizes the retained logical graph after the S1-S3 work queues and history
+generations reach a fixed point. A selector-live style rule is planned for
+removal only when it has:
+
+- no live declaration effects;
 - no retained child content; and
 - no declaration block referenced by another active output owner's merged
   sequence.
 
-Cleanup is post-order. It also removes:
+Cleanup planning is post-order. It also plans removal of:
 
 - selector-`KnownNoMatch` subtrees;
 - empty `NestedDeclarationsRule` nodes; and
@@ -373,6 +490,47 @@ Cleanup is post-order. It also removes:
 
 Opaque or unsupported nodes are never declared empty by this pass. Any retained
 opaque content pins every style-rule ancestor.
+
+For every non-empty declaration sequence, S4 chooses a lossless AST
+representation. It retains authored shorthand and fallback chains where they
+still describe exactly the live effects, plans typed longhands when partial
+effect liveness makes an authored shorthand unusable, and may recombine effects
+only when equivalence and profitability are proven.
+
+Rules must transition out of live adjacency as soon as their effect IR becomes
+logically empty during S1-S3. S4 therefore does not expose unclassified edges.
+It verifies the final liveness graph and produces one complete
+`AstReificationPlan`: empty IRs become removals, while non-empty IRs receive a
+lossless declaration representation and final AST owner.
+
+S4 planning must be infallible. Every S2 edit and S3 candidate proves its
+effects remain reifiable before commit; an unrepresentable transformation is
+rejected while it is still speculative.
+
+### S5: AST reification commit
+
+The complete S5 plan-input and AST-output state enumeration is in
+[S5: AST reification commit](./s5-ast-reification-commit.md).
+
+S5 is the only stage that writes the stable semantic result back into the
+stylesheet AST. It consumes the complete S4 plan and:
+
+1. writes the planned declarations and importance bits to each active AST
+   owner;
+2. preserves the planned authored shorthand and fallback occurrences;
+3. materializes the planned typed longhand replacements;
+4. writes synthesized selectors and synthesized
+   rules into their final AST owners;
+5. applies the planned removals and compacts rule lists; and
+6. releases all merge-only sequence and retired-storage relationships.
+
+S4 representation choice may optimize size, but profitability never authorizes
+a semantic change. The S5 commit is one-way for this minify invocation and does
+not restart S1-S4.
+
+After S5, code generation serializes the resulting AST through its ordinary
+entry points. It does not follow merge IR, inspect effect indexes, or decide how
+shorthand effects should be materialized.
 
 ## Candidate requirement
 
@@ -402,16 +560,21 @@ revisions. Any endpoint change invalidates and recomputes the candidate.
 
 - Existing local selectors, ancestor selectors, and at-rule conditions are
   immutable.
-- S2 tombstones or losslessly replaces declarations but never moves rules.
+- S2 changes effect-occurrence liveness or creates a lossless replacement plan
+  but never moves rules or eagerly rewrites authored declarations.
 - S1 and S3 never cross a rule-list segment.
 - Histories are ordered by semantic source position, not discovery time.
 - Editing any block in a merged sequence increments its aggregate revision.
+- Every effect occurrence retains an authored or synthesized source origin until
+  S5 completes.
+- Every committed effect state has a lossless AST reification path.
 - Every retained non-endpoint node prevents an edge from skipping over it.
 - S3 commit is one atomic live-graph transition.
 - Synthesized selectors are canonicalized during the same pass.
 - Dirty queues are hints; consumers revalidate current eligibility.
 - The pass stops only at a complete work-queue and history-generation fixed
   point.
+- Code generation observes only the AST reified by S5.
 
 Implementation details and unsupported transformations are listed in
 [Non-goals](./non-goal.md). State ownership and transitions are specified in
