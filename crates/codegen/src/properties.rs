@@ -1,7 +1,11 @@
 use crate::prelude::*;
 
-impl ToCss for VendorPrefix {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for VendorPrefix {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         if self.contains(Self::WEBKIT) {
             dest.write_str("-webkit-")
         } else if self.contains(Self::MOZ) {
@@ -16,18 +20,26 @@ impl ToCss for VendorPrefix {
     }
 }
 
-impl<T: ToCss> ToCss for CSSWideOr<T> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost, T: ToCss<'ghost>> ToCss<'ghost> for CSSWideOr<T> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
-            Self::Value(value) => value.to_css(dest),
-            Self::CSSWide(keyword) => keyword.to_css(dest),
+            Self::Value(value) => value.to_css(dest, _cx),
+            Self::CSSWide(keyword) => keyword.to_css(dest, _cx),
         }
     }
 }
 
-impl ToCss for PropertyId<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        self.vendor_prefix().to_css(dest)?;
+impl<'ghost> ToCss<'ghost> for PropertyId<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
+        self.vendor_prefix().to_css(dest, _cx)?;
         match self {
             Self::Custom(value) => serialize_name(value, dest),
             _ => dest.write_str(self.name()),
@@ -35,26 +47,42 @@ impl ToCss for PropertyId<'_> {
     }
 }
 
-impl ToCss for BlendMode {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for BlendMode {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("blend modes are static keywords"))
     }
 }
 
-impl ToCss for f32 {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for f32 {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         serialize_number(*self, dest)
     }
 }
 
-impl ToCss for i32 {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for i32 {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         serialize_int(*self, dest)
     }
 }
 
-impl ToCss for u16 {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for u16 {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         serialize_int(*self, dest)
     }
 }
@@ -62,13 +90,13 @@ impl ToCss for u16 {
 macro_rules! comma_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a> ToCss for rocketcss_allocator::vec::Vec<'a, $ty> {
-                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_allocator::vec::Vec<'a, $ty> {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, 'ghost>) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
                             dest.delim(Delimiter::Comma)?;
                         }
-                        value.to_css(dest)?;
+                        value.to_css(dest, _cx)?;
                     }
                     Ok(())
                 }
@@ -114,14 +142,18 @@ comma_vec! {
     WebKitMaskSourceType,
 }
 
-impl<'a> ToCss for rocketcss_allocator::vec::Vec<'a, FontFamily<'a>> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'a, 'ghost> ToCss<'ghost> for rocketcss_allocator::vec::Vec<'a, FontFamily<'a>> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         let mut first = true;
         for family in self.iter().filter(|family| !family.is_tombstone()) {
             if !first {
                 dest.delim(Delimiter::Comma)?;
             }
-            family.to_css(dest)?;
+            family.to_css(dest, _cx)?;
             first = false;
         }
         Ok(())
@@ -131,13 +163,13 @@ impl<'a> ToCss for rocketcss_allocator::vec::Vec<'a, FontFamily<'a>> {
 macro_rules! space_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a> ToCss for rocketcss_allocator::vec::Vec<'a, $ty> {
-                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_allocator::vec::Vec<'a, $ty> {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, 'ghost>) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
                             dest.write_char(' ')?;
                         }
-                        value.to_css(dest)?;
+                        value.to_css(dest, _cx)?;
                     }
                     Ok(())
                 }
@@ -164,12 +196,12 @@ macro_rules! impl_declaration_to_css {
             $name:literal: $property:ident($value:ty $(, $vp:ty)?),
         )+
     ) => {
-        impl ToCss for Declaration<'_> {
-            fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+        impl<'ghost> ToCss<'ghost> for Declaration<'_> {
+            fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, 'ghost>) -> fmt::Result {
                 if self.is_tombstone() {
                     return Ok(());
                 }
-                self.vendor_prefix().to_css(dest)?;
+                self.vendor_prefix().to_css(dest, _cx)?;
                 match self {
                     Self::Custom(_) => serialize_name(self.name(), dest)?,
                     Self::Unparsed(value)
@@ -187,10 +219,10 @@ macro_rules! impl_declaration_to_css {
                 match self {
                     $(
                         $(#[$meta])*
-                        declaration_value_pattern!(Self::$property, value$(, _prefix: $vp)?) => value.to_css(dest),
+                        declaration_value_pattern!(Self::$property, value$(, _prefix: $vp)?) => value.to_css(dest, _cx),
                     )+
-                    Self::Unparsed(value) => value.to_css(dest),
-                    Self::Custom(value) => value.to_css(dest),
+                    Self::Unparsed(value) => value.to_css(dest, _cx),
+                    Self::Custom(value) => value.to_css(dest, _cx),
                     Self::Tombstone => Ok(()),
                 }
             }

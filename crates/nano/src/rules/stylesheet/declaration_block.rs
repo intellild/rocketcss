@@ -238,7 +238,7 @@ impl<'a> BoxFamilyIr<'a> {
 enum DeclarationBlocks<'sequence, 'ast, 'ghost> {
     Direct(&'sequence mut DeclarationBlock<'ast>),
     Ghost {
-        blocks: &'sequence [&'ast GhostCell<'ast, 'ghost, DeclarationBlock<'ast>>],
+        blocks: &'sequence [&'ast GhostCell<'ghost, DeclarationBlock<'ast>>],
         token: &'sequence mut GhostToken<'ghost>,
     },
 }
@@ -257,7 +257,7 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
 
     #[inline]
     fn ghost(
-        blocks: &'sequence [&'ast GhostCell<'ast, 'ghost, DeclarationBlock<'ast>>],
+        blocks: &'sequence [&'ast GhostCell<'ghost, DeclarationBlock<'ast>>],
         token: &'sequence mut GhostToken<'ghost>,
     ) -> Self {
         Self {
@@ -379,7 +379,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
 
     pub(crate) fn minify_sequence<'ghost>(
         &mut self,
-        blocks: &[&'ast GhostCell<'ast, 'ghost, DeclarationBlock<'ast>>],
+        blocks: &[&'ast GhostCell<'ghost, DeclarationBlock<'ast>>],
         token: &mut GhostToken<'ghost>,
         cx: &mut MinifyContext<'scratch>,
     ) {

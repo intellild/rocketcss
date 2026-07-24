@@ -6,7 +6,7 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::{GhostCell, GhostToken, boxed::Box};
+use crate::{GhostToken, boxed::Box, ghost_cell::InvariantLifetime};
 
 /// A token-controlled reference to a pinned arena value.
 ///
@@ -15,44 +15,49 @@ use crate::{GhostCell, GhostToken, boxed::Box};
 /// while the consumed `Pin<Box<T>>` establishes the stable-address contract.
 #[repr(transparent)]
 pub struct Ref<'a, 'ghost, T: ?Sized> {
-    cell: GhostCell<'a, 'ghost, T>,
+    pointer: NonNull<T>,
     _pin: PhantomData<Pin<&'a mut T>>,
+    _brand: InvariantLifetime<'ghost>,
 }
 
 impl<'a, 'ghost, T> Ref<'a, 'ghost, T> {
     #[inline]
     pub fn from_pinned_box(value: Pin<Box<'a, T>>) -> Self {
-        let pointer = NonNull::from(value.as_ref().get_ref());
+        // SAFETY: extracting the box does not move its pointee. The box is
+        // consumed immediately below, transferring its unique pointer into
+        // this handle while `Ref` preserves the pinning contract.
+        let value = unsafe { Pin::into_inner_unchecked(value) };
+        let pointer =
+            NonNull::new(Box::into_raw(value)).expect("arena boxes always contain a value");
         // The arena box has no destructor and its allocation remains live for
         // `'a`. Consuming it here removes the ordinary owner access path.
         Self {
-            // SAFETY: the consumed pinned box established a stable, live
-            // pointee for `'a`.
-            cell: unsafe { GhostCell::from_raw(pointer) },
+            pointer,
             _pin: PhantomData,
+            _brand: PhantomData,
         }
     }
 }
 
 impl<'a, 'ghost, T: ?Sized> Ref<'a, 'ghost, T> {
     #[inline]
-    pub fn get<'cell>(&self, token: &'cell GhostToken<'ghost>) -> Pin<&'cell T>
+    pub fn get<'cell>(&self, _token: &'cell GhostToken<'ghost>) -> Pin<&'cell T>
     where
         'a: 'cell,
     {
         // SAFETY: construction consumes a Pin<Box<T>>, and shared token access
         // cannot move the pointee.
-        unsafe { Pin::new_unchecked(self.cell.borrow(token)) }
+        unsafe { Pin::new_unchecked(self.pointer.as_ref()) }
     }
 
     #[inline]
-    pub fn get_mut<'cell>(&self, token: &'cell mut GhostToken<'ghost>) -> Pin<&'cell mut T>
+    pub fn get_mut<'cell>(&self, _token: &'cell mut GhostToken<'ghost>) -> Pin<&'cell mut T>
     where
         'a: 'cell,
     {
         // SAFETY: construction consumes a Pin<Box<T>>, and the unique token
         // prevents any overlapping access while this borrow is live.
-        unsafe { Pin::new_unchecked(self.cell.borrow_mut(token)) }
+        unsafe { Pin::new_unchecked(&mut *self.pointer.as_ptr()) }
     }
 }
 
@@ -68,7 +73,7 @@ impl<T: ?Sized> Copy for Ref<'_, '_, T> {}
 impl<T: ?Sized> PartialEq for Ref<'_, '_, T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.cell.pointer().as_ptr(), other.cell.pointer().as_ptr())
+        std::ptr::eq(self.pointer.as_ptr(), other.pointer.as_ptr())
     }
 }
 
@@ -77,16 +82,13 @@ impl<T: ?Sized> Eq for Ref<'_, '_, T> {}
 impl<T: ?Sized> Hash for Ref<'_, '_, T> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.cell.pointer().hash(state);
+        self.pointer.hash(state);
     }
 }
 
 impl<T: ?Sized> fmt::Debug for Ref<'_, '_, T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_tuple("Ref")
-            .field(&self.cell.pointer())
-            .finish()
+        formatter.debug_tuple("Ref").field(&self.pointer).finish()
     }
 }
 

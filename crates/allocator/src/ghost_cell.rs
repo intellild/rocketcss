@@ -1,6 +1,7 @@
-use std::{fmt, marker::PhantomData, ptr::NonNull, rc::Rc};
+use std::{cell::UnsafeCell, fmt, marker::PhantomData, rc::Rc};
 
-type InvariantLifetime<'ghost> = PhantomData<fn(&'ghost mut &'ghost ()) -> &'ghost mut &'ghost ()>;
+pub(crate) type InvariantLifetime<'ghost> =
+    PhantomData<fn(&'ghost mut &'ghost ()) -> &'ghost mut &'ghost ()>;
 
 /// The unique mutation permission for a pool of [`GhostCell`] values.
 ///
@@ -14,10 +15,8 @@ type InvariantLifetime<'ghost> = PhantomData<fn(&'ghost mut &'ghost ()) -> &'gho
 /// use rocketcss_allocator::{GhostCell, GhostToken};
 ///
 /// GhostToken::scope(|mut token| {
-///     let mut first_value = 1;
-///     let mut second_value = 2;
-///     let first = GhostCell::from_mut(&mut first_value);
-///     let second = GhostCell::from_mut(&mut second_value);
+///     let first = GhostCell::new(1);
+///     let second = GhostCell::new(2);
 ///     let first = first.borrow_mut(&mut token);
 ///     let second = second.borrow_mut(&mut token);
 ///     *first += *second;
@@ -31,8 +30,7 @@ type InvariantLifetime<'ghost> = PhantomData<fn(&'ghost mut &'ghost ()) -> &'gho
 ///
 /// GhostToken::scope(|mut first_token| {
 ///     GhostToken::scope(|mut second_token| {
-///         let mut value = 1;
-///         let cell = GhostCell::from_mut(&mut value);
+///         let cell = GhostCell::new(1);
 ///         let first = cell.borrow_mut(&mut first_token);
 ///         let second = cell.borrow_mut(&mut second_token);
 ///         *first += *second;
@@ -46,7 +44,7 @@ pub struct GhostToken<'ghost> {
 
 impl<'ghost> GhostToken<'ghost> {
     #[inline]
-    pub(crate) fn branded() -> Self {
+    fn branded() -> Self {
         Self {
             _brand: PhantomData,
             _not_send_or_sync: PhantomData,
@@ -64,82 +62,53 @@ impl GhostToken<'_> {
 
 /// An aliasable value whose access is controlled by a matching [`GhostToken`].
 #[repr(transparent)]
-pub struct GhostCell<'a, 'ghost, T: ?Sized> {
-    pointer: NonNull<T>,
-    _target: PhantomData<&'a mut T>,
+pub struct GhostCell<'ghost, T: ?Sized> {
     _brand: InvariantLifetime<'ghost>,
+    value: UnsafeCell<T>,
 }
 
-impl<T: ?Sized> Clone for GhostCell<'_, '_, T> {
-    #[inline]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T: ?Sized> Copy for GhostCell<'_, '_, T> {}
-
-impl<T: ?Sized> fmt::Debug for GhostCell<'_, '_, T> {
+impl<T: ?Sized> fmt::Debug for GhostCell<'_, T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_tuple("GhostCell")
-            .field(&self.pointer)
+            .field(&self.value.get())
             .finish()
     }
 }
 
-impl<T: ?Sized> PartialEq for GhostCell<'_, '_, T> {
+impl<T: ?Sized> PartialEq for GhostCell<'_, T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.pointer.as_ptr(), other.pointer.as_ptr())
+        std::ptr::eq(self.value.get(), other.value.get())
     }
 }
 
-impl<T: ?Sized> Eq for GhostCell<'_, '_, T> {}
+impl<T: ?Sized> Eq for GhostCell<'_, T> {}
 
-impl<'a, 'ghost, T: ?Sized> GhostCell<'a, 'ghost, T> {
+impl<'ghost, T> GhostCell<'ghost, T> {
     #[inline]
-    pub fn from_mut(value: &'a mut T) -> Self {
+    pub fn new(value: T) -> Self {
         Self {
-            pointer: NonNull::from(value),
-            _target: PhantomData,
             _brand: PhantomData,
+            value: UnsafeCell::new(value),
         }
     }
+}
 
+impl<'ghost, T: ?Sized> GhostCell<'ghost, T> {
     #[inline]
-    pub(crate) unsafe fn from_raw(pointer: NonNull<T>) -> Self {
-        Self {
-            pointer,
-            _target: PhantomData,
-            _brand: PhantomData,
-        }
-    }
-
-    #[inline]
-    pub fn borrow<'cell>(&self, _token: &'cell GhostToken<'ghost>) -> &'cell T
-    where
-        'a: 'cell,
-    {
+    pub fn borrow<'cell>(&'cell self, _token: &'cell GhostToken<'ghost>) -> &'cell T {
         // SAFETY: shared access requires a shared borrow of the unique token.
         // A mutable borrow of any cell with this brand requires an exclusive
         // borrow of that same token.
-        unsafe { self.pointer.as_ref() }
+        unsafe { &*self.value.get() }
     }
 
     #[inline]
-    pub fn borrow_mut<'cell>(&self, _token: &'cell mut GhostToken<'ghost>) -> &'cell mut T
-    where
-        'a: 'cell,
-    {
+    pub fn borrow_mut<'cell>(&'cell self, _token: &'cell mut GhostToken<'ghost>) -> &'cell mut T {
         // SAFETY: the returned borrow keeps the unique token exclusively
         // borrowed, preventing access to every other cell with this brand.
-        unsafe { &mut *self.pointer.as_ptr() }
-    }
-
-    #[inline]
-    pub(crate) fn pointer(&self) -> NonNull<T> {
-        self.pointer
+        unsafe { &mut *self.value.get() }
     }
 }
 
@@ -150,10 +119,8 @@ mod tests {
     #[test]
     fn one_token_mutates_multiple_cells_sequentially() {
         GhostToken::scope(|mut token| {
-            let mut first_value = 1;
-            let mut second_value = 2;
-            let first = GhostCell::from_mut(&mut first_value);
-            let second = GhostCell::from_mut(&mut second_value);
+            let first = GhostCell::new(1);
+            let second = GhostCell::new(2);
 
             *first.borrow_mut(&mut token) += 10;
             *second.borrow_mut(&mut token) += 20;
@@ -166,10 +133,8 @@ mod tests {
     #[test]
     fn multiple_shared_borrows_can_coexist() {
         GhostToken::scope(|token| {
-            let mut first_value = 1;
-            let mut second_value = 2;
-            let first = GhostCell::from_mut(&mut first_value);
-            let second = GhostCell::from_mut(&mut second_value);
+            let first = GhostCell::new(1);
+            let second = GhostCell::new(2);
             let first = first.borrow(&token);
             let second = second.borrow(&token);
 
@@ -180,7 +145,7 @@ mod tests {
     #[test]
     fn arena_ast_stores_only_branded_cell_references() {
         struct AstNode<'a, 'ghost> {
-            previous: Option<&'a GhostCell<'a, 'ghost, AstNode<'a, 'ghost>>>,
+            previous: Option<&'a GhostCell<'ghost, AstNode<'a, 'ghost>>>,
             value: u32,
         }
 

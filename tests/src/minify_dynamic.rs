@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use rocketcss_allocator::Allocator;
-use rocketcss_codegen::{PrinterOptions, ToCssWithGhost};
+use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
@@ -110,7 +110,10 @@ fn minify_css(source: &str) -> Result<String, String> {
             .map_err(|error| format!("parse: {error:?}"))?;
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
         stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .map_err(|error| error.to_string())
     })
 }
@@ -121,7 +124,10 @@ fn print_css(source: &str) -> Result<String, String> {
         let stylesheet = parse(source, &allocator, &mut token, ParserOptions::default())
             .map_err(|error| format!("parse: {error:?}"))?;
         stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .map_err(|error| error.to_string())
     })
 }

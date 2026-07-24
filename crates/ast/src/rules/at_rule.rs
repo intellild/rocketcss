@@ -8,7 +8,7 @@ pub struct SupportsRule<'a, 'ghost> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct CounterStyleRule<'a, 'ghost> {
-    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: &'a GhostCell<'ghost, DeclarationBlock<'a>>,
     pub span: Span,
     pub name: &'a str,
 }
@@ -40,13 +40,13 @@ pub struct NestingRule<'a, 'ghost> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct NestedDeclarationsRule<'a, 'ghost> {
-    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: &'a GhostCell<'ghost, DeclarationBlock<'a>>,
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ViewportRule<'a, 'ghost> {
-    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: &'a GhostCell<'ghost, DeclarationBlock<'a>>,
     pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
@@ -89,7 +89,7 @@ pub struct StartingStyleRule<'a, 'ghost> {
 pub struct PositionTryRule<'a, 'ghost> {
     pub span: Span,
     pub name: &'a str,
-    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: &'a GhostCell<'ghost, DeclarationBlock<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

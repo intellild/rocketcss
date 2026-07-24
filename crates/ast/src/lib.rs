@@ -124,7 +124,7 @@ mod tests {
         let allocator = Allocator::new();
         allocator.with_ghost(|token| {
             let first = allocator.alloc_ghost(DeclarationBlock::new(&allocator));
-            let first_ptr = first as *const GhostCell<'_, '_, _>;
+            let first_ptr = first as *const GhostCell<'_, _>;
             let mut rules = allocator.vec();
             rules.push(first);
 

@@ -1,9 +1,13 @@
 use crate::prelude::*;
 
-impl ToCss for Unit {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for Unit {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
-            Self::Length(unit) => unit.to_css(dest),
+            Self::Length(unit) => unit.to_css(dest, _cx),
             Self::Deg => dest.write_str("deg"),
             Self::Rad => dest.write_str("rad"),
             Self::Grad => dest.write_str("grad"),
@@ -21,8 +25,12 @@ impl ToCss for Unit {
     }
 }
 
-impl ToCss for Token<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for Token<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
 
         match self {
@@ -45,7 +53,7 @@ impl ToCss for Token<'_> {
                 serialize_number(*value * 100.0, dest)?;
                 dest.write_char('%')
             }
-            Self::Dimension { unit, value } => serialize_dimension(*value, unit, dest),
+            Self::Dimension { unit, value } => serialize_dimension(*value, unit, dest, _cx),
             Self::UnknownDimension { unit, value } => {
                 serialize_number(*value, dest)?;
                 dest.write_str(unit)
@@ -139,15 +147,16 @@ fn write_minified_hash<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT)
     Ok(())
 }
 
-pub(crate) fn write_token_list<PrinterT: PrinterTrait>(
+pub(crate) fn write_token_list<'ghost, PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
     dest: &mut PrinterT,
+    cx: &ToCssContext<'_, 'ghost>,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 && minified_color_needs_separator(&values[index - 1], value) {
             dest.write_char(' ')?;
         }
-        value.to_css(dest)?;
+        value.to_css(dest, cx)?;
     }
     Ok(())
 }
@@ -168,9 +177,10 @@ fn minified_color_needs_separator(left: &TokenOrValue<'_>, right: &TokenOrValue<
                 | Token::CloseParenthesis | Token::CloseSquareBracket | Token::CloseCurlyBracket))
 }
 
-pub(crate) fn write_token_list_trimmed<PrinterT: PrinterTrait>(
+pub(crate) fn write_token_list_trimmed<'ghost, PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
     dest: &mut PrinterT,
+    cx: &ToCssContext<'_, 'ghost>,
 ) -> fmt::Result {
     let start = values
         .iter()
@@ -178,29 +188,33 @@ pub(crate) fn write_token_list_trimmed<PrinterT: PrinterTrait>(
             !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)))
         })
         .unwrap_or(values.len());
-    write_token_list(&values[start..], dest)
+    write_token_list(&values[start..], dest, cx)
 }
 
 fn starts_with_whitespace(values: &[TokenOrValue<'_>]) -> bool {
     matches!(values.first(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::WhiteSpace(_)))
 }
 
-impl ToCss for TokenOrValue<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for TokenOrValue<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
-            Self::Token(value) => value.to_css(dest),
-            Self::Color(value) => value.to_css(dest),
-            Self::UnresolvedColor(value) => value.to_css(dest),
-            Self::Url(value) => value.to_css(dest),
-            Self::Var(value) => value.to_css(dest),
-            Self::Env(value) => value.to_css(dest),
-            Self::Function(value) => value.to_css(dest),
-            Self::Length(value) => serialize_dimension(value.value, &value.unit, dest),
-            Self::Angle(value) => value.to_css(dest),
-            Self::Time(value) => value.to_css(dest),
-            Self::Resolution(value) => value.to_css(dest),
+            Self::Token(value) => value.to_css(dest, _cx),
+            Self::Color(value) => value.to_css(dest, _cx),
+            Self::UnresolvedColor(value) => value.to_css(dest, _cx),
+            Self::Url(value) => value.to_css(dest, _cx),
+            Self::Var(value) => value.to_css(dest, _cx),
+            Self::Env(value) => value.to_css(dest, _cx),
+            Self::Function(value) => value.to_css(dest, _cx),
+            Self::Length(value) => serialize_dimension(value.value, &value.unit, dest, _cx),
+            Self::Angle(value) => value.to_css(dest, _cx),
+            Self::Time(value) => value.to_css(dest, _cx),
+            Self::Resolution(value) => value.to_css(dest, _cx),
             Self::DashedIdent(value) => write_dashed_ident(value, dest),
-            Self::AnimationName(value) => value.to_css(dest),
+            Self::AnimationName(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -210,8 +224,12 @@ fn write_dashed_ident<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT) 
     serialize_name(value.strip_prefix("--").unwrap_or(value), dest)
 }
 
-impl ToCss for Url<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for Url<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str("url(")?;
         if !dest.prettify() && can_write_unquoted_url(self.url) {
             write_unquoted_url(self.url, dest)?;
@@ -246,10 +264,14 @@ fn write_unquoted_url<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT) 
     dest.write_str(&value[start..])
 }
 
-impl ToCss for Variable<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for Variable<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str("var(")?;
-        self.name.to_css(dest)?;
+        self.name.to_css(dest, _cx)?;
         if let Some(fallback) = &self.fallback {
             dest.write_char(',')?;
             if fallback.is_empty() {
@@ -257,7 +279,7 @@ impl ToCss for Variable<'_> {
             } else if !starts_with_whitespace(fallback) {
                 dest.whitespace()?;
             }
-            write_token_list(fallback, dest)?;
+            write_token_list(fallback, dest, _cx)?;
             if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
             {
                 dest.write_char(' ')?;
@@ -267,10 +289,14 @@ impl ToCss for Variable<'_> {
     }
 }
 
-impl ToCss for EnvironmentVariable<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for EnvironmentVariable<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str("env(")?;
-        self.name.to_css(dest)?;
+        self.name.to_css(dest, _cx)?;
         for index in &self.indices {
             dest.write_char(' ')?;
             serialize_int(*index, dest)?;
@@ -282,7 +308,7 @@ impl ToCss for EnvironmentVariable<'_> {
             } else if !starts_with_whitespace(fallback) {
                 dest.whitespace()?;
             }
-            write_token_list(fallback, dest)?;
+            write_token_list(fallback, dest, _cx)?;
             if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
             {
                 dest.write_char(' ')?;
@@ -292,18 +318,26 @@ impl ToCss for EnvironmentVariable<'_> {
     }
 }
 
-impl ToCss for EnvironmentVariableName<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for EnvironmentVariableName<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
-            Self::UA(value) => value.to_css(dest),
-            Self::Custom(value) => value.to_css(dest),
+            Self::UA(value) => value.to_css(dest, _cx),
+            Self::Custom(value) => value.to_css(dest, _cx),
             Self::Unknown(value) => serialize_identifier(value, dest),
         }
     }
 }
 
-impl ToCss for UAEnvironmentVariable {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for UAEnvironmentVariable {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str(
             self.as_css_str()
                 .expect("UA environment variables are static keywords"),
@@ -311,19 +345,27 @@ impl ToCss for UAEnvironmentVariable {
     }
 }
 
-impl ToCss for DashedIdentReference<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for DashedIdentReference<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         write_dashed_ident(self.ident, dest)?;
         if let Some(from) = &self.from {
             dest.write_str(" from ")?;
-            from.to_css(dest)?;
+            from.to_css(dest, _cx)?;
         }
         Ok(())
     }
 }
 
-impl ToCss for Specifier<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for Specifier<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::Global => dest.write_str("global"),
             Self::File(value) => serialize_string(value, dest),
@@ -332,8 +374,12 @@ impl ToCss for Specifier<'_> {
     }
 }
 
-impl ToCss for Function<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for Function<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         if let Some(replacement) = self.replacement {
             return match replacement {
                 FunctionReplacement::GrayAlpha { alpha, lightness } => {
@@ -345,7 +391,7 @@ impl ToCss for Function<'_> {
                 }
                 FunctionReplacement::Number(value) => serialize_number(value, dest),
                 FunctionReplacement::Dimension { unit, value } => {
-                    serialize_dimension(value, &unit, dest)
+                    serialize_dimension(value, &unit, dest, _cx)
                 }
                 FunctionReplacement::Percentage(value) => {
                     serialize_number(value * 100.0, dest)?;
@@ -378,7 +424,7 @@ impl ToCss for Function<'_> {
             write_unquoted_url(value, dest)?;
             return dest.write_char(')');
         }
-        write_token_list(&self.arguments, dest)?;
+        write_token_list(&self.arguments, dest, _cx)?;
         if self.kind().is_variable()
             && matches!(self.arguments.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
         {
@@ -444,8 +490,12 @@ fn write_minified_rgb<PrinterT: PrinterTrait>(
     }
 }
 
-impl ToCss for AnimationName<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for AnimationName<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
             Self::Ident(value) => serialize_identifier(value, dest),

@@ -110,7 +110,10 @@ fn keeps_comments_in_animation_values_on_the_unparsed_path() {
         ));
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: true })
+                .to_css_string(
+                    PrinterOptions { prettify: true },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a {\n  animation: bounce /*!wow*/ 1s linear;\n}\n"
         );

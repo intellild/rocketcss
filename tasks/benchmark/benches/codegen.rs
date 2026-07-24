@@ -4,7 +4,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_allocator::Allocator;
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
-use rocketcss_codegen::{Printer, PrinterOptions, ToCssWithGhost};
+use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
 
 fn main() {
     divan::main();
@@ -30,9 +30,9 @@ fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
             .bench_local(|| {
                 let mut output = String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
                 stylesheet
-                    .to_css_with_ghost(
-                        &token,
+                    .to_css(
                         &mut Printer::new(&mut output, PrinterOptions { prettify: false }),
+                        &ToCssContext::new(&token),
                     )
                     .unwrap();
                 black_box(output);

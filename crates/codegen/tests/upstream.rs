@@ -2,7 +2,7 @@ use lightningcss::stylesheet::{
     ParserOptions as LightningParserOptions, PrinterOptions as LightningPrinterOptions,
     StyleSheet as LightningStyleSheet,
 };
-use rocketcss_codegen::{PrinterOptions, ToCssWithGhost};
+use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_parser::prelude::*;
 use serde_json::Value;
 
@@ -56,7 +56,7 @@ fn lightningcss_stylesheet_ast_to_css_corpus() {
                 panic!("{name}: parser corpus stopped producing an AST: {error:?}")
             });
             stylesheet
-                .to_css_string(&token, PrinterOptions::default())
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .expect("rocketcss AST should serialize")
         });
         compared += 1;

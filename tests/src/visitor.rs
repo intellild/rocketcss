@@ -1,6 +1,6 @@
 use rocketcss_allocator::Allocator;
 use rocketcss_ast::{SelectorComponent, VisitMutContext};
-use rocketcss_codegen::{PrinterOptions, ToCssWithGhost};
+use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_parser::{ParserOptions, parse};
 use rocketcss_visitor::{PluginContext, Plugins, VisitMut, VisitorMut};
 
@@ -40,7 +40,7 @@ fn plugins_transform_expected_css() {
                 .run(&mut stylesheet, &mut context)
                 .unwrap_or_else(|error| panic!("{} should transform: {error}", input.display()));
             let actual = stylesheet
-                .to_css_string(&token, PrinterOptions::default())
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
 
             assert_eq!(actual, expected, "fixture: {}", input.display());

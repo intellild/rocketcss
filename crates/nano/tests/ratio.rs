@@ -1,5 +1,5 @@
 use rocketcss_allocator::Allocator;
-use rocketcss_codegen::{PrinterOptions, ToCssWithGhost};
+use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_nano::{MinifyOptions, Options, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
@@ -17,7 +17,10 @@ fn minify_css(source: &str, flags: Options) -> String {
             },
         );
         stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap()
     })
 }

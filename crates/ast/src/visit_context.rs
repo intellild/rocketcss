@@ -15,9 +15,9 @@ impl<'token, 'ghost> VisitContext<'token, 'ghost> {
     }
 
     #[inline]
-    pub fn with_cell<'a, T: ?Sized, R>(
+    pub fn with_cell<T: ?Sized, R>(
         &self,
-        cell: &GhostCell<'a, 'ghost, T>,
+        cell: &GhostCell<'ghost, T>,
         f: impl FnOnce(&T, &Self) -> R,
     ) -> R {
         f(cell.borrow(self.token), self)
@@ -52,9 +52,9 @@ impl<'token, 'ghost> VisitMutContext<'token, 'ghost> {
     }
 
     #[inline]
-    pub fn with_cell<'a, T: ?Sized, R>(
+    pub fn with_cell<T: ?Sized, R>(
         &mut self,
-        cell: &GhostCell<'a, 'ghost, T>,
+        cell: &GhostCell<'ghost, T>,
         f: impl FnOnce(&mut T, &mut Self) -> R,
     ) -> R {
         let VisitMutState::Available(token) =

@@ -7,5 +7,5 @@ pub(crate) use crate::printer::{
     serialize_dimension, serialize_hex, serialize_int, serialize_number,
 };
 pub use crate::{
-    Delimiter, Printer, PrinterOptions, PrinterState, PrinterTrait, ToCss, ToCssWithGhost,
+    Delimiter, Printer, PrinterOptions, PrinterState, PrinterTrait, ToCss, ToCssContext,
 };

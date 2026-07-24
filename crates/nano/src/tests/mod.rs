@@ -1,5 +1,5 @@
 pub use rocketcss_allocator::Allocator;
-pub use rocketcss_codegen::{PrinterOptions, ToCss, ToCssWithGhost};
+pub use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 pub use rocketcss_parser::{ParserOptions, parse};
 pub use rocketcss_visitor::{PluginContext, Plugins};
 
@@ -32,7 +32,10 @@ fn run_with_options(source: &str, options: MinifyOptions) -> String {
             parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
         minify(&mut stylesheet, &mut token, options);
         stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap()
     })
 }
@@ -52,7 +55,10 @@ fn run_with_error_recovery(source: &str) -> String {
         .unwrap();
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
         stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap()
     })
 }

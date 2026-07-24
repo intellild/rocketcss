@@ -26,7 +26,10 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
         assert_eq!(stats.values_normalized, 1);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             ".valid,#also-valid{color:red}"
         );

@@ -1,14 +1,21 @@
+use rocketcss_allocator::GhostToken;
 use rocketcss_ast::*;
-use rocketcss_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss, ToCssWithGhost};
+use rocketcss_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss, ToCssContext};
 
-fn assert_to_css<T: ToCss>() {}
-fn assert_to_css_with_ghost<T: ToCssWithGhost<'static>>() {}
+fn assert_to_css<T>()
+where
+    T: for<'ghost> ToCss<'ghost>,
+{
+}
 
-fn serialize_with_printer_trait<T: ToCss, PrinterT: PrinterTrait>(
+fn assert_branded_to_css<T: ToCss<'static>>() {}
+
+fn serialize_with_printer_trait<'ghost, T: ToCss<'ghost>, PrinterT: PrinterTrait>(
     value: &T,
     printer: &mut PrinterT,
+    cx: &ToCssContext<'_, 'ghost>,
 ) -> std::fmt::Result {
-    value.to_css(printer)
+    value.to_css(printer, cx)
 }
 
 macro_rules! assert_types {
@@ -19,7 +26,7 @@ macro_rules! assert_types {
 
 macro_rules! assert_ghost_types {
     ($($ty:ty),+ $(,)?) => {
-        $(assert_to_css_with_ghost::<$ty>();)+
+        $(assert_branded_to_css::<$ty>();)+
     };
 }
 
@@ -149,8 +156,15 @@ fn every_css_ast_node_implements_to_css() {
 
 #[test]
 fn to_css_only_depends_on_the_printer_trait() {
-    let mut output = String::new();
-    let mut printer = Printer::new(&mut output, PrinterOptions::default());
-    serialize_with_printer_trait(&CSSWideKeyword::Initial, &mut printer).unwrap();
-    assert_eq!(output, "initial");
+    GhostToken::scope(|token| {
+        let mut output = String::new();
+        let mut printer = Printer::new(&mut output, PrinterOptions::default());
+        serialize_with_printer_trait(
+            &CSSWideKeyword::Initial,
+            &mut printer,
+            &ToCssContext::new(&token),
+        )
+        .unwrap();
+        assert_eq!(output, "initial");
+    });
 }

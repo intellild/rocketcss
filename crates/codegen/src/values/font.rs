@@ -1,10 +1,14 @@
 use crate::prelude::*;
 
-impl ToCss for FontFamily<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for FontFamily<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::Custom(value) => write_custom_font_family(value, dest),
-            Self::Unparsed(value) => crate::token::write_token_list(value, dest),
+            Self::Unparsed(value) => crate::token::write_token_list(value, dest, _cx),
             Self::Tombstone => Ok(()),
             _ => dest.write_str(
                 self.as_css_str()

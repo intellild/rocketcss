@@ -49,11 +49,17 @@ fn adjacent_rule_merging_is_idempotent() {
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
         let once = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         let second_stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
         let twice = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
 
         assert_eq!(once, "a{height:2px;width:1px}");

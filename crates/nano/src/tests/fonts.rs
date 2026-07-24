@@ -83,7 +83,10 @@ fn removes_font_family_declarations_containing_only_tombstones() {
         assert_eq!(stats.declarations_removed, 2);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{}"
         );

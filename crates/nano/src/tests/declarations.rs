@@ -73,7 +73,10 @@ fn removes_exact_duplicate_declarations_within_one_block() {
         assert_eq!(stats.declarations_removed, 0);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{color:red;width:1px}"
         );

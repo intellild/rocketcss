@@ -1,5 +1,5 @@
 use rocketcss_allocator::GhostToken;
-use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssWithGhost};
+use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
 use rocketcss_parser::prelude::*;
 
 fn parse_stylesheet<'a, 'ghost>(
@@ -18,7 +18,10 @@ fn preserves_unknown_nested_page_regions() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -40,7 +43,7 @@ fn ports_lightningcss_public_to_css_api_cases() {
         let stylesheet = parse_stylesheet(".foo { color: red }", &allocator, &mut token);
         let rule = &stylesheet.rules[0];
         assert_eq!(
-            rule.to_css_string(&token, PrinterOptions::default())
+            rule.to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap(),
             ".foo {\n  color: red;\n}"
         );
@@ -52,7 +55,7 @@ fn ports_lightningcss_public_to_css_api_cases() {
         let style = style.get_ref();
         assert_eq!(
             style.declarations.borrow(&token).declarations[0]
-                .to_css_string(PrinterOptions::default())
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap(),
             "color: red"
         );
@@ -66,7 +69,10 @@ fn ports_lightningcss_public_to_css_api_cases() {
         };
         assert_eq!(
             media.rules[0]
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             ".a{color:red}"
         );
@@ -84,7 +90,7 @@ fn stylesheet_implements_to_css() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions::default())
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap(),
             concat!(
                 ".foo {\n",
@@ -124,7 +130,10 @@ fn supports_conditions_preserve_source_order_deterministically() {
             );
             assert_eq!(
                 stylesheet
-                    .to_css_string(&token, PrinterOptions { prettify: false })
+                    .to_css_string(
+                        PrinterOptions { prettify: false },
+                        &ToCssContext::new(&token)
+                    )
                     .unwrap(),
                 EXPECTED
             );
@@ -154,7 +163,10 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
         ));
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "@media screen yahoo{.a{color:red}}"
         );
@@ -173,7 +185,10 @@ fn preserves_nonstandard_important_at_rule_as_unknown_syntax() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "@important{.card{color:red}.a{color:black}}"
         );
@@ -199,7 +214,10 @@ fn pseudo_classes_are_debuggable_and_serializable() {
             assert!(format!("{style:#?}").contains("StyleRule"));
             assert_eq!(
                 stylesheet
-                    .to_css_string(&token, PrinterOptions { prettify: false })
+                    .to_css_string(
+                        PrinterOptions { prettify: false },
+                        &ToCssContext::new(&token)
+                    )
                     .unwrap(),
                 source
             );
@@ -219,7 +237,10 @@ fn preserves_keyframe_names_in_custom_properties_without_module_linking() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             ".root{--animation-name:fade-in}@keyframes fade-in{from{opacity:0}to{opacity:1}}"
         );
@@ -238,7 +259,10 @@ fn preserves_css_modules_import_syntax_without_compiling_it() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "@value button from \"./button.module.css\";:import(\"./button.module.css\"){button:button}"
         );
@@ -254,7 +278,10 @@ fn preserves_css_modules_file_alias_syntax() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -284,7 +311,10 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
         }
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             ".foo{@layer utilities{color:red}}.baz{@layer components{color:red}}.bar{@layer utilities{color:red}}"
         );
@@ -324,7 +354,10 @@ fn box_sizing_css_wide_keywords_round_trip_as_known_unparsed_values() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{box-sizing:initial;box-sizing:inherit;box-sizing:unset;box-sizing:revert;box-sizing:revert-layer}"
         );
@@ -338,7 +371,10 @@ fn compact_stylesheet_omits_optional_whitespace() {
         let stylesheet = parse_stylesheet(".foo { color: #ff00ff }", &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             ".foo{color:#f0f}"
         );
@@ -362,7 +398,10 @@ fn recovered_unparsed_selectors_round_trip_before_minification() {
 
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false },)
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             ".valid,(font-[family-name:var(--font-*)]),#also-valid{color:red}"
         );
@@ -388,7 +427,10 @@ fn error_recovery_preserves_tailwind_wildcard_custom_properties() {
 
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false },)
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -397,20 +439,25 @@ fn error_recovery_preserves_tailwind_wildcard_custom_properties() {
 
 #[test]
 fn font_family_lists_skip_tombstones_without_extra_commas() {
-    let allocator = Allocator::new();
-    let mut families = allocator.vec();
-    families.push(FontFamily::Tombstone);
-    families.push(FontFamily::Custom("A"));
-    families.push(FontFamily::Tombstone);
-    families.push(FontFamily::Serif);
-    families.push(FontFamily::Tombstone);
+    GhostToken::scope(|token| {
+        let allocator = Allocator::new();
+        let mut families = allocator.vec();
+        families.push(FontFamily::Tombstone);
+        families.push(FontFamily::Custom("A"));
+        families.push(FontFamily::Tombstone);
+        families.push(FontFamily::Serif);
+        families.push(FontFamily::Tombstone);
 
-    assert_eq!(
-        families
-            .to_css_string(PrinterOptions { prettify: false })
-            .unwrap(),
-        "A,serif"
-    );
+        assert_eq!(
+            families
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            "A,serif"
+        );
+    });
 }
 
 #[test]
@@ -424,7 +471,10 @@ fn serializes_typed_multicol_and_legacy_gap_properties() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{-webkit-column-rule:1px solid red;columns:10px 3;grid-column-gap:10%;grid-row-gap:normal}"
         );
@@ -443,7 +493,7 @@ fn serializes_charset_rules() {
 
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions::default())
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap(),
             concat!(
                 "@charset \"UTF-8\";\n",
@@ -455,7 +505,10 @@ fn serializes_charset_rules() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "@charset \"UTF-8\";@import \"theme.css\";.foo{color:green}"
         );
@@ -470,7 +523,10 @@ fn function_codegen_uses_known_identity_and_preserves_original_name() {
             parse_stylesheet("a{color:VAR(--x,);width:CuStOm(1)}", &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{color:VAR(--x, );width:CuStOm(1)}"
         );
@@ -479,71 +535,77 @@ fn function_codegen_uses_known_identity_and_preserves_original_name() {
 
 #[test]
 fn serializes_packed_rgb_and_rgba_hex_values() {
-    for (color, expected) in [
-        (
-            RGBA {
-                red: 0xaa,
-                green: 0xbb,
-                blue: 0xcc,
-                alpha: 0xff,
-            },
-            "#abc",
-        ),
-        (
-            RGBA {
-                red: 0x12,
-                green: 0x34,
-                blue: 0x56,
-                alpha: 0xff,
-            },
-            "#123456",
-        ),
-        (
-            RGBA {
-                red: 0xaa,
-                green: 0xbb,
-                blue: 0xcc,
-                alpha: 0xdd,
-            },
-            "#abcd",
-        ),
-        (
-            RGBA {
-                red: 0x12,
-                green: 0x34,
-                blue: 0x56,
-                alpha: 0x78,
-            },
-            "#12345678",
-        ),
-    ] {
-        assert_eq!(
-            color.to_css_string(PrinterOptions::default()).unwrap(),
-            expected
-        );
-    }
+    GhostToken::scope(|token| {
+        for (color, expected) in [
+            (
+                RGBA {
+                    red: 0xaa,
+                    green: 0xbb,
+                    blue: 0xcc,
+                    alpha: 0xff,
+                },
+                "#abc",
+            ),
+            (
+                RGBA {
+                    red: 0x12,
+                    green: 0x34,
+                    blue: 0x56,
+                    alpha: 0xff,
+                },
+                "#123456",
+            ),
+            (
+                RGBA {
+                    red: 0xaa,
+                    green: 0xbb,
+                    blue: 0xcc,
+                    alpha: 0xdd,
+                },
+                "#abcd",
+            ),
+            (
+                RGBA {
+                    red: 0x12,
+                    green: 0x34,
+                    blue: 0x56,
+                    alpha: 0x78,
+                },
+                "#12345678",
+            ),
+        ] {
+            assert_eq!(
+                color
+                    .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                    .unwrap(),
+                expected
+            );
+        }
+    });
 }
 
 #[test]
 fn serializes_typed_and_unknown_dimension_units() {
-    assert_eq!(
-        Token::Dimension {
-            value: 2.0,
-            unit: Unit::Length(LengthUnit::Px),
-        }
-        .to_css_string(PrinterOptions::default())
-        .unwrap(),
-        "2px"
-    );
-    assert_eq!(
-        Token::UnknownDimension {
-            value: 2.0,
-            unit: "furlong",
-        }
-        .to_css_string(PrinterOptions::default())
-        .unwrap(),
-        "2furlong"
-    );
+    GhostToken::scope(|token| {
+        assert_eq!(
+            Token::Dimension {
+                value: 2.0,
+                unit: Unit::Length(LengthUnit::Px),
+            }
+            .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+            .unwrap(),
+            "2px"
+        );
+        assert_eq!(
+            Token::UnknownDimension {
+                value: 2.0,
+                unit: "furlong",
+            }
+            .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+            .unwrap(),
+            "2furlong"
+        );
+    });
 }
 
 #[test]
@@ -564,7 +626,7 @@ fn declaration_block_preserves_importance_bits() {
             style
                 .declarations
                 .borrow(&token)
-                .to_css_string(PrinterOptions::default())
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap(),
             "color: red !important;\nopacity: .5"
         );
@@ -573,29 +635,31 @@ fn declaration_block_preserves_importance_bits() {
 
 #[test]
 fn declaration_block_skips_tombstones() {
-    let allocator = Allocator::new();
-    let mut declarations = DeclarationBlock::new(&allocator);
+    GhostToken::scope(|token| {
+        let allocator = Allocator::new();
+        let mut declarations = DeclarationBlock::new(&allocator);
 
-    declarations.push(Declaration::Tombstone, true);
-    assert!(declarations.is_output_empty());
-    assert_eq!(
-        declarations
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        ""
-    );
+        declarations.push(Declaration::Tombstone, true);
+        assert!(declarations.is_output_empty());
+        assert_eq!(
+            declarations
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            ""
+        );
 
-    declarations.push(Declaration::All(CSSWideKeyword::Initial), false);
-    declarations.push(Declaration::Tombstone, true);
-    declarations.push(Declaration::All(CSSWideKeyword::Inherit), true);
-    declarations.push(Declaration::Tombstone, false);
-    assert!(!declarations.is_output_empty());
-    assert_eq!(
-        declarations
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "all: initial;\nall: inherit !important"
-    );
+        declarations.push(Declaration::All(CSSWideKeyword::Initial), false);
+        declarations.push(Declaration::Tombstone, true);
+        declarations.push(Declaration::All(CSSWideKeyword::Inherit), true);
+        declarations.push(Declaration::Tombstone, false);
+        assert!(!declarations.is_output_empty());
+        assert_eq!(
+            declarations
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "all: initial;\nall: inherit !important"
+        );
+    });
 }
 
 #[test]
@@ -616,13 +680,19 @@ fn merged_declaration_blocks_serialize_from_chain_head() {
 
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{width:1px;height:2px}"
         );
 
         let pretty = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: true })
+            .to_css_string(
+                PrinterOptions { prettify: true },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(pretty.matches("a {").count(), 1);
         assert!(pretty.trim_start().starts_with("a {"));
@@ -632,86 +702,88 @@ fn merged_declaration_blocks_serialize_from_chain_head() {
 
 #[test]
 fn ports_lightningcss_typed_value_serialization_cases() {
-    assert_eq!(
-        Time::Milliseconds(100.0)
-            .to_css_string(PrinterOptions::default())
+    GhostToken::scope(|token| {
+        assert_eq!(
+            Time::Milliseconds(100.0)
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            ".1s"
+        );
+        assert_eq!(
+            EasingFunction::CubicBezier {
+                x1: 0.42,
+                y1: 0.0,
+                x2: 1.0,
+                y2: 1.0,
+            }
+            .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
             .unwrap(),
-        ".1s"
-    );
-    assert_eq!(
-        EasingFunction::CubicBezier {
-            x1: 0.42,
-            y1: 0.0,
-            x2: 1.0,
-            y2: 1.0,
-        }
-        .to_css_string(PrinterOptions::default())
-        .unwrap(),
-        "ease-in"
-    );
-    assert_eq!(
-        UnicodeRange {
-            start: 0x400,
-            end: 0x4ff,
-        }
-        .to_css_string(PrinterOptions::default())
-        .unwrap(),
-        "U+4??"
-    );
-    assert_eq!(
-        FontFormat::Woff
-            .to_css_string(PrinterOptions::default())
+            "ease-in"
+        );
+        assert_eq!(
+            UnicodeRange {
+                start: 0x400,
+                end: 0x4ff,
+            }
+            .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
             .unwrap(),
-        "\"woff\""
-    );
-    assert_eq!(
-        FamilyName("Fancy Font Name")
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "Fancy Font Name"
-    );
-    assert_eq!(
-        FontFamily::SansSerif
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "sans-serif"
-    );
-    assert_eq!(
-        FontFamily::Custom("serif")
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "\"serif\""
-    );
-    assert_eq!(
-        FontFamily::Custom("Fancy Font")
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "Fancy Font"
-    );
-    assert_eq!(
-        FontFamily::Custom("A  B")
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "\"A  B\""
-    );
-    assert_eq!(
-        FontFamily::Custom("1")
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "\"1\""
-    );
-    assert_eq!(
-        FontFamily::Custom("slab serif")
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "\"slab serif\""
-    );
-    assert_eq!(
-        FontFamily::Custom("slab inherit")
-            .to_css_string(PrinterOptions::default())
-            .unwrap(),
-        "\"slab inherit\""
-    );
+            "U+4??"
+        );
+        assert_eq!(
+            FontFormat::Woff
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "\"woff\""
+        );
+        assert_eq!(
+            FamilyName("Fancy Font Name")
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "Fancy Font Name"
+        );
+        assert_eq!(
+            FontFamily::SansSerif
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "sans-serif"
+        );
+        assert_eq!(
+            FontFamily::Custom("serif")
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "\"serif\""
+        );
+        assert_eq!(
+            FontFamily::Custom("Fancy Font")
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "Fancy Font"
+        );
+        assert_eq!(
+            FontFamily::Custom("A  B")
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "\"A  B\""
+        );
+        assert_eq!(
+            FontFamily::Custom("1")
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "\"1\""
+        );
+        assert_eq!(
+            FontFamily::Custom("slab serif")
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "\"slab serif\""
+        );
+        assert_eq!(
+            FontFamily::Custom("slab inherit")
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            "\"slab inherit\""
+        );
+    });
 }
 
 #[test]
@@ -722,7 +794,10 @@ fn preserves_pseudo_elements_inside_is() {
         let stylesheet = parse_stylesheet(".foo:is(::before){color:green}", &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             ".foo:is(:before){color:green}"
         );
@@ -738,7 +813,10 @@ fn preserves_composes_inside_layers_until_module_compilation() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -754,7 +832,10 @@ fn preserves_dynamic_grid_symbols_until_module_compilation() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -770,7 +851,10 @@ fn preserves_imported_dashed_idents_in_nested_values_and_rules() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -786,7 +870,10 @@ fn preserves_module_qualified_custom_property_definitions() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -802,7 +889,10 @@ fn preserves_css_custom_functions_and_mixins_draft() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -818,7 +908,10 @@ fn expands_mixins_at_the_apply_position_without_reordering_declarations() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             ".quote{background:var(--bg-card);border-radius:var(--border-radius-md);padding:var(--spacing-5);transition:background var(--duration);margin-block-end:0;border-top-left-radius:0;border-bottom-left-radius:0;border-left-width:5px;border-left-color:var(--color-gray-400)}"
         );
@@ -834,7 +927,10 @@ fn preserves_global_keyframe_names_until_module_compilation() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -849,7 +945,10 @@ fn preserves_light_dark_when_a_child_changes_color_scheme() {
         const SOURCE: &str = ":root{--background:light-dark(white,black);--text:light-dark(black,white)}p{color:var(--text);background:var(--background);color-scheme:dark}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output, SOURCE);
         assert!(!output.contains("--lightningcss-light"));
@@ -865,7 +964,10 @@ fn preserves_nested_pseudo_element_rules_without_invalid_flattening() {
         const SOURCE: &str = ".input::placeholder{&:not(.noAdaptiveTypography){font-size:inherit}}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output, SOURCE);
         assert!(!output.contains(".input::placeholder:not("));
@@ -881,7 +983,10 @@ fn does_not_duplicate_authored_text_decoration_when_prefixing_for_targets() {
             "a{color:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output, SOURCE);
         assert_eq!(output.matches("-webkit-text-decoration:inherit").count(), 1);
@@ -897,7 +1002,10 @@ fn combines_resolved_local_and_global_css_module_selectors() {
             ".a{color:red}.b{color:red}:global(.c){color:red}:global(.d){color:red}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output.matches("{color:red}").count(), 1);
         assert!(!output.contains(":global"));
@@ -912,7 +1020,10 @@ fn preserves_root_and_host_when_generating_supports_fallbacks() {
         const SOURCE: &str = ":root,:host{--theme:color(display-p3 1 0 0)}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(
             output,
@@ -930,7 +1041,10 @@ fn generates_user_select_prefix_for_safari_targets() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{-webkit-user-select:all;user-select:all}"
         );
@@ -946,7 +1060,10 @@ fn does_not_partially_lower_dynamic_logical_shorthands() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -961,7 +1078,10 @@ fn preserves_svg_data_urls_with_opposite_quote_styles() {
         const SOURCE: &str = r#".a{background:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"></svg>')}.b{background:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'></svg>")}"#;
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output.matches("data:image/svg+xml").count(), 2);
         assert!(output.contains("xmlns"));
@@ -977,7 +1097,10 @@ fn preserves_unescaped_exponent_like_unknown_units() {
         const SOURCE: &str = r"a{height:0e;height:0E;height:0\65}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert!(output.contains("height:0e"));
         assert!(output.contains("height:0E"));
@@ -997,7 +1120,10 @@ fn retains_more_than_six_significant_digits_when_serializing_numbers() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{line-height:1.3333334;width:33.333332%}"
         );
@@ -1014,7 +1140,10 @@ fn expands_custom_media_after_a_stylesheet_replacement() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "@media (max-width:30em){.a{color:red}}"
         );
@@ -1029,7 +1158,10 @@ fn generates_text_size_adjust_prefix_for_ios_safari() {
         let stylesheet = parse_stylesheet("a{text-size-adjust:none}", &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{-webkit-text-size-adjust:none;text-size-adjust:none}"
         );
@@ -1044,7 +1176,10 @@ fn preserves_where_specificity_when_a_legacy_target_requires_a_diagnostic() {
         const SOURCE: &str = ":where(.button,#danger){color:red}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output, SOURCE);
         assert!(!output.contains(":is("));
@@ -1064,7 +1199,10 @@ fn preserves_property_rules_inside_layer_blocks() {
         assert!(matches!(layer.rules[0], CssRule::Property(_)));
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -1081,7 +1219,10 @@ fn preserves_numeric_oklch_property_initial_values() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             SOURCE
         );
@@ -1096,7 +1237,10 @@ fn preserves_attr_type_angle_brackets_without_inserted_whitespace() {
         const SOURCE: &str = "a{max-width:attr(data-max-width type(<length>)|fit-content)}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert!(output.contains("type(<length>)"));
         assert!(!output.contains("< length>"));
@@ -1115,7 +1259,10 @@ fn avoids_invalid_is_wrapping_for_nested_pseudo_element_media_rules() {
             &mut token,
         );
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output, "@media screen{.foo:after,.bar:after{color:red}}");
         assert!(!output.contains(":is("));
@@ -1134,7 +1281,10 @@ fn retains_authored_vendor_values_when_generating_missing_prefixes() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{-webkit-appearance:none;-moz-appearance:textfield;appearance:textfield}"
         );
@@ -1152,7 +1302,10 @@ fn preserves_three_length_text_shadows_without_inserting_a_spread() {
             &mut token,
         );
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert!(output.contains("text-shadow:0 .02rem 0 rgba(0,0,0,.05)"));
         assert!(!output.contains("text-shadow:0 .02rem 0 0"));
@@ -1171,7 +1324,10 @@ fn preserves_unknown_media_calc_symbols_and_rule_bodies() {
             &mut token,
         );
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert!(output.contains("baseUnit * 1"));
         assert!(output.contains(".className{color:red}"));
@@ -1192,7 +1348,10 @@ fn preserves_pseudo_elements_when_lowering_nested_parent_selectors() {
         let stylesheet = parse_stylesheet("#b::after{&{color:green}}", &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "#b::after{color:green}"
         );
@@ -1211,7 +1370,10 @@ fn preserves_valid_before_and_after_marker_chains() {
         );
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "li::before::marker,li::after::marker{content:\"\"}"
         );
@@ -1225,7 +1387,10 @@ fn avoids_legacy_any_fallbacks_when_targets_support_selector_list_not() {
         let allocator = Allocator::new();
         let stylesheet = parse_stylesheet(":not(a,block){color:red}", &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output, ":not(a,block){color:red}");
         assert!(!output.contains("-webkit-any"));
@@ -1253,7 +1418,10 @@ fn normalizes_legacy_bare_hex_colors_only_in_quirks_mode() {
         let stylesheet = parse_stylesheet("a{background-color:333333}", &allocator, &mut token);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{background-color:#333}"
         );
@@ -1268,7 +1436,10 @@ fn avoids_specificity_increases_when_lowering_logical_margins() {
         const SOURCE: &str = ".ms-0{margin-inline-start:0}@media(min-width:1536px){.two-xl\\:mx-auto{margin-inline:auto}}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let output = stylesheet
-            .to_css_string(&token, PrinterOptions { prettify: false })
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
             .unwrap();
         assert_eq!(output, SOURCE);
         assert!(!output.contains(":lang("));

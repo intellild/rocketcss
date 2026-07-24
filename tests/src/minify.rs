@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use rocketcss_allocator::Allocator;
-use rocketcss_codegen::{PrinterOptions, ToCssWithGhost};
+use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
@@ -26,7 +26,10 @@ fn minifies_upstream_fixtures() {
 
             minify(&mut stylesheet, &mut token, MinifyOptions::default());
             let actual = stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
                 .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
 
             assert_eq!(actual, expected.trim_end(), "fixture: {}", input.display());

@@ -23,7 +23,7 @@ pub struct KeyframesRule<'a, 'ghost> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Keyframe<'a, 'ghost> {
-    pub declarations: &'a GhostCell<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: &'a GhostCell<'ghost, DeclarationBlock<'a>>,
     pub selectors: Vec<'a, KeyframeSelector>,
 }
 

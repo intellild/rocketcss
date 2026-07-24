@@ -92,7 +92,10 @@ fn keeps_existing_token_storage() {
         assert_eq!(token_after, token_before);
         assert_eq!(
             stylesheet
-                .to_css_string(&token, PrinterOptions { prettify: false })
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
                 .unwrap(),
             "a{margin:1px}"
         );
