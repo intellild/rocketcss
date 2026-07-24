@@ -1,0 +1,21 @@
+tasks/ast_size/Cargo.toml
+  s_a0b85263ca7e1c::t_6c6c9b9025fe75 3,9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b755ece2576296419572df9c763d03f57c61df8d",
+  "prompts": {},
+  "sessions": {
+    "s_a0b85263ca7e1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8370-eae5-7313-a85a-741d79036117",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
