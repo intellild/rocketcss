@@ -6,7 +6,7 @@ use rocketcss_allocator::boxed::Box;
 pub enum CssRule<'a, 'ghost> {
     Media(Box<'a, MediaRule<'a, 'ghost>>),
     Import(Box<'a, ImportRule<'a>>),
-    Style(Pin<Box<'a, GhostCell<'ghost, StyleRule<'a, 'ghost>>>>),
+    Style(GhostBox<'a, 'ghost, StyleRule<'a, 'ghost>>),
     Keyframes(Box<'a, KeyframesRule<'a, 'ghost>>),
     FontFace(Box<'a, FontFaceRule<'a>>),
     FontPaletteValues(Box<'a, FontPaletteValuesRule<'a>>),

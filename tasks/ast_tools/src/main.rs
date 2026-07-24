@@ -866,6 +866,30 @@ fn visit_type(
                     counter,
                 );
                 quote!(for #binding in (#expression).#iterator() { #inner })
+            } else if name == "GhostBox" {
+                let Some(inner_ty) = first_type_argument(&segment.arguments) else {
+                    return quote!();
+                };
+                let is_style_rule = matches!(
+                    inner_ty,
+                    Type::Path(path)
+                        if path.path.segments.last().is_some_and(|segment| segment.ident == "StyleRule")
+                );
+                if matches!(mode, Mode::Read) {
+                    quote! {
+                        cx.with_cell((#expression).as_ref(), |value, cx| {
+                            Visit::visit(value.get_ref(), visitor, cx);
+                        });
+                    }
+                } else if is_style_rule {
+                    quote!(cx.visit_style_cell((#expression).as_ref(), visitor);)
+                } else {
+                    quote! {
+                        cx.with_cell((#expression).as_ref(), |value, cx| {
+                            VisitMut::visit(value.get_mut(), visitor, cx);
+                        });
+                    }
+                }
             } else if name == "GhostCell" {
                 let is_style_rule = first_type_argument(&segment.arguments).is_some_and(|ty| {
                     matches!(

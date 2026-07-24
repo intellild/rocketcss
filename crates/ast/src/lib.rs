@@ -28,7 +28,6 @@ macro_rules! match_ignore_ascii_case {
 
 use rocketcss_allocator::prelude::*;
 pub use rocketcss_macros::{CssKeyword, Visit};
-pub(crate) use std::pin::Pin;
 
 mod color;
 mod css_rule;

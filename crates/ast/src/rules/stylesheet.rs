@@ -399,7 +399,7 @@ pub struct ImportRule<'a> {
 #[derive(Debug, Visit)]
 #[visit(pinned)]
 pub struct StyleRule<'a, 'ghost> {
-    pub declarations: Pin<Box<'a, GhostCell<'ghost, DeclarationBlock<'a>>>>,
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a>>,
     pub span: Span,
     pub rules: Vec<'a, CssRule<'a, 'ghost>>,
     pub selectors: SelectorList<'a>,
@@ -423,7 +423,7 @@ impl PartialEq for StyleRule<'_, '_> {
 impl<'a, 'ghost> StyleRule<'a, 'ghost> {
     #[inline]
     pub fn new(
-        declarations: Pin<Box<'a, GhostCell<'ghost, DeclarationBlock<'a>>>>,
+        declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a>>,
         span: Span,
         rules: Vec<'a, CssRule<'a, 'ghost>>,
         selectors: SelectorList<'a>,

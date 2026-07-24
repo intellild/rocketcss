@@ -4,20 +4,20 @@ use std::{
     pin::Pin,
 };
 
-use crate::{GhostCell, GhostToken, boxed::Box};
+use crate::{GhostBox, GhostCell, GhostToken};
 
 /// A token-controlled reference to a pinned arena value.
 ///
-/// The arena [`Box`] establishes the stable-address contract, while
+/// The arena [`GhostBox`] establishes the stable-address contract, while
 /// [`GhostToken`] prevents overlapping mutable access.
 #[repr(transparent)]
 pub struct Ref<'a, 'ghost, T: ?Sized> {
     cell: Pin<&'a GhostCell<'ghost, T>>,
 }
 
-impl<'a, 'ghost, T> From<&Pin<Box<'a, GhostCell<'ghost, T>>>> for Ref<'a, 'ghost, T> {
+impl<'a, 'ghost, T> From<&GhostBox<'a, 'ghost, T>> for Ref<'a, 'ghost, T> {
     #[inline]
-    fn from(owner: &Pin<Box<'a, GhostCell<'ghost, T>>>) -> Self {
+    fn from(owner: &GhostBox<'a, 'ghost, T>) -> Self {
         let cell = owner.as_ref().get_ref() as *const GhostCell<'ghost, T>;
         // SAFETY: the custom arena Box never moves or drops its pointee, and
         // its `'a` lifetime is tied to the arena allocation. GhostCell is

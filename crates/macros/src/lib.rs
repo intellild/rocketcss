@@ -521,6 +521,37 @@ fn visit_type(
                         #inner
                     })
                 }
+            } else if name == "GhostBox" {
+                let Some(inner_ty) = first_type_argument(&segment.arguments) else {
+                    return Err(syn::Error::new(
+                        segment.span(),
+                        "expected a GhostBox value type",
+                    ));
+                };
+                let is_style_rule = matches!(
+                    inner_ty,
+                    Type::Path(path)
+                        if path.path.segments.last().is_some_and(|segment| segment.ident == "StyleRule")
+                );
+                if matches!(mode, VisitMode::Mut) && is_style_rule {
+                    return Ok(quote!(cx.visit_style_cell((#expression).as_ref(), visitor);));
+                }
+                let node_trait = mode.node_trait();
+                let visit = mode.visit_method();
+                let accessor = if matches!(mode, VisitMode::Read) {
+                    quote!(get_ref)
+                } else {
+                    quote!(get_mut)
+                };
+                Ok(quote! {
+                    cx.with_cell((#expression).as_ref(), |value, cx| {
+                        crate::#node_trait::#visit(
+                            value.#accessor(),
+                            visitor,
+                            cx,
+                        );
+                    });
+                })
             } else if matches!(name.as_str(), "Box" | "Option") {
                 let Some(inner_ty) = first_type_argument(&segment.arguments) else {
                     return Err(syn::Error::new(

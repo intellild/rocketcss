@@ -14,7 +14,7 @@ pub mod reference;
 pub mod vec;
 pub mod wtf8;
 
-pub use ghost_cell::{GhostCell, GhostToken};
+pub use ghost_cell::{GhostBox, GhostCell, GhostToken};
 pub use reference::Ref;
 
 pub trait CloneIn<'a>: Sized {
@@ -161,7 +161,7 @@ impl Allocator {
 
     /// Allocates an arena-owned cell carrying an independent `'ghost` brand.
     #[inline]
-    pub fn alloc_ghost<'ghost, T>(&self, value: T) -> Pin<boxed::Box<'_, GhostCell<'ghost, T>>> {
+    pub fn alloc_ghost<'ghost, T>(&self, value: T) -> GhostBox<'_, 'ghost, T> {
         self.pinned(GhostCell::new(value))
     }
 

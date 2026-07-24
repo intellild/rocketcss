@@ -6,6 +6,11 @@ use std::{
     rc::Rc,
 };
 
+use crate::boxed::Box;
+
+/// An arena-owned, pinned [`GhostCell`].
+pub type GhostBox<'a, 'ghost, T> = Pin<Box<'a, GhostCell<'ghost, T>>>;
+
 pub(crate) type InvariantLifetime<'ghost> =
     PhantomData<fn(&'ghost mut &'ghost ()) -> &'ghost mut &'ghost ()>;
 
