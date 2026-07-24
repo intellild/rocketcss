@@ -47,32 +47,40 @@ fn removes_exact_duplicate_declarations_within_one_block() {
     );
 
     let allocator = Allocator::new();
-    let mut stylesheet = parse(
-        "a{width:1px;color:red;width:1px}",
-        &allocator,
-        ParserOptions::default(),
-    )
-    .unwrap();
-    let stats = minify(&mut stylesheet, MinifyOptions::default());
-    let CssRule::Style(rule) = &stylesheet.rules[0] else {
-        panic!("expected style rule")
-    };
-    assert_eq!(rule.declarations.len(), 3);
-    assert_eq!(rule.declarations.declarations_importance.len(), 3);
-    assert!(matches!(
-        rule.declarations.declarations[0],
-        Declaration::Tombstone
-    ));
-    assert_eq!(stats.declarations_removed, 1);
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            "a{width:1px;color:red;width:1px}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let rule = rule.as_ref().get_ref();
+        let declarations = rule.declarations.as_ref().borrow(&token);
+        assert_eq!(declarations.len(), 3);
+        assert_eq!(declarations.declarations_importance.len(), 3);
+        assert!(matches!(
+            declarations.declarations[0],
+            Declaration::Tombstone
+        ));
+        assert_eq!(stats.declarations_removed, 1);
 
-    let stats = minify(&mut stylesheet, MinifyOptions::default());
-    assert_eq!(stats.declarations_removed, 0);
-    assert_eq!(
-        stylesheet
-            .to_css_string(PrinterOptions { prettify: false })
-            .unwrap(),
-        "a{color:red;width:1px}"
-    );
+        let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        assert_eq!(stats.declarations_removed, 0);
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
+                .unwrap(),
+            "a{color:red;width:1px}"
+        );
+    });
 }
 
 #[test]

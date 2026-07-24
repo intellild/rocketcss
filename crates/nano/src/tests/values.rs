@@ -91,25 +91,33 @@ fn keeps_comments_in_animation_values_on_the_unparsed_path() {
     // The typed component parsers skip comments, so values containing
     // comments stay unparsed where they are retained.
     let allocator = Allocator::new();
-    let stylesheet = parse(
-        "a{animation:bounce /*!wow*/ 1s linear}",
-        &allocator,
-        ParserOptions::default(),
-    )
-    .unwrap();
-    let CssRule::Style(rule) = &stylesheet.rules[0] else {
-        panic!("expected style rule")
-    };
-    assert!(matches!(
-        rule.declarations.declarations[0],
-        Declaration::Unparsed(_)
-    ));
-    assert_eq!(
-        stylesheet
-            .to_css_string(PrinterOptions { prettify: true })
-            .unwrap(),
-        "a {\n  animation: bounce /*!wow*/ 1s linear;\n}\n"
-    );
+    allocator.with_ghost(|mut token| {
+        let stylesheet = parse(
+            "a{animation:bounce /*!wow*/ 1s linear}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let rule = rule.as_ref().get_ref();
+        let declarations = rule.declarations.as_ref().borrow(&token);
+        assert!(matches!(
+            declarations.declarations[0],
+            Declaration::Unparsed(_)
+        ));
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: true },
+                    &ToCssContext::new(&token)
+                )
+                .unwrap(),
+            "a {\n  animation: bounce /*!wow*/ 1s linear;\n}\n"
+        );
+    });
 }
 
 #[test]

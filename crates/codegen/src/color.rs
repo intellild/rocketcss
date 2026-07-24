@@ -1,22 +1,30 @@
 use crate::prelude::*;
 
-impl ToCss for CssColor<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for CssColor<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::CurrentColor => dest.write_str("currentColor"),
-            Self::Known(value) => value.rgba().to_css(dest),
-            Self::Rgba(value) => value.to_css(dest),
-            Self::Lab(value) => value.to_css(dest),
-            Self::Predefined(value) => value.to_css(dest),
-            Self::Float(value) => value.to_css(dest),
-            Self::LightDark(value) => value.to_css(dest),
-            Self::System(value) => value.to_css(dest),
+            Self::Known(value) => value.rgba().to_css(dest, _cx),
+            Self::Rgba(value) => value.to_css(dest, _cx),
+            Self::Lab(value) => value.to_css(dest, _cx),
+            Self::Predefined(value) => value.to_css(dest, _cx),
+            Self::Float(value) => value.to_css(dest, _cx),
+            Self::LightDark(value) => value.to_css(dest, _cx),
+            Self::System(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl ToCss for RGBA {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for RGBA {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         let rgba = u32::from_be_bytes([self.red, self.green, self.blue, self.alpha]);
         if self.alpha == u8::MAX {
             let rgb = rgba >> 8;
@@ -114,8 +122,12 @@ fn write_components<PrinterT: PrinterTrait>(
     dest.write_char(')')
 }
 
-impl ToCss for LABColor {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for LABColor {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::Lab { a, alpha, b, l } => {
                 write_components("lab", *l / 100.0, *a, *b, *alpha, true, dest)
@@ -133,8 +145,12 @@ impl ToCss for LABColor {
     }
 }
 
-impl ToCss for PredefinedColor {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for PredefinedColor {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         let (space, first, second, third, alpha) = match self {
             Self::Srgb { alpha, b, g, r } => ("srgb", *r, *g, *b, *alpha),
             Self::SrgbLinear { alpha, b, g, r } => ("srgb-linear", *r, *g, *b, *alpha),
@@ -159,8 +175,12 @@ impl ToCss for PredefinedColor {
     }
 }
 
-impl ToCss for FloatColor {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for FloatColor {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::Rgb { alpha, b, g, r } => write_components("rgb", *r, *g, *b, *alpha, true, dest),
             Self::Hsl { alpha, h, l, s } => {
@@ -195,18 +215,26 @@ impl ToCss for FloatColor {
     }
 }
 
-impl ToCss for LightDark<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for LightDark<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str("light-dark(")?;
-        self.light.to_css(dest)?;
+        self.light.to_css(dest, _cx)?;
         dest.delim(Delimiter::Comma)?;
-        self.dark.to_css(dest)?;
+        self.dark.to_css(dest, _cx)?;
         dest.write_char(')')
     }
 }
 
-impl ToCss for SystemColor {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for SystemColor {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str(match self {
             Self::Accentcolor => "AccentColor",
             Self::Accentcolortext => "AccentColorText",
@@ -254,8 +282,12 @@ impl ToCss for SystemColor {
     }
 }
 
-impl ToCss for UnresolvedColor<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for UnresolvedColor<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::Rgb { alpha, b, g, r } => {
                 dest.write_str("rgb(")?;
@@ -265,7 +297,7 @@ impl ToCss for UnresolvedColor<'_> {
                 dest.write_char(' ')?;
                 serialize_number(*b, dest)?;
                 dest.write_str(" / ")?;
-                crate::token::write_token_list(alpha, dest)?;
+                crate::token::write_token_list(alpha, dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Hsl { alpha, h, l, s } => {
@@ -276,14 +308,14 @@ impl ToCss for UnresolvedColor<'_> {
                 dest.write_str("% ")?;
                 serialize_number(*l * 100.0, dest)?;
                 dest.write_str("% / ")?;
-                crate::token::write_token_list(alpha, dest)?;
+                crate::token::write_token_list(alpha, dest, _cx)?;
                 dest.write_char(')')
             }
             Self::LightDark { dark, light } => {
                 dest.write_str("light-dark(")?;
-                crate::token::write_token_list(light, dest)?;
+                crate::token::write_token_list(light, dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
-                crate::token::write_token_list(dark, dest)?;
+                crate::token::write_token_list(dark, dest, _cx)?;
                 dest.write_char(')')
             }
         }

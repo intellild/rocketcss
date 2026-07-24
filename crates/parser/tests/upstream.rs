@@ -26,17 +26,22 @@ fn lightningcss_stylesheet_text_to_ast_corpus() {
         let source = case_string(case, "source");
         let name = case_string(case, "name");
         let allocator = Allocator::new();
-        let result = parse(
-            source,
-            &allocator,
-            ParserOptions {
-                error_recovery: case["error_recovery"].as_bool().unwrap_or(false),
-                ..ParserOptions::default()
-            },
-        );
+        let error = allocator.with_ghost(|mut token| {
+            parse(
+                source,
+                &allocator,
+                &mut token,
+                ParserOptions {
+                    error_recovery: case["error_recovery"].as_bool().unwrap_or(false),
+                    ..ParserOptions::default()
+                },
+            )
+            .err()
+            .map(|error| format!("{error:?}"))
+        });
 
-        if let Err(error) = result {
-            failures.push(format!("{name}: {error:?}\nsource:\n{source}"));
+        if let Some(error) = error {
+            failures.push(format!("{name}: {error}\nsource:\n{source}"));
         }
     }
 

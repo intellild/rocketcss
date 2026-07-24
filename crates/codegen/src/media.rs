@@ -1,7 +1,11 @@
 use crate::prelude::*;
 
-impl ToCss for MediaList<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for MediaList<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         if self.media_queries.is_empty() {
             return dest.write_str("not all");
         }
@@ -9,14 +13,18 @@ impl ToCss for MediaList<'_> {
             if index > 0 {
                 dest.delim(Delimiter::Comma)?;
             }
-            query.to_css(dest)?;
+            query.to_css(dest, _cx)?;
         }
         Ok(())
     }
 }
 
-impl ToCss for MediaQuery<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         if let Some(condition) = &self.condition
             && let MediaCondition::Unknown(tokens) = condition
         {
@@ -30,23 +38,23 @@ impl ToCss for MediaQuery<'_> {
                 )
             {
                 dest.write_str("not ")?;
-                return crate::token::write_token_list_trimmed(tokens, dest);
+                return crate::token::write_token_list_trimmed(tokens, dest, _cx);
             }
 
             if let Some(qualifier) = &self.qualifier {
-                qualifier.to_css(dest)?;
+                qualifier.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
             }
             let wrote_type = !matches!(self.media_type, MediaType::All);
             if wrote_type || self.qualifier.is_some() {
-                self.media_type.to_css(dest)?;
+                self.media_type.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
             }
-            return crate::token::write_token_list_trimmed(tokens, dest);
+            return crate::token::write_token_list_trimmed(tokens, dest, _cx);
         }
 
         if let Some(qualifier) = &self.qualifier {
-            qualifier.to_css(dest)?;
+            qualifier.to_css(dest, _cx)?;
             dest.write_char(' ')?;
         }
 
@@ -56,7 +64,7 @@ impl ToCss for MediaQuery<'_> {
                 dest.write_str("all")?
             }
             MediaType::All => {}
-            value => value.to_css(dest)?,
+            value => value.to_css(dest, _cx)?,
         }
 
         if let Some(condition) = &self.condition {
@@ -74,7 +82,7 @@ impl ToCss for MediaQuery<'_> {
             if needs_parens {
                 dest.write_char('(')?;
             }
-            condition.to_css(dest)?;
+            condition.to_css(dest, _cx)?;
             if needs_parens {
                 dest.write_char(')')?;
             }
@@ -83,19 +91,24 @@ impl ToCss for MediaQuery<'_> {
     }
 }
 
-impl ToCss for MediaCondition<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
-        write_media_condition(self, None, dest)
+impl<'ghost> ToCss<'ghost> for MediaCondition<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
+        write_media_condition(self, None, dest, _cx)
     }
 }
 
-fn write_media_condition<PrinterT: PrinterTrait>(
+fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
     condition: &MediaCondition<'_>,
     parent: Option<&Operator>,
     dest: &mut PrinterT,
+    cx: &ToCssContext<'_, 'ghost>,
 ) -> fmt::Result {
     match condition {
-        MediaCondition::Feature(value) => value.to_css(dest),
+        MediaCondition::Feature(value) => value.to_css(dest, cx),
         MediaCondition::Not(value) => {
             let wrap_not = parent.is_some();
             if wrap_not {
@@ -106,7 +119,7 @@ fn write_media_condition<PrinterT: PrinterTrait>(
             if needs_parens {
                 dest.write_char('(')?;
             }
-            write_media_condition(value, None, dest)?;
+            write_media_condition(value, None, dest, cx)?;
             if needs_parens {
                 dest.write_char(')')?;
             }
@@ -130,35 +143,39 @@ fn write_media_condition<PrinterT: PrinterTrait>(
                         Operator::Or => " or ",
                     })?;
                 }
-                write_media_condition(condition, Some(operator), dest)?;
+                write_media_condition(condition, Some(operator), dest, cx)?;
             }
             if needs_parens {
                 dest.write_char(')')?;
             }
             Ok(())
         }
-        MediaCondition::Unknown(values) => crate::token::write_token_list(values, dest),
+        MediaCondition::Unknown(values) => crate::token::write_token_list(values, dest, cx),
     }
 }
 
-impl<FeatureId: ToCss> ToCss for QueryFeature<'_, FeatureId> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for QueryFeature<'_, FeatureId> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_char('(')?;
         match self {
             Self::Plain { name, value } => {
-                name.to_css(dest)?;
+                name.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Colon)?;
-                value.to_css(dest)?;
+                value.to_css(dest, _cx)?;
             }
-            Self::Boolean { name } => name.to_css(dest)?,
+            Self::Boolean { name } => name.to_css(dest, _cx)?,
             Self::Range {
                 name,
                 operator,
                 value,
             } => {
-                name.to_css(dest)?;
-                operator.to_css(dest)?;
-                value.to_css(dest)?;
+                name.to_css(dest, _cx)?;
+                operator.to_css(dest, _cx)?;
+                value.to_css(dest, _cx)?;
             }
             Self::Interval {
                 end,
@@ -167,21 +184,25 @@ impl<FeatureId: ToCss> ToCss for QueryFeature<'_, FeatureId> {
                 start,
                 start_operator,
             } => {
-                start.to_css(dest)?;
-                start_operator.to_css(dest)?;
-                name.to_css(dest)?;
-                end_operator.to_css(dest)?;
-                end.to_css(dest)?;
+                start.to_css(dest, _cx)?;
+                start_operator.to_css(dest, _cx)?;
+                name.to_css(dest, _cx)?;
+                end_operator.to_css(dest, _cx)?;
+                end.to_css(dest, _cx)?;
             }
         }
         dest.write_char(')')
     }
 }
 
-impl<FeatureId: ToCss> ToCss for MediaFeatureName<'_, FeatureId> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for MediaFeatureName<'_, FeatureId> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
-            Self::Standard(value) => value.to_css(dest),
+            Self::Standard(value) => value.to_css(dest, _cx),
             Self::Custom(value) => {
                 dest.write_str("--")?;
                 serialize_name(value.strip_prefix("--").unwrap_or(value), dest)
@@ -191,8 +212,12 @@ impl<FeatureId: ToCss> ToCss for MediaFeatureName<'_, FeatureId> {
     }
 }
 
-impl ToCss for MediaFeatureId {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for MediaFeatureId {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str(
             self.as_css_str()
                 .expect("media feature names are static keywords"),
@@ -200,23 +225,31 @@ impl ToCss for MediaFeatureId {
     }
 }
 
-impl ToCss for MediaFeatureValue<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for MediaFeatureValue<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
-            Self::Length(value) => value.to_css(dest),
+            Self::Length(value) => value.to_css(dest, _cx),
             Self::Number(value) => serialize_number(*value, dest),
             Self::Integer(value) => serialize_int(*value, dest),
             Self::Boolean(value) => dest.write_char(if *value { '1' } else { '0' }),
-            Self::Resolution(value) => value.to_css(dest),
-            Self::Ratio(value) => value.to_css(dest),
+            Self::Resolution(value) => value.to_css(dest, _cx),
+            Self::Ratio(value) => value.to_css(dest, _cx),
             Self::Ident(value) => serialize_identifier(value, dest),
-            Self::Env(value) => value.to_css(dest),
+            Self::Env(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl ToCss for MediaFeatureComparison {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for MediaFeatureComparison {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.whitespace()?;
         dest.write_str(match self {
             Self::Equal => "=",
@@ -229,14 +262,22 @@ impl ToCss for MediaFeatureComparison {
     }
 }
 
-impl ToCss for Operator {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for Operator {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("operators are static keywords"))
     }
 }
 
-impl ToCss for MediaType<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for MediaType<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::Custom(value) => serialize_identifier(value, dest),
             value => dest.write_str(
@@ -248,14 +289,22 @@ impl ToCss for MediaType<'_> {
     }
 }
 
-impl ToCss for Qualifier {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for Qualifier {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("qualifiers are static keywords"))
     }
 }
 
-impl ToCss for SupportsCondition<'_> {
-    fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT) -> fmt::Result {
+impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        _cx: &ToCssContext<'_, 'ghost>,
+    ) -> fmt::Result {
         match self {
             Self::Not(value) => {
                 dest.write_str("not ")?;
@@ -263,7 +312,7 @@ impl ToCss for SupportsCondition<'_> {
                 if needs_parens {
                     dest.write_char('(')?;
                 }
-                value.to_css(dest)?;
+                value.to_css(dest, _cx)?;
                 if needs_parens {
                     dest.write_char(')')?;
                 }
@@ -286,7 +335,7 @@ impl ToCss for SupportsCondition<'_> {
                     if needs_parens {
                         dest.write_char('(')?;
                     }
-                    value.to_css(dest)?;
+                    value.to_css(dest, _cx)?;
                     if needs_parens {
                         dest.write_char(')')?;
                     }
@@ -295,7 +344,7 @@ impl ToCss for SupportsCondition<'_> {
             }
             Self::Declaration { property_id, value } => {
                 dest.write_char('(')?;
-                property_id.to_css(dest)?;
+                property_id.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Colon)?;
                 dest.write_str(value)?;
                 dest.write_char(')')

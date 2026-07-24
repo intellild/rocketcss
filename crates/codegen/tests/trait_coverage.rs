@@ -1,13 +1,21 @@
+use rocketcss_allocator::GhostToken;
 use rocketcss_ast::*;
-use rocketcss_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss};
+use rocketcss_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss, ToCssContext};
 
-fn assert_to_css<T: ToCss>() {}
+fn assert_to_css<T>()
+where
+    T: for<'ghost> ToCss<'ghost>,
+{
+}
 
-fn serialize_with_printer_trait<T: ToCss, PrinterT: PrinterTrait>(
+fn assert_branded_to_css<T: ToCss<'static>>() {}
+
+fn serialize_with_printer_trait<'ghost, T: ToCss<'ghost>, PrinterT: PrinterTrait>(
     value: &T,
     printer: &mut PrinterT,
+    cx: &ToCssContext<'_, 'ghost>,
 ) -> std::fmt::Result {
-    value.to_css(printer)
+    value.to_css(printer, cx)
 }
 
 macro_rules! assert_types {
@@ -16,11 +24,17 @@ macro_rules! assert_types {
     };
 }
 
+macro_rules! assert_ghost_types {
+    ($($ty:ty),+ $(,)?) => {
+        $(assert_branded_to_css::<$ty>();)+
+    };
+}
+
 #[test]
 fn every_css_ast_node_implements_to_css() {
     assert_types! {
         CssColor<'static>, RGBA, LABColor, PredefinedColor, FloatColor, LightDark<'static>,
-        SystemColor, UnresolvedColor<'static>, CssRule<'static>, Length<'static>, LengthUnit,
+        SystemColor, UnresolvedColor<'static>, Length<'static>, LengthUnit,
         Calc<'static, Length<'static>>, MathFunction<'static, Length<'static>>, RoundingStrategy,
         Resolution, Ratio, Angle, Time, MediaCondition<'static>,
         QueryFeature<'static, MediaFeatureId>, MediaFeatureName<'static, MediaFeatureId>,
@@ -35,10 +49,10 @@ fn every_css_ast_node_implements_to_css() {
         SyntaxComponentKind<'static>, ContainerCondition<'static>, ContainerSizeFeature<'static>,
         ContainerSizeFeatureId, StyleQuery<'static>, ScrollStateQuery<'static>,
         ScrollStateFeature<'static>, ScrollStateFeatureId, ViewTransitionProperty<'static>,
-        Navigation, DefaultAtRule, StyleSheet<'static>, MediaRule<'static>, MediaList<'static>,
+        Navigation, DefaultAtRule, MediaList<'static>,
         MediaQuery<'static>, LengthValue, EnvironmentVariable<'static>, Url<'static>,
         Variable<'static>, DashedIdentReference<'static>, Function<'static>, ImportRule<'static>,
-        StyleRule<'static>, DeclarationBlock<'static>, Position<'static>,
+        Position<'static>,
         WebKitGradientPoint, WebKitColorStop<'static>, ImageSet<'static>,
         ImageSetOption<'static>, BackgroundPosition<'static>, BackgroundRepeat,
         Background<'static>, BoxShadow<'static>, AspectRatio, Overflow,
@@ -61,17 +75,14 @@ fn every_css_ast_node_implements_to_css() {
         InsetRect<'static>, CircleShape<'static>, EllipseShape<'static>, Polygon<'static>,
         Point<'static>, Mask<'static>, MaskBorder<'static>, DropShadow<'static>, Container<'static>,
         ColorScheme, UnparsedProperty<'static>, CustomProperty<'static>,
-        ViewTransitionPartSelector<'static>, KeyframesRule<'static>, Keyframe<'static>,
+        ViewTransitionPartSelector<'static>,
         TimelineRangePercentage, FontFaceRule<'static>, UrlSource<'static>, UnicodeRange,
         FontPaletteValuesRule<'static>, OverrideColors<'static>, FontFeatureValuesRule<'static>,
         FontFeatureSubrule<'static>, FontFeatureDeclaration<'static>, FamilyName<'static>,
-        PageRule<'static>, PageMarginRule<'static>, PageSelector<'static>, SupportsRule<'static>,
-        CounterStyleRule<'static>, CharsetRule<'static>, NamespaceRule<'static>,
-        MozDocumentRule<'static>,
-        NestingRule<'static>, NestedDeclarationsRule<'static>, ViewportRule<'static>,
-        CustomMediaRule<'static>, LayerStatementRule<'static>, LayerBlockRule<'static>,
-        PropertyRule<'static>, SyntaxComponent<'static>, ContainerRule<'static>, ScopeRule<'static>,
-        StartingStyleRule<'static>, ViewTransitionRule<'static>, PositionTryRule<'static>,
+        PageSelector<'static>, CharsetRule<'static>, NamespaceRule<'static>,
+        CustomMediaRule<'static>, LayerStatementRule<'static>,
+        PropertyRule<'static>, SyntaxComponent<'static>,
+        ViewTransitionRule<'static>,
         UnknownAtRule<'static>,
 
         SelectorList<'static>, Selector<'static>, SelectorComponent<'static>, Combinator,
@@ -128,12 +139,33 @@ fn every_css_ast_node_implements_to_css() {
         ViewTransitionName<'static>, NoneOrCustomIdentList<'static>, ViewTransitionGroup<'static>,
         PrintColorAdjust, CSSWideKeyword, CustomPropertyName<'static>
     }
+
+    assert_ghost_types! {
+        CssRule<'static, 'static>, StyleSheet<'static, 'static>,
+        DeclarationBlock<'static, 'static>,
+        MediaRule<'static, 'static>, StyleRule<'static, 'static>,
+        KeyframesRule<'static, 'static>, Keyframe<'static, 'static>,
+        PageRule<'static, 'static>, PageMarginRule<'static, 'static>,
+        SupportsRule<'static, 'static>, CounterStyleRule<'static, 'static>,
+        MozDocumentRule<'static, 'static>, NestingRule<'static, 'static>,
+        NestedDeclarationsRule<'static, 'static>, ViewportRule<'static, 'static>,
+        LayerBlockRule<'static, 'static>, ContainerRule<'static, 'static>,
+        ScopeRule<'static, 'static>, StartingStyleRule<'static, 'static>,
+        PositionTryRule<'static, 'static>,
+    }
 }
 
 #[test]
 fn to_css_only_depends_on_the_printer_trait() {
-    let mut output = String::new();
-    let mut printer = Printer::new(&mut output, PrinterOptions::default());
-    serialize_with_printer_trait(&CSSWideKeyword::Initial, &mut printer).unwrap();
-    assert_eq!(output, "initial");
+    GhostToken::scope(|token| {
+        let mut output = String::new();
+        let mut printer = Printer::new(&mut output, PrinterOptions::default());
+        serialize_with_printer_trait(
+            &CSSWideKeyword::Initial,
+            &mut printer,
+            &ToCssContext::new(&token),
+        )
+        .unwrap();
+        assert_eq!(output, "initial");
+    });
 }

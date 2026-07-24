@@ -1,5 +1,6 @@
+use crate::{Minify, MinifyContext, Options, OptionsOp};
 use rocketcss_allocator::{
-    Ref,
+    GhostToken, Ref,
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 use rocketcss_ast::{
@@ -7,9 +8,6 @@ use rocketcss_ast::{
     LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, VendorPrefix,
     match_ignore_ascii_case,
 };
-use std::pin::Pin;
-
-use crate::{Minify, MinifyContext, Options, OptionsOp};
 
 fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     match value {
@@ -25,7 +23,7 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     }
 }
 
-impl<'a> Minify for DeclarationBlock<'a> {
+impl<'a, 'ghost> Minify for DeclarationBlock<'a, 'ghost> {
     fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
         Self: 'cx,
@@ -237,22 +235,42 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-struct DeclarationSequence<'sequence, 'reference, 'ast> {
-    blocks: &'sequence mut [Ref<'reference, DeclarationBlock<'ast>>],
+enum DeclarationBlocks<'sequence, 'ast, 'ghost> {
+    Direct(&'sequence mut DeclarationBlock<'ast, 'ghost>),
+    Ghost {
+        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
+        token: &'sequence mut GhostToken<'ghost>,
+    },
 }
 
-impl<'sequence, 'reference, 'ast> DeclarationSequence<'sequence, 'reference, 'ast>
-where
-    'ast: 'reference,
-{
+struct DeclarationSequence<'sequence, 'ast, 'ghost> {
+    blocks: DeclarationBlocks<'sequence, 'ast, 'ghost>,
+}
+
+impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
     #[inline]
-    fn new(blocks: &'sequence mut [Ref<'reference, DeclarationBlock<'ast>>]) -> Self {
-        Self { blocks }
+    fn direct(block: &'sequence mut DeclarationBlock<'ast, 'ghost>) -> Self {
+        Self {
+            blocks: DeclarationBlocks::Direct(block),
+        }
+    }
+
+    #[inline]
+    fn ghost(
+        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
+        token: &'sequence mut GhostToken<'ghost>,
+    ) -> Self {
+        Self {
+            blocks: DeclarationBlocks::Ghost { blocks, token },
+        }
     }
 
     #[inline]
     fn block_count(&self) -> usize {
-        self.blocks.len()
+        match &self.blocks {
+            DeclarationBlocks::Direct(_) => 1,
+            DeclarationBlocks::Ghost { blocks, .. } => blocks.len(),
+        }
     }
 
     #[inline]
@@ -264,15 +282,25 @@ where
     }
 
     #[inline]
-    fn block(&self, index: usize) -> &DeclarationBlock<'ast> {
-        self.blocks[index].get().get_ref()
+    fn block(&self, index: usize) -> &DeclarationBlock<'ast, 'ghost> {
+        match &self.blocks {
+            DeclarationBlocks::Direct(block) => {
+                debug_assert_eq!(index, 0);
+                block
+            }
+            DeclarationBlocks::Ghost { blocks, token } => blocks[index].get(token).get_ref(),
+        }
     }
 
     #[inline]
-    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast> {
-        // SAFETY: every block appears exactly once in the sequence, and the
-        // exclusive slice borrow is the only access path while the IR runs.
-        unsafe { self.blocks[index].get_mut_unchecked().get_unchecked_mut() }
+    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast, 'ghost> {
+        match &mut self.blocks {
+            DeclarationBlocks::Direct(block) => {
+                debug_assert_eq!(index, 0);
+                block
+            }
+            DeclarationBlocks::Ghost { blocks, token } => blocks[index].get_mut(token).get_mut(),
+        }
     }
 
     #[inline]
@@ -325,21 +353,21 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     }
 
     #[inline]
-    pub(crate) fn minify(
+    pub(crate) fn minify<'ghost>(
         &mut self,
-        block: &mut DeclarationBlock<'ast>,
+        block: &mut DeclarationBlock<'ast, 'ghost>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         if block.len() < 2 {
             return;
         }
-        let mut block = Ref::from_pin(Pin::new(block));
-        self.minify_sequence(std::slice::from_mut(&mut block), cx);
+        let mut sequence = DeclarationSequence::direct(block);
+        self.minify_non_trivial(&mut sequence, cx);
     }
 
     fn minify_non_trivial(
         &mut self,
-        sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+        sequence: &mut DeclarationSequence<'_, 'ast, '_>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         if !sequence.locations_fit() {
@@ -349,14 +377,13 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         deduplicate_declarations(sequence, &mut self.ir, cx);
     }
 
-    pub(crate) fn minify_sequence<'reference>(
+    pub(crate) fn minify_sequence<'ghost>(
         &mut self,
-        blocks: &mut [Ref<'reference, DeclarationBlock<'ast>>],
+        blocks: &[Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
+        token: &mut GhostToken<'ghost>,
         cx: &mut MinifyContext<'scratch>,
-    ) where
-        'ast: 'reference,
-    {
-        let mut sequence = DeclarationSequence::new(blocks);
+    ) {
+        let mut sequence = DeclarationSequence::ghost(blocks, token);
         self.minify_non_trivial(&mut sequence, cx);
     }
 }
@@ -458,7 +485,7 @@ fn vendor_prefix_index(prefix: VendorPrefix) -> Option<usize> {
 }
 
 fn deduplicate_declarations<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     ir: &mut DeclarationIr<'scratch, 'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) where
@@ -492,7 +519,7 @@ enum ColumnsProperty {
 }
 
 fn process_columns_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     current: DeclarationLocation,
     important: bool,
     ir: &mut DeclarationIr<'scratch, 'ast>,
@@ -627,7 +654,7 @@ fn fold_columns_override(
 }
 
 fn merge_columns_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     width: DeclarationLocation,
     count: DeclarationLocation,
     prefix: VendorPrefix,
@@ -693,7 +720,7 @@ where
 }
 
 fn deduplicate_exact_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     current: DeclarationLocation,
     important: bool,
     declarations: &mut DeclarationMap<'scratch, 'ast>,
@@ -725,7 +752,7 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
 }
 
 fn process_box_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     current: DeclarationLocation,
     important: bool,
     ir: &mut DeclarationIr<'scratch, 'ast>,
@@ -1062,7 +1089,7 @@ fn clone_simple_token_or_value<'a>(
 }
 
 fn merge_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -1097,7 +1124,7 @@ where
 }
 
 fn merge_typed_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     [top, right, bottom, left]: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -1167,7 +1194,7 @@ where
 }
 
 fn merge_unparsed_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -1251,7 +1278,7 @@ fn record_merged_longhands(
 }
 
 fn minify_unparsed_declaration<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
     location: DeclarationLocation,
     cx: &mut MinifyContext<'cx>,
 ) where

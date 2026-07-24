@@ -54,35 +54,58 @@ macro_rules! impl_spanned {
     };
 }
 
+macro_rules! impl_spanned_ghost {
+    ($($ty:ident),+ $(,)?) => {
+        $(
+            impl GetSpan for $ty<'_, '_> {
+                #[inline]
+                fn span(&self) -> Span {
+                    self.span
+                }
+            }
+
+            impl SetSpan for $ty<'_, '_> {
+                #[inline]
+                fn set_span(&mut self, span: Span) {
+                    self.span = span;
+                }
+            }
+        )+
+    };
+}
+
 impl_spanned!(
     Composes,
-    KeyframesRule,
     FontFaceRule,
     FontPaletteValuesRule,
     FontFeatureValuesRule,
     FontFeatureSubrule,
-    PageRule,
-    PageMarginRule,
-    SupportsRule,
-    CounterStyleRule,
     CharsetRule,
     NamespaceRule,
+    CustomMediaRule,
+    LayerStatementRule,
+    PropertyRule,
+    ViewTransitionRule,
+    UnknownAtRule,
+    Url,
+    ImportRule,
+);
+
+impl_spanned_ghost!(
+    SupportsRule,
+    KeyframesRule,
+    PageRule,
+    PageMarginRule,
+    CounterStyleRule,
     MozDocumentRule,
     NestingRule,
     NestedDeclarationsRule,
     ViewportRule,
-    CustomMediaRule,
-    LayerStatementRule,
     LayerBlockRule,
-    PropertyRule,
     ContainerRule,
     ScopeRule,
     StartingStyleRule,
-    ViewTransitionRule,
     PositionTryRule,
-    UnknownAtRule,
     MediaRule,
-    Url,
-    ImportRule,
     StyleRule,
 );

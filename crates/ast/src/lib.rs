@@ -42,6 +42,7 @@ mod span;
 mod token;
 mod tombstone;
 mod values;
+mod visit_context;
 
 pub use color::*;
 pub use css_rule::*;
@@ -59,6 +60,7 @@ pub use span::*;
 pub use token::*;
 pub use tombstone::*;
 pub use values::*;
+pub use visit_context::{VisitContext, VisitMutContext};
 
 #[cfg(target_pointer_width = "64")]
 const _: () = {
@@ -66,7 +68,7 @@ const _: () = {
 
     assert!(size_of::<VendorPrefix>() == 1);
     assert!(size_of::<KnownFunction>() == 1);
-    assert!(size_of::<CssRule<'_>>() == 16);
+    assert!(size_of::<CssRule<'_, '_>>() == 16);
     assert!(size_of::<Declaration<'_>>() == 32);
     assert!(size_of::<TokenOrValue<'_>>() == 24);
     assert!(size_of::<Token<'_>>() == 24);
@@ -91,56 +93,48 @@ mod tests {
     #[test]
     fn position_try_rule_uses_span() {
         let allocator = Allocator::new();
-        let rule = PositionTryRule {
-            span: Span::new(4, 42),
-            name: "--fallback",
-            declarations: DeclarationBlock::new(&allocator),
-        };
-        let rule = CssRule::PositionTry(allocator.boxed(rule));
+        allocator.with_ghost(|token| {
+            let rule = PositionTryRule {
+                span: Span::new(4, 42),
+                name: "--fallback",
+                declarations: allocator.alloc_ghost(DeclarationBlock::new(&allocator)),
+            };
+            let rule = CssRule::PositionTry(allocator.boxed(rule));
 
-        assert_eq!(rule.span(), Span::new(4, 42));
+            assert_eq!(rule.span(&token), Span::new(4, 42));
+        });
     }
 
     #[test]
     fn charset_rule_uses_span() {
         let allocator = Allocator::new();
-        let rule = CharsetRule {
-            span: Span::new(2, 19),
-            encoding: "UTF-8",
-        };
-        let rule = CssRule::Charset(allocator.boxed(rule));
+        allocator.with_ghost(|token| {
+            let rule = CharsetRule {
+                span: Span::new(2, 19),
+                encoding: "UTF-8",
+            };
+            let rule = CssRule::Charset(allocator.boxed(rule));
 
-        assert_eq!(rule.span(), Span::new(2, 19));
+            assert_eq!(rule.span(&token), Span::new(2, 19));
+        });
     }
 
     #[test]
-    fn pinned_style_rule_remains_stable_when_its_container_grows() {
+    fn declaration_cell_remains_stable_when_its_container_grows() {
         let allocator = Allocator::new();
-        let first = allocator.pinned(StyleRule::new(
-            DeclarationBlock::new(&allocator),
-            DUMMY_SP,
-            allocator.vec(),
-            allocator.vec(),
-            VendorPrefix::NONE,
-        ));
-        let first_ptr = first.as_ref().get_ref() as *const StyleRule<'_>;
-        let mut blocks = allocator.vec();
-        blocks.push(first);
+        allocator.with_ghost(|token| {
+            let first = allocator.alloc_ghost(DeclarationBlock::new(&allocator));
+            let first_ptr = first.as_ref().get_ref() as *const GhostCell<'_, _>;
+            let mut rules = allocator.vec();
+            rules.push(first);
 
-        for _ in 0..32 {
-            blocks.push(allocator.pinned(StyleRule::new(
-                DeclarationBlock::new(&allocator),
-                DUMMY_SP,
-                allocator.vec(),
-                allocator.vec(),
-                VendorPrefix::NONE,
-            )));
-        }
+            for _ in 0..32 {
+                rules.push(allocator.alloc_ghost(DeclarationBlock::new(&allocator)));
+            }
 
-        assert_eq!(
-            blocks[0].as_ref().get_ref() as *const StyleRule<'_>,
-            first_ptr,
-        );
+            assert_eq!(rules[0].as_ref().get_ref() as *const _, first_ptr);
+            assert_eq!(rules[0].as_ref().borrow(&token).len(), 0);
+        });
     }
 
     #[test]

@@ -1,16 +1,15 @@
 use crate::*;
 use std::pin::Pin;
-
 #[derive(Debug, PartialEq, Visit)]
-pub struct SupportsRule<'a> {
+pub struct SupportsRule<'a, 'ghost> {
     pub condition: Box<'a, SupportsCondition<'a>>,
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct CounterStyleRule<'a> {
-    pub declarations: DeclarationBlock<'a>,
+pub struct CounterStyleRule<'a, 'ghost> {
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
     pub span: Span,
     pub name: &'a str,
 }
@@ -29,26 +28,26 @@ pub struct NamespaceRule<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct MozDocumentRule<'a> {
+pub struct MozDocumentRule<'a, 'ghost> {
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct NestingRule<'a> {
+pub struct NestingRule<'a, 'ghost> {
     pub span: Span,
-    pub style: Pin<Box<'a, StyleRule<'a>>>,
+    pub style: Pin<Box<'a, StyleRule<'a, 'ghost>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct NestedDeclarationsRule<'a> {
-    pub declarations: DeclarationBlock<'a>,
+pub struct NestedDeclarationsRule<'a, 'ghost> {
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ViewportRule<'a> {
-    pub declarations: DeclarationBlock<'a>,
+pub struct ViewportRule<'a, 'ghost> {
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
     pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
@@ -67,31 +66,31 @@ pub struct LayerStatementRule<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct LayerBlockRule<'a> {
+pub struct LayerBlockRule<'a, 'ghost> {
     pub span: Span,
     pub name: Option<Vec<'a, &'a str>>,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ScopeRule<'a> {
+pub struct ScopeRule<'a, 'ghost> {
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
     pub scope_end: Option<Box<'a, SelectorList<'a>>>,
     pub scope_start: Option<Box<'a, SelectorList<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct StartingStyleRule<'a> {
+pub struct StartingStyleRule<'a, 'ghost> {
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PositionTryRule<'a> {
+pub struct PositionTryRule<'a, 'ghost> {
     pub span: Span,
     pub name: &'a str,
-    pub declarations: DeclarationBlock<'a>,
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

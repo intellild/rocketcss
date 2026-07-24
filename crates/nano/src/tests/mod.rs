@@ -1,5 +1,5 @@
 pub use rocketcss_allocator::Allocator;
-pub use rocketcss_codegen::{PrinterOptions, ToCss};
+pub use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 pub use rocketcss_parser::{ParserOptions, parse};
 pub use rocketcss_visitor::{PluginContext, Plugins};
 
@@ -27,26 +27,38 @@ fn run(source: &str) -> String {
 
 fn run_with_options(source: &str, options: MinifyOptions) -> String {
     let allocator = Allocator::new();
-    let mut stylesheet = parse(source, &allocator, ParserOptions::default()).unwrap();
-    minify(&mut stylesheet, options);
-    stylesheet
-        .to_css_string(PrinterOptions { prettify: false })
-        .unwrap()
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet =
+            parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
+        minify(&mut stylesheet, &mut token, options);
+        stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap()
+    })
 }
 
 fn run_with_error_recovery(source: &str) -> String {
     let allocator = Allocator::new();
-    let mut stylesheet = parse(
-        source,
-        &allocator,
-        ParserOptions {
-            error_recovery: true,
-            ..ParserOptions::default()
-        },
-    )
-    .unwrap();
-    minify(&mut stylesheet, MinifyOptions::default());
-    stylesheet
-        .to_css_string(PrinterOptions { prettify: false })
-        .unwrap()
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            source,
+            &allocator,
+            &mut token,
+            ParserOptions {
+                error_recovery: true,
+                ..ParserOptions::default()
+            },
+        )
+        .unwrap();
+        minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap()
+    })
 }

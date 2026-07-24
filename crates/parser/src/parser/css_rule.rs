@@ -18,25 +18,26 @@ enum TopLevelState {
 }
 
 /// Parses a top-level or nested CSS rule list.
-pub(super) fn parse_rule_list<'i, 't>(
+pub(super) fn parse_rule_list<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
+    token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, CssRule<'i>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, CssRule<'i, 'ghost>>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut rules = allocator.vec();
     let mut top_level_state = TopLevelState::Start;
 
     loop {
         let start = input.state();
-        let token = match input.next() {
-            Ok(token) => token.clone(),
+        let css_token = match input.next() {
+            Ok(css_token) => css_token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };
 
-        let result = match token {
+        let result = match css_token {
             ValueToken::AtKeyword(name) => {
                 if depth > 0
                     && matches_ignore_case(
@@ -56,13 +57,13 @@ pub(super) fn parse_rule_list<'i, 't>(
                 {
                     Err(input.new_custom_error(ParserError::UnexpectedNamespaceRule))
                 } else {
-                    parse_at_rule(input, allocator, options, depth, &start, name, false)
+                    parse_at_rule(input, allocator, token, options, depth, &start, name, false)
                 }
             }
             ValueToken::Cdo | ValueToken::Cdc | ValueToken::Semicolon => continue,
             _ => {
                 input.reset(&start);
-                parse_qualified_rule(input, allocator, options, depth, &start)
+                parse_qualified_rule(input, allocator, token, options, depth, &start)
             }
         };
 
@@ -89,24 +90,25 @@ pub(super) fn parse_rule_list<'i, 't>(
     Ok(rules)
 }
 
-pub(super) fn parse_group_rule_body<'i, 't>(
+pub(super) fn parse_group_rule_body<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
+    token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
     depth: usize,
     in_style_rule: bool,
-) -> Result<Vec<'i, CssRule<'i>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, CssRule<'i, 'ghost>>, ParseError<'i, ParserError<'i>>> {
     if !in_style_rule {
-        return parse_rule_list(input, allocator, options, depth);
+        return parse_rule_list(input, allocator, token, options, depth);
     }
 
     let start = input.state();
-    let (declarations, mut rules) = parse_style_contents(input, allocator, options, depth)?;
+    let (declarations, mut rules) = parse_style_contents(input, allocator, token, options, depth)?;
     if !declarations.is_empty() {
         rules.insert(
             0,
             CssRule::NestedDeclarations(allocator.boxed(rocketcss_ast::NestedDeclarationsRule {
-                declarations,
+                declarations: allocator.alloc_ghost(declarations),
                 span: span_from(&start, input.position()),
             })),
         );
@@ -114,15 +116,17 @@ pub(super) fn parse_group_rule_body<'i, 't>(
     Ok(rules)
 }
 
-pub(super) fn parse_at_rule<'i, 't>(
+#[allow(clippy::too_many_arguments)]
+pub(super) fn parse_at_rule<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
+    token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
     depth: usize,
     start: &ParserState,
     name: &'i str,
     in_style_rule: bool,
-) -> Result<CssRule<'i>, ParseError<'i, ParserError<'i>>> {
+) -> Result<CssRule<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
     if in_style_rule
         && matches_ignore_case(
             name,
@@ -184,7 +188,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         }
         let query = parse_media_list(raw_prelude, allocator)?;
         let rules = input.parse_nested_block(|input| {
-            parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
+            parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
         })?;
         CssRule::Media(allocator.boxed(MediaRule {
             span: span_from(start, input.position()),
@@ -196,7 +200,7 @@ pub(super) fn parse_at_rule<'i, 't>(
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
         let rules = input.parse_nested_block(|input| {
-            parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
+            parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
         })?;
         CssRule::Supports(allocator.boxed(SupportsRule {
             condition: allocator.boxed(parse_supports_condition(raw_prelude)),
@@ -208,7 +212,7 @@ pub(super) fn parse_at_rule<'i, 't>(
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
         let rules = input.parse_nested_block(|input| {
-            parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
+            parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
         })?;
         CssRule::StartingStyle(allocator.boxed(StartingStyleRule {
             span: span_from(start, input.position()),
@@ -252,7 +256,7 @@ pub(super) fn parse_at_rule<'i, 't>(
             }
             let layer_name = names.pop();
             let rules = input.parse_nested_block(|input| {
-                parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
+                parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
             })?;
             CssRule::LayerBlock(allocator.boxed(LayerBlockRule {
                 span: span_from(start, input.position()),
@@ -310,7 +314,7 @@ pub(super) fn parse_at_rule<'i, 't>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         CssRule::CounterStyle(allocator.boxed(rocketcss_ast::CounterStyleRule {
-            declarations,
+            declarations: allocator.alloc_ghost(declarations),
             span: span_from(start, input.position()),
             name: counter_name,
         }))
@@ -322,7 +326,7 @@ pub(super) fn parse_at_rule<'i, 't>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         CssRule::Viewport(allocator.boxed(rocketcss_ast::ViewportRule {
-            declarations,
+            declarations: allocator.alloc_ghost(declarations),
             span: span_from(start, input.position()),
             vendor_prefix: at_rule_vendor_prefix(name),
         }))
@@ -340,7 +344,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         CssRule::PositionTry(allocator.boxed(rocketcss_ast::PositionTryRule {
             span: span_from(start, input.position()),
             name: position_name,
-            declarations,
+            declarations: allocator.alloc_ghost(declarations),
         }))
     } else if name.eq_ignore_ascii_case("-moz-document") {
         if !matches!(ending, Ending::Block) {
@@ -348,7 +352,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         }
         validate_moz_document_prelude(raw_prelude, allocator)?;
         let rules = input.parse_nested_block(|input| {
-            parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
+            parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
         })?;
         CssRule::MozDocument(allocator.boxed(rocketcss_ast::MozDocumentRule {
             span: span_from(start, input.position()),
@@ -360,7 +364,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         }
         let (container_name, condition) = parse_container_prelude(raw_prelude, allocator)?;
         let rules = input.parse_nested_block(|input| {
-            parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
+            parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
         })?;
         CssRule::Container(allocator.boxed(rocketcss_ast::ContainerRule {
             condition,
@@ -374,7 +378,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         }
         let (scope_start, scope_end) = parse_scope_prelude(raw_prelude, allocator, depth + 1)?;
         let rules = input.parse_nested_block(|input| {
-            parse_group_rule_body(input, allocator, options, depth + 1, in_style_rule)
+            parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
         })?;
         CssRule::Scope(allocator.boxed(ScopeRule {
             span: span_from(start, input.position()),
@@ -390,7 +394,7 @@ pub(super) fn parse_at_rule<'i, 't>(
         let (declarations, rules) = input
             .parse_nested_block(|input| parse_page_body(input, allocator, options, depth + 1))?;
         CssRule::Page(allocator.boxed(PageRule {
-            declarations,
+            declarations: allocator.alloc_ghost(declarations),
             span: span_from(start, input.position()),
             rules,
             selectors,
@@ -454,13 +458,13 @@ pub(super) fn parse_at_rule<'i, 't>(
         }
         let selectors = parse_selector_string(raw_prelude, allocator, depth + 1)?;
         let (declarations, rules) = input.parse_nested_block(|input| {
-            parse_style_contents(input, allocator, options, depth + 1)
+            parse_style_contents(input, allocator, token, options, depth + 1)
         })?;
         let span = span_from(start, input.position());
         CssRule::Nesting(allocator.boxed(NestingRule {
             span,
             style: allocator.pinned(StyleRule::new(
-                declarations,
+                allocator.alloc_ghost(declarations),
                 span,
                 rules,
                 selectors,
@@ -484,13 +488,14 @@ pub(super) fn parse_at_rule<'i, 't>(
     Ok(rule)
 }
 
-pub(super) fn parse_qualified_rule<'i, 't>(
+pub(super) fn parse_qualified_rule<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
+    token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
     depth: usize,
     start: &ParserState,
-) -> Result<CssRule<'i>, ParseError<'i, ParserError<'i>>> {
+) -> Result<CssRule<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
     let selectors = input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
         if options.error_recovery {
             parse_selector_list_with_recovery(input, allocator, depth + 1)
@@ -499,11 +504,12 @@ pub(super) fn parse_qualified_rule<'i, 't>(
         }
     })?;
     input.expect_curly_bracket_block()?;
-    let (declarations, rules) = input
-        .parse_nested_block(|input| parse_style_contents(input, allocator, options, depth + 1))?;
+    let (declarations, rules) = input.parse_nested_block(|input| {
+        parse_style_contents(input, allocator, token, options, depth + 1)
+    })?;
 
     Ok(CssRule::Style(allocator.pinned(StyleRule::new(
-        declarations,
+        allocator.alloc_ghost(declarations),
         span_from(start, input.position()),
         rules,
         selectors,
@@ -511,30 +517,31 @@ pub(super) fn parse_qualified_rule<'i, 't>(
     ))))
 }
 
-type StyleContents<'i> = (DeclarationBlock<'i>, Vec<'i, CssRule<'i>>);
+type StyleContents<'i, 'ghost> = (DeclarationBlock<'i, 'ghost>, Vec<'i, CssRule<'i, 'ghost>>);
 
-pub(super) fn parse_style_contents<'i, 't>(
+pub(super) fn parse_style_contents<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
+    token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<StyleContents<'i>, ParseError<'i, ParserError<'i>>> {
+) -> Result<StyleContents<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut declarations = DeclarationBlock::new(allocator);
     let mut rules = allocator.vec();
 
     loop {
         let start = input.state();
-        let token = match input.next() {
-            Ok(token) => token.clone(),
+        let css_token = match input.next() {
+            Ok(css_token) => css_token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };
 
-        let result = match token {
+        let result = match css_token {
             ValueToken::Semicolon => continue,
             ValueToken::AtKeyword(name) => {
-                parse_at_rule(input, allocator, options, depth, &start, name, true)
+                parse_at_rule(input, allocator, token, options, depth, &start, name, true)
                     .map(|rule| Some((false, rule)))
             }
             ValueToken::Ident(name) => {
@@ -550,13 +557,16 @@ pub(super) fn parse_style_contents<'i, 't>(
                                 declarations.push(declaration, important);
                             } else if let Some(CssRule::NestedDeclarations(rule)) = rules.last_mut()
                             {
-                                rule.declarations.push(declaration, important);
+                                rule.declarations
+                                    .as_ref()
+                                    .borrow_mut(token)
+                                    .push(declaration, important);
                             } else {
                                 let mut nested = DeclarationBlock::new(allocator);
                                 nested.push(declaration, important);
                                 rules.push(CssRule::NestedDeclarations(allocator.boxed(
                                     NestedDeclarationsRule {
-                                        declarations: nested,
+                                        declarations: allocator.alloc_ghost(nested),
                                         span: DUMMY_SP,
                                     },
                                 )));
@@ -568,13 +578,13 @@ pub(super) fn parse_style_contents<'i, 't>(
                     Err(input.new_custom_error(ParserError::InvalidDeclaration))
                 } else {
                     input.reset(&start);
-                    parse_qualified_rule(input, allocator, options, depth, &start)
+                    parse_qualified_rule(input, allocator, token, options, depth, &start)
                         .map(|rule| Some((true, rule)))
                 }
             }
             _ => {
                 input.reset(&start);
-                parse_qualified_rule(input, allocator, options, depth, &start)
+                parse_qualified_rule(input, allocator, token, options, depth, &start)
                     .map(|rule| Some((true, rule)))
             }
         };

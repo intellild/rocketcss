@@ -38,25 +38,34 @@ fn adjacent_rule_merging_is_configurable() {
 #[test]
 fn adjacent_rule_merging_is_idempotent() {
     let allocator = Allocator::new();
-    let mut stylesheet = parse(
-        "a{width:1px}a{height:2px}a{width:1px}",
-        &allocator,
-        ParserOptions::default(),
-    )
-    .unwrap();
-
-    minify(&mut stylesheet, MinifyOptions::default());
-    let once = stylesheet
-        .to_css_string(PrinterOptions { prettify: false })
-        .unwrap();
-    let second_stats = minify(&mut stylesheet, MinifyOptions::default());
-    let twice = stylesheet
-        .to_css_string(PrinterOptions { prettify: false })
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            "a{width:1px}a{height:2px}a{width:1px}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
         .unwrap();
 
-    assert_eq!(once, "a{height:2px;width:1px}");
-    assert_eq!(twice, once);
-    assert_eq!(second_stats.declarations_removed, 0);
+        minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let once = stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap();
+        let second_stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let twice = stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap();
+
+        assert_eq!(once, "a{height:2px;width:1px}");
+        assert_eq!(twice, once);
+        assert_eq!(second_stats.declarations_removed, 0);
+    });
 }
 
 #[test]
