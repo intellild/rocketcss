@@ -1820,7 +1820,8 @@ pub(crate) fn write_rule_list<'ghost, PrinterT: PrinterTrait>(
     for rule in rules {
         if matches!(rule, CssRule::Style(style)
             if style
-                .get(token)
+                .as_ref()
+                .borrow(token)
                 .selectors
                 .iter()
                 .all(Selector::is_tombstone))
@@ -1912,7 +1913,12 @@ fn style_rule_chain_is_output_empty<'ghost>(
     let token = cx.token();
     let mut current = tail;
     loop {
-        if !current.declarations.borrow(token).is_output_empty() {
+        if !current
+            .declarations
+            .as_ref()
+            .borrow(token)
+            .is_output_empty()
+        {
             return false;
         }
         let Some(previous) = current.previous_merged() else {
@@ -1938,7 +1944,11 @@ fn write_style_rule_declaration_chain_recursive<'ghost, PrinterT: PrinterTrait>(
     cx: &ToCssContext<'_, 'ghost>,
 ) -> Result<bool, fmt::Error> {
     let token = cx.token();
-    let current_is_empty = current.declarations.borrow(token).is_output_empty();
+    let current_is_empty = current
+        .declarations
+        .as_ref()
+        .borrow(token)
+        .is_output_empty();
     let wrote_previous = if let Some(previous) = current.previous_merged() {
         write_style_rule_declaration_chain_recursive(
             previous.get(token).get_ref(),
@@ -1960,7 +1970,12 @@ fn write_style_rule_declaration_chain_recursive<'ghost, PrinterT: PrinterTrait>(
     if wrote_previous {
         dest.new_line()?;
     }
-    write_declarations(current.declarations.borrow(token), dest, last_semicolon, cx)?;
+    write_declarations(
+        current.declarations.as_ref().borrow(token).get_ref(),
+        dest,
+        last_semicolon,
+        cx,
+    )?;
     Ok(true)
 }
 
@@ -2118,7 +2133,11 @@ impl<'ghost> ToCss<'ghost> for Keyframe<'_, 'ghost> {
     ) -> fmt::Result {
         let token = _cx.token();
         write_comma_separated(&self.selectors, dest, _cx)?;
-        write_declaration_block(self.declarations.borrow(token), dest, _cx)
+        write_declaration_block(
+            self.declarations.as_ref().borrow(token).get_ref(),
+            dest,
+            _cx,
+        )
     }
 }
 
@@ -2315,7 +2334,7 @@ impl<'ghost> ToCss<'ghost> for PageRule<'_, 'ghost> {
         }
         write_block(dest, |dest| {
             write_declarations(
-                self.declarations.borrow(token),
+                self.declarations.as_ref().borrow(token).get_ref(),
                 dest,
                 if self.rules.is_empty() {
                     LastSemicolon::Optional
@@ -2324,7 +2343,8 @@ impl<'ghost> ToCss<'ghost> for PageRule<'_, 'ghost> {
                 },
                 _cx,
             )?;
-            if !self.declarations.borrow(token).is_output_empty() && !self.rules.is_empty() {
+            if !self.declarations.as_ref().borrow(token).is_output_empty() && !self.rules.is_empty()
+            {
                 dest.blank_line()?;
             }
             for (index, rule) in self.rules.iter().enumerate() {
@@ -2347,7 +2367,11 @@ impl<'ghost> ToCss<'ghost> for PageMarginRule<'_, 'ghost> {
         let token = _cx.token();
         dest.write_char('@')?;
         self.margin_box.to_css(dest, _cx)?;
-        write_declaration_block(self.declarations.borrow(token), dest, _cx)
+        write_declaration_block(
+            self.declarations.as_ref().borrow(token).get_ref(),
+            dest,
+            _cx,
+        )
     }
 }
 
@@ -2389,7 +2413,11 @@ impl<'ghost> ToCss<'ghost> for CounterStyleRule<'_, 'ghost> {
         let token = _cx.token();
         dest.write_str("@counter-style ")?;
         serialize_identifier(self.name, dest)?;
-        write_declaration_block(self.declarations.borrow(token), dest, _cx)
+        write_declaration_block(
+            self.declarations.as_ref().borrow(token).get_ref(),
+            dest,
+            _cx,
+        )
     }
 }
 
@@ -2440,7 +2468,11 @@ impl<'ghost> ToCss<'ghost> for NestingRule<'_, 'ghost> {
     ) -> fmt::Result {
         let token = _cx.token();
         dest.write_str("@nest ")?;
-        self.style.get(token).get_ref().to_css(dest, _cx)
+        self.style
+            .as_ref()
+            .borrow(token)
+            .get_ref()
+            .to_css(dest, _cx)
     }
 }
 
@@ -2452,7 +2484,7 @@ impl<'ghost> ToCss<'ghost> for NestedDeclarationsRule<'_, 'ghost> {
     ) -> fmt::Result {
         let token = _cx.token();
         write_declarations(
-            self.declarations.borrow(token),
+            self.declarations.as_ref().borrow(token).get_ref(),
             dest,
             LastSemicolon::Optional,
             _cx,
@@ -2470,7 +2502,11 @@ impl<'ghost> ToCss<'ghost> for ViewportRule<'_, 'ghost> {
         dest.write_char('@')?;
         self.vendor_prefix.to_css(dest, _cx)?;
         dest.write_str("viewport")?;
-        write_declaration_block(self.declarations.borrow(token), dest, _cx)
+        write_declaration_block(
+            self.declarations.as_ref().borrow(token).get_ref(),
+            dest,
+            _cx,
+        )
     }
 }
 
@@ -2634,7 +2670,11 @@ impl<'ghost> ToCss<'ghost> for PositionTryRule<'_, 'ghost> {
         dest.write_str("@position-try ")?;
         dest.write_str("--")?;
         serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
-        write_declaration_block(self.declarations.borrow(token), dest, _cx)
+        write_declaration_block(
+            self.declarations.as_ref().borrow(token).get_ref(),
+            dest,
+            _cx,
+        )
     }
 }
 

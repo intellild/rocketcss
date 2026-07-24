@@ -1,4 +1,10 @@
-use std::{cell::UnsafeCell, fmt, marker::PhantomData, rc::Rc};
+use std::{
+    cell::UnsafeCell,
+    fmt,
+    marker::{PhantomData, PhantomPinned},
+    pin::Pin,
+    rc::Rc,
+};
 
 pub(crate) type InvariantLifetime<'ghost> =
     PhantomData<fn(&'ghost mut &'ghost ()) -> &'ghost mut &'ghost ()>;
@@ -15,10 +21,10 @@ pub(crate) type InvariantLifetime<'ghost> =
 /// use rocketcss_allocator::{GhostCell, GhostToken};
 ///
 /// GhostToken::scope(|mut token| {
-///     let first = GhostCell::new(1);
-///     let second = GhostCell::new(2);
-///     let first = first.borrow_mut(&mut token);
-///     let second = second.borrow_mut(&mut token);
+///     let first = std::pin::pin!(GhostCell::new(1));
+///     let second = std::pin::pin!(GhostCell::new(2));
+///     let first = first.as_ref().borrow_mut(&mut token);
+///     let second = second.as_ref().borrow_mut(&mut token);
 ///     *first += *second;
 /// });
 /// ```
@@ -30,9 +36,9 @@ pub(crate) type InvariantLifetime<'ghost> =
 ///
 /// GhostToken::scope(|mut first_token| {
 ///     GhostToken::scope(|mut second_token| {
-///         let cell = GhostCell::new(1);
-///         let first = cell.borrow_mut(&mut first_token);
-///         let second = cell.borrow_mut(&mut second_token);
+///         let cell = std::pin::pin!(GhostCell::new(1));
+///         let first = cell.as_ref().borrow_mut(&mut first_token);
+///         let second = cell.as_ref().borrow_mut(&mut second_token);
 ///         *first += *second;
 ///     });
 /// });
@@ -64,6 +70,7 @@ impl GhostToken<'_> {
 #[repr(transparent)]
 pub struct GhostCell<'ghost, T: ?Sized> {
     _brand: InvariantLifetime<'ghost>,
+    _pin: PhantomPinned,
     value: UnsafeCell<T>,
 }
 
@@ -90,6 +97,7 @@ impl<'ghost, T> GhostCell<'ghost, T> {
     pub fn new(value: T) -> Self {
         Self {
             _brand: PhantomData,
+            _pin: PhantomPinned,
             value: UnsafeCell::new(value),
         }
     }
@@ -97,18 +105,26 @@ impl<'ghost, T> GhostCell<'ghost, T> {
 
 impl<'ghost, T: ?Sized> GhostCell<'ghost, T> {
     #[inline]
-    pub fn borrow<'cell>(&'cell self, _token: &'cell GhostToken<'ghost>) -> &'cell T {
+    pub fn borrow<'cell>(
+        self: Pin<&'cell Self>,
+        _token: &'cell GhostToken<'ghost>,
+    ) -> Pin<&'cell T> {
         // SAFETY: shared access requires a shared borrow of the unique token.
         // A mutable borrow of any cell with this brand requires an exclusive
-        // borrow of that same token.
-        unsafe { &*self.value.get() }
+        // borrow of that same token. The value is structurally pinned with its
+        // GhostCell.
+        unsafe { Pin::new_unchecked(&*self.get_ref().value.get()) }
     }
 
     #[inline]
-    pub fn borrow_mut<'cell>(&'cell self, _token: &'cell mut GhostToken<'ghost>) -> &'cell mut T {
+    pub fn borrow_mut<'cell>(
+        self: Pin<&'cell Self>,
+        _token: &'cell mut GhostToken<'ghost>,
+    ) -> Pin<&'cell mut T> {
         // SAFETY: the returned borrow keeps the unique token exclusively
         // borrowed, preventing access to every other cell with this brand.
-        unsafe { &mut *self.value.get() }
+        // The value is structurally pinned with its GhostCell.
+        unsafe { Pin::new_unchecked(&mut *self.get_ref().value.get()) }
     }
 }
 
@@ -119,24 +135,24 @@ mod tests {
     #[test]
     fn one_token_mutates_multiple_cells_sequentially() {
         GhostToken::scope(|mut token| {
-            let first = GhostCell::new(1);
-            let second = GhostCell::new(2);
+            let first = std::pin::pin!(GhostCell::new(1));
+            let second = std::pin::pin!(GhostCell::new(2));
 
-            *first.borrow_mut(&mut token) += 10;
-            *second.borrow_mut(&mut token) += 20;
+            *first.as_ref().borrow_mut(&mut token) += 10;
+            *second.as_ref().borrow_mut(&mut token) += 20;
 
-            assert_eq!(*first.borrow(&token), 11);
-            assert_eq!(*second.borrow(&token), 22);
+            assert_eq!(*first.as_ref().borrow(&token), 11);
+            assert_eq!(*second.as_ref().borrow(&token), 22);
         });
     }
 
     #[test]
     fn multiple_shared_borrows_can_coexist() {
         GhostToken::scope(|token| {
-            let first = GhostCell::new(1);
-            let second = GhostCell::new(2);
-            let first = first.borrow(&token);
-            let second = second.borrow(&token);
+            let first = std::pin::pin!(GhostCell::new(1));
+            let second = std::pin::pin!(GhostCell::new(2));
+            let first = first.as_ref().borrow(&token);
+            let second = second.as_ref().borrow(&token);
 
             assert_eq!(*first + *second, 3);
         });
@@ -145,7 +161,7 @@ mod tests {
     #[test]
     fn arena_ast_stores_only_branded_cell_references() {
         struct AstNode<'a, 'ghost> {
-            previous: Option<&'a GhostCell<'ghost, AstNode<'a, 'ghost>>>,
+            previous: Option<crate::Ref<'a, 'ghost, AstNode<'a, 'ghost>>>,
             value: u32,
         }
 
@@ -155,17 +171,18 @@ mod tests {
                 previous: None,
                 value: 1,
             });
+            let first_ref = crate::Ref::from(&first);
             let second = allocator.alloc_ghost(AstNode {
-                previous: Some(first),
+                previous: Some(first_ref),
                 value: 2,
             });
 
-            first.borrow_mut(&mut token).value += 10;
-            second.borrow_mut(&mut token).value += 20;
+            first.as_ref().borrow_mut(&mut token).value += 10;
+            second.as_ref().borrow_mut(&mut token).value += 20;
 
-            let second = second.borrow(&token);
+            let second = second.as_ref().borrow(&token);
             assert_eq!(second.value, 22);
-            assert_eq!(second.previous.unwrap().borrow(&token).value, 11);
+            assert_eq!(second.previous.unwrap().get(&token).value, 11);
         });
     }
 }

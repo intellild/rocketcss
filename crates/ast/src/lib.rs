@@ -28,6 +28,7 @@ macro_rules! match_ignore_ascii_case {
 
 use rocketcss_allocator::prelude::*;
 pub use rocketcss_macros::{CssKeyword, Visit};
+pub(crate) use std::pin::Pin;
 
 mod color;
 mod css_rule;
@@ -124,7 +125,7 @@ mod tests {
         let allocator = Allocator::new();
         allocator.with_ghost(|token| {
             let first = allocator.alloc_ghost(DeclarationBlock::new(&allocator));
-            let first_ptr = first as *const GhostCell<'_, _>;
+            let first_ptr = first.as_ref().get_ref() as *const GhostCell<'_, _>;
             let mut rules = allocator.vec();
             rules.push(first);
 
@@ -132,8 +133,8 @@ mod tests {
                 rules.push(allocator.alloc_ghost(DeclarationBlock::new(&allocator)));
             }
 
-            assert_eq!(rules[0] as *const _, first_ptr);
-            assert_eq!(rules[0].borrow(&token).len(), 0);
+            assert_eq!(rules[0].as_ref().get_ref() as *const _, first_ptr);
+            assert_eq!(rules[0].as_ref().borrow(&token).len(), 0);
         });
     }
 

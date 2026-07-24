@@ -1,41 +1,32 @@
 use std::{
     fmt,
     hash::{Hash, Hasher},
-    marker::PhantomData,
     pin::Pin,
-    ptr::NonNull,
 };
 
-use crate::{GhostToken, boxed::Box, ghost_cell::InvariantLifetime};
+use crate::{GhostCell, GhostToken, boxed::Box};
 
 /// A token-controlled reference to a pinned arena value.
 ///
-/// `Ref` consumes the pinned box handle and is thereafter the only safe access
-/// path to the pointee. [`GhostToken`] prevents overlapping mutable access,
-/// while the consumed `Pin<Box<T>>` establishes the stable-address contract.
+/// The arena [`Box`] establishes the stable-address contract, while
+/// [`GhostToken`] prevents overlapping mutable access.
 #[repr(transparent)]
 pub struct Ref<'a, 'ghost, T: ?Sized> {
-    pointer: NonNull<T>,
-    _pin: PhantomData<Pin<&'a mut T>>,
-    _brand: InvariantLifetime<'ghost>,
+    cell: Pin<&'a GhostCell<'ghost, T>>,
 }
 
-impl<'a, 'ghost, T> Ref<'a, 'ghost, T> {
+impl<'a, 'ghost, T> From<&Pin<Box<'a, GhostCell<'ghost, T>>>> for Ref<'a, 'ghost, T> {
     #[inline]
-    pub fn from_pinned_box(value: Pin<Box<'a, T>>) -> Self {
-        // SAFETY: extracting the box does not move its pointee. The box is
-        // consumed immediately below, transferring its unique pointer into
-        // this handle while `Ref` preserves the pinning contract.
-        let value = unsafe { Pin::into_inner_unchecked(value) };
-        let pointer =
-            NonNull::new(Box::into_raw(value)).expect("arena boxes always contain a value");
-        // The arena box has no destructor and its allocation remains live for
-        // `'a`. Consuming it here removes the ordinary owner access path.
-        Self {
-            pointer,
-            _pin: PhantomData,
-            _brand: PhantomData,
-        }
+    fn from(owner: &Pin<Box<'a, GhostCell<'ghost, T>>>) -> Self {
+        let cell = owner.as_ref().get_ref() as *const GhostCell<'ghost, T>;
+        // SAFETY: the custom arena Box never moves or drops its pointee, and
+        // its `'a` lifetime is tied to the arena allocation. GhostCell is
+        // !Unpin, so safe code cannot extract it from the pinned Box.
+        let cell: &'a GhostCell<'ghost, T> = unsafe { &*cell };
+        // SAFETY: the owner is pinned and the arena allocation remains at the
+        // same address for `'a`.
+        let cell = unsafe { Pin::new_unchecked(cell) };
+        Self { cell }
     }
 }
 
@@ -45,9 +36,7 @@ impl<'a, 'ghost, T: ?Sized> Ref<'a, 'ghost, T> {
     where
         'a: 'cell,
     {
-        // SAFETY: construction consumes a Pin<Box<T>>, and shared token access
-        // cannot move the pointee.
-        unsafe { Pin::new_unchecked(self.pointer.as_ref()) }
+        self.cell.borrow(_token)
     }
 
     #[inline]
@@ -55,9 +44,7 @@ impl<'a, 'ghost, T: ?Sized> Ref<'a, 'ghost, T> {
     where
         'a: 'cell,
     {
-        // SAFETY: construction consumes a Pin<Box<T>>, and the unique token
-        // prevents any overlapping access while this borrow is live.
-        unsafe { Pin::new_unchecked(&mut *self.pointer.as_ptr()) }
+        self.cell.borrow_mut(_token)
     }
 }
 
@@ -73,7 +60,7 @@ impl<T: ?Sized> Copy for Ref<'_, '_, T> {}
 impl<T: ?Sized> PartialEq for Ref<'_, '_, T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self.pointer.as_ptr(), other.pointer.as_ptr())
+        std::ptr::eq(self.cell.get_ref(), other.cell.get_ref())
     }
 }
 
@@ -82,13 +69,16 @@ impl<T: ?Sized> Eq for Ref<'_, '_, T> {}
 impl<T: ?Sized> Hash for Ref<'_, '_, T> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.pointer.hash(state);
+        std::ptr::hash(self.cell.get_ref(), state);
     }
 }
 
 impl<T: ?Sized> fmt::Debug for Ref<'_, '_, T> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_tuple("Ref").field(&self.pointer).finish()
+        formatter
+            .debug_tuple("Ref")
+            .field(&std::ptr::from_ref(self.cell.get_ref()))
+            .finish()
     }
 }
 
@@ -106,13 +96,14 @@ mod tests {
     }
 
     #[test]
-    fn token_controls_a_consumed_pinned_box() {
+    fn token_controls_a_reference_to_a_pinned_owner() {
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
-            let reference = Ref::from_pinned_box(allocator.pinned(PinnedValue {
+            let owner = allocator.pinned(GhostCell::new(PinnedValue {
                 value: 42,
                 _pin: PhantomPinned,
             }));
+            let reference = Ref::from(&owner);
 
             assert_eq!(reference.get(&token).value, 42);
             // SAFETY: assigning a field does not move the pinned value.

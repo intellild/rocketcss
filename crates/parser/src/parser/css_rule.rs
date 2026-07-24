@@ -463,13 +463,13 @@ pub(super) fn parse_at_rule<'i, 't, 'ghost>(
         let span = span_from(start, input.position());
         CssRule::Nesting(allocator.boxed(NestingRule {
             span,
-            style: Ref::from_pinned_box(allocator.pinned(StyleRule::new(
+            style: allocator.alloc_ghost(StyleRule::new(
                 allocator.alloc_ghost(declarations),
                 span,
                 rules,
                 selectors,
                 VendorPrefix::NONE,
-            ))),
+            )),
         }))
     } else {
         let block = if matches!(ending, Ending::Block) {
@@ -508,14 +508,12 @@ pub(super) fn parse_qualified_rule<'i, 't, 'ghost>(
         parse_style_contents(input, allocator, token, options, depth + 1)
     })?;
 
-    Ok(CssRule::Style(Ref::from_pinned_box(allocator.pinned(
-        StyleRule::new(
-            allocator.alloc_ghost(declarations),
-            span_from(start, input.position()),
-            rules,
-            selectors,
-            VendorPrefix::NONE,
-        ),
+    Ok(CssRule::Style(allocator.alloc_ghost(StyleRule::new(
+        allocator.alloc_ghost(declarations),
+        span_from(start, input.position()),
+        rules,
+        selectors,
+        VendorPrefix::NONE,
     ))))
 }
 
@@ -560,6 +558,7 @@ pub(super) fn parse_style_contents<'i, 't, 'ghost>(
                             } else if let Some(CssRule::NestedDeclarations(rule)) = rules.last_mut()
                             {
                                 rule.declarations
+                                    .as_ref()
                                     .borrow_mut(token)
                                     .push(declaration, important);
                             } else {

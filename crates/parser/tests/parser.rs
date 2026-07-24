@@ -94,7 +94,7 @@ fn parses_style_rule_selectors_and_declarations() {
     let CssRule::Style(rule) = &sheet.rules[0] else {
         panic!("expected style rule")
     };
-    let rule = rule.get(&token);
+    let rule = rule.as_ref().borrow(&token);
     let rule = rule.get_ref();
     assert_eq!(rule.span, Span::new(15, source.len() as u32));
     assert_eq!(rule.selectors.len(), 2);
@@ -111,25 +111,25 @@ fn parses_style_rule_selectors_and_declarations() {
         SelectorComponent::PseudoClass(value) if matches!(**value, PseudoClass::Hover)
     ));
 
-    assert_eq!(rule.declarations.borrow(&token).declarations.len(), 3);
-    assert_eq!(rule.declarations.borrow(&token).declarations_importance.len(), 3);
+    assert_eq!(rule.declarations.as_ref().borrow(&token).declarations.len(), 3);
+    assert_eq!(rule.declarations.as_ref().borrow(&token).declarations_importance.len(), 3);
     assert!(matches!(
-        &rule.declarations.borrow(&token).declarations[0],
+        &rule.declarations.as_ref().borrow(&token).declarations[0],
         Declaration::Color(value)
             if matches!(**value, rocketcss_ast::CssColor::Known(KnownColor::Red))
     ));
     assert!(matches!(
-        &rule.declarations.borrow(&token).declarations[1],
+        &rule.declarations.as_ref().borrow(&token).declarations[1],
         Declaration::Opacity(0.5)
     ));
     assert!(matches!(
-        &rule.declarations.borrow(&token).declarations[2],
+        &rule.declarations.as_ref().borrow(&token).declarations[2],
         Declaration::Custom(value)
             if matches!(*value.name, CustomPropertyName::Custom("--gap"))
     ));
-    assert!(!rule.declarations.borrow(&token).is_important(0));
-    assert!(rule.declarations.borrow(&token).is_important(1));
-    assert!(!rule.declarations.borrow(&token).is_important(2));
+    assert!(!rule.declarations.as_ref().borrow(&token).is_important(0));
+    assert!(rule.declarations.as_ref().borrow(&token).is_important(1));
+    assert!(!rule.declarations.as_ref().borrow(&token).is_important(2));
     })
 }
 
@@ -147,21 +147,21 @@ fn parses_named_colors_as_known_color_nodes() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
 
         assert!(matches!(
-            &rule.declarations.borrow(&token).declarations[0],
+            &rule.declarations.as_ref().borrow(&token).declarations[0],
             Declaration::Color(value)
                 if matches!(**value, CssColor::Known(KnownColor::Blue))
         ));
         assert!(matches!(
-            &rule.declarations.borrow(&token).declarations[1],
+            &rule.declarations.as_ref().borrow(&token).declarations[1],
             Declaration::BackgroundColor(value)
                 if matches!(**value, CssColor::Known(KnownColor::Lightgreen))
         ));
         assert!(matches!(
-            &rule.declarations.borrow(&token).declarations[2],
+            &rule.declarations.as_ref().borrow(&token).declarations[2],
             Declaration::Background(values)
                 if matches!(
                     &*values[0].color,
@@ -185,14 +185,16 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert!(matches!(
             &rule.selectors[0][0],
             SelectorComponent::Class("foo")
         ));
 
-        let Declaration::Unparsed(width) = &rule.declarations.borrow(&token).declarations[0] else {
+        let Declaration::Unparsed(width) =
+            &rule.declarations.as_ref().borrow(&token).declarations[0]
+        else {
             panic!("expected unparsed width")
         };
         assert!(matches!(
@@ -395,14 +397,14 @@ fn selector_error_recovery_preserves_a_pure_invalid_selector() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected recovered style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert!(matches!(
             &rule.selectors[0],
             Selector::Unparsed("(font-[family-name:var(--font-*)])")
         ));
         assert!(matches!(
-            &rule.declarations.borrow(&token).declarations[0],
+            &rule.declarations.as_ref().borrow(&token).declarations[0],
             Declaration::Color(_)
         ));
     })
@@ -426,7 +428,7 @@ fn selector_error_recovery_continues_at_commas() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected recovered style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert_eq!(rule.selectors.len(), 3);
         assert!(matches!(&rule.selectors[0], Selector::Parsed(_)));
@@ -456,7 +458,7 @@ fn selector_error_recovery_consumes_multiple_invalid_tokens() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected recovered style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert_eq!(rule.selectors.len(), 3);
         assert!(matches!(&rule.selectors[0], Selector::Parsed(_)));
@@ -684,7 +686,7 @@ fn parses_import_modifiers_scope_and_page() {
             &sheet.rules[2],
             CssRule::Page(rule)
                 if rule.selectors.len() == 1
-                    && rule.declarations.borrow(&token).declarations.len() == 1
+                    && rule.declarations.as_ref().borrow(&token).declarations.len() == 1
                     && rule.rules.len() == 1
         ));
     })
@@ -809,7 +811,7 @@ fn parses_declarations_inside_nested_group_rules() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let style = style.get(&token);
+        let style = style.as_ref().borrow(&token);
         let style = style.get_ref();
         let CssRule::Media(media) = &style.rules[0] else {
             panic!("expected nested media")
@@ -817,7 +819,7 @@ fn parses_declarations_inside_nested_group_rules() {
         assert!(matches!(
             &media.rules[0],
             CssRule::NestedDeclarations(rule)
-                if rule.declarations.borrow(&token).declarations.len() == 1
+                if rule.declarations.as_ref().borrow(&token).declarations.len() == 1
         ));
         assert!(matches!(&media.rules[1], CssRule::Style(_)));
     })
@@ -837,9 +839,17 @@ fn distinguishes_nested_pseudo_selectors_from_declarations() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style")
         };
-        let style = style.get(&token);
+        let style = style.as_ref().borrow(&token);
         let style = style.get_ref();
-        assert_eq!(style.declarations.borrow(&token).declarations.len(), 1);
+        assert_eq!(
+            style
+                .declarations
+                .as_ref()
+                .borrow(&token)
+                .declarations
+                .len(),
+            1
+        );
         assert_eq!(style.rules.len(), 1);
         assert!(matches!(&style.rules[0], CssRule::Style(_)));
     })
@@ -862,11 +872,19 @@ fn declaration_error_recovery_continues_at_semicolon() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style")
         };
-        let style = style.get(&token);
+        let style = style.as_ref().borrow(&token);
         let style = style.get_ref();
-        assert_eq!(style.declarations.borrow(&token).declarations.len(), 1);
+        assert_eq!(
+            style
+                .declarations
+                .as_ref()
+                .borrow(&token)
+                .declarations
+                .len(),
+            1
+        );
         assert!(matches!(
-            &style.declarations.borrow(&token).declarations[0],
+            &style.declarations.as_ref().borrow(&token).declarations[0],
             Declaration::Width(_)
         ));
     })
@@ -903,21 +921,29 @@ fn declaration_like_identifier_requires_explicit_error_recovery() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style")
         };
-        let style = style.get(&token);
+        let style = style.as_ref().borrow(&token);
         let style = style.get_ref();
 
-        assert_eq!(style.declarations.borrow(&token).declarations.len(), 3);
+        assert_eq!(
+            style
+                .declarations
+                .as_ref()
+                .borrow(&token)
+                .declarations
+                .len(),
+            3
+        );
         assert!(style.rules.is_empty());
         assert!(matches!(
-            style.declarations.borrow(&token).declarations[0],
+            style.declarations.as_ref().borrow(&token).declarations[0],
             Declaration::Width(_)
         ));
         assert!(matches!(
-            style.declarations.borrow(&token).declarations[1],
+            style.declarations.as_ref().borrow(&token).declarations[1],
             Declaration::Height(_)
         ));
         assert!(matches!(
-            &style.declarations.borrow(&token).declarations[2],
+            &style.declarations.as_ref().borrow(&token).declarations[2],
             Declaration::Unparsed(value)
                 if matches!(&*value.property_id, PropertyId::Background)
         ));
@@ -938,9 +964,9 @@ fn parses_typed_core_property_values() {
     let CssRule::Style(style) = &sheet.rules[0] else {
         panic!("expected style")
     };
-    let style = style.get(&token);
+    let style = style.as_ref().borrow(&token);
     let style = style.get_ref();
-    let declarations = &style.declarations.borrow(&token).declarations;
+    let declarations = &style.declarations.as_ref().borrow(&token).declarations;
     assert!(matches!(
         &declarations[0],
         Declaration::Color(color)
@@ -979,9 +1005,9 @@ fn parses_font_family_into_typed_ast_nodes() {
     let CssRule::Style(style) = &sheet.rules[0] else {
         panic!("expected style")
     };
-    let style = style.get(&token);
+    let style = style.as_ref().borrow(&token);
     let style = style.get_ref();
-    let declarations = &style.declarations.borrow(&token).declarations;
+    let declarations = &style.declarations.as_ref().borrow(&token).declarations;
 
     assert!(matches!(
         &declarations[0],
@@ -1024,9 +1050,9 @@ fn parses_known_multicol_and_legacy_gap_ast_nodes() {
     let CssRule::Style(style) = &sheet.rules[0] else {
         panic!("expected style")
     };
-    let style = style.get(&token);
+    let style = style.as_ref().borrow(&token);
     let style = style.get_ref();
-    let declarations = &style.declarations.borrow(&token).declarations;
+    let declarations = &style.declarations.as_ref().borrow(&token).declarations;
 
     assert!(matches!(
         &declarations[0],
@@ -1092,13 +1118,13 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let style = style.get(&token);
+        let style = style.as_ref().borrow(&token);
         let style = style.get_ref();
-        let declarations = &style.declarations.borrow(&token).declarations;
+        let declarations = &style.declarations.as_ref().borrow(&token).declarations;
 
         assert_eq!(declarations.len(), 7);
         assert!(matches!(&declarations[0], Declaration::Color(_)));
-        assert!(style.declarations.borrow(&token).is_important(0));
+        assert!(style.declarations.as_ref().borrow(&token).is_important(0));
 
         assert!(matches!(
             &declarations[1],
@@ -1107,7 +1133,7 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
                     && matches!(&value.value[0], TokenOrValue::Function(function)
                         if function.name().eq_ignore_ascii_case("calc"))
         ));
-        assert!(style.declarations.borrow(&token).is_important(1));
+        assert!(style.declarations.as_ref().borrow(&token).is_important(1));
         assert!(matches!(
             &declarations[2],
             Declaration::Unparsed(value)
@@ -1126,13 +1152,13 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
                     && value.value.iter().any(|token| matches!(token,
                         TokenOrValue::Function(function) if function.name() == "fn"))
         ));
-        assert!(style.declarations.borrow(&token).is_important(4));
+        assert!(style.declarations.as_ref().borrow(&token).is_important(4));
         assert!(matches!(
             &declarations[5],
             Declaration::Unparsed(value)
                 if matches!(&*value.property_id, PropertyId::Opacity)
         ));
-        assert!(!style.declarations.borrow(&token).is_important(5));
+        assert!(!style.declarations.as_ref().borrow(&token).is_important(5));
         assert!(matches!(&declarations[6], Declaration::Height(_)));
     })
 }
@@ -1152,12 +1178,13 @@ fn recognizes_overlay_as_a_known_property() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let style = style.get(&token);
+        let style = style.as_ref().borrow(&token);
         let style = style.get_ref();
 
         assert!(
             style
                 .declarations
+                .as_ref()
                 .borrow(&token)
                 .declarations
                 .iter()
@@ -1217,7 +1244,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         let CssRule::Style(style) = &sheet.rules[4] else {
             panic!("expected style")
         };
-        let style = style.get(&token);
+        let style = style.as_ref().borrow(&token);
         let style = style.get_ref();
         assert!(matches!(&style.rules[0], CssRule::Nesting(_)));
     })
@@ -1306,7 +1333,7 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert_eq!(rule.selectors.len(), 1);
 
@@ -1326,7 +1353,10 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
 
         assert!(matches!(&selector[2], SelectorComponent::Negation(_)));
 
-        assert_eq!(rule.declarations.borrow(&token).declarations.len(), 1);
+        assert_eq!(
+            rule.declarations.as_ref().borrow(&token).declarations.len(),
+            1
+        );
     })
 }
 
@@ -1341,7 +1371,7 @@ fn preserves_details_content_chained_with_before_pseudo_element() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert_eq!(rule.selectors.len(), 1);
 
@@ -1360,7 +1390,8 @@ fn preserves_details_content_chained_with_before_pseudo_element() {
                 if matches!(**element, PseudoElement::Before)
         ));
 
-        let Declaration::BackgroundColor(_) = &rule.declarations.borrow(&token).declarations[0]
+        let Declaration::BackgroundColor(_) =
+            &rule.declarations.as_ref().borrow(&token).declarations[0]
         else {
             panic!("expected background-color declaration")
         };
@@ -1377,7 +1408,7 @@ fn preserves_has_slotted_pseudo_class() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert_eq!(rule.selectors.len(), 1);
 
@@ -1407,7 +1438,7 @@ fn preserves_pseudo_element_arg_inside_has_selector() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert_eq!(rule.selectors.len(), 1);
 
@@ -1435,7 +1466,7 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected scroll-button style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert!(matches!(
             &rule.selectors[0][0],
@@ -1446,7 +1477,7 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
         let CssRule::Style(rule) = &sheet.rules[1] else {
             panic!("expected scroll-marker style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert!(matches!(
             &rule.selectors[0][3],

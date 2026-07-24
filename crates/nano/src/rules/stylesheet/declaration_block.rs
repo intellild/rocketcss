@@ -1,6 +1,6 @@
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 use rocketcss_allocator::{
-    GhostCell, GhostToken,
+    GhostToken, Ref,
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 use rocketcss_ast::{
@@ -238,7 +238,7 @@ impl<'a> BoxFamilyIr<'a> {
 enum DeclarationBlocks<'sequence, 'ast, 'ghost> {
     Direct(&'sequence mut DeclarationBlock<'ast>),
     Ghost {
-        blocks: &'sequence [&'ast GhostCell<'ghost, DeclarationBlock<'ast>>],
+        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast>>],
         token: &'sequence mut GhostToken<'ghost>,
     },
 }
@@ -257,7 +257,7 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
 
     #[inline]
     fn ghost(
-        blocks: &'sequence [&'ast GhostCell<'ghost, DeclarationBlock<'ast>>],
+        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast>>],
         token: &'sequence mut GhostToken<'ghost>,
     ) -> Self {
         Self {
@@ -288,7 +288,7 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
                 debug_assert_eq!(index, 0);
                 block
             }
-            DeclarationBlocks::Ghost { blocks, token } => blocks[index].borrow(token),
+            DeclarationBlocks::Ghost { blocks, token } => blocks[index].get(token).get_ref(),
         }
     }
 
@@ -299,7 +299,7 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
                 debug_assert_eq!(index, 0);
                 block
             }
-            DeclarationBlocks::Ghost { blocks, token } => blocks[index].borrow_mut(token),
+            DeclarationBlocks::Ghost { blocks, token } => blocks[index].get_mut(token).get_mut(),
         }
     }
 
@@ -379,7 +379,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
 
     pub(crate) fn minify_sequence<'ghost>(
         &mut self,
-        blocks: &[&'ast GhostCell<'ghost, DeclarationBlock<'ast>>],
+        blocks: &[Ref<'ast, 'ghost, DeclarationBlock<'ast>>],
         token: &mut GhostToken<'ghost>,
         cx: &mut MinifyContext<'scratch>,
     ) {

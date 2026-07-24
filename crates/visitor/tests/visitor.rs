@@ -225,14 +225,14 @@ fn mutable_visitor_can_transform_typed_nodes() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert!(matches!(
             rule.selectors[0][0],
             SelectorComponent::Class("renamed")
         ));
         assert!(matches!(
-            rule.declarations.borrow(&token).declarations[0],
+            rule.declarations.as_ref().borrow(&token).declarations[0],
             Declaration::Color(ref color)
                 if matches!(
                     **color,
@@ -326,7 +326,7 @@ fn mutable_visitor_can_tombstone_direct_style_rule_selectors() {
         let CssRule::Style(first) = &sheet.rules[0] else {
             panic!("expected first style rule")
         };
-        let first = first.get(&token);
+        let first = first.as_ref().borrow(&token);
         let first = first.get_ref();
         assert!(matches!(first.selectors[0], Selector::Tombstone));
         assert!(matches!(first.selectors[1], Selector::Parsed(_)));
@@ -334,7 +334,7 @@ fn mutable_visitor_can_tombstone_direct_style_rule_selectors() {
         let CssRule::Style(second) = &sheet.rules[1] else {
             panic!("expected second style rule")
         };
-        let second = second.get(&token);
+        let second = second.as_ref().borrow(&token);
         let second = second.get_ref();
         assert!(second.selectors.iter().all(Selector::is_tombstone));
     })

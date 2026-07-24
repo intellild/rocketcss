@@ -161,8 +161,8 @@ impl Allocator {
 
     /// Allocates an arena-owned cell carrying an independent `'ghost` brand.
     #[inline]
-    pub fn alloc_ghost<'ghost, T>(&self, value: T) -> &GhostCell<'ghost, T> {
-        self.alloc(GhostCell::new(value))
+    pub fn alloc_ghost<'ghost, T>(&self, value: T) -> Pin<boxed::Box<'_, GhostCell<'ghost, T>>> {
+        self.pinned(GhostCell::new(value))
     }
 
     pub fn alloc_str(&self, s: &str) -> &str {

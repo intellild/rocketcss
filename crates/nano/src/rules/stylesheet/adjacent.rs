@@ -31,12 +31,12 @@ fn merge_children<'ast, 'ghost, 'scratch>(
 {
     match rule {
         CssRule::Media(rule) => merge_adjacent_style_rules(&mut rule.rules, token, minifier, cx),
-        CssRule::Style(rule) => merge_style_children(*rule, token, minifier, cx),
+        CssRule::Style(rule) => merge_style_children(Ref::from(&*rule), token, minifier, cx),
         CssRule::Supports(rule) => merge_adjacent_style_rules(&mut rule.rules, token, minifier, cx),
         CssRule::MozDocument(rule) => {
             merge_adjacent_style_rules(&mut rule.rules, token, minifier, cx)
         }
-        CssRule::Nesting(rule) => merge_style_children(rule.style, token, minifier, cx),
+        CssRule::Nesting(rule) => merge_style_children(Ref::from(&rule.style), token, minifier, cx),
         CssRule::LayerBlock(rule) => {
             merge_adjacent_style_rules(&mut rule.rules, token, minifier, cx)
         }
@@ -103,8 +103,8 @@ fn can_merge<'ghost>(
     let (CssRule::Style(previous), CssRule::Style(current)) = (previous, current) else {
         return false;
     };
-    let previous = previous.get(token);
-    let current = current.get(token);
+    let previous = previous.as_ref().borrow(token);
+    let current = current.as_ref().borrow(token);
     previous.rules.is_empty()
         && previous.vendor_prefix == current.vendor_prefix
         && has_live_selector(previous.get_ref())
@@ -139,8 +139,9 @@ fn merge_run<'ast, 'ghost, 'scratch>(
         let CssRule::Style(style) = rule else {
             unreachable!("eligible runs contain only style rules")
         };
-        styles.push(*style);
-        blocks.push(style.get(token).declarations);
+        styles.push(Ref::from(style));
+        let style = style.as_ref().borrow(token);
+        blocks.push(Ref::from(&style.declarations));
     }
     minifier.minify_sequence(&blocks, token, cx);
 
@@ -151,11 +152,12 @@ fn merge_run<'ast, 'ghost, 'scratch>(
         };
         if index > 0 {
             style
-                .get_mut(token)
+                .as_ref()
+                .borrow_mut(token)
                 .set_previous_merged(Some(styles[index - 1]));
         }
         if index + 1 < run_len {
-            for selector in style.get_mut(token).selectors_mut().iter_mut() {
+            for selector in style.as_ref().borrow_mut(token).selectors_mut().iter_mut() {
                 *selector = Selector::Tombstone;
             }
         }

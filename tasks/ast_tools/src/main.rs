@@ -779,6 +779,22 @@ fn visit_type(
                 let Some(inner_ty) = first_type_argument(&box_segment.arguments) else {
                     return quote!();
                 };
+                let pins_ghost_cell = matches!(
+                    inner_ty,
+                    Type::Path(path)
+                        if path.path.segments.last().is_some_and(|segment| segment.ident == "GhostCell")
+                );
+                if pins_ghost_cell {
+                    return visit_type(
+                        mode,
+                        inner_ty,
+                        quote!((#expression).as_ref()),
+                        known,
+                        aliases,
+                        generics,
+                        counter,
+                    );
+                }
                 if matches!(mode, Mode::Read) {
                     visit_type(
                         mode,
@@ -851,16 +867,25 @@ fn visit_type(
                 );
                 quote!(for #binding in (#expression).#iterator() { #inner })
             } else if name == "GhostCell" {
+                let is_style_rule = first_type_argument(&segment.arguments).is_some_and(|ty| {
+                    matches!(
+                        ty,
+                        Type::Path(path)
+                            if path.path.segments.last().is_some_and(|segment| segment.ident == "StyleRule")
+                    )
+                });
                 if matches!(mode, Mode::Read) {
                     quote! {
                         cx.with_cell(#expression, |value, cx| {
-                            Visit::visit(value, visitor, cx);
+                            Visit::visit(value.get_ref(), visitor, cx);
                         });
                     }
+                } else if is_style_rule {
+                    quote!(cx.visit_style_cell(#expression, visitor);)
                 } else {
                     quote! {
                         cx.with_cell(#expression, |value, cx| {
-                            VisitMut::visit(value, visitor, cx);
+                            VisitMut::visit(value.get_mut(), visitor, cx);
                         });
                     }
                 }

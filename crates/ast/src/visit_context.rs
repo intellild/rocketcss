@@ -17,8 +17,8 @@ impl<'token, 'ghost> VisitContext<'token, 'ghost> {
     #[inline]
     pub fn with_cell<T: ?Sized, R>(
         &self,
-        cell: &GhostCell<'ghost, T>,
-        f: impl FnOnce(&T, &Self) -> R,
+        cell: Pin<&GhostCell<'ghost, T>>,
+        f: impl FnOnce(Pin<&T>, &Self) -> R,
     ) -> R {
         f(cell.borrow(self.token), self)
     }
@@ -54,8 +54,8 @@ impl<'token, 'ghost> VisitMutContext<'token, 'ghost> {
     #[inline]
     pub fn with_cell<T: ?Sized, R>(
         &mut self,
-        cell: &GhostCell<'ghost, T>,
-        f: impl FnOnce(&mut T, &mut Self) -> R,
+        cell: Pin<&GhostCell<'ghost, T>>,
+        f: impl FnOnce(Pin<&mut T>, &mut Self) -> R,
     ) -> R {
         let VisitMutState::Available(token) =
             std::mem::replace(&mut self.state, VisitMutState::Borrowed)
@@ -105,9 +105,9 @@ impl<'token, 'ghost> VisitMutContext<'token, 'ghost> {
             visitor.visit_style_rule(value, cx);
         });
 
-        let declarations = self.with_ref(reference, |value, _| value.declarations);
-        self.with_cell(declarations, |value, cx| {
-            VisitMut::visit_mut(value, visitor, cx);
+        let declarations = self.with_ref(reference, |value, _| Ref::from(&value.declarations));
+        self.with_ref(declarations, |value, cx| {
+            VisitMut::visit_mut(value.get_mut(), visitor, cx);
         });
 
         let mut rules = self.with_ref(reference, |mut value, _| {
@@ -125,6 +125,50 @@ impl<'token, 'ghost> VisitMutContext<'token, 'ghost> {
         });
 
         self.with_ref(reference, |mut value, cx| {
+            // SAFETY: visiting these fields does not move the pinned style.
+            let value = unsafe { value.as_mut().get_unchecked_mut() };
+            visitor.visit_selector_list(&mut value.selectors, cx);
+            VisitMut::visit_mut(&mut value.vendor_prefix, visitor, cx);
+        });
+        visitor.leave_node(crate::AstType::StyleRule);
+    }
+
+    /// Visits an owning pinned style one allocation at a time.
+    ///
+    /// The style's declaration cell and nested rule list are visited only
+    /// after releasing the mutable borrow of the pinned style itself.
+    pub fn visit_style_cell<'a, VisitorT>(
+        &mut self,
+        cell: Pin<&GhostCell<'ghost, StyleRule<'a, 'ghost>>>,
+        visitor: &mut VisitorT,
+    ) where
+        VisitorT: ?Sized + VisitorMut<'a, 'ghost>,
+    {
+        visitor.enter_node(crate::AstType::StyleRule);
+        self.with_cell(cell, |value, cx| {
+            visitor.visit_style_rule(value, cx);
+        });
+
+        let declarations = self.with_cell(cell, |value, _| Ref::from(&value.declarations));
+        self.with_ref(declarations, |value, cx| {
+            VisitMut::visit_mut(value.get_mut(), visitor, cx);
+        });
+
+        let mut rules = self.with_cell(cell, |mut value, _| {
+            // SAFETY: replacing a field does not move the pinned style.
+            let value = unsafe { value.as_mut().get_unchecked_mut() };
+            let empty = rocketcss_allocator::vec::Vec::new_in(value.rules.bump());
+            std::mem::replace(&mut value.rules, empty)
+        });
+        VisitMut::visit_mut(&mut rules, visitor, self);
+        self.with_cell(cell, |mut value, _| {
+            // SAFETY: restoring a field does not move the pinned style.
+            let value = unsafe { value.as_mut().get_unchecked_mut() };
+            debug_assert!(value.rules.is_empty());
+            value.rules = rules;
+        });
+
+        self.with_cell(cell, |mut value, cx| {
             // SAFETY: visiting these fields does not move the pinned style.
             let value = unsafe { value.as_mut().get_unchecked_mut() };
             visitor.visit_selector_list(&mut value.selectors, cx);

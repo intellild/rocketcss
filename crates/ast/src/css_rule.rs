@@ -6,7 +6,7 @@ use rocketcss_allocator::boxed::Box;
 pub enum CssRule<'a, 'ghost> {
     Media(Box<'a, MediaRule<'a, 'ghost>>),
     Import(Box<'a, ImportRule<'a>>),
-    Style(Ref<'a, 'ghost, StyleRule<'a, 'ghost>>),
+    Style(Pin<Box<'a, GhostCell<'ghost, StyleRule<'a, 'ghost>>>>),
     Keyframes(Box<'a, KeyframesRule<'a, 'ghost>>),
     FontFace(Box<'a, FontFaceRule<'a>>),
     FontPaletteValues(Box<'a, FontPaletteValuesRule<'a>>),
@@ -39,7 +39,7 @@ impl<'ghost> CssRule<'_, 'ghost> {
         match self {
             Self::Media(rule) => rule.span(),
             Self::Import(rule) => rule.span(),
-            Self::Style(rule) => rule.get(token).span,
+            Self::Style(rule) => rule.as_ref().borrow(token).span,
             Self::Keyframes(rule) => rule.span(),
             Self::FontFace(rule) => rule.span(),
             Self::FontPaletteValues(rule) => rule.span(),

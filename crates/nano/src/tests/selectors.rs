@@ -18,7 +18,7 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
         let CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.get(&token);
+        let rule = rule.as_ref().borrow(&token);
         let rule = rule.get_ref();
         assert!(matches!(rule.selectors[0], Selector::Parsed(_)));
         assert!(matches!(rule.selectors[1], Selector::Tombstone));
