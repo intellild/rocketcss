@@ -1,0 +1,75 @@
+crates/ast/src/css_rule.rs
+  s_a0b85263ca7e1c::t_00b3b347f024be 6-7,9-10,14-16,19-22,25,27-29,31,36,38,42
+crates/ast/src/rules/container.rs
+  s_a0b85263ca7e1c::t_a84ec7c70b3ca1 66,70
+crates/ast/src/rules/mod.rs
+  s_a0b85263ca7e1c::t_b0d1a37d25e9ae 57-76,83-96
+crates/ast/src/visit_context.rs
+  s_a0b85263ca7e1c::t_80d631b9780867 1-135
+crates/codegen/tests/to_css.rs
+  s_a0b85263ca7e1c::t_db555c99d3bc97 1-2,5-10,15-25,38-46,48-73,78-104,110-133,135-143,145-154,157,159,161,166-180,185-207,212-219,222,224,226,232-245,251-261,267-291,297-331,336-345,351-361,363-369,377-387,389-395,418-431,436-442,444-462,467-477,551-571,603-615,617-622,624-630,720-729,735-745,751-761,767-777,783-793,799-809,815-825,831-841,847-857,863-872,878-888,894-904,910-921,927-937,943-953,959-969,975-985,991-1004,1010-1021,1027-1036,1042-1051,1057-1071,1077-1088,1094-1104,1110-1122,1128-1141,1147-1160,1166-1184,1190-1199,1205-1218,1224-1233,1251-1260,1266-1275
+crates/codegen/tests/trait_coverage.rs
+  s_a0b85263ca7e1c::t_dc46a65b6f0fb4 2,5,20-25,30,45,48,71,75-78,135-147
+crates/codegen/tests/upstream.rs
+  s_a0b85263ca7e1c::t_81a1ec1cc7ee63 5,45-60
+crates/nano/src/tests/box_model.rs
+  s_a0b85263ca7e1c::t_027d0471d8f1a5 78-86,88,90-99,114-116,121-123
+crates/nano/src/tests/declarations.rs
+  s_a0b85263ca7e1c::t_53cc203da38fcf 50-70,72-80
+crates/nano/src/tests/fonts.rs
+  s_a0b85263ca7e1c::t_d7a185f5b53eca 36-57,63-90
+crates/nano/src/tests/rule_merge.rs
+  s_a0b85263ca7e1c::t_27c05aa533408c 41-47,50-62
+crates/nano/src/tests/selectors.rs
+  s_a0b85263ca7e1c::t_4c6aaf0d284de0 6-33
+crates/nano/src/tests/values.rs
+  s_a0b85263ca7e1c::t_1f902324b6bc13 94-117
+crates/parser/src/parser/media.rs
+  s_a0b85263ca7e1c::t_80a384ed569ac8 4,9
+crates/parser/tests/parser.rs
+  s_a0b85263ca7e1c::t_9c4a91bcb0f0ac 77,83,97-98,114-115,117,122,126,130-133,139-171,177-207,213-214,220-259,265-266,273-285,288-297,300-318,320-352,358-377,383-393,395-408,414-424,426-438,444-454,456-468,474-481,483-484,563,567,586,592,605-606,650,656-657,662-690,696-765,771-778,780-795,801-823,829-845,851-872,879-880,887-924,930,934,941-943,965,971,975,982-984,1010,1016,1020,1027-1029,1070,1076-1078,1087-1137,1144-1149,1151-1172,1178-1179,1190-1223,1230,1234,1243,1250-1251,1260-1278,1284-1295,1302-1330,1337-1367,1374-1397,1404-1423,1430-1456
+crates/parser/tests/upstream.rs
+  s_a0b85263ca7e1c::t_5f4ed23c8ea68b 29-41,43-44
+crates/visitor/src/lib.rs
+  s_a0b85263ca7e1c::t_23cc831d04ceba 12-14
+crates/visitor/src/prelude.rs
+  s_a0b85263ca7e1c::t_fde75d09c37337 4-5
+crates/visitor/tests/plugins.rs
+  s_a0b85263ca7e1c::t_4c187764593b4f 10-15,21,27,34-35,48-90,106,113-114,123-142
+crates/visitor/tests/visitor.rs
+  s_a0b85263ca7e1c::t_86937b16e3b24f 14,23,25,28,30,33,35,38,40,43,45,48,50,57-75,82-97,106-107,109,112,114,122-139,149-151,154-158,165,173-188,193-198,202,205,207,214-243,251-256,258,267-283,288-293,312-340
+tasks/ast_size/src/main.rs
+  s_a0b85263ca7e1c::t_4006bded6bf8de 49-50,85-91
+tasks/benchmark/benches/codegen.rs
+  s_a0b85263ca7e1c::t_bc84ddb9f77dee 7,16-26,28-40
+tasks/benchmark/benches/parser.rs
+  s_a0b85263ca7e1c::t_837bac3b88f9fa 18-30
+tests/src/codegen.rs
+  s_a0b85263ca7e1c::t_8ef8b0865c13f4 2,13-15,17-19,21-22,30-37,39-44,46-50
+tests/src/minify.rs
+  s_a0b85263ca7e1c::t_04fea9285a57b3 4,23-25,27-30,32-33
+tests/src/minify_dynamic.rs
+  s_a0b85263ca7e1c::t_bb544fa9a833d8 4,108-115,120-126
+tests/src/parser.rs
+  s_a0b85263ca7e1c::t_41e03e8f6b70ff 12-15,26-32
+tests/src/visitor.rs
+  s_a0b85263ca7e1c::t_aa303d5bb29b5a 2-3,11-16,22,32-37,39-44,46-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "12ba6a99733b0263161ffd7c9c06f3df4d0f7b31",
+  "prompts": {},
+  "sessions": {
+    "s_a0b85263ca7e1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8370-eae5-7313-a85a-741d79036117",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
