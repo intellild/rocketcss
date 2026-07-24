@@ -1,0 +1,55 @@
+crates/ast/src/generated/visit.rs
+  s_a0b85263ca7e1c::t_ee518674180eb8 956
+crates/ast/src/generated/visit_mut.rs
+  s_a0b85263ca7e1c::t_9d358156ecb263 1212-1213,1215,1220
+crates/ast/src/rules/page.rs
+  s_a0b85263ca7e1c::t_6a2238ecb9294f 33,41
+crates/codegen/tests/to_css.rs
+  s_a0b85263ca7e1c::t_ac2a25f68ab469 54,211,303,334,623,673,676-677,680-682
+crates/codegen/tests/trait_coverage.rs
+  s_a0b85263ca7e1c::t_d03ec4b35064e8 55,145
+crates/macros/src/lib.rs
+  s_a0b85263ca7e1c::t_84184858c9061a 525,574,609-615
+crates/nano/src/lib.rs
+  s_a0b85263ca7e1c::t_c11dba48e0e045 141
+crates/nano/src/tests/box_model.rs
+  s_a0b85263ca7e1c::t_3284c22d117c3b 124-125
+crates/nano/src/tests/declarations.rs
+  s_a0b85263ca7e1c::t_36a6661b2fbf80 62-63
+crates/nano/src/tests/fonts.rs
+  s_a0b85263ca7e1c::t_6dc55fba27a8b8 48-49,75-76
+crates/nano/src/tests/selectors.rs
+  s_a0b85263ca7e1c::t_98bbed26a14400 21
+crates/nano/src/tests/values.rs
+  s_a0b85263ca7e1c::t_1fd346263b4f78 105-106
+crates/parser/src/parser/css_rule.rs
+  s_a0b85263ca7e1c::t_c52f49e13ff2af 466,511,520
+crates/parser/src/parser/rules.rs
+  s_a0b85263ca7e1c::t_e2c5df81bb733e 305,310,500-503
+crates/parser/tests/parser.rs
+  s_a0b85263ca7e1c::t_2335f4dce7ac40 97,149,186,397,427,456,808,835,867,915,957,997,1041,1108,1167,1232,1320,1357,1393,1422,1449,1459
+crates/visitor/tests/plugins.rs
+  s_a0b85263ca7e1c::t_d1213f307f0aca 85
+crates/visitor/tests/visitor.rs
+  s_a0b85263ca7e1c::t_6d3ac0b185f281 228,245-288,372,379
+tasks/ast_tools/src/main.rs
+  s_a0b85263ca7e1c::t_dfeba979adc08f 347-351,872,911-913
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "39b6e0b857c6a2d46deb4ff48f5610a793e40f50",
+  "prompts": {},
+  "sessions": {
+    "s_a0b85263ca7e1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8370-eae5-7313-a85a-741d79036117",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
