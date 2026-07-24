@@ -1,0 +1,27 @@
+crates/codegen/src/css_rule.rs
+  s_a0b85263ca7e1c::t_867c0c423cf470 3-4,7,9,11-35,37
+crates/codegen/src/lib.rs
+  s_a0b85263ca7e1c::t_1d41b8bf018788 16
+crates/codegen/src/prelude.rs
+  s_a0b85263ca7e1c::t_fa08601cdcef49 10
+crates/nano/src/rules/stylesheet/declaration_block.rs
+  s_a0b85263ca7e1c::t_06dc7f0a2ba84b 241,260,382
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "486de0c24783e96744950b13279757b43fcc8d4e",
+  "prompts": {},
+  "sessions": {
+    "s_a0b85263ca7e1c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f8370-eae5-7313-a85a-741d79036117",
+        "model": "unknown"
+      },
+      "human_author": "intellild <intellild@outlook.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
