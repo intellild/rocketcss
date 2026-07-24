@@ -1,0 +1,1 @@
+:where(.x,.y){&:where(.x){color:red}color:#00f;&:where(.y){color:red}}
