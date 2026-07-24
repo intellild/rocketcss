@@ -52,7 +52,7 @@ fn every_css_ast_node_implements_to_css() {
         Navigation, DefaultAtRule, MediaList<'static>,
         MediaQuery<'static>, LengthValue, EnvironmentVariable<'static>, Url<'static>,
         Variable<'static>, DashedIdentReference<'static>, Function<'static>, ImportRule<'static>,
-        DeclarationBlock<'static>, Position<'static>,
+        Position<'static>,
         WebKitGradientPoint, WebKitColorStop<'static>, ImageSet<'static>,
         ImageSetOption<'static>, BackgroundPosition<'static>, BackgroundRepeat,
         Background<'static>, BoxShadow<'static>, AspectRatio, Overflow,
@@ -142,6 +142,7 @@ fn every_css_ast_node_implements_to_css() {
 
     assert_ghost_types! {
         CssRule<'static, 'static>, StyleSheet<'static, 'static>,
+        DeclarationBlock<'static, 'static>,
         MediaRule<'static, 'static>, StyleRule<'static, 'static>,
         KeyframesRule<'static, 'static>, Keyframe<'static, 'static>,
         PageRule<'static, 'static>, PageMarginRule<'static, 'static>,

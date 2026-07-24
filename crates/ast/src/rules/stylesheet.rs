@@ -399,13 +399,11 @@ pub struct ImportRule<'a> {
 #[derive(Debug, Visit)]
 #[visit(pinned)]
 pub struct StyleRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
     pub span: Span,
     pub rules: Vec<'a, CssRule<'a, 'ghost>>,
     pub selectors: SelectorList<'a>,
     pub vendor_prefix: VendorPrefix,
-    #[visit(skip)]
-    previous_merged: Option<Ref<'a, 'ghost, StyleRule<'a, 'ghost>>>,
     #[visit(skip)]
     _pin: PhantomPinned,
 }
@@ -423,7 +421,7 @@ impl PartialEq for StyleRule<'_, '_> {
 impl<'a, 'ghost> StyleRule<'a, 'ghost> {
     #[inline]
     pub fn new(
-        declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a>>,
+        declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
         span: Span,
         rules: Vec<'a, CssRule<'a, 'ghost>>,
         selectors: SelectorList<'a>,
@@ -435,23 +433,8 @@ impl<'a, 'ghost> StyleRule<'a, 'ghost> {
             rules,
             selectors,
             vendor_prefix,
-            previous_merged: None,
             _pin: PhantomPinned,
         }
-    }
-
-    #[inline]
-    pub fn previous_merged(&self) -> Option<Ref<'a, 'ghost, StyleRule<'a, 'ghost>>> {
-        self.previous_merged
-    }
-
-    #[inline]
-    pub fn set_previous_merged(
-        mut self: Pin<&mut Self>,
-        previous: Option<Ref<'a, 'ghost, StyleRule<'a, 'ghost>>>,
-    ) {
-        // SAFETY: assigning the link does not move the pinned style rule.
-        unsafe { self.as_mut().get_unchecked_mut() }.previous_merged = previous;
     }
 
     #[inline]
@@ -468,19 +451,32 @@ impl<'a, 'ghost> StyleRule<'a, 'ghost> {
 }
 
 #[derive(Debug, Visit)]
-pub struct DeclarationBlock<'a> {
+pub struct DeclarationBlock<'a, 'ghost> {
     pub declarations: Vec<'a, Declaration<'a>>,
     #[visit(skip)]
     pub declarations_importance: BitVec<'a>,
+    #[visit(skip)]
+    previous_merged: Option<Ref<'a, 'ghost, DeclarationBlock<'a, 'ghost>>>,
 }
 
-impl<'a> DeclarationBlock<'a> {
+impl<'a, 'ghost> DeclarationBlock<'a, 'ghost> {
     #[inline]
     pub fn new(allocator: &'a rocketcss_allocator::Allocator) -> Self {
         Self {
             declarations: allocator.vec(),
             declarations_importance: BitVec::new(allocator),
+            previous_merged: None,
         }
+    }
+
+    #[inline]
+    pub fn previous_merged(&self) -> Option<Ref<'a, 'ghost, Self>> {
+        self.previous_merged
+    }
+
+    #[inline]
+    pub fn set_previous_merged(&mut self, previous: Option<Ref<'a, 'ghost, Self>>) {
+        self.previous_merged = previous;
     }
 
     #[inline]
@@ -528,14 +524,14 @@ impl<'a> DeclarationBlock<'a> {
     }
 }
 
-impl PartialEq for DeclarationBlock<'_> {
+impl PartialEq for DeclarationBlock<'_, '_> {
     fn eq(&self, other: &Self) -> bool {
         self.declarations == other.declarations
             && self.declarations_importance == other.declarations_importance
     }
 }
 
-impl EqIgnoringTombstones for DeclarationBlock<'_> {
+impl EqIgnoringTombstones for DeclarationBlock<'_, '_> {
     fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
         let mut left = self.iter_live();
         let mut right = other.iter_live();

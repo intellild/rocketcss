@@ -225,8 +225,7 @@ fn mutable_visitor_can_transform_typed_nodes() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert!(matches!(
             rule.selectors[0][0],
             SelectorComponent::Class("renamed")
@@ -240,6 +239,50 @@ fn mutable_visitor_can_transform_typed_nodes() {
                         if color.rgba() == RGBA { red: 1, green: 0, blue: 0, alpha: 255 }
                 )
         ));
+    })
+}
+
+#[derive(Default)]
+struct PanicOnNestedStyle {
+    styles_seen: usize,
+}
+
+impl<'a, 'ghost> VisitorMut<'a, 'ghost> for PanicOnNestedStyle {
+    fn visit_style_rule(
+        &mut self,
+        mut rule: std::pin::Pin<&mut StyleRule<'a, 'ghost>>,
+        cx: &mut VisitMutContext<'_, 'ghost>,
+    ) {
+        self.styles_seen += 1;
+        assert_ne!(self.styles_seen, 2, "nested style panic");
+        rule.visit_mut_children(self, cx);
+    }
+}
+
+#[test]
+fn mutable_visitor_panic_keeps_nested_rules_attached() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut sheet = rocketcss_parser::parse(
+            ".card { color: red; button:hover { color: blue } }",
+            &allocator,
+            &mut token,
+            rocketcss_parser::ParserOptions::default(),
+        )
+        .unwrap();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sheet.visit_mut(
+                &mut PanicOnNestedStyle::default(),
+                &mut VisitMutContext::new(&mut token),
+            );
+        }));
+        assert!(result.is_err());
+
+        let CssRule::Style(style) = &sheet.rules[0] else {
+            panic!("expected outer style rule")
+        };
+        assert_eq!(style.as_ref().get_ref().rules.len(), 1);
     })
 }
 
@@ -326,16 +369,14 @@ fn mutable_visitor_can_tombstone_direct_style_rule_selectors() {
         let CssRule::Style(first) = &sheet.rules[0] else {
             panic!("expected first style rule")
         };
-        let first = first.as_ref().borrow(&token);
-        let first = first.get_ref();
+        let first = first.as_ref().get_ref();
         assert!(matches!(first.selectors[0], Selector::Tombstone));
         assert!(matches!(first.selectors[1], Selector::Parsed(_)));
 
         let CssRule::Style(second) = &sheet.rules[1] else {
             panic!("expected second style rule")
         };
-        let second = second.as_ref().borrow(&token);
-        let second = second.get_ref();
+        let second = second.as_ref().get_ref();
         assert!(second.selectors.iter().all(Selector::is_tombstone));
     })
 }

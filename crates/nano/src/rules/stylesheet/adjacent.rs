@@ -31,12 +31,16 @@ fn merge_children<'ast, 'ghost, 'scratch>(
 {
     match rule {
         CssRule::Media(rule) => merge_adjacent_style_rules(&mut rule.rules, token, minifier, cx),
-        CssRule::Style(rule) => merge_style_children(Ref::from(&*rule), token, minifier, cx),
+        CssRule::Style(rule) => {
+            merge_adjacent_style_rules(rule.as_mut().rules_mut(), token, minifier, cx)
+        }
         CssRule::Supports(rule) => merge_adjacent_style_rules(&mut rule.rules, token, minifier, cx),
         CssRule::MozDocument(rule) => {
             merge_adjacent_style_rules(&mut rule.rules, token, minifier, cx)
         }
-        CssRule::Nesting(rule) => merge_style_children(Ref::from(&rule.style), token, minifier, cx),
+        CssRule::Nesting(rule) => {
+            merge_adjacent_style_rules(rule.style.as_mut().rules_mut(), token, minifier, cx)
+        }
         CssRule::LayerBlock(rule) => {
             merge_adjacent_style_rules(&mut rule.rules, token, minifier, cx)
         }
@@ -49,29 +53,6 @@ fn merge_children<'ast, 'ghost, 'scratch>(
         }
         _ => {}
     }
-}
-
-fn merge_style_children<'ast, 'ghost, 'scratch>(
-    reference: Ref<'ast, 'ghost, StyleRule<'ast, 'ghost>>,
-    token: &mut GhostToken<'ghost>,
-    minifier: &mut DeclarationBlockMinifier<'scratch, 'ast>,
-    cx: &mut MinifyContext<'scratch>,
-) where
-    'ast: 'scratch,
-{
-    let mut children = {
-        let mut style = reference.get_mut(token);
-        // SAFETY: replacing the rules vector does not move the pinned style.
-        let style = unsafe { style.as_mut().get_unchecked_mut() };
-        let empty = Vec::new_in(style.rules.bump());
-        std::mem::replace(&mut style.rules, empty)
-    };
-    merge_adjacent_style_rules(&mut children, token, minifier, cx);
-    let mut style = reference.get_mut(token);
-    // SAFETY: restoring the rules vector does not move the pinned style.
-    let style = unsafe { style.as_mut().get_unchecked_mut() };
-    debug_assert!(style.rules.is_empty());
-    style.rules = children;
 }
 
 fn merge_current_list<'ast, 'ghost, 'scratch>(
@@ -103,13 +84,18 @@ fn can_merge<'ghost>(
     let (CssRule::Style(previous), CssRule::Style(current)) = (previous, current) else {
         return false;
     };
-    let previous = previous.as_ref().borrow(token);
-    let current = current.as_ref().borrow(token);
+    let previous = previous.as_ref().get_ref();
+    let current = current.as_ref().get_ref();
     previous.rules.is_empty()
         && previous.vendor_prefix == current.vendor_prefix
-        && has_live_selector(previous.get_ref())
-        && has_live_selector(current.get_ref())
-        && current.previous_merged().is_none()
+        && has_live_selector(previous)
+        && has_live_selector(current)
+        && current
+            .declarations
+            .as_ref()
+            .borrow(token)
+            .previous_merged()
+            .is_none()
         && equal_live_selectors(&previous.selectors, &current.selectors)
 }
 
@@ -134,13 +120,11 @@ fn merge_run<'ast, 'ghost, 'scratch>(
     'ast: 'scratch,
 {
     let mut blocks = minifier.allocator().vec();
-    let mut styles = minifier.allocator().vec();
     for rule in run.iter() {
         let CssRule::Style(style) = rule else {
             unreachable!("eligible runs contain only style rules")
         };
-        styles.push(Ref::from(style));
-        let style = style.as_ref().borrow(token);
+        let style = style.as_ref().get_ref();
         blocks.push(Ref::from(&style.declarations));
     }
     minifier.minify_sequence(&blocks, token, cx);
@@ -151,13 +135,18 @@ fn merge_run<'ast, 'ghost, 'scratch>(
             unreachable!("eligible runs contain only style rules")
         };
         if index > 0 {
+            let previous = blocks[index - 1];
             style
                 .as_ref()
+                .get_ref()
+                .declarations
+                .as_ref()
                 .borrow_mut(token)
-                .set_previous_merged(Some(styles[index - 1]));
+                .get_mut()
+                .set_previous_merged(Some(previous));
         }
         if index + 1 < run_len {
-            for selector in style.as_ref().borrow_mut(token).selectors_mut().iter_mut() {
+            for selector in style.as_mut().selectors_mut().iter_mut() {
                 *selector = Selector::Tombstone;
             }
         }

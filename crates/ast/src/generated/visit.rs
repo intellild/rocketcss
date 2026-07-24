@@ -953,7 +953,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_declaration_block(
         &mut self,
-        node: &DeclarationBlock<'a>,
+        node: &DeclarationBlock<'a, 'ghost>,
         cx: &VisitContext<'_, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);

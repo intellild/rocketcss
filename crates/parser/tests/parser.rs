@@ -94,8 +94,7 @@ fn parses_style_rule_selectors_and_declarations() {
     let CssRule::Style(rule) = &sheet.rules[0] else {
         panic!("expected style rule")
     };
-    let rule = rule.as_ref().borrow(&token);
-    let rule = rule.get_ref();
+    let rule = rule.as_ref().get_ref();
     assert_eq!(rule.span, Span::new(15, source.len() as u32));
     assert_eq!(rule.selectors.len(), 2);
     assert!(matches!(
@@ -147,8 +146,7 @@ fn parses_named_colors_as_known_color_nodes() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
 
         assert!(matches!(
             &rule.declarations.as_ref().borrow(&token).declarations[0],
@@ -185,8 +183,7 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert!(matches!(
             &rule.selectors[0][0],
             SelectorComponent::Class("foo")
@@ -397,8 +394,7 @@ fn selector_error_recovery_preserves_a_pure_invalid_selector() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected recovered style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert!(matches!(
             &rule.selectors[0],
             Selector::Unparsed("(font-[family-name:var(--font-*)])")
@@ -428,8 +424,7 @@ fn selector_error_recovery_continues_at_commas() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected recovered style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert_eq!(rule.selectors.len(), 3);
         assert!(matches!(&rule.selectors[0], Selector::Parsed(_)));
         assert!(matches!(
@@ -458,8 +453,7 @@ fn selector_error_recovery_consumes_multiple_invalid_tokens() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected recovered style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert_eq!(rule.selectors.len(), 3);
         assert!(matches!(&rule.selectors[0], Selector::Parsed(_)));
         assert!(matches!(
@@ -811,8 +805,7 @@ fn parses_declarations_inside_nested_group_rules() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
         let CssRule::Media(media) = &style.rules[0] else {
             panic!("expected nested media")
         };
@@ -839,8 +832,7 @@ fn distinguishes_nested_pseudo_selectors_from_declarations() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
         assert_eq!(
             style
                 .declarations
@@ -872,8 +864,7 @@ fn declaration_error_recovery_continues_at_semicolon() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
         assert_eq!(
             style
                 .declarations
@@ -921,8 +912,7 @@ fn declaration_like_identifier_requires_explicit_error_recovery() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
 
         assert_eq!(
             style
@@ -964,8 +954,7 @@ fn parses_typed_core_property_values() {
     let CssRule::Style(style) = &sheet.rules[0] else {
         panic!("expected style")
     };
-    let style = style.as_ref().borrow(&token);
-    let style = style.get_ref();
+    let style = style.as_ref().get_ref();
     let declarations = &style.declarations.as_ref().borrow(&token).declarations;
     assert!(matches!(
         &declarations[0],
@@ -1005,8 +994,7 @@ fn parses_font_family_into_typed_ast_nodes() {
     let CssRule::Style(style) = &sheet.rules[0] else {
         panic!("expected style")
     };
-    let style = style.as_ref().borrow(&token);
-    let style = style.get_ref();
+    let style = style.as_ref().get_ref();
     let declarations = &style.declarations.as_ref().borrow(&token).declarations;
 
     assert!(matches!(
@@ -1050,8 +1038,7 @@ fn parses_known_multicol_and_legacy_gap_ast_nodes() {
     let CssRule::Style(style) = &sheet.rules[0] else {
         panic!("expected style")
     };
-    let style = style.as_ref().borrow(&token);
-    let style = style.get_ref();
+    let style = style.as_ref().get_ref();
     let declarations = &style.declarations.as_ref().borrow(&token).declarations;
 
     assert!(matches!(
@@ -1118,8 +1105,7 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
         let declarations = &style.declarations.as_ref().borrow(&token).declarations;
 
         assert_eq!(declarations.len(), 7);
@@ -1178,8 +1164,7 @@ fn recognizes_overlay_as_a_known_property() {
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
 
         assert!(
             style
@@ -1244,8 +1229,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         let CssRule::Style(style) = &sheet.rules[4] else {
             panic!("expected style")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
         assert!(matches!(&style.rules[0], CssRule::Nesting(_)));
     })
 }
@@ -1333,8 +1317,7 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert_eq!(rule.selectors.len(), 1);
 
         let selector = &rule.selectors[0];
@@ -1371,8 +1354,7 @@ fn preserves_details_content_chained_with_before_pseudo_element() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert_eq!(rule.selectors.len(), 1);
 
         let selector = &rule.selectors[0];
@@ -1408,8 +1390,7 @@ fn preserves_has_slotted_pseudo_class() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert_eq!(rule.selectors.len(), 1);
 
         let selector = &rule.selectors[0];
@@ -1438,8 +1419,7 @@ fn preserves_pseudo_element_arg_inside_has_selector() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert_eq!(rule.selectors.len(), 1);
 
         let selector = &rule.selectors[0];
@@ -1466,8 +1446,7 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected scroll-button style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert!(matches!(
             &rule.selectors[0][0],
             SelectorComponent::PseudoElement(element)
@@ -1477,8 +1456,7 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
         let CssRule::Style(rule) = &sheet.rules[1] else {
             panic!("expected scroll-marker style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
         assert!(matches!(
             &rule.selectors[0][3],
             SelectorComponent::PseudoElement(element)

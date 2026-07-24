@@ -59,8 +59,8 @@ fn removes_exact_duplicate_declarations_within_one_block() {
         let CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let declarations = rule.get_ref().declarations.as_ref().borrow(&token);
+        let rule = rule.as_ref().get_ref();
+        let declarations = rule.declarations.as_ref().borrow(&token);
         assert_eq!(declarations.len(), 3);
         assert_eq!(declarations.declarations_importance.len(), 3);
         assert!(matches!(

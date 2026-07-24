@@ -138,7 +138,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
 
     fn visit_declaration_block(
         &mut self,
-        node: &mut DeclarationBlock<'ast>,
+        node: &mut DeclarationBlock<'ast, 'ghost>,
         cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);

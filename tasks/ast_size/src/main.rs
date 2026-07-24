@@ -48,7 +48,7 @@ fn main() {
         rocketcss_allocator::vec::Vec<'static, u8>,
         CssRule<'static, 'static>,
         StyleRule<'static, 'static>,
-        DeclarationBlock<'static>,
+        DeclarationBlock<'static, 'static>,
         Declaration<'static>,
         PropertyId<'static>,
         TokenOrValue<'static>,

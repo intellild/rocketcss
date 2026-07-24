@@ -1209,14 +1209,15 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_style_rule(
         &mut self,
-        _node: Pin<&mut StyleRule<'a, 'ghost>>,
-        _cx: &mut VisitMutContext<'_, 'ghost>,
+        mut node: Pin<&mut StyleRule<'a, 'ghost>>,
+        cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
+        VisitMut::visit_mut_children(&mut node, self, cx);
     }
     #[inline]
     fn visit_declaration_block(
         &mut self,
-        node: &mut DeclarationBlock<'a>,
+        node: &mut DeclarationBlock<'a, 'ghost>,
         cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);

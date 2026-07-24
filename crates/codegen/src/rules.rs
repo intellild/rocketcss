@@ -1814,14 +1814,13 @@ pub(crate) fn write_rule_list<'ghost, PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, 'ghost>,
 ) -> fmt::Result {
-    let token = cx.token();
     let mut first = true;
     let mut last_without_block = false;
     for rule in rules {
         if matches!(rule, CssRule::Style(style)
             if style
                 .as_ref()
-                .borrow(token)
+                .get_ref()
                 .selectors
                 .iter()
                 .all(Selector::is_tombstone))
@@ -1878,7 +1877,7 @@ enum LastSemicolon {
 }
 
 fn write_declarations<'ghost, PrinterT: PrinterTrait>(
-    declarations: &DeclarationBlock<'_>,
+    declarations: &DeclarationBlock<'_, 'ghost>,
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
     cx: &ToCssContext<'_, 'ghost>,
@@ -1911,20 +1910,15 @@ fn style_rule_chain_is_output_empty<'ghost>(
     cx: &ToCssContext<'_, 'ghost>,
 ) -> bool {
     let token = cx.token();
-    let mut current = tail;
+    let mut current = tail.declarations.as_ref().borrow(token);
     loop {
-        if !current
-            .declarations
-            .as_ref()
-            .borrow(token)
-            .is_output_empty()
-        {
+        if !current.is_output_empty() {
             return false;
         }
         let Some(previous) = current.previous_merged() else {
             return true;
         };
-        current = previous.get(token).get_ref();
+        current = previous.get(token);
     }
 }
 
@@ -1934,21 +1928,23 @@ fn write_style_rule_declaration_chain<'ghost, PrinterT: PrinterTrait>(
     last_semicolon: LastSemicolon,
     cx: &ToCssContext<'_, 'ghost>,
 ) -> fmt::Result {
-    write_style_rule_declaration_chain_recursive(tail, dest, last_semicolon, cx).map(|_| ())
+    write_style_rule_declaration_chain_recursive(
+        tail.declarations.as_ref().borrow(cx.token()).get_ref(),
+        dest,
+        last_semicolon,
+        cx,
+    )
+    .map(|_| ())
 }
 
 fn write_style_rule_declaration_chain_recursive<'ghost, PrinterT: PrinterTrait>(
-    current: &StyleRule<'_, 'ghost>,
+    current: &DeclarationBlock<'_, 'ghost>,
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
     cx: &ToCssContext<'_, 'ghost>,
 ) -> Result<bool, fmt::Error> {
     let token = cx.token();
-    let current_is_empty = current
-        .declarations
-        .as_ref()
-        .borrow(token)
-        .is_output_empty();
+    let current_is_empty = current.is_output_empty();
     let wrote_previous = if let Some(previous) = current.previous_merged() {
         write_style_rule_declaration_chain_recursive(
             previous.get(token).get_ref(),
@@ -1970,16 +1966,11 @@ fn write_style_rule_declaration_chain_recursive<'ghost, PrinterT: PrinterTrait>(
     if wrote_previous {
         dest.new_line()?;
     }
-    write_declarations(
-        current.declarations.as_ref().borrow(token).get_ref(),
-        dest,
-        last_semicolon,
-        cx,
-    )?;
+    write_declarations(current, dest, last_semicolon, cx)?;
     Ok(true)
 }
 
-impl<'ghost> ToCss<'ghost> for DeclarationBlock<'_> {
+impl<'ghost> ToCss<'ghost> for DeclarationBlock<'_, 'ghost> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1990,7 +1981,7 @@ impl<'ghost> ToCss<'ghost> for DeclarationBlock<'_> {
 }
 
 fn write_declaration_block<'ghost, PrinterT: PrinterTrait>(
-    declarations: &DeclarationBlock<'_>,
+    declarations: &DeclarationBlock<'_, 'ghost>,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, 'ghost>,
 ) -> fmt::Result {
@@ -2466,13 +2457,8 @@ impl<'ghost> ToCss<'ghost> for NestingRule<'_, 'ghost> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, 'ghost>,
     ) -> fmt::Result {
-        let token = _cx.token();
         dest.write_str("@nest ")?;
-        self.style
-            .as_ref()
-            .borrow(token)
-            .get_ref()
-            .to_css(dest, _cx)
+        self.style.as_ref().get_ref().to_css(dest, _cx)
     }
 }
 

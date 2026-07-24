@@ -1,4 +1,5 @@
 use crate::*;
+use std::pin::Pin;
 #[derive(Debug, PartialEq, Visit)]
 pub struct SupportsRule<'a, 'ghost> {
     pub condition: Box<'a, SupportsCondition<'a>>,
@@ -8,7 +9,7 @@ pub struct SupportsRule<'a, 'ghost> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct CounterStyleRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
     pub span: Span,
     pub name: &'a str,
 }
@@ -35,18 +36,18 @@ pub struct MozDocumentRule<'a, 'ghost> {
 #[derive(Debug, PartialEq, Visit)]
 pub struct NestingRule<'a, 'ghost> {
     pub span: Span,
-    pub style: GhostBox<'a, 'ghost, StyleRule<'a, 'ghost>>,
+    pub style: Pin<Box<'a, StyleRule<'a, 'ghost>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct NestedDeclarationsRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ViewportRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
     pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
@@ -89,7 +90,7 @@ pub struct StartingStyleRule<'a, 'ghost> {
 pub struct PositionTryRule<'a, 'ghost> {
     pub span: Span,
     pub name: &'a str,
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a>>,
+    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

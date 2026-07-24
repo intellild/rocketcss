@@ -6,11 +6,10 @@ impl<'ghost> ToCss<'ghost> for CssRule<'_, 'ghost> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, 'ghost>,
     ) -> fmt::Result {
-        let token = _cx.token();
         match self {
             Self::Media(value) => value.to_css(dest, _cx),
             Self::Import(value) => value.to_css(dest, _cx),
-            Self::Style(value) => value.as_ref().borrow(token).get_ref().to_css(dest, _cx),
+            Self::Style(value) => value.as_ref().get_ref().to_css(dest, _cx),
             Self::Keyframes(value) => value.to_css(dest, _cx),
             Self::FontFace(value) => value.to_css(dest, _cx),
             Self::FontPaletteValues(value) => value.to_css(dest, _cx),

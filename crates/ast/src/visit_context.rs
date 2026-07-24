@@ -1,8 +1,6 @@
 use rocketcss_allocator::{GhostCell, GhostToken, Ref};
 use std::pin::Pin;
 
-use crate::{StyleRule, VisitMut, VisitorMut};
-
 /// Shared GhostCell access carried through immutable AST traversal.
 pub struct VisitContext<'token, 'ghost> {
     token: &'token GhostToken<'ghost>,
@@ -87,93 +85,5 @@ impl<'token, 'ghost> VisitMutContext<'token, 'ghost> {
         };
         self.state = VisitMutState::Available(token);
         result
-    }
-
-    /// Visits a pinned style one allocation at a time.
-    ///
-    /// The style's declaration cell and nested rule list are visited only
-    /// after releasing the mutable borrow of the pinned style itself.
-    pub fn visit_ref<'a, VisitorT>(
-        &mut self,
-        reference: Ref<'a, 'ghost, StyleRule<'a, 'ghost>>,
-        visitor: &mut VisitorT,
-    ) where
-        VisitorT: ?Sized + VisitorMut<'a, 'ghost>,
-    {
-        visitor.enter_node(crate::AstType::StyleRule);
-        self.with_ref(reference, |value, cx| {
-            visitor.visit_style_rule(value, cx);
-        });
-
-        let declarations = self.with_ref(reference, |value, _| Ref::from(&value.declarations));
-        self.with_ref(declarations, |value, cx| {
-            VisitMut::visit_mut(value.get_mut(), visitor, cx);
-        });
-
-        let mut rules = self.with_ref(reference, |mut value, _| {
-            // SAFETY: replacing a field does not move the pinned style.
-            let value = unsafe { value.as_mut().get_unchecked_mut() };
-            let empty = rocketcss_allocator::vec::Vec::new_in(value.rules.bump());
-            std::mem::replace(&mut value.rules, empty)
-        });
-        VisitMut::visit_mut(&mut rules, visitor, self);
-        self.with_ref(reference, |mut value, _| {
-            // SAFETY: restoring a field does not move the pinned style.
-            let value = unsafe { value.as_mut().get_unchecked_mut() };
-            debug_assert!(value.rules.is_empty());
-            value.rules = rules;
-        });
-
-        self.with_ref(reference, |mut value, cx| {
-            // SAFETY: visiting these fields does not move the pinned style.
-            let value = unsafe { value.as_mut().get_unchecked_mut() };
-            visitor.visit_selector_list(&mut value.selectors, cx);
-            VisitMut::visit_mut(&mut value.vendor_prefix, visitor, cx);
-        });
-        visitor.leave_node(crate::AstType::StyleRule);
-    }
-
-    /// Visits an owning pinned style one allocation at a time.
-    ///
-    /// The style's declaration cell and nested rule list are visited only
-    /// after releasing the mutable borrow of the pinned style itself.
-    pub fn visit_style_cell<'a, VisitorT>(
-        &mut self,
-        cell: Pin<&GhostCell<'ghost, StyleRule<'a, 'ghost>>>,
-        visitor: &mut VisitorT,
-    ) where
-        VisitorT: ?Sized + VisitorMut<'a, 'ghost>,
-    {
-        visitor.enter_node(crate::AstType::StyleRule);
-        self.with_cell(cell, |value, cx| {
-            visitor.visit_style_rule(value, cx);
-        });
-
-        let declarations = self.with_cell(cell, |value, _| Ref::from(&value.declarations));
-        self.with_ref(declarations, |value, cx| {
-            VisitMut::visit_mut(value.get_mut(), visitor, cx);
-        });
-
-        let mut rules = self.with_cell(cell, |mut value, _| {
-            // SAFETY: replacing a field does not move the pinned style.
-            let value = unsafe { value.as_mut().get_unchecked_mut() };
-            let empty = rocketcss_allocator::vec::Vec::new_in(value.rules.bump());
-            std::mem::replace(&mut value.rules, empty)
-        });
-        VisitMut::visit_mut(&mut rules, visitor, self);
-        self.with_cell(cell, |mut value, _| {
-            // SAFETY: restoring a field does not move the pinned style.
-            let value = unsafe { value.as_mut().get_unchecked_mut() };
-            debug_assert!(value.rules.is_empty());
-            value.rules = rules;
-        });
-
-        self.with_cell(cell, |mut value, cx| {
-            // SAFETY: visiting these fields does not move the pinned style.
-            let value = unsafe { value.as_mut().get_unchecked_mut() };
-            visitor.visit_selector_list(&mut value.selectors, cx);
-            VisitMut::visit_mut(&mut value.vendor_prefix, visitor, cx);
-        });
-        visitor.leave_node(crate::AstType::StyleRule);
     }
 }

@@ -121,8 +121,8 @@ fn unparsed_value_storage<'a, 'ghost>(
     let CssRule::Style(rule) = &stylesheet.rules[0] else {
         panic!("expected style rule")
     };
-    let rule = rule.as_ref().borrow(token);
-    let declarations = rule.get_ref().declarations.as_ref().borrow(token);
+    let rule = rule.as_ref().get_ref();
+    let declarations = rule.declarations.as_ref().borrow(token);
     let Declaration::Unparsed(property) = &declarations.declarations[0] else {
         panic!("expected unparsed property")
     };

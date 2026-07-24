@@ -1,12 +1,13 @@
 use super::*;
 
 use rocketcss_allocator::boxed::Box;
+use std::pin::Pin;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum CssRule<'a, 'ghost> {
     Media(Box<'a, MediaRule<'a, 'ghost>>),
     Import(Box<'a, ImportRule<'a>>),
-    Style(GhostBox<'a, 'ghost, StyleRule<'a, 'ghost>>),
+    Style(Pin<Box<'a, StyleRule<'a, 'ghost>>>),
     Keyframes(Box<'a, KeyframesRule<'a, 'ghost>>),
     FontFace(Box<'a, FontFaceRule<'a>>),
     FontPaletteValues(Box<'a, FontPaletteValuesRule<'a>>),
@@ -35,11 +36,11 @@ pub enum CssRule<'a, 'ghost> {
 
 impl<'ghost> CssRule<'_, 'ghost> {
     #[inline]
-    pub fn span(&self, token: &GhostToken<'ghost>) -> Span {
+    pub fn span(&self, _token: &GhostToken<'ghost>) -> Span {
         match self {
             Self::Media(rule) => rule.span(),
             Self::Import(rule) => rule.span(),
-            Self::Style(rule) => rule.as_ref().borrow(token).span,
+            Self::Style(rule) => rule.as_ref().get_ref().span,
             Self::Keyframes(rule) => rule.span(),
             Self::FontFace(rule) => rule.span(),
             Self::FontPaletteValues(rule) => rule.span(),

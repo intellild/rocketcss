@@ -82,7 +82,7 @@ fn plugins_run_in_registration_order_and_share_context() {
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().borrow(context.ghost_token());
+        let rule = rule.as_ref().get_ref();
         assert!(matches!(
             rule.selectors[0][0],
             SelectorComponent::Class("last")

@@ -302,12 +302,12 @@ pub(super) fn parse_keyframe_selector<'i>(
     }
 }
 
-pub(super) fn parse_declaration_block<'i, 't>(
+pub(super) fn parse_declaration_block<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<DeclarationBlock<'i>, ParseError<'i, ParserError<'i>>> {
+) -> Result<DeclarationBlock<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut declarations = DeclarationBlock::new(allocator);
 
@@ -497,7 +497,10 @@ pub(super) fn parse_page_body<'i, 't, 'ghost>(
     options: &ParserOptions<'i>,
     depth: usize,
 ) -> Result<
-    (DeclarationBlock<'i>, Vec<'i, PageMarginRule<'i, 'ghost>>),
+    (
+        DeclarationBlock<'i, 'ghost>,
+        Vec<'i, PageMarginRule<'i, 'ghost>>,
+    ),
     ParseError<'i, ParserError<'i>>,
 > {
     let mut declarations = DeclarationBlock::new(allocator);

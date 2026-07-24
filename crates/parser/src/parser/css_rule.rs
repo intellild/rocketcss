@@ -463,7 +463,7 @@ pub(super) fn parse_at_rule<'i, 't, 'ghost>(
         let span = span_from(start, input.position());
         CssRule::Nesting(allocator.boxed(NestingRule {
             span,
-            style: allocator.alloc_ghost(StyleRule::new(
+            style: allocator.pinned(StyleRule::new(
                 allocator.alloc_ghost(declarations),
                 span,
                 rules,
@@ -508,7 +508,7 @@ pub(super) fn parse_qualified_rule<'i, 't, 'ghost>(
         parse_style_contents(input, allocator, token, options, depth + 1)
     })?;
 
-    Ok(CssRule::Style(allocator.alloc_ghost(StyleRule::new(
+    Ok(CssRule::Style(allocator.pinned(StyleRule::new(
         allocator.alloc_ghost(declarations),
         span_from(start, input.position()),
         rules,
@@ -517,7 +517,7 @@ pub(super) fn parse_qualified_rule<'i, 't, 'ghost>(
     ))))
 }
 
-type StyleContents<'i, 'ghost> = (DeclarationBlock<'i>, Vec<'i, CssRule<'i, 'ghost>>);
+type StyleContents<'i, 'ghost> = (DeclarationBlock<'i, 'ghost>, Vec<'i, CssRule<'i, 'ghost>>);
 
 pub(super) fn parse_style_contents<'i, 't, 'ghost>(
     input: &mut Parser<'i, 't>,

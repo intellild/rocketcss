@@ -522,20 +522,12 @@ fn visit_type(
                     })
                 }
             } else if name == "GhostBox" {
-                let Some(inner_ty) = first_type_argument(&segment.arguments) else {
+                let Some(_inner_ty) = first_type_argument(&segment.arguments) else {
                     return Err(syn::Error::new(
                         segment.span(),
                         "expected a GhostBox value type",
                     ));
                 };
-                let is_style_rule = matches!(
-                    inner_ty,
-                    Type::Path(path)
-                        if path.path.segments.last().is_some_and(|segment| segment.ident == "StyleRule")
-                );
-                if matches!(mode, VisitMode::Mut) && is_style_rule {
-                    return Ok(quote!(cx.visit_style_cell((#expression).as_ref(), visitor);));
-                }
                 let node_trait = mode.node_trait();
                 let visit = mode.visit_method();
                 let accessor = if matches!(mode, VisitMode::Read) {
@@ -579,20 +571,12 @@ fn visit_type(
                 let inner = visit_type(mode, inner_ty, quote!(#binding), counter)?;
                 Ok(quote!(for #binding in (#expression).#iterator() { #inner }))
             } else if name == "GhostCell" {
-                let Some(inner_ty) = first_type_argument(&segment.arguments) else {
+                let Some(_inner_ty) = first_type_argument(&segment.arguments) else {
                     return Err(syn::Error::new(
                         segment.span(),
                         "expected a GhostCell value type",
                     ));
                 };
-                let is_style_rule = matches!(
-                    inner_ty,
-                    Type::Path(path)
-                        if path.path.segments.last().is_some_and(|segment| segment.ident == "StyleRule")
-                );
-                if matches!(mode, VisitMode::Mut) && is_style_rule {
-                    return Ok(quote!(cx.visit_style_cell(#expression, visitor);));
-                }
                 let node_trait = mode.node_trait();
                 let visit = mode.visit_method();
                 let accessor = if matches!(mode, VisitMode::Read) {
@@ -622,7 +606,13 @@ fn visit_type(
                     })
                 } else {
                     Ok(quote! {
-                        cx.visit_ref(*#expression, visitor);
+                        cx.with_ref(*#expression, |value, cx| {
+                            crate::VisitMut::visit_mut(
+                                value.get_mut(),
+                                visitor,
+                                cx,
+                            );
+                        });
                     })
                 }
             } else if generated_visit_aliases::VISIT_ALIASES.contains(&name.as_str()) {

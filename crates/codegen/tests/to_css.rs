@@ -51,8 +51,7 @@ fn ports_lightningcss_public_to_css_api_cases() {
         let CssRule::Style(style) = rule else {
             panic!("expected a style rule")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
         assert_eq!(
             style.declarations.as_ref().borrow(&token).declarations[0]
                 .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
@@ -209,8 +208,7 @@ fn pseudo_classes_are_debuggable_and_serializable() {
             let CssRule::Style(style) = &stylesheet.rules[0] else {
                 panic!("expected style rule")
             };
-            let style = style.as_ref().borrow(&token);
-            let style = style.get_ref();
+            let style = style.as_ref().get_ref();
             assert!(format!("{style:#?}").contains("StyleRule"));
             assert_eq!(
                 stylesheet
@@ -302,8 +300,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
             let CssRule::Style(style) = rule else {
                 panic!("expected style rule")
             };
-            let style = style.as_ref().borrow(&token);
-            let style = style.get_ref();
+            let style = style.as_ref().get_ref();
             let CssRule::LayerBlock(layer) = &style.rules[0] else {
                 panic!("expected nested layer block")
             };
@@ -334,8 +331,7 @@ fn box_sizing_css_wide_keywords_round_trip_as_known_unparsed_values() {
         let CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected a style rule")
         };
-        let rule = rule.as_ref().borrow(&token);
-        let rule = rule.get_ref();
+        let rule = rule.as_ref().get_ref();
 
         assert_eq!(
             rule.declarations.as_ref().borrow(&token).declarations.len(),
@@ -624,8 +620,7 @@ fn declaration_block_preserves_importance_bits() {
         let CssRule::Style(style) = &stylesheet.rules[0] else {
             panic!("expected a style rule")
         };
-        let style = style.as_ref().borrow(&token);
-        let style = style.get_ref();
+        let style = style.as_ref().get_ref();
         assert_eq!(
             style
                 .declarations
@@ -675,17 +670,16 @@ fn merged_declaration_blocks_serialize_from_chain_head() {
         let [CssRule::Style(first), CssRule::Style(second)] = &mut stylesheet.rules[..] else {
             panic!("expected two style rules")
         };
-        let previous = Ref::from(&*first);
+        let previous = Ref::from(&first.as_ref().get_ref().declarations);
         second
             .as_ref()
-            .borrow_mut(&mut token)
-            .set_previous_merged(Some(previous));
-        for selector in first
+            .get_ref()
+            .declarations
             .as_ref()
             .borrow_mut(&mut token)
-            .selectors_mut()
-            .iter_mut()
-        {
+            .get_mut()
+            .set_previous_merged(Some(previous));
+        for selector in first.as_mut().selectors_mut().iter_mut() {
             *selector = Selector::Tombstone;
         }
 

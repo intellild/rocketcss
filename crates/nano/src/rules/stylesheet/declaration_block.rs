@@ -23,7 +23,7 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     }
 }
 
-impl<'a> Minify for DeclarationBlock<'a> {
+impl<'a, 'ghost> Minify for DeclarationBlock<'a, 'ghost> {
     fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
         Self: 'cx,
@@ -236,9 +236,9 @@ impl<'a> BoxFamilyIr<'a> {
 }
 
 enum DeclarationBlocks<'sequence, 'ast, 'ghost> {
-    Direct(&'sequence mut DeclarationBlock<'ast>),
+    Direct(&'sequence mut DeclarationBlock<'ast, 'ghost>),
     Ghost {
-        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast>>],
+        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
         token: &'sequence mut GhostToken<'ghost>,
     },
 }
@@ -249,7 +249,7 @@ struct DeclarationSequence<'sequence, 'ast, 'ghost> {
 
 impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
     #[inline]
-    fn direct(block: &'sequence mut DeclarationBlock<'ast>) -> Self {
+    fn direct(block: &'sequence mut DeclarationBlock<'ast, 'ghost>) -> Self {
         Self {
             blocks: DeclarationBlocks::Direct(block),
         }
@@ -257,7 +257,7 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
 
     #[inline]
     fn ghost(
-        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast>>],
+        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
         token: &'sequence mut GhostToken<'ghost>,
     ) -> Self {
         Self {
@@ -282,7 +282,7 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
     }
 
     #[inline]
-    fn block(&self, index: usize) -> &DeclarationBlock<'ast> {
+    fn block(&self, index: usize) -> &DeclarationBlock<'ast, 'ghost> {
         match &self.blocks {
             DeclarationBlocks::Direct(block) => {
                 debug_assert_eq!(index, 0);
@@ -293,7 +293,7 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
     }
 
     #[inline]
-    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast> {
+    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast, 'ghost> {
         match &mut self.blocks {
             DeclarationBlocks::Direct(block) => {
                 debug_assert_eq!(index, 0);
@@ -353,9 +353,9 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     }
 
     #[inline]
-    pub(crate) fn minify(
+    pub(crate) fn minify<'ghost>(
         &mut self,
-        block: &mut DeclarationBlock<'ast>,
+        block: &mut DeclarationBlock<'ast, 'ghost>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         if block.len() < 2 {
@@ -379,7 +379,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
 
     pub(crate) fn minify_sequence<'ghost>(
         &mut self,
-        blocks: &[Ref<'ast, 'ghost, DeclarationBlock<'ast>>],
+        blocks: &[Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
         token: &mut GhostToken<'ghost>,
         cx: &mut MinifyContext<'scratch>,
     ) {
