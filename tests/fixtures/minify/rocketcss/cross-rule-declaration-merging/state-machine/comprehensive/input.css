@@ -1,0 +1,94 @@
+/* declarations/does-not-drop-live-components-of-a-partially-overridden-shorthand (currently unsupported) */
+@layer crdm-001{a{margin:1px}a{margin-left:2px}}
+/* declarations/keeps-case-distinct-custom-properties */
+@layer crdm-002{a{--x:red}a{--X:blue}}
+/* declarations/keeps-fallback-and-importance-chains */
+@layer crdm-003{a{display:-webkit-box;display:flex;color:red!important}a{color:blue}}
+/* declarations/keeps-logical-and-physical-properties-when-direction-is-not-proven */
+@layer crdm-004{a{direction:rtl;margin-left:1px}a{margin-inline-end:2px}}
+/* declarations/preserves-properties-not-reset-by-all */
+@layer crdm-005{a{--x:red;direction:rtl;unicode-bidi:isolate;color:red}a{all:initial}}
+/* declarations/treats-revert-values-conservatively */
+@layer crdm-006{a{color:red}a{color:revert}a{background:blue}a{background:revert-layer}}
+/* nesting/nested-declarations-break-style-rule-adjacency */
+@layer crdm-007{:where(.x,.y){&:where(.x){color:red}color:blue;&:where(.y){color:red}}}
+/* nesting/opaque-at-rule-content-keeps-ancestor-style-rule-live */
+@layer crdm-008{.a{@media (min-width:1px){color:red}}}
+/* nesting/preserves-at-nest-wrapper-identity */
+@layer crdm-009{.p{@nest & .a{x:1}@nest & .b{x:1}}}
+/* nesting/resolves-multiple-and-functional-nesting-selectors */
+@layer crdm-010{.a{&+&{color:red}:where(&){color:blue}:has(&){display:block}}}
+/* nesting/treats-custom-vendor-pseudo-elements-as-factoring-barriers */
+@layer crdm-011{::-webkit-input-placeholder{color:red}::placeholder{color:red}}
+/* nesting/treats-pseudo-element-nesting-as-a-conservative-barrier */
+@layer crdm-012{.a::before{&{color:red}}.a::before{color:blue}}
+/* real-world/does-not-expand-bootstrap-modal-selectors (currently unsupported) */
+@layer crdm-013{.modal-fullscreen .modal-content{color:red;border-radius:0}.modal-fullscreen .modal-header,.modal-fullscreen .modal-footer{border-radius:0;color:blue}}
+/* real-world/does-not-expand-tailwind-screen-reader-utilities (currently unsupported) */
+@layer crdm-014{.sr-only{position:absolute;padding:0}.not-sr-only{position:static;padding:0}}
+/* real-world/factors-tailwind-mask-setup-without-reordering-custom-values */
+@layer crdm-015{.mask-a{mask-image:var(--tw-mask-linear);mask-composite:intersect;--tw-mask-linear:var(--tw-mask-left);--tw-mask-top-from-color:red}.mask-b{mask-image:var(--tw-mask-linear);mask-composite:intersect;--tw-mask-linear:var(--tw-mask-left);--tw-mask-top-from-color:blue}}
+/* real-world/keeps-bootstrap-placeholder-vendor-groups-separate */
+@layer crdm-016{.form-control::-moz-placeholder{color:var(--bs-secondary-color);opacity:1}.form-control::placeholder{color:var(--bs-secondary-color);opacity:1}}
+/* real-world/merges-bootstrap-focus-visible-sibling-selectors (currently unsupported) */
+@layer crdm-017{.btn:focus-visible{border-color:var(--x);outline:0;box-shadow:var(--s)}.btn-check:focus-visible+.btn{border-color:var(--x);outline:0;box-shadow:var(--s)}}
+/* real-world/merges-tailwind-matching-webkit-details-marker-selectors (currently unsupported) */
+@layer crdm-018{a{& *::marker{display:flex}&::marker{display:flex}& *::-webkit-details-marker{display:flex}&::-webkit-details-marker{display:flex}}}
+/* review-findings/ast-ownership/assigns-combined-source-span-to-synthesized-rule */
+@layer crdm-019{a{color:red}b{color:red}}
+/* review-findings/ast-ownership/imports-an-existing-previous-merged-chain-on-a-second-minify */
+@layer crdm-020{a{width:1px}a{height:2px}a{opacity:.5}}
+/* review-findings/ast-ownership/keeps-overlapping-candidate-rule-ids-stable-across-insertion */
+@layer crdm-021{a{x:1}b{x:1;y:2}c{y:2}}
+/* review-findings/ast-ownership/mutates-a-shared-block-handle-without-leaving-a-live-alias */
+@layer crdm-022{a{x:1}a{y:2}b{y:2}a{x:3}}
+/* review-findings/ast-ownership/preserves-importance-and-order-when-one-occurrence-becomes-many (currently unsupported) */
+@layer crdm-023{a{margin:1px!important;color:red}.middle{display:block}a{margin-left:2px!important;color:blue}}
+/* review-findings/ast-ownership/s1-emits-a-retired-left-rule-exactly-once */
+@layer crdm-024{a{x:1}a{y:2}}
+/* review-findings/ast-ownership/synthesized-rules-survive-the-minify-scratch-allocator */
+@layer crdm-025{a{color:red}b{color:red}}
+/* review-findings/ast-ownership/transfers-a-non-clone-custom-declaration-into-the-shared-rule */
+@layer crdm-026{a{--theme:var(--x,red)}b{--theme:var(--x,red)}}
+/* review-findings/discovery-and-segments/does-not-unlink-a-parent-before-child-discovery-finishes */
+@layer crdm-027{.a{color:red!important}.middle{display:block}.a{color:blue;.child{display:block}}}
+/* review-findings/discovery-and-segments/ignores-an-initially-empty-nested-declarations-barrier */
+@layer crdm-028{.parent{.a{x:1}font-family:var(--family);font-family:slab inherit;.b{x:1}}}
+/* review-findings/discovery-and-segments/joins-segments-after-a-nested-declarations-barrier-becomes-empty */
+@layer crdm-029{.parent{color:red!important;.a{x:1}color:blue;.a{y:2}}}
+/* review-findings/discovery-and-segments/joins-segments-after-an-empty-conditional-wrapper */
+@layer crdm-030{a{x:1}@media screen{}a{y:2}}
+/* review-findings/semantics/merges-only-within-the-same-authored-layer-context */
+@layer crdm-031{@layer theme{a{x:1}a{y:2}}@layer theme{a{z:3}}}
+/* review-findings/semantics/merges-rules-across-adjacent-equal-conditional-wrappers */
+@layer crdm-032{@media screen{a{x:1}}@media screen{a{y:2}}}
+/* review-findings/state-machine/reaches-a-fixed-point-after-s4-exposes-a-new-edge */
+@layer crdm-033{a{x:1}@supports (display:grid){}b{x:1}}
+/* review-findings/state-machine/reassigns-all-s1-entries-to-the-combined-sequence */
+@layer crdm-034{a{x:1}a{y:2}b{y:2}a{x:3}}
+/* review-findings/state-machine/s3-endpoint-edits-do-not-create-a-transient-bypass-edge */
+@layer crdm-035{p{y:1}a{x:1}b{x:1}q{y:1}}
+/* state-machine/canonicalizes-synthesized-selector-unions-immediately */
+@layer crdm-036{a,b{x:1}b,c{x:1}}
+/* state-machine/complete-factoring-reconnects-the-live-chain-through-the-shared-rule */
+@layer crdm-037{p{y:1}a{x:1}b{x:1}q{y:1}}
+/* state-machine/factors-a-complete-equal-run-in-one-stable-transition */
+@layer crdm-038{a{x:1}b{x:1}c{x:1}d{x:1}}
+/* state-machine/factors-single-declaration-with-left-prefix */
+@layer crdm-039{a{width:1px;color:red}b{color:red}}
+/* state-machine/factors-single-declaration-with-right-prefix */
+@layer crdm-040{a{color:red}b{width:1px;color:red}}
+/* state-machine/fingerprint-matches-still-require-exact-value-equality */
+@layer crdm-041{a{color:red}b{color:blue}}
+/* state-machine/importance-is-part-of-the-declaration-history-context */
+@layer crdm-042{a{color:red!important}b{color:red}}
+/* state-machine/inserts-synthesized-history-entries-in-semantic-source-order */
+@layer crdm-043{a{x:1}b{x:1}a,b{x:2}}
+/* state-machine/invalidates-candidates-when-a-predecessor-block-changes */
+@layer crdm-044{a{x:1}a{y:2}b{y:2}a{x:3}}
+/* state-machine/overlapping-partial-candidates-commit-from-left-to-right */
+@layer crdm-045{a{color:red;background:red}b{color:red;width:1px}c{width:1px}}
+/* state-machine/rejects-zero-progress-partial-merge-plans */
+@layer crdm-046{a{}b{c{x:1}}}
+/* state-machine/selector-materialization-failure-leaves-both-endpoints-unchanged */
+@layer crdm-047{.a:has(.x){color:red}.b{color:red}}

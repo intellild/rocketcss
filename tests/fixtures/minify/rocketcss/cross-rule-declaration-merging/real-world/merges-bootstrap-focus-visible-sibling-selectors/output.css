@@ -1,0 +1,1 @@
+.btn:focus-visible,.btn-check:focus-visible+.btn{border-color:var(--x);outline:0;box-shadow:var(--s)}

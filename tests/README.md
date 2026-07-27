@@ -10,6 +10,7 @@ Fixtures are grouped by the stage under test:
 - `fixtures/codegen`: `input.css` and `output.css` serialization pairs.
 - `fixtures/minify/cssnano`: fixtures adapted from local cssnano package tests.
 - `fixtures/minify/lightningcss`: fixtures adapted from local Lightning CSS tests.
+- `fixtures/minify/rocketcss`: RocketCSS-owned minification regressions.
 - `fixtures/visitor`: `input.css` and `output.css` plugin transformation pairs.
 
 Run only this suite with:
