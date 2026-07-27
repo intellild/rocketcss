@@ -3,8 +3,8 @@ use super::*;
 #[test]
 fn merges_adjacent_equal_selector_declaration_blocks() {
     assert_eq!(
-        run("h1{color:red;background:blue}h1{color:red}"),
-        "h1{background:#00f;color:red}"
+        run("h1{color:red}h1{background:blue}"),
+        "h1{color:red;background:#00f}"
     );
     assert_eq!(
         run("a{width:1px}a{height:2px}a{opacity:.5}"),
@@ -44,7 +44,7 @@ fn adjacent_rule_merging_is_idempotent() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
-            "a{width:1px}a{height:2px}a{width:1px}",
+            "a{width:1px}a{height:2px}a{opacity:.5}",
             &allocator,
             &mut token,
             ParserOptions::default(),
@@ -66,7 +66,7 @@ fn adjacent_rule_merging_is_idempotent() {
             )
             .unwrap();
 
-        assert_eq!(once, "a{height:2px;width:1px}");
+        assert_eq!(once, "a{width:1px;height:2px;opacity:.5}");
         assert_eq!(twice, once);
         assert_eq!(second_stats.declarations_removed, 0);
     });
@@ -85,5 +85,21 @@ fn respects_nested_content_as_a_forward_merge_barrier() {
     assert_eq!(
         run(".a{color:red;& .child{display:block};color:green}.a{color:blue}"),
         ".a{color:red;& .child{display:block}color:green}.a{color:#00f}"
+    );
+}
+
+#[test]
+fn retained_rule_boundaries_are_not_adjacent_style_rules() {
+    assert_eq!(
+        run("a{color:red}@layer utilities;a{background:blue}"),
+        "a{color:red}@layer utilities;a{background:#00f}"
+    );
+    assert_eq!(
+        run("@media print{a{color:red}}a{background:blue}"),
+        "@media print{a{color:red}}a{background:#00f}"
+    );
+    assert_eq!(
+        run(".a{&{color:red}}.a{background:blue}"),
+        ".a{&{color:red}}.a{background:#00f}"
     );
 }

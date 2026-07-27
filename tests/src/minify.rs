@@ -18,45 +18,61 @@ fn minifies_static_fixtures() {
             continue;
         }
 
-        let source = read_fixture(&input);
-        let expected = read_fixture(&expected_path(&input));
-        let allocator = Allocator::new();
-        allocator.with_ghost(|mut token| {
-            let mut stylesheet = parse(&source, &allocator, &mut token, ParserOptions::default())
-                .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
-
-            minify(&mut stylesheet, &mut token, MinifyOptions::default());
-            let actual = stylesheet
-                .to_css_string(
-                    PrinterOptions { prettify: false },
-                    &ToCssContext::new(&token),
-                )
-                .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
-
-            assert_eq!(actual, expected.trim_end(), "fixture: {}", input.display());
-
-            if is_cross_rule_declaration_merging_fixture(&input) {
-                minify(&mut stylesheet, &mut token, MinifyOptions::default());
-                let twice = stylesheet
-                    .to_css_string(
-                        PrinterOptions { prettify: false },
-                        &ToCssContext::new(&token),
-                    )
-                    .unwrap_or_else(|error| {
-                        panic!("{} should print twice: {error}", input.display())
-                    });
-                assert_eq!(
-                    twice,
-                    actual,
-                    "fixture should be idempotent on the same AST: {}",
-                    input.display()
-                );
-            }
-        });
+        assert_minifies_static_fixture(&input);
     }
 }
 
 #[test]
+fn minifies_enabled_s1_cross_rule_fixtures() {
+    let mut fixture_count = 0;
+    for input in fixture_paths("minify") {
+        let path = input.to_string_lossy();
+        if is_enabled_s1_cross_rule_fixture(&path) {
+            assert_minifies_static_fixture(&input);
+            fixture_count += 1;
+        }
+    }
+    assert_eq!(fixture_count, 3);
+}
+
+fn assert_minifies_static_fixture(input: &Path) {
+    let source = read_fixture(input);
+    let expected = read_fixture(&expected_path(input));
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(&source, &allocator, &mut token, ParserOptions::default())
+            .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
+
+        minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let actual = stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
+
+        assert_eq!(actual, expected.trim_end(), "fixture: {}", input.display());
+
+        if is_cross_rule_declaration_merging_fixture(input) {
+            minify(&mut stylesheet, &mut token, MinifyOptions::default());
+            let twice = stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap_or_else(|error| panic!("{} should print twice: {error}", input.display()));
+            assert_eq!(
+                twice,
+                actual,
+                "fixture should be idempotent on the same AST: {}",
+                input.display()
+            );
+        }
+    });
+}
+
+#[test]
+#[ignore = "requires S3 synthesized-rule commit"]
 fn synthesized_cross_rule_fixture_preserves_combined_source_span() {
     let input = Path::new(env!("CARGO_MANIFEST_DIR")).join(
         "fixtures/minify/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/assigns-combined-source-span-to-synthesized-rule/input.css",
@@ -86,6 +102,10 @@ fn is_cross_rule_declaration_merging_fixture(input: &Path) -> bool {
 
 fn still_requires_unsupported_transform(input: &Path) -> bool {
     let path = input.to_string_lossy();
+    if is_cross_rule_declaration_merging_fixture(input) && !is_enabled_s1_cross_rule_fixture(&path)
+    {
+        return true;
+    }
     let unsupported_cases = [
         "/cssnano/discard-empty/rules/",
         "/cssnano/discard-overridden/counter-style/",
@@ -111,4 +131,14 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
     unsupported_cases
         .into_iter()
         .any(|pattern| path.contains(pattern))
+}
+
+fn is_enabled_s1_cross_rule_fixture(path: &str) -> bool {
+    [
+        "/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/s1-emits-a-retired-left-rule-exactly-once/",
+        "/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/imports-an-existing-previous-merged-chain-on-a-second-minify/",
+        "/rocketcss/cross-rule-declaration-merging/review-findings/semantics/merges-only-within-the-same-authored-layer-context/",
+    ]
+    .into_iter()
+    .any(|pattern| path.contains(pattern))
 }
