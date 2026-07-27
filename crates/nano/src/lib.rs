@@ -6,6 +6,7 @@ mod properties;
 mod rules;
 mod selector;
 mod token;
+mod utils;
 mod values;
 
 pub mod prelude;
@@ -93,7 +94,7 @@ pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
     let mut visit_context = VisitMutContext::new(token);
     stylesheet.visit_mut(&mut minifier, &mut visit_context);
     rules::merge_adjacent_style_rules(
-        &mut stylesheet.rules,
+        stylesheet,
         token,
         &mut minifier.declaration_blocks,
         &mut minifier.cx,
