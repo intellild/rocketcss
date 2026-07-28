@@ -335,21 +335,14 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
 }
 
 pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
-    allocator: &'scratch Allocator,
     ir: DeclarationIr<'scratch, 'ast>,
 }
 
 impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     pub(crate) fn new(allocator: &'scratch Allocator) -> Self {
         Self {
-            allocator,
             ir: DeclarationIr::new(allocator),
         }
-    }
-
-    #[inline]
-    pub(crate) fn allocator(&self) -> &'scratch Allocator {
-        self.allocator
     }
 
     #[inline]
@@ -377,6 +370,10 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         deduplicate_declarations(sequence, &mut self.ir, cx);
     }
 
+    #[expect(
+        dead_code,
+        reason = "reserved for S2 declaration analysis across multiple blocks"
+    )]
     pub(crate) fn minify_sequence<'ghost>(
         &mut self,
         blocks: &[Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],

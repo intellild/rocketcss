@@ -20,6 +20,8 @@
   transitions, invalidation, fixed-point rules, and regression requirements.
 - [Pseudocode](./pseudo-code.md): typed keys, discovery, scheduling, and commit
   algorithms.
+- [Performance](./performance.md): measured regressions, retained optimizations,
+  and future hot-path work.
 
 ## Status
 
