@@ -10,10 +10,10 @@ does not change the correctness model in the S1-S5 design documents.
 An experiment cached a full `FxHasher` fingerprint for every style rule that
 participated in an S1 candidate. It regressed the CodSpeed minify benchmarks:
 
-| Workload | Direct equality | Fingerprint | Candidate discovery |
-| --- | ---: | ---: | ---: |
-| Bootstrap | 1.4 ms | 2.3 ms | 1.2 ms |
-| Tailwind | 3.1 ms | 2.8 ms | 1.5 ms |
+| Workload  | Direct equality | Fingerprint | Candidate discovery |
+| --------- | --------------: | ----------: | ------------------: |
+| Bootstrap |          1.4 ms |      2.3 ms |              1.2 ms |
+| Tailwind  |          3.1 ms |      2.8 ms |              1.5 ms |
 
 The fingerprint path still had to run structural equality after matching
 hashes. Most adjacent selectors differ, so direct equality commonly stops at
