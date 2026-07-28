@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet};
-
 use rocketcss_allocator::{GhostToken, Ref};
 use rocketcss_ast::{CssRule, Selector, StyleRule, StyleSheet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::AdjacentStyleRuleScanner;
 use super::candidates::Candidate;
@@ -37,7 +36,7 @@ impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
 
     pub(super) fn into_same_selector_commit_pass(
         self,
-        candidate_indices: HashMap<*const StyleRule<'ast, 'ghost>, u32>,
+        candidate_indices: FxHashMap<*const StyleRule<'ast, 'ghost>, u32>,
     ) -> Option<SameSelectorCommitPass<'ast, 'ghost>> {
         if self.same_selector_commits.is_empty() {
             return None;
@@ -51,8 +50,8 @@ impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
 }
 
 pub(super) struct SameSelectorCommitPass<'ast, 'ghost> {
-    candidate_indices: HashMap<*const StyleRule<'ast, 'ghost>, u32>,
-    candidates: HashSet<Candidate>,
+    candidate_indices: FxHashMap<*const StyleRule<'ast, 'ghost>, u32>,
+    candidates: FxHashSet<Candidate>,
 }
 
 impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {

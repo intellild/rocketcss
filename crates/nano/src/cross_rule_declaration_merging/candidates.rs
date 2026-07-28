@@ -1,4 +1,5 @@
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use rustc_hash::FxHashSet;
+use std::collections::{BTreeSet, VecDeque};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct Candidate(pub(super) u32, pub(super) u32);
@@ -6,7 +7,7 @@ pub(super) struct Candidate(pub(super) u32, pub(super) u32);
 #[derive(Debug, Default)]
 struct CandidateQueue {
     candidates: VecDeque<Candidate>,
-    queued: HashSet<Candidate>,
+    queued: FxHashSet<Candidate>,
 }
 
 impl CandidateQueue {
