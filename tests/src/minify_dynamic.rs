@@ -270,6 +270,56 @@ fn still_requires_unsupported_transform(
         // differs from RocketCSS's full minify pipeline.
         (
             "merge-rules",
+            "merge based on declarations",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "merge in media queries",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "partial merging of selectors",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "cssnano#36 [case 4]",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "vendor prefixed selectors",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "text-* properties",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "incorrectly extract flex properties",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "empty rulesets",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "charset declarations",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
+            "::placeholder selectors",
+            "requires S3 selector factoring",
+        ),
+        (
+            "merge-rules",
             "different property order",
             "declaration reordering is not part of the current movement proof",
         ),

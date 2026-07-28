@@ -107,6 +107,8 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
         return true;
     }
     let unsupported_cases = [
+        "/cssnano/discard-duplicates/declarations/",
+        "/cssnano/discard-duplicates/partial/",
         "/cssnano/discard-empty/rules/",
         "/cssnano/discard-overridden/counter-style/",
         "/cssnano/discard-overridden/keyframes/",
