@@ -13,6 +13,7 @@ fn collect_rule_list<'walk, 'ast, 'ghost>(
     rules: &'walk Vec<'ast, CssRule<'ast, 'ghost>>,
     style_rules: &mut std::vec::Vec<&'walk StyleRule<'ast, 'ghost>>,
 ) {
+    style_rules.reserve(rules.len());
     for rule in rules {
         collect_rule(rule, style_rules);
     }

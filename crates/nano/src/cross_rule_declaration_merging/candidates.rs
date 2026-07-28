@@ -25,15 +25,19 @@ impl CandidateQueue {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct SameSelectorCandidateList(CandidateQueue);
+pub(super) struct SameSelectorCandidateList(VecDeque<Candidate>);
 
 impl SameSelectorCandidateList {
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self(VecDeque::with_capacity(capacity))
+    }
+
     pub(super) fn push(&mut self, candidate: Candidate) {
-        self.0.push(candidate);
+        self.0.push_back(candidate);
     }
 
     pub(super) fn pop(&mut self) -> Option<Candidate> {
-        self.0.pop()
+        self.0.pop_front()
     }
 }
 

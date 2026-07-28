@@ -24,10 +24,11 @@ impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
         if let Some(last_index) = style_rules.len().checked_sub(1) {
             u32::try_from(last_index).expect("style rule index exceeds u32::MAX");
         }
+        let adjacent_rule_count = style_rules.len().saturating_sub(1);
 
         Self {
             style_rules,
-            same_selector_candidates: SameSelectorCandidateList::default(),
+            same_selector_candidates: SameSelectorCandidateList::with_capacity(adjacent_rule_count),
             same_selector_commits: std::vec::Vec::new(),
             declaration_override_candidates: DeclarationOverrideCandidateList::default(),
             partial_merge_candidates: PartialMergeCandidateList::default(),
