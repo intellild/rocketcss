@@ -1,28 +1,99 @@
 use rocketcss_allocator::{GhostToken, Ref};
 use rocketcss_ast::{CssRule, Selector, StyleRule, StyleSheet};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
+use std::hash::{Hash, Hasher};
 
 use super::AdjacentStyleRuleScanner;
-use super::candidates::Candidate;
+use super::candidates::{Candidate, SameSelectorCandidateList};
 
-impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
-    pub(super) fn discover_same_selector_candidates(&mut self) {
-        for left in 0..self.style_rules.len().saturating_sub(1) {
-            let left = u32::try_from(left).expect("style rule index exceeds u32::MAX");
-            self.same_selector_candidates
-                .push(Candidate(left, left + 1));
-        }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct SelectorFingerprint {
+    live_selector_count: u32,
+    hash: u64,
+}
+
+impl SameSelectorCandidateList {
+    pub(super) fn discover<'ast, 'ghost>(
+        stylesheet: &StyleSheet<'ast, 'ghost>,
+        candidate_indices: &FxHashMap<*const StyleRule<'ast, 'ghost>, u32>,
+    ) -> Self {
+        let mut candidates = Self::with_capacity(candidate_indices.len().saturating_sub(1));
+        candidates.discover_rule_list(&stylesheet.rules, candidate_indices);
+        candidates
     }
 
+    fn discover_rule_list<'ast, 'ghost>(
+        &mut self,
+        rules: &[CssRule<'ast, 'ghost>],
+        candidate_indices: &FxHashMap<*const StyleRule<'ast, 'ghost>, u32>,
+    ) {
+        for pair in rules.windows(2) {
+            let [CssRule::Style(left), CssRule::Style(right)] = pair else {
+                continue;
+            };
+            let left = candidate_indices[&std::ptr::from_ref(left.as_ref().get_ref())];
+            let right = candidate_indices[&std::ptr::from_ref(right.as_ref().get_ref())];
+            self.push(Candidate(left, right));
+        }
+
+        for rule in rules {
+            match rule {
+                CssRule::Media(rule) => self.discover_rule_list(&rule.rules, candidate_indices),
+                CssRule::Style(rule) => self.discover_rule_list(&rule.rules, candidate_indices),
+                CssRule::Supports(rule) => self.discover_rule_list(&rule.rules, candidate_indices),
+                CssRule::MozDocument(rule) => {
+                    self.discover_rule_list(&rule.rules, candidate_indices)
+                }
+                CssRule::Nesting(rule) => {
+                    self.discover_rule_list(&rule.style.rules, candidate_indices)
+                }
+                CssRule::LayerBlock(rule) => {
+                    self.discover_rule_list(&rule.rules, candidate_indices)
+                }
+                CssRule::Container(rule) => self.discover_rule_list(&rule.rules, candidate_indices),
+                CssRule::Scope(rule) => self.discover_rule_list(&rule.rules, candidate_indices),
+                CssRule::StartingStyle(rule) => {
+                    self.discover_rule_list(&rule.rules, candidate_indices)
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
     pub(super) fn handle_same_selector_candidate(
         &mut self,
         candidate: Candidate,
         token: &GhostToken<'ghost>,
     ) {
-        let (left, right) = self.candidate_rules(candidate);
-        if can_merge_same_selector(left, right, token) {
+        let can_compare_selectors = {
+            let (left, right) = self.candidate_rules(candidate);
+            can_compare_same_selector(left, right, token)
+        };
+        if !can_compare_selectors {
+            return;
+        }
+
+        let Candidate(left, right) = candidate;
+        let left_fingerprint = self.selector_fingerprint(left);
+        let right_fingerprint = self.selector_fingerprint(right);
+        if left_fingerprint.live_selector_count != 0 && left_fingerprint == right_fingerprint && {
+            let (left, right) = self.candidate_rules(candidate);
+            equal_live_selectors(&left.selectors, &right.selectors)
+        } {
             self.same_selector_commits.push(candidate);
         }
+    }
+
+    fn selector_fingerprint(&mut self, index: u32) -> SelectorFingerprint {
+        let index = usize::try_from(index).expect("style rule index fits usize");
+        if let Some(fingerprint) = self.selector_fingerprints[index] {
+            return fingerprint;
+        }
+        let fingerprint = fingerprint_live_selectors(&self.style_rules[index].selectors);
+        self.selector_fingerprints[index] = Some(fingerprint);
+        fingerprint
     }
 
     fn candidate_rules(
@@ -114,9 +185,21 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
         right: std::pin::Pin<&mut StyleRule<'ast, 'ghost>>,
         token: &mut GhostToken<'ghost>,
     ) {
-        if !can_merge_same_selector(left.as_ref().get_ref(), right.as_ref().get_ref(), token) {
-            return;
-        }
+        debug_assert!(left.as_ref().get_ref().rules.is_empty());
+        debug_assert_eq!(
+            left.as_ref().get_ref().vendor_prefix,
+            right.as_ref().get_ref().vendor_prefix
+        );
+        debug_assert!(
+            right
+                .as_ref()
+                .get_ref()
+                .declarations
+                .as_ref()
+                .borrow(token)
+                .previous_merged()
+                .is_none()
+        );
 
         let previous = Ref::from(&left.as_ref().get_ref().declarations);
         {
@@ -137,20 +220,34 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
     }
 }
 
-fn can_merge_same_selector<'ast, 'ghost>(
+fn can_compare_same_selector<'ast, 'ghost>(
     left: &StyleRule<'ast, 'ghost>,
     right: &StyleRule<'ast, 'ghost>,
     token: &GhostToken<'ghost>,
 ) -> bool {
     left.rules.is_empty()
         && left.vendor_prefix == right.vendor_prefix
-        && equal_live_selectors(&left.selectors, &right.selectors)
         && right
             .declarations
             .as_ref()
             .borrow(token)
             .previous_merged()
             .is_none()
+}
+
+fn fingerprint_live_selectors(selectors: &rocketcss_ast::SelectorList<'_>) -> SelectorFingerprint {
+    let mut hasher = FxHasher::default();
+    let mut live_selector_count = 0usize;
+    for selector in selectors.iter().filter(|selector| !selector.is_tombstone()) {
+        selector.hash(&mut hasher);
+        live_selector_count += 1;
+    }
+    live_selector_count.hash(&mut hasher);
+    SelectorFingerprint {
+        live_selector_count: u32::try_from(live_selector_count)
+            .expect("selector count exceeds u32::MAX"),
+        hash: hasher.finish(),
+    }
 }
 
 fn equal_live_selectors(
