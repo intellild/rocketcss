@@ -20,15 +20,12 @@
   transitions, invalidation, fixed-point rules, and regression requirements.
 - [Pseudocode](./pseudo-code.md): typed keys, discovery, scheduling, and commit
   algorithms.
-- [Performance](./performance.md): implemented optimizations and deferred
-  traversal, indexing, and queue work.
 
 ## Status
 
 This is a correctness-first design for merging and pruning declarations across
 style rules. Runtime, allocation, hashing, and final representation
-profitability work is tracked separately in the
-[performance document](./performance.md).
+profitability optimizations are intentionally deferred.
 
 The pass operates after selector minification and canonicalization. It builds a
 semantic declaration-effect IR, runs the merge state machine over that IR, and

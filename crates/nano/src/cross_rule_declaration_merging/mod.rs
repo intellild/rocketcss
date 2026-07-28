@@ -13,7 +13,6 @@ use crate::{MinifyContext, Options, OptionsOp};
 #[derive(Debug)]
 struct AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
     style_rules: std::vec::Vec<&'walk StyleRule<'ast, 'ghost>>,
-    selector_fingerprints: std::vec::Vec<Option<same_selector::SelectorFingerprint>>,
     same_selector_candidates: SameSelectorCandidateList,
     same_selector_commits: std::vec::Vec<candidates::Candidate>,
     declaration_override_candidates: DeclarationOverrideCandidateList,
@@ -21,19 +20,15 @@ struct AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
 }
 
 impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
-    fn new(
-        style_rules: std::vec::Vec<&'walk StyleRule<'ast, 'ghost>>,
-        same_selector_candidates: SameSelectorCandidateList,
-    ) -> Self {
+    fn new(style_rules: std::vec::Vec<&'walk StyleRule<'ast, 'ghost>>) -> Self {
         if let Some(last_index) = style_rules.len().checked_sub(1) {
             u32::try_from(last_index).expect("style rule index exceeds u32::MAX");
         }
-        let selector_fingerprints = vec![None; style_rules.len()];
+        let adjacent_rule_count = style_rules.len().saturating_sub(1);
 
         Self {
             style_rules,
-            selector_fingerprints,
-            same_selector_candidates,
+            same_selector_candidates: SameSelectorCandidateList::with_capacity(adjacent_rule_count),
             same_selector_commits: std::vec::Vec::new(),
             declaration_override_candidates: DeclarationOverrideCandidateList::default(),
             partial_merge_candidates: PartialMergeCandidateList::default(),
@@ -41,6 +36,8 @@ impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
     }
 
     fn run(&mut self, token: &GhostToken<'ghost>) {
+        self.discover_same_selector_candidates();
+
         loop {
             if let Some(candidate) = self.same_selector_candidates.pop() {
                 self.handle_same_selector_candidate(candidate, token);
@@ -89,9 +86,7 @@ pub(crate) fn merge_cross_rule_declarations<'ast, 'ghost, 'scratch>(
                 )
             })
             .collect();
-        let same_selector_candidates =
-            SameSelectorCandidateList::discover(stylesheet, &candidate_indices);
-        let mut scanner = AdjacentStyleRuleScanner::new(style_rules, same_selector_candidates);
+        let mut scanner = AdjacentStyleRuleScanner::new(style_rules);
         scanner.run(token);
         scanner.into_same_selector_commit_pass(candidate_indices)
     };
