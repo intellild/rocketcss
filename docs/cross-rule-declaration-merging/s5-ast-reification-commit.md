@@ -14,8 +14,13 @@
 
 ## Responsibility
 
-S5 is the only stage that writes the stable cross-rule merge result back into
-the stylesheet AST.
+In the complete S1-S5 design, S5 is the only stage that writes the stable
+cross-rule merge result back into the stylesheet AST.
+
+The current S1-only implementation has a transitional commit pass that writes
+`previous_merged` links and selector tombstones directly. This exception exists
+only until the S4 plan and S5 commit are implemented; it must not be extended to
+S2 or S3.
 
 It consumes the complete S4 plan and performs a one-way commit:
 

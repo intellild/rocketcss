@@ -26,7 +26,7 @@ fn minifies_static_fixtures() {
 fn minifies_enabled_s1_cross_rule_fixtures() {
     let mut fixture_count = 0;
     for input in fixture_paths("minify") {
-        let path = input.to_string_lossy();
+        let path = fixture_path_key(&input);
         if is_enabled_s1_cross_rule_fixture(&path) {
             assert_minifies_static_fixture(&input);
             fixture_count += 1;
@@ -94,14 +94,24 @@ fn synthesized_cross_rule_fixture_preserves_combined_source_span() {
     });
 }
 
+fn fixture_path_key(input: &Path) -> String {
+    input.to_string_lossy().replace('\\', "/")
+}
+
+#[test]
+fn normalizes_fixture_paths_for_matching() {
+    let input = Path::new(
+        r"C:\rocketcss\tests\fixtures\minify\rocketcss\cross-rule-declaration-merging\case\input.css",
+    );
+    assert!(is_cross_rule_declaration_merging_fixture(input));
+}
+
 fn is_cross_rule_declaration_merging_fixture(input: &Path) -> bool {
-    input
-        .to_string_lossy()
-        .contains("/rocketcss/cross-rule-declaration-merging/")
+    fixture_path_key(input).contains("/rocketcss/cross-rule-declaration-merging/")
 }
 
 fn still_requires_unsupported_transform(input: &Path) -> bool {
-    let path = input.to_string_lossy();
+    let path = fixture_path_key(input);
     if is_cross_rule_declaration_merging_fixture(input) && !is_enabled_s1_cross_rule_fixture(&path)
     {
         return true;

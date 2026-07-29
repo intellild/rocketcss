@@ -53,7 +53,7 @@
 /* review-findings/discovery-and-segments/does-not-unlink-a-parent-before-child-discovery-finishes */
 @layer crdm-027{.a{color:red!important}.middle{display:block}.a{color:blue;.child{display:block}}}
 /* review-findings/discovery-and-segments/ignores-an-initially-empty-nested-declarations-barrier */
-@layer crdm-028{.parent{.a{x:1}font-family:var(--family);font-family:slab inherit;.b{x:1}}}
+@layer crdm-028{.parent{.a{x:1}font-family:var(--family);font-family:"slab inherit";.b{x:1}}}
 /* review-findings/discovery-and-segments/joins-segments-after-a-nested-declarations-barrier-becomes-empty */
 @layer crdm-029{.parent{color:red!important;.a{x:1}color:blue;.a{y:2}}}
 /* review-findings/discovery-and-segments/joins-segments-after-an-empty-conditional-wrapper */

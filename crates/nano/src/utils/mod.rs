@@ -1,3 +1,3 @@
-mod walk_style_rules;
+mod walk_declaration_blocks;
 
-pub(crate) use walk_style_rules::walk_style_rules;
+pub(crate) use walk_declaration_blocks::{DeclarationBlockEntry, walk_declaration_blocks};

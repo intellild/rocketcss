@@ -2,45 +2,47 @@ mod candidates;
 mod same_selector;
 
 use rocketcss_allocator::GhostToken;
-use rocketcss_ast::{StyleRule, StyleSheet};
+use rocketcss_ast::StyleSheet;
 
 use self::candidates::{
     DeclarationOverrideCandidateList, PartialMergeCandidateList, SameSelectorCandidateList,
 };
-use crate::utils::walk_style_rules;
+use crate::utils::{DeclarationBlockEntry, walk_declaration_blocks};
 use crate::{MinifyContext, Options, OptionsOp};
 
 #[derive(Debug)]
-struct AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
-    style_rules: std::vec::Vec<&'walk StyleRule<'ast, 'ghost>>,
+struct AdjacentDeclarationBlockScanner<'walk, 'ast, 'ghost> {
+    declaration_blocks: std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>,
     same_selector_candidates: SameSelectorCandidateList,
     same_selector_commits: std::vec::Vec<candidates::Candidate>,
     declaration_override_candidates: DeclarationOverrideCandidateList,
     partial_merge_candidates: PartialMergeCandidateList,
 }
 
-impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
-    fn new(style_rules: std::vec::Vec<&'walk StyleRule<'ast, 'ghost>>) -> Self {
-        if let Some(last_index) = style_rules.len().checked_sub(1) {
-            u32::try_from(last_index).expect("style rule index exceeds u32::MAX");
+impl<'walk, 'ast, 'ghost> AdjacentDeclarationBlockScanner<'walk, 'ast, 'ghost> {
+    fn new(declaration_blocks: std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>) -> Self {
+        if let Some(last_index) = declaration_blocks.len().checked_sub(1) {
+            u32::try_from(last_index).expect("declaration block index exceeds u32::MAX");
         }
-        let adjacent_rule_count = style_rules.len().saturating_sub(1);
+        let adjacent_block_count = declaration_blocks.len().saturating_sub(1);
 
         Self {
-            style_rules,
-            same_selector_candidates: SameSelectorCandidateList::with_capacity(adjacent_rule_count),
+            declaration_blocks,
+            same_selector_candidates: SameSelectorCandidateList::with_capacity(
+                adjacent_block_count,
+            ),
             same_selector_commits: std::vec::Vec::new(),
             declaration_override_candidates: DeclarationOverrideCandidateList::default(),
             partial_merge_candidates: PartialMergeCandidateList::default(),
         }
     }
 
-    fn run(&mut self, token: &GhostToken<'ghost>) {
+    fn run(&mut self) {
         self.discover_same_selector_candidates();
 
         loop {
             if let Some(candidate) = self.same_selector_candidates.pop() {
-                self.handle_same_selector_candidate(candidate, token);
+                self.handle_same_selector_candidate(candidate);
                 continue;
             }
 
@@ -75,19 +77,19 @@ pub(crate) fn merge_cross_rule_declarations<'ast, 'ghost, 'scratch>(
     }
 
     let commit_pass = {
-        let style_rules = walk_style_rules(stylesheet);
-        let candidate_indices = style_rules
+        let declaration_blocks = walk_declaration_blocks(stylesheet, token);
+        let candidate_indices = declaration_blocks
             .iter()
             .enumerate()
-            .map(|(index, rule)| {
+            .map(|(index, entry)| {
                 (
-                    std::ptr::from_ref(*rule),
-                    u32::try_from(index).expect("style rule index exceeds u32::MAX"),
+                    std::ptr::from_ref(entry.declarations),
+                    u32::try_from(index).expect("declaration block index exceeds u32::MAX"),
                 )
             })
             .collect();
-        let mut scanner = AdjacentStyleRuleScanner::new(style_rules);
-        scanner.run(token);
+        let mut scanner = AdjacentDeclarationBlockScanner::new(declaration_blocks);
+        scanner.run();
         scanner.into_same_selector_commit_pass(candidate_indices)
     };
 

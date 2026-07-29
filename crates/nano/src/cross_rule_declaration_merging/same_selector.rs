@@ -1,42 +1,44 @@
 use rocketcss_allocator::{GhostToken, Ref};
-use rocketcss_ast::{CssRule, Selector, StyleRule, StyleSheet};
+use rocketcss_ast::{CssRule, DeclarationBlock, Selector, StyleRule, StyleSheet};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::AdjacentStyleRuleScanner;
+use super::AdjacentDeclarationBlockScanner;
 use super::candidates::Candidate;
+use crate::utils::DeclarationBlockEntry;
 
-impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
+impl<'walk, 'ast, 'ghost> AdjacentDeclarationBlockScanner<'walk, 'ast, 'ghost> {
     pub(super) fn discover_same_selector_candidates(&mut self) {
-        for left in 0..self.style_rules.len().saturating_sub(1) {
-            let left = u32::try_from(left).expect("style rule index exceeds u32::MAX");
+        for left in 0..self.declaration_blocks.len().saturating_sub(1) {
+            let left = u32::try_from(left).expect("declaration block index exceeds u32::MAX");
             self.same_selector_candidates
                 .push(Candidate(left, left + 1));
         }
     }
 
-    pub(super) fn handle_same_selector_candidate(
-        &mut self,
-        candidate: Candidate,
-        token: &GhostToken<'ghost>,
-    ) {
-        let (left, right) = self.candidate_rules(candidate);
-        if can_merge_same_selector(left, right, token) {
+    pub(super) fn handle_same_selector_candidate(&mut self, candidate: Candidate) {
+        let (left, right) = self.candidate_blocks(candidate);
+        if can_merge_same_selector_blocks(left, right) {
             self.same_selector_commits.push(candidate);
         }
     }
 
-    fn candidate_rules(
+    fn candidate_blocks(
         &self,
         Candidate(left, right): Candidate,
-    ) -> (&StyleRule<'ast, 'ghost>, &StyleRule<'ast, 'ghost>) {
-        let left = self.style_rules[usize::try_from(left).expect("style rule index fits usize")];
-        let right = self.style_rules[usize::try_from(right).expect("style rule index fits usize")];
+    ) -> (
+        &DeclarationBlockEntry<'walk, 'ast, 'ghost>,
+        &DeclarationBlockEntry<'walk, 'ast, 'ghost>,
+    ) {
+        let left = &self.declaration_blocks
+            [usize::try_from(left).expect("declaration block index fits usize")];
+        let right = &self.declaration_blocks
+            [usize::try_from(right).expect("declaration block index fits usize")];
         (left, right)
     }
 
     pub(super) fn into_same_selector_commit_pass(
         self,
-        candidate_indices: FxHashMap<*const StyleRule<'ast, 'ghost>, u32>,
+        candidate_indices: FxHashMap<*const DeclarationBlock<'ast, 'ghost>, u32>,
     ) -> Option<SameSelectorCommitPass<'ast, 'ghost>> {
         if self.same_selector_commits.is_empty() {
             return None;
@@ -50,7 +52,7 @@ impl<'walk, 'ast, 'ghost> AdjacentStyleRuleScanner<'walk, 'ast, 'ghost> {
 }
 
 pub(super) struct SameSelectorCommitPass<'ast, 'ghost> {
-    candidate_indices: FxHashMap<*const StyleRule<'ast, 'ghost>, u32>,
+    candidate_indices: FxHashMap<*const DeclarationBlock<'ast, 'ghost>, u32>,
     candidates: FxHashSet<Candidate>,
 }
 
@@ -76,8 +78,14 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
                 continue;
             };
 
-            let left_index = self.candidate_indices[&std::ptr::from_ref(left.as_ref().get_ref())];
-            let right_index = self.candidate_indices[&std::ptr::from_ref(right.as_ref().get_ref())];
+            let Some(left_index) = self.declaration_block_index(left.as_ref().get_ref(), token)
+            else {
+                continue;
+            };
+            let Some(right_index) = self.declaration_block_index(right.as_ref().get_ref(), token)
+            else {
+                continue;
+            };
             if self
                 .candidates
                 .contains(&Candidate(left_index, right_index))
@@ -89,6 +97,17 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
         for rule in rules {
             self.commit_children(rule, token);
         }
+    }
+
+    fn declaration_block_index(
+        &self,
+        rule: &StyleRule<'ast, 'ghost>,
+        token: &GhostToken<'ghost>,
+    ) -> Option<u32> {
+        let declarations = rule.declarations.as_ref().borrow(token);
+        self.candidate_indices
+            .get(&std::ptr::from_ref(declarations.get_ref()))
+            .copied()
     }
 
     fn commit_children(&self, rule: &mut CssRule<'ast, 'ghost>, token: &mut GhostToken<'ghost>) {
@@ -135,6 +154,13 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
             *selector = Selector::Tombstone;
         }
     }
+}
+
+fn can_merge_same_selector_blocks(
+    left: &DeclarationBlockEntry<'_, '_, '_>,
+    right: &DeclarationBlockEntry<'_, '_, '_>,
+) -> bool {
+    left.effective_key == right.effective_key && right.declarations.previous_merged().is_none()
 }
 
 fn can_merge_same_selector<'ast, 'ghost>(

@@ -29,6 +29,12 @@ S4 answers:
 S4 does not modify the stylesheet AST. It also does not discover new semantic
 merges, new declaration pruning, or new graph edges.
 
+> Implementation status: while only S1 is implemented, its commit pass directly
+> links declaration storage through `previous_merged` and tombstones the retired
+> rule's selectors. This is a transitional implementation exception, not part of
+> the stable S1-S5 contract described below. Once S4/S5 are implemented, S1 must
+> record the logical merge only and leave these writes to S5.
+
 ## Input state
 
 S4 starts only at the complete S1-S3 semantic fixed point:
