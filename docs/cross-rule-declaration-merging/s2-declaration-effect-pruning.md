@@ -22,7 +22,8 @@ S2 may:
 
 - mark all effects of an authored longhand occurrence dead;
 - mark only selected virtual longhand effects of a shorthand dead; or
-- attach a typed, lossless replacement plan needed by later AST reification.
+- retain the typed effect and origin information S4 needs to choose a lossless
+  representation.
 
 S2 does not:
 
@@ -34,6 +35,54 @@ S2 does not:
   [S4](./s4-ast-reification-planning.md); or
 - mutate authored declaration blocks; see
   [S5](./s5-ast-reification-commit.md).
+
+> Incremental implementation contract: until logical effect masks and S4/S5
+> reification exist, cross-block S2 is restricted to exact duplicate
+> occurrence pruning. It may tombstone an earlier declaration only when the
+> later declaration is exactly equal and belongs to the same exact history.
+> It must not reuse the full block-local shorthand/longhand or columns rewrite
+> pipeline across declaration blocks. Leaf rules made empty by exact pruning
+> may still be retired so newly exposed S1 edges reach a fixed point.
+
+## Incremental exact-only boundary
+
+The incremental implementation compares occurrences, not virtual effects. An
+earlier occurrence is removable only when all of the following are equal:
+
+```text
+EffectiveRuleKey
++ PropertyId, including case-sensitive custom-property identity
++ vendor prefix
++ importance and cascade phase
++ complete declaration value
+```
+
+The property index always points to the latest occurrence. A different value
+for the same property replaces that index even when it cannot eliminate the
+previous fallback. Therefore exact pruning does not search backward through a
+different-value compatibility chain:
+
+```css
+a { width: 1px }
+a { width: 2px }
+a { width: 1px }
+```
+
+All three occurrences remain in the incremental implementation.
+
+The exact-only path may delete an old occurrence, but it never:
+
+- replaces a declaration at another physical source position;
+- folds a later longhand into an earlier shorthand;
+- combines longhands from different declaration blocks;
+- combines column longhands from different declaration blocks; or
+- discovers shorthand, `all`, logical/physical, target, or fallback effect
+  relationships.
+
+Those cases return `NoChange` until the complete effect resolver exists. The
+complete S2 resolver—not S4—must later decide effect liveness. S4 only chooses
+a representation for an already proven S2 result while preserving every
+semantic source position.
 
 ## History input state
 
@@ -83,11 +132,10 @@ Each authored declaration occurrence has one expansion state:
 
 Each effect in an occurrence has one liveness state:
 
-| Liveness state       | Meaning                                                                                                   |
-| -------------------- | --------------------------------------------------------------------------------------------------------- |
-| `Live`               | Required to preserve current semantics.                                                                   |
-| `Dead`               | Proven unobservable in this exact history.                                                                |
-| `ReplacementPlanned` | The semantic effect is live, but its authored origin cannot represent the final partial result by itself. |
+| Liveness state | Meaning                                 |
+| -------------- | --------------------------------------- |
+| `Live`         | Required to preserve current semantics. |
+| `Dead`         | Proven unobservable in this history.    |
 
 The effect index is an ordered multimap. Multiple live occurrences for one
 effect key may be a required fallback chain.
@@ -97,17 +145,16 @@ effect key may be a required fallback chain.
 For every analyzed relationship, the resolver returns:
 
 ```rust,ignore
-enum EffectResolution<'ast> {
+enum EffectResolution {
     NoChange,
-    Apply(EffectEditPlan<'ast>),
+    Apply(EffectEditPlan),
 }
 ```
 
-| Output                   | Meaning                                                               |
-| ------------------------ | --------------------------------------------------------------------- |
-| `NoChange`               | Safety, compatibility, or lossless reification is not proven.         |
-| `Apply(MarkEffectsDead)` | The specified effect mask is provably dead.                           |
-| `Apply(PlanReplacement)` | Live effects require a typed replacement when S4 builds the AST plan. |
+| Output                   | Meaning                                                   |
+| ------------------------ | --------------------------------------------------------- |
+| `NoChange`               | Safety, compatibility, or reifiability is not proven.     |
+| `Apply(MarkEffectsDead)` | The effect mask is provably dead and remains reifiable.   |
 
 Applying a plan changes semantic state:
 
@@ -130,7 +177,7 @@ After S2 reaches a local fixed point:
 | ------------------ | ------------------------------------------------------------------------------------ |
 | Effect masks       | Every proven dead effect is marked dead.                                             |
 | Authored origins   | Preserved for every live or dead occurrence until S5.                                |
-| Replacement plans  | Present for every committed partial effect edit that needs materialization.          |
+| Typed effect data   | Retained with origin and owner identity so S4 can choose a representation.            |
 | History generation | `generation == consumed_generation`.                                                 |
 | Sequence revisions | Incremented for every affected aggregate sequence.                                   |
 | S3 candidates      | Incident stale candidates invalidated.                                               |
@@ -140,6 +187,11 @@ After S2 reaches a local fixed point:
 S2 output is conservative. `NoChange` is a valid stable result.
 
 ## Transition examples
+
+The examples below describe the complete effect-IR design. Under the
+incremental exact-only boundary, only examples involving exactly equal
+occurrences are pruned. Different-value overrides and partial shorthand
+relationships remain unchanged.
 
 ### Example 1: exact longhand override
 
@@ -203,7 +255,6 @@ S2 output:
 origin#1:
   top/right/bottom [Live]
   left             [Dead]
-  replacement      [Planned if origin#1 cannot be reused exactly]
 
 origin#2:
   left             [Live]
@@ -387,9 +438,9 @@ history is stable. See
 
 ### Effect on S4
 
-S2 supplies live-effect masks, authored origins, and typed replacement
-requirements. S4 must represent exactly that state and cannot revive dead
-effects. See
+S2 supplies live-effect masks, authored origins, owner identity, and typed
+effect data. S4 chooses how to represent that state without changing semantic
+liveness or source order. See
 [S4 declaration input states](./s4-ast-reification-planning.md#declaration-input-states).
 
 ### Effect on S5
@@ -407,7 +458,8 @@ plan derived from S2's stable output. See
 - Known shorthands are expanded virtually, not eagerly in the AST.
 - Opaque and wildcard effects conflict conservatively.
 - Unknown property relationships default to `NoChange`.
-- Every applied edit has a typed, lossless S4 representation path.
+- Every applied edit is proven reifiable from retained typed effects and
+  origins, but S2 does not choose the representation.
 - Authored or synthesized origins remain attached until S5.
 - Every semantic edit increments all dependent revisions and generations.
 - Incident S3 candidates are invalidated.

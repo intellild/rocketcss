@@ -17,10 +17,12 @@
 In the complete S1-S5 design, S5 is the only stage that writes the stable
 cross-rule merge result back into the stylesheet AST.
 
-The current S1-only implementation has a transitional commit pass that writes
-`previous_merged` links and selector tombstones directly. This exception exists
-only until the S4 plan and S5 commit are implemented; it must not be extended to
-S2 or S3.
+The current S1/S2 implementation has transitional commit passes. S1 writes
+`previous_merged` links and selector tombstones. Incremental S2 may tombstone
+only exactly duplicated earlier declaration occurrences and compact retired
+leaf rules. This exception exists only until the S4 plan and S5 commit are
+implemented; it must not include cross-block shorthand/longhand or columns
+rewrites and must not be extended to S3.
 
 It consumes the complete S4 plan and performs a one-way commit:
 
@@ -39,9 +41,10 @@ ordinary rewritten AST.
 S5 requires:
 
 ```text
-S1-S3 semantic fixed point = true
-S4 ast_plan.complete       = true
-state.reified              = false
+S1-S4 stabilization fixed point = true
+S4 ast_plan.complete             = true
+all plan dependency revisions    = current
+state.reified                    = false
 ```
 
 If the plan is incomplete, S5 does not partially commit. The missing decision

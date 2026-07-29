@@ -29,28 +29,34 @@ S4 answers:
 S4 does not modify the stylesheet AST. It also does not discover new semantic
 merges, new declaration pruning, or new graph edges.
 
-> Implementation status: while only S1 is implemented, its commit pass directly
-> links declaration storage through `previous_merged` and tombstones the retired
-> rule's selectors. This is a transitional implementation exception, not part of
-> the stable S1-S5 contract described below. Once S4/S5 are implemented, S1 must
-> record the logical merge only and leave these writes to S5.
+> Implementation status: while only S1/S2 are implemented, S1 directly links
+> declaration storage through `previous_merged`, and incremental S2 may
+> tombstone only exactly duplicated earlier occurrences and compact retired
+> leaf rules. Cross-block shorthand/longhand and columns rewrites are outside
+> this exception. Once S4/S5 are implemented, S1/S2 must record logical changes
+> only and leave all AST writes to S5.
 
 ## Input state
 
-S4 starts only at the complete S1-S3 semantic fixed point:
+S4 work may start when one sequence's current S1-S3 dependencies are stable.
+It participates in the global stabilization loop rather than running once
+after S1-S3. S4 is globally complete only in this state:
 
 ```text
 dirty_same_selector_edges = empty
 dirty_partial_edges       = empty
 dirty_histories           = empty
+dirty_s4_plan_items       = empty
 candidates                = empty
 every history:
   generation == consumed_generation
+every retained sequence:
+  planned_revision == aggregate_revision
 ```
 
 Every rule that became logically empty during S1-S3 has already left live
 adjacency, and every edge exposed by that removal has already been classified.
-If this precondition is false, control returns to the affected stage:
+Higher-priority semantic work preempts S4:
 
 - equal-selector edge → [S1](./s1-same-selector-coalescing.md#edge-states);
 - dirty history → [S2](./s2-declaration-effect-pruning.md#history-generation-states);
@@ -71,14 +77,14 @@ If this precondition is false, control returns to the affected stage:
 
 ### Declaration input states
 
-| Input state                         | Available representation                                            |
-| ----------------------------------- | ------------------------------------------------------------------- |
-| All effects of an origin live       | Reuse the authored origin when order remains exact.                 |
-| All effects of an origin dead       | Omit that origin.                                                   |
-| Some virtual shorthand effects live | Use a pre-proven typed replacement or another exact representation. |
-| Ordered fallback chain live         | Preserve origins and order unless a target proof permits removal.   |
-| Opaque occurrence live              | Reuse its authored origin; never synthesize guessed components.     |
-| Synthesized exact effect plan       | Materialize typed declarations with recorded origins.               |
+| Input state                         | Available representation                                             |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| All effects of an origin live       | Reuse the authored origin when order remains exact.                  |
+| All effects of an origin dead       | Omit that origin.                                                    |
+| Some virtual shorthand effects live | Reuse the exact sequence or materialize its typed live effects.      |
+| Ordered fallback chain live         | Preserve origins and order unless a target proof permits removal.    |
+| Opaque occurrence live              | Reuse its authored origin; never synthesize guessed components.      |
+| Synthesized exact effects           | Materialize them at the owning synthesized declaration sequence.     |
 
 ### Synthesized-rule input state
 
@@ -96,6 +102,17 @@ validated local selector union
 
 S4 does not rerun the S3 partition. It only selects an AST representation that
 realizes this already committed logical state.
+
+S4 also does not discover declaration liveness. If S2 returned `NoChange` for
+a shorthand/longhand, `all`, fallback, or alias relationship, S4 must retain
+the authored occurrences. Representation planning cannot upgrade an
+incremental exact-only result into a new semantic optimization.
+
+An `EffectiveRuleHistory` is only a cross-sequence analysis index. It never
+becomes a `DeclarationSequenceId` and never chooses a shared AST owner. Every
+occurrence retains its sequence owner unless S1 has already coalesced that
+sequence or S3 has committed a separately proven synthesized sequence. S4
+plans each retained sequence independently.
 
 ## Sequence representation states
 
@@ -198,35 +215,39 @@ and [S5 owner commit](./s5-ast-reification-commit.md#example-2-committing-an-s1-
 
 ### Example 3: partially live shorthand
 
-S2 output:
+S2 output spans one history but preserves two sequence owners:
 
 ```text
-origin#1 margin: 1px
+sequence#1 / origin#1 margin: 1px
   top/right/bottom = Live
   left             = Dead
-origin#2 margin-left: 2px = Live
+sequence#2 / origin#2 margin-left: 2px = Live
 ```
 
-Reusing `margin:1px` would incorrectly revive the dead left component unless
-the later override remains and preserves exact order. Depending on the proven
-representation and size, S4 may choose:
+Reusing `margin:1px` is valid only when the later override remains at its exact
+semantic source position. Depending on the proven representation and size, S4
+plans the two sequences independently and may choose:
 
 ```text
-ReuseOrigins([origin#1, origin#2])
+sequences[sequence#1] = ReuseOrigins([origin#1])
+sequences[sequence#2] = ReuseOrigins([origin#2])
 ```
 
-when the authored pair is still exact, or:
+when the authored pair still represents the exact result, or:
 
 ```text
-Materialize([
+sequences[sequence#1] = Materialize([
   margin-top: 1px,
   margin-right: 1px,
   margin-bottom: 1px,
-  margin-left: 2px,
 ])
+sequences[sequence#2] = ReuseOrigins([origin#2])
 ```
 
-S4 cannot choose a shorter but inequivalent shorthand.
+S4 cannot combine `sequence#1` and `sequence#2` merely because one history
+analyzed both. A shorter representation is irrelevant when it changes
+semantic source position. Cross-sequence movement requires an already
+committed S1 ownership change or S3 movement proof.
 
 ### Example 4: ordered fallback chain
 
@@ -325,20 +346,28 @@ The opaque child cannot be declared empty by this pass.
 
 ## Effects on other stages
 
-S4 is downstream of S1-S3 and must not create new work for them. If planning
-would expose an unclassified edge, revive a dead effect, or require a different
-S3 partition, the semantic precondition was violated:
+S4 does not change effect liveness, but it may create scheduler work. Changing
+a sequence representation, final owner, removal plan, or byte-cost estimate
+increments the sequence's plan revision and invalidates every dependent
+snapshot. Invalidated work is re-enqueued before S5:
+
+- representation or cost dependency → enqueue the incident S3 edge;
+- owner or sequence dependency → enqueue the affected S4 plan item;
+- an already dirty history or equal-selector edge → yield to S2 or S1.
+
+If planning would revive a dead effect or require an unproven selector
+partition, the semantic precondition was violated:
 
 - ownership problem → revisit [S1 output state](./s1-same-selector-coalescing.md#output-state);
 - effect problem → revisit [S2 output state](./s2-declaration-effect-pruning.md#output-state);
 - synthesized-rule problem → revisit [S3 commit output state](./s3-selector-partial-factoring.md#commit-output-state).
 
-S4's only normal downstream transition is to
-[S5](./s5-ast-reification-commit.md#input-state).
+S4 transitions to [S5](./s5-ast-reification-commit.md#input-state) only after
+all feedback work has stabilized.
 
 ## Invariants
 
-- S4 starts only after the S1-S3 fixed point.
+- S4 work runs only against current revisions of its S1-S3 dependencies.
 - Cleanup walks retained ownership post-order.
 - Logical emptiness was already reflected in adjacency before S4.
 - Every non-empty sequence receives exactly one final AST owner.
@@ -350,7 +379,8 @@ S4's only normal downstream transition is to
 - Every logical synthesized rule receives one insertion plan.
 - Opaque or unsupported nodes are never removed by inference.
 - Representation profitability is subordinate to equivalence.
-- S4 does not mutate the AST or restart S1-S3.
+- S4 does not mutate the AST or effect liveness, but may invalidate and
+  re-enqueue dependent S3/S4 work.
 - A complete plan makes S5 non-fallible and decision-free.
 
 ## Completion condition
@@ -362,6 +392,8 @@ every retained sequence has one SequenceAstPlan
 every logical synthesized rule has one SynthesizedRulePlan
 every removable node is covered
 no retained node is accidentally covered by removal
+dirty_s4_plan_items is empty
+every plan revision matches its sequence and dependency revisions
 ast_plan.complete == true
 ```
 

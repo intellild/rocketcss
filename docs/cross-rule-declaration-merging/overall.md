@@ -364,7 +364,10 @@ declarations may share an S2 history, but they do not form an S1/S3 edge.
 
 S1 and S2 always have priority over S3 candidate commit. S3 plans may be
 discovered early, but remain speculative until all histories capable of
-changing their endpoints are stable.
+changing their endpoints are stable. S4 representation work also participates
+in stabilization: a changed sequence plan revision may invalidate candidate
+cost or ownership assumptions and enqueue new S3 or S4 work. S5 remains the
+only one-way terminal stage.
 
 ### S1: same-selector coalescing
 
@@ -403,6 +406,13 @@ S2 processes all declaration-effect occurrences with one exact
 `EffectiveRuleKey` in semantic source order. It only applies typed, lossless
 effect edit plans. Authored AST declarations remain origin records until S5.
 
+The incremental implementation is intentionally narrower: before effect masks
+and S4/S5 exist, it removes only an earlier declaration occurrence that is
+exactly equal to the latest occurrence for the same typed property, prefix,
+importance, cascade phase, and effective rule key. It does not run block-local
+shorthand/longhand or columns rewrites across blocks. All different-value and
+cross-representation relationships return `NoChange`.
+
 The resolver considers:
 
 - typed `PropertyId` and vendor prefix;
@@ -418,9 +428,9 @@ The resolver considers:
 The resolver returns a concrete edit plan:
 
 ```rust,ignore
-enum EffectResolution<'ast> {
+enum EffectResolution {
     NoChange,
-    Apply(EffectEditPlan<'ast>),
+    Apply(EffectEditPlan),
 }
 ```
 
@@ -428,6 +438,11 @@ A partial shorthand override marks individual virtual longhand effects live or
 dead. It does not eagerly expand the authored shorthand in the AST. Variables,
 recovered syntax, unknown values, and unproven fallback behavior produce opaque
 effects or `NoChange`.
+
+S4 cannot discover these relationships on S2's behalf. The complete S2
+resolver must first prove liveness and retain typed effects, origins, owners,
+and semantic source positions; S4 alone selects an AST representation for that
+proven state.
 
 Each history is processed to a local fixed point before S3 can commit.
 
@@ -475,9 +490,9 @@ validation is unavailable, S3 is disabled.
 The complete S4 retention, representation, and plan state enumeration is in
 [S4: AST reification planning](./s4-ast-reification-planning.md).
 
-S4 finalizes the retained logical graph after the S1-S3 work queues and history
-generations reach a fixed point. A selector-live style rule is planned for
-removal only when it has:
+S4 incrementally plans retained sequences after their current S1-S3
+dependencies are stable. It may run more than once before the global fixed
+point. A selector-live style rule is planned for removal only when it has:
 
 - no live declaration effects;
 - no retained child content; and
@@ -500,14 +515,17 @@ effect liveness makes an authored shorthand unusable, and may recombine effects
 only when equivalence and profitability are proven.
 
 Rules must transition out of live adjacency as soon as their effect IR becomes
-logically empty during S1-S3. S4 therefore does not expose unclassified edges.
-It verifies the final liveness graph and produces one complete
-`AstReificationPlan`: empty IRs become removals, while non-empty IRs receive a
-lossless declaration representation and final AST owner.
+logically empty during S1-S3. S4 does not directly change effect liveness, but
+a new representation or cleanup plan increments its plan revision and
+invalidates dependent profitability, ownership, or representation snapshots.
+Those dependencies are re-enqueued and stabilization resumes. At the final
+fixed point, empty IRs have removal plans and non-empty IRs have lossless
+declaration representations and final AST owners.
 
-S4 planning must be infallible. Every S2 edit and S3 candidate proves its
-effects remain reifiable before commit; an unrepresentable transformation is
-rejected while it is still speculative.
+Every S2 edit and S3 candidate proves its effects remain reifiable before
+semantic commit. S4 may choose among equivalent representations and feed
+revision or profitability changes back into the scheduler, but it cannot make
+an unrepresentable semantic state valid.
 
 ### S5: AST reification commit
 
@@ -562,8 +580,9 @@ revisions. Any endpoint change invalidates and recomputes the candidate.
 
 - Existing local selectors, ancestor selectors, and at-rule conditions are
   immutable.
-- S2 changes effect-occurrence liveness or creates a lossless replacement plan
-  but never moves rules or eagerly rewrites authored declarations.
+- S2 changes effect-occurrence liveness and proves the result reifiable, but it
+  neither chooses an AST representation nor moves or eagerly rewrites authored
+  declarations.
 - S1 and S3 never cross a rule-list segment.
 - Histories are ordered by semantic source position, not discovery time.
 - Editing any block in a merged sequence increments its aggregate revision.
