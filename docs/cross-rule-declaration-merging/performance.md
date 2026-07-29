@@ -108,14 +108,53 @@ references they remove.
 ## Declaration sequence reuse
 
 `DeclarationBlockMinifier` already has a ghost-backed sequence abstraction for
-deduplicating across multiple declaration blocks. S2 can reuse it instead of
-adding another declaration-deduplication implementation. Until S2 calls that
-path, its ghost constructor and `minify_sequence` entry point are explicitly
-marked as reserved dead code.
+processing multiple declaration blocks. Its full block-local rewrite pipeline
+must not be reused by incremental S2: folding a later longhand into an earlier
+shorthand, or combining longhands at one block location, can move effects
+across an intervening overlapping rule.
+
+The safe incremental API should expose the narrow operation directly:
+
+```rust,ignore
+minify(block)                       // full block-local rewrite
+deduplicate_exact_sequence(blocks) // cross-block exact pruning only
+```
+
+Keeping separate entry points prevents future property IR from accidentally
+participating in cross-block rewrites. The exact sequence path may share the
+packed declaration location and exact-property maps, but it must not enter box,
+columns, or other relational rewrite state.
 
 The minifier should retain only the declaration IR allocated from the scratch
 allocator. It does not need to cache a separate allocator field when no caller
 reads it.
+
+### Hash complete conditional contexts before optimizing S2 buckets
+
+S2 candidate discovery buckets declaration blocks by
+`EffectiveKey::fingerprint` and then uses exact typed equality inside each
+bucket. The current conditional fingerprint is deliberately incomplete:
+media queries hash their shape but not the condition contents, while supports
+and container conditions mostly hash their discriminants and presence.
+
+Consequently, ordinary stylesheets containing many distinct conditions with
+the same shape can place every entry in one bucket:
+
+```css
+@media (min-width: 1px) { a { x: 1 } }
+@media (min-width: 2px) { a { x: 2 } }
+@media (min-width: 3px) { a { x: 3 } }
+```
+
+The collision-safe linear equality check then makes discovery quadratic in the
+number of distinct contexts even when no S2 history is produced. A later
+optimization should hash the complete typed media, supports, and container
+condition AST, while retaining exact `EffectiveKey` equality as the final
+proof.
+
+This is intentionally deferred until the S2 correctness boundary is fixed.
+Fingerprint work must not broaden history identity or make hashes authoritative
+for semantic equality.
 
 ## Custom-property token traversal fusion
 
@@ -225,7 +264,6 @@ Bootstrap and Tailwind workloads. Inspect code size as well as runtime because
 specializing the collector can produce a second monomorphized copy. The
 optimization is expected to be sub-millisecond on representative inputs; it
 should be accepted only if function-heavy inputs without RGB do not regress.
-
 ## Benchmarking method
 
 Evaluate performance changes as isolated commits on CodSpeed. Compare matching

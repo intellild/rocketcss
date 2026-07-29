@@ -395,23 +395,19 @@ History occurrences and their semantic source-order keys are preserved.
 ## Declaration resolver
 
 ```rust,ignore
-enum EffectResolution<'ast> {
+enum EffectResolution {
     NoChange,
-    Apply(EffectEditPlan<'ast>),
+    Apply(EffectEditPlan),
 }
 
-struct EffectEditPlan<'ast> {
-    edits: Vec<EffectOccurrenceEdit<'ast>>,
+struct EffectEditPlan {
+    edits: Vec<EffectOccurrenceEdit>,
 }
 
-enum EffectOccurrenceEdit<'ast> {
+enum EffectOccurrenceEdit {
     MarkEffectsDead {
         occurrence: EffectOccurrenceId,
         effects: EffectMask,
-    },
-    PlanReplacement {
-        occurrence: EffectOccurrenceId,
-        replacement: TypedEffectPlan<'ast>,
     },
 }
 ```
@@ -438,8 +434,10 @@ fn apply_effect_edit(
 }
 ```
 
-`apply_effect_edit` changes semantic liveness and replacement plans only. The
-authored declaration AST remains intact until S5.
+`apply_effect_edit` changes semantic liveness only. Typed effects, authored
+origins, owning sequences, and semantic source positions remain available so
+S4 can choose a representation. The authored declaration AST remains intact
+until S5.
 
 ## S2 local fixed point
 
@@ -654,6 +652,14 @@ fn stabilize(state: &mut MergeState) {
             continue;
         }
 
+        if let Some(item) = state.dirty_s4_plan_items.pop() {
+            let result = plan_s4_work_item(item, state);
+            for dependency in result.invalidated_dependencies {
+                enqueue_invalidated_dependency(dependency, state);
+            }
+            continue;
+        }
+
         let Some(candidate) = leftmost_candidate(state) else {
             break;
         };
@@ -667,56 +673,28 @@ fn stabilize(state: &mut MergeState) {
     }
 
     assert_all_history_generations_consumed(state);
-    finalize_s4_ast_plan(state);
+    assert_s4_plan_complete_and_current(state);
 }
 ```
 
 ## S4 logical cleanup and AST reification planning
 
 ```rust,ignore
-fn finalize_s4_ast_plan(state: &mut MergeState) {
-    assert_semantic_fixed_point(state);
-
-    for node in state.ownership.post_order() {
-        match node {
-            Style(rule)
-                if effect_ir_is_empty(rule, state)
-                    && retained_child_count(rule, state) == 0
-                    && !is_retired_sequence_storage(rule, state) =>
-            {
-                state.ast_plan.remove(rule);
-            }
-            NestedDeclarations(rule)
-                if effect_ir_is_empty(rule, state) =>
-            {
-                state.ast_plan.remove(rule);
-            }
-            SupportedConditional(rule)
-                if retained_child_count(rule, state) == 0 =>
-            {
-                state.ast_plan.remove(rule);
-            }
-            KnownNoMatchSubtree(rule) => {
-                state.ast_plan.remove_subtree(rule);
-            }
-            _ => {}
-        }
-    }
-
-    for sequence in retained_sequences_in_semantic_order(state) {
-        let representation = choose_lossless_ast_representation(
-            state.declaration_sequences[sequence].effects,
-            authored_origins(sequence, state),
-        )
+fn plan_s4_work_item(
+    item: S4PlanItem,
+    state: &mut MergeState,
+) -> S4PlanResult {
+    let old = state.ast_plan.snapshot(item);
+    let replacement = choose_lossless_ast_representation_for_item(item, state)
         .expect("committed effect state is losslessly reifiable");
-        state.ast_plan.represent(
-            state.declaration_sequences[sequence].active_output_owner,
-            representation,
-        );
-    }
 
-    state.ast_plan.include_synthesized_rules(state);
-    assert_ast_plan_does_not_expose_unclassified_edges(state);
+    state.ast_plan.replace(item, replacement);
+    state.ast_plan.record_dependency_revisions(item, state);
+
+    S4PlanResult {
+        invalidated_dependencies:
+            dependencies_invalidated_by_plan_change(old, replacement, state),
+    }
 }
 ```
 
@@ -759,10 +737,12 @@ fn is_semantically_complete(state: &MergeState) -> bool {
     state.dirty_same_selector_edges.is_empty()
         && state.dirty_partial_edges.is_empty()
         && state.dirty_histories.is_empty()
+        && state.dirty_s4_plan_items.is_empty()
         && state.candidates.is_empty()
         && state.histories.values().all(|history| {
             history.generation == history.consumed_generation
         })
+        && state.ast_plan.all_dependency_revisions_current(state)
 }
 
 fn is_minify_complete(state: &MergeState) -> bool {

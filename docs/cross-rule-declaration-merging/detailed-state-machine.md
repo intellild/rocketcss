@@ -24,7 +24,8 @@ The merge IR preserves AST ownership:
 - S1 represents coalescing through an ordered declaration sequence whose active
   output owner is the right rule;
 - S3 creates a logical synthesized style rule in the owning rule-list segment;
-- S4 finalizes logical retention and a complete AST reification plan; and
+- S4 incrementally stabilizes logical retention and the AST reification plan;
+  and
 - S5 reifies the complete stable result into the stylesheet AST.
 
 Pinned declaration blocks and stable identifiers should be reused. Ordinary
@@ -66,6 +67,7 @@ struct MergeState<'ast> {
     dirty_histories: Set<EffectiveRuleKey<'ast>>,
     dirty_same_selector_edges: Set<Edge>,
     dirty_partial_edges: Set<Edge>,
+    dirty_s4_plan_items: Set<S4PlanItem>,
     ast_plan: AstReificationPlan<'ast>,
     reified: bool,
 }
@@ -352,23 +354,19 @@ fixed point.
 The typed resolver operates on effect occurrences and returns:
 
 ```rust,ignore
-enum EffectResolution<'ast> {
+enum EffectResolution {
     NoChange,
-    Apply(EffectEditPlan<'ast>),
+    Apply(EffectEditPlan),
 }
 
-struct EffectEditPlan<'ast> {
-    edits: Vec<EffectOccurrenceEdit<'ast>>,
+struct EffectEditPlan {
+    edits: Vec<EffectOccurrenceEdit>,
 }
 
-enum EffectOccurrenceEdit<'ast> {
+enum EffectOccurrenceEdit {
     MarkEffectsDead {
         occurrence: EffectOccurrenceId,
         effects: EffectMask,
-    },
-    PlanReplacement {
-        occurrence: EffectOccurrenceId,
-        replacement: TypedEffectPlan<'ast>,
     },
 }
 ```
@@ -485,8 +483,10 @@ inference from this pass.
 For enumerated rule-retention and sequence-representation states, see
 [S4: AST reification planning](./s4-ast-reification-planning.md).
 
-S4 runs only after all S1-S3 work is stable. It walks retained ownership
-post-order and produces a deterministic `AstReificationPlan` containing:
+S4 processes a plan item when that item's current S1-S3 dependencies are
+stable. It may invalidate dependent cost, owner, or representation snapshots
+and enqueue new S3/S4 work. Across the stabilization loop it produces a
+deterministic `AstReificationPlan` containing:
 
 - logically dead style rules whose effect IR is empty;
 - selector-`KnownNoMatch` subtrees;
@@ -503,13 +503,16 @@ For each non-empty retained declaration sequence, the plan also records:
 
 - the final AST output owner;
 - retained authored shorthand and ordered fallback occurrences;
-- typed longhand replacements required by partially live virtual effects;
+- S4's chosen typed representation for partially live virtual effects;
 - any proven equivalent and profitable recombination; and
 - synthesized rules, selectors, source positions, and combined origins.
 
-S4 cannot discover a new representation failure. Every S2 edit plan and S3
-candidate must prove reifiability before semantic commit; otherwise it returns
-`NoChange` or remains uncommitted.
+An S2 history remains an analysis index over occurrences in one or more
+sequences. It never merges those sequences or selects a common owner. S4
+chooses one representation per retained sequence. A changed plan revision
+invalidates dependent snapshots before another S3 candidate can commit. Every
+S2 edit and S3 candidate must prove reifiability before semantic commit;
+otherwise it returns `NoChange` or remains uncommitted.
 
 ## S5 AST reification commit
 
@@ -517,8 +520,9 @@ For enumerated plan-input and AST-output states, see
 [S5: AST reification commit](./s5-ast-reification-commit.md).
 
 S5 starts only when the work-coverage invariant holds, every history generation
-is consumed, the candidate map is empty, and S4 has produced a complete AST
-reification plan.
+is consumed, the candidate and dirty-S4-plan sets are empty, every plan
+dependency revision is current, and S4 has produced a complete AST reification
+plan.
 
 S5 applies that plan without making new semantic choices:
 
@@ -572,8 +576,8 @@ The global priority is:
 dirty S1 edges
 before dirty S2 histories
 before dirty S3 edges
+before dirty S4 plan items
 before any S3 candidate commit
-before S4 logical cleanup and AST reification planning
 before the one-way S5 AST reification commit
 ```
 
@@ -589,17 +593,21 @@ all changed histories have generation > consumed_generation and are dirty
 all removed incident edges are absent from candidates and dirty sets
 all newly possible incident edges are classified into exactly one dirty set
 all unchanged candidates still match endpoint aggregate revisions
+all changed sequence representations have dirty S4 plan items
+all unchanged S4 plans match sequence and dependency revisions
 ```
 
 The pass stops only when:
 
 - both dirty-edge sets are empty;
 - the dirty-history set is empty;
+- the dirty-S4-plan set is empty;
 - every history generation is consumed; and
-- the candidate map is empty.
+- the candidate map is empty; and
+- every S4 plan revision matches its dependencies.
 
-At that point S4 may finalize the AST reification plan. Minification is complete
-only after S5 has committed that plan and set `reified = true`.
+At that point the AST reification plan is stable and complete. Minification is
+complete only after S5 has committed that plan and set `reified = true`.
 
 ## Termination
 
