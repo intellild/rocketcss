@@ -5,6 +5,8 @@ local upstream checkouts:
 
 - `cssnano/`: `/data00/home/jinzhixin/rstack/cssnano/packages/*/test`
 - `lightningcss/`: `/data00/home/jinzhixin/rstack/lightningcss/src/lib.rs`
+- `rocketcss/`: RocketCSS-owned regression fixtures organized with the same
+  `category/case/input.css` and `output.css` layout.
 
 The original JavaScript/Rust test runners are replaced by the repository's
 shared `rstest` harness. CSS input and expected output are otherwise kept as
@@ -13,6 +15,11 @@ the authoritative parts of each upstream test.
 `cssnano-extra/` holds RocketCSS-only fixtures that have no counterpart in the
 upstream cssnano test suites. Keep `cssnano/` itself limited to cases ported
 from upstream.
+
+`rocketcss/cross-rule-declaration-merging/` contains the local declaration
+state-machine regressions. Its `state-machine/comprehensive/` fixture also
+records Lightning CSS and cssnano output next to RocketCSS's expected output so
+the three tools' current coverage can be compared directly.
 
 The current minifier emphasizes simple, in-place transforms within one AST
 node. Fixtures that still require cross-rule/declaration analysis, replacement

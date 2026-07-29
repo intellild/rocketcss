@@ -8,6 +8,7 @@ bitflags            = { workspace = true }
 rocketcss_allocator = { workspace = true }
 rocketcss_ast       = { workspace = true }
 rocketcss_visitor   = { workspace = true }
+rustc-hash          = { workspace = true }
 zmij                = { workspace = true }
 
 [dev-dependencies]

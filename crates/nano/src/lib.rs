@@ -1,4 +1,5 @@
 mod context;
+mod cross_rule_declaration_merging;
 mod length;
 mod media;
 mod options;
@@ -6,6 +7,7 @@ mod properties;
 mod rules;
 mod selector;
 mod token;
+mod utils;
 mod values;
 
 pub mod prelude;
@@ -92,10 +94,9 @@ pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
     };
     let mut visit_context = VisitMutContext::new(token);
     stylesheet.visit_mut(&mut minifier, &mut visit_context);
-    rules::merge_adjacent_style_rules(
-        &mut stylesheet.rules,
+    cross_rule_declaration_merging::merge_cross_rule_declarations(
+        stylesheet,
         token,
-        &mut minifier.declaration_blocks,
         &mut minifier.cx,
     );
     let Minifier { cx: result, .. } = minifier;

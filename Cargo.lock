@@ -1302,6 +1302,7 @@ dependencies = [
  "rocketcss_codegen",
  "rocketcss_parser",
  "rocketcss_visitor",
+ "rustc-hash",
  "zmij",
 ]
 

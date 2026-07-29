@@ -399,7 +399,9 @@ pub(super) fn pseudo_element(name: &str) -> PseudoElement<'_> {
         "first-line" => PseudoElement::FirstLine,
         "first-letter" => PseudoElement::FirstLetter,
         "marker" => PseudoElement::Marker,
+        "-moz-selection" => PseudoElement::Selection(VendorPrefix::MOZ),
         "placeholder" => PseudoElement::Placeholder(VendorPrefix::NONE),
+        "-webkit-placeholder" => PseudoElement::Placeholder(VendorPrefix::WEBKIT),
         _ => PseudoElement::Custom { name },
     )
 }
