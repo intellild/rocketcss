@@ -2,11 +2,11 @@ use rocketcss_allocator::{GhostToken, Ref};
 use rocketcss_ast::{CssRule, DeclarationBlock, Selector, StyleRule, StyleSheet};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::AdjacentDeclarationBlockScanner;
+use super::CrossRuleDeclarationScanner;
 use super::candidates::Candidate;
 use crate::utils::DeclarationBlockEntry;
 
-impl<'walk, 'ast, 'ghost> AdjacentDeclarationBlockScanner<'walk, 'ast, 'ghost> {
+impl<'walk, 'ast, 'ghost> CrossRuleDeclarationScanner<'walk, 'ast, 'ghost> {
     pub(super) fn discover_same_selector_candidates(&mut self) {
         for left in 0..self.declaration_blocks.len().saturating_sub(1) {
             let left = u32::try_from(left).expect("declaration block index exceeds u32::MAX");
@@ -39,8 +39,8 @@ impl<'walk, 'ast, 'ghost> AdjacentDeclarationBlockScanner<'walk, 'ast, 'ghost> {
         (left, right)
     }
 
-    pub(super) fn into_same_selector_commit_pass(
-        self,
+    pub(super) fn take_same_selector_commit_pass(
+        &mut self,
         candidate_indices: FxHashMap<*const DeclarationBlock<'ast, 'ghost>, u32>,
     ) -> Option<SameSelectorCommitPass<'ast, 'ghost>> {
         if self.same_selector_commits.is_empty() {
@@ -49,7 +49,9 @@ impl<'walk, 'ast, 'ghost> AdjacentDeclarationBlockScanner<'walk, 'ast, 'ghost> {
 
         Some(SameSelectorCommitPass {
             candidate_indices,
-            candidates: self.same_selector_commits.into_iter().collect(),
+            candidates: std::mem::take(&mut self.same_selector_commits)
+                .into_iter()
+                .collect(),
         })
     }
 }
@@ -64,15 +66,16 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
         &self,
         stylesheet: &mut StyleSheet<'ast, 'ghost>,
         token: &mut GhostToken<'ghost>,
-    ) {
-        self.commit_candidates(&mut stylesheet.rules, token);
+    ) -> bool {
+        self.commit_candidates(&mut stylesheet.rules, token)
     }
 
     fn commit_candidates(
         &self,
         rules: &mut [CssRule<'ast, 'ghost>],
         token: &mut GhostToken<'ghost>,
-    ) {
+    ) -> bool {
+        let mut changed = false;
         for index in 0..rules.len().saturating_sub(1) {
             let (left_rules, right_rules) = rules.split_at_mut(index + 1);
             let (CssRule::Style(left), CssRule::Style(right)) =
@@ -93,13 +96,14 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
                 .candidates
                 .contains(&Candidate(left_index, right_index))
             {
-                self.commit_pair(left.as_mut(), right.as_mut(), token);
+                changed |= self.commit_pair(left.as_mut(), right.as_mut(), token);
             }
         }
 
         for rule in rules {
-            self.commit_children(rule, token);
+            changed |= self.commit_children(rule, token);
         }
+        changed
     }
 
     fn declaration_block_index(
@@ -113,7 +117,11 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
             .copied()
     }
 
-    fn commit_children(&self, rule: &mut CssRule<'ast, 'ghost>, token: &mut GhostToken<'ghost>) {
+    fn commit_children(
+        &self,
+        rule: &mut CssRule<'ast, 'ghost>,
+        token: &mut GhostToken<'ghost>,
+    ) -> bool {
         match rule {
             CssRule::Media(rule) => self.commit_candidates(&mut rule.rules, token),
             CssRule::Style(rule) => self.commit_candidates(rule.as_mut().rules_mut(), token),
@@ -126,7 +134,7 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
             CssRule::Container(rule) => self.commit_candidates(&mut rule.rules, token),
             CssRule::Scope(rule) => self.commit_candidates(&mut rule.rules, token),
             CssRule::StartingStyle(rule) => self.commit_candidates(&mut rule.rules, token),
-            _ => {}
+            _ => false,
         }
     }
 
@@ -135,9 +143,9 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
         mut left: std::pin::Pin<&mut StyleRule<'ast, 'ghost>>,
         right: std::pin::Pin<&mut StyleRule<'ast, 'ghost>>,
         token: &mut GhostToken<'ghost>,
-    ) {
+    ) -> bool {
         if !can_merge_same_selector(left.as_ref().get_ref(), right.as_ref().get_ref(), token) {
-            return;
+            return false;
         }
 
         let previous = Ref::from(&left.as_ref().get_ref().declarations);
@@ -156,6 +164,7 @@ impl<'ast, 'ghost> SameSelectorCommitPass<'ast, 'ghost> {
         for selector in left.as_mut().selectors_mut() {
             *selector = Selector::Tombstone;
         }
+        true
     }
 }
 

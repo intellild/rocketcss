@@ -97,6 +97,7 @@ pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
     cross_rule_declaration_merging::merge_cross_rule_declarations(
         stylesheet,
         token,
+        &mut minifier.declaration_blocks,
         &mut minifier.cx,
     );
     let Minifier { cx: result, .. } = minifier;

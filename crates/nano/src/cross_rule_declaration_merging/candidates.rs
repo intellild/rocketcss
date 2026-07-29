@@ -45,7 +45,13 @@ impl SameSelectorCandidateList {
 pub(super) struct DeclarationOverrideCandidateList(CandidateQueue);
 
 impl DeclarationOverrideCandidateList {
-    #[allow(dead_code)]
+    pub(super) fn with_capacity(capacity: usize) -> Self {
+        Self(CandidateQueue {
+            candidates: VecDeque::with_capacity(capacity),
+            queued: FxHashSet::default(),
+        })
+    }
+
     pub(super) fn push(&mut self, candidate: Candidate) {
         self.0.push(candidate);
     }

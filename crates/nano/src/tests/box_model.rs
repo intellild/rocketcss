@@ -107,7 +107,7 @@ fn keeps_existing_token_storage() {
 }
 
 #[test]
-#[ignore = "cross-block declaration IR is not implemented yet"]
+#[ignore = "cross-block relational effect reification requires S4"]
 fn runs_box_ir_across_adjacent_blocks() {
     assert_eq!(
         run("a{margin-top:1px;margin-right:2px}a{margin-bottom:3px;margin-left:4px}"),
@@ -116,6 +116,32 @@ fn runs_box_ir_across_adjacent_blocks() {
     assert_eq!(
         run("a{padding:1px}a{padding-left:2px}"),
         "a{padding:1px 1px 1px 2px}"
+    );
+}
+
+#[test]
+fn s2_preserves_the_position_of_a_longhand_folded_into_a_shorthand() {
+    assert_eq!(
+        run(".a{margin:1px}div{margin-left:3px}.a{margin-left:2px}"),
+        ".a{margin:1px}div{margin-left:3px}.a{margin-left:2px}"
+    );
+}
+
+#[test]
+fn s2_preserves_the_positions_of_box_longhands_merged_into_a_shorthand() {
+    assert_eq!(
+        run(
+            ".a{margin-top:1px}div{margin-top:9px}.a{margin-right:2px}.bar{x:1}.a{margin-bottom:3px}.baz{x:1}.a{margin-left:4px}"
+        ),
+        ".a{margin-top:1px}div{margin-top:9px}.a{margin-right:2px}.bar{x:1}.a{margin-bottom:3px}.baz{x:1}.a{margin-left:4px}"
+    );
+}
+
+#[test]
+fn s2_preserves_parent_declaration_positions_around_a_nested_rule() {
+    assert_eq!(
+        run(".p{margin:1px;&{margin-left:3px}margin-left:2px}"),
+        ".p{margin:1px;&{margin-left:3px}margin-left:2px}"
     );
 }
 

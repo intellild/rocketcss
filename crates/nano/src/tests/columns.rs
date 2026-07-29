@@ -55,3 +55,11 @@ fn preserves_column_fallbacks_hacks_and_importance() {
         "h1{column-width:12em !important;column-count:auto}"
     );
 }
+
+#[test]
+fn s2_preserves_column_longhand_positions_when_building_a_shorthand() {
+    assert_eq!(
+        run(".a{column-width:10px}div{column-width:30px}.a{column-count:2}"),
+        ".a{column-width:10px}div{column-width:30px}.a{column-count:2}"
+    );
+}
