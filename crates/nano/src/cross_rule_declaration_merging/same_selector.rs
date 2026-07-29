@@ -10,8 +10,11 @@ impl<'walk, 'ast, 'ghost> AdjacentDeclarationBlockScanner<'walk, 'ast, 'ghost> {
     pub(super) fn discover_same_selector_candidates(&mut self) {
         for left in 0..self.declaration_blocks.len().saturating_sub(1) {
             let left = u32::try_from(left).expect("declaration block index exceeds u32::MAX");
-            self.same_selector_candidates
-                .push(Candidate(left, left + 1));
+            let candidate = Candidate(left, left + 1);
+            let (left, right) = self.candidate_blocks(candidate);
+            if left.is_direct_sibling_of(right) {
+                self.same_selector_candidates.push(candidate);
+            }
         }
     }
 

@@ -30,23 +30,31 @@ the collision-safe final check.
 ### Discover structural adjacency during the existing walk
 
 S1 candidates must be direct siblings in the same rule list. Rewalking the
-complete stylesheet after collecting `Vec<&StyleRule>` enforces that rule, but
-costs another 1-2 ms on the current Bootstrap and Tailwind inputs. It also
-performs two pointer-map lookups for every adjacent style-rule pair.
+complete stylesheet after collecting a flat `Vec<DeclarationBlockEntry>`
+enforces that rule at commit time, but costs another 1-2 ms on the current
+Bootstrap and Tailwind inputs. It also performs two declaration-block pointer
+map lookups for every adjacent style-rule pair.
 
-The style-rule walk should instead produce both outputs in one traversal:
+The declaration-block walk should instead produce both outputs in one
+traversal:
 
 ```rust,ignore
-struct WalkStyleRuleResult<'walk, 'ast, 'ghost> {
-    style_rules: Vec<&'walk StyleRule<'ast, 'ghost>>,
+struct WalkDeclarationBlockResult<'walk, 'ast, 'ghost> {
+    declaration_blocks: Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>,
     same_selector_candidates: SameSelectorCandidateList,
 }
 ```
 
 When the walker enters a rule list, it records the indices of direct sibling
-style rules before recursively visiting child rule lists. This keeps
+declaration blocks before recursively visiting child rule lists. This keeps
 `SameSelectorCandidateList` responsible for candidate storage while avoiding a
 second AST traversal and pointer-to-index lookups.
+
+`DeclarationBlockEntry` now records `RuleListId`, `RuleListSegmentId`, and
+`SiblingOrdinal`, and candidate discovery rejects entries whose structural
+locations do not form a direct edge. A later optimization can create those
+edges while walking instead of collecting a flat vector and testing consecutive
+vector entries afterward.
 
 ### Do not repeat validated comparisons during commit
 
@@ -59,16 +67,43 @@ work to rejected candidates.
 
 ## Allocation and indexing candidates
 
-- Reserve the style-rule output vector when a cheap rule-list size estimate is
-  available. Do not add a counting prepass solely to obtain an exact capacity.
+- Reserve the declaration-block output vector when a cheap rule-list size
+  estimate is available. Do not add a counting prepass solely to obtain an
+  exact capacity.
 - Generate candidate indices while walking so the S1 path does not require an
-  `FxHashMap<*const StyleRule, u32>`. A pointer map may still be appropriate for
-  a later commit pass if AST mutation makes direct locations unstable.
+  `FxHashMap<*const DeclarationBlock, u32>`. A pointer map may still be
+  appropriate for a later commit pass if AST mutation makes direct locations
+  unstable.
 - Allocate per-rule caches lazily and only when their reuse is demonstrated.
   Avoid zero-initializing an `Option` entry for every style rule for a cache
   used by only one stage.
 - Keep `Candidate(u32, u32)` and compact queue state. Do not store selector
   clones or declaration snapshots in candidates.
+
+### Share effective-key paths instead of cloning them per block
+
+The current walker clones both the selector-frame path and conditional-context
+path into every `DeclarationBlockEntry`. Even a top-level style rule allocates
+one selector-path `Vec`; deeply nested styles copy every ancestor frame again.
+This makes discovery allocate and copy `O(blocks * nesting depth)` references
+before candidate processing starts.
+
+Candidate representations should preserve exact typed equality without owning
+these paths repeatedly. Viable implementations include:
+
+- persistent parent-linked selector and conditional-context nodes addressed by
+  compact `u32` IDs;
+- traversal-local interning with `FxHashMap`, where equal typed paths reuse one
+  immutable key; or
+- direct structural-edge discovery, with entries retaining only shared
+  effective-context identities required by S2 histories.
+
+Do not replace typed frames with serialized strings or make a fingerprint the
+sole equality proof. Any intern table or fingerprint must preserve frame order,
+multiplicity, authored layer identity, selector tombstone semantics, and exact
+conditional AST equality. Benchmark the shared representation independently:
+for shallow stylesheets, interning and hashing may cost more than the cloned
+references they remove.
 
 ## Declaration sequence reuse
 
