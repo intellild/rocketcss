@@ -1,1 +1,1 @@
-a{--x:red;--X:blue}
+a{--x:red}.bar{x:1}a{--X:blue}

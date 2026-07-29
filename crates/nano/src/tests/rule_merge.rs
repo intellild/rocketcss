@@ -37,6 +37,10 @@ fn adjacent_rule_merging_is_configurable() {
         run_with_options("a{color:red;&{x:1}color:blue}", options),
         "a{color:red;&{x:1}color:#00f}"
     );
+    assert_eq!(
+        run_with_options("a{width:1px}@layer barrier;a{width:1px}", options),
+        "a{width:1px}@layer barrier;a{width:1px}"
+    );
 }
 
 #[test]

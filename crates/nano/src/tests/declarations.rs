@@ -129,14 +129,56 @@ fn preserves_declaration_fallbacks_and_importance() {
 }
 
 #[test]
-#[ignore = "cross-block declaration IR is not implemented yet"]
-fn preserves_cross_block_fallbacks_and_removes_overridden_normal_values() {
+fn preserves_cross_block_fallbacks_and_separates_cascade_phases() {
     assert_eq!(
-        run("a{width:1px}a{width:2px}a{width:1px}"),
-        "a{width:1px;width:2px;width:1px}"
+        run("a{width:1px}@layer barrier-1;a{width:2px}@layer barrier-2;a{width:1px}"),
+        "a{width:1px}@layer barrier-1;a{width:2px}@layer barrier-2;a{width:1px}"
     );
     assert_eq!(
-        run("a{color:red!important}a{color:blue}"),
-        "a{color:red !important}"
+        run("a{color:red!important}@layer barrier;a{color:blue}"),
+        "a{color:red !important}@layer barrier;a{color:#00f}"
+    );
+}
+
+#[test]
+fn prunes_exact_effects_across_non_adjacent_blocks_in_one_history() {
+    assert_eq!(run("a{width:1px}b{x:1}a{width:1px}"), "b{x:1}a{width:1px}");
+}
+
+#[test]
+fn parent_declaration_segments_share_an_s2_history() {
+    assert_eq!(
+        run(".parent{color:red;.child{x:1}color:red}"),
+        ".parent{.child{x:1}color:red}"
+    );
+}
+
+#[test]
+fn s2_requires_exactly_equal_conditional_contexts() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            "@media (width:1px){a{x:1}}@media (width:2px){a{x:1}}@media (width:1px){a{x:1}}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+
+        minify(&mut stylesheet, &mut token, MinifyOptions::default());
+
+        let blocks = crate::utils::walk_declaration_blocks(&stylesheet, &token);
+        assert_eq!(blocks.len(), 2);
+        assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
+        assert!(!blocks[0].declarations.declarations[0].is_tombstone());
+        assert!(!blocks[1].declarations.declarations[0].is_tombstone());
+    });
+}
+
+#[test]
+fn s2_emptying_a_rule_exposes_a_new_s1_edge() {
+    assert_eq!(
+        run("a{x:1}b{y:1}a{z:1}b{y:1}a{w:1}"),
+        "a{x:1;z:1}b{y:1}a{w:1}"
     );
 }

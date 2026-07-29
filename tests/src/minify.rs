@@ -35,6 +35,19 @@ fn minifies_enabled_s1_cross_rule_fixtures() {
     assert_eq!(fixture_count, 3);
 }
 
+#[test]
+fn minifies_enabled_s2_only_cross_rule_fixtures() {
+    let mut fixture_count = 0;
+    for input in fixture_paths("minify") {
+        let path = fixture_path_key(&input);
+        if is_enabled_s2_only_cross_rule_fixture(&path) {
+            assert_minifies_static_fixture(&input);
+            fixture_count += 1;
+        }
+    }
+    assert_eq!(fixture_count, 5);
+}
+
 fn assert_minifies_static_fixture(input: &Path) {
     let source = read_fixture(input);
     let expected = read_fixture(&expected_path(input));
@@ -112,7 +125,9 @@ fn is_cross_rule_declaration_merging_fixture(input: &Path) -> bool {
 
 fn still_requires_unsupported_transform(input: &Path) -> bool {
     let path = fixture_path_key(input);
-    if is_cross_rule_declaration_merging_fixture(input) && !is_enabled_s1_cross_rule_fixture(&path)
+    if is_cross_rule_declaration_merging_fixture(input)
+        && !is_enabled_s1_cross_rule_fixture(&path)
+        && !is_enabled_s2_only_cross_rule_fixture(&path)
     {
         return true;
     }
@@ -146,6 +161,21 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
     unsupported_cases
         .into_iter()
         .any(|pattern| path.contains(pattern))
+}
+
+// Every fixture keeps a retained different-selector rule between equal
+// EffectiveKey entries. S1 may discover structural candidates, but none can
+// commit; only S2 can change an equal-key history.
+fn is_enabled_s2_only_cross_rule_fixture(path: &str) -> bool {
+    [
+        "/rocketcss/cross-rule-declaration-merging/declarations/removes-exact-duplicate-across-non-adjacent-blocks/",
+        "/rocketcss/cross-rule-declaration-merging/declarations/keeps-case-distinct-custom-properties/",
+        "/rocketcss/cross-rule-declaration-merging/declarations/keeps-fallback-and-importance-chains/",
+        "/rocketcss/cross-rule-declaration-merging/declarations/keeps-logical-and-physical-properties-when-direction-is-not-proven/",
+        "/rocketcss/cross-rule-declaration-merging/declarations/treats-revert-values-conservatively/",
+    ]
+    .into_iter()
+    .any(|pattern| path.contains(pattern))
 }
 
 fn is_enabled_s1_cross_rule_fixture(path: &str) -> bool {

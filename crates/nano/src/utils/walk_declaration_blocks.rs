@@ -1,8 +1,11 @@
-use rocketcss_allocator::{GhostToken, vec::Vec};
+use std::hash::{Hash, Hasher};
+
+use rocketcss_allocator::{GhostToken, Ref, vec::Vec};
 use rocketcss_ast::{
     ContainerCondition, CssRule, DeclarationBlock, MediaList, SelectorList, StyleRule, StyleSheet,
     SupportsCondition, VendorPrefix,
 };
+use rustc_hash::FxHasher;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ConditionalFrame<'walk, 'ast> {
@@ -18,7 +21,7 @@ enum ConditionalFrame<'walk, 'ast> {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum OpaqueConditionalKind {
     Layer,
     MozDocument,
@@ -26,13 +29,13 @@ enum OpaqueConditionalKind {
     StartingStyle,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum SelectorFrameKind {
     Style,
     Nesting,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct SelectorFrame<'walk, 'ast> {
     kind: SelectorFrameKind,
     selectors: &'walk SelectorList<'ast>,
@@ -49,6 +52,18 @@ struct SelectorFrame<'walk, 'ast> {
 pub(crate) struct EffectiveKey<'walk, 'ast> {
     selectors: std::vec::Vec<SelectorFrame<'walk, 'ast>>,
     conditions: std::vec::Vec<ConditionalFrame<'walk, 'ast>>,
+}
+
+impl EffectiveKey<'_, '_> {
+    pub(crate) fn fingerprint(&self) -> u64 {
+        let mut hasher = FxHasher::default();
+        self.selectors.hash(&mut hasher);
+        self.conditions.len().hash(&mut hasher);
+        for condition in &self.conditions {
+            hash_conditional_frame(condition, &mut hasher);
+        }
+        hasher.finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -70,6 +85,7 @@ struct StructuralLocation {
 #[derive(Debug)]
 pub(crate) struct DeclarationBlockEntry<'walk, 'ast, 'ghost> {
     pub(crate) declarations: &'walk DeclarationBlock<'ast, 'ghost>,
+    pub(crate) declaration_ref: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
     pub(crate) effective_key: EffectiveKey<'walk, 'ast>,
     pub(crate) rule_list: RuleListId,
     pub(crate) rule_list_segment: RuleListSegmentId,
@@ -184,6 +200,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
             CssRule::NestedDeclarations(rule) => {
                 self.declaration_blocks.push(DeclarationBlockEntry {
                     declarations: rule.declarations.as_ref().borrow(self.token).get_ref(),
+                    declaration_ref: Ref::from(&rule.declarations),
                     effective_key: self.effective_key(),
                     rule_list: location.rule_list,
                     rule_list_segment: location.rule_list_segment,
@@ -226,6 +243,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
         });
         self.declaration_blocks.push(DeclarationBlockEntry {
             declarations: rule.declarations.as_ref().borrow(self.token).get_ref(),
+            declaration_ref: Ref::from(&rule.declarations),
             effective_key: self.effective_key(),
             rule_list: location.rule_list,
             rule_list_segment: location.rule_list_segment,
@@ -249,6 +267,34 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
         EffectiveKey {
             selectors: self.selectors.clone(),
             conditions: self.conditions.clone(),
+        }
+    }
+}
+
+fn hash_conditional_frame(frame: &ConditionalFrame<'_, '_>, hasher: &mut FxHasher) {
+    std::mem::discriminant(frame).hash(hasher);
+    match frame {
+        ConditionalFrame::Media(media) => {
+            media.media_queries.len().hash(hasher);
+            for query in &media.media_queries {
+                query.qualifier.is_some().hash(hasher);
+                query.condition.is_some().hash(hasher);
+                std::mem::discriminant(&query.media_type).hash(hasher);
+            }
+        }
+        ConditionalFrame::Supports(condition) => {
+            std::mem::discriminant(*condition).hash(hasher);
+        }
+        ConditionalFrame::Container { name, condition } => {
+            name.hash(hasher);
+            condition.is_some().hash(hasher);
+            if let Some(condition) = condition {
+                std::mem::discriminant(*condition).hash(hasher);
+            }
+        }
+        ConditionalFrame::Opaque { kind, identity } => {
+            kind.hash(hasher);
+            identity.hash(hasher);
         }
     }
 }
@@ -295,6 +341,10 @@ mod tests {
             assert_eq!(blocks[1].effective_key, blocks[2].effective_key);
             assert_ne!(blocks[2].effective_key, blocks[3].effective_key);
             assert_ne!(blocks[2].effective_key, blocks[4].effective_key);
+            assert_eq!(
+                blocks[1].effective_key.fingerprint(),
+                blocks[2].effective_key.fingerprint()
+            );
         });
     }
 
