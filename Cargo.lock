@@ -1303,7 +1303,6 @@ dependencies = [
  "rocketcss_parser",
  "rocketcss_visitor",
  "rustc-hash",
- "smallvec",
  "zmij",
 ]
 
