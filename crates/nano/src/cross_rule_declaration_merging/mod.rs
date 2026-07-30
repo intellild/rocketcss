@@ -1,77 +1,18 @@
 mod candidates;
 mod declaration_override;
+mod effective_key;
+mod live_sibling_graph;
 mod same_selector;
 
 use rocketcss_allocator::{GhostToken, vec::Vec};
 use rocketcss_ast::{CssRule, StyleSheet};
-use rustc_hash::FxHashMap;
 
-use self::candidates::{
-    DeclarationOverrideCandidateList, PartialMergeCandidateList, SameSelectorCandidateList,
-};
+use self::declaration_override::DeclarationOverrideCommitPass;
+use self::effective_key::intern_effective_keys;
+use self::live_sibling_graph::LiveSiblingGraph;
 use crate::rules::DeclarationBlockMinifier;
-use crate::utils::{DeclarationBlockEntry, walk_declaration_blocks};
+use crate::utils::walk_declaration_blocks;
 use crate::{MinifyContext, Options, OptionsOp};
-
-#[derive(Debug)]
-struct CrossRuleDeclarationScanner<'walk, 'ast, 'ghost> {
-    declaration_blocks: std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>,
-    same_selector_candidates: SameSelectorCandidateList,
-    same_selector_commits: std::vec::Vec<candidates::Candidate>,
-    declaration_override_candidates: DeclarationOverrideCandidateList,
-    declaration_override_commits: std::vec::Vec<std::vec::Vec<u32>>,
-    declaration_override_history_by_tail: FxHashMap<u32, usize>,
-    partial_merge_candidates: PartialMergeCandidateList,
-}
-
-impl<'walk, 'ast, 'ghost> CrossRuleDeclarationScanner<'walk, 'ast, 'ghost> {
-    fn new(declaration_blocks: std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>) -> Self {
-        if let Some(last_index) = declaration_blocks.len().checked_sub(1) {
-            u32::try_from(last_index).expect("declaration block index exceeds u32::MAX");
-        }
-        let adjacent_block_count = declaration_blocks.len().saturating_sub(1);
-
-        Self {
-            declaration_blocks,
-            same_selector_candidates: SameSelectorCandidateList::with_capacity(
-                adjacent_block_count,
-            ),
-            same_selector_commits: std::vec::Vec::new(),
-            declaration_override_candidates: DeclarationOverrideCandidateList::with_capacity(
-                adjacent_block_count,
-            ),
-            declaration_override_commits: std::vec::Vec::new(),
-            declaration_override_history_by_tail: FxHashMap::default(),
-            partial_merge_candidates: PartialMergeCandidateList::default(),
-        }
-    }
-
-    fn run(&mut self) {
-        self.discover_same_selector_candidates();
-        self.discover_declaration_override_candidates();
-
-        loop {
-            if let Some(candidate) = self.same_selector_candidates.pop() {
-                self.handle_same_selector_candidate(candidate);
-                continue;
-            }
-
-            if let Some(candidate) = self.declaration_override_candidates.pop() {
-                self.handle_declaration_override_candidate(candidate);
-                continue;
-            }
-
-            if let Some(candidate) = self.partial_merge_candidates.pop() {
-                self.handle_partial_merge_candidate(candidate);
-                continue;
-            }
-
-            break;
-        }
-    }
-
-    fn handle_partial_merge_candidate(&mut self, _candidate: candidates::Candidate) {}
-}
 
 pub(crate) fn merge_cross_rule_declarations<'ast, 'ghost, 'scratch>(
     stylesheet: &mut StyleSheet<'ast, 'ghost>,
@@ -85,27 +26,29 @@ pub(crate) fn merge_cross_rule_declarations<'ast, 'ghost, 'scratch>(
         return;
     }
 
-    loop {
-        let (same_selector_commit_pass, declaration_override_commit_pass) = {
-            let declaration_blocks = walk_declaration_blocks(stylesheet, token);
-            let mut scanner = CrossRuleDeclarationScanner::new(declaration_blocks);
-            scanner.run();
-            let same_selector_commit_pass = scanner.take_same_selector_commit_pass();
-            let declaration_override_commit_pass = scanner.take_declaration_override_commit_pass();
-            (same_selector_commit_pass, declaration_override_commit_pass)
-        };
+    let (mut live_sibling_graph, declaration_override_commit_pass) = {
+        let declaration_blocks = walk_declaration_blocks(stylesheet, token);
+        let (effective_keys, effective_key_count) = intern_effective_keys(&declaration_blocks);
+        let mut live_sibling_graph =
+            LiveSiblingGraph::new(&declaration_blocks, &effective_keys, token);
+        live_sibling_graph.stabilize_same_selector_candidates();
+        let declaration_override_commit_pass = DeclarationOverrideCommitPass::discover(
+            &declaration_blocks,
+            &effective_keys,
+            effective_key_count,
+        );
+        (live_sibling_graph, declaration_override_commit_pass)
+    };
 
-        let mut rules_retired = false;
-        if let Some(commit_pass) = same_selector_commit_pass {
-            rules_retired |= commit_pass.commit(stylesheet, token);
+    if let Some(commit_pass) = declaration_override_commit_pass {
+        let result = commit_pass.commit(declaration_block_minifier, token, cx);
+        for declarations in result.newly_empty {
+            live_sibling_graph.declaration_block_became_empty(declarations);
         }
-        if let Some(commit_pass) = declaration_override_commit_pass {
-            let result = commit_pass.commit(stylesheet, declaration_block_minifier, token, cx);
-            rules_retired |= result.rules_retired;
-        }
-        if !rules_retired {
-            break;
-        }
+        live_sibling_graph.stabilize_same_selector_candidates();
+    }
+
+    if live_sibling_graph.commit(stylesheet, token) {
         compact_retired_style_rules(&mut stylesheet.rules);
     }
 }

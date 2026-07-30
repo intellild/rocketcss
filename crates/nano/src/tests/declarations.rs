@@ -182,3 +182,19 @@ fn s2_emptying_a_rule_exposes_a_new_s1_edge() {
         "a{x:1;z:1}b{y:1}a{w:1}"
     );
 }
+
+#[test]
+fn live_graph_prepends_into_an_existing_s1_sequence() {
+    assert_eq!(
+        run("a{x:1}b{q:1}a{y:1}a{z:1}b{q:1}"),
+        "a{x:1;y:1;z:1}b{q:1}"
+    );
+}
+
+#[test]
+fn live_graph_removes_multiple_s2_barriers_before_stabilizing_s1() {
+    assert_eq!(
+        run("a{x:1}b{q:1}c{r:1}a{y:1}b{q:1}c{r:1}"),
+        "a{x:1;y:1}b{q:1}c{r:1}"
+    );
+}

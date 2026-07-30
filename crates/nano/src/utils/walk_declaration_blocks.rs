@@ -82,11 +82,22 @@ struct StructuralLocation {
     sibling_ordinal: SiblingOrdinal,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DeclarationBlockKind {
+    Style {
+        has_children: bool,
+        has_live_selectors: bool,
+    },
+    Nesting,
+    NestedDeclarations,
+}
+
 #[derive(Debug)]
 pub(crate) struct DeclarationBlockEntry<'walk, 'ast, 'ghost> {
     pub(crate) declarations: &'walk DeclarationBlock<'ast, 'ghost>,
     pub(crate) declaration_ref: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
     pub(crate) effective_key: EffectiveKey<'walk, 'ast>,
+    pub(crate) kind: DeclarationBlockKind,
     pub(crate) rule_list: RuleListId,
     pub(crate) rule_list_segment: RuleListSegmentId,
     pub(crate) sibling_ordinal: SiblingOrdinal,
@@ -202,6 +213,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
                     declarations: rule.declarations.as_ref().borrow(self.token).get_ref(),
                     declaration_ref: Ref::from(&rule.declarations),
                     effective_key: self.effective_key(),
+                    kind: DeclarationBlockKind::NestedDeclarations,
                     rule_list: location.rule_list,
                     rule_list_segment: location.rule_list_segment,
                     sibling_ordinal: location.sibling_ordinal,
@@ -245,6 +257,16 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
             declarations: rule.declarations.as_ref().borrow(self.token).get_ref(),
             declaration_ref: Ref::from(&rule.declarations),
             effective_key: self.effective_key(),
+            kind: match kind {
+                SelectorFrameKind::Style => DeclarationBlockKind::Style {
+                    has_children: !rule.rules.is_empty(),
+                    has_live_selectors: rule
+                        .selectors
+                        .iter()
+                        .any(|selector| !selector.is_tombstone()),
+                },
+                SelectorFrameKind::Nesting => DeclarationBlockKind::Nesting,
+            },
             rule_list: location.rule_list,
             rule_list_segment: location.rule_list_segment,
             sibling_ordinal: location.sibling_ordinal,
