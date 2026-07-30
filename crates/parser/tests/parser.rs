@@ -77,9 +77,9 @@ fn parses_style_rule_selectors_and_declarations() {
     allocator.with_ghost(|mut token| {
     let source =
         "/*! license */ .Foo, #app > a:hover { color: red; opacity: .5 !important; --gap: 1rem; }";
-    let sheet = parse(
+    let mut compiler = Compiler::new(&allocator);
+    let sheet = compiler.parse(
         source,
-        &allocator,
         &mut token,
         ParserOptions {
             filename: "input.css",
@@ -89,7 +89,7 @@ fn parses_style_rule_selectors_and_declarations() {
     .unwrap();
 
     assert_eq!(&*sheet.license_comments, ["! license "]);
-    assert_eq!(&*sheet.sources, ["input.css"]);
+    assert_eq!(compiler.source(), "input.css");
     assert_eq!(sheet.rules.len(), 1);
     let CssRule::Style(rule) = &sheet.rules[0] else {
         panic!("expected style rule")
@@ -392,7 +392,7 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
         let rule = rule.as_ref().get_ref();
         assert!(matches!(
             &rule.selectors[0][0],
-            SelectorComponent::Class("foo")
+            SelectorComponent::Class(name) if name == "foo"
         ));
 
         let Declaration::Width(width) = &rule.declarations.as_ref().borrow(&token).declarations[0]
@@ -408,6 +408,65 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
                         TokenOrValue::Function(nested) if nested.name() == "var"
                     ))
         ));
+    })
+}
+
+#[test]
+fn compiler_interns_equal_selector_strings_to_one_atom() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut compiler = Compiler::new(&allocator);
+        let sheet = compiler
+            .parse(
+                r#".foo,.f\6f o { color: red }"#,
+                &mut token,
+                ParserOptions::default(),
+            )
+            .unwrap();
+        let CssRule::Style(rule) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let rule = rule.as_ref().get_ref();
+        let SelectorComponent::Class(first) = &rule.selectors[0][0] else {
+            panic!("expected first class selector")
+        };
+        let SelectorComponent::Class(second) = &rule.selectors[1][0] else {
+            panic!("expected second class selector")
+        };
+
+        assert_eq!(first, second);
+        assert!(std::ptr::eq(first.as_str(), second.as_str()));
+    })
+}
+
+#[test]
+fn scope_prelude_reuses_the_compiler_string_pool() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut compiler = Compiler::new(&allocator);
+        let sheet = compiler
+            .parse(
+                "@scope (.shared){.shared{color:red}}",
+                &mut token,
+                ParserOptions::default(),
+            )
+            .unwrap();
+        let CssRule::Scope(scope) = &sheet.rules[0] else {
+            panic!("expected scope rule")
+        };
+        let SelectorComponent::Class(scope_class) = &scope.scope_start.as_ref().unwrap()[0][0]
+        else {
+            panic!("expected scope class selector")
+        };
+        let CssRule::Style(rule) = &scope.rules[0] else {
+            panic!("expected scoped style rule")
+        };
+        let SelectorComponent::Class(rule_class) = &rule.as_ref().get_ref().selectors[0][0] else {
+            panic!("expected style class selector")
+        };
+
+        assert_eq!(scope_class, rule_class);
+        assert!(std::ptr::eq(scope_class.as_str(), rule_class.as_str()));
     })
 }
 
@@ -602,7 +661,7 @@ fn selector_error_recovery_preserves_a_pure_invalid_selector() {
         let rule = rule.as_ref().get_ref();
         assert!(matches!(
             &rule.selectors[0],
-            Selector::Unparsed("(font-[family-name:var(--font-*)])")
+            Selector::Unparsed(raw) if raw == "(font-[family-name:var(--font-*)])"
         ));
         assert!(matches!(
             &rule.declarations.as_ref().borrow(&token).declarations[0],
@@ -634,7 +693,7 @@ fn selector_error_recovery_continues_at_commas() {
         assert!(matches!(&rule.selectors[0], Selector::Parsed(_)));
         assert!(matches!(
             &rule.selectors[1],
-            Selector::Unparsed("(font-[family-name:var(--font-*)])")
+            Selector::Unparsed(raw) if raw == "(font-[family-name:var(--font-*)])"
         ));
         assert!(matches!(&rule.selectors[2], Selector::Parsed(_)));
     })
@@ -663,7 +722,7 @@ fn selector_error_recovery_consumes_multiple_invalid_tokens() {
         assert!(matches!(&rule.selectors[0], Selector::Parsed(_)));
         assert!(matches!(
             &rule.selectors[1],
-            Selector::Unparsed(".broken ?? trailing")
+            Selector::Unparsed(raw) if raw == ".broken ?? trailing"
         ));
         assert!(matches!(&rule.selectors[2], Selector::Parsed(_)));
     })
@@ -722,8 +781,8 @@ fn parses_namespace_deep_and_empty_where_selectors() {
         &selectors[0][..],
         [
             SelectorComponent::ExplicitNoNamespace,
-            SelectorComponent::LocalName { name: "e", .. }
-        ]
+            SelectorComponent::LocalName { name, .. }
+        ] if name == "e"
     ));
     assert!(matches!(
         &selectors[1][..],
@@ -735,26 +794,30 @@ fn parses_namespace_deep_and_empty_where_selectors() {
     assert!(matches!(
         &selectors[2][..],
         [
-            SelectorComponent::Namespace { prefix: "svg", .. },
-            SelectorComponent::LocalName { name: "circle", .. }
-        ]
+            SelectorComponent::Namespace { prefix, .. },
+            SelectorComponent::LocalName { name, .. }
+        ] if prefix == "svg" && name == "circle"
     ));
     assert!(matches!(
         &selectors[3][0],
         SelectorComponent::AttributeOther(attribute)
-            if matches!(&attribute.namespace, Some(NamespaceConstraint::Specific { prefix: "svg", .. }))
+            if matches!(
+                &attribute.namespace,
+                Some(NamespaceConstraint::Specific { prefix, .. }) if prefix == "svg"
+            )
     ));
     assert!(matches!(
         &selectors[4][..],
         [
-            SelectorComponent::Class("a"),
+            SelectorComponent::Class(left),
             SelectorComponent::Combinator(Combinator::Deep),
-            SelectorComponent::Class("b")
-        ]
+            SelectorComponent::Class(right)
+        ] if left == "a" && right == "b"
     ));
     assert!(matches!(
         &selectors[5][..],
-        [SelectorComponent::LocalName { name: "foo", .. }, SelectorComponent::Where(list)] if list.is_empty()
+        [SelectorComponent::LocalName { name, .. }, SelectorComponent::Where(list)]
+            if name == "foo" && list.is_empty()
     ));
 }
 
@@ -1709,8 +1772,11 @@ fn extracts_source_directives_in_parser_layer() {
     allocator.with_ghost(|mut token| {
         let source =
             "a { color: red } /*# sourceURL=original.scss */ /*# sourceMappingURL=style.css.map */";
-        let sheet = parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
-        assert_eq!(&*sheet.source_map_urls, [Some("style.css.map")]);
+        let mut compiler = Compiler::new(&allocator);
+        let _sheet = compiler
+            .parse(source, &mut token, ParserOptions::default())
+            .unwrap();
+        assert_eq!(compiler.source_map_url(), Some("style.css.map"));
 
         let mut input = ParserInput::new(source, &allocator);
         let mut parser = Parser::new(&mut input);
@@ -1739,13 +1805,16 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name: "select", .. }
+            SelectorComponent::LocalName { name, .. } if name == "select"
         ));
 
         assert!(matches!(
             &selector[1],
             SelectorComponent::PseudoElement(element)
-                if matches!(**element, PseudoElement::CustomFunction { name: "picker", .. })
+                if matches!(
+                    &**element,
+                    PseudoElement::CustomFunction { name, .. } if name == "picker"
+                )
         ));
 
         assert!(matches!(&selector[2], SelectorComponent::Negation(_)));
@@ -1777,7 +1846,10 @@ fn preserves_details_content_chained_with_before_pseudo_element() {
         assert!(matches!(
             &selector[0],
             SelectorComponent::PseudoElement(element)
-                if matches!(**element, PseudoElement::Custom { name: "details-content" })
+                if matches!(
+                    &**element,
+                    PseudoElement::Custom { name } if name == "details-content"
+                )
         ));
 
         assert!(matches!(
@@ -1812,13 +1884,16 @@ fn preserves_has_slotted_pseudo_class() {
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name: "slot", .. }
+            SelectorComponent::LocalName { name, .. } if name == "slot"
         ));
 
         assert!(matches!(
             &selector[1],
             SelectorComponent::PseudoClass(pc)
-                if matches!(**pc, PseudoClass::Custom { name: "has-slotted" })
+                if matches!(
+                    &**pc,
+                    PseudoClass::Custom { name } if name == "has-slotted"
+                )
         ));
     })
 }
@@ -1841,7 +1916,7 @@ fn preserves_pseudo_element_arg_inside_has_selector() {
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name: "video", .. }
+            SelectorComponent::LocalName { name, .. } if name == "video"
         ));
 
         assert!(matches!(&selector[1], SelectorComponent::Negation(_)));
@@ -1864,7 +1939,10 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
         assert!(matches!(
             &rule.selectors[0][0],
             SelectorComponent::PseudoElement(element)
-                if matches!(**element, PseudoElement::Custom { name: "scroll-button" })
+                if matches!(
+                    &**element,
+                    PseudoElement::Custom { name } if name == "scroll-button"
+                )
         ));
 
         let CssRule::Style(rule) = &sheet.rules[1] else {
@@ -1874,7 +1952,10 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
         assert!(matches!(
             &rule.selectors[0][3],
             SelectorComponent::PseudoElement(element)
-                if matches!(**element, PseudoElement::Custom { name: "scroll-marker" })
+                if matches!(
+                    &**element,
+                    PseudoElement::Custom { name } if name == "scroll-marker"
+                )
         ));
     })
 }

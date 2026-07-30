@@ -10,7 +10,22 @@ pub fn parse<'i, 'ghost>(
     token: &mut GhostToken<'ghost>,
     options: ParserOptions<'i>,
 ) -> Result<StyleSheet<'i, 'ghost>, Error<'i>> {
-    let mut input = ParserInput::new(source, allocator);
+    Compiler::new(allocator).parse(source, token, options)
+}
+
+pub(crate) struct ParsedStyleSheet<'i, 'ghost> {
+    pub(crate) stylesheet: StyleSheet<'i, 'ghost>,
+    pub(crate) source_map_url: Option<&'i str>,
+}
+
+pub(crate) fn parse_with_string_pool<'i, 'ghost>(
+    source: &'i str,
+    allocator: &'i Allocator,
+    string_pool: &'i StringPool<'i>,
+    token: &mut GhostToken<'ghost>,
+    options: ParserOptions<'i>,
+) -> Result<ParsedStyleSheet<'i, 'ghost>, Error<'i>> {
+    let mut input = ParserInput::new_with_string_pool(source, allocator, string_pool);
     let mut parser = Parser::new(&mut input);
     let mut license_comments = allocator.vec();
 
@@ -30,16 +45,13 @@ pub fn parse<'i, 'ghost>(
     let rules = parse_rule_list(&mut parser, allocator, token, &options, 0)
         .map_err(|error| into_error(error, options.filename))?;
     let source_map_url = parser.current_source_map_url();
-    let mut sources = allocator.vec();
-    sources.push(options.filename);
-    let mut source_map_urls = allocator.vec();
-    source_map_urls.push(source_map_url);
 
-    Ok(StyleSheet {
-        license_comments,
-        rules,
-        source_map_urls,
-        sources,
+    Ok(ParsedStyleSheet {
+        stylesheet: StyleSheet {
+            license_comments,
+            rules,
+        },
+        source_map_url,
     })
 }
 

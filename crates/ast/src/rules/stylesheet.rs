@@ -10,8 +10,6 @@ pub struct DefaultAtRule;
 pub struct StyleSheet<'a, 'ghost> {
     pub license_comments: Vec<'a, &'a str>,
     pub rules: Vec<'a, CssRule<'a, 'ghost>>,
-    pub source_map_urls: Vec<'a, Option<&'a str>>,
-    pub sources: Vec<'a, &'a str>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

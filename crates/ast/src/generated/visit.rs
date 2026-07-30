@@ -15,6 +15,8 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_str(&mut self, _value: &&'a str, _cx: &VisitContext<'_, 'ghost>) {}
     #[inline]
+    fn visit_atom(&mut self, _value: &Atom<'a>, _cx: &VisitContext<'_, 'ghost>) {}
+    #[inline]
     fn visit_css_color(&mut self, node: &CssColor<'a>, cx: &VisitContext<'_, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }

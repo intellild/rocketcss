@@ -8,11 +8,13 @@ macro_rules! match_byte {
     };
 }
 
+mod compiler;
 mod escape;
 mod parser;
 pub mod prelude;
 mod tokenizer;
 
+pub use compiler::Compiler;
 pub use escape::unescape;
 pub use parser::stylesheet::parse;
 pub use parser::{

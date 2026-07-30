@@ -157,8 +157,8 @@ impl<'a, 'ghost> Visitor<'a, 'ghost> for SelectorRecorder<'a> {
         cx: &VisitContext<'_, 'ghost>,
     ) {
         match component {
-            SelectorComponent::Class(name) => self.classes.push(name),
-            SelectorComponent::Id(name) => self.ids.push(name),
+            SelectorComponent::Class(name) => self.classes.push(name.as_str()),
+            SelectorComponent::Id(name) => self.ids.push(name.as_str()),
             SelectorComponent::Combinator(Combinator::Child) => self.child_combinators += 1,
             _ => {}
         }
@@ -188,16 +188,18 @@ fn selector_visitor_recurses_into_functional_selector_lists() {
     })
 }
 
-struct RenameAndRecolor;
+struct RenameAndRecolor<'a> {
+    renamed: Atom<'a>,
+}
 
-impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameAndRecolor {
+impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameAndRecolor<'a> {
     fn visit_selector_component(
         &mut self,
         component: &mut SelectorComponent<'a>,
         cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
         if let SelectorComponent::Class(name) = component {
-            *name = "renamed";
+            *name = self.renamed;
         }
         component.visit_mut_children(self, cx);
     }
@@ -212,15 +214,19 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameAndRecolor {
 fn mutable_visitor_can_transform_typed_nodes() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
-        let mut sheet = rocketcss_parser::parse(
-            ".before { color: red }",
-            &allocator,
-            &mut token,
-            rocketcss_parser::ParserOptions::default(),
-        )
-        .unwrap();
+        let mut compiler = rocketcss_parser::Compiler::new(&allocator);
+        let mut sheet = compiler
+            .parse(
+                ".before { color: red }",
+                &mut token,
+                rocketcss_parser::ParserOptions::default(),
+            )
+            .unwrap();
+        let mut visitor = RenameAndRecolor {
+            renamed: compiler.string_pool().intern("renamed"),
+        };
 
-        sheet.visit_mut(&mut RenameAndRecolor, &mut VisitMutContext::new(&mut token));
+        sheet.visit_mut(&mut visitor, &mut VisitMutContext::new(&mut token));
 
         let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
@@ -228,7 +234,7 @@ fn mutable_visitor_can_transform_typed_nodes() {
         let rule = rule.as_ref().get_ref();
         assert!(matches!(
             rule.selectors[0][0],
-            SelectorComponent::Class("renamed")
+            SelectorComponent::Class(name) if name == "renamed"
         ));
         assert!(matches!(
             rule.declarations.as_ref().borrow(&token).declarations[0],
@@ -339,7 +345,10 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RemoveUnusedClass {
                 selector,
                 Selector::Parsed(components)
                     if components.len() == 1
-                        && matches!(components[0], SelectorComponent::Class("unused"))
+                        && matches!(
+                            components[0],
+                            SelectorComponent::Class(name) if name == "unused"
+                        )
             );
             if should_remove {
                 *selector = Selector::Tombstone;

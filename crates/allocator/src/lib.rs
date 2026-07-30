@@ -11,11 +11,14 @@ pub mod hash_set;
 pub mod prelude;
 pub mod raw_vec;
 pub mod reference;
+mod string_pool;
 pub mod vec;
 pub mod wtf8;
 
+pub use atom::Atom;
 pub use ghost_cell::{GhostBox, GhostCell, GhostToken};
 pub use reference::Ref;
+pub use string_pool::StringPool;
 
 pub trait CloneIn<'a>: Sized {
     type Cloned;

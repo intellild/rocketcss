@@ -2,12 +2,12 @@ use std::{error::Error, fmt};
 
 use rocketcss_visitor::prelude::*;
 
-struct Rename {
+struct Rename<'a> {
     from: &'static str,
-    to: &'static str,
+    to: Atom<'a>,
 }
 
-impl<'a, 'ghost> VisitorMut<'a, 'ghost> for Rename {
+impl<'a, 'ghost> VisitorMut<'a, 'ghost> for Rename<'a> {
     fn visit_selector_component(
         &mut self,
         component: &mut SelectorComponent<'a>,
@@ -46,13 +46,16 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordPlugin {
 fn plugins_run_in_registration_order_and_share_context() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
-        let mut sheet = rocketcss_parser::parse(
-            ".first {}",
-            &allocator,
-            &mut token,
-            rocketcss_parser::ParserOptions::default(),
-        )
-        .unwrap();
+        let mut compiler = rocketcss_parser::Compiler::new(&allocator);
+        let mut sheet = compiler
+            .parse(
+                ".first {}",
+                &mut token,
+                rocketcss_parser::ParserOptions::default(),
+            )
+            .unwrap();
+        let middle = compiler.string_pool().intern("middle");
+        let last = compiler.string_pool().intern("last");
         let mut context = PluginContext::new(&allocator, &mut token);
         context.insert(std::vec::Vec::<&'static str>::new());
         let mut plugins = Plugins::new();
@@ -61,7 +64,7 @@ fn plugins_run_in_registration_order_and_share_context() {
             "first-rename",
             Rename {
                 from: "first",
-                to: "middle",
+                to: middle,
             },
         );
         plugins.add(RecordPlugin("two"));
@@ -69,7 +72,7 @@ fn plugins_run_in_registration_order_and_share_context() {
             "second-rename",
             Rename {
                 from: "middle",
-                to: "last",
+                to: last,
             },
         );
 
@@ -85,7 +88,7 @@ fn plugins_run_in_registration_order_and_share_context() {
         let rule = rule.as_ref().get_ref();
         assert!(matches!(
             rule.selectors[0][0],
-            SelectorComponent::Class("last")
+            SelectorComponent::Class(name) if name == "last"
         ));
     });
 }

@@ -202,14 +202,6 @@ pub(super) fn css_wide_keyword(value: &str) -> Option<CSSWideKeyword> {
     )
 }
 
-pub(super) fn ascii_lowercase<'i>(value: &'i str, allocator: &'i Allocator) -> &'i str {
-    if value.bytes().all(|byte| !byte.is_ascii_uppercase()) {
-        value
-    } else {
-        allocator.alloc_str(&value.to_ascii_lowercase())
-    }
-}
-
 pub(super) fn matches_ignore_case(value: &str, expected: &[&str]) -> bool {
     expected.iter().any(|item| value.eq_ignore_ascii_case(item))
 }

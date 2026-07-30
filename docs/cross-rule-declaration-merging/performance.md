@@ -80,6 +80,36 @@ work to rejected candidates.
 - Keep `Candidate(u32, u32)` and compact queue state. Do not store selector
   clones or declaration snapshots in candidates.
 
+### Compiler-scoped selector atoms
+
+Selector equality and hashing repeatedly compare identifiers such as type,
+class, ID, namespace, attribute, and custom pseudo names. These values are now
+stored as `Atom` rather than independent `&str` slices. `Compiler` owns one
+compilation-scoped `StringPool`, and the parser interns every selector string
+through that pool before constructing the AST.
+
+`StringPool` uses `rocketcss_allocator::HashMap`, so both its entries and hash
+table storage have arena lifetime. The first occurrence copies the string into
+the arena; subsequent occurrences reuse that allocation. `Atom` equality,
+ordering, and hashing use only the canonical string pointer. Comparing an
+`Atom` with `str` remains a content comparison for diagnostics and API
+boundaries.
+
+Pointer identity is valid only inside one compiler pool. Consequently:
+
+- selector `Atom` constructors are not exposed for arbitrary `&str` values;
+- nested selector parsers must reuse the parent `ParserInput` string pool;
+- mutable visitors must obtain replacement atoms from the owning compiler's
+  pool;
+- cloning an AST into another arena must re-intern its selector strings in the
+  destination compiler; and
+- APIs comparing ASTs from different compiler instances must compare
+  `Atom::as_str()` explicitly rather than relying on `Atom` equality.
+
+The compiler also owns the single source name and source-map URL associated
+with the stylesheet. They are not stored as one-element vectors in
+`StyleSheet`.
+
 ### Share effective-key paths instead of cloning them per block
 
 The current walker clones both the selector-frame path and conditional-context

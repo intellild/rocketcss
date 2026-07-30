@@ -1,7 +1,7 @@
 //! Common arena allocator types.
 
 pub use crate::{
-    Allocator,
+    Allocator, Atom, StringPool,
     bit_vec::BitVec,
     boxed::Box,
     ghost_cell::{GhostBox, GhostCell, GhostToken},
