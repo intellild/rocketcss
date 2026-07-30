@@ -102,6 +102,12 @@ pub(super) struct DeclarationOverrideCommitPass<'ast, 'ghost> {
     histories: std::vec::Vec<std::vec::Vec<Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>>>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct DeclarationOverrideCommitResult {
+    pub(super) declarations_removed: bool,
+    pub(super) rules_retired: bool,
+}
+
 impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
     pub(super) fn commit<'scratch>(
         &self,
@@ -109,7 +115,7 @@ impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
         minifier: &mut DeclarationBlockMinifier<'scratch, 'ast>,
         token: &mut GhostToken<'ghost>,
         cx: &mut MinifyContext<'scratch>,
-    ) -> bool
+    ) -> DeclarationOverrideCommitResult
     where
         'ast: 'scratch,
     {
@@ -133,8 +139,10 @@ impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
                 }
             }
         }
-        let retired = retire_empty_style_rules(&mut stylesheet.rules, &newly_empty, token);
-        retired || cx.stats().declarations_removed != declarations_removed
+        DeclarationOverrideCommitResult {
+            declarations_removed: cx.stats().declarations_removed != declarations_removed,
+            rules_retired: retire_empty_style_rules(&mut stylesheet.rules, &newly_empty, token),
+        }
     }
 }
 
@@ -297,7 +305,13 @@ mod tests {
             let scratch = Allocator::new();
             let mut minifier = DeclarationBlockMinifier::new(&scratch);
             let mut cx = MinifyContext::new(MinifyOptions::default(), &scratch);
-            assert!(commit_pass.commit(&mut stylesheet, &mut minifier, &mut token, &mut cx));
+            assert_eq!(
+                commit_pass.commit(&mut stylesheet, &mut minifier, &mut token, &mut cx),
+                DeclarationOverrideCommitResult {
+                    declarations_removed: true,
+                    rules_retired: true,
+                }
+            );
             assert_eq!(
                 stylesheet
                     .to_css_string(
@@ -306,6 +320,51 @@ mod tests {
                     )
                     .unwrap(),
                 ".bar{x:1}a{width:1px}"
+            );
+        });
+    }
+
+    #[test]
+    fn reports_declaration_only_changes_without_structural_retirement() {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
+            let mut stylesheet = parse(
+                "a{width:1px;height:1px}.bar{x:1}a{width:1px}",
+                &allocator,
+                &mut token,
+                ParserOptions::default(),
+            )
+            .unwrap();
+            let commit_pass = {
+                let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+                let mut scanner = CrossRuleDeclarationScanner::new(declaration_blocks);
+                scanner.discover_declaration_override_candidates();
+                while let Some(candidate) = scanner.declaration_override_candidates.pop() {
+                    scanner.handle_declaration_override_candidate(candidate);
+                }
+                scanner
+                    .take_declaration_override_commit_pass()
+                    .expect("the two a blocks share one exact-only S2 history")
+            };
+
+            let scratch = Allocator::new();
+            let mut minifier = DeclarationBlockMinifier::new(&scratch);
+            let mut cx = MinifyContext::new(MinifyOptions::default(), &scratch);
+            assert_eq!(
+                commit_pass.commit(&mut stylesheet, &mut minifier, &mut token, &mut cx),
+                DeclarationOverrideCommitResult {
+                    declarations_removed: true,
+                    rules_retired: false,
+                }
+            );
+            assert_eq!(
+                stylesheet
+                    .to_css_string(
+                        PrinterOptions { prettify: false },
+                        &ToCssContext::new(&token)
+                    )
+                    .unwrap(),
+                "a{height:1px}.bar{x:1}a{width:1px}"
             );
         });
     }
