@@ -25,7 +25,7 @@ pub(crate) fn merge_cross_rule_declarations<'ast, 'ghost, 'scratch>(
     }
 
     let (mut live_sibling_graph, declaration_override_commit_pass) = {
-        let declaration_blocks = walk_declaration_blocks(stylesheet, token, cx.allocator());
+        let declaration_blocks = walk_declaration_blocks(stylesheet, token);
         let mut live_sibling_graph = LiveSiblingGraph::new(&declaration_blocks, token);
         live_sibling_graph.stabilize_same_selector_candidates();
         let declaration_override_commit_pass =
