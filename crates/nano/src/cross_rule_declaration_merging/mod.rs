@@ -106,17 +106,18 @@ pub(crate) fn merge_cross_rule_declarations<'ast, 'ghost, 'scratch>(
             (same_selector_commit_pass, declaration_override_commit_pass)
         };
 
-        let mut changed = false;
+        let mut rules_retired = false;
         if let Some(commit_pass) = same_selector_commit_pass {
-            changed |= commit_pass.commit(stylesheet, token);
+            rules_retired |= commit_pass.commit(stylesheet, token);
         }
         if let Some(commit_pass) = declaration_override_commit_pass {
-            changed |= commit_pass.commit(stylesheet, declaration_block_minifier, token, cx);
+            let result = commit_pass.commit(stylesheet, declaration_block_minifier, token, cx);
+            rules_retired |= result.rules_retired;
         }
-        changed |= compact_retired_style_rules(&mut stylesheet.rules);
-        if !changed {
+        if !rules_retired {
             break;
         }
+        compact_retired_style_rules(&mut stylesheet.rules);
     }
 }
 
