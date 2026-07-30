@@ -1,12 +1,13 @@
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 
-use rocketcss_allocator::{Allocator, GhostToken, Ref, hash_map::HashMap, vec::Vec};
+use rocketcss_allocator::{GhostToken, Ref, vec::Vec};
 use rocketcss_ast::{
     ContainerCondition, CssRule, DeclarationBlock, MediaList, SelectorList, StyleRule, StyleSheet,
     SupportsCondition, VendorPrefix,
 };
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHashMap, FxHasher};
+use smallvec::SmallVec;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ConditionalFrame<'walk, 'ast> {
@@ -201,7 +202,6 @@ struct EffectiveKeyState {
     conditions: ConditionalPathId,
     id: EffectiveKeyId,
     last_entry: u32,
-    next_collision: Option<NonZeroU32>,
     has_history: bool,
 }
 
@@ -212,19 +212,13 @@ struct EffectiveKeyOccurrence {
     starts_history: bool,
 }
 
-struct EffectiveKeyInterner<'scratch> {
-    buckets: HashMap<'scratch, u64, NonZeroU32>,
-    states: Vec<'scratch, EffectiveKeyState>,
+#[derive(Debug, Default)]
+struct EffectiveKeyInterner {
+    buckets: FxHashMap<u64, SmallVec<[EffectiveKeyState; 1]>>,
+    next_id: u32,
 }
 
-impl<'scratch> EffectiveKeyInterner<'scratch> {
-    fn new(allocator: &'scratch Allocator) -> Self {
-        Self {
-            buckets: HashMap::new_in(allocator),
-            states: Vec::new_in(allocator),
-        }
-    }
-
+impl EffectiveKeyInterner {
     fn intern(
         &mut self,
         selectors: SelectorPathId,
@@ -236,41 +230,31 @@ impl<'scratch> EffectiveKeyInterner<'scratch> {
         let mut hasher = FxHasher::default();
         selector_paths.fingerprint(selectors).hash(&mut hasher);
         conditional_paths.fingerprint(conditions).hash(&mut hasher);
-        let fingerprint = hasher.finish();
-        let mut collision = self.buckets.get(&fingerprint).copied();
-        while let Some(encoded_state) = collision {
-            let state_index = usize::try_from(encoded_state.get() - 1)
-                .expect("effective key state index fits usize");
-            let state = &mut self.states[state_index];
-            if selector_paths.equals(state.selectors, selectors)
+        let bucket = self.buckets.entry(hasher.finish()).or_default();
+        if let Some(state) = bucket.iter_mut().find(|state| {
+            selector_paths.equals(state.selectors, selectors)
                 && conditional_paths.equals(state.conditions, conditions)
-            {
-                let occurrence = EffectiveKeyOccurrence {
-                    id: state.id,
-                    previous_entry: Some(state.last_entry),
-                    starts_history: !state.has_history,
-                };
-                state.last_entry = current_entry;
-                state.has_history = true;
-                return occurrence;
-            }
-            collision = state.next_collision;
+        }) {
+            let occurrence = EffectiveKeyOccurrence {
+                id: state.id,
+                previous_entry: Some(state.last_entry),
+                starts_history: !state.has_history,
+            };
+            state.last_entry = current_entry;
+            state.has_history = true;
+            return occurrence;
         }
 
-        let state_index = u32::try_from(self.states.len())
-            .expect("effective key count exceeds u32::MAX")
+        let id = EffectiveKeyId(self.next_id);
+        self.next_id = self
+            .next_id
             .checked_add(1)
             .expect("effective key count exceeds u32::MAX");
-        let encoded_state =
-            NonZeroU32::new(state_index).expect("encoded effective key state index is non-zero");
-        let next_collision = self.buckets.insert(fingerprint, encoded_state);
-        let id = EffectiveKeyId(state_index - 1);
-        self.states.push(EffectiveKeyState {
+        bucket.push(EffectiveKeyState {
             selectors,
             conditions,
             id,
             last_entry: current_entry,
-            next_collision,
             has_history: false,
         });
         EffectiveKeyOccurrence {
@@ -367,33 +351,32 @@ impl WalkState {
 pub(crate) fn walk_declaration_blocks<'walk, 'ast, 'ghost>(
     stylesheet: &'walk StyleSheet<'ast, 'ghost>,
     token: &'walk GhostToken<'ghost>,
-    allocator: &Allocator,
 ) -> std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>> {
-    let mut walker = DeclarationBlockWalker::new(token, allocator);
+    let mut walker = DeclarationBlockWalker::new(token);
     walker.collect_rule_list(&stylesheet.rules);
     walker.declaration_blocks
 }
 
-struct DeclarationBlockWalker<'scratch, 'walk, 'ast, 'ghost> {
+struct DeclarationBlockWalker<'walk, 'ast, 'ghost> {
     token: &'walk GhostToken<'ghost>,
     selector_path: SelectorPathId,
     selector_paths: SelectorPathStore<'walk, 'ast>,
     conditional_path: ConditionalPathId,
     conditional_paths: ConditionalPathStore<'walk, 'ast>,
-    effective_keys: EffectiveKeyInterner<'scratch>,
+    effective_keys: EffectiveKeyInterner,
     declaration_blocks: std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>,
     state: WalkState,
 }
 
-impl<'scratch, 'walk, 'ast, 'ghost> DeclarationBlockWalker<'scratch, 'walk, 'ast, 'ghost> {
-    fn new(token: &'walk GhostToken<'ghost>, allocator: &'scratch Allocator) -> Self {
+impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
+    fn new(token: &'walk GhostToken<'ghost>) -> Self {
         Self {
             token,
             selector_path: SelectorPathId::default(),
             selector_paths: SelectorPathStore::default(),
             conditional_path: ConditionalPathId::default(),
             conditional_paths: ConditionalPathStore::default(),
-            effective_keys: EffectiveKeyInterner::new(allocator),
+            effective_keys: EffectiveKeyInterner::default(),
             declaration_blocks: std::vec::Vec::new(),
             state: WalkState::default(),
         }
@@ -627,7 +610,7 @@ mod tests {
             )
             .unwrap();
 
-            let blocks = walk_declaration_blocks(&stylesheet, &token, &allocator);
+            let blocks = walk_declaration_blocks(&stylesheet, &token);
             assert_eq!(blocks.len(), 5);
             assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
             assert_eq!(blocks[1].effective_key, blocks[2].effective_key);
@@ -648,7 +631,7 @@ mod tests {
             )
             .unwrap();
 
-            let blocks = walk_declaration_blocks(&stylesheet, &token, &allocator);
+            let blocks = walk_declaration_blocks(&stylesheet, &token);
             assert_eq!(blocks.len(), 5);
             assert!(blocks[0].starts_declaration_history());
             assert_eq!(blocks[0].next_declaration_history_entry(), Some(2));
@@ -673,7 +656,7 @@ mod tests {
             )
             .unwrap();
 
-            let blocks = walk_declaration_blocks(&stylesheet, &token, &allocator);
+            let blocks = walk_declaration_blocks(&stylesheet, &token);
             assert_eq!(blocks.len(), 6);
             assert!(blocks[0].is_direct_sibling_of(&blocks[1]));
             assert!(blocks[2].is_direct_sibling_of(&blocks[3]));
@@ -697,7 +680,7 @@ mod tests {
             )
             .unwrap();
 
-            let blocks = walk_declaration_blocks(&stylesheet, &token, &allocator);
+            let blocks = walk_declaration_blocks(&stylesheet, &token);
             assert_eq!(blocks.len(), 3);
             assert_eq!(blocks[0].effective_key, blocks[2].effective_key);
             assert_ne!(blocks[0].rule_list, blocks[2].rule_list);
