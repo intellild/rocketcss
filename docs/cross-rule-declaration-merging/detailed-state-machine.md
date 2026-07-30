@@ -101,8 +101,9 @@ struct DeclarationEntryState<'ast> {
 }
 
 struct DeclarationSequenceState {
-    blocks: Vec<DeclarationEntryId>,
+    blocks: OrderedSequence<DeclarationEntryId>,
     effects: DeclarationEffectIr,
+    live_effect_count: u32,
     aggregate_revision: Revision,
     active_output_owner: RuleId,
 }
@@ -244,6 +245,7 @@ RocketCSS's `previous_merged` chain:
 ```text
 blocks: ordered declaration-block references
 effects: virtual semantic longhand effects for the complete sequence
+live_effect_count: aggregate number of live virtual effects
 aggregate_revision: changes whenever any referenced block changes
 active_output_owner: the style rule that receives the reified AST sequence
 ```
@@ -251,6 +253,19 @@ active_output_owner: the style rule that receives the reified AST sequence
 Every declaration block remains an independent history entry with its original
 `SemanticSourceOrderKey`. Structural S1 coalescing does not collapse history
 membership into one synthetic occurrence.
+
+`blocks` is a logical ordered sequence, not a requirement to copy a `Vec` when
+S1 concatenates two sequences. The implementation should link existing
+sequences in source order using an intrusive list, rope, or head/tail links plus
+representative redirects. A disjoint-set alone is insufficient because it does
+not retain order.
+
+`previous_merged` is an incremental AST storage representation, not the
+analysis index. Once `DeclarationSequenceState` exists, semantic stages must
+not repeatedly expand `previous_merged` chains or scan every predecessor to
+determine emptiness. S1 updates the sequence aggregate when it concatenates;
+S2 updates `live_effect_count` when effect masks change. A zero aggregate plus
+no retained child content triggers the logical emptiness transition directly.
 
 The effect IR is an analysis overlay. A losslessly parsed shorthand contributes
 virtual canonical longhand effects while retaining one authored declaration
@@ -332,12 +347,13 @@ It performs one atomic local transition:
 2. remove all candidates and dirty-edge entries incident to the old endpoints;
 3. concatenate the left sequence before the right sequence;
 4. keep the right rule as `active_output_owner`;
-5. increment the combined aggregate revision;
-6. retire the left rule from live adjacency;
-7. preserve all declaration history entries and source-order keys;
-8. reconnect `old_previous -> right -> old_next`;
-9. dirty the affected effective-rule history; and
-10. classify the final incident edges.
+5. set the combined live-effect count to the exact sum of both sequences;
+6. increment the combined aggregate revision;
+7. retire the left rule from live adjacency;
+8. preserve all declaration history entries and source-order keys;
+9. reconnect `old_previous -> right -> old_next`;
+10. dirty the affected effective-rule history; and
+11. classify the final incident edges.
 
 The right child list remains owned by the right rule and follows the combined
 declaration sequence. The left rule is eligible only when retiring it cannot
@@ -375,13 +391,14 @@ Applying an edit:
 
 1. changes only the referenced effect occurrence or its live-effect mask;
 2. preserves its authored or synthesized declaration origin;
-3. increments the declaration-entry revision;
-4. increments the owning sequence aggregate revision;
-5. increments the effect-IR revision;
-6. increments the history generation;
-7. invalidates incident candidates;
-8. dirties affected local edges; and
-9. updates retained-content and logical liveness.
+3. updates the owning sequence's aggregate live-effect count;
+4. increments the declaration-entry revision;
+5. increments the owning sequence aggregate revision;
+6. increments the effect-IR revision;
+7. increments the history generation;
+8. invalidates incident candidates;
+9. dirties affected local edges; and
+10. updates retained-content and logical liveness.
 
 When the current resolver changes its own history, it consumes the new
 generation within the same local fixed-point loop. Changes originating from
@@ -583,6 +600,23 @@ before the one-way S5 AST reification commit
 
 S1 remains higher priority throughout the fixed point. S2 or S3 may remove an
 intervening node and expose a new same-selector edge after initial discovery.
+
+## Persistent stabilization state
+
+The merge state lives for the complete semantic fixed point. Discovery builds
+the initial rule table, live sibling links, declaration sequences, histories,
+and dirty work once.
+
+Logically retiring one endpoint splices `previous_live`/`next_live` and
+classifies only the final newly exposed edge. It must not compact the AST,
+re-walk every declaration block, or rebuild every effective-rule history to
+discover that edge. Each later semantic mutation updates the corresponding
+edge, history generation, sequence revision, and S4 work item in place.
+
+Physical rule-list removal and compaction happen once in S5 after the
+Stabilizer is empty. This persistent-state requirement is what bounds work by
+the initial state plus actual mutations rather than by the number of global
+rediscovery rounds.
 
 ## Work-coverage invariant
 

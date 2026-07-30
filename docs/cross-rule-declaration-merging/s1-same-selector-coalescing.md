@@ -87,6 +87,8 @@ Each endpoint owns an ordered sequence:
 ```text
 left.blocks  = [L1, L2, ...]
 right.blocks = [R1, R2, ...]
+left.live_effect_count  = sum of live effects in left.blocks
+right.live_effect_count = sum of live effects in right.blocks
 ```
 
 Every block keeps its original `SemanticSourceOrderKey` and history entry.
@@ -113,6 +115,7 @@ The output states are:
 | Live endpoints     | `left`, `right`                                            | `right` only                                         |
 | Output owner       | `left` and `right` separately                              | `right`                                              |
 | Declaration order  | Left block order, then right block order in the stylesheet | One sequence with the same order                     |
+| Live effect count  | One aggregate per endpoint                                 | Exact sum of both sequence aggregates                |
 | History membership | One entry per original block                               | Unchanged                                            |
 | Sequence revision  | Revisions of two sequences                                 | New incremented aggregate revision                   |
 | AST                | Two authored rules                                         | Unchanged until [S5](./s5-ast-reification-commit.md) |
