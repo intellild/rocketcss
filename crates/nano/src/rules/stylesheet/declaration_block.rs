@@ -375,13 +375,59 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         blocks: &[Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
         token: &mut GhostToken<'ghost>,
         cx: &mut MinifyContext<'scratch>,
+        mut on_block_emptied: impl FnMut(*const DeclarationBlock<'ast, 'ghost>),
     ) {
-        let mut sequence = DeclarationSequence::ghost(blocks, token);
+        let sequence = DeclarationSequence::ghost(blocks, token);
         if !sequence.locations_fit() {
             return;
         }
         self.ir.declarations.clear();
-        deduplicate_exact_declarations(&mut sequence, &mut self.ir.declarations, cx);
+        let mut history = ExactDeclarationHistory {
+            declarations: &mut self.ir.declarations,
+            sequence,
+        };
+        for block in 0..history.sequence.block_count() {
+            history.observe_block(block, cx, &mut on_block_emptied);
+        }
+    }
+}
+
+struct ExactDeclarationHistory<'sequence, 'scratch, 'ast, 'ghost> {
+    declarations: &'sequence mut DeclarationMap<'scratch, 'ast>,
+    sequence: DeclarationSequence<'sequence, 'ast, 'ghost>,
+}
+
+impl<'scratch, 'ast, 'ghost> ExactDeclarationHistory<'_, 'scratch, 'ast, 'ghost>
+where
+    'ast: 'scratch,
+{
+    fn observe_block(
+        &mut self,
+        block: usize,
+        cx: &mut MinifyContext<'scratch>,
+        on_block_emptied: &mut impl FnMut(*const DeclarationBlock<'ast, 'ghost>),
+    ) {
+        let declaration_count = self.sequence.block(block).len();
+        for declaration in 0..declaration_count {
+            let current = DeclarationLocation::new(block, declaration);
+            if self.sequence.declaration(current).is_tombstone() {
+                continue;
+            }
+            let important = self.sequence.is_important(current);
+            let Some(removed) = deduplicate_exact_declaration(
+                &mut self.sequence,
+                current,
+                important,
+                self.declarations,
+                cx,
+            ) else {
+                continue;
+            };
+            let removed_block = self.sequence.block(removed.block());
+            if removed_block.is_output_empty() {
+                on_block_emptied(std::ptr::from_ref(removed_block));
+            }
+        }
     }
 }
 
@@ -507,26 +553,6 @@ fn deduplicate_declarations<'scratch, 'ast>(
                 continue;
             }
             deduplicate_exact_declaration(sequence, current, important, &mut ir.declarations, cx);
-        }
-    }
-}
-
-fn deduplicate_exact_declarations<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
-    declarations: &mut DeclarationMap<'scratch, 'ast>,
-    cx: &mut MinifyContext<'scratch>,
-) where
-    'ast: 'scratch,
-{
-    for block in 0..sequence.block_count() {
-        let declaration_count = sequence.block(block).len();
-        for declaration in 0..declaration_count {
-            let current = DeclarationLocation::new(block, declaration);
-            if sequence.declaration(current).is_tombstone() {
-                continue;
-            }
-            let important = sequence.is_important(current);
-            deduplicate_exact_declaration(sequence, current, important, declarations, cx);
         }
     }
 }
@@ -746,7 +772,8 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
     important: bool,
     declarations: &mut DeclarationMap<'scratch, 'ast>,
     cx: &mut MinifyContext<'scratch>,
-) where
+) -> Option<DeclarationLocation>
+where
     'ast: 'scratch,
 {
     let declaration = sequence.declaration(current);
@@ -769,7 +796,9 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
     {
         sequence.replace(previous, Declaration::Tombstone);
         cx.record_declaration_removed();
+        return Some(previous);
     }
+    None
 }
 
 fn process_box_declaration<'scratch, 'ast>(

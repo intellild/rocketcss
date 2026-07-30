@@ -123,23 +123,18 @@ impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
     {
         let declarations_removed = cx.stats().declarations_removed;
         let mut newly_empty = FxHashSet::default();
+        let mut expanded_history = std::vec::Vec::new();
+        let mut seen = FxHashSet::default();
         for history in &self.histories {
-            let mut expanded_history = std::vec::Vec::new();
-            let mut seen = FxHashSet::default();
+            expanded_history.clear();
+            seen.clear();
             for &declarations in history {
                 append_declaration_chain(declarations, token, &mut seen, &mut expanded_history);
             }
 
-            let was_output_empty: std::vec::Vec<_> = expanded_history
-                .iter()
-                .map(|declarations| declarations.get(token).is_output_empty())
-                .collect();
-            minifier.deduplicate_exact_sequence(&expanded_history, token, cx);
-            for (&declarations, was_output_empty) in expanded_history.iter().zip(was_output_empty) {
-                if !was_output_empty && declarations.get(token).is_output_empty() {
-                    newly_empty.insert(std::ptr::from_ref(declarations.get(token).get_ref()));
-                }
-            }
+            minifier.deduplicate_exact_sequence(&expanded_history, token, cx, |declarations| {
+                newly_empty.insert(declarations);
+            });
         }
         DeclarationOverrideCommitResult {
             declarations_removed: cx.stats().declarations_removed != declarations_removed,
