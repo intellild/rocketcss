@@ -120,6 +120,43 @@ lists. S2 requires history identity, not local S1/S3 adjacency.
 Discovery order is not authoritative. `entries` are always read by
 `SemanticSourceOrderKey`.
 
+### Scheduling identity
+
+The S2 work queue contains one effective-rule history identity, not a pair of
+declaration entries. A compact implementation may intern `EffectiveRuleKey`
+values into `HistoryId(u32)` and keep:
+
+```rust,ignore
+history_by_key: FxHashMap<EffectiveRuleKey, HistoryId>
+dirty_histories: DirtyHistoryQueue<HistoryId>
+```
+
+Initial source-ordered discovery appends each declaration entry directly to its
+history. The exact-only implementation may defer queueing a history until its
+second entry because a one-entry history has no cross-block relationship.
+Subsequent S1-S4 mutations increment `generation` and enqueue the same history
+identity when it is not already queued.
+
+The exact-only implementation does not require one allocation per history. Its
+immutable initial histories may use one-dimensional linked storage:
+
+```rust,ignore
+blocks: Vec<Ref<DeclarationBlock>>
+next_in_history: Vec<Option<NonZeroU32>>
+history_heads: Vec<u32>
+```
+
+Only keys with at least two entries need storage. `blocks` retains the
+source-ordered references, `next_in_history` links entries with the same
+effective-rule identity, and `history_heads` starts each S2 traversal. This is
+a physical representation of the same ordered histories; it does not change
+their semantic identity or permit comparisons between histories.
+
+`Candidate(left, right)` is an edge representation for S1/S3. It must not be
+used to reconstruct an S2 history through pair chaining, tail maps, or another
+candidate pass. A history is marked consumed only after the complete ordered
+history reaches its local fixed point.
+
 ### Effect-occurrence input states
 
 Each authored declaration occurrence has one expansion state:
@@ -180,6 +217,7 @@ After S2 reaches a local fixed point:
 | Typed effect data   | Retained with origin and owner identity so S4 can choose a representation.            |
 | History generation | `generation == consumed_generation`.                                                 |
 | Sequence revisions | Incremented for every affected aggregate sequence.                                   |
+| Sequence liveness  | Aggregate live-effect counts match the remaining live masks.                         |
 | S3 candidates      | Incident stale candidates invalidated.                                               |
 | Logical adjacency  | Rules that became empty are already unlinked and newly exposed edges are classified. |
 | AST                | Unchanged.                                                                           |

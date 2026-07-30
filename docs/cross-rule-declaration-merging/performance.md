@@ -27,7 +27,7 @@ additional selector traversal. A future shared identity must preserve
 tombstone filtering and must only be a prefilter; structural equality remains
 the collision-safe final check.
 
-### Discover structural adjacency during the existing walk
+### Structural adjacency discovery
 
 S1 candidates must be direct siblings in the same rule list. Rewalking the
 complete stylesheet after collecting a flat `Vec<DeclarationBlockEntry>`
@@ -35,50 +35,21 @@ enforces that rule at commit time, but costs another 1-2 ms on the current
 Bootstrap and Tailwind inputs. It also performs two declaration-block pointer
 map lookups for every adjacent style-rule pair.
 
-The declaration-block walk should instead produce both outputs in one
-traversal:
-
-```rust,ignore
-struct WalkDeclarationBlockResult<'walk, 'ast, 'ghost> {
-    declaration_blocks: Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>,
-    same_selector_candidates: SameSelectorCandidateList,
-}
-```
-
-When the walker enters a rule list, it records the indices of direct sibling
-declaration blocks before recursively visiting child rule lists. This keeps
-`SameSelectorCandidateList` responsible for candidate storage while avoiding a
-second AST traversal and pointer-to-index lookups.
-
 `DeclarationBlockEntry` now records `RuleListId`, `RuleListSegmentId`, and
 `SiblingOrdinal`, and candidate discovery rejects entries whose structural
-locations do not form a direct edge. A later optimization can create those
-edges while walking instead of collecting a flat vector and testing consecutive
-vector entries afterward.
-
-### Do not repeat validated comparisons during commit
-
-Discovery and scheduling produce an immutable candidate plan. If no earlier
-commit can invalidate an S1 pair, commit should consume that validated plan
-without repeating selector equality. Debug assertions may retain cheap
-invariants. This optimization only affects accepted pairs, so its benefit is
-small on stylesheets where equal adjacent selectors are rare, but it adds no
-work to rejected candidates.
+locations do not form a direct edge.
 
 ## Allocation and indexing candidates
 
 - Reserve the declaration-block output vector when a cheap rule-list size
   estimate is available. Do not add a counting prepass solely to obtain an
   exact capacity.
-- Generate candidate indices while walking so the S1 path does not require an
-  `FxHashMap<*const DeclarationBlock, u32>`. A pointer map may still be
-  appropriate for a later commit pass if AST mutation makes direct locations
-  unstable.
 - Allocate per-rule caches lazily and only when their reuse is demonstrated.
   Avoid zero-initializing an `Option` entry for every style rule for a cache
   used by only one stage.
-- Keep `Candidate(u32, u32)` and compact queue state. Do not store selector
-  clones or declaration snapshots in candidates.
+- Keep `Candidate(u32, u32)` and compact queue state for adjacency-based S1/S3
+  work. S2 queues a compact history identity instead of a block pair. Do not
+  store selector clones or declaration snapshots in either representation.
 
 ### Compiler-scoped selector atoms
 
@@ -110,7 +81,7 @@ The compiler also owns the single source name and source-map URL associated
 with the stylesheet. They are not stored as one-element vectors in
 `StyleSheet`.
 
-### Share effective-key paths instead of cloning them per block
+### Effective-key path cost
 
 The current walker clones both the selector-frame path and conditional-context
 path into every `DeclarationBlockEntry`. Even a top-level style rule allocates
@@ -118,24 +89,33 @@ one selector-path `Vec`; deeply nested styles copy every ancestor frame again.
 This makes discovery allocate and copy `O(blocks * nesting depth)` references
 before candidate processing starts.
 
-Candidate representations should preserve exact typed equality without owning
-these paths repeatedly. Viable implementations include:
+## Deferred optimization candidates
 
-- persistent parent-linked selector and conditional-context nodes addressed by
-  compact `u32` IDs;
-- traversal-local interning with `FxHashMap`, where equal typed paths reuse one
-  immutable key; or
-- direct structural-edge discovery, with entries retaining only shared
-  effective-context identities required by S2 histories.
+### Compress initial maximal same-selector runs
 
-Do not replace typed frames with serialized strings or make a fingerprint the
-sole equality proof. Any intern table or fingerprint must preserve frame order,
-multiplicity, authored layer identity, selector tombstone semantics, and exact
-conditional AST equality. Benchmark the shared representation independently:
-for shallow stylesheets, interning and hashing may cost more than the cloned
-references they remove.
+After compact effective-rule identities exist, initial discovery can recognize
+a maximal run of live-adjacent, S1-eligible rules and create one ordered
+declaration-sequence concatenation instead of enqueueing every pair in the run.
+For example, `a{} a{} a{} a{}` can become one initial run rather than three
+independent candidate items.
 
-## Declaration sequence reuse
+This is only an initial-discovery fast path. Edges exposed later by S2/S3/S4
+still use the ordinary dirty-edge queue and must be revalidated individually.
+The optimization does not improve asymptotic complexity, and ordinary
+stylesheets rarely contain long equal-selector runs, so it has lower priority
+than compact effective-key IDs, history-based S2 scheduling, and persistent
+live-rule state.
+
+The normative pseudocode's `coalesce_same_selector_run` already requires eager
+S1 stabilization. This candidate only batches the initially authored maximal
+run into less queue and sequence-concatenation work; it does not change that
+semantic transition.
+
+Benchmark it only with a dedicated repeated-selector fixture and keep it only
+if it reduces total minify time without increasing the common unequal-selector
+path.
+
+### Declaration sequence reuse
 
 `DeclarationBlockMinifier` already has a ghost-backed sequence abstraction for
 processing multiple declaration blocks. Its full block-local rewrite pipeline
@@ -184,7 +164,10 @@ proof.
 
 This is intentionally deferred until the S2 correctness boundary is fixed.
 Fingerprint work must not broaden history identity or make hashes authoritative
-for semantic equality.
+for semantic equality. If a compact-ID implementation removes
+`EffectiveKey::fingerprint`, apply the same requirement to the interner's frame
+hash: hash the complete typed condition before resolving collisions with exact
+equality.
 
 ## Custom-property token traversal fusion
 

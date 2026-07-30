@@ -422,6 +422,7 @@ fn apply_effect_edit(
     let key = state.declaration_entries[entry].effective_rule;
 
     apply_typed_lossless_effect_edit(edit, state);
+    update_sequence_live_effect_count(sequence, edit, state);
 
     state.declaration_entries[entry].declaration_revision += 1;
     state.declaration_sequences[sequence].aggregate_revision += 1;
