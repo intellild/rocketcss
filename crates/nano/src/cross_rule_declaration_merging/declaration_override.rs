@@ -1,6 +1,7 @@
 use rocketcss_allocator::{GhostToken, Ref};
 use rocketcss_ast::{CssRule, DeclarationBlock, Selector, StyleRule, StyleSheet};
 use rustc_hash::{FxHashMap, FxHashSet};
+use smallvec::SmallVec;
 
 use super::CrossRuleDeclarationScanner;
 use super::candidates::Candidate;
@@ -15,7 +16,7 @@ struct HistoryTail {
 
 impl<'walk, 'ast, 'ghost> CrossRuleDeclarationScanner<'walk, 'ast, 'ghost> {
     pub(super) fn discover_declaration_override_candidates(&mut self) {
-        let mut histories: FxHashMap<u64, std::vec::Vec<HistoryTail>> = FxHashMap::default();
+        let mut histories: FxHashMap<u64, SmallVec<[HistoryTail; 1]>> = FxHashMap::default();
         let mut candidates =
             std::vec::Vec::with_capacity(self.declaration_blocks.len().saturating_sub(1));
 
