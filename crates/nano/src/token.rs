@@ -70,21 +70,6 @@ impl Minify for TokenOrValue<'_> {
                 **token = Token::Number(0.0);
                 cx.record_value_normalized();
             }
-            Token::UnknownDimension { unit: ".", value } => {
-                **token = Token::Number(*value);
-                cx.record_value_normalized();
-            }
-            Token::UnknownDimension { unit, value }
-                if unit.strip_prefix('.').is_some_and(
-                    |unit| match_ignore_ascii_case!(unit, "px" => true, _ => false),
-                ) =>
-            {
-                **token = Token::Dimension {
-                    unit: Unit::Length(rocketcss_ast::LengthUnit::Px),
-                    value: *value,
-                };
-                cx.record_value_normalized();
-            }
             _ => {}
         }
     }
@@ -148,6 +133,12 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
     where
         Self: 'cx,
     {
+        if cx
+            .value_context
+            .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+        {
+            return;
+        }
         protect_adjacent_function_replacements(self);
         if cx.is_enabled(Options::DISCARD_COMMENTS, OptionsOp::Any) {
             discard_comments(self, cx);
@@ -155,17 +146,10 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
         if cx.is_enabled(Options::NORMALIZE_WHITESPACE, OptionsOp::Any) {
             normalize_whitespace(self, cx);
         }
-        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
-            || cx
-                .value_context
-                .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
-        {
+        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;
         }
 
-        if minify_broken_decimal_tokens(self) {
-            cx.record_value_normalized();
-        }
         if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) && normalize_url_values(self) {
             cx.record_value_normalized();
         }
@@ -208,46 +192,6 @@ fn normalize_url_values<'a>(values: &mut Vec<'a, TokenOrValue<'a>>) -> bool {
             url.url = allocator.alloc_str(&normalized);
             changed = true;
         }
-    }
-    changed
-}
-
-fn minify_broken_decimal_tokens(values: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
-    let mut changed = false;
-    let mut index = 0;
-    while index + 1 < values.len() {
-        let is_number = matches!(values[index], TokenOrValue::Token(ref token) if matches!(**token, Token::Number(_)));
-        let is_dot = matches!(values[index + 1], TokenOrValue::Token(ref token) if matches!(&**token, Token::Delim(value) if *value == "."));
-        if !is_number || !is_dot {
-            index += 1;
-            continue;
-        }
-        if values.get(index + 2).is_some_and(|value| {
-            matches!(value, TokenOrValue::Token(token) if matches!(&**token, Token::Ident(unit) if match_ignore_ascii_case!(unit, "px" => true, _ => false)))
-        }) {
-            let TokenOrValue::Token(token) = &mut values[index] else {
-                unreachable!()
-            };
-            let Token::Number(value) = **token else {
-                unreachable!()
-            };
-            **token = Token::Dimension {
-                unit: Unit::Length(rocketcss_ast::LengthUnit::Px),
-                value,
-            };
-            values.drain(index + 1..=index + 2);
-            changed = true;
-            continue;
-        }
-        let next_is_boundary = values.get(index + 2).is_none_or(|value| {
-            matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Semicolon | Token::CloseParenthesis))
-        });
-        if next_is_boundary {
-            values.remove(index + 1);
-            changed = true;
-            continue;
-        }
-        index += 1;
     }
     changed
 }

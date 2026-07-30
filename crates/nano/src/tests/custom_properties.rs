@@ -10,12 +10,26 @@ fn preserves_variables_in_the_all_property() {
 }
 
 #[test]
-fn custom_property_transforms_are_configurable() {
-    let mut options = MinifyOptions::default();
-    options.flags.remove(Options::TRANSFORM_CUSTOM_PROPERTIES);
+fn custom_property_values_are_not_minified() {
     assert_eq!(
-        run_with_options("a{--color:rgb(0 0 0);--size:calc(3px * 2)}", options),
-        "a{--color:rgb(0 0 0);--size:calc(3px * 2)}"
+        run("a{--color:rgb(0 0 0);--size:calc(3px * 2);--broken:10.px}"),
+        "a{--color:rgb(0 0 0);--size:calc(3px * 2);--broken:10.px}"
+    );
+}
+
+#[test]
+fn opaque_invalid_and_unknown_values_are_not_minified() {
+    assert_eq!(
+        run("a{opacity:calc(.2 * 3);width:10.px;future:calc(3px * 2)}"),
+        "a{opacity:calc(.2 * 3);width:10.px;future:calc(3px * 2)}"
+    );
+}
+
+#[test]
+fn skipped_declarations_do_not_participate_in_deduplication() {
+    assert_eq!(
+        run("a{--theme:1;--theme:1;width:10.px;width:10.px}"),
+        "a{--theme:1;--theme:1;width:10.px;width:10.px}"
     );
 }
 

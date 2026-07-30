@@ -189,14 +189,13 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
             SelectorComponent::Class("foo")
         ));
 
-        let Declaration::Unparsed(width) =
-            &rule.declarations.as_ref().borrow(&token).declarations[0]
+        let Declaration::Width(width) = &rule.declarations.as_ref().borrow(&token).declarations[0]
         else {
-            panic!("expected unparsed width")
+            panic!("expected typed width")
         };
         assert!(matches!(
-            &width.value[0],
-            TokenOrValue::Function(function)
+            &**width,
+            Size::MathFunction(function)
                 if function.name() == "calc"
                     && function.arguments.iter().any(|value| matches!(
                         value,
@@ -1140,10 +1139,9 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
 
         assert!(matches!(
             &declarations[1],
-            Declaration::Unparsed(value)
-                if matches!(&*value.property_id, PropertyId::Width)
-                    && matches!(&value.value[0], TokenOrValue::Function(function)
-                        if function.name().eq_ignore_ascii_case("calc"))
+            Declaration::Width(value)
+                if matches!(&**value, Size::MathFunction(function)
+                    if function.name().eq_ignore_ascii_case("calc"))
         ));
         assert!(style.declarations.as_ref().borrow(&token).is_important(1));
         assert!(matches!(
@@ -1172,6 +1170,79 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
         ));
         assert!(!style.declarations.as_ref().borrow(&token).is_important(5));
         assert!(matches!(&declarations[6], Declaration::Height(_)));
+    })
+}
+
+#[test]
+fn declaration_ast_distinguishes_typed_opaque_invalid_and_unsupported_values() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            r#"a {
+                width: initial;
+                max-width: fit-content(10px);
+                border-top-style: solid;
+                animation-duration: 1s, 200ms;
+                opacity: calc(.5);
+                width: potato;
+                transform: translateX(1px);
+                future-property: fn(1);
+            }"#,
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(style) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = &style
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations;
+
+        assert!(matches!(
+            &declarations[0],
+            Declaration::CSSWide(property_id, CSSWideKeyword::Initial)
+                if matches!(**property_id, PropertyId::Width)
+        ));
+        assert!(matches!(
+            &declarations[1],
+            Declaration::MaxWidth(value)
+                if matches!(**value, MaxSize::FitContentFunction(_))
+        ));
+        assert!(matches!(
+            &declarations[2],
+            Declaration::BorderTopStyle(LineStyle::Solid)
+        ));
+        assert!(matches!(
+            &declarations[3],
+            Declaration::AnimationDuration(values, prefix)
+                if values.len() == 2 && *prefix == VendorPrefix::NONE
+        ));
+        assert!(matches!(
+            &declarations[4],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::OpaqueValue
+        ));
+        assert!(matches!(
+            &declarations[5],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::InvalidValue
+        ));
+        assert!(matches!(
+            &declarations[6],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::UnsupportedGrammar
+        ));
+        assert!(matches!(
+            &declarations[7],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::UnknownProperty
+        ));
     })
 }
 

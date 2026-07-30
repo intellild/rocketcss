@@ -487,6 +487,9 @@ impl<'ghost> ToCss<'ghost> for Display {
                     (DisplayOutside::Block, DisplayInside::FlowRoot) => {
                         dest.write_str("flow-root")?
                     }
+                    (DisplayOutside::Inline, DisplayInside::FlowRoot) => {
+                        dest.write_str("inline-block")?
+                    }
                     (DisplayOutside::Block, DisplayInside::Flex { vendor_prefix }) => {
                         vendor_prefix.to_css(dest, _cx)?;
                         dest.write_str("flex")?;
@@ -496,10 +499,19 @@ impl<'ghost> ToCss<'ghost> for Display {
                         vendor_prefix.to_css(dest, _cx)?;
                         dest.write_str("flex")?;
                     }
+                    (DisplayOutside::Block, DisplayInside::Box { vendor_prefix }) => {
+                        vendor_prefix.to_css(dest, _cx)?;
+                        dest.write_str("box")?;
+                    }
+                    (DisplayOutside::Inline, DisplayInside::Box { vendor_prefix }) => {
+                        vendor_prefix.to_css(dest, _cx)?;
+                        dest.write_str("inline-box")?;
+                    }
                     (DisplayOutside::Block, DisplayInside::Grid) => dest.write_str("grid")?,
                     (DisplayOutside::Inline, DisplayInside::Grid) => {
                         dest.write_str("inline-grid")?
                     }
+                    (DisplayOutside::Inline, DisplayInside::Ruby) => dest.write_str("ruby")?,
                     (DisplayOutside::Block, DisplayInside::Table) => dest.write_str("table")?,
                     (DisplayOutside::Inline, DisplayInside::Table) => {
                         dest.write_str("inline-table")?
@@ -562,6 +574,7 @@ impl<'ghost> ToCss<'ghost> for Size<'_> {
         match self {
             Self::Auto => dest.write_str("auto"),
             Self::LengthPercentage(value) => value.to_css(dest, _cx),
+            Self::MathFunction(value) => value.to_css(dest, _cx),
             Self::MinContent { vendor_prefix } => {
                 write_prefixed_keyword(vendor_prefix, "min-content", dest, _cx)
             }
@@ -593,6 +606,7 @@ impl<'ghost> ToCss<'ghost> for MaxSize<'_> {
         match self {
             Self::None => dest.write_str("none"),
             Self::LengthPercentage(value) => value.to_css(dest, _cx),
+            Self::MathFunction(value) => value.to_css(dest, _cx),
             Self::MinContent { vendor_prefix } => {
                 write_prefixed_keyword(vendor_prefix, "min-content", dest, _cx)
             }
@@ -1220,6 +1234,11 @@ impl<'ghost> ToCss<'ghost> for EasingFunction {
                     }
                     serialize_number(*value, dest)?;
                 }
+                dest.write_char(')')
+            }
+            Self::Frames(count) => {
+                dest.write_str("frames(")?;
+                serialize_int(*count, dest)?;
                 dest.write_char(')')
             }
             Self::Steps { count, position } => {

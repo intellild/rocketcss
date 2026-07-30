@@ -55,8 +55,8 @@ fn preserves_invalid_border_and_columns_values_while_ordering() {
         "a{border:0 0 7px 7px solid black}"
     );
     assert_eq!(run("a{border:solid 0 0 red}"), "a{border:0 0 solid red}");
-    // `columns` values the typed parser rejects fall back to token ordering.
-    assert_eq!(run("a{columns:inherit 3rem}"), "a{columns:3rem inherit}");
+    // Values rejected by a typed grammar are opaque to the minifier.
+    assert_eq!(run("a{columns:inherit 3rem}"), "a{columns:inherit 3rem}");
     assert_eq!(run("a{columns:3rem 2 12em}"), "a{columns:3rem 2 12em}");
     assert_eq!(run("a{columns:2px 2px}"), "a{columns:2px 2px}");
 }
@@ -173,6 +173,6 @@ fn keeps_timing_rank_after_timing_function_minification() {
     );
     assert_eq!(
         run("a{animation:fade 3s cubic-bezier(0.250,1e-1px,0.250,1)}"),
-        "a{animation:fade 3s ease}"
+        "a{animation:fade 3s cubic-bezier(.25,.1px,.25,1)}"
     );
 }

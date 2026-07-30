@@ -13,7 +13,7 @@ mod values;
 pub mod prelude;
 
 use rocketcss_allocator::{Allocator, GhostToken};
-use rocketcss_ast::{match_ignore_ascii_case, *};
+use rocketcss_ast::*;
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut};
 
 pub use context::{MinifyContext, MinifyStats};
@@ -169,6 +169,9 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         node: &mut UnparsedProperty<'ast>,
         cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
+        if !matches!(node.reason, UnparsedPropertyReason::UnsupportedGrammar) {
+            return;
+        }
         let previous = self.cx.value_context;
         self.cx.value_context = properties::value_context(
             &node.property_id,
@@ -183,20 +186,12 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
 
     fn visit_custom_property(
         &mut self,
-        node: &mut CustomProperty<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        _node: &mut CustomProperty<'ast>,
+        _cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
-        let previous = self.cx.value_context;
-        self.cx.value_context = properties::custom_property_context(&self.cx);
-        let name = match &*node.name {
-            CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => *name,
-        };
-        if match_ignore_ascii_case!(name, "--font-family" => true, _ => false) {
-            self.cx.value_context.property = context::PropertyContext::Font;
-        }
-        node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
-        self.cx.value_context = previous;
+        // Custom property values use an author-defined grammar and may be
+        // substituted into contexts where token boundaries are significant.
+        // Preserve the parsed token representation exactly.
     }
 
     fn visit_function(&mut self, node: &mut Function<'ast>, cx: &mut VisitMutContext<'_, 'ghost>) {

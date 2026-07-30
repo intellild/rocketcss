@@ -1,3 +1,4 @@
+use super::values::collect_tokens;
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for CssColor<'i> {
@@ -14,6 +15,14 @@ impl<'i> Parse<'i> for CssColor<'i> {
             ValueToken::Hash(value) | ValueToken::IdHash(value) => parse_hex_color(value)
                 .map(CssColor::Rgba)
                 .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),
+            ValueToken::Function(name) if KnownFunction::from_name(name).is_color() => {
+                let allocator = input.allocator();
+                let arguments =
+                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+                Ok(CssColor::Function(
+                    allocator.boxed(Function::new(name, arguments)),
+                ))
+            }
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
     }

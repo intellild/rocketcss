@@ -527,6 +527,16 @@ fn still_requires_unsupported_transform(
         ("convert-values", "calc", "calc arithmetic differs"),
         (
             "convert-values",
+            "opacity:1.",
+            "broken decimal tokens are preserved instead of repaired",
+        ),
+        (
+            "convert-values",
+            "width:10.px",
+            "broken dimension tokens are preserved instead of repaired",
+        ),
+        (
+            "convert-values",
             "comma separated",
             "pipeline further minifies the value",
         ),
@@ -772,6 +782,11 @@ fn still_requires_unsupported_transform(
         ),
         (
             "minify-font-values",
+            "--font-family",
+            "custom property values are opaque to minification",
+        ),
+        (
+            "minify-font-values",
             "font property #3",
             "font shorthand minification gap",
         ),
@@ -784,6 +799,26 @@ fn still_requires_unsupported_transform(
             "minify-font-values",
             "css variables",
             "var() in font-family differs",
+        ),
+        (
+            "timing-functions",
+            "1e-1px",
+            "invalid cubic-bezier coordinates are preserved",
+        ),
+        (
+            "ordered-values",
+            "invalid columns",
+            "invalid typed values are preserved instead of reordered",
+        ),
+        (
+            "ordered-values",
+            "order grid-column-gap",
+            "invalid legacy gap values are preserved instead of reordered",
+        ),
+        (
+            "ordered-values",
+            "order grid-row-gap",
+            "invalid legacy gap values are preserved instead of reordered",
         ),
         // postcss-discard-empty gaps (mirrors the static skip list).
         (

@@ -8,6 +8,7 @@ pub enum EasingFunction {
     EaseOut,
     EaseInOut,
     CubicBezier { x1: f32, x2: f32, y1: f32, y2: f32 },
+    Frames(i32),
     Steps { count: i32, position: StepPosition },
 }
 
