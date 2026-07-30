@@ -88,20 +88,9 @@ pub(crate) fn merge_cross_rule_declarations<'ast, 'ghost, 'scratch>(
     loop {
         let (same_selector_commit_pass, declaration_override_commit_pass) = {
             let declaration_blocks = walk_declaration_blocks(stylesheet, token);
-            let candidate_indices = declaration_blocks
-                .iter()
-                .enumerate()
-                .map(|(index, entry)| {
-                    (
-                        std::ptr::from_ref(entry.declarations),
-                        u32::try_from(index).expect("declaration block index exceeds u32::MAX"),
-                    )
-                })
-                .collect();
             let mut scanner = CrossRuleDeclarationScanner::new(declaration_blocks);
             scanner.run();
-            let same_selector_commit_pass =
-                scanner.take_same_selector_commit_pass(candidate_indices);
+            let same_selector_commit_pass = scanner.take_same_selector_commit_pass();
             let declaration_override_commit_pass = scanner.take_declaration_override_commit_pass();
             (same_selector_commit_pass, declaration_override_commit_pass)
         };
