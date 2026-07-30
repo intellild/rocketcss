@@ -1,11 +1,13 @@
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroU32;
 
 use rocketcss_allocator::{GhostToken, Ref, vec::Vec};
 use rocketcss_ast::{
     ContainerCondition, CssRule, DeclarationBlock, MediaList, SelectorList, StyleRule, StyleSheet,
     SupportsCondition, VendorPrefix,
 };
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHashMap, FxHasher};
+use smallvec::SmallVec;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ConditionalFrame<'walk, 'ast> {
@@ -42,27 +44,224 @@ struct SelectorFrame<'walk, 'ast> {
     vendor_prefix: VendorPrefix,
 }
 
-/// The declaration-history identity known during source-ordered discovery.
-///
-/// Selector frames are kept as a path because nested-selector resolution is a
-/// separate feature. Typed conditional frames use structural equality. At-rule
-/// kinds whose semantics are not handled by this pass are isolated by authored
-/// wrapper identity.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct EffectiveKey<'walk, 'ast> {
-    selectors: std::vec::Vec<SelectorFrame<'walk, 'ast>>,
-    conditions: std::vec::Vec<ConditionalFrame<'walk, 'ast>>,
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+struct SelectorPathId(u32);
+
+impl SelectorPathId {
+    fn index(self) -> usize {
+        usize::try_from(self.0 - 1).expect("selector path ID fits usize")
+    }
 }
 
-impl EffectiveKey<'_, '_> {
-    pub(crate) fn fingerprint(&self) -> u64 {
+#[derive(Clone, Copy, Debug)]
+struct SelectorPathNode<'walk, 'ast> {
+    parent: SelectorPathId,
+    frame: SelectorFrame<'walk, 'ast>,
+    fingerprint: u64,
+}
+
+#[derive(Debug, Default)]
+struct SelectorPathStore<'walk, 'ast> {
+    nodes: std::vec::Vec<SelectorPathNode<'walk, 'ast>>,
+}
+
+impl<'walk, 'ast> SelectorPathStore<'walk, 'ast> {
+    fn push(
+        &mut self,
+        parent: SelectorPathId,
+        frame: SelectorFrame<'walk, 'ast>,
+    ) -> SelectorPathId {
         let mut hasher = FxHasher::default();
-        self.selectors.hash(&mut hasher);
-        self.conditions.len().hash(&mut hasher);
-        for condition in &self.conditions {
-            hash_conditional_frame(condition, &mut hasher);
+        self.fingerprint(parent).hash(&mut hasher);
+        frame.hash(&mut hasher);
+        let id = SelectorPathId(
+            u32::try_from(self.nodes.len())
+                .expect("selector path count exceeds u32::MAX")
+                .checked_add(1)
+                .expect("selector path count exceeds u32::MAX"),
+        );
+        self.nodes.push(SelectorPathNode {
+            parent,
+            frame,
+            fingerprint: hasher.finish(),
+        });
+        id
+    }
+
+    fn fingerprint(&self, path: SelectorPathId) -> u64 {
+        if path == SelectorPathId::default() {
+            0
+        } else {
+            self.nodes[path.index()].fingerprint
         }
-        hasher.finish()
+    }
+
+    fn equals(&self, mut left: SelectorPathId, mut right: SelectorPathId) -> bool {
+        if left == right {
+            return true;
+        }
+        loop {
+            if left == SelectorPathId::default() || right == SelectorPathId::default() {
+                return left == right;
+            }
+            let left_node = &self.nodes[left.index()];
+            let right_node = &self.nodes[right.index()];
+            if left_node.frame != right_node.frame {
+                return false;
+            }
+            left = left_node.parent;
+            right = right_node.parent;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+struct ConditionalPathId(u32);
+
+impl ConditionalPathId {
+    fn index(self) -> usize {
+        usize::try_from(self.0 - 1).expect("conditional path ID fits usize")
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ConditionalPathNode<'walk, 'ast> {
+    parent: ConditionalPathId,
+    frame: ConditionalFrame<'walk, 'ast>,
+    fingerprint: u64,
+}
+
+#[derive(Debug, Default)]
+struct ConditionalPathStore<'walk, 'ast> {
+    nodes: std::vec::Vec<ConditionalPathNode<'walk, 'ast>>,
+}
+
+impl<'walk, 'ast> ConditionalPathStore<'walk, 'ast> {
+    fn push(
+        &mut self,
+        parent: ConditionalPathId,
+        frame: ConditionalFrame<'walk, 'ast>,
+    ) -> ConditionalPathId {
+        let mut hasher = FxHasher::default();
+        self.fingerprint(parent).hash(&mut hasher);
+        hash_conditional_frame(&frame, &mut hasher);
+        let id = ConditionalPathId(
+            u32::try_from(self.nodes.len())
+                .expect("conditional path count exceeds u32::MAX")
+                .checked_add(1)
+                .expect("conditional path count exceeds u32::MAX"),
+        );
+        self.nodes.push(ConditionalPathNode {
+            parent,
+            frame,
+            fingerprint: hasher.finish(),
+        });
+        id
+    }
+
+    fn fingerprint(&self, path: ConditionalPathId) -> u64 {
+        if path == ConditionalPathId::default() {
+            0
+        } else {
+            self.nodes[path.index()].fingerprint
+        }
+    }
+
+    fn equals(&self, mut left: ConditionalPathId, mut right: ConditionalPathId) -> bool {
+        if left == right {
+            return true;
+        }
+        loop {
+            if left == ConditionalPathId::default() || right == ConditionalPathId::default() {
+                return left == right;
+            }
+            let left_node = &self.nodes[left.index()];
+            let right_node = &self.nodes[right.index()];
+            if left_node.frame != right_node.frame {
+                return false;
+            }
+            left = left_node.parent;
+            right = right_node.parent;
+        }
+    }
+}
+
+/// The dense declaration-history identity computed during source-ordered
+/// discovery.
+///
+/// Selector and condition paths are tracked independently because nested
+/// selector resolution is a separate feature. Typed conditional frames use
+/// structural equality. At-rule kinds whose semantics are not handled by this
+/// pass are isolated by authored wrapper identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct EffectiveKeyId(u32);
+
+#[derive(Clone, Copy, Debug)]
+struct EffectiveKeyState {
+    selectors: SelectorPathId,
+    conditions: ConditionalPathId,
+    id: EffectiveKeyId,
+    last_entry: u32,
+    has_history: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EffectiveKeyOccurrence {
+    id: EffectiveKeyId,
+    previous_entry: Option<u32>,
+    starts_history: bool,
+}
+
+#[derive(Debug, Default)]
+struct EffectiveKeyInterner {
+    buckets: FxHashMap<u64, SmallVec<[EffectiveKeyState; 1]>>,
+    next_id: u32,
+}
+
+impl EffectiveKeyInterner {
+    fn intern(
+        &mut self,
+        selectors: SelectorPathId,
+        conditions: ConditionalPathId,
+        selector_paths: &SelectorPathStore<'_, '_>,
+        conditional_paths: &ConditionalPathStore<'_, '_>,
+        current_entry: u32,
+    ) -> EffectiveKeyOccurrence {
+        let mut hasher = FxHasher::default();
+        selector_paths.fingerprint(selectors).hash(&mut hasher);
+        conditional_paths.fingerprint(conditions).hash(&mut hasher);
+        let bucket = self.buckets.entry(hasher.finish()).or_default();
+        if let Some(state) = bucket.iter_mut().find(|state| {
+            selector_paths.equals(state.selectors, selectors)
+                && conditional_paths.equals(state.conditions, conditions)
+        }) {
+            let occurrence = EffectiveKeyOccurrence {
+                id: state.id,
+                previous_entry: Some(state.last_entry),
+                starts_history: !state.has_history,
+            };
+            state.last_entry = current_entry;
+            state.has_history = true;
+            return occurrence;
+        }
+
+        let id = EffectiveKeyId(self.next_id);
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .expect("effective key count exceeds u32::MAX");
+        bucket.push(EffectiveKeyState {
+            selectors,
+            conditions,
+            id,
+            last_entry: current_entry,
+            has_history: false,
+        });
+        EffectiveKeyOccurrence {
+            id,
+            previous_entry: None,
+            starts_history: false,
+        }
     }
 }
 
@@ -96,11 +295,13 @@ pub(crate) enum DeclarationBlockKind {
 pub(crate) struct DeclarationBlockEntry<'walk, 'ast, 'ghost> {
     pub(crate) declarations: &'walk DeclarationBlock<'ast, 'ghost>,
     pub(crate) declaration_ref: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
-    pub(crate) effective_key: EffectiveKey<'walk, 'ast>,
+    pub(crate) effective_key: EffectiveKeyId,
     pub(crate) kind: DeclarationBlockKind,
     pub(crate) rule_list: RuleListId,
     pub(crate) rule_list_segment: RuleListSegmentId,
     pub(crate) sibling_ordinal: SiblingOrdinal,
+    next_in_history: Option<NonZeroU32>,
+    starts_history: bool,
 }
 
 impl DeclarationBlockEntry<'_, '_, '_> {
@@ -108,6 +309,16 @@ impl DeclarationBlockEntry<'_, '_, '_> {
         self.rule_list == right.rule_list
             && self.rule_list_segment == right.rule_list_segment
             && self.sibling_ordinal.0.checked_add(1) == Some(right.sibling_ordinal.0)
+    }
+
+    pub(crate) fn starts_declaration_history(&self) -> bool {
+        self.starts_history
+    }
+
+    pub(crate) fn next_declaration_history_entry(&self) -> Option<usize> {
+        self.next_in_history.map(|next| {
+            usize::try_from(next.get() - 1).expect("declaration block index fits usize")
+        })
     }
 }
 
@@ -148,8 +359,11 @@ pub(crate) fn walk_declaration_blocks<'walk, 'ast, 'ghost>(
 
 struct DeclarationBlockWalker<'walk, 'ast, 'ghost> {
     token: &'walk GhostToken<'ghost>,
-    selectors: std::vec::Vec<SelectorFrame<'walk, 'ast>>,
-    conditions: std::vec::Vec<ConditionalFrame<'walk, 'ast>>,
+    selector_path: SelectorPathId,
+    selector_paths: SelectorPathStore<'walk, 'ast>,
+    conditional_path: ConditionalPathId,
+    conditional_paths: ConditionalPathStore<'walk, 'ast>,
+    effective_keys: EffectiveKeyInterner,
     declaration_blocks: std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>,
     state: WalkState,
 }
@@ -158,8 +372,11 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
     fn new(token: &'walk GhostToken<'ghost>) -> Self {
         Self {
             token,
-            selectors: std::vec::Vec::new(),
-            conditions: std::vec::Vec::new(),
+            selector_path: SelectorPathId::default(),
+            selector_paths: SelectorPathStore::default(),
+            conditional_path: ConditionalPathId::default(),
+            conditional_paths: ConditionalPathStore::default(),
+            effective_keys: EffectiveKeyInterner::default(),
             declaration_blocks: std::vec::Vec::new(),
             state: WalkState::default(),
         }
@@ -209,15 +426,12 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
                 location,
             ),
             CssRule::NestedDeclarations(rule) => {
-                self.declaration_blocks.push(DeclarationBlockEntry {
-                    declarations: rule.declarations.as_ref().borrow(self.token).get_ref(),
-                    declaration_ref: Ref::from(&rule.declarations),
-                    effective_key: self.effective_key(),
-                    kind: DeclarationBlockKind::NestedDeclarations,
-                    rule_list: location.rule_list,
-                    rule_list_segment: location.rule_list_segment,
-                    sibling_ordinal: location.sibling_ordinal,
-                });
+                self.push_declaration_block(
+                    rule.declarations.as_ref().borrow(self.token).get_ref(),
+                    Ref::from(&rule.declarations),
+                    DeclarationBlockKind::NestedDeclarations,
+                    location,
+                );
             }
             CssRule::LayerBlock(rule) => self.with_condition(
                 opaque_condition(OpaqueConditionalKind::Layer, rule.as_ref()),
@@ -248,16 +462,19 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
         kind: SelectorFrameKind,
         location: StructuralLocation,
     ) {
-        self.selectors.push(SelectorFrame {
-            kind,
-            selectors: &rule.selectors,
-            vendor_prefix: rule.vendor_prefix,
-        });
-        self.declaration_blocks.push(DeclarationBlockEntry {
-            declarations: rule.declarations.as_ref().borrow(self.token).get_ref(),
-            declaration_ref: Ref::from(&rule.declarations),
-            effective_key: self.effective_key(),
-            kind: match kind {
+        let parent_selector_path = self.selector_path;
+        self.selector_path = self.selector_paths.push(
+            parent_selector_path,
+            SelectorFrame {
+                kind,
+                selectors: &rule.selectors,
+                vendor_prefix: rule.vendor_prefix,
+            },
+        );
+        self.push_declaration_block(
+            rule.declarations.as_ref().borrow(self.token).get_ref(),
+            Ref::from(&rule.declarations),
+            match kind {
                 SelectorFrameKind::Style => DeclarationBlockKind::Style {
                     has_children: !rule.rules.is_empty(),
                     has_live_selectors: rule
@@ -267,12 +484,10 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
                 },
                 SelectorFrameKind::Nesting => DeclarationBlockKind::Nesting,
             },
-            rule_list: location.rule_list,
-            rule_list_segment: location.rule_list_segment,
-            sibling_ordinal: location.sibling_ordinal,
-        });
+            location,
+        );
         self.collect_rule_list(&rule.rules);
-        self.selectors.pop();
+        self.selector_path = parent_selector_path;
     }
 
     fn with_condition(
@@ -280,20 +495,58 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
         frame: ConditionalFrame<'walk, 'ast>,
         rules: &'walk Vec<'ast, CssRule<'ast, 'ghost>>,
     ) {
-        self.conditions.push(frame);
+        let parent_conditional_path = self.conditional_path;
+        self.conditional_path = self.conditional_paths.push(parent_conditional_path, frame);
         self.collect_rule_list(rules);
-        self.conditions.pop();
+        self.conditional_path = parent_conditional_path;
     }
 
-    fn effective_key(&self) -> EffectiveKey<'walk, 'ast> {
-        EffectiveKey {
-            selectors: self.selectors.clone(),
-            conditions: self.conditions.clone(),
+    fn push_declaration_block(
+        &mut self,
+        declarations: &'walk DeclarationBlock<'ast, 'ghost>,
+        declaration_ref: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
+        kind: DeclarationBlockKind,
+        location: StructuralLocation,
+    ) {
+        let current_entry = u32::try_from(self.declaration_blocks.len())
+            .expect("declaration block count exceeds u32::MAX");
+        let occurrence = self.effective_keys.intern(
+            self.selector_path,
+            self.conditional_path,
+            &self.selector_paths,
+            &self.conditional_paths,
+            current_entry,
+        );
+        self.declaration_blocks.push(DeclarationBlockEntry {
+            declarations,
+            declaration_ref,
+            effective_key: occurrence.id,
+            kind,
+            rule_list: location.rule_list,
+            rule_list_segment: location.rule_list_segment,
+            sibling_ordinal: location.sibling_ordinal,
+            next_in_history: None,
+            starts_history: false,
+        });
+
+        if let Some(previous_entry) = occurrence.previous_entry {
+            let previous_entry =
+                usize::try_from(previous_entry).expect("declaration block index fits usize");
+            let current_link = NonZeroU32::new(
+                current_entry
+                    .checked_add(1)
+                    .expect("declaration block count exceeds u32::MAX"),
+            )
+            .expect("encoded declaration block index is non-zero");
+            self.declaration_blocks[previous_entry].next_in_history = Some(current_link);
+            if occurrence.starts_history {
+                self.declaration_blocks[previous_entry].starts_history = true;
+            }
         }
     }
 }
 
-fn hash_conditional_frame(frame: &ConditionalFrame<'_, '_>, hasher: &mut FxHasher) {
+fn hash_conditional_frame(frame: &ConditionalFrame<'_, '_>, hasher: &mut impl Hasher) {
     std::mem::discriminant(frame).hash(hasher);
     match frame {
         ConditionalFrame::Media(media) => {
@@ -363,10 +616,31 @@ mod tests {
             assert_eq!(blocks[1].effective_key, blocks[2].effective_key);
             assert_ne!(blocks[2].effective_key, blocks[3].effective_key);
             assert_ne!(blocks[2].effective_key, blocks[4].effective_key);
-            assert_eq!(
-                blocks[1].effective_key.fingerprint(),
-                blocks[2].effective_key.fingerprint()
-            );
+        });
+    }
+
+    #[test]
+    fn declaration_histories_are_linked_only_after_a_key_repeats() {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
+            let stylesheet = parse(
+                "a{x:1}b{x:2}a{x:3}c{x:4}a{x:5}",
+                &allocator,
+                &mut token,
+                ParserOptions::default(),
+            )
+            .unwrap();
+
+            let blocks = walk_declaration_blocks(&stylesheet, &token);
+            assert_eq!(blocks.len(), 5);
+            assert!(blocks[0].starts_declaration_history());
+            assert_eq!(blocks[0].next_declaration_history_entry(), Some(2));
+            assert_eq!(blocks[2].next_declaration_history_entry(), Some(4));
+            assert_eq!(blocks[4].next_declaration_history_entry(), None);
+            assert!(!blocks[1].starts_declaration_history());
+            assert_eq!(blocks[1].next_declaration_history_entry(), None);
+            assert!(!blocks[3].starts_declaration_history());
+            assert_eq!(blocks[3].next_declaration_history_entry(), None);
         });
     }
 

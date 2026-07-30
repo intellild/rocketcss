@@ -83,13 +83,38 @@ with the stylesheet. They are not stored as one-element vectors in
 
 ### Effective-key path cost
 
-The current walker clones both the selector-frame path and conditional-context
-path into every `DeclarationBlockEntry`. Even a top-level style rule allocates
-one selector-path `Vec`; deeply nested styles copy every ancestor frame again.
-This makes discovery allocate and copy `O(blocks * nesting depth)` references
-before candidate processing starts.
+The declaration-block walker builds compact parent-linked selector and
+conditional paths with rolling fingerprints while it traverses the stylesheet,
+then interns each path pair into a dense `EffectiveKeyId`. Each
+`DeclarationBlockEntry` stores that ID directly. This removes the former owned
+selector/condition path vectors and the later full-key interning pass.
+
+The same traversal also remembers the last declaration-block entry for each
+effective key. A key's S2 history is linked only when its second entry is
+observed: the first entry becomes the history head, and later entries extend a
+one-dimensional `u32` chain. S2 therefore does not allocate dense count,
+head, and tail arrays for keys that never repeat.
 
 ## Deferred optimization candidates
+
+### Intern complete selector objects
+
+The compiler string pool already makes selector atoms cheap to compare, but
+`Selector` and `SelectorList` remain independently allocated AST structures.
+A compiler-scoped pool for complete selectors could make equality and hashing
+pointer-based when the same full selector occurs many times.
+
+This is deliberately deferred. Selector nodes are mutable and may be replaced
+with tombstones during minification, so sharing them requires an explicit
+immutability, copy-on-write, or re-interning boundary. Most selectors in the
+current Bootstrap and Tailwind inputs are unique, which may leave the pool's
+hash-table and canonicalization cost larger than the comparisons it removes.
+
+Benchmark this only after compact effective-key IDs and lazy S2 histories have
+landed. Implement it only if updated profiles still attribute material time to
+structural selector hash/equality and the measured full-selector reuse rate
+amortizes pool construction. Keep the pass-local dense effective-key identity
+even if a compiler-scoped selector pool is later added.
 
 ### Compress initial maximal same-selector runs
 
@@ -141,9 +166,9 @@ reads it.
 
 ### Hash complete conditional contexts before optimizing S2 buckets
 
-S2 candidate discovery buckets declaration blocks by
-`EffectiveKey::fingerprint` and then uses exact typed equality inside each
-bucket. The current conditional fingerprint is deliberately incomplete:
+The declaration-block walker buckets effective-key paths by a rolling
+fingerprint and then uses exact typed path equality inside each collision
+bucket. The current conditional-frame fingerprint is deliberately incomplete:
 media queries hash their shape but not the condition contents, while supports
 and container conditions mostly hash their discriminants and presence.
 
@@ -159,15 +184,14 @@ the same shape can place every entry in one bucket:
 The collision-safe linear equality check then makes discovery quadratic in the
 number of distinct contexts even when no S2 history is produced. A later
 optimization should hash the complete typed media, supports, and container
-condition AST, while retaining exact `EffectiveKey` equality as the final
+condition AST, while retaining exact conditional-frame equality as the final
 proof.
 
 This is intentionally deferred until the S2 correctness boundary is fixed.
 Fingerprint work must not broaden history identity or make hashes authoritative
-for semantic equality. If a compact-ID implementation removes
-`EffectiveKey::fingerprint`, apply the same requirement to the interner's frame
-hash: hash the complete typed condition before resolving collisions with exact
-equality.
+for semantic equality. The compact-ID implementation preserves that boundary:
+improve the interner's frame hash without removing exact equality as the final
+collision check.
 
 ## Custom-property token traversal fusion
 

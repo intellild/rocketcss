@@ -3,8 +3,9 @@ use rocketcss_ast::{CssRule, DeclarationBlock, Selector, StyleSheet};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::candidates::{Candidate, SameSelectorCandidateList};
-use super::effective_key::EffectiveKeyId;
-use crate::utils::{DeclarationBlockEntry, DeclarationBlockKind, RuleListId, RuleListSegmentId};
+use crate::utils::{
+    DeclarationBlockEntry, DeclarationBlockKind, EffectiveKeyId, RuleListId, RuleListSegmentId,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct RuleId(u32);
@@ -61,10 +62,8 @@ pub(super) struct LiveSiblingGraph<'ast, 'ghost> {
 impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
     pub(super) fn new(
         declaration_blocks: &[DeclarationBlockEntry<'_, 'ast, 'ghost>],
-        effective_keys: &[EffectiveKeyId],
         token: &GhostToken<'ghost>,
     ) -> Self {
-        debug_assert_eq!(declaration_blocks.len(), effective_keys.len());
         let style_rule_count = declaration_blocks
             .iter()
             .filter(|entry| matches!(entry.kind, DeclarationBlockKind::Style { .. }))
@@ -88,15 +87,12 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
         let mut declaration_chain = std::vec::Vec::new();
         let mut declaration_chain_seen = FxHashSet::default();
 
-        for (entry_index, (entry, &effective_key)) in
-            declaration_blocks.iter().zip(effective_keys).enumerate()
-        {
+        for (entry_index, entry) in declaration_blocks.iter().enumerate() {
             let DeclarationBlockKind::Style { .. } = entry.kind else {
                 continue;
             };
             let rule = graph.push_rule(
                 entry,
-                effective_key,
                 token,
                 &mut declaration_chain,
                 &mut declaration_chain_seen,
@@ -122,7 +118,6 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
     fn push_rule(
         &mut self,
         entry: &DeclarationBlockEntry<'_, 'ast, 'ghost>,
-        effective_key: EffectiveKeyId,
         token: &GhostToken<'ghost>,
         declaration_chain: &mut std::vec::Vec<Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>>,
         declaration_chain_seen: &mut FxHashSet<*const DeclarationBlock<'ast, 'ghost>>,
@@ -177,7 +172,7 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
         });
         self.rules.push(LiveRule {
             declarations: entry.declaration_ref,
-            effective_key,
+            effective_key: entry.effective_key,
             previous_live: None,
             next_live: None,
             sequence,
