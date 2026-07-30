@@ -167,7 +167,7 @@ fn s2_requires_exactly_equal_conditional_contexts() {
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
 
-        let blocks = crate::utils::walk_declaration_blocks(&stylesheet, &token, &allocator);
+        let blocks = crate::utils::walk_declaration_blocks(&stylesheet, &token);
         assert_eq!(blocks.len(), 2);
         assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
         assert!(!blocks[0].declarations.declarations[0].is_tombstone());
