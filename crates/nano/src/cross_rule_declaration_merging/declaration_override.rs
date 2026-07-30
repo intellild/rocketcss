@@ -4,7 +4,6 @@ use rocketcss_allocator::{GhostToken, Ref};
 use rocketcss_ast::DeclarationBlock;
 use rustc_hash::FxHashSet;
 
-use super::effective_key::EffectiveKeyId;
 use crate::MinifyContext;
 use crate::rules::DeclarationBlockMinifier;
 use crate::utils::DeclarationBlockEntry;
@@ -23,55 +22,45 @@ pub(super) struct DeclarationOverrideCommitResult<'ast, 'ghost> {
 impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
     pub(super) fn discover(
         declaration_blocks: &[DeclarationBlockEntry<'_, 'ast, 'ghost>],
-        effective_keys: &[EffectiveKeyId],
-        effective_key_count: usize,
     ) -> Option<Self> {
-        debug_assert_eq!(declaration_blocks.len(), effective_keys.len());
-        let mut counts = std::vec![0_u32; effective_key_count];
-        for &effective_key in effective_keys {
-            let count = &mut counts[effective_key.index()];
-            *count = count
-                .checked_add(1)
-                .expect("declaration history length exceeds u32::MAX");
-        }
-        let repeated_block_count = effective_keys
+        let history_count = declaration_blocks
             .iter()
-            .filter(|effective_key| counts[effective_key.index()] > 1)
+            .filter(|entry| entry.starts_declaration_history())
             .count();
-        if repeated_block_count == 0 {
+        if history_count == 0 {
             return None;
         }
 
-        let mut blocks = std::vec::Vec::with_capacity(repeated_block_count);
-        let mut next_in_history = std::vec::Vec::with_capacity(repeated_block_count);
-        let mut history_heads_by_key = std::vec![None; effective_key_count];
-        let mut history_tails_by_key = std::vec![None; effective_key_count];
-        for (entry, &effective_key) in declaration_blocks.iter().zip(effective_keys) {
-            let key = effective_key.index();
-            if counts[key] == 1 {
+        let mut blocks = std::vec::Vec::new();
+        let mut next_in_history = std::vec::Vec::new();
+        let mut history_heads = std::vec::Vec::with_capacity(history_count);
+        for (source_head, entry) in declaration_blocks.iter().enumerate() {
+            if !entry.starts_declaration_history() {
                 continue;
             }
-            let current =
-                u32::try_from(blocks.len()).expect("declaration history count exceeds u32::MAX");
-            let current_link = encode_history_link(current);
-            blocks.push(entry.declaration_ref);
-            next_in_history.push(None);
-            if let Some(previous) = history_tails_by_key[key] {
-                next_in_history[decode_history_link(previous)] = Some(current_link);
-            } else {
-                history_heads_by_key[key] = Some(current_link);
+
+            history_heads.push(
+                u32::try_from(blocks.len()).expect("declaration history count exceeds u32::MAX"),
+            );
+            let mut current = Some(source_head);
+            while let Some(source_index) = current {
+                let entry = &declaration_blocks[source_index];
+                let output_index = blocks.len();
+                blocks.push(entry.declaration_ref);
+                next_in_history.push(None);
+                current = entry.next_declaration_history_entry();
+                if current.is_some() {
+                    let next_output = u32::try_from(blocks.len())
+                        .expect("declaration history count exceeds u32::MAX");
+                    next_in_history[output_index] = Some(encode_history_link(next_output));
+                }
             }
-            history_tails_by_key[key] = Some(current_link);
         }
 
         Some(Self {
             blocks,
             next_in_history,
-            history_heads: history_heads_by_key
-                .into_iter()
-                .flatten()
-                .map(|head| head.get() - 1)
-                .collect(),
+            history_heads,
         })
     }
 
@@ -115,10 +104,6 @@ fn encode_history_link(index: u32) -> NonZeroU32 {
     .expect("encoded declaration history index is non-zero")
 }
 
-fn decode_history_link(link: NonZeroU32) -> usize {
-    usize::try_from(link.get() - 1).expect("declaration history index fits usize")
-}
-
 fn append_declaration_chain<'ast, 'ghost>(
     declarations: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
     token: &GhostToken<'ghost>,
@@ -143,8 +128,24 @@ mod tests {
 
     use super::*;
     use crate::MinifyOptions;
-    use crate::cross_rule_declaration_merging::effective_key::intern_effective_keys;
     use crate::utils::walk_declaration_blocks;
+
+    #[test]
+    fn does_not_materialize_unique_histories() {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
+            let stylesheet = parse(
+                "a{x:1}b{x:2}c{x:3}",
+                &allocator,
+                &mut token,
+                ParserOptions::default(),
+            )
+            .unwrap();
+            let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+
+            assert!(DeclarationOverrideCommitPass::discover(&declaration_blocks).is_none());
+        });
+    }
 
     #[test]
     fn discovers_s2_history_in_source_order() {
@@ -158,14 +159,9 @@ mod tests {
             )
             .unwrap();
             let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
-            let (effective_keys, effective_key_count) = intern_effective_keys(&declaration_blocks);
 
-            let pass = DeclarationOverrideCommitPass::discover(
-                &declaration_blocks,
-                &effective_keys,
-                effective_key_count,
-            )
-            .expect("both selectors have declaration histories");
+            let pass = DeclarationOverrideCommitPass::discover(&declaration_blocks)
+                .expect("the a selector has a declaration history");
 
             assert_eq!(pass.history_heads.len(), 1);
             let mut history_len = 0;
@@ -193,14 +189,8 @@ mod tests {
             .unwrap();
             let pass = {
                 let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
-                let (effective_keys, effective_key_count) =
-                    intern_effective_keys(&declaration_blocks);
-                DeclarationOverrideCommitPass::discover(
-                    &declaration_blocks,
-                    &effective_keys,
-                    effective_key_count,
-                )
-                .expect("the two a blocks share one exact-only S2 history")
+                DeclarationOverrideCommitPass::discover(&declaration_blocks)
+                    .expect("the two a blocks share one exact-only S2 history")
             };
 
             let scratch = Allocator::new();
@@ -234,14 +224,8 @@ mod tests {
             .unwrap();
             let pass = {
                 let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
-                let (effective_keys, effective_key_count) =
-                    intern_effective_keys(&declaration_blocks);
-                DeclarationOverrideCommitPass::discover(
-                    &declaration_blocks,
-                    &effective_keys,
-                    effective_key_count,
-                )
-                .expect("the two a blocks share one exact-only S2 history")
+                DeclarationOverrideCommitPass::discover(&declaration_blocks)
+                    .expect("the two a blocks share one exact-only S2 history")
             };
 
             let scratch = Allocator::new();

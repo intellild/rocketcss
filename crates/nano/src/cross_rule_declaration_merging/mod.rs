@@ -1,6 +1,5 @@
 mod candidates;
 mod declaration_override;
-mod effective_key;
 mod live_sibling_graph;
 mod same_selector;
 
@@ -8,7 +7,6 @@ use rocketcss_allocator::{GhostToken, vec::Vec};
 use rocketcss_ast::{CssRule, StyleSheet};
 
 use self::declaration_override::DeclarationOverrideCommitPass;
-use self::effective_key::intern_effective_keys;
 use self::live_sibling_graph::LiveSiblingGraph;
 use crate::rules::DeclarationBlockMinifier;
 use crate::utils::walk_declaration_blocks;
@@ -28,15 +26,10 @@ pub(crate) fn merge_cross_rule_declarations<'ast, 'ghost, 'scratch>(
 
     let (mut live_sibling_graph, declaration_override_commit_pass) = {
         let declaration_blocks = walk_declaration_blocks(stylesheet, token);
-        let (effective_keys, effective_key_count) = intern_effective_keys(&declaration_blocks);
-        let mut live_sibling_graph =
-            LiveSiblingGraph::new(&declaration_blocks, &effective_keys, token);
+        let mut live_sibling_graph = LiveSiblingGraph::new(&declaration_blocks, token);
         live_sibling_graph.stabilize_same_selector_candidates();
-        let declaration_override_commit_pass = DeclarationOverrideCommitPass::discover(
-            &declaration_blocks,
-            &effective_keys,
-            effective_key_count,
-        );
+        let declaration_override_commit_pass =
+            DeclarationOverrideCommitPass::discover(&declaration_blocks);
         (live_sibling_graph, declaration_override_commit_pass)
     };
 
