@@ -133,6 +133,54 @@ fn parses_style_rule_selectors_and_declarations() {
 }
 
 #[test]
+fn custom_properties_reify_color_functions_without_validating_them() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a{--valid:rgb(0 0 0);--invalid:rgb(foo);--raw:10.px}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(rule) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = &rule
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations;
+
+        for declaration in &declarations[..2] {
+            assert!(matches!(
+                declaration,
+                Declaration::Custom(value)
+                    if matches!(
+                        &value.value[..],
+                        [TokenOrValue::Color(color)]
+                            if matches!(
+                                &**color,
+                                CssColor::Function(function)
+                                    if function.kind() == KnownFunction::Rgb
+                            )
+                    )
+            ));
+        }
+        assert!(matches!(
+            &declarations[2],
+            Declaration::Custom(value)
+                if value
+                    .value
+                    .iter()
+                    .all(|value| matches!(value, TokenOrValue::Token(_)))
+        ));
+    })
+}
+
+#[test]
 fn parses_named_colors_as_known_color_nodes() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {

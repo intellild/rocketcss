@@ -1341,15 +1341,14 @@ fn minify_unparsed_declaration<'ast, 'cx>(
 }
 
 fn declaration_skips_minification(declaration: &Declaration<'_>) -> bool {
-    matches!(declaration, Declaration::Custom(_))
-        || matches!(
-            declaration,
-            Declaration::Unparsed(value)
-                if !matches!(
-                    value.reason,
-                    UnparsedPropertyReason::UnsupportedGrammar
-                )
-        )
+    matches!(
+        declaration,
+        Declaration::Unparsed(value)
+            if !matches!(
+                value.reason,
+                UnparsedPropertyReason::UnsupportedGrammar
+            )
+    )
 }
 
 fn is_css_wide_value(value: &TokenOrValue<'_>) -> bool {

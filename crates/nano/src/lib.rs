@@ -186,12 +186,20 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
 
     fn visit_custom_property(
         &mut self,
-        _node: &mut CustomProperty<'ast>,
-        _cx: &mut VisitMutContext<'_, 'ghost>,
+        node: &mut CustomProperty<'ast>,
+        cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
-        // Custom property values use an author-defined grammar and may be
-        // substituted into contexts where token boundaries are significant.
-        // Preserve the parsed token representation exactly.
+        let previous = self.cx.value_context;
+        self.cx.value_context = properties::custom_property_context(&self.cx);
+        let name = match &*node.name {
+            CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => *name,
+        };
+        if match_ignore_ascii_case!(name, "--font-family" => true, _ => false) {
+            self.cx.value_context.property = context::PropertyContext::Font;
+        }
+        node.visit_mut_children(self, cx);
+        node.minify(&mut self.cx);
+        self.cx.value_context = previous;
     }
 
     fn visit_function(&mut self, node: &mut Function<'ast>, cx: &mut VisitMutContext<'_, 'ghost>) {

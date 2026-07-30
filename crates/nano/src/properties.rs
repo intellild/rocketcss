@@ -1,6 +1,9 @@
 use rocketcss_ast::{PropertyId, match_ignore_ascii_case};
 
-use crate::context::{PropertyContext, ValueContext, ValueContextFlags};
+use crate::{
+    MinifyContext, Options, OptionsOp,
+    context::{PropertyContext, ValueContext, ValueContextFlags},
+};
 
 pub(crate) fn value_context(
     property_id: &PropertyId<'_>,
@@ -114,6 +117,16 @@ fn starts_with_ignore_ascii_case(value: &str, prefix: &str) -> bool {
     value
         .get(..prefix.len())
         .is_some_and(|value| value.eq_ignore_ascii_case(prefix))
+}
+
+pub(crate) fn custom_property_context(cx: &MinifyContext) -> ValueContext {
+    let mut value_context = ValueContext::default();
+    value_context.set_enabled(
+        ValueContextFlags::SKIP_VALUE_TRANSFORMS,
+        cx.is_enabled(Options::TRANSFORM_CUSTOM_PROPERTIES, OptionsOp::None),
+    );
+    value_context.set_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
+    value_context
 }
 
 fn zero_percentage_requires_target_support(property_id: &PropertyId<'_>) -> bool {

@@ -26,6 +26,8 @@ bitflags! {
         const DEDUPLICATE_LISTS = 1 << 9;
         /// Normalize URL whitespace, default ports, and dot path segments.
         const NORMALIZE_URLS = 1 << 10;
+        /// Transform parsed values inside custom properties.
+        const TRANSFORM_CUSTOM_PROPERTIES = 1 << 11;
         /// Merge physically adjacent style rules with equal selectors.
         const MERGE_ADJACENT_RULES = 1 << 12;
         /// Allow a ratio with denominator 1 to be written as a bare number
@@ -79,6 +81,7 @@ impl Default for MinifyOptions {
                 | Options::CONVERT_EXTENDED_LENGTH_UNITS
                 | Options::CONVERT_ZERO_PERCENTAGES
                 | Options::DEDUPLICATE_LISTS
+                | Options::TRANSFORM_CUSTOM_PROPERTIES
                 | Options::MERGE_ADJACENT_RULES,
             length_precision: None,
             calc_precision: None,

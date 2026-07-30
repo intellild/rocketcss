@@ -42,6 +42,7 @@ bitflags! {
         const MINIFY_COLORS = 1 << 2;
         const PRESERVE_SPACE_AFTER_COMMA = 1 << 3;
         const SKIP_VALUE_TRANSFORMS = 1 << 4;
+        const SKIP_RAW_TOKEN_TRANSFORMS = 1 << 5;
     }
 }
 

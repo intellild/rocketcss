@@ -1,6 +1,7 @@
 use super::values::{
-    collect_tokens, css_wide_keyword, parse_animation_list, parse_comma_separated,
-    parse_font_family_list, remove_important, trim_leading_whitespace, value_contains_comment,
+    collect_custom_property_tokens, collect_tokens, css_wide_keyword, parse_animation_list,
+    parse_comma_separated, parse_font_family_list, remove_important, trim_leading_whitespace,
+    value_contains_comment,
 };
 use crate::prelude::*;
 
@@ -52,7 +53,11 @@ pub(super) fn parse_declaration<'i, 't>(
     }
 
     let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
-        collect_tokens(input, allocator, depth + 1)
+        if name.starts_with("--") {
+            collect_custom_property_tokens(input, allocator, depth + 1)
+        } else {
+            collect_tokens(input, allocator, depth + 1)
+        }
     })?;
     let _ = input.try_parse(Parser::expect_semicolon);
     let important = remove_important(&mut value);

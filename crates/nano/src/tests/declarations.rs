@@ -26,7 +26,7 @@ fn removes_exact_duplicate_declarations_within_one_block() {
         run("a{-webkit-user-select:none;-webkit-user-select:none}"),
         "a{-webkit-user-select:none}"
     );
-    assert_eq!(run("a{--x:1;--x:1}"), "a{--x:1;--x:1}");
+    assert_eq!(run("a{--x:1;--x:1}"), "a{--x:1}");
     assert_eq!(
         run("a{unknown:value;unknown:value}"),
         "a{unknown:value;unknown:value}"

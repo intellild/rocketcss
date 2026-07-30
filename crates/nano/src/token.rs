@@ -20,6 +20,10 @@ impl Minify for TokenOrValue<'_> {
             || cx
                 .value_context
                 .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+            || (cx
+                .value_context
+                .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS)
+                && matches!(self, TokenOrValue::Token(_)))
         {
             return;
         }
@@ -136,6 +140,9 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
         if cx
             .value_context
             .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+            || cx
+                .value_context
+                .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS)
         {
             return;
         }

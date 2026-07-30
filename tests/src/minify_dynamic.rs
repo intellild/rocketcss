@@ -642,7 +642,11 @@ fn still_requires_unsupported_transform(
             "transparent",
             "rgba(0,0,0,0) conversion differs",
         ),
-        ("colormin", "custom properties", "option-dependent upstream"),
+        (
+            "colormin",
+            "transformCustomProperties is false",
+            "the dynamic harness runs the default custom-property transform options",
+        ),
         ("colormin", "Browserslist", "option-dependent upstream"),
         ("colormin", "slash alpha", "hex8 alpha output differs"),
         // postcss-discard-duplicates gaps.
@@ -783,7 +787,7 @@ fn still_requires_unsupported_transform(
         (
             "minify-font-values",
             "--font-family",
-            "custom property values are opaque to minification",
+            "font-family strings remain raw tokens, and raw tokens are not minified",
         ),
         (
             "minify-font-values",
