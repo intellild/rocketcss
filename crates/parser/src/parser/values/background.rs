@@ -9,7 +9,7 @@ fn zero_position<'i, S>(
 }
 
 impl<'i> Parse<'i> for Background<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
         let color = CssColor::parse(input)?;
 

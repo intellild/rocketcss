@@ -41,7 +41,7 @@ fn plugins_transform_expected_css() {
             plugins.add_visitor(
                 "rename-class",
                 RenameClass {
-                    after: compiler.string_pool().intern("after"),
+                    after: compiler.intern("after"),
                 },
             );
 

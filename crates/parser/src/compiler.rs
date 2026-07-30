@@ -1,12 +1,16 @@
 use rocketcss_allocator::{Allocator, GhostToken, StringPool};
-use rocketcss_ast::StyleSheet;
+use rocketcss_ast::{Atom, StyleSheet};
 
-use crate::{Error, ParserOptions, parser::stylesheet::parse_with_string_pool};
+use crate::{
+    Error, ParserOptions,
+    parser::{ParserCursor, stylesheet::parse_stylesheet},
+};
 
 /// Shared state for parsing CSS into one arena-owned compilation.
 pub struct Compiler<'alloc> {
-    allocator: &'alloc Allocator,
-    string_pool: &'alloc StringPool<'alloc>,
+    pub(crate) allocator: &'alloc Allocator,
+    pub(crate) string_pool: StringPool<'alloc>,
+    pub(crate) cursor: ParserCursor<'alloc>,
     source: &'alloc str,
     source_map_url: Option<&'alloc str>,
 }
@@ -15,7 +19,19 @@ impl<'alloc> Compiler<'alloc> {
     pub fn new(allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
-            string_pool: allocator.alloc(StringPool::new_in(allocator)),
+            string_pool: StringPool::new_in(allocator),
+            cursor: ParserCursor::new(""),
+            source: "",
+            source_map_url: None,
+        }
+    }
+
+    /// Creates a compiler positioned at `source` for parsing an individual CSS value.
+    pub fn new_with_source(source: &'alloc str, allocator: &'alloc Allocator) -> Self {
+        Self {
+            allocator,
+            string_pool: StringPool::new_in(allocator),
+            cursor: ParserCursor::new(source),
             source: "",
             source_map_url: None,
         }
@@ -27,16 +43,42 @@ impl<'alloc> Compiler<'alloc> {
         token: &mut GhostToken<'ghost>,
         options: ParserOptions<'alloc>,
     ) -> Result<StyleSheet<'alloc, 'ghost>, Error<'alloc>> {
-        let parsed =
-            parse_with_string_pool(source, self.allocator, self.string_pool, token, options)?;
+        self.cursor = ParserCursor::new(source);
+        let stylesheet = parse_stylesheet(self, token, options)?;
         self.source = options.filename;
-        self.source_map_url = parsed.source_map_url;
-        Ok(parsed.stylesheet)
+        self.source_map_url = self.cursor.source_map_url;
+        Ok(stylesheet)
     }
 
     #[inline]
-    pub fn string_pool(&self) -> &'alloc StringPool<'alloc> {
-        self.string_pool
+    pub fn allocator(&self) -> &'alloc Allocator {
+        self.allocator
+    }
+
+    #[inline]
+    pub fn string_pool(&self) -> &StringPool<'alloc> {
+        &self.string_pool
+    }
+
+    #[inline]
+    pub fn intern(&mut self, value: &str) -> Atom<'alloc> {
+        self.string_pool.intern(value)
+    }
+
+    #[inline]
+    pub fn intern_ascii_lowercase(&mut self, value: &str) -> Atom<'alloc> {
+        self.string_pool.intern_ascii_lowercase(value)
+    }
+
+    pub(crate) fn with_source<T>(
+        &mut self,
+        source: &'alloc str,
+        parse: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let parent = std::mem::replace(&mut self.cursor, ParserCursor::new(source));
+        let result = parse(self);
+        self.cursor = parent;
+        result
     }
 
     #[inline]

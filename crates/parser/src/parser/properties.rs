@@ -5,8 +5,8 @@ use super::values::{
 };
 use crate::prelude::*;
 
-pub(super) fn parse_declaration<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_declaration<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     name: &'i str,
     depth: usize,
@@ -21,8 +21,8 @@ pub(super) enum CssWideValueHint<'i> {
     Candidate(&'i str),
 }
 
-pub(super) fn parse_declaration_with_css_wide_hint<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_declaration_with_css_wide_hint<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     name: &'i str,
     depth: usize,
@@ -50,7 +50,7 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i, 't>(
             if let Some(important) = parse_declaration_end(input)
                 && !input.saw_comments_since(&start)
             {
-                let _ = input.try_parse(Parser::expect_semicolon);
+                let _ = input.try_parse(Compiler::expect_semicolon);
                 let declaration = match property_id {
                     PropertyId::All => Declaration::All(keyword),
                     PropertyId::ColumnWidth(prefix) => {
@@ -75,7 +75,7 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i, 't>(
             && let Some(important) = parse_declaration_end(input)
             && !input.saw_comments_since(&start)
         {
-            let _ = input.try_parse(Parser::expect_semicolon);
+            let _ = input.try_parse(Compiler::expect_semicolon);
             return Ok((declaration, important));
         }
         input.reset(&start);
@@ -88,7 +88,7 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i, 't>(
             collect_tokens(input, allocator, depth + 1)
         }
     })?;
-    let _ = input.try_parse(Parser::expect_semicolon);
+    let _ = input.try_parse(Compiler::expect_semicolon);
     let important = remove_important(&mut value);
 
     let declaration = if name.starts_with("--") {
@@ -158,8 +158,8 @@ fn token_value_is_opaque(value: &TokenOrValue<'_>) -> bool {
     )
 }
 
-fn try_parse_typed_declaration<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn try_parse_typed_declaration<'i>(
+    input: &mut Compiler<'i>,
     property_id: &PropertyId<'i>,
     allocator: &'i Allocator,
     depth: usize,
@@ -410,14 +410,14 @@ fn try_parse_typed_declaration<'i, 't>(
     }
 }
 
-fn parse_css_wide_keyword<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_css_wide_keyword<'i>(
+    input: &mut Compiler<'i>,
 ) -> Result<CSSWideKeyword, ParseError<'i, ParserError<'i>>> {
     let ident = input.expect_ident()?;
     css_wide_keyword(ident).ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
 }
 
-fn parse_declaration_end<'i, 't>(input: &mut Parser<'i, 't>) -> Option<bool> {
+fn parse_declaration_end<'i>(input: &mut Compiler<'i>) -> Option<bool> {
     let important = input
         .try_parse(|input| {
             input.expect_delim('!')?;
@@ -433,9 +433,7 @@ fn parse_declaration_end<'i, 't>(input: &mut Parser<'i, 't>) -> Option<bool> {
         .map(|()| important)
 }
 
-fn parse_opacity<'i, 't>(
-    input: &mut Parser<'i, 't>,
-) -> Result<f32, ParseError<'i, ParserError<'i>>> {
+fn parse_opacity<'i>(input: &mut Compiler<'i>) -> Result<f32, ParseError<'i, ParserError<'i>>> {
     let location = input.current_source_location();
     match input.next()?.clone() {
         ValueToken::Number(value) | ValueToken::Percentage(value) => Ok(value),

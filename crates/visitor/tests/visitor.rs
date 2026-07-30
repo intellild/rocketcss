@@ -223,7 +223,7 @@ fn mutable_visitor_can_transform_typed_nodes() {
             )
             .unwrap();
         let mut visitor = RenameAndRecolor {
-            renamed: compiler.string_pool().intern("renamed"),
+            renamed: compiler.intern("renamed"),
         };
 
         sheet.visit_mut(&mut visitor, &mut VisitMutContext::new(&mut token));

@@ -5,11 +5,10 @@
 use std::fmt;
 use std::ops::{BitOr, Range};
 
-use rocketcss_allocator::{Allocator, StringPool};
 use rocketcss_ast::Token as ValueToken;
 
 use crate::tokenizer::TokenizerState;
-use crate::{SourceLocation, SourcePosition, Span, Token, TokenAndSpan, Tokenizer};
+use crate::{Compiler, SourceLocation, SourcePosition, Span, Token, TokenAndSpan, Tokenizer};
 
 mod color;
 mod css_rule;
@@ -180,45 +179,35 @@ impl SourceLocation {
     }
 }
 
-/// Tokenizer storage and the one-token decoded-value cache used by [`Parser`].
-pub struct ParserInput<'i> {
-    tokenizer: Tokenizer<'i>,
-    source: &'i str,
-    allocator: &'i Allocator,
-    string_pool: &'i StringPool<'i>,
-    cached_token: Option<CachedToken<'i>>,
-    comments_seen: u32,
-    source_map_url: Option<&'i str>,
-    source_url: Option<&'i str>,
-}
-
 struct CachedToken<'i> {
     lexical: TokenAndSpan,
     value: ValueToken<'i>,
     end_state: TokenizerState,
 }
 
-impl<'i> ParserInput<'i> {
-    /// Creates parser input. Escaped values are allocated in `allocator` only when consumed.
-    pub fn new(source: &'i str, allocator: &'i Allocator) -> Self {
-        let string_pool = allocator.alloc(StringPool::new_in(allocator));
-        Self::new_with_string_pool(source, allocator, string_pool)
-    }
+/// The active tokenizer, token cache, and nested-block state for one input.
+pub(crate) struct ParserCursor<'i> {
+    tokenizer: Tokenizer<'i>,
+    source: &'i str,
+    cached_token: Option<CachedToken<'i>>,
+    comments_seen: u32,
+    pub(crate) source_map_url: Option<&'i str>,
+    source_url: Option<&'i str>,
+    at_start_of: Option<BlockType>,
+    stop_before: Delimiters,
+}
 
-    pub(crate) fn new_with_string_pool(
-        source: &'i str,
-        allocator: &'i Allocator,
-        string_pool: &'i StringPool<'i>,
-    ) -> Self {
+impl<'i> ParserCursor<'i> {
+    pub(crate) fn new(source: &'i str) -> Self {
         Self {
             tokenizer: Tokenizer::new(source),
             source,
-            allocator,
-            string_pool,
             cached_token: None,
             comments_seen: 0,
             source_map_url: None,
             source_url: None,
+            at_start_of: None,
+            stop_before: Delimiter::None,
         }
     }
 
@@ -257,13 +246,6 @@ impl<'i> ParserInput<'i> {
             }
         }
     }
-}
-
-/// A CSS parser with nested-block handling, backtracking, and delayed token decoding.
-pub struct Parser<'i, 't> {
-    input: &'t mut ParserInput<'i>,
-    at_start_of: Option<BlockType>,
-    stop_before: Delimiters,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -348,25 +330,7 @@ impl Delimiters {
     }
 }
 
-impl<'i, 't> Parser<'i, 't> {
-    pub fn new(input: &'t mut ParserInput<'i>) -> Self {
-        Self {
-            input,
-            at_start_of: None,
-            stop_before: Delimiter::None,
-        }
-    }
-
-    #[inline]
-    pub fn allocator(&self) -> &'i Allocator {
-        self.input.allocator
-    }
-
-    #[inline]
-    pub fn string_pool(&self) -> &'i StringPool<'i> {
-        self.input.string_pool
-    }
-
+impl<'i> Compiler<'i> {
     pub fn is_exhausted(&mut self) -> bool {
         let state = self.state();
         let exhausted = self.expect_exhausted().is_ok();
@@ -386,7 +350,7 @@ impl<'i, 't> Parser<'i, 't> {
             Err(error) => Err(error),
             Ok(_) => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -394,32 +358,32 @@ impl<'i, 't> Parser<'i, 't> {
 
     #[inline]
     pub fn position(&self) -> SourcePosition {
-        self.input.tokenizer.position()
+        self.cursor.tokenizer.position()
     }
 
     #[inline]
     pub fn current_source_location(&self) -> SourceLocation {
-        self.input.tokenizer.current_source_location()
+        self.cursor.tokenizer.current_source_location()
     }
 
     #[inline]
     pub fn current_line(&self) -> &'i str {
-        self.input.tokenizer.current_source_line()
+        self.cursor.tokenizer.current_source_line()
     }
 
     #[inline]
     pub fn current_source_map_url(&self) -> Option<&'i str> {
-        self.input.source_map_url
+        self.cursor.source_map_url
     }
 
     #[inline]
     pub fn current_source_url(&self) -> Option<&'i str> {
-        self.input.source_url
+        self.cursor.source_url
     }
 
     #[inline]
     pub fn current_token_span(&self) -> Option<Span> {
-        self.input
+        self.cursor
             .cached_token
             .as_ref()
             .map(|token| token.lexical.span)
@@ -427,7 +391,7 @@ impl<'i, 't> Parser<'i, 't> {
 
     #[inline]
     pub fn current_token(&self) -> Option<TokenAndSpan> {
-        self.input.cached_token.as_ref().map(|token| token.lexical)
+        self.cursor.cached_token.as_ref().map(|token| token.lexical)
     }
 
     #[inline]
@@ -449,7 +413,7 @@ impl<'i, 't> Parser<'i, 't> {
         let location = self.current_source_location();
         match self.next() {
             Ok(_) => location.new_error(BasicParseErrorKind::UnexpectedToken(
-                self.input.cached_lexical(),
+                self.cursor.cached_lexical(),
             )),
             Err(error) => error.into(),
         }
@@ -458,27 +422,27 @@ impl<'i, 't> Parser<'i, 't> {
     #[inline]
     pub fn state(&self) -> ParserState {
         ParserState {
-            tokenizer: self.input.tokenizer.state(),
-            at_start_of: self.at_start_of,
-            comments_seen: self.input.comments_seen,
+            tokenizer: self.cursor.tokenizer.state(),
+            at_start_of: self.cursor.at_start_of,
+            comments_seen: self.cursor.comments_seen,
         }
     }
 
     #[inline]
     pub fn reset(&mut self, state: &ParserState) {
-        self.input.tokenizer.reset(&state.tokenizer);
-        self.at_start_of = state.at_start_of;
-        self.input.comments_seen = state.comments_seen;
+        self.cursor.tokenizer.reset(&state.tokenizer);
+        self.cursor.at_start_of = state.at_start_of;
+        self.cursor.comments_seen = state.comments_seen;
     }
 
     #[inline]
     pub(crate) fn saw_comments_since(&self, state: &ParserState) -> bool {
-        self.input.comments_seen != state.comments_seen
+        self.cursor.comments_seen != state.comments_seen
     }
 
     pub fn try_parse<F, T, E>(&mut self, parse: F) -> Result<T, E>
     where
-        F: FnOnce(&mut Parser<'i, 't>) -> Result<T, E>,
+        F: FnOnce(&mut Compiler<'i>) -> Result<T, E>,
     {
         let start = self.state();
         let result = parse(self);
@@ -490,34 +454,34 @@ impl<'i, 't> Parser<'i, 't> {
 
     #[inline]
     pub fn slice(&self, range: Range<SourcePosition>) -> &'i str {
-        self.input.tokenizer.slice(range)
+        self.cursor.tokenizer.slice(range)
     }
 
     #[inline]
     pub fn slice_from(&self, start: SourcePosition) -> &'i str {
-        self.input.tokenizer.slice_from(start)
+        self.cursor.tokenizer.slice_from(start)
     }
 
     pub fn skip_whitespace(&mut self) {
-        if let Some(block) = self.at_start_of.take() {
-            consume_until_end_of_block(block, &mut self.input.tokenizer);
+        if let Some(block) = self.cursor.at_start_of.take() {
+            consume_until_end_of_block(block, &mut self.cursor.tokenizer);
         }
         loop {
             if !matches!(
-                self.input.tokenizer.next_byte(),
+                self.cursor.tokenizer.next_byte(),
                 Some(b' ' | b'\t' | b'\n' | b'\r' | b'\x0c' | b'/')
             ) {
                 break;
             }
-            let state = self.input.tokenizer.state();
-            let Ok(token) = self.input.tokenizer.next() else {
+            let state = self.cursor.tokenizer.state();
+            let Ok(token) = self.cursor.tokenizer.next() else {
                 break;
             };
             match token.token {
                 Token::WhiteSpace => {}
-                Token::Comment => self.input.observe_comment(token),
+                Token::Comment => self.cursor.observe_comment(token),
                 _ => {
-                    self.input.tokenizer.reset(&state);
+                    self.cursor.tokenizer.reset(&state);
                     break;
                 }
             }
@@ -525,10 +489,10 @@ impl<'i, 't> Parser<'i, 't> {
     }
 
     pub fn skip_cdc_and_cdo(&mut self) {
-        if let Some(block) = self.at_start_of.take() {
-            consume_until_end_of_block(block, &mut self.input.tokenizer);
+        if let Some(block) = self.cursor.at_start_of.take() {
+            consume_until_end_of_block(block, &mut self.cursor.tokenizer);
         }
-        self.input.tokenizer.skip_cdc_and_cdo();
+        self.cursor.tokenizer.skip_cdc_and_cdo();
     }
 
     #[allow(clippy::should_implement_trait)]
@@ -540,8 +504,8 @@ impl<'i, 't> Parser<'i, 't> {
     pub fn next_including_whitespace(&mut self) -> Result<&ValueToken<'i>, BasicParseError<'i>> {
         loop {
             self.next_including_whitespace_and_comments()?;
-            if !matches!(self.input.cached_value(), ValueToken::Comment(_)) {
-                return Ok(self.input.cached_value());
+            if !matches!(self.cursor.cached_value(), ValueToken::Comment(_)) {
+                return Ok(self.cursor.cached_value());
             }
         }
     }
@@ -549,55 +513,59 @@ impl<'i, 't> Parser<'i, 't> {
     pub fn next_including_whitespace_and_comments(
         &mut self,
     ) -> Result<&ValueToken<'i>, BasicParseError<'i>> {
-        if let Some(block) = self.at_start_of.take() {
-            consume_until_end_of_block(block, &mut self.input.tokenizer);
+        if let Some(block) = self.cursor.at_start_of.take() {
+            consume_until_end_of_block(block, &mut self.cursor.tokenizer);
         }
 
-        let byte = self.input.tokenizer.next_byte();
-        if self.stop_before.contains(Delimiters::from_byte(byte)) {
+        let byte = self.cursor.tokenizer.next_byte();
+        if self
+            .cursor
+            .stop_before
+            .contains(Delimiters::from_byte(byte))
+        {
             return Err(self.new_basic_error(BasicParseErrorKind::EndOfInput));
         }
 
-        let start = self.input.tokenizer.position();
+        let start = self.cursor.tokenizer.position();
         let use_cache = self
-            .input
+            .cursor
             .cached_token
             .as_ref()
             .is_some_and(|cached| cached.lexical.span.start as usize == start.byte_index());
 
         if use_cache {
-            let end_state = self.input.cached_token.as_ref().unwrap().end_state.clone();
-            self.input.tokenizer.reset(&end_state);
+            let end_state = self.cursor.cached_token.as_ref().unwrap().end_state.clone();
+            self.cursor.tokenizer.reset(&end_state);
         } else {
             let lexical = self
-                .input
+                .cursor
                 .tokenizer
                 .next()
                 .map_err(|()| self.new_basic_error(BasicParseErrorKind::EndOfInput))?;
             let value = token::decode_token(
                 lexical.token,
                 lexical.span,
-                self.input.source,
-                self.input.allocator,
+                self.cursor.source,
+                self.allocator,
             );
-            self.input.cached_token = Some(CachedToken {
+            self.cursor.cached_token = Some(CachedToken {
                 lexical,
                 value,
-                end_state: self.input.tokenizer.state(),
+                end_state: self.cursor.tokenizer.state(),
             });
         }
 
-        let lexical = self.input.cached_lexical();
+        let lexical = self.cursor.cached_lexical();
         if lexical.token == Token::Comment {
-            self.input.observe_comment(lexical);
+            self.cursor.observe_comment(lexical);
         }
-        self.at_start_of = BlockType::opening(lexical.token);
-        Ok(self.input.cached_value())
+        self.cursor.at_start_of = BlockType::opening(lexical.token);
+        Ok(self.cursor.cached_value())
     }
 
     pub fn parse_entirely<F, T, E>(&mut self, parse: F) -> Result<T, ParseError<'i, E>>
     where
-        F: FnOnce(&mut Parser<'i, 't>) -> Result<T, ParseError<'i, E>>,
+        F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
     {
         let result = parse(self)?;
         self.expect_exhausted()?;
@@ -609,7 +577,7 @@ impl<'i, 't> Parser<'i, 't> {
         parse_one: F,
     ) -> Result<Vec<T>, ParseError<'i, E>>
     where
-        F: for<'tt> FnMut(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+        F: FnMut(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
     {
         self.parse_comma_separated_internal(parse_one, false)
     }
@@ -617,7 +585,7 @@ impl<'i, 't> Parser<'i, 't> {
     pub fn parse_comma_separated_ignoring_errors<F, T, E>(&mut self, parse_one: F) -> Vec<T>
     where
         E: 'i,
-        F: for<'tt> FnMut(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+        F: FnMut(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
     {
         self.parse_comma_separated_internal(parse_one, true)
             .unwrap_or_else(|_| unreachable!())
@@ -629,7 +597,7 @@ impl<'i, 't> Parser<'i, 't> {
         ignore_errors: bool,
     ) -> Result<Vec<T>, ParseError<'i, E>>
     where
-        F: for<'tt> FnMut(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+        F: FnMut(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
     {
         let mut values = Vec::with_capacity(1);
         loop {
@@ -649,7 +617,7 @@ impl<'i, 't> Parser<'i, 't> {
 
     pub fn parse_nested_block<F, T, E>(&mut self, parse: F) -> Result<T, ParseError<'i, E>>
     where
-        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+        F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
     {
         parse_nested_block(self, parse)
     }
@@ -660,7 +628,7 @@ impl<'i, 't> Parser<'i, 't> {
         parse: F,
     ) -> Result<T, ParseError<'i, E>>
     where
-        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+        F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
     {
         parse_until_before(self, delimiters, ParseUntilErrorBehavior::Consume, parse)
     }
@@ -671,7 +639,7 @@ impl<'i, 't> Parser<'i, 't> {
         parse: F,
     ) -> Result<T, ParseError<'i, E>>
     where
-        F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+        F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
     {
         parse_until_after(self, delimiters, ParseUntilErrorBehavior::Consume, parse)
     }
@@ -682,7 +650,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::WhiteSpace(value) => Ok(value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -694,7 +662,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::Ident(value) => Ok(value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -706,7 +674,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::Ident(value) if value.eq_ignore_ascii_case(expected) => Ok(()),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -718,7 +686,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::String(value) => Ok(value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -730,7 +698,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::Ident(value) | ValueToken::String(value) => Ok(value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -749,7 +717,7 @@ impl<'i, 't> Parser<'i, 't> {
                 .map_err(ParseError::basic),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -772,7 +740,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::Number(value) => Ok(*value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -782,12 +750,12 @@ impl<'i, 't> Parser<'i, 't> {
         let location = self.current_source_location();
         match self.next()? {
             ValueToken::Number(_) => {
-                let span = self.input.cached_lexical().span;
-                let raw = &self.input.source[span.start as usize..span.end as usize];
+                let span = self.cursor.cached_lexical().span;
+                let raw = &self.cursor.source[span.start as usize..span.end as usize];
                 if raw.contains(['.', 'e', 'E']) {
                     return Err(
                         location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                            self.input.cached_lexical(),
+                            self.cursor.cached_lexical(),
                         )),
                     );
                 }
@@ -796,7 +764,7 @@ impl<'i, 't> Parser<'i, 't> {
             }
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -808,7 +776,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::Percentage(value) => Ok(*value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -850,7 +818,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::Function(name) => Ok(name),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -862,7 +830,7 @@ impl<'i, 't> Parser<'i, 't> {
             ValueToken::Function(name) if name.eq_ignore_ascii_case(expected) => Ok(()),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             ),
         }
@@ -890,7 +858,7 @@ impl<'i, 't> Parser<'i, 't> {
                     | ValueToken::CloseCurlyBracket,
                 ) => {
                     return Err(self.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                        self.input.cached_lexical(),
+                        self.cursor.cached_lexical(),
                     )));
                 }
                 Ok(_) => {}
@@ -913,47 +881,44 @@ impl<'i, 't> Parser<'i, 't> {
         } else {
             Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.input.cached_lexical(),
+                    self.cursor.cached_lexical(),
                 )),
             )
         }
     }
 }
 
-pub fn parse_until_before<'i: 't, 't, F, T, E>(
-    parser: &mut Parser<'i, 't>,
+pub fn parse_until_before<'i, F, T, E>(
+    parser: &mut Compiler<'i>,
     delimiters: Delimiters,
     error_behavior: ParseUntilErrorBehavior,
     parse: F,
 ) -> Result<T, ParseError<'i, E>>
 where
-    F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+    F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
 {
-    let delimiters = parser.stop_before | delimiters;
-    let result;
-    {
-        let mut delimited = Parser {
-            input: parser.input,
-            at_start_of: parser.at_start_of.take(),
-            stop_before: delimiters,
-        };
-        result = delimited.parse_entirely(parse);
-        if error_behavior == ParseUntilErrorBehavior::Stop && result.is_err() {
-            return result;
-        }
-        if let Some(block) = delimited.at_start_of {
-            consume_until_end_of_block(block, &mut delimited.input.tokenizer);
-        }
+    let previous_stop_before = parser.cursor.stop_before;
+    let delimiters = parser.cursor.stop_before | delimiters;
+    parser.cursor.stop_before = delimiters;
+    let result = parser.parse_entirely(parse);
+    if error_behavior == ParseUntilErrorBehavior::Stop && result.is_err() {
+        parser.cursor.at_start_of = None;
+        parser.cursor.stop_before = previous_stop_before;
+        return result;
     }
+    if let Some(block) = parser.cursor.at_start_of.take() {
+        consume_until_end_of_block(block, &mut parser.cursor.tokenizer);
+    }
+    parser.cursor.stop_before = previous_stop_before;
 
     loop {
-        if delimiters.contains(Delimiters::from_byte(parser.input.tokenizer.next_byte())) {
+        if delimiters.contains(Delimiters::from_byte(parser.cursor.tokenizer.next_byte())) {
             break;
         }
-        match parser.input.tokenizer.next() {
+        match parser.cursor.tokenizer.next() {
             Ok(token) => {
                 if let Some(block) = BlockType::opening(token.token) {
-                    consume_until_end_of_block(block, &mut parser.input.tokenizer);
+                    consume_until_end_of_block(block, &mut parser.cursor.tokenizer);
                 }
             }
             Err(()) => break,
@@ -962,37 +927,42 @@ where
     result
 }
 
-pub fn parse_until_after<'i: 't, 't, F, T, E>(
-    parser: &mut Parser<'i, 't>,
+pub fn parse_until_after<'i, F, T, E>(
+    parser: &mut Compiler<'i>,
     delimiters: Delimiters,
     error_behavior: ParseUntilErrorBehavior,
     parse: F,
 ) -> Result<T, ParseError<'i, E>>
 where
-    F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+    F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
 {
     let result = parse_until_before(parser, delimiters, error_behavior, parse);
     if error_behavior == ParseUntilErrorBehavior::Stop && result.is_err() {
         return result;
     }
-    let next = parser.input.tokenizer.next_byte();
-    if next.is_some() && !parser.stop_before.contains(Delimiters::from_byte(next)) {
-        parser.input.tokenizer.advance(1);
+    let next = parser.cursor.tokenizer.next_byte();
+    if next.is_some()
+        && !parser
+            .cursor
+            .stop_before
+            .contains(Delimiters::from_byte(next))
+    {
+        parser.cursor.tokenizer.advance(1);
         if next == Some(b'{') {
-            consume_until_end_of_block(BlockType::CurlyBracket, &mut parser.input.tokenizer);
+            consume_until_end_of_block(BlockType::CurlyBracket, &mut parser.cursor.tokenizer);
         }
     }
     result
 }
 
-pub fn parse_nested_block<'i: 't, 't, F, T, E>(
-    parser: &mut Parser<'i, 't>,
+pub fn parse_nested_block<'i, F, T, E>(
+    parser: &mut Compiler<'i>,
     parse: F,
 ) -> Result<T, ParseError<'i, E>>
 where
-    F: for<'tt> FnOnce(&mut Parser<'i, 'tt>) -> Result<T, ParseError<'i, E>>,
+    F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
 {
-    let block = parser.at_start_of.take().expect(
+    let block = parser.cursor.at_start_of.take().expect(
         "parse_nested_block must follow a function or an opening parenthesis, bracket, or brace",
     );
     let closing = match block {
@@ -1000,19 +970,14 @@ where
         BlockType::SquareBracket => ClosingDelimiter::CloseSquareBracket,
         BlockType::Parenthesis => ClosingDelimiter::CloseParenthesis,
     };
-    let result;
-    {
-        let mut nested = Parser {
-            input: parser.input,
-            at_start_of: None,
-            stop_before: closing,
-        };
-        result = nested.parse_entirely(parse);
-        if let Some(block) = nested.at_start_of {
-            consume_until_end_of_block(block, &mut nested.input.tokenizer);
-        }
+    let previous_stop_before = parser.cursor.stop_before;
+    parser.cursor.stop_before = closing;
+    let result = parser.parse_entirely(parse);
+    if let Some(block) = parser.cursor.at_start_of.take() {
+        consume_until_end_of_block(block, &mut parser.cursor.tokenizer);
     }
-    consume_until_end_of_block(block, &mut parser.input.tokenizer);
+    parser.cursor.stop_before = previous_stop_before;
+    consume_until_end_of_block(block, &mut parser.cursor.tokenizer);
     result
 }
 

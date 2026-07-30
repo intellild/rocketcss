@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for Display {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let mut outside = None;
         let mut inside = None;
         let mut is_list_item = false;
@@ -147,8 +147,8 @@ impl<'i> Parse<'i> for Display {
     }
 }
 
-fn set_once<'i, 't, T>(
-    input: &mut Parser<'i, 't>,
+fn set_once<'i, T>(
+    input: &mut Compiler<'i>,
     slot: &mut Option<T>,
     value: T,
 ) -> Result<(), ParseError<'i, ParserError<'i>>> {
@@ -160,7 +160,7 @@ fn set_once<'i, 't, T>(
 }
 
 impl<'i> Parse<'i> for Visibility {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let ident = input.expect_ident()?;
         match_ignore_ascii_case!(
             ident,

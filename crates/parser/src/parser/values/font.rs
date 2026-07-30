@@ -1,8 +1,8 @@
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for FontFamily<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        if let Ok(name) = input.try_parse(Parser::expect_string) {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        if let Ok(name) = input.try_parse(Compiler::expect_string) {
             input.expect_exhausted()?;
             return Ok(Self::Custom(name));
         }
@@ -29,8 +29,8 @@ impl<'i> Parse<'i> for FontFamily<'i> {
     }
 }
 
-pub(crate) fn parse_font_family_list<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(crate) fn parse_font_family_list<'i>(
+    input: &mut Compiler<'i>,
     depth: usize,
 ) -> Result<Vec<'i, FontFamily<'i>>, ParseError<'i, ParserError<'i>>> {
     let allocator = input.allocator();
@@ -43,7 +43,7 @@ pub(crate) fn parse_font_family_list<'i, 't>(
             super::collect_tokens(input, allocator, depth + 1).map(FontFamily::Unparsed)
         })?;
         families.push(family);
-        if input.try_parse(Parser::expect_comma).is_err() {
+        if input.try_parse(Compiler::expect_comma).is_err() {
             break;
         }
     }

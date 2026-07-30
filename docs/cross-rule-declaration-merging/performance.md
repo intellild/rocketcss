@@ -98,7 +98,7 @@ boundaries.
 Pointer identity is valid only inside one compiler pool. Consequently:
 
 - selector `Atom` constructors are not exposed for arbitrary `&str` values;
-- nested selector parsers must reuse the parent `ParserInput` string pool;
+- nested selector inputs must reuse the parent `Compiler` string pool;
 - mutable visitors must obtain replacement atoms from the owning compiler's
   pool;
 - cloning an AST into another arena must re-intern its selector strings in the

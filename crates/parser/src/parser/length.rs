@@ -2,7 +2,7 @@ use super::values::collect_tokens;
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for Length<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
         match input.next()?.clone() {
             ValueToken::Dimension { unit, value } => {
@@ -20,7 +20,7 @@ impl<'i> Parse<'i> for Length<'i> {
 }
 
 impl<'i> Parse<'i> for LengthPercentage<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
         match input.next()?.clone() {
             ValueToken::Percentage(value) => Ok(Self::Percentage(value)),
@@ -36,7 +36,7 @@ impl<'i> Parse<'i> for LengthPercentage<'i> {
 }
 
 impl<'i> Parse<'i> for Size<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
         let location = input.current_source_location();
         let token = input.next()?.clone();
@@ -98,7 +98,7 @@ impl<'i> Parse<'i> for Size<'i> {
 }
 
 impl<'i> Parse<'i> for MaxSize<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
         let location = input.current_source_location();
         let token = input.next()?.clone();

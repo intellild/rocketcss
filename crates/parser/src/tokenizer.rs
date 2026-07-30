@@ -139,19 +139,19 @@ pub enum Token {
 
     /// A `<)-token>`
     ///
-    /// When obtained from one of the `Parser::next*` methods,
+    /// When obtained from one of the `Compiler::next*` methods,
     /// this token is always unmatched and indicates a parse error.
     CloseParenthesis,
 
     /// A `<]-token>`
     ///
-    /// When obtained from one of the `Parser::next*` methods,
+    /// When obtained from one of the `Compiler::next*` methods,
     /// this token is always unmatched and indicates a parse error.
     CloseSquareBracket,
 
     /// A `<}-token>`
     ///
-    /// When obtained from one of the `Parser::next*` methods,
+    /// When obtained from one of the `Compiler::next*` methods,
     /// this token is always unmatched and indicates a parse error.
     CloseCurlyBracket,
 }
@@ -162,7 +162,7 @@ impl Token {
     /// `BadUrl` and `BadString` are tokenizer-level parse errors.
     ///
     /// `CloseParenthesis`, `CloseSquareBracket`, and `CloseCurlyBracket` are *unmatched*
-    /// and therefore parse errors when returned by one of the `Parser::next*` methods.
+    /// and therefore parse errors when returned by one of the `Compiler::next*` methods.
     pub fn is_parse_error(&self) -> bool {
         matches!(
             *self,

@@ -54,8 +54,8 @@ fn plugins_run_in_registration_order_and_share_context() {
                 rocketcss_parser::ParserOptions::default(),
             )
             .unwrap();
-        let middle = compiler.string_pool().intern("middle");
-        let last = compiler.string_pool().intern("last");
+        let middle = compiler.intern("middle");
+        let last = compiler.intern("last");
         let mut context = PluginContext::new(&allocator, &mut token);
         context.insert(std::vec::Vec::<&'static str>::new());
         let mut plugins = Plugins::new();

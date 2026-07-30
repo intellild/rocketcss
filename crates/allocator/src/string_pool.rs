@@ -1,11 +1,9 @@
-use std::cell::RefCell;
-
 use crate::{Allocator, atom::Atom, hash_map::HashMap};
 
 /// Compilation-scoped storage that canonicalizes strings into pointer-comparable atoms.
 pub struct StringPool<'alloc> {
     allocator: &'alloc Allocator,
-    strings: RefCell<HashMap<'alloc, &'alloc str, ()>>,
+    strings: HashMap<'alloc, &'alloc str, ()>,
 }
 
 impl<'alloc> StringPool<'alloc> {
@@ -13,26 +11,25 @@ impl<'alloc> StringPool<'alloc> {
     pub fn new_in(allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
-            strings: RefCell::new(HashMap::new_in(allocator)),
+            strings: HashMap::new_in(allocator),
         }
     }
 
-    pub fn intern(&self, value: &str) -> Atom<'alloc> {
+    pub fn intern(&mut self, value: &str) -> Atom<'alloc> {
         if value.is_empty() {
             return Atom::empty();
         }
 
-        let mut strings = self.strings.borrow_mut();
-        if let Some((&value, ())) = strings.get_key_value(value) {
+        if let Some((&value, ())) = self.strings.get_key_value(value) {
             return Atom::from_interned(value);
         }
 
         let value = self.allocator.alloc_str(value);
-        strings.insert(value, ());
+        self.strings.insert(value, ());
         Atom::from_interned(value)
     }
 
-    pub fn intern_ascii_lowercase(&self, value: &str) -> Atom<'alloc> {
+    pub fn intern_ascii_lowercase(&mut self, value: &str) -> Atom<'alloc> {
         if value.bytes().all(|byte| !byte.is_ascii_uppercase()) {
             self.intern(value)
         } else {
@@ -42,12 +39,12 @@ impl<'alloc> StringPool<'alloc> {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.strings.borrow().len()
+        self.strings.len()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.strings.borrow().is_empty()
+        self.strings.is_empty()
     }
 }
 
@@ -70,7 +67,7 @@ mod tests {
     #[test]
     fn canonicalizes_equal_strings_within_one_pool() {
         let allocator = Allocator::new();
-        let pool = StringPool::new_in(&allocator);
+        let mut pool = StringPool::new_in(&allocator);
 
         let first = pool.intern("selector");
         let owned = String::from("selector");
@@ -85,8 +82,8 @@ mod tests {
     fn atom_identity_is_scoped_to_a_pool() {
         let first_allocator = Allocator::new();
         let second_allocator = Allocator::new();
-        let first_pool = StringPool::new_in(&first_allocator);
-        let second_pool = StringPool::new_in(&second_allocator);
+        let mut first_pool = StringPool::new_in(&first_allocator);
+        let mut second_pool = StringPool::new_in(&second_allocator);
 
         let first = first_pool.intern("selector");
         let second = second_pool.intern("selector");
