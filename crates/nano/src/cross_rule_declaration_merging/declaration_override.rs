@@ -16,7 +16,8 @@ struct HistoryTail {
 
 impl<'walk, 'ast, 'ghost> CrossRuleDeclarationScanner<'walk, 'ast, 'ghost> {
     pub(super) fn discover_declaration_override_candidates(&mut self) {
-        let mut histories: FxHashMap<u64, SmallVec<[HistoryTail; 1]>> = FxHashMap::default();
+        let mut histories: FxHashMap<u64, SmallVec<[HistoryTail; 1]>> =
+            FxHashMap::with_capacity_and_hasher(self.declaration_blocks.len(), Default::default());
         let mut candidates =
             std::vec::Vec::with_capacity(self.declaration_blocks.len().saturating_sub(1));
 
