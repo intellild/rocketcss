@@ -41,12 +41,22 @@ impl<'walk, 'ast, 'ghost> CrossRuleDeclarationScanner<'walk, 'ast, 'ghost> {
 
     pub(super) fn take_same_selector_commit_pass(
         &mut self,
-        candidate_indices: FxHashMap<*const DeclarationBlock<'ast, 'ghost>, u32>,
     ) -> Option<SameSelectorCommitPass<'ast, 'ghost>> {
         if self.same_selector_commits.is_empty() {
             return None;
         }
 
+        let candidate_indices = self
+            .declaration_blocks
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                (
+                    std::ptr::from_ref(entry.declarations),
+                    u32::try_from(index).expect("declaration block index exceeds u32::MAX"),
+                )
+            })
+            .collect();
         Some(SameSelectorCommitPass {
             candidate_indices,
             candidates: std::mem::take(&mut self.same_selector_commits)
