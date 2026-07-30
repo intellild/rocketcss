@@ -5,7 +5,7 @@
 use std::fmt;
 use std::ops::{BitOr, Range};
 
-use rocketcss_allocator::Allocator;
+use rocketcss_allocator::{Allocator, StringPool};
 use rocketcss_ast::Token as ValueToken;
 
 use crate::tokenizer::TokenizerState;
@@ -185,6 +185,7 @@ pub struct ParserInput<'i> {
     tokenizer: Tokenizer<'i>,
     source: &'i str,
     allocator: &'i Allocator,
+    string_pool: &'i StringPool<'i>,
     cached_token: Option<CachedToken<'i>>,
     comments_seen: u32,
     source_map_url: Option<&'i str>,
@@ -200,10 +201,20 @@ struct CachedToken<'i> {
 impl<'i> ParserInput<'i> {
     /// Creates parser input. Escaped values are allocated in `allocator` only when consumed.
     pub fn new(source: &'i str, allocator: &'i Allocator) -> Self {
+        let string_pool = allocator.alloc(StringPool::new_in(allocator));
+        Self::new_with_string_pool(source, allocator, string_pool)
+    }
+
+    pub(crate) fn new_with_string_pool(
+        source: &'i str,
+        allocator: &'i Allocator,
+        string_pool: &'i StringPool<'i>,
+    ) -> Self {
         Self {
             tokenizer: Tokenizer::new(source),
             source,
             allocator,
+            string_pool,
             cached_token: None,
             comments_seen: 0,
             source_map_url: None,
@@ -349,6 +360,11 @@ impl<'i, 't> Parser<'i, 't> {
     #[inline]
     pub fn allocator(&self) -> &'i Allocator {
         self.input.allocator
+    }
+
+    #[inline]
+    pub fn string_pool(&self) -> &'i StringPool<'i> {
+        self.input.string_pool
     }
 
     pub fn is_exhausted(&mut self) -> bool {

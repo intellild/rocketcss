@@ -10,7 +10,7 @@ pub enum Selector<'a> {
     Parsed(Vec<'a, SelectorComponent<'a>>),
     /// An invalid selector preserved by parser error recovery.
     #[visit(skip)]
-    Unparsed(&'a str),
+    Unparsed(Atom<'a>),
     /// A selector removed by a transformation.
     Tombstone,
 }
@@ -75,29 +75,29 @@ pub enum SelectorComponent<'a> {
 
     ExplicitAnyNamespace,
     ExplicitNoNamespace,
-    DefaultNamespace(&'a str),
+    DefaultNamespace(Atom<'a>),
     Namespace {
-        prefix: &'a str,
-        url: &'a str,
+        prefix: Atom<'a>,
+        url: Atom<'a>,
     },
 
     ExplicitUniversalType,
     LocalName {
-        name: &'a str,
-        lower_name: &'a str,
+        name: Atom<'a>,
+        lower_name: Atom<'a>,
     },
 
-    Id(&'a str),
-    Class(&'a str),
+    Id(Atom<'a>),
+    Class(Atom<'a>),
 
     AttributeInNoNamespaceExists {
-        local_name: &'a str,
-        local_name_lower: &'a str,
+        local_name: Atom<'a>,
+        local_name_lower: Atom<'a>,
     },
     AttributeInNoNamespace {
-        local_name: &'a str,
+        local_name: Atom<'a>,
         operator: AttrSelectorOperator,
-        value: &'a str,
+        value: Atom<'a>,
         case_sensitivity: ParsedCaseSensitivity,
         never_matches: bool,
     },
@@ -114,7 +114,7 @@ pub enum SelectorComponent<'a> {
     },
     PseudoClass(Box<'a, PseudoClass<'a>>),
     Slotted(Box<'a, Selector<'a>>),
-    Part(Vec<'a, &'a str>),
+    Part(Vec<'a, Atom<'a>>),
     Host(Option<Box<'a, Selector<'a>>>),
     Where(Vec<'a, Selector<'a>>),
     Is(Vec<'a, Selector<'a>>),
@@ -143,8 +143,8 @@ pub enum Combinator {
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub struct AttrSelector<'a> {
     pub namespace: Option<NamespaceConstraint<'a>>,
-    pub local_name: &'a str,
-    pub local_name_lower: &'a str,
+    pub local_name: Atom<'a>,
+    pub local_name_lower: Atom<'a>,
     pub operation: AttrOperation<'a>,
     pub never_matches: bool,
 }
@@ -152,7 +152,7 @@ pub struct AttrSelector<'a> {
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum NamespaceConstraint<'a> {
     Any,
-    Specific { prefix: &'a str, url: &'a str },
+    Specific { prefix: Atom<'a>, url: Atom<'a> },
 }
 
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
@@ -161,7 +161,7 @@ pub enum AttrOperation<'a> {
     WithValue {
         operator: AttrSelectorOperator,
         case_sensitivity: ParsedCaseSensitivity,
-        expected_value: &'a str,
+        expected_value: Atom<'a>,
     },
 }
 
@@ -213,7 +213,7 @@ pub enum Direction {
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum PseudoClass<'a> {
     Lang {
-        languages: Vec<'a, &'a str>,
+        languages: Vec<'a, Atom<'a>>,
     },
     Dir {
         direction: Direction,
@@ -270,10 +270,10 @@ pub enum PseudoClass<'a> {
     Autofill(VendorPrefix),
     ActiveViewTransition,
     ActiveViewTransitionType {
-        kinds: Vec<'a, &'a str>,
+        kinds: Vec<'a, Atom<'a>>,
     },
     State {
-        state: &'a str,
+        state: Atom<'a>,
     },
     Local {
         selector: Box<'a, Selector<'a>>,
@@ -283,10 +283,10 @@ pub enum PseudoClass<'a> {
     },
     WebKitScrollbar(WebKitScrollbarPseudoClass),
     Custom {
-        name: &'a str,
+        name: Atom<'a>,
     },
     CustomFunction {
-        name: &'a str,
+        name: Atom<'a>,
         arguments: Vec<'a, TokenOrValue<'a>>,
     },
 }
@@ -318,7 +318,7 @@ pub enum PseudoElement<'a> {
     Selection(VendorPrefix),
     Placeholder(VendorPrefix),
     HighlightFunction {
-        name: &'a str,
+        name: Atom<'a>,
     },
     Marker,
     Backdrop(VendorPrefix),
@@ -346,17 +346,17 @@ pub enum PseudoElement<'a> {
         part: Box<'a, ViewTransitionPartSelector<'a>>,
     },
     PickerFunction {
-        identifier: &'a str,
+        identifier: Atom<'a>,
     },
     PickerIcon,
     Checkmark,
     GrammarError,
     SpellingError,
     Custom {
-        name: &'a str,
+        name: Atom<'a>,
     },
     CustomFunction {
-        name: &'a str,
+        name: Atom<'a>,
         arguments: Vec<'a, TokenOrValue<'a>>,
     },
 }
@@ -375,5 +375,5 @@ pub enum WebKitScrollbarPseudoElement {
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum ViewTransitionPartName<'a> {
     All,
-    Name(&'a str),
+    Name(Atom<'a>),
 }

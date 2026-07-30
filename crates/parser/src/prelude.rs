@@ -1,5 +1,6 @@
 //! Common parser, tokenizer, allocator, and AST types.
 
+pub use crate::Compiler;
 pub use crate::escape::unescape;
 pub use crate::parser::stylesheet::parse;
 pub use crate::parser::{

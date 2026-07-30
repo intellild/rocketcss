@@ -425,6 +425,23 @@ fn generate_visitor(
             ) {}
         }
     };
+    let atom_method = if matches!(mode, Mode::Read) {
+        quote! {
+            fn visit_atom(
+                &mut self,
+                _value: &Atom<'a>,
+                _cx: &VisitContext<'_, 'ghost>,
+            ) {}
+        }
+    } else {
+        quote! {
+            fn visit_atom(
+                &mut self,
+                _value: &mut Atom<'a>,
+                _cx: &mut VisitMutContext<'_, 'ghost>,
+            ) {}
+        }
+    };
     let manual_methods = manual_methods(mode);
     let manual_impls = manual_impls(mode);
     let container_impls = container_impls(mode);
@@ -447,6 +464,9 @@ fn generate_visitor(
 
             #[inline]
             #str_method
+
+            #[inline]
+            #atom_method
 
             #(#methods)*
             #(#alias_methods)*
@@ -757,7 +777,9 @@ fn visit_type(
                 return quote!();
             };
             let name = segment.ident.to_string();
-            if name == "Pin" {
+            if name == "Atom" {
+                quote!(visitor.visit_atom(#expression, cx);)
+            } else if name == "Pin" {
                 let Some(pin_target) = first_type_argument(&segment.arguments) else {
                     return quote!();
                 };

@@ -1,8 +1,9 @@
 use std::{
-    borrow::{Borrow, Cow},
+    cmp::Ordering,
     fmt::{Debug, Display},
-    hash::Hash,
+    hash::{Hash, Hasher},
     ops::Deref,
+    ptr,
 };
 
 use crate::{
@@ -10,86 +11,31 @@ use crate::{
     wtf8::{Wtf8, Wtf8Buf},
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// An interned string identity.
+///
+/// Equality and hashing use the string allocation's pointer rather than its
+/// contents. Values compared as atoms must therefore originate from the same
+/// [`StringPool`](crate::StringPool). Use [`Atom::as_str`] when comparing
+/// values from different pools.
+#[derive(Clone, Copy)]
 pub struct Atom<'a>(&'a str);
 
 impl Atom<'static> {
     #[inline]
-    pub fn new_const(s: &'static str) -> Self {
-        Self(s)
-    }
-
-    #[inline]
     pub fn empty() -> Self {
-        Self::new_const("")
+        Self("")
     }
 }
 
 impl<'a> Atom<'a> {
     #[inline]
-    pub fn new<S>(s: S) -> Self
-    where
-        Self: From<S>,
-    {
-        Self::from(s)
-    }
-
-    #[inline]
-    pub fn new_in<S>(s: S, allocator: &'a crate::Allocator) -> Atom<'a>
-    where
-        Atom<'a>: FromIn<'a, S>,
-    {
-        Atom::from_in(s, allocator)
-    }
-
-    #[inline]
-    pub fn as_str(&self) -> &str {
-        self.0
-    }
-}
-
-impl<'a> From<&'a str> for Atom<'a> {
-    #[expect(clippy::inline_always)]
-    #[inline(always)]
-    fn from(s: &'a str) -> Self {
+    pub(crate) fn from_interned(s: &'a str) -> Self {
         Self(s)
     }
-}
-
-impl<'a, 'b> FromIn<'a, &'b str> for Atom<'a> {
-    #[inline]
-    fn from_in(s: &'b str, allocator: &'a crate::Allocator) -> Self {
-        Self(allocator.alloc_str(s))
-    }
-}
-
-impl<'a> FromIn<'a, String> for Atom<'a> {
-    #[inline]
-    fn from_in(s: String, allocator: &'a crate::Allocator) -> Self {
-        Self(allocator.alloc_str(s.as_str()))
-    }
-}
-
-impl<'a, 'b> FromIn<'a, &'b String> for Atom<'a> {
-    #[inline]
-    fn from_in(s: &'b String, allocator: &'a crate::Allocator) -> Self {
-        Self(allocator.alloc_str(s.as_str()))
-    }
-}
-
-impl<'a> FromIn<'a, Cow<'_, str>> for Atom<'a> {
-    #[inline]
-    fn from_in(s: Cow<'_, str>, allocator: &'a crate::Allocator) -> Self {
-        Self(allocator.alloc_str(s.as_ref()))
-    }
-}
-
-impl<'a> CloneIn<'a> for Atom<'_> {
-    type Cloned = Atom<'a>;
 
     #[inline]
-    fn clone_in(&self, allocator: &'a crate::Allocator) -> Self::Cloned {
-        Atom(allocator.alloc_str(self.as_str()))
+    pub fn as_str(&self) -> &'a str {
+        self.0
     }
 }
 
@@ -116,10 +62,33 @@ impl Default for Atom<'_> {
     }
 }
 
+impl PartialEq for Atom<'_> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        ptr::eq(self.0.as_ptr(), other.0.as_ptr())
+    }
+}
+
+impl Eq for Atom<'_> {}
+
+impl PartialOrd for Atom<'_> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Atom<'_> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.as_ptr().cmp(&other.0.as_ptr())
+    }
+}
+
 impl Hash for Atom<'_> {
     #[inline]
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.as_str().hash(state)
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.as_ptr().hash(state);
     }
 }
 
@@ -148,13 +117,6 @@ impl PartialEq<&str> for Atom<'_> {
     #[inline]
     fn eq(&self, other: &&str) -> bool {
         self.as_str() == *other
-    }
-}
-
-impl Borrow<str> for Atom<'_> {
-    #[inline]
-    fn borrow(&self) -> &str {
-        self.as_str()
     }
 }
 

@@ -1,14 +1,16 @@
 use rocketcss_allocator::Allocator;
-use rocketcss_ast::{SelectorComponent, VisitMutContext};
+use rocketcss_ast::{Atom, SelectorComponent, VisitMutContext};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
-use rocketcss_parser::{ParserOptions, parse};
+use rocketcss_parser::{Compiler, ParserOptions};
 use rocketcss_visitor::{PluginContext, Plugins, VisitMut, VisitorMut};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 
-struct RenameClass;
+struct RenameClass<'a> {
+    after: Atom<'a>,
+}
 
-impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameClass {
+impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameClass<'a> {
     fn visit_selector_component(
         &mut self,
         component: &mut SelectorComponent<'a>,
@@ -17,7 +19,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameClass {
         if let SelectorComponent::Class(name) = component
             && *name == "before"
         {
-            *name = "after";
+            *name = self.after;
         }
         component.visit_mut_children(self, cx);
     }
@@ -30,11 +32,18 @@ fn plugins_transform_expected_css() {
         let expected = read_fixture(&expected_path(&input));
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
-            let mut stylesheet = parse(&source, &allocator, &mut token, ParserOptions::default())
+            let mut compiler = Compiler::new(&allocator);
+            let mut stylesheet = compiler
+                .parse(&source, &mut token, ParserOptions::default())
                 .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
             let mut context = PluginContext::new(&allocator, &mut token);
             let mut plugins = Plugins::new();
-            plugins.add_visitor("rename-class", RenameClass);
+            plugins.add_visitor(
+                "rename-class",
+                RenameClass {
+                    after: compiler.string_pool().intern("after"),
+                },
+            );
 
             plugins
                 .run(&mut stylesheet, &mut context)

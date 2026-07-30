@@ -376,7 +376,8 @@ pub(super) fn parse_at_rule<'i, 't, 'ghost>(
         if !matches!(ending, Ending::Block) {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
-        let (scope_start, scope_end) = parse_scope_prelude(raw_prelude, allocator, depth + 1)?;
+        let (scope_start, scope_end) =
+            parse_scope_prelude(raw_prelude, allocator, input.string_pool(), depth + 1)?;
         let rules = input.parse_nested_block(|input| {
             parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
         })?;
@@ -456,7 +457,8 @@ pub(super) fn parse_at_rule<'i, 't, 'ghost>(
         if !matches!(ending, Ending::Block) {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
-        let selectors = parse_selector_string(raw_prelude, allocator, depth + 1)?;
+        let selectors =
+            parse_selector_string(raw_prelude, allocator, input.string_pool(), depth + 1)?;
         let (declarations, rules) = input.parse_nested_block(|input| {
             parse_style_contents(input, allocator, token, options, depth + 1)
         })?;

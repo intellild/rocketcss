@@ -474,7 +474,9 @@ fn visit_type(
                 ));
             };
             let name = segment.ident.to_string();
-            if name == "Pin" {
+            if name == "Atom" {
+                Ok(quote!(visitor.visit_atom(#expression, cx);))
+            } else if name == "Pin" {
                 let Some(pin_target) = first_type_argument(&segment.arguments) else {
                     return Err(syn::Error::new(segment.span(), "expected a Pin target"));
                 };

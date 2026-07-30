@@ -426,9 +426,10 @@ type ScopePrelude<'i> = (
 pub(super) fn parse_scope_prelude<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
+    string_pool: &'i StringPool<'i>,
     depth: usize,
 ) -> Result<ScopePrelude<'i>, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
+    let mut input = ParserInput::new_with_string_pool(prelude, allocator, string_pool);
     let mut parser = Parser::new(&mut input);
     let scope_start = if parser.try_parse(Parser::expect_parenthesis_block).is_ok() {
         Some(allocator.boxed(

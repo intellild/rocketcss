@@ -26,6 +26,7 @@ macro_rules! match_ignore_ascii_case {
     }};
 }
 
+pub use rocketcss_allocator::Atom;
 use rocketcss_allocator::prelude::*;
 pub use rocketcss_macros::{CssKeyword, Visit};
 
