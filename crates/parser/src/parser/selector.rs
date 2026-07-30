@@ -2,14 +2,14 @@ use super::{stylesheet::check_depth, values::collect_tokens};
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for SelectorList<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
         parse_selector_list(input, allocator, 0)
     }
 }
 
-pub(super) fn parse_selector_list<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_selector_list<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     depth: usize,
 ) -> Result<SelectorList<'i>, ParseError<'i, ParserError<'i>>> {
@@ -21,13 +21,12 @@ pub(super) fn parse_selector_list<'i, 't>(
     Ok(selectors)
 }
 
-pub(super) fn parse_selector_list_with_recovery<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_selector_list_with_recovery<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     depth: usize,
 ) -> Result<SelectorList<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let string_pool = input.string_pool();
     let mut selectors = allocator.vec();
 
     loop {
@@ -39,7 +38,7 @@ pub(super) fn parse_selector_list_with_recovery<'i, 't>(
             Ok(selector) => selectors.push(selector),
             Err(_) => {
                 let raw = input.slice(start..input.position()).trim();
-                selectors.push(Selector::Unparsed(string_pool.intern(raw)));
+                selectors.push(Selector::Unparsed(input.intern(raw)));
             }
         }
 
@@ -54,13 +53,12 @@ pub(super) fn parse_selector_list_with_recovery<'i, 't>(
     Ok(selectors)
 }
 
-pub(super) fn parse_selector<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_selector<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     depth: usize,
 ) -> Result<Selector<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let string_pool = input.string_pool();
     let mut selector = allocator.vec();
     let mut pending_descendant = false;
     let mut can_have_descendant = false;
@@ -108,13 +106,13 @@ pub(super) fn parse_selector<'i, 't>(
         let component = match token {
             ValueToken::Ident(name) if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
                 selector.push(SelectorComponent::Namespace {
-                    prefix: string_pool.intern(name),
-                    url: string_pool.intern(""),
+                    prefix: input.intern(name),
+                    url: input.intern(""),
                 });
                 parse_type_selector(input)?
             }
-            ValueToken::Ident(name) => local_name(name, string_pool),
-            ValueToken::IdHash(id) => SelectorComponent::Id(string_pool.intern(id)),
+            ValueToken::Ident(name) => local_name(name, input),
+            ValueToken::IdHash(id) => SelectorComponent::Id(input.intern(id)),
             ValueToken::Delim("*") if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
                 selector.push(SelectorComponent::ExplicitAnyNamespace);
                 parse_type_selector(input)?
@@ -126,7 +124,8 @@ pub(super) fn parse_selector<'i, 't>(
             }
             ValueToken::Delim("&") => SelectorComponent::Nesting,
             ValueToken::Delim(".") => {
-                SelectorComponent::Class(string_pool.intern(input.expect_ident()?))
+                let name = input.expect_ident()?;
+                SelectorComponent::Class(input.intern(name))
             }
             ValueToken::Colon => parse_pseudo(input, allocator, depth + 1)?,
             ValueToken::SquareBracketBlock => {
@@ -144,36 +143,34 @@ pub(super) fn parse_selector<'i, 't>(
     Ok(Selector::parsed(selector))
 }
 
-fn local_name<'i>(name: &str, string_pool: &'i StringPool<'i>) -> SelectorComponent<'i> {
+fn local_name<'i>(name: &str, input: &mut Compiler<'i>) -> SelectorComponent<'i> {
     SelectorComponent::LocalName {
-        name: string_pool.intern(name),
-        lower_name: string_pool.intern_ascii_lowercase(name),
+        name: input.intern(name),
+        lower_name: input.intern_ascii_lowercase(name),
     }
 }
 
 fn parse_type_selector<'i>(
-    input: &mut Parser<'i, '_>,
+    input: &mut Compiler<'i>,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
-    let string_pool = input.string_pool();
-    match input.next()? {
-        ValueToken::Ident(name) => Ok(local_name(name, string_pool)),
+    match input.next()?.clone() {
+        ValueToken::Ident(name) => Ok(local_name(name, input)),
         ValueToken::Delim("*") => Ok(SelectorComponent::ExplicitUniversalType),
         _ => Err(input.new_custom_error(ParserError::InvalidSelector)),
     }
 }
 
-pub(super) fn parse_pseudo<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_pseudo<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     depth: usize,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
-    let string_pool = input.string_pool();
-    let is_element = input.try_parse(Parser::expect_colon).is_ok();
+    let is_element = input.try_parse(Compiler::expect_colon).is_ok();
     let token = input.next()?.clone();
 
     match token {
         ValueToken::Ident(name) if is_element => Ok(SelectorComponent::PseudoElement(
-            allocator.boxed(pseudo_element(name, string_pool)),
+            allocator.boxed(pseudo_element(name, input)),
         )),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("root") => Ok(SelectorComponent::Root),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("empty") => {
@@ -183,14 +180,14 @@ pub(super) fn parse_pseudo<'i, 't>(
             Ok(SelectorComponent::Scope)
         }
         ValueToken::Ident(name) => Ok(SelectorComponent::PseudoClass(
-            allocator.boxed(pseudo_class(name, string_pool)),
+            allocator.boxed(pseudo_class(name, input)),
         )),
         ValueToken::Function(name) if is_element => {
             let arguments =
                 input.parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
             Ok(SelectorComponent::PseudoElement(allocator.boxed(
                 PseudoElement::CustomFunction {
-                    name: string_pool.intern(name),
+                    name: input.intern(name),
                     arguments,
                 },
             )))
@@ -211,9 +208,7 @@ pub(super) fn parse_pseudo<'i, 't>(
                         let data = parse_nth_affine(affine, kind)
                             .ok_or_else(|| input.new_custom_error(ParserError::InvalidSelector))?;
                         let selectors = selector_source
-                            .map(|source| {
-                                parse_selector_string(source, allocator, string_pool, depth + 1)
-                            })
+                            .map(|source| parse_selector_string(input, source, depth + 1))
                             .transpose()?;
                         Ok::<_, ParseError<'i, ParserError<'i>>>((data, selectors))
                     })?;
@@ -247,7 +242,7 @@ pub(super) fn parse_pseudo<'i, 't>(
                     let arguments = input
                         .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
                     SelectorComponent::PseudoClass(allocator.boxed(PseudoClass::CustomFunction {
-                        name: string_pool.intern(name),
+                        name: input.intern(name),
                         arguments,
                     }))
                 };
@@ -303,11 +298,10 @@ fn parse_nth_affine(source: &str, kind: NthType) -> Option<NthSelectorData> {
     })
 }
 
-pub(super) fn parse_attribute<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_attribute<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
-    let string_pool = input.string_pool();
     let first = input.next()?.clone();
     let (namespace, name) = match first {
         ValueToken::Delim("|") => (None, input.expect_ident()?),
@@ -317,16 +311,16 @@ pub(super) fn parse_attribute<'i, 't>(
         }
         ValueToken::Ident(prefix) if input.try_parse(|input| input.expect_delim('|')).is_ok() => (
             Some(NamespaceConstraint::Specific {
-                prefix: string_pool.intern(prefix),
-                url: string_pool.intern(""),
+                prefix: input.intern(prefix),
+                url: input.intern(""),
             }),
             input.expect_ident()?,
         ),
         ValueToken::Ident(name) => (None, name),
         _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
     };
-    let lower_name = string_pool.intern_ascii_lowercase(name);
-    let name = string_pool.intern(name);
+    let lower_name = input.intern_ascii_lowercase(name);
+    let name = input.intern(name);
     if input.is_exhausted() {
         return Ok(match namespace {
             None => SelectorComponent::AttributeInNoNamespaceExists {
@@ -352,8 +346,9 @@ pub(super) fn parse_attribute<'i, 't>(
         ValueToken::SuffixMatch => AttrSelectorOperator::Suffix,
         _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
     };
-    let value = string_pool.intern(input.expect_ident_or_string()?);
-    let case_sensitivity = if let Ok(flag) = input.try_parse(Parser::expect_ident) {
+    let value = input.expect_ident_or_string()?;
+    let value = input.intern(value);
+    let case_sensitivity = if let Ok(flag) = input.try_parse(Compiler::expect_ident) {
         match_ignore_ascii_case!(
             flag,
             "i" => ParsedCaseSensitivity::AsciiCaseInsensitive,
@@ -387,7 +382,7 @@ pub(super) fn parse_attribute<'i, 't>(
     })
 }
 
-pub(super) fn pseudo_class<'i>(name: &str, string_pool: &'i StringPool<'i>) -> PseudoClass<'i> {
+pub(super) fn pseudo_class<'i>(name: &str, input: &mut Compiler<'i>) -> PseudoClass<'i> {
     match_ignore_ascii_case!(
         name,
         "hover" => PseudoClass::Hover,
@@ -401,12 +396,12 @@ pub(super) fn pseudo_class<'i>(name: &str, string_pool: &'i StringPool<'i>) -> P
         "disabled" => PseudoClass::Disabled,
         "enabled" => PseudoClass::Enabled,
         _ => PseudoClass::Custom {
-            name: string_pool.intern(name),
+            name: input.intern(name),
         },
     )
 }
 
-pub(super) fn pseudo_element<'i>(name: &str, string_pool: &'i StringPool<'i>) -> PseudoElement<'i> {
+pub(super) fn pseudo_element<'i>(name: &str, input: &mut Compiler<'i>) -> PseudoElement<'i> {
     match_ignore_ascii_case!(
         name,
         "before" => PseudoElement::Before,
@@ -418,18 +413,18 @@ pub(super) fn pseudo_element<'i>(name: &str, string_pool: &'i StringPool<'i>) ->
         "placeholder" => PseudoElement::Placeholder(VendorPrefix::NONE),
         "-webkit-placeholder" => PseudoElement::Placeholder(VendorPrefix::WEBKIT),
         _ => PseudoElement::Custom {
-            name: string_pool.intern(name),
+            name: input.intern(name),
         },
     )
 }
 
 pub(super) fn parse_selector_string<'i>(
+    input: &mut Compiler<'i>,
     source: &'i str,
-    allocator: &'i Allocator,
-    string_pool: &'i StringPool<'i>,
     depth: usize,
 ) -> Result<SelectorList<'i>, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new_with_string_pool(source, allocator, string_pool);
-    let mut parser = Parser::new(&mut input);
-    parser.parse_entirely(|input| parse_selector_list(input, allocator, depth))
+    let allocator = input.allocator();
+    input.with_source(source, |input| {
+        input.parse_entirely(|input| parse_selector_list(input, allocator, depth))
+    })
 }

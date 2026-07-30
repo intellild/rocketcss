@@ -2,7 +2,7 @@ use super::values::collect_tokens;
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for CssColor<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
         let token = input.next()?.clone();
         match token {

@@ -7,8 +7,7 @@ pub(super) fn parse_import<'i, 'ghost>(
     start: &ParserState,
     end: SourcePosition,
 ) -> Result<CssRule<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     let url = parser.expect_url_or_string()?;
 
     let layer = if parser
@@ -80,8 +79,7 @@ pub(super) fn parse_media_list<'i>(
             media_queries: allocator.vec(),
         });
     }
-    let mut input = ParserInput::new(source, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(source, allocator);
     let parsed = parser.parse_comma_separated(|input| {
         input
             .try_parse(|input| parse_media_query(input, allocator))
@@ -92,8 +90,8 @@ pub(super) fn parse_media_list<'i>(
     Ok(MediaList { media_queries })
 }
 
-fn parse_media_query<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_media_query<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
     // As in Lightning CSS, parse the qualifier and media type together. This
@@ -131,8 +129,8 @@ fn parse_media_query<'i, 't>(
     })
 }
 
-fn parse_unknown_media_query<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_unknown_media_query<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
     Ok(MediaQuery {
@@ -144,8 +142,8 @@ fn parse_unknown_media_query<'i, 't>(
     })
 }
 
-fn parse_qualifier<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_qualifier<'i>(
+    input: &mut Compiler<'i>,
 ) -> Result<Qualifier, ParseError<'i, ParserError<'i>>> {
     let name = input.expect_ident()?;
     match_ignore_ascii_case!(
@@ -156,8 +154,8 @@ fn parse_qualifier<'i, 't>(
     )
 }
 
-fn parse_media_type<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_media_type<'i>(
+    input: &mut Compiler<'i>,
 ) -> Result<MediaType<'i>, ParseError<'i, ParserError<'i>>> {
     let name = input.expect_ident()?;
     match_ignore_ascii_case!(
@@ -172,8 +170,8 @@ fn parse_media_type<'i, 't>(
     )
 }
 
-fn parse_media_condition_or_unknown<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_media_condition_or_unknown<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     allow_or: bool,
 ) -> Result<MediaCondition<'i>, ParseError<'i, ParserError<'i>>> {
@@ -189,8 +187,8 @@ fn parse_media_condition_or_unknown<'i, 't>(
     )?))
 }
 
-fn parse_media_condition<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_media_condition<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     allow_or: bool,
 ) -> Result<MediaCondition<'i>, ParseError<'i, ParserError<'i>>> {
@@ -230,8 +228,8 @@ fn parse_media_condition<'i, 't>(
     })
 }
 
-fn parse_operator<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_operator<'i>(
+    input: &mut Compiler<'i>,
 ) -> Result<Operator, ParseError<'i, ParserError<'i>>> {
     let name = input.expect_ident()?;
     match_ignore_ascii_case!(
@@ -242,16 +240,16 @@ fn parse_operator<'i, 't>(
     )
 }
 
-fn parse_parenthesis<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_parenthesis<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<MediaCondition<'i>, ParseError<'i, ParserError<'i>>> {
     input.expect_parenthesis_block()?;
     parse_parenthesized_condition(input, allocator)
 }
 
-fn parse_parenthesized_condition<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_parenthesized_condition<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<MediaCondition<'i>, ParseError<'i, ParserError<'i>>> {
     input.parse_nested_block(|input| {
@@ -269,8 +267,8 @@ fn parse_parenthesized_condition<'i, 't>(
     })
 }
 
-fn parse_media_feature<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_media_feature<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<MediaFeature<'i>, ParseError<'i, ParserError<'i>>> {
     match input.try_parse(|input| parse_name_first_feature(input, allocator)) {
@@ -279,8 +277,8 @@ fn parse_media_feature<'i, 't>(
     }
 }
 
-fn parse_name_first_feature<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_name_first_feature<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<MediaFeature<'i>, ParseError<'i, ParserError<'i>>> {
     let (name, legacy_operator) = parse_media_feature_name(input)?;
@@ -311,8 +309,8 @@ fn parse_name_first_feature<'i, 't>(
     }
 }
 
-fn parse_value_first_feature<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_value_first_feature<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<MediaFeature<'i>, ParseError<'i, ParserError<'i>>> {
     let start = input.state();
@@ -392,8 +390,8 @@ impl MediaFeatureType {
     }
 }
 
-fn parse_media_feature_name<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_media_feature_name<'i>(
+    input: &mut Compiler<'i>,
 ) -> Result<
     (
         MediaFeatureName<'i, MediaFeatureId>,
@@ -541,8 +539,8 @@ const fn media_feature_name_type(name: &MediaFeatureName<'_, MediaFeatureId>) ->
     }
 }
 
-fn consume_comparison_or_colon<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn consume_comparison_or_colon<'i>(
+    input: &mut Compiler<'i>,
     allow_colon: bool,
 ) -> Result<Option<MediaFeatureComparison>, ParseError<'i, ParserError<'i>>> {
     let comparison = match input.next()? {
@@ -590,8 +588,8 @@ fn comparisons_form_interval(start: &MediaFeatureComparison, end: &MediaFeatureC
     )
 }
 
-fn parse_media_feature_value<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_media_feature_value<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     expected: MediaFeatureType,
 ) -> Result<MediaFeatureValue<'i>, ParseError<'i, ParserError<'i>>> {
@@ -604,8 +602,8 @@ fn parse_media_feature_value<'i, 't>(
     parse_unknown_media_feature_value(input, allocator)
 }
 
-fn parse_known_media_feature_value<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_known_media_feature_value<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     expected: MediaFeatureType,
 ) -> Result<MediaFeatureValue<'i>, ParseError<'i, ParserError<'i>>> {
@@ -629,8 +627,8 @@ fn parse_known_media_feature_value<'i, 't>(
     })
 }
 
-fn parse_unknown_media_feature_value<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_unknown_media_feature_value<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<MediaFeatureValue<'i>, ParseError<'i, ParserError<'i>>> {
     if let Ok(value) = input.try_parse(|input| parse_ratio(input, true)) {
@@ -669,8 +667,8 @@ fn media_feature_value_matches(value: &MediaFeatureValue<'_>, expected: MediaFea
         )
 }
 
-fn parse_length<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_length<'i>(
+    input: &mut Compiler<'i>,
     _allocator: &'i Allocator,
 ) -> Result<Length<'i>, ParseError<'i, ParserError<'i>>> {
     let (unit, value) = match input.next()? {
@@ -686,8 +684,8 @@ fn parse_length<'i, 't>(
     Ok(Length::Value(LengthValue { unit, value }))
 }
 
-fn parse_resolution<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_resolution<'i>(
+    input: &mut Compiler<'i>,
 ) -> Result<Resolution, ParseError<'i, ParserError<'i>>> {
     match input.next()? {
         ValueToken::Dimension {
@@ -706,8 +704,8 @@ fn parse_resolution<'i, 't>(
     }
 }
 
-fn parse_ratio<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_ratio<'i>(
+    input: &mut Compiler<'i>,
     require_slash: bool,
 ) -> Result<Ratio, ParseError<'i, ParserError<'i>>> {
     let numerator = input.expect_number()?;
@@ -721,8 +719,8 @@ fn parse_ratio<'i, 't>(
     Ok(Ratio::new(numerator, denominator))
 }
 
-fn parse_environment_variable<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn parse_environment_variable<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
 ) -> Result<EnvironmentVariable<'i>, ParseError<'i, ParserError<'i>>> {
     input.expect_function_matching("env")?;

@@ -13,24 +13,16 @@ pub fn parse<'i, 'ghost>(
     Compiler::new(allocator).parse(source, token, options)
 }
 
-pub(crate) struct ParsedStyleSheet<'i, 'ghost> {
-    pub(crate) stylesheet: StyleSheet<'i, 'ghost>,
-    pub(crate) source_map_url: Option<&'i str>,
-}
-
-pub(crate) fn parse_with_string_pool<'i, 'ghost>(
-    source: &'i str,
-    allocator: &'i Allocator,
-    string_pool: &'i StringPool<'i>,
+pub(crate) fn parse_stylesheet<'i, 'ghost>(
+    compiler: &mut Compiler<'i>,
     token: &mut GhostToken<'ghost>,
     options: ParserOptions<'i>,
-) -> Result<ParsedStyleSheet<'i, 'ghost>, Error<'i>> {
-    let mut input = ParserInput::new_with_string_pool(source, allocator, string_pool);
-    let mut parser = Parser::new(&mut input);
+) -> Result<StyleSheet<'i, 'ghost>, Error<'i>> {
+    let allocator = compiler.allocator();
     let mut license_comments = allocator.vec();
 
-    let mut state = parser.state();
-    while let Ok(token) = parser.next_including_whitespace_and_comments() {
+    let mut state = compiler.state();
+    while let Ok(token) = compiler.next_including_whitespace_and_comments() {
         match token {
             ValueToken::WhiteSpace(_) => {}
             ValueToken::Comment(comment) if comment.starts_with('!') => {
@@ -38,25 +30,21 @@ pub(crate) fn parse_with_string_pool<'i, 'ghost>(
             }
             _ => break,
         }
-        state = parser.state();
+        state = compiler.state();
     }
-    parser.reset(&state);
+    compiler.reset(&state);
 
-    let rules = parse_rule_list(&mut parser, allocator, token, &options, 0)
+    let rules = parse_rule_list(compiler, allocator, token, &options, 0)
         .map_err(|error| into_error(error, options.filename))?;
-    let source_map_url = parser.current_source_map_url();
 
-    Ok(ParsedStyleSheet {
-        stylesheet: StyleSheet {
-            license_comments,
-            rules,
-        },
-        source_map_url,
+    Ok(StyleSheet {
+        license_comments,
+        rules,
     })
 }
 
 pub(super) fn check_depth<'i>(
-    input: &Parser<'i, '_>,
+    input: &Compiler<'i>,
     depth: usize,
 ) -> Result<(), ParseError<'i, ParserError<'i>>> {
     if depth > MAX_NESTING_DEPTH {
@@ -73,11 +61,11 @@ pub(super) fn span_from(start: &ParserState, end: SourcePosition) -> Span {
     )
 }
 
-pub(super) fn recover_rule(input: &mut Parser<'_, '_>) {
+pub(super) fn recover_rule(input: &mut Compiler<'_>) {
     let _ = input.next_including_whitespace_and_comments();
 }
 
-pub(super) fn recover_declaration(input: &mut Parser<'_, '_>) {
+pub(super) fn recover_declaration(input: &mut Compiler<'_>) {
     let _: Result<(), ParseError<'_, ()>> =
         input.parse_until_after(Delimiter::Semicolon, |_| Ok(()));
 }

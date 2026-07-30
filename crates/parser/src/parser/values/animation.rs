@@ -2,7 +2,7 @@ use super::css_wide_keyword;
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for Time {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
         match input.next()?.clone() {
             ValueToken::Dimension {
@@ -19,7 +19,7 @@ impl<'i> Parse<'i> for Time {
 }
 
 impl<'i> Parse<'i> for StepPosition {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let ident = input.expect_ident()?;
         match_ignore_ascii_case!(
             ident,
@@ -35,8 +35,8 @@ impl<'i> Parse<'i> for StepPosition {
 }
 
 impl<'i> Parse<'i> for EasingFunction {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        if let Ok(ident) = input.try_parse(Parser::expect_ident) {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        if let Ok(ident) = input.try_parse(Compiler::expect_ident) {
             return match_ignore_ascii_case!(
                 ident,
                 "linear" => Ok(Self::Linear),
@@ -93,7 +93,7 @@ impl<'i> Parse<'i> for EasingFunction {
 }
 
 impl<'i> Parse<'i> for AnimationIterationCount {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if input
             .try_parse(|input| input.expect_ident_matching("infinite"))
             .is_ok()
@@ -105,7 +105,7 @@ impl<'i> Parse<'i> for AnimationIterationCount {
 }
 
 impl<'i> Parse<'i> for AnimationDirection {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let ident = input.expect_ident()?;
         match_ignore_ascii_case!(
             ident,
@@ -119,7 +119,7 @@ impl<'i> Parse<'i> for AnimationDirection {
 }
 
 impl<'i> Parse<'i> for AnimationFillMode {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let ident = input.expect_ident()?;
         match_ignore_ascii_case!(
             ident,
@@ -133,7 +133,7 @@ impl<'i> Parse<'i> for AnimationFillMode {
 }
 
 impl<'i> Parse<'i> for AnimationPlayState {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let ident = input.expect_ident()?;
         match_ignore_ascii_case!(
             ident,
@@ -145,8 +145,8 @@ impl<'i> Parse<'i> for AnimationPlayState {
 }
 
 impl<'i> Parse<'i> for AnimationName<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        if let Ok(ident) = input.try_parse(Parser::expect_ident) {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        if let Ok(ident) = input.try_parse(Compiler::expect_ident) {
             if ident.eq_ignore_ascii_case("none") {
                 return Ok(Self::None);
             }
@@ -161,7 +161,7 @@ impl<'i> Parse<'i> for AnimationName<'i> {
 }
 
 impl<'i> Parse<'i> for Animation<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
         let mut components = allocator.vec();
         let mut duration_claimed = false;
@@ -232,29 +232,29 @@ impl<'i> Parse<'i> for Animation<'i> {
     }
 }
 
-pub(crate) fn parse_animation_list<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(crate) fn parse_animation_list<'i>(
+    input: &mut Compiler<'i>,
 ) -> Result<Vec<'i, Animation<'i>>, ParseError<'i, ParserError<'i>>> {
     let allocator = input.allocator();
     let mut values = allocator.vec();
     loop {
         values.push(input.parse_until_before(Delimiter::Comma, Animation::parse)?);
-        if input.try_parse(Parser::expect_comma).is_err() {
+        if input.try_parse(Compiler::expect_comma).is_err() {
             break;
         }
     }
     Ok(values)
 }
 
-pub(crate) fn parse_comma_separated<'i, 't, T: Unpin>(
-    input: &mut Parser<'i, 't>,
-    parser: impl Fn(&mut Parser<'i, 't>) -> Result<T, ParseError<'i, ParserError<'i>>>,
+pub(crate) fn parse_comma_separated<'i, T: Unpin>(
+    input: &mut Compiler<'i>,
+    parser: impl Fn(&mut Compiler<'i>) -> Result<T, ParseError<'i, ParserError<'i>>>,
 ) -> Result<Vec<'i, T>, ParseError<'i, ParserError<'i>>> {
     let allocator = input.allocator();
     let mut values = allocator.vec();
     loop {
         values.push(parser(input)?);
-        if input.try_parse(Parser::expect_comma).is_err() {
+        if input.try_parse(Compiler::expect_comma).is_err() {
             break;
         }
     }
@@ -263,7 +263,7 @@ pub(crate) fn parse_comma_separated<'i, 't, T: Unpin>(
 
 // The typed component parsers skip comments, which the typed AST cannot
 // retain, so values containing comments must stay unparsed.
-pub(crate) fn value_contains_comment<'i, 't>(input: &mut Parser<'i, 't>) -> bool {
+pub(crate) fn value_contains_comment<'i>(input: &mut Compiler<'i>) -> bool {
     let start = input.state();
     let contains = input
         .parse_until_before(Delimiter::Bang | Delimiter::Semicolon, scan_comment)
@@ -272,9 +272,7 @@ pub(crate) fn value_contains_comment<'i, 't>(input: &mut Parser<'i, 't>) -> bool
     contains
 }
 
-fn scan_comment<'i, 't>(
-    input: &mut Parser<'i, 't>,
-) -> Result<bool, ParseError<'i, ParserError<'i>>> {
+fn scan_comment<'i>(input: &mut Compiler<'i>) -> Result<bool, ParseError<'i, ParserError<'i>>> {
     let mut found = false;
     loop {
         let token = match input.next_including_whitespace_and_comments() {

@@ -3,11 +3,10 @@ use rocketcss_parser::prelude::*;
 #[test]
 fn parser_decodes_values_from_token_spans() {
     let allocator = Allocator::new();
-    let mut input = ParserInput::new(
+    let mut parser = Compiler::new_with_source(
         r#"\66 oo "b\61 r" -1.5e2PX 2furlong 25% url(icon\2e svg)"#,
         &allocator,
     );
-    let mut parser = Parser::new(&mut input);
 
     assert_eq!(parser.expect_ident(), Ok("foo"));
     assert_eq!(parser.expect_string(), Ok("bar"));
@@ -30,8 +29,7 @@ fn parser_decodes_values_from_token_spans() {
 #[test]
 fn parser_backtracks_and_parses_nested_blocks() {
     let allocator = Allocator::new();
-    let mut input = ParserInput::new("foo(1, [bar]) tail", &allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source("foo(1, [bar]) tail", &allocator);
 
     let state = parser.state();
     assert_eq!(parser.expect_function(), Ok("foo"));
@@ -56,8 +54,7 @@ fn parser_backtracks_and_parses_nested_blocks() {
 #[test]
 fn delimited_parse_does_not_stop_inside_nested_blocks() {
     let allocator = Allocator::new();
-    let mut input = ParserInput::new("one(foo;bar);two", &allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source("one(foo;bar);two", &allocator);
     let raw = parser
         .parse_until_before(rocketcss_parser::Delimiter::Semicolon, |input| {
             let start = input.position();
@@ -747,8 +744,7 @@ fn invalid_selector_still_fails_without_error_recovery() {
 #[test]
 fn parser_reports_unmatched_closing_token() {
     let allocator = Allocator::new();
-    let mut input = ParserInput::new(")", &allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(")", &allocator);
     let error = parser.expect_no_error_token().unwrap_err();
     assert!(matches!(
         error.kind,
@@ -1778,8 +1774,7 @@ fn extracts_source_directives_in_parser_layer() {
             .unwrap();
         assert_eq!(compiler.source_map_url(), Some("style.css.map"));
 
-        let mut input = ParserInput::new(source, &allocator);
-        let mut parser = Parser::new(&mut input);
+        let mut parser = Compiler::new_with_source(source, &allocator);
         while parser.next_including_whitespace_and_comments().is_ok() {}
         assert_eq!(parser.current_source_url(), Some("original.scss"));
         assert_eq!(parser.current_source_map_url(), Some("style.css.map"));

@@ -1,7 +1,7 @@
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for LineStyle {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let ident = input.expect_ident()?;
         match_ignore_ascii_case!(
             ident,
@@ -21,9 +21,9 @@ impl<'i> Parse<'i> for LineStyle {
 }
 
 impl<'i> Parse<'i> for BorderSideWidth<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
-        if let Ok(ident) = input.try_parse(Parser::expect_ident) {
+        if let Ok(ident) = input.try_parse(Compiler::expect_ident) {
             return match_ignore_ascii_case!(
                 ident,
                 "thin" => Ok(Self::Thin),
@@ -41,7 +41,7 @@ impl<'i> Parse<'i> for BorderSideWidth<'i> {
 }
 
 impl<'i> Parse<'i> for ColumnRule<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
         let mut width = None;
         let mut style = None;
@@ -81,7 +81,7 @@ impl<'i> Parse<'i> for ColumnRule<'i> {
 }
 
 impl<'i> Parse<'i> for ColumnWidth<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if input
             .try_parse(|input| input.expect_ident_matching("auto"))
             .is_ok()
@@ -98,7 +98,7 @@ impl<'i> Parse<'i> for ColumnWidth<'i> {
 }
 
 impl<'i> Parse<'i> for ColumnCount {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if input
             .try_parse(|input| input.expect_ident_matching("auto"))
             .is_ok()
@@ -114,7 +114,7 @@ impl<'i> Parse<'i> for ColumnCount {
 }
 
 impl<'i> Parse<'i> for Columns<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
         let mut width = None;
         let mut count = None;
@@ -129,7 +129,7 @@ impl<'i> Parse<'i> for Columns<'i> {
                 continue;
             }
             if count.is_none()
-                && let Ok(value) = input.try_parse(Parser::expect_integer)
+                && let Ok(value) = input.try_parse(Compiler::expect_integer)
                 && value >= 1
             {
                 count = Some(ColumnCount::Integer(value));
@@ -158,7 +158,7 @@ impl<'i> Parse<'i> for Columns<'i> {
 }
 
 impl<'i> Parse<'i> for GapValue<'i> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if input
             .try_parse(|input| input.expect_ident_matching("normal"))
             .is_ok()

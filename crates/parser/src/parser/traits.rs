@@ -2,8 +2,8 @@ use std::fmt;
 
 use rocketcss_allocator::Allocator;
 
-use super::{ParseError, Parser, ParserInput};
-use crate::{SourceLocation, TokenAndSpan};
+use super::ParseError;
+use crate::{Compiler, SourceLocation, TokenAndSpan};
 
 /// Grammar-level parser errors, modeled after lightningcss' parser errors.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,20 +70,18 @@ pub struct ParserOptions<'i> {
 
 /// A lightningcss-style trait for values parsed from CSS syntax.
 pub trait Parse<'i>: Sized {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>>;
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>>;
 
     fn parse_string(
         source: &'i str,
         allocator: &'i Allocator,
     ) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let mut input = ParserInput::new(source, allocator);
-        let mut parser = Parser::new(&mut input);
-        parser.parse_entirely(Self::parse)
+        Compiler::new_with_source(source, allocator).parse_entirely(Self::parse)
     }
 }
 
 impl<'i, T: Parse<'i>> Parse<'i> for Option<T> {
-    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         Ok(input.try_parse(T::parse).ok())
     }
 }

@@ -9,8 +9,8 @@ use super::{
 };
 use crate::prelude::*;
 
-pub(super) fn parse_font_face_contents<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_font_face_contents<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -35,7 +35,7 @@ pub(super) fn parse_font_face_contents<'i, 't>(
                     collect_tokens(input, allocator, depth + 1)
                 })?;
                 let raw_value = input.slice(value_start..input.position());
-                let _ = input.try_parse(Parser::expect_semicolon);
+                let _ = input.try_parse(Compiler::expect_semicolon);
                 if remove_important(&mut value) {
                     return Err(input.new_custom_error(ParserError::InvalidDeclaration));
                 }
@@ -114,10 +114,9 @@ pub(super) fn parse_namespace<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
 ) -> Result<(Option<&'i str>, &'i str), ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     let state = parser.state();
-    if let Ok(prefix) = parser.try_parse(Parser::expect_ident)
+    if let Ok(prefix) = parser.try_parse(Compiler::expect_ident)
         && let Ok(url) = parser.expect_url_or_string()
     {
         parser.expect_exhausted()?;
@@ -133,8 +132,7 @@ pub(super) fn parse_charset<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
 ) -> Result<&'i str, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     let encoding = parser.expect_string()?;
     parser.expect_exhausted()?;
     Ok(encoding)
@@ -147,8 +145,7 @@ pub(super) fn parse_layer_names<'i>(
     if prelude.is_empty() {
         return Ok(allocator.vec());
     }
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     let parsed = parser.parse_comma_separated(|input| {
         let mut name = allocator.vec();
         name.push(input.expect_ident()?);
@@ -167,8 +164,7 @@ pub(super) fn parse_custom_media<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
 ) -> Result<(&'i str, MediaList<'i>), ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     let name = parser.expect_ident()?;
     if !name.starts_with("--") {
         return Err(parser.new_custom_error(ParserError::InvalidValue));
@@ -183,8 +179,7 @@ pub(super) fn parse_custom_media<'i>(
     // implemented. Parsing these into normalized range features would change
     // their public serialization even though this crate does not consume the
     // definition yet.
-    let mut query_input = ParserInput::new(query, allocator);
-    let mut query_parser = Parser::new(&mut query_input);
+    let mut query_parser = Compiler::new_with_source(query, allocator);
     let condition = MediaCondition::Unknown(collect_tokens(&mut query_parser, allocator, 0)?);
     let mut media_queries = allocator.vec();
     media_queries.push(allocator.boxed(MediaQuery {
@@ -199,8 +194,7 @@ pub(super) fn parse_single_ident<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
 ) -> Result<&'i str, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     let name = parser.expect_ident()?;
     parser.expect_exhausted()?;
     Ok(name)
@@ -210,8 +204,7 @@ pub(super) fn parse_keyframes_name<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
 ) -> Result<KeyframesName<'i>, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     let name = match parser.next()? {
         ValueToken::Ident(name)
             if !matches_ignore_case(
@@ -236,8 +229,8 @@ pub(super) fn parse_keyframes_name<'i>(
     Ok(name)
 }
 
-pub(super) fn parse_keyframe_list<'i, 't, 'ghost>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_keyframe_list<'i, 'ghost>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -274,7 +267,7 @@ pub(super) fn parse_keyframe_list<'i, 't, 'ghost>(
 }
 
 pub(super) fn parse_keyframe_selector<'i>(
-    input: &mut Parser<'i, '_>,
+    input: &mut Compiler<'i>,
 ) -> Result<KeyframeSelector, ParseError<'i, ParserError<'i>>> {
     match input.next()? {
         ValueToken::Percentage(value) if (0.0..=1.0).contains(value) => {
@@ -302,8 +295,8 @@ pub(super) fn parse_keyframe_selector<'i>(
     }
 }
 
-pub(super) fn parse_declaration_block<'i, 't, 'ghost>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_declaration_block<'i, 'ghost>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -375,8 +368,7 @@ pub(super) fn validate_moz_document_prelude<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
 ) -> Result<(), ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     parser.expect_function_matching("url-prefix")?;
     parser.parse_nested_block(|input| {
         if !input.is_exhausted() && !input.expect_string()?.is_empty() {
@@ -398,9 +390,8 @@ pub(super) fn parse_container_prelude<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
 ) -> Result<ContainerPrelude<'i>, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
-    let name = parser.try_parse(Parser::expect_ident).ok();
+    let mut parser = Compiler::new_with_source(prelude, allocator);
+    let name = parser.try_parse(Compiler::expect_ident).ok();
     let condition = if parser.is_exhausted() {
         None
     } else {
@@ -424,34 +415,36 @@ type ScopePrelude<'i> = (
 );
 
 pub(super) fn parse_scope_prelude<'i>(
+    input: &mut Compiler<'i>,
     prelude: &'i str,
-    allocator: &'i Allocator,
-    string_pool: &'i StringPool<'i>,
     depth: usize,
 ) -> Result<ScopePrelude<'i>, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new_with_string_pool(prelude, allocator, string_pool);
-    let mut parser = Parser::new(&mut input);
-    let scope_start = if parser.try_parse(Parser::expect_parenthesis_block).is_ok() {
-        Some(allocator.boxed(
-            parser.parse_nested_block(|input| parse_selector_list(input, allocator, depth + 1))?,
-        ))
-    } else {
-        None
-    };
+    let allocator = input.allocator();
+    input.with_source(prelude, |input| {
+        let scope_start =
+            if input.try_parse(Compiler::expect_parenthesis_block).is_ok() {
+                Some(allocator.boxed(input.parse_nested_block(|input| {
+                    parse_selector_list(input, allocator, depth + 1)
+                })?))
+            } else {
+                None
+            };
 
-    let scope_end = if parser
-        .try_parse(|input| input.expect_ident_matching("to"))
-        .is_ok()
-    {
-        parser.expect_parenthesis_block()?;
-        Some(allocator.boxed(
-            parser.parse_nested_block(|input| parse_selector_list(input, allocator, depth + 1))?,
-        ))
-    } else {
-        None
-    };
-    parser.expect_exhausted()?;
-    Ok((scope_start, scope_end))
+        let scope_end =
+            if input
+                .try_parse(|input| input.expect_ident_matching("to"))
+                .is_ok()
+            {
+                input.expect_parenthesis_block()?;
+                Some(allocator.boxed(input.parse_nested_block(|input| {
+                    parse_selector_list(input, allocator, depth + 1)
+                })?))
+            } else {
+                None
+            };
+        input.expect_exhausted()?;
+        Ok((scope_start, scope_end))
+    })
 }
 
 pub(super) fn parse_page_selectors<'i>(
@@ -461,12 +454,11 @@ pub(super) fn parse_page_selectors<'i>(
     if prelude.is_empty() {
         return Ok(allocator.vec());
     }
-    let mut input = ParserInput::new(prelude, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(prelude, allocator);
     let parsed = parser.parse_comma_separated(|input| {
-        let name = input.try_parse(Parser::expect_ident).ok();
+        let name = input.try_parse(Compiler::expect_ident).ok();
         let mut pseudo_classes = allocator.vec();
-        while input.try_parse(Parser::expect_colon).is_ok() {
+        while input.try_parse(Compiler::expect_colon).is_ok() {
             let pseudo = input.expect_ident()?;
             pseudo_classes.push(match_ignore_ascii_case!(
                 pseudo,
@@ -492,8 +484,8 @@ pub(super) fn parse_page_selectors<'i>(
     Ok(selectors)
 }
 
-pub(super) fn parse_page_body<'i, 't, 'ghost>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_page_body<'i, 'ghost>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -561,10 +553,9 @@ pub(super) fn parse_family_names<'i>(
     source: &'i str,
     allocator: &'i Allocator,
 ) -> Result<Vec<'i, FamilyName<'i>>, ParseError<'i, ParserError<'i>>> {
-    let mut input = ParserInput::new(source, allocator);
-    let mut parser = Parser::new(&mut input);
+    let mut parser = Compiler::new_with_source(source, allocator);
     let parsed = parser.parse_comma_separated(|input| {
-        if let Ok(name) = input.try_parse(Parser::expect_string) {
+        if let Ok(name) = input.try_parse(Compiler::expect_string) {
             input.expect_exhausted()?;
             return Ok(FamilyName(name));
         }
@@ -585,8 +576,8 @@ pub(super) fn parse_family_names<'i>(
     Ok(names)
 }
 
-pub(super) fn parse_font_feature_subrules<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_font_feature_subrules<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -620,8 +611,8 @@ pub(super) fn parse_font_feature_subrules<'i, 't>(
     Ok(rules)
 }
 
-pub(super) fn parse_font_feature_declarations<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_font_feature_declarations<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -648,7 +639,7 @@ pub(super) fn parse_font_feature_declarations<'i, 't>(
                 }
                 Ok(values)
             })?;
-            let _ = input.try_parse(Parser::expect_semicolon);
+            let _ = input.try_parse(Compiler::expect_semicolon);
             Ok::<_, ParseError<'i, ParserError<'i>>>(FontFeatureDeclaration { name, values })
         })();
         match result {
@@ -674,8 +665,8 @@ pub(super) fn font_feature_subrule_type(name: &str) -> Option<FontFeatureSubrule
     )
 }
 
-pub(super) fn parse_font_palette_contents<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_font_palette_contents<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -697,7 +688,7 @@ pub(super) fn parse_font_palette_contents<'i, 't>(
                 let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
                     collect_tokens(input, allocator, depth + 1)
                 })?;
-                let _ = input.try_parse(Parser::expect_semicolon);
+                let _ = input.try_parse(Compiler::expect_semicolon);
                 if remove_important(&mut value) {
                     return Err(input.new_custom_error(ParserError::InvalidDeclaration));
                 }
@@ -720,8 +711,8 @@ pub(super) fn parse_font_palette_contents<'i, 't>(
     Ok(properties)
 }
 
-pub(super) fn parse_property_rule<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_property_rule<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -745,7 +736,7 @@ pub(super) fn parse_property_rule<'i, 't>(
             let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
                 collect_tokens(input, allocator, depth + 1)
             })?;
-            let _ = input.try_parse(Parser::expect_semicolon);
+            let _ = input.try_parse(Compiler::expect_semicolon);
             if remove_important(&mut value) {
                 return Err(input.new_custom_error(ParserError::InvalidDeclaration));
             }
@@ -852,8 +843,8 @@ pub(super) fn parse_syntax_string<'i>(
     Ok(SyntaxString::Components(components))
 }
 
-pub(super) fn parse_view_transition_contents<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_view_transition_contents<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
@@ -873,7 +864,7 @@ pub(super) fn parse_view_transition_contents<'i, 't>(
             let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
                 collect_tokens(input, allocator, depth + 1)
             })?;
-            let _ = input.try_parse(Parser::expect_semicolon);
+            let _ = input.try_parse(Compiler::expect_semicolon);
             if remove_important(&mut value) {
                 return Err(input.new_custom_error(ParserError::InvalidDeclaration));
             }

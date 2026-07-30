@@ -5,8 +5,7 @@ pub use crate::escape::unescape;
 pub use crate::parser::stylesheet::parse;
 pub use crate::parser::{
     BasicParseError, BasicParseErrorKind, Delimiter, Delimiters, Error, Parse, ParseError,
-    ParseErrorKind, ParseUntilErrorBehavior, Parser, ParserError, ParserInput, ParserOptions,
-    ParserState,
+    ParseErrorKind, ParseUntilErrorBehavior, ParserError, ParserOptions, ParserState,
 };
 pub use crate::tokenizer::{
     SourceLocation, SourcePosition, Token as LexicalToken, TokenAndSpan, Tokenizer, TokenizerState,

@@ -18,8 +18,8 @@ enum TopLevelState {
 }
 
 /// Parses a top-level or nested CSS rule list.
-pub(super) fn parse_rule_list<'i, 't, 'ghost>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_rule_list<'i, 'ghost>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
@@ -90,8 +90,8 @@ pub(super) fn parse_rule_list<'i, 't, 'ghost>(
     Ok(rules)
 }
 
-pub(super) fn parse_group_rule_body<'i, 't, 'ghost>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_group_rule_body<'i, 'ghost>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
@@ -117,8 +117,8 @@ pub(super) fn parse_group_rule_body<'i, 't, 'ghost>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn parse_at_rule<'i, 't, 'ghost>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_at_rule<'i, 'ghost>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
@@ -376,8 +376,7 @@ pub(super) fn parse_at_rule<'i, 't, 'ghost>(
         if !matches!(ending, Ending::Block) {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
-        let (scope_start, scope_end) =
-            parse_scope_prelude(raw_prelude, allocator, input.string_pool(), depth + 1)?;
+        let (scope_start, scope_end) = parse_scope_prelude(input, raw_prelude, depth + 1)?;
         let rules = input.parse_nested_block(|input| {
             parse_group_rule_body(input, allocator, token, options, depth + 1, in_style_rule)
         })?;
@@ -457,8 +456,7 @@ pub(super) fn parse_at_rule<'i, 't, 'ghost>(
         if !matches!(ending, Ending::Block) {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
-        let selectors =
-            parse_selector_string(raw_prelude, allocator, input.string_pool(), depth + 1)?;
+        let selectors = parse_selector_string(input, raw_prelude, depth + 1)?;
         let (declarations, rules) = input.parse_nested_block(|input| {
             parse_style_contents(input, allocator, token, options, depth + 1)
         })?;
@@ -490,8 +488,8 @@ pub(super) fn parse_at_rule<'i, 't, 'ghost>(
     Ok(rule)
 }
 
-pub(super) fn parse_qualified_rule<'i, 't, 'ghost>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_qualified_rule<'i, 'ghost>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
@@ -521,8 +519,8 @@ pub(super) fn parse_qualified_rule<'i, 't, 'ghost>(
 
 type StyleContents<'i, 'ghost> = (DeclarationBlock<'i, 'ghost>, Vec<'i, CssRule<'i, 'ghost>>);
 
-pub(super) fn parse_style_contents<'i, 't, 'ghost>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn parse_style_contents<'i, 'ghost>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
@@ -547,7 +545,7 @@ pub(super) fn parse_style_contents<'i, 't, 'ghost>(
                     .map(|rule| Some((false, rule)))
             }
             ValueToken::Ident(name) => {
-                let has_colon = input.try_parse(Parser::expect_colon).is_ok();
+                let has_colon = input.try_parse(Compiler::expect_colon).is_ok();
                 let scan = scan_rule_body(input, !name.starts_with("--"));
                 if has_colon
                     && (name.starts_with("--")
@@ -627,11 +625,11 @@ impl<'i> RuleBodyScan<'i> {
     }
 }
 
-fn drain_rule_body(input: &mut Parser<'_, '_>) {
+fn drain_rule_body(input: &mut Compiler<'_>) {
     while input.next().is_ok() {}
 }
 
-fn scan_single_ident_value<'i>(input: &mut Parser<'i, '_>) -> Option<&'i str> {
+fn scan_single_ident_value<'i>(input: &mut Compiler<'i>) -> Option<&'i str> {
     let ident = match input.next() {
         Ok(ValueToken::Ident(value)) => *value,
         Ok(_) => {
@@ -666,7 +664,7 @@ fn scan_single_ident_value<'i>(input: &mut Parser<'i, '_>) -> Option<&'i str> {
 // This single pass serves both nested-rule disambiguation and declaration-value
 // classification. A future byte/SIMD scanner must fall back for escapes and
 // comments so the decoded candidate and lossless behavior stay unchanged.
-fn scan_rule_body<'i>(input: &mut Parser<'i, '_>, scan_css_wide: bool) -> RuleBodyScan<'i> {
+fn scan_rule_body<'i>(input: &mut Compiler<'i>, scan_css_wide: bool) -> RuleBodyScan<'i> {
     let state = input.state();
     let mut css_wide_candidate = None;
     let _: Result<(), ParseError<'_, ()>> = input.parse_until_before(

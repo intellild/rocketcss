@@ -21,24 +21,24 @@ pub(super) fn single_token<'a, 'i>(value: &'a [TokenOrValue<'i>]) -> Option<&'a 
     }
 }
 
-pub(super) fn collect_tokens<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn collect_tokens<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     depth: usize,
 ) -> Result<Vec<'i, TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
     collect_tokens_impl(input, allocator, depth, false)
 }
 
-pub(super) fn collect_custom_property_tokens<'i, 't>(
-    input: &mut Parser<'i, 't>,
+pub(super) fn collect_custom_property_tokens<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     depth: usize,
 ) -> Result<Vec<'i, TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
     collect_tokens_impl(input, allocator, depth, true)
 }
 
-fn collect_tokens_impl<'i, 't>(
-    input: &mut Parser<'i, 't>,
+fn collect_tokens_impl<'i>(
+    input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     depth: usize,
     parse_embedded_values: bool,
