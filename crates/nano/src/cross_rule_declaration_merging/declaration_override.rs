@@ -141,7 +141,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-            let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+            let declaration_blocks = walk_declaration_blocks(&stylesheet, &token, &allocator);
 
             assert!(DeclarationOverrideCommitPass::discover(&declaration_blocks).is_none());
         });
@@ -158,7 +158,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-            let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+            let declaration_blocks = walk_declaration_blocks(&stylesheet, &token, &allocator);
 
             let pass = DeclarationOverrideCommitPass::discover(&declaration_blocks)
                 .expect("the a selector has a declaration history");
@@ -188,7 +188,7 @@ mod tests {
             )
             .unwrap();
             let pass = {
-                let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+                let declaration_blocks = walk_declaration_blocks(&stylesheet, &token, &allocator);
                 DeclarationOverrideCommitPass::discover(&declaration_blocks)
                     .expect("the two a blocks share one exact-only S2 history")
             };
@@ -223,7 +223,7 @@ mod tests {
             )
             .unwrap();
             let pass = {
-                let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+                let declaration_blocks = walk_declaration_blocks(&stylesheet, &token, &allocator);
                 DeclarationOverrideCommitPass::discover(&declaration_blocks)
                     .expect("the two a blocks share one exact-only S2 history")
             };
