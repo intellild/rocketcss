@@ -605,7 +605,7 @@ fn container_impls(mode: Mode) -> TokenStream {
 
             impl<'a, 'ghost, T: ?Sized + #node_trait<'a, 'ghost>>
                 #node_trait<'a, 'ghost>
-                for rocketcss_allocator::boxed::Box<'a, T>
+                for rocketcss_common::boxed::Box<'a, T>
             {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
@@ -617,7 +617,7 @@ fn container_impls(mode: Mode) -> TokenStream {
             }
             impl<'a, 'ghost, T: #node_trait<'a, 'ghost> + Unpin>
                 #node_trait<'a, 'ghost>
-                for rocketcss_allocator::vec::Vec<'a, T>
+                for rocketcss_common::vec::Vec<'a, T>
             {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
@@ -669,7 +669,7 @@ fn container_impls(mode: Mode) -> TokenStream {
 
             impl<'a, 'ghost, T: ?Sized + #node_trait<'a, 'ghost>>
                 #node_trait<'a, 'ghost>
-                for rocketcss_allocator::boxed::Box<'a, T>
+                for rocketcss_common::boxed::Box<'a, T>
             {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
@@ -681,7 +681,7 @@ fn container_impls(mode: Mode) -> TokenStream {
             }
             impl<'a, 'ghost, T: #node_trait<'a, 'ghost> + Unpin>
                 #node_trait<'a, 'ghost>
-                for rocketcss_allocator::vec::Vec<'a, T>
+                for rocketcss_common::vec::Vec<'a, T>
             {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,

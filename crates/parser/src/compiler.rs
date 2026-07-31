@@ -1,7 +1,7 @@
-use rocketcss_allocator::{Allocator, GhostToken, StringPool};
 use rocketcss_ast::{
     Atom, Compilation, DeclarationBlock, DeclarationBlockId, DeclarationBlockStore,
 };
+use rocketcss_common::{Allocator, GhostToken, StringPool};
 
 use crate::{
     Error, ParserOptions,
@@ -84,7 +84,7 @@ impl<'alloc> Compiler<'alloc> {
         &mut self,
         block: DeclarationBlock<'alloc>,
     ) -> DeclarationBlockId {
-        self.declaration_blocks.alloc(block)
+        self.declaration_blocks.push(block)
     }
 
     #[inline]

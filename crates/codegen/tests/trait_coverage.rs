@@ -1,6 +1,6 @@
-use rocketcss_allocator::GhostToken;
 use rocketcss_ast::*;
 use rocketcss_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss, ToCssContext};
+use rocketcss_common::GhostToken;
 
 fn assert_to_css<T>()
 where

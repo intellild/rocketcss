@@ -1,13 +1,11 @@
-use std::hash::{Hash, Hasher};
-use std::num::NonZeroU32;
-
-use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{
     ContainerCondition, CssRule, DeclarationBlockId, MediaList, SelectorList, StyleRule,
     StyleSheet, SupportsCondition, VendorPrefix,
 };
+use rocketcss_common::{DenseIdGenerator, DenseStore, define_dense_id, vec::Vec};
 use rustc_hash::{FxHashMap, FxHasher};
 use smallvec::SmallVec;
+use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum ConditionalFrame<'walk, 'ast> {
@@ -44,68 +42,52 @@ struct SelectorFrame<'walk, 'ast> {
     vendor_prefix: VendorPrefix,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-struct SelectorPathId(u32);
-
-impl SelectorPathId {
-    fn index(self) -> usize {
-        usize::try_from(self.0 - 1).expect("selector path ID fits usize")
-    }
-}
+define_dense_id!(struct SelectorPathId);
 
 #[derive(Clone, Copy, Debug)]
 struct SelectorPathNode<'walk, 'ast> {
-    parent: SelectorPathId,
+    parent: Option<SelectorPathId>,
     frame: SelectorFrame<'walk, 'ast>,
     fingerprint: u64,
 }
 
 #[derive(Debug, Default)]
 struct SelectorPathStore<'walk, 'ast> {
-    nodes: std::vec::Vec<SelectorPathNode<'walk, 'ast>>,
+    nodes: DenseStore<SelectorPathId, SelectorPathNode<'walk, 'ast>>,
 }
 
 impl<'walk, 'ast> SelectorPathStore<'walk, 'ast> {
     fn push(
         &mut self,
-        parent: SelectorPathId,
+        parent: Option<SelectorPathId>,
         frame: SelectorFrame<'walk, 'ast>,
     ) -> SelectorPathId {
         let mut hasher = FxHasher::default();
         self.fingerprint(parent).hash(&mut hasher);
         frame.hash(&mut hasher);
-        let id = SelectorPathId(
-            u32::try_from(self.nodes.len())
-                .expect("selector path count exceeds u32::MAX")
-                .checked_add(1)
-                .expect("selector path count exceeds u32::MAX"),
-        );
         self.nodes.push(SelectorPathNode {
             parent,
             frame,
             fingerprint: hasher.finish(),
-        });
-        id
+        })
     }
 
-    fn fingerprint(&self, path: SelectorPathId) -> u64 {
-        if path == SelectorPathId::default() {
-            0
-        } else {
-            self.nodes[path.index()].fingerprint
-        }
+    fn fingerprint(&self, path: Option<SelectorPathId>) -> u64 {
+        path.map_or(0, |path| self.nodes[path].fingerprint)
     }
 
-    fn equals(&self, mut left: SelectorPathId, mut right: SelectorPathId) -> bool {
+    fn equals(&self, mut left: Option<SelectorPathId>, mut right: Option<SelectorPathId>) -> bool {
         if left == right {
             return true;
         }
         loop {
-            if left == SelectorPathId::default() || right == SelectorPathId::default() {
-                return left == right;
-            }
-            let left_node = &self.nodes[left.index()];
-            let right_node = &self.nodes[right.index()];
+            let (left_id, right_id) = match (left, right) {
+                (Some(left), Some(right)) => (left, right),
+                (None, None) => return true,
+                _ => return false,
+            };
+            let left_node = &self.nodes[left_id];
+            let right_node = &self.nodes[right_id];
             if left_node.frame != right_node.frame {
                 return false;
             }
@@ -115,68 +97,56 @@ impl<'walk, 'ast> SelectorPathStore<'walk, 'ast> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-struct ConditionalPathId(u32);
-
-impl ConditionalPathId {
-    fn index(self) -> usize {
-        usize::try_from(self.0 - 1).expect("conditional path ID fits usize")
-    }
-}
+define_dense_id!(struct ConditionalPathId);
 
 #[derive(Clone, Copy, Debug)]
 struct ConditionalPathNode<'walk, 'ast> {
-    parent: ConditionalPathId,
+    parent: Option<ConditionalPathId>,
     frame: ConditionalFrame<'walk, 'ast>,
     fingerprint: u64,
 }
 
 #[derive(Debug, Default)]
 struct ConditionalPathStore<'walk, 'ast> {
-    nodes: std::vec::Vec<ConditionalPathNode<'walk, 'ast>>,
+    nodes: DenseStore<ConditionalPathId, ConditionalPathNode<'walk, 'ast>>,
 }
 
 impl<'walk, 'ast> ConditionalPathStore<'walk, 'ast> {
     fn push(
         &mut self,
-        parent: ConditionalPathId,
+        parent: Option<ConditionalPathId>,
         frame: ConditionalFrame<'walk, 'ast>,
     ) -> ConditionalPathId {
         let mut hasher = FxHasher::default();
         self.fingerprint(parent).hash(&mut hasher);
         hash_conditional_frame(&frame, &mut hasher);
-        let id = ConditionalPathId(
-            u32::try_from(self.nodes.len())
-                .expect("conditional path count exceeds u32::MAX")
-                .checked_add(1)
-                .expect("conditional path count exceeds u32::MAX"),
-        );
         self.nodes.push(ConditionalPathNode {
             parent,
             frame,
             fingerprint: hasher.finish(),
-        });
-        id
+        })
     }
 
-    fn fingerprint(&self, path: ConditionalPathId) -> u64 {
-        if path == ConditionalPathId::default() {
-            0
-        } else {
-            self.nodes[path.index()].fingerprint
-        }
+    fn fingerprint(&self, path: Option<ConditionalPathId>) -> u64 {
+        path.map_or(0, |path| self.nodes[path].fingerprint)
     }
 
-    fn equals(&self, mut left: ConditionalPathId, mut right: ConditionalPathId) -> bool {
+    fn equals(
+        &self,
+        mut left: Option<ConditionalPathId>,
+        mut right: Option<ConditionalPathId>,
+    ) -> bool {
         if left == right {
             return true;
         }
         loop {
-            if left == ConditionalPathId::default() || right == ConditionalPathId::default() {
-                return left == right;
-            }
-            let left_node = &self.nodes[left.index()];
-            let right_node = &self.nodes[right.index()];
+            let (left_id, right_id) = match (left, right) {
+                (Some(left), Some(right)) => (left, right),
+                (None, None) => return true,
+                _ => return false,
+            };
+            let left_node = &self.nodes[left_id];
+            let right_node = &self.nodes[right_id];
             if left_node.frame != right_node.frame {
                 return false;
             }
@@ -186,46 +156,48 @@ impl<'walk, 'ast> ConditionalPathStore<'walk, 'ast> {
     }
 }
 
-/// The dense declaration-history identity computed during source-ordered
-/// discovery.
-///
-/// Selector and condition paths are tracked independently because nested
-/// selector resolution is a separate feature. Typed conditional frames use
-/// structural equality. At-rule kinds whose semantics are not handled by this
-/// pass are isolated by authored wrapper identity.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct EffectiveKeyId(u32);
+define_dense_id!(
+    /// The dense declaration-history identity computed during source-ordered
+    /// discovery.
+    ///
+    /// Selector and condition paths are tracked independently because nested
+    /// selector resolution is a separate feature. Typed conditional frames use
+    /// structural equality. At-rule kinds whose semantics are not handled by
+    /// this pass are isolated by authored wrapper identity.
+    pub(crate) struct EffectiveKeyId;
+);
+define_dense_id!(pub(crate) struct DeclarationBlockEntryId);
 
 #[derive(Clone, Copy, Debug)]
 struct EffectiveKeyState {
-    selectors: SelectorPathId,
-    conditions: ConditionalPathId,
+    selectors: Option<SelectorPathId>,
+    conditions: Option<ConditionalPathId>,
     id: EffectiveKeyId,
-    last_entry: u32,
+    last_entry: DeclarationBlockEntryId,
     has_history: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
 struct EffectiveKeyOccurrence {
     id: EffectiveKeyId,
-    previous_entry: Option<u32>,
+    previous_entry: Option<DeclarationBlockEntryId>,
     starts_history: bool,
 }
 
 #[derive(Debug, Default)]
 struct EffectiveKeyInterner {
     buckets: FxHashMap<u64, SmallVec<[EffectiveKeyState; 1]>>,
-    next_id: u32,
+    ids: DenseIdGenerator<EffectiveKeyId>,
 }
 
 impl EffectiveKeyInterner {
     fn intern(
         &mut self,
-        selectors: SelectorPathId,
-        conditions: ConditionalPathId,
+        selectors: Option<SelectorPathId>,
+        conditions: Option<ConditionalPathId>,
         selector_paths: &SelectorPathStore<'_, '_>,
         conditional_paths: &ConditionalPathStore<'_, '_>,
-        current_entry: u32,
+        current_entry: DeclarationBlockEntryId,
     ) -> EffectiveKeyOccurrence {
         let mut hasher = FxHasher::default();
         selector_paths.fingerprint(selectors).hash(&mut hasher);
@@ -245,11 +217,7 @@ impl EffectiveKeyInterner {
             return occurrence;
         }
 
-        let id = EffectiveKeyId(self.next_id);
-        self.next_id = self
-            .next_id
-            .checked_add(1)
-            .expect("effective key count exceeds u32::MAX");
+        let id = self.ids.allocate();
         bucket.push(EffectiveKeyState {
             selectors,
             conditions,
@@ -265,11 +233,8 @@ impl EffectiveKeyInterner {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct RuleListId(u32);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct RuleListSegmentId(u32);
+define_dense_id!(pub(crate) struct RuleListId);
+define_dense_id!(pub(crate) struct RuleListSegmentId);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct SiblingOrdinal(u32);
@@ -299,7 +264,7 @@ pub(crate) struct DeclarationBlockEntry {
     pub(crate) rule_list: RuleListId,
     pub(crate) rule_list_segment: RuleListSegmentId,
     pub(crate) sibling_ordinal: SiblingOrdinal,
-    next_in_history: Option<NonZeroU32>,
+    next_in_history: Option<DeclarationBlockEntryId>,
     starts_history: bool,
 }
 
@@ -314,66 +279,57 @@ impl DeclarationBlockEntry {
         self.starts_history
     }
 
-    pub(crate) fn next_declaration_history_entry(&self) -> Option<usize> {
-        self.next_in_history.map(|next| {
-            usize::try_from(next.get() - 1).expect("declaration block index fits usize")
-        })
+    pub(crate) fn next_declaration_history_entry(&self) -> Option<DeclarationBlockEntryId> {
+        self.next_in_history
     }
 }
 
 #[derive(Debug, Default)]
 struct WalkState {
-    next_rule_list: u32,
-    next_rule_list_segment: u32,
+    rule_lists: DenseIdGenerator<RuleListId>,
+    rule_list_segments: DenseIdGenerator<RuleListSegmentId>,
 }
 
 impl WalkState {
     fn allocate_rule_list(&mut self) -> RuleListId {
-        let id = RuleListId(self.next_rule_list);
-        self.next_rule_list = self
-            .next_rule_list
-            .checked_add(1)
-            .expect("rule list count exceeds u32::MAX");
-        id
+        self.rule_lists.allocate()
     }
 
     fn allocate_rule_list_segment(&mut self) -> RuleListSegmentId {
-        let id = RuleListSegmentId(self.next_rule_list_segment);
-        self.next_rule_list_segment = self
-            .next_rule_list_segment
-            .checked_add(1)
-            .expect("rule list segment count exceeds u32::MAX");
-        id
+        self.rule_list_segments.allocate()
     }
 }
 
+pub(crate) type DeclarationBlockEntries =
+    DenseStore<DeclarationBlockEntryId, DeclarationBlockEntry>;
+
 pub(crate) fn walk_declaration_blocks<'walk, 'ast>(
     stylesheet: &'walk StyleSheet<'ast>,
-) -> std::vec::Vec<DeclarationBlockEntry> {
+) -> DeclarationBlockEntries {
     let mut walker = DeclarationBlockWalker::new();
     walker.collect_rule_list(&stylesheet.rules);
     walker.declaration_blocks
 }
 
 struct DeclarationBlockWalker<'walk, 'ast> {
-    selector_path: SelectorPathId,
+    selector_path: Option<SelectorPathId>,
     selector_paths: SelectorPathStore<'walk, 'ast>,
-    conditional_path: ConditionalPathId,
+    conditional_path: Option<ConditionalPathId>,
     conditional_paths: ConditionalPathStore<'walk, 'ast>,
     effective_keys: EffectiveKeyInterner,
-    declaration_blocks: std::vec::Vec<DeclarationBlockEntry>,
+    declaration_blocks: DeclarationBlockEntries,
     state: WalkState,
 }
 
 impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
     fn new() -> Self {
         Self {
-            selector_path: SelectorPathId::default(),
+            selector_path: None,
             selector_paths: SelectorPathStore::default(),
-            conditional_path: ConditionalPathId::default(),
+            conditional_path: None,
             conditional_paths: ConditionalPathStore::default(),
             effective_keys: EffectiveKeyInterner::default(),
-            declaration_blocks: std::vec::Vec::new(),
+            declaration_blocks: DenseStore::new(),
             state: WalkState::default(),
         }
     }
@@ -458,14 +414,14 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
         location: StructuralLocation,
     ) {
         let parent_selector_path = self.selector_path;
-        self.selector_path = self.selector_paths.push(
+        self.selector_path = Some(self.selector_paths.push(
             parent_selector_path,
             SelectorFrame {
                 kind,
                 selectors: &rule.selectors,
                 vendor_prefix: rule.vendor_prefix,
             },
-        );
+        ));
         self.push_declaration_block(
             rule.declarations,
             match kind {
@@ -490,7 +446,7 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
         rules: &'walk Vec<'ast, CssRule<'ast>>,
     ) {
         let parent_conditional_path = self.conditional_path;
-        self.conditional_path = self.conditional_paths.push(parent_conditional_path, frame);
+        self.conditional_path = Some(self.conditional_paths.push(parent_conditional_path, frame));
         self.collect_rule_list(rules);
         self.conditional_path = parent_conditional_path;
     }
@@ -501,8 +457,7 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
         kind: DeclarationBlockKind,
         location: StructuralLocation,
     ) {
-        let current_entry = u32::try_from(self.declaration_blocks.len())
-            .expect("declaration block count exceeds u32::MAX");
+        let current_entry = self.declaration_blocks.next_id();
         let occurrence = self.effective_keys.intern(
             self.selector_path,
             self.conditional_path,
@@ -510,7 +465,7 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
             &self.conditional_paths,
             current_entry,
         );
-        self.declaration_blocks.push(DeclarationBlockEntry {
+        let inserted = self.declaration_blocks.push(DeclarationBlockEntry {
             declarations,
             effective_key: occurrence.id,
             kind,
@@ -520,17 +475,10 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
             next_in_history: None,
             starts_history: false,
         });
+        debug_assert_eq!(inserted, current_entry);
 
         if let Some(previous_entry) = occurrence.previous_entry {
-            let previous_entry =
-                usize::try_from(previous_entry).expect("declaration block index fits usize");
-            let current_link = NonZeroU32::new(
-                current_entry
-                    .checked_add(1)
-                    .expect("declaration block count exceeds u32::MAX"),
-            )
-            .expect("encoded declaration block index is non-zero");
-            self.declaration_blocks[previous_entry].next_in_history = Some(current_link);
+            self.declaration_blocks[previous_entry].next_in_history = Some(current_entry);
             if occurrence.starts_history {
                 self.declaration_blocks[previous_entry].starts_history = true;
             }
@@ -585,7 +533,7 @@ fn opaque_condition<'walk, 'ast, T>(
 
 #[cfg(test)]
 mod tests {
-    use rocketcss_allocator::Allocator;
+    use rocketcss_common::Allocator;
     use rocketcss_parser::{ParserOptions, parse};
 
     use super::walk_declaration_blocks;
@@ -604,6 +552,7 @@ mod tests {
 
             let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 5);
+            let blocks = blocks.iter().collect::<std::vec::Vec<_>>();
             assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
             assert_eq!(blocks[1].effective_key, blocks[2].effective_key);
             assert_ne!(blocks[2].effective_key, blocks[3].effective_key);
@@ -625,9 +574,11 @@ mod tests {
 
             let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 5);
+            let ids = blocks.ids().collect::<std::vec::Vec<_>>();
+            let blocks = blocks.iter().collect::<std::vec::Vec<_>>();
             assert!(blocks[0].starts_declaration_history());
-            assert_eq!(blocks[0].next_declaration_history_entry(), Some(2));
-            assert_eq!(blocks[2].next_declaration_history_entry(), Some(4));
+            assert_eq!(blocks[0].next_declaration_history_entry(), Some(ids[2]));
+            assert_eq!(blocks[2].next_declaration_history_entry(), Some(ids[4]));
             assert_eq!(blocks[4].next_declaration_history_entry(), None);
             assert!(!blocks[1].starts_declaration_history());
             assert_eq!(blocks[1].next_declaration_history_entry(), None);
@@ -650,13 +601,14 @@ mod tests {
 
             let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 6);
-            assert!(blocks[0].is_direct_sibling_of(&blocks[1]));
-            assert!(blocks[2].is_direct_sibling_of(&blocks[3]));
+            let blocks = blocks.iter().collect::<std::vec::Vec<_>>();
+            assert!(blocks[0].is_direct_sibling_of(blocks[1]));
+            assert!(blocks[2].is_direct_sibling_of(blocks[3]));
             assert_ne!(blocks[1].rule_list, blocks[2].rule_list);
             assert_ne!(blocks[3].rule_list, blocks[4].rule_list);
             assert_eq!(blocks[4].rule_list, blocks[5].rule_list);
             assert_ne!(blocks[4].rule_list_segment, blocks[5].rule_list_segment);
-            assert!(!blocks[4].is_direct_sibling_of(&blocks[5]));
+            assert!(!blocks[4].is_direct_sibling_of(blocks[5]));
         });
     }
 
@@ -674,9 +626,10 @@ mod tests {
 
             let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 3);
+            let blocks = blocks.iter().collect::<std::vec::Vec<_>>();
             assert_eq!(blocks[0].effective_key, blocks[2].effective_key);
             assert_ne!(blocks[0].rule_list, blocks[2].rule_list);
-            assert!(blocks[1].is_direct_sibling_of(&blocks[2]));
+            assert!(blocks[1].is_direct_sibling_of(blocks[2]));
             assert_ne!(blocks[0].declarations, blocks[2].declarations);
         });
     }

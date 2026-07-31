@@ -23,7 +23,7 @@ pub(crate) type InvariantLifetime<'ghost> =
 /// borrowed at the same time:
 ///
 /// ```compile_fail
-/// use rocketcss_allocator::{GhostCell, GhostToken};
+/// use rocketcss_common::{GhostCell, GhostToken};
 ///
 /// GhostToken::scope(|mut token| {
 ///     let first = std::pin::pin!(GhostCell::new(1));
@@ -37,7 +37,7 @@ pub(crate) type InvariantLifetime<'ghost> =
 /// Distinct token scopes cannot access the same cell:
 ///
 /// ```compile_fail
-/// use rocketcss_allocator::{GhostCell, GhostToken};
+/// use rocketcss_common::{GhostCell, GhostToken};
 ///
 /// GhostToken::scope(|mut first_token| {
 ///     GhostToken::scope(|mut second_token| {

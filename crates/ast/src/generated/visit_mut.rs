@@ -1233,22 +1233,6 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_declaration_block_id(
-        &mut self,
-        node: &mut DeclarationBlockId,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_declaration_block_store(
-        &mut self,
-        node: &mut DeclarationBlockStore<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_media_rule(
         &mut self,
         node: &mut MediaRule<'a>,
@@ -3017,6 +3001,24 @@ pub trait VisitorMut<'a, 'ghost> {
         visitor.leave_node(AstType::ScrollStateFeature);
     }
     #[inline]
+    fn visit_declaration_block_store(
+        &mut self,
+        node: &mut DeclarationBlockStore<'a>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        self.visit_declaration_block_store_children(node, cx);
+    }
+    ///Continues traversal of [`DeclarationBlockStore`] without redispatching its visitor callback.
+    fn visit_declaration_block_store_children(
+        &mut self,
+        node: &mut DeclarationBlockStore<'a>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        let visitor = self;
+        visitor.enter_node(AstType::DeclarationBlockStore);
+        visitor.leave_node(AstType::DeclarationBlockStore);
+    }
+    #[inline]
     fn visit_selector_list(
         &mut self,
         node: &mut SelectorList<'a>,
@@ -3164,7 +3166,7 @@ macro_rules! impl_leaf_visit_mut {
 }
 impl_leaf_visit_mut!(bool, char, f32, i32, u8, u16, u32, usize);
 impl<'a, 'ghost, T: ?Sized + VisitMut<'a, 'ghost>> VisitMut<'a, 'ghost>
-    for rocketcss_allocator::boxed::Box<'a, T>
+    for rocketcss_common::boxed::Box<'a, T>
 {
     fn visit_mut<VisitorT: ?Sized + VisitorMut<'a, 'ghost>>(
         &mut self,
@@ -3175,7 +3177,7 @@ impl<'a, 'ghost, T: ?Sized + VisitMut<'a, 'ghost>> VisitMut<'a, 'ghost>
     }
 }
 impl<'a, 'ghost, T: VisitMut<'a, 'ghost> + Unpin> VisitMut<'a, 'ghost>
-    for rocketcss_allocator::vec::Vec<'a, T>
+    for rocketcss_common::vec::Vec<'a, T>
 {
     fn visit_mut<VisitorT: ?Sized + VisitorMut<'a, 'ghost>>(
         &mut self,

@@ -26,8 +26,8 @@ macro_rules! match_ignore_ascii_case {
     }};
 }
 
-pub use rocketcss_allocator::Atom;
-use rocketcss_allocator::prelude::*;
+pub use rocketcss_common::Atom;
+use rocketcss_common::prelude::*;
 pub use rocketcss_macros::{CssKeyword, Visit};
 
 mod color;
@@ -89,7 +89,7 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rocketcss_allocator::Allocator;
+    use rocketcss_common::Allocator;
     use std::mem::size_of;
 
     #[test]
@@ -100,7 +100,7 @@ mod tests {
             let rule = PositionTryRule {
                 span: Span::new(4, 42),
                 name: "--fallback",
-                declarations: declaration_blocks.alloc(DeclarationBlock::new(&allocator)),
+                declarations: declaration_blocks.push(DeclarationBlock::new(&allocator)),
             };
             let rule = CssRule::PositionTry(allocator.boxed(rule));
 
@@ -126,10 +126,10 @@ mod tests {
     fn declaration_block_ids_remain_stable_when_store_grows() {
         let allocator = Allocator::new();
         let mut store = DeclarationBlockStore::default();
-        let first = store.alloc(DeclarationBlock::new(&allocator));
+        let first = store.push(DeclarationBlock::new(&allocator));
 
         for _ in 0..32 {
-            store.alloc(DeclarationBlock::new(&allocator));
+            store.push(DeclarationBlock::new(&allocator));
         }
 
         assert_eq!(first.index(), 0);
@@ -146,8 +146,8 @@ mod tests {
     fn declaration_block_store_borrows_two_distinct_blocks() {
         let allocator = Allocator::new();
         let mut store = DeclarationBlockStore::default();
-        let first = store.alloc(DeclarationBlock::new(&allocator));
-        let second = store.alloc(DeclarationBlock::new(&allocator));
+        let first = store.push(DeclarationBlock::new(&allocator));
+        let second = store.push(DeclarationBlock::new(&allocator));
 
         let (second_block, first_block) = store
             .get_two_mut(second, first)

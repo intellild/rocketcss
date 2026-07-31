@@ -3,8 +3,8 @@ use std::{
     mem::{align_of, size_of},
 };
 
-use rocketcss_allocator::{boxed::Box, vec::Vec};
 use rocketcss_ast::*;
+use rocketcss_common::{boxed::Box, vec::Vec};
 
 macro_rules! print_sizes {
     ($($ty:ty),+ $(,)?) => {
@@ -44,8 +44,8 @@ fn main() {
     println!("{:<56} {:>4} {:>5}", "type", "size", "align");
     println!("{}", "-".repeat(68));
     print_sizes!(
-        rocketcss_allocator::boxed::Box<'static, u8>,
-        rocketcss_allocator::vec::Vec<'static, u8>,
+        rocketcss_common::boxed::Box<'static, u8>,
+        rocketcss_common::vec::Vec<'static, u8>,
         CssRule<'static>,
         StyleRule<'static>,
         DeclarationBlock<'static>,

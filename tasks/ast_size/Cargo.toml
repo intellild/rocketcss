@@ -5,5 +5,5 @@ publish = false
 version = "0.0.0"
 
 [dependencies]
-rocketcss_allocator = { workspace = true }
+rocketcss_common = { workspace = true }
 rocketcss_ast       = { workspace = true }

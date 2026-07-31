@@ -1,6 +1,6 @@
-use rocketcss_allocator::Allocator;
 use rocketcss_ast::{Atom, SelectorComponent, VisitMutContext};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
+use rocketcss_common::Allocator;
 use rocketcss_parser::{Compiler, ParserOptions};
 use rocketcss_visitor::{PluginContext, Plugins, VisitMut, VisitorMut};
 

@@ -1,4 +1,4 @@
-use rocketcss_allocator::Allocator;
+use rocketcss_common::Allocator;
 use rocketcss_parser::{ParserOptions, parse};
 
 use crate::{fixture_paths, read_fixture};

@@ -59,7 +59,7 @@ stored as `Atom` rather than independent `&str` slices. `Compiler` owns one
 compilation-scoped `StringPool`, and the parser interns every selector string
 through that pool before constructing the AST.
 
-`StringPool` uses `rocketcss_allocator::HashMap`, so both its entries and hash
+`StringPool` uses `rocketcss_common::HashMap`, so both its entries and hash
 table storage have arena lifetime. The first occurrence copies the string into
 the arena; subsequent occurrences reuse that allocation. `Atom` equality,
 ordering, and hashing use only the canonical string pointer. Comparing an

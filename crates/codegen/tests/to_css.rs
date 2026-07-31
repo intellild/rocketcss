@@ -1,5 +1,5 @@
-use rocketcss_allocator::GhostToken;
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
+use rocketcss_common::GhostToken;
 use rocketcss_parser::prelude::*;
 
 fn parse_stylesheet<'a, 'ghost>(

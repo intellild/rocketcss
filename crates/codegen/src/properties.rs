@@ -90,7 +90,7 @@ impl<'ghost> ToCss<'ghost> for u16 {
 macro_rules! comma_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_allocator::vec::Vec<'a, $ty> {
+            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
@@ -142,7 +142,7 @@ comma_vec! {
     WebKitMaskSourceType,
 }
 
-impl<'a, 'ghost> ToCss<'ghost> for rocketcss_allocator::vec::Vec<'a, FontFamily<'a>> {
+impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, FontFamily<'a>> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -163,7 +163,7 @@ impl<'a, 'ghost> ToCss<'ghost> for rocketcss_allocator::vec::Vec<'a, FontFamily<
 macro_rules! space_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_allocator::vec::Vec<'a, $ty> {
+            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {

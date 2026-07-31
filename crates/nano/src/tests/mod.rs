@@ -1,5 +1,5 @@
-pub use rocketcss_allocator::Allocator;
 pub use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
+pub use rocketcss_common::Allocator;
 pub use rocketcss_parser::{ParserOptions, parse};
 pub use rocketcss_visitor::{PluginContext, Plugins};
 

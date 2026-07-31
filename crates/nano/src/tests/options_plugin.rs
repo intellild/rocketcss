@@ -3,8 +3,8 @@ use super::*;
 use crate::MinifyStats;
 use crate::context;
 use crate::properties;
-use rocketcss_allocator::GhostToken;
 use rocketcss_ast::{PropertyId, VendorPrefix};
+use rocketcss_common::GhostToken;
 
 #[test]
 fn option_operations_are_explicit() {

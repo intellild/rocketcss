@@ -10,7 +10,7 @@ name = "fixtures"
 path = "src/lib.rs"
 
 [dev-dependencies]
-rocketcss_allocator = { workspace = true }
+rocketcss_common = { workspace = true }
 rocketcss_ast = { workspace = true }
 rocketcss_codegen = { workspace = true }
 rocketcss_nano = { workspace = true }

@@ -1,7 +1,8 @@
 use crate::*;
 
 use bitflags::bitflags;
-use std::{marker::PhantomPinned, num::NonZeroU32, pin::Pin};
+use rocketcss_common::{DenseStore, define_dense_id};
+use std::{marker::PhantomPinned, pin::Pin};
 
 #[derive(Debug, Default, PartialEq, Visit)]
 pub struct DefaultAtRule;
@@ -85,77 +86,9 @@ impl std::ops::DerefMut for Compilation<'_> {
     }
 }
 
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Visit)]
-pub struct DeclarationBlockId(#[visit(skip)] NonZeroU32);
+define_dense_id!(pub struct DeclarationBlockId);
 
-impl DeclarationBlockId {
-    #[inline]
-    pub const fn index(self) -> usize {
-        (self.0.get() - 1) as usize
-    }
-}
-
-#[derive(Debug, Default, PartialEq, Visit)]
-pub struct DeclarationBlockStore<'a> {
-    #[visit(skip)]
-    blocks: std::vec::Vec<DeclarationBlock<'a>>,
-}
-
-impl<'a> DeclarationBlockStore<'a> {
-    #[inline]
-    pub fn alloc(&mut self, block: DeclarationBlock<'a>) -> DeclarationBlockId {
-        let encoded = u32::try_from(self.blocks.len())
-            .expect("declaration block count exceeds u32::MAX")
-            .checked_add(1)
-            .expect("declaration block count exceeds u32::MAX");
-        self.blocks.push(block);
-        DeclarationBlockId(NonZeroU32::new(encoded).expect("encoded block ID is non-zero"))
-    }
-
-    #[inline]
-    pub fn get(&self, id: DeclarationBlockId) -> &DeclarationBlock<'a> {
-        &self.blocks[id.index()]
-    }
-
-    #[inline]
-    pub fn get_mut(&mut self, id: DeclarationBlockId) -> &mut DeclarationBlock<'a> {
-        &mut self.blocks[id.index()]
-    }
-
-    pub fn get_two_mut(
-        &mut self,
-        left: DeclarationBlockId,
-        right: DeclarationBlockId,
-    ) -> Option<(&mut DeclarationBlock<'a>, &mut DeclarationBlock<'a>)> {
-        if left == right {
-            return None;
-        }
-        let (low, high, reversed) = if left < right {
-            (left.index(), right.index(), false)
-        } else {
-            (right.index(), left.index(), true)
-        };
-        let (before_high, high_and_after) = self.blocks.split_at_mut(high);
-        let low = before_high.get_mut(low)?;
-        let high = high_and_after.first_mut()?;
-        if reversed {
-            Some((high, low))
-        } else {
-            Some((low, high))
-        }
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.blocks.len()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
-    }
-}
+pub type DeclarationBlockStore<'a> = DenseStore<DeclarationBlockId, DeclarationBlock<'a>>;
 
 pub fn visit_declaration_block_id<'a, 'ghost, V: ?Sized + Visitor<'a, 'ghost>>(
     id: &DeclarationBlockId,

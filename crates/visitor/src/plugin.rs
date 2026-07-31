@@ -5,8 +5,8 @@ use std::{
     fmt,
 };
 
-use rocketcss_allocator::{Allocator, GhostToken};
 use rocketcss_ast::{Compilation, VisitMutContext};
+use rocketcss_common::{Allocator, GhostToken};
 
 use crate::{VisitMut, VisitorMut};
 

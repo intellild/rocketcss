@@ -1,5 +1,5 @@
 use bitflags::bitflags;
-use rocketcss_allocator::Allocator;
+use rocketcss_common::Allocator;
 
 use crate::{MinifyOptions, Options, OptionsOp};
 

@@ -1,7 +1,7 @@
 use std::fmt::{self, Write};
 
-use rocketcss_allocator::GhostToken;
 use rocketcss_ast::{DeclarationBlock, DeclarationBlockId, DeclarationBlockStore};
+use rocketcss_common::GhostToken;
 
 /// Options controlling CSS serialization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -479,7 +479,7 @@ pub(crate) fn serialize_dimension<'ghost, UnitT: ToCss<'ghost>, PrinterT: Printe
     unit.to_css(dest, cx)
 }
 
-impl<'a, 'ghost, T: ToCss<'ghost>> ToCss<'ghost> for rocketcss_allocator::boxed::Box<'a, T> {
+impl<'a, 'ghost, T: ToCss<'ghost>> ToCss<'ghost> for rocketcss_common::boxed::Box<'a, T> {
     #[inline]
     fn to_css<PrinterT: PrinterTrait>(
         &self,

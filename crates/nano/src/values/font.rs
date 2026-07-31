@@ -1,5 +1,5 @@
-use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::FontFamily;
+use rocketcss_common::vec::Vec;
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 

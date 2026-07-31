@@ -1,5 +1,5 @@
-use rocketcss_allocator::prelude::{AdaptiveHashSet, Allocator, Vec};
 use rocketcss_ast::{NthType, Selector, SelectorComponent, SelectorList};
+use rocketcss_common::prelude::{AdaptiveHashSet, Allocator, Vec};
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
@@ -90,7 +90,7 @@ fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator) {
 }
 
 fn remove_qualified_universal(
-    selector: &mut rocketcss_allocator::prelude::Vec<'_, SelectorComponent<'_>>,
+    selector: &mut rocketcss_common::prelude::Vec<'_, SelectorComponent<'_>>,
 ) {
     let mut index = 0;
     while index < selector.len() {

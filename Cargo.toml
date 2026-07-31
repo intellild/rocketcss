@@ -28,7 +28,7 @@ quote        = "1.0.46"
 syn          = { version = "2.0.118", default-features = false }
 
 # Workspace
-rocketcss_allocator = { version = "0.1.0", path = "crates/allocator" }
+rocketcss_common = { version = "0.1.0", path = "crates/common" }
 rocketcss_ast       = { version = "0.1.0", path = "crates/ast" }
 rocketcss_codegen   = { version = "0.1.0", path = "crates/codegen" }
 rocketcss_macros    = { version = "0.1.0", path = "crates/macros" }

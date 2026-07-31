@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use rocketcss_allocator::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
+use rocketcss_common::Allocator;
 use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
 

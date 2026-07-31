@@ -1,8 +1,10 @@
 use rustc_hash::FxHashSet;
 use std::collections::VecDeque;
 
+use super::RuleId;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(super) struct Candidate(pub(super) u32, pub(super) u32);
+pub(super) struct Candidate(pub(super) RuleId, pub(super) RuleId);
 
 #[derive(Debug, Default)]
 struct CandidateQueue {
