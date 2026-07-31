@@ -144,11 +144,14 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
             return;
         }
         protect_adjacent_function_replacements(self);
-        if cx.is_enabled(Options::DISCARD_COMMENTS, OptionsOp::Any) {
-            discard_comments(self, cx);
-        }
-        if cx.is_enabled(Options::NORMALIZE_WHITESPACE, OptionsOp::Any) {
-            normalize_whitespace(self, cx);
+        match (
+            cx.is_enabled(Options::DISCARD_COMMENTS, OptionsOp::Any),
+            cx.is_enabled(Options::NORMALIZE_WHITESPACE, OptionsOp::Any),
+        ) {
+            (true, true) => compact_comments_and_whitespace(self, cx),
+            (true, false) => compact_comments(self, cx),
+            (false, true) => compact_whitespace(self, cx),
+            (false, false) => {}
         }
         if cx
             .value_context
@@ -535,90 +538,187 @@ fn is_slash(value: &TokenOrValue<'_>) -> bool {
     matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::Delim("/")))
 }
 
-fn discard_comments(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
-    let mut index = 0;
-    while index < values.len() {
-        if !matches!(&values[index], TokenOrValue::Token(token) if matches!(**token, Token::Comment(_)))
-        {
-            index += 1;
+fn compact_comments_and_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+    let len = values.len();
+    let preserve_space_after_comma = cx
+        .value_context
+        .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
+    let mut read = 0;
+    let mut write = 0;
+    while read < len {
+        if !is_whitespace_or_comment(&values[read]) {
+            retain_compacted_value(values, read, &mut write);
+            read += 1;
             continue;
         }
 
-        let needs_separator = index > 0
-            && index + 1 < values.len()
-            && !is_whitespace_or_comment(&values[index - 1])
-            && !is_whitespace_or_comment(&values[index + 1])
-            && whitespace_is_required(&values[index - 1], &values[index + 1]);
-        if needs_separator {
-            let TokenOrValue::Token(token) = &mut values[index] else {
-                unreachable!("comments are tokens")
-            };
-            **token = Token::WhiteSpace(" ");
-            index += 1;
-        } else {
-            values.remove(index);
+        let mut first_whitespace = None;
+        let mut whitespace_count = 0;
+        let mut comment_count = 0;
+        while read < len && is_whitespace_or_comment(&values[read]) {
+            if is_whitespace(&values[read]) {
+                first_whitespace.get_or_insert(read);
+                whitespace_count += 1;
+            } else {
+                comment_count += 1;
+            }
+            read += 1;
         }
+
+        let has_neighbors = write > 0 && read < len;
+        let whitespace_required =
+            has_neighbors && whitespace_is_required(&values[write - 1], &values[read]);
+        let comment_became_whitespace = whitespace_count == 0 && whitespace_required;
+        let has_whitespace = whitespace_count > 0 || comment_became_whitespace;
+        let keep_space = has_whitespace
+            && has_neighbors
+            && (whitespace_required
+                || multiplication_requires_whitespace(
+                    &values[write - 1],
+                    &values[read],
+                    &values[read + 1..],
+                )
+                || (preserve_space_after_comma && is_comma(&values[write - 1])));
+
+        record_value_normalized(cx, comment_count);
+
+        let whitespace_changed = if whitespace_count == 0 {
+            false
+        } else if keep_space {
+            whitespace_count > 1
+                || first_whitespace.is_some_and(|index| !is_normalized_whitespace(&values[index]))
+        } else {
+            true
+        };
+        if whitespace_changed {
+            cx.record_value_normalized();
+        }
+
+        if keep_space {
+            let separator = first_whitespace.unwrap_or(read - 1);
+            set_normalized_whitespace(&mut values[separator]);
+            retain_compacted_value(values, separator, &mut write);
+        }
+    }
+    values.truncate(write);
+}
+
+fn compact_comments(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+    let len = values.len();
+    let mut read = 0;
+    let mut write = 0;
+    while read < len {
+        if !matches!(&values[read], TokenOrValue::Token(token) if matches!(**token, Token::Comment(_)))
+        {
+            retain_compacted_value(values, read, &mut write);
+            read += 1;
+            continue;
+        }
+
+        let start = read;
+        while read < len
+            && matches!(&values[read], TokenOrValue::Token(token) if matches!(**token, Token::Comment(_)))
+        {
+            read += 1;
+        }
+
+        let keep_space = write > 0
+            && read < len
+            && !is_whitespace_or_comment(&values[write - 1])
+            && !is_whitespace_or_comment(&values[read])
+            && whitespace_is_required(&values[write - 1], &values[read]);
+        record_value_normalized(cx, read - start);
+        if keep_space {
+            let separator = read - 1;
+            set_normalized_whitespace(&mut values[separator]);
+            retain_compacted_value(values, separator, &mut write);
+        }
+    }
+    values.truncate(write);
+}
+
+fn compact_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+    let len = values.len();
+    let preserve_space_after_comma = cx
+        .value_context
+        .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
+    let mut read = 0;
+    let mut write = 0;
+    while read < len {
+        if !is_whitespace(&values[read]) {
+            retain_compacted_value(values, read, &mut write);
+            read += 1;
+            continue;
+        }
+
+        let start = read;
+        let was_normalized_space = is_normalized_whitespace(&values[start]);
+        while read < len && is_whitespace(&values[read]) {
+            read += 1;
+        }
+
+        let keep_space = write > 0
+            && read < len
+            && (whitespace_is_required(&values[write - 1], &values[read])
+                || multiplication_requires_whitespace(
+                    &values[write - 1],
+                    &values[read],
+                    &values[read + 1..],
+                )
+                || (preserve_space_after_comma && is_comma(&values[write - 1])));
+        if !keep_space || read > start + 1 || !was_normalized_space {
+            cx.record_value_normalized();
+        }
+        if keep_space {
+            set_normalized_whitespace(&mut values[start]);
+            retain_compacted_value(values, start, &mut write);
+        }
+    }
+    values.truncate(write);
+}
+
+#[inline]
+fn retain_compacted_value(values: &mut Vec<'_, TokenOrValue<'_>>, read: usize, write: &mut usize) {
+    // The compacted prefix is never revisited. Swapping moves the next
+    // retained value into that prefix and pushes one discarded value into the
+    // consumed portion, so the tail can be truncated once after the scan.
+    if read != *write {
+        values.swap(read, *write);
+    }
+    *write += 1;
+}
+
+#[inline]
+fn set_normalized_whitespace(value: &mut TokenOrValue<'_>) {
+    let TokenOrValue::Token(token) = value else {
+        unreachable!("separator nodes are tokens")
+    };
+    **token = Token::WhiteSpace(" ");
+}
+
+#[inline]
+fn is_normalized_whitespace(value: &TokenOrValue<'_>) -> bool {
+    matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(" ")))
+}
+
+fn record_value_normalized(cx: &mut MinifyContext, count: usize) {
+    for _ in 0..count {
         cx.record_value_normalized();
     }
 }
 
-fn normalize_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
-    let mut index = 0;
-    while index < values.len() {
-        if !is_whitespace(&values[index]) {
-            index += 1;
-            continue;
-        }
-
-        let start = index;
-        let mut end = start + 1;
-        while end < values.len() && is_whitespace(&values[end]) {
-            end += 1;
-        }
-
-        let keep_space = start > 0
-            && end < values.len()
-            && (whitespace_is_required(&values[start - 1], &values[end])
-                || multiplication_before_parentheses(values, start, end)
-                || (cx
-                    .value_context
-                    .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA)
-                    && is_comma(&values[start - 1])));
-        if keep_space {
-            let TokenOrValue::Token(token) = &mut values[start] else {
-                unreachable!("separator nodes are tokens")
-            };
-            let was_normalized_space = matches!(**token, Token::WhiteSpace(" "));
-            **token = Token::WhiteSpace(" ");
-            if end > start + 1 {
-                drop(values.drain(start + 1..end));
-                cx.record_value_normalized();
-            } else if !was_normalized_space {
-                cx.record_value_normalized();
-            }
-            index = start + 1;
-        } else {
-            drop(values.drain(start..end));
-            cx.record_value_normalized();
-            index = start;
-        }
-    }
-}
-
-fn multiplication_before_parentheses(
-    values: &[TokenOrValue<'_>],
-    whitespace_start: usize,
-    whitespace_end: usize,
+fn multiplication_requires_whitespace(
+    before: &TokenOrValue<'_>,
+    after: &TokenOrValue<'_>,
+    following: &[TokenOrValue<'_>],
 ) -> bool {
-    let before = &values[whitespace_start - 1];
-    let after = &values[whitespace_end];
     if is_delim(before, "*") && is_open_parenthesis(after) {
         return true;
     }
     is_delim(after, "*")
-        && values
-            .get(whitespace_end + 1..)
-            .and_then(|values| values.iter().find(|value| !is_whitespace_or_comment(value)))
+        && following
+            .iter()
+            .find(|value| !is_whitespace_or_comment(value))
             .is_some_and(is_open_parenthesis)
 }
 
