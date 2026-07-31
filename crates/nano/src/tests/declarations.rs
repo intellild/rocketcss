@@ -87,6 +87,26 @@ fn removes_exact_duplicate_declarations_within_one_block() {
 }
 
 #[test]
+fn preserves_unresolved_functional_colors_as_history_barriers() {
+    assert_eq!(
+        run("a{color:red;color:rgb(foo)}"),
+        "a{color:red;color:rgb(foo)}"
+    );
+    assert_eq!(
+        run("a{color:red;color:RGB(0px 0 0)}"),
+        "a{color:red;color:RGB(0px 0 0)}"
+    );
+    assert_eq!(
+        run("a{color:red;color:rgb(0,,0,0);color:rgb(0/0/0)}"),
+        "a{color:red;color:rgb(0,,0,0);color:rgb(0/0/0)}"
+    );
+    assert_eq!(
+        run("a{color:rgb(0 0 0);color:blue}"),
+        "a{color:#000;color:#00f}"
+    );
+}
+
+#[test]
 fn preserves_declaration_fallbacks_and_importance() {
     assert_eq!(
         run("a{width:1px;width:2px;width:1px}"),

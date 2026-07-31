@@ -31,8 +31,7 @@ impl<'i> Parse<'i> for Display {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 }
                 if !input.is_exhausted() {
-                    input.expect_ident_matching("flow")?;
-                    input.expect_exhausted()?;
+                    return Err(input.new_custom_error(ParserError::InvalidValue));
                 }
                 return Ok(Display::Keyword(keyword));
             }
@@ -97,10 +96,38 @@ impl<'i> Parse<'i> for Display {
                     outside = Some(DisplayOutside::Inline);
                     inside = Some(DisplayInside::Table);
                 },
+                "inline-block" => {
+                    if outside.is_some() || inside.is_some() {
+                        return Err(input.new_custom_error(ParserError::InvalidValue));
+                    }
+                    outside = Some(DisplayOutside::Inline);
+                    inside = Some(DisplayInside::FlowRoot);
+                },
+                "-webkit-inline-box" => {
+                    if outside.is_some() || inside.is_some() {
+                        return Err(input.new_custom_error(ParserError::InvalidValue));
+                    }
+                    outside = Some(DisplayOutside::Inline);
+                    inside = Some(DisplayInside::Box {
+                        vendor_prefix: VendorPrefix::WEBKIT,
+                    });
+                },
+                "-moz-inline-box" => {
+                    if outside.is_some() || inside.is_some() {
+                        return Err(input.new_custom_error(ParserError::InvalidValue));
+                    }
+                    outside = Some(DisplayOutside::Inline);
+                    inside = Some(DisplayInside::Box {
+                        vendor_prefix: VendorPrefix::MOZ,
+                    });
+                },
                 _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
             );
         }
 
+        if outside.is_none() && inside.is_none() && !is_list_item {
+            return Err(input.new_custom_error(ParserError::InvalidValue));
+        }
         let outside = outside.unwrap_or({
             if matches!(inside, Some(DisplayInside::Ruby)) {
                 DisplayOutside::Inline

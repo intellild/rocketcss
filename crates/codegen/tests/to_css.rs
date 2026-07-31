@@ -37,6 +37,36 @@ fn printer_remains_send_for_a_send_writer() {
 }
 
 #[test]
+fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        let stylesheet = parse_stylesheet(
+            "a{transform:initial/**/;all:initial/**/;columns:initial/**/}",
+            &allocator,
+            &mut token,
+        );
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+            panic!("expected a style rule")
+        };
+        for declaration in &rule
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations
+        {
+            assert!(
+                declaration
+                    .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                    .unwrap()
+                    .contains("/**/")
+            );
+        }
+    })
+}
+
+#[test]
 fn ports_lightningcss_public_to_css_api_cases() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();

@@ -62,6 +62,24 @@ fn preserves_invalid_border_and_columns_values_while_ordering() {
 }
 
 #[test]
+fn preserves_invalid_display_values() {
+    assert_eq!(run("a{display:}"), "a{display:}");
+    assert_eq!(run("a{display:none flow}"), "a{display:none flow}");
+    assert_eq!(
+        run("a{display:table-cell flow}"),
+        "a{display:table-cell flow}"
+    );
+}
+
+#[test]
+fn round_trips_legacy_single_token_display_values() {
+    assert_eq!(
+        run("a{display:inline-block}b{display:-webkit-inline-box}c{display:-moz-inline-box}"),
+        "a{display:inline-block}b{display:-webkit-inline-box}c{display:-moz-inline-box}"
+    );
+}
+
+#[test]
 fn leaves_value_order_untouched_when_ordering_is_disabled() {
     let options = MinifyOptions {
         flags: MinifyOptions::default().flags & !Options::ORDER_VALUES,

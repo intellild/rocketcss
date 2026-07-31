@@ -1,4 +1,7 @@
-use super::{color::parse_hex_color, stylesheet::check_depth};
+use super::{
+    color::{parse_hex_color, validate_rgb_function},
+    stylesheet::check_depth,
+};
 use crate::prelude::*;
 
 mod animation;
@@ -56,8 +59,14 @@ fn collect_tokens_impl<'i, 't>(
                 let arguments = input.parse_nested_block(|input| {
                     collect_tokens_impl(input, allocator, depth + 1, parse_embedded_values)
                 })?;
-                let function = allocator.boxed(Function::new(name, arguments));
-                if parse_embedded_values && function.kind().is_color() {
+                let mut function = Function::new(name, arguments);
+                validate_rgb_function(&mut function);
+                let function = allocator.boxed(function);
+                if parse_embedded_values
+                    && function.kind().is_color()
+                    && (!matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba)
+                        || function.is_valid_rgb())
+                {
                     tokens.push(TokenOrValue::Color(
                         allocator.boxed(CssColor::Function(function)),
                     ));
@@ -145,7 +154,8 @@ pub(super) fn remove_important(value: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
         trim_trailing_whitespace(value);
         return false;
     }
-    value.truncate(bang_index);
+    value.remove(important_index);
+    value.remove(bang_index);
     trim_trailing_whitespace(value);
     true
 }
@@ -157,14 +167,14 @@ pub(super) fn previous_non_whitespace(value: &[TokenOrValue<'_>], before: usize)
 }
 
 pub(super) fn trim_trailing_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
-    while matches!(value.last(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_) | ValueToken::Comment(_)))
+    while matches!(value.last(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_)))
     {
         value.pop();
     }
 }
 
 pub(super) fn trim_leading_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
-    while matches!(value.first(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_) | ValueToken::Comment(_)))
+    while matches!(value.first(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_)))
     {
         value.remove(0);
     }

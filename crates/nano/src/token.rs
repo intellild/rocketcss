@@ -140,9 +140,6 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
         if cx
             .value_context
             .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
-            || cx
-                .value_context
-                .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS)
         {
             return;
         }
@@ -152,6 +149,12 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
         }
         if cx.is_enabled(Options::NORMALIZE_WHITESPACE, OptionsOp::Any) {
             normalize_whitespace(self, cx);
+        }
+        if cx
+            .value_context
+            .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS)
+        {
+            return;
         }
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
             return;

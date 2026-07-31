@@ -289,6 +289,9 @@ bitflags! {
         const UNQUOTED_URL = 1 << 1;
         /// The known identity was resolved after removing a vendor prefix.
         const VENDOR_PREFIXED = 1 << 2;
+        /// The parser proved that this `rgb()` or `rgba()` token list is a
+        /// statically valid form supported by the color minifier.
+        const VALID_RGB = 1 << 3;
     }
 }
 
@@ -328,12 +331,27 @@ impl<'a> Function<'a> {
         self.kind = kind;
         self.flags
             .set(FunctionFlags::VENDOR_PREFIXED, vendor_prefixed);
+        self.flags.remove(FunctionFlags::VALID_RGB);
     }
 
     /// Returns whether the known identity came from a vendor-prefixed name.
     #[inline]
     pub const fn is_vendor_prefixed(&self) -> bool {
         self.flags.contains(FunctionFlags::VENDOR_PREFIXED)
+    }
+
+    /// Returns whether this `rgb()` or `rgba()` token list was validated by
+    /// the parser and can be consumed by the color minifier.
+    #[inline]
+    pub const fn is_valid_rgb(&self) -> bool {
+        self.flags.contains(FunctionFlags::VALID_RGB)
+    }
+
+    /// Records the parser's validation result for an `rgb()` or `rgba()`
+    /// function without changing its lossless token representation.
+    #[inline]
+    pub fn set_valid_rgb(&mut self, valid: bool) {
+        self.flags.set(FunctionFlags::VALID_RGB, valid);
     }
 
     /// Returns whether this function serializes as an identifier.

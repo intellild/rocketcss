@@ -22,8 +22,9 @@ fn custom_property_transforms_are_configurable() {
 #[test]
 fn minifies_valid_custom_colors_and_preserves_invalid_color_functions() {
     assert_eq!(
-        run("a{--valid:rgb(0 0 0);--invalid:rgb(50%,23,54)}"),
-        "a{--valid:#000;--invalid:rgb(50%,23,54)}"
+        run("a{--valid:rgb(0 0 0);--mixed:rgb(50%,23,54);\
+             --bad-commas:rgb(0,,0,0);--bad-slashes:rgb(0/0/0)}"),
+        "a{--valid:#000;--mixed:rgb(50%,23,54);--bad-commas:rgb(0,,0,0);--bad-slashes:rgb(0/0/0)}"
     );
 }
 

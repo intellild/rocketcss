@@ -205,6 +205,30 @@ fn still_requires_unsupported_transform(
         ),
         ("zindex", "", "z-index rebasing not implemented"),
         ("svgo", "", "SVG optimization out of scope"),
+        // postcss-normalize-display-values repairs invalid combinations of
+        // legacy internal display roles with an extra `flow` keyword. The
+        // default RocketCSS pipeline preserves invalid values losslessly;
+        // repair belongs in a separate opt-in plugin.
+        (
+            "normalize-display-values",
+            "table-cell flow",
+            "invalid display value repair is out of scope",
+        ),
+        (
+            "normalize-display-values",
+            "table-caption flow",
+            "invalid display value repair is out of scope",
+        ),
+        (
+            "normalize-display-values",
+            "ruby-base flow",
+            "invalid display value repair is out of scope",
+        ),
+        (
+            "normalize-display-values",
+            "ruby-text flow",
+            "invalid display value repair is out of scope",
+        ),
         // postcss-ordered-values: the ordering transform is implemented, but
         // the recorded expectations come from the plugin in isolation while
         // the harness runs the full minify pipeline.

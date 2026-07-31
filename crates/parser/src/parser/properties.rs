@@ -21,6 +21,7 @@ pub(super) fn parse_declaration<'i, 't>(
                 Delimiter::Bang | Delimiter::Semicolon,
                 parse_css_wide_keyword,
             ) && let Some(important) = parse_declaration_end(input)
+                && !input.saw_comments_since(&start)
             {
                 let _ = input.try_parse(Parser::expect_semicolon);
                 let declaration = match property_id {
@@ -45,6 +46,7 @@ pub(super) fn parse_declaration<'i, 't>(
         typed_grammar_supported = typed.is_some();
         if let Some(Ok(declaration)) = typed
             && let Some(important) = parse_declaration_end(input)
+            && !input.saw_comments_since(&start)
         {
             let _ = input.try_parse(Parser::expect_semicolon);
             return Ok((declaration, important));
@@ -97,6 +99,9 @@ fn unparsed_reason(
     if matches!(property_id, PropertyId::Custom(_)) {
         return UnparsedPropertyReason::UnknownProperty;
     }
+    if value.iter().any(token_value_is_comment) {
+        return UnparsedPropertyReason::OpaqueValue;
+    }
     if !typed_grammar_supported {
         return UnparsedPropertyReason::UnsupportedGrammar;
     }
@@ -112,12 +117,18 @@ fn unparsed_reason(
     UnparsedPropertyReason::InvalidValue
 }
 
+fn token_value_is_comment(value: &TokenOrValue<'_>) -> bool {
+    matches!(
+        value,
+        TokenOrValue::Token(token) if matches!(**token, ValueToken::Comment(_))
+    )
+}
+
 fn token_value_is_opaque(value: &TokenOrValue<'_>) -> bool {
-    match value {
-        TokenOrValue::Function(_) | TokenOrValue::Var(_) | TokenOrValue::Env(_) => true,
-        TokenOrValue::Token(token) => matches!(**token, ValueToken::Comment(_)),
-        _ => false,
-    }
+    matches!(
+        value,
+        TokenOrValue::Function(_) | TokenOrValue::Var(_) | TokenOrValue::Env(_)
+    )
 }
 
 fn try_parse_typed_declaration<'i, 't>(

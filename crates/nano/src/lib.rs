@@ -169,7 +169,10 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         node: &mut UnparsedProperty<'ast>,
         cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
-        if !matches!(node.reason, UnparsedPropertyReason::UnsupportedGrammar) {
+        if matches!(
+            node.reason,
+            UnparsedPropertyReason::UnknownProperty | UnparsedPropertyReason::InvalidValue
+        ) {
             return;
         }
         let previous = self.cx.value_context;
@@ -179,7 +182,13 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
             self.cx
                 .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
-        node.visit_mut_children(self, cx);
+        if matches!(node.reason, UnparsedPropertyReason::UnsupportedGrammar) {
+            node.visit_mut_children(self, cx);
+        } else {
+            self.cx
+                .value_context
+                .set_enabled(context::ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
+        }
         node.minify(&mut self.cx);
         self.cx.value_context = previous;
     }
@@ -205,6 +214,22 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_function(&mut self, node: &mut Function<'ast>, cx: &mut VisitMutContext<'_, 'ghost>) {
         let previous = self.cx.value_context;
         let kind = node.kind();
+        if matches!(kind, KnownFunction::Rgb | KnownFunction::Rgba) && !node.is_valid_rgb() {
+            return;
+        }
+        if kind.is_color() {
+            self.cx
+                .value_context
+                .set_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS, true);
+            node.visit_mut_children(self, cx);
+            self.cx.value_context = previous;
+            self.cx
+                .value_context
+                .set_enabled(context::ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
+            node.minify(&mut self.cx);
+            self.cx.value_context = previous;
+            return;
+        }
         if kind.is_math() {
             self.cx.value_context.set_enabled(
                 context::ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH

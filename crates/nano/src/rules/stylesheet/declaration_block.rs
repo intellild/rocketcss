@@ -4,8 +4,8 @@ use rocketcss_allocator::{
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 use rocketcss_ast::{
-    CSSWideOr, Columns, Declaration, DeclarationBlock, EqIgnoringTombstones, KnownFunction,
-    LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty,
+    CSSWideOr, Columns, CssColor, Declaration, DeclarationBlock, EqIgnoringTombstones,
+    KnownFunction, LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty,
     UnparsedPropertyReason, VendorPrefix, match_ignore_ascii_case,
 };
 
@@ -1348,7 +1348,36 @@ fn declaration_skips_minification(declaration: &Declaration<'_>) -> bool {
                 value.reason,
                 UnparsedPropertyReason::UnsupportedGrammar
             )
-    )
+    ) || functional_color_requires_history_barrier(declaration)
+}
+
+fn functional_color_requires_history_barrier(declaration: &Declaration<'_>) -> bool {
+    let color_requires_barrier = |color: &CssColor<'_>| {
+        matches!(
+            color,
+            CssColor::Function(function) if function.replacement.is_none()
+        )
+    };
+
+    match declaration {
+        Declaration::Color(value)
+        | Declaration::BackgroundColor(value)
+        | Declaration::BorderTopColor(value)
+        | Declaration::BorderBottomColor(value)
+        | Declaration::BorderLeftColor(value)
+        | Declaration::BorderRightColor(value)
+        | Declaration::BorderBlockStartColor(value)
+        | Declaration::BorderBlockEndColor(value)
+        | Declaration::BorderInlineStartColor(value)
+        | Declaration::BorderInlineEndColor(value)
+        | Declaration::OutlineColor(value)
+        | Declaration::TextDecorationColor(value, _)
+        | Declaration::TextEmphasisColor(value, _) => color_requires_barrier(value),
+        Declaration::Background(values) => values
+            .iter()
+            .any(|value| color_requires_barrier(&value.color)),
+        _ => false,
+    }
 }
 
 fn is_css_wide_value(value: &TokenOrValue<'_>) -> bool {

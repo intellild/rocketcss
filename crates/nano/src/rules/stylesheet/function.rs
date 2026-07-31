@@ -24,16 +24,20 @@ impl Minify for Function<'_> {
         {
             return;
         }
-        if let Some(canonical) = match self.kind() {
-            KnownFunction::Rgb => Some("rgb"),
-            KnownFunction::Rgba => Some("rgba"),
-            KnownFunction::Hsl => Some("hsl"),
-            KnownFunction::Hsla => Some("hsla"),
-            KnownFunction::Hwb => Some("hwb"),
-            _ => None,
-        } {
-            self.set_name(canonical);
-            canonicalize_nested_variable_functions(&mut self.arguments);
+        if matches!(self.kind(), KnownFunction::Rgb | KnownFunction::Rgba) && !self.is_valid_rgb() {
+            return;
+        }
+        if self.kind().is_color() {
+            if cx
+                .value_context
+                .is_enabled(ValueContextFlags::MINIFY_COLORS)
+                && let Some(color) =
+                    minify_rgb_function(self, cx).or_else(|| minify_hsl_function(self, cx))
+            {
+                self.replacement = Some(color);
+                cx.record_value_normalized();
+            }
+            return;
         }
         let is_gradient = self.kind().is_gradient();
         let gradient_contains_variable =
@@ -60,16 +64,6 @@ impl Minify for Function<'_> {
                 | minify_gradient_stops(&mut self.arguments))
         {
             cx.record_value_normalized();
-        }
-        if cx
-            .value_context
-            .is_enabled(ValueContextFlags::MINIFY_COLORS)
-            && let Some(color) =
-                minify_rgb_function(self, cx).or_else(|| minify_hsl_function(self, cx))
-        {
-            self.replacement = Some(color);
-            cx.record_value_normalized();
-            return;
         }
         if self.kind() == KnownFunction::Calc && !self.is_vendor_prefixed() {
             if let Some(linear) = calc_linear_expression(&self.arguments)
@@ -146,21 +140,5 @@ impl Minify for Function<'_> {
             self.set_identifier(true);
             cx.record_value_normalized();
         }
-    }
-}
-
-fn canonicalize_nested_variable_functions(arguments: &mut Vec<'_, TokenOrValue<'_>>) {
-    for argument in arguments {
-        let TokenOrValue::Function(function) = argument else {
-            continue;
-        };
-        if let Some(name) = match function.kind() {
-            KnownFunction::Var => Some("var"),
-            KnownFunction::Env => Some("env"),
-            _ => None,
-        } {
-            function.set_name(name);
-        }
-        canonicalize_nested_variable_functions(&mut function.arguments);
     }
 }
