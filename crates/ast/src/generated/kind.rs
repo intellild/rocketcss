@@ -150,6 +150,7 @@ pub enum AstType {
     SyntaxString,
     SyntaxComponentKind,
     UnparsedProperty,
+    UnparsedPropertyReason,
     CustomProperty,
     PropertyRule,
     SyntaxComponent,

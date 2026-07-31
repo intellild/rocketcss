@@ -70,7 +70,7 @@ pub struct UnparsedProperty<'a> {
 ///
 /// Keeping this decision in the parsed tree lets transforms distinguish
 /// unsupported grammar from values whose syntax or semantics are opaque.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Visit)]
 pub enum UnparsedPropertyReason {
     /// RocketCSS recognizes the property, but does not implement its grammar yet.
     UnsupportedGrammar,
