@@ -169,6 +169,63 @@ Benchmark the implementation as an isolated change. The expected benefit
 depends on custom-property token volume; removing one traversal does not avoid
 the later whole-list passes required by property-specific transforms.
 
+## Single-pass RGB argument validation
+
+Status: optimization candidate.
+
+`collect_tokens_impl` currently builds the complete argument list for every
+function. RGB and RGBA functions then call `is_supported_rgb_function`, which
+iterates the resulting `TokenOrValue` list again to decide whether the function
+can use the typed color path. Typed color parsing and custom-property embedded
+value parsing both need this result, so delaying validation until minification
+would change the parser's lossless fallback boundary.
+
+RGB syntax can instead be validated while its immediate arguments are being
+collected. Use a compact state machine that consumes the original `ValueToken`
+stream and recognizes the currently supported forms:
+
+```text
+legacy:
+  component , component , component
+  component , component , component , alpha
+
+modern:
+  component component component
+  component component component / alpha
+```
+
+The state machine must preserve the existing distinctions:
+
+- whitespace is ignored, but comments make the RGB syntax unsupported;
+- legacy components must all be numbers or all be percentages;
+- modern components may mix numbers, percentages, and `none`;
+- legacy alpha accepts a number or percentage, while modern alpha also accepts
+  `none`;
+- nested functions, variables, grouping blocks, and additional significant
+  tokens make the outer RGB function unsupported; and
+- collection continues after the state becomes invalid so serialization
+  remains lossless.
+
+Only the immediate argument stream belongs to a validator. A nested RGB
+function receives its own state machine, while its parent observes a single
+function token and rejects it as an RGB component. The completed validation
+result should be shared by typed color parsing and the generic function path,
+removing both post-collection argument scans.
+
+Do not pass an optional validator through the ordinary collection path and add
+a runtime branch for every token. RGB functions are relatively uncommon and
+their argument lists are short, so that overhead could exceed the saved
+traversal. Prefer a no-op and RGB observer selected through generic or
+const-generic dispatch so the ordinary path compiles without validation work.
+Cache the function's typed kind for validation and embedded-color
+classification rather than repeatedly classifying its name.
+
+Benchmark this as an isolated parser change with both RGB-heavy input and the
+Bootstrap and Tailwind workloads. Inspect code size as well as runtime because
+specializing the collector can produce a second monomorphized copy. The
+optimization is expected to be sub-millisecond on representative inputs; it
+should be accepted only if function-heavy inputs without RGB do not regress.
+
 ## Benchmarking method
 
 Evaluate performance changes as isolated commits on CodSpeed. Compare matching
