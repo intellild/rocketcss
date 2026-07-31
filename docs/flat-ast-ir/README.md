@@ -63,8 +63,9 @@ code generation
 5. Effective selector and conditional identities are canonical dense IDs.
 6. Structural rewrites are planned and committed by reification; appending a
    synthesized node does not determine its semantic output position.
-7. The current AST `Box` values and AST arena allocator have no role in the
-   target representation and are removed after all owning nodes migrate.
+7. `rocketcss_common::boxed::Box`, `rocketcss_common::Allocator`, and the
+   allocator argument to `Compiler` have no role in the target representation
+   and are removed after all owning nodes migrate.
 
 ## Deliberate boundaries
 
@@ -74,6 +75,6 @@ code generation
 - It is not yet decided whether every selector component deserves its own ID.
   A component tape plus ranges may have better locality than per-component
   indirection and must be benchmarked.
-- A compiler may retain a scratch allocator for short-lived analyses and a
-  string pool for atoms. Neither is the old AST ownership allocator.
-
+- `StringPool` becomes an owned compiler store; it must not require the old
+  allocator. A future pass may independently introduce measured scratch
+  storage, but that is not a reason to preserve the current allocator API.

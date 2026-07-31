@@ -129,10 +129,12 @@ The risks are excessive per-node indirection, interner construction cost, and
 extra S5 copying. Measure parse, minify, codegen, peak memory, and output size
 separately.
 
-Once all AST owners use dense stores, the current `Box` hierarchy and AST arena
-allocator are pure overhead and should be deleted. A compiler-scoped atom pool
-and pass-local scratch allocation remain valid independent facilities; they
-must not keep address-based AST APIs alive.
+Once all AST owners use dense stores, `rocketcss_common::boxed::Box`,
+`rocketcss_common::Allocator`, and allocator-taking compiler/parser APIs are
+pure overhead and should be deleted. The compiler-scoped atom pool becomes
+self-owned. Any future pass-local scratch facility is an independent,
+benchmark-driven choice and must not keep the current allocator or
+address-based AST APIs alive.
 
 ### Compress initial maximal same-selector runs
 
