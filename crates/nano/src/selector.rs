@@ -1,5 +1,5 @@
 use rocketcss_ast::{NthType, Selector, SelectorComponent, SelectorList};
-use rocketcss_common::prelude::{AdaptiveHashSet, Allocator, Vec};
+use rustc_hash::FxHashSet;
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
@@ -8,20 +8,15 @@ impl Minify for SelectorList<'_> {
     where
         Self: 'cx,
     {
-        let allocator = context.allocator();
-        minify_selector_list(self, context, allocator);
+        minify_selector_list(self, context);
     }
 }
 
-pub(crate) fn minify_selector_list(
-    selectors: &mut SelectorList<'_>,
-    context: &mut MinifyContext,
-    scratch: &Allocator,
-) {
+pub(crate) fn minify_selector_list(selectors: &mut [Selector<'_>], context: &mut MinifyContext) {
     for selector in selectors.iter_mut() {
         if matches!(selector, Selector::Unparsed(_)) {
             *selector = Selector::Tombstone;
-            context.record_value_normalized();
+            context.record_selector_removed();
         }
     }
 
@@ -46,23 +41,19 @@ pub(crate) fn minify_selector_list(
         }
     }
 
-    if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
-        let before = selectors.len();
-        deduplicate(selectors, scratch);
-        if before != selectors.len() {
-            context.record_value_normalized();
-        }
+    if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) && deduplicate(selectors) {
+        context.record_selector_removed();
     }
 }
 
-fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator) {
+fn deduplicate(selectors: &mut [Selector<'_>]) -> bool {
     if selectors.len() < 2 {
-        return;
+        return false;
     }
 
-    let mut duplicate_indices = Vec::new_in(allocator);
+    let mut duplicate_indices = std::vec::Vec::new();
     {
-        let mut seen = AdaptiveHashSet::<_, 4>::new_in(allocator);
+        let mut seen = FxHashSet::default();
         for (index, selector) in selectors.iter().enumerate() {
             if matches!(selector, Selector::Parsed(_)) && !seen.insert(selector) {
                 duplicate_indices.push(index);
@@ -70,28 +61,15 @@ fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator) {
         }
     }
     if duplicate_indices.is_empty() {
-        return;
+        return false;
     }
-
-    let original_len = selectors.len();
-    let mut duplicate_indices = duplicate_indices.into_iter();
-    let mut next_duplicate = duplicate_indices.next();
-    let mut index = 0;
-    selectors.retain(|_| {
-        let keep = next_duplicate != Some(index);
-        if !keep {
-            next_duplicate = duplicate_indices.next();
-        }
-        index += 1;
-        keep
-    });
-    debug_assert!(next_duplicate.is_none());
-    debug_assert_eq!(index, original_len);
+    for index in duplicate_indices {
+        selectors[index] = Selector::Tombstone;
+    }
+    true
 }
 
-fn remove_qualified_universal(
-    selector: &mut rocketcss_common::prelude::Vec<'_, SelectorComponent<'_>>,
-) {
+fn remove_qualified_universal(selector: &mut std::vec::Vec<SelectorComponent<'_>>) {
     let mut index = 0;
     while index < selector.len() {
         if !matches!(selector[index], SelectorComponent::ExplicitUniversalType) {

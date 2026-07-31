@@ -1,62 +1,62 @@
 use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct InsetRect<'a> {
-    pub radius: Box<'a, BorderRadius<'a>>,
-    pub rect: Box<'a, Rect<'a, LengthPercentage<'a>>>,
+pub struct InsetRect {
+    pub radius: std::boxed::Box<BorderRadius>,
+    pub rect: std::boxed::Box<Rect<LengthPercentage>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct CircleShape<'a> {
-    pub position: Box<'a, Position<'a>>,
-    pub radius: Box<'a, ShapeRadius<'a>>,
+pub struct CircleShape {
+    pub position: std::boxed::Box<Position>,
+    pub radius: std::boxed::Box<ShapeRadius>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct EllipseShape<'a> {
-    pub position: Box<'a, Position<'a>>,
-    pub radius_x: Box<'a, ShapeRadius<'a>>,
-    pub radius_y: Box<'a, ShapeRadius<'a>>,
+pub struct EllipseShape {
+    pub position: std::boxed::Box<Position>,
+    pub radius_x: std::boxed::Box<ShapeRadius>,
+    pub radius_y: std::boxed::Box<ShapeRadius>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Polygon<'a> {
+pub struct Polygon {
     pub fill_rule: FillRule,
-    pub points: Vec<'a, Point<'a>>,
+    pub points: std::vec::Vec<Point>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Point<'a> {
-    pub x: Box<'a, LengthPercentage<'a>>,
-    pub y: Box<'a, LengthPercentage<'a>>,
+pub struct Point {
+    pub x: std::boxed::Box<LengthPercentage>,
+    pub y: std::boxed::Box<LengthPercentage>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Mask<'a> {
     pub clip: MaskClip,
     pub composite: MaskComposite,
-    pub image: Box<'a, Image<'a>>,
+    pub image: std::boxed::Box<Image<'a>>,
     pub mode: MaskMode,
     pub origin: GeometryBox,
-    pub position: Box<'a, Position<'a>>,
+    pub position: std::boxed::Box<Position>,
     pub repeat: BackgroundRepeat,
-    pub size: Box<'a, BackgroundSize<'a>>,
+    pub size: std::boxed::Box<BackgroundSize>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MaskBorder<'a> {
     pub mode: MaskBorderMode,
-    pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
+    pub outset: std::boxed::Box<Rect<LengthOrNumber>>,
     pub repeat: BorderImageRepeat,
-    pub slice: Box<'a, BorderImageSlice<'a>>,
-    pub source: Box<'a, Image<'a>>,
-    pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,
+    pub slice: std::boxed::Box<BorderImageSlice>,
+    pub source: std::boxed::Box<Image<'a>>,
+    pub width: std::boxed::Box<Rect<BorderImageSideWidth>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct DropShadow<'a> {
-    pub blur: Box<'a, Length<'a>>,
-    pub color: Box<'a, CssColor<'a>>,
-    pub x_offset: Box<'a, Length<'a>>,
-    pub y_offset: Box<'a, Length<'a>>,
+    pub blur: std::boxed::Box<Length>,
+    pub color: std::boxed::Box<CssColor<'a>>,
+    pub x_offset: std::boxed::Box<Length>,
+    pub y_offset: std::boxed::Box<Length>,
 }

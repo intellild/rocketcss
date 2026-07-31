@@ -1,6 +1,9 @@
 use std::fmt::{self, Write};
 
-use rocketcss_ast::{DeclarationBlock, DeclarationBlockId, DeclarationBlockStore};
+use rocketcss_ast::{
+    DeclarationBlockId, DeclarationBlockRef, DeclarationBlockStore, RuleChildren, RuleListId,
+    RuleStore, Selector, SelectorListId,
+};
 use rocketcss_common::GhostToken;
 
 /// Options controlling CSS serialization.
@@ -325,6 +328,7 @@ impl<W: Write> PrinterTrait for Printer<'_, W> {
 pub struct ToCssContext<'token, 'ast, 'ghost> {
     token: &'token GhostToken<'ghost>,
     declaration_blocks: Option<&'token DeclarationBlockStore<'ast>>,
+    rules: Option<&'token RuleStore<'ast>>,
 }
 
 impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
@@ -333,6 +337,7 @@ impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
         Self {
             token,
             declaration_blocks: None,
+            rules: None,
         }
     }
 
@@ -344,6 +349,20 @@ impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
         Self {
             token,
             declaration_blocks: Some(declaration_blocks),
+            rules: None,
+        }
+    }
+
+    #[inline]
+    pub const fn new_with_stores(
+        token: &'token GhostToken<'ghost>,
+        declaration_blocks: &'token DeclarationBlockStore<'ast>,
+        rules: &'token RuleStore<'ast>,
+    ) -> Self {
+        Self {
+            token,
+            declaration_blocks: Some(declaration_blocks),
+            rules: Some(rules),
         }
     }
 
@@ -353,10 +372,31 @@ impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
     }
 
     #[inline]
-    pub fn declaration_block(&self, id: DeclarationBlockId) -> &DeclarationBlock<'ast> {
+    pub fn declaration_block(&self, id: DeclarationBlockId) -> DeclarationBlockRef<'token, 'ast> {
         self.declaration_blocks
             .expect("declaration block store is unavailable")
-            .get(id)
+            .view(id)
+    }
+
+    #[inline]
+    pub fn rules(&self, list: RuleListId) -> RuleChildren<'token, 'ast> {
+        self.rules
+            .expect("rule store is unavailable")
+            .children(list)
+    }
+
+    #[inline]
+    pub fn rule_list_is_empty(&self, list: RuleListId) -> bool {
+        self.rules
+            .expect("rule store is unavailable")
+            .list_is_empty(list)
+    }
+
+    #[inline]
+    pub fn selectors(&self, list: SelectorListId) -> &'token [Selector<'ast>] {
+        self.rules
+            .expect("selector store is unavailable")
+            .selectors(list)
     }
 }
 
@@ -479,7 +519,7 @@ pub(crate) fn serialize_dimension<'ghost, UnitT: ToCss<'ghost>, PrinterT: Printe
     unit.to_css(dest, cx)
 }
 
-impl<'a, 'ghost, T: ToCss<'ghost>> ToCss<'ghost> for rocketcss_common::boxed::Box<'a, T> {
+impl<'ghost, T: ToCss<'ghost>> ToCss<'ghost> for std::boxed::Box<T> {
     #[inline]
     fn to_css<PrinterT: PrinterTrait>(
         &self,

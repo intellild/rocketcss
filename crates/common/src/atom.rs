@@ -2,13 +2,9 @@ use std::{
     cmp::Ordering,
     fmt::{Debug, Display},
     hash::{Hash, Hasher},
+    marker::PhantomData,
     ops::Deref,
-    ptr,
-};
-
-use crate::{
-    CloneIn, FromIn,
-    wtf8::{Wtf8, Wtf8Buf},
+    sync::{Arc, LazyLock},
 };
 
 /// An interned string identity.
@@ -17,25 +13,33 @@ use crate::{
 /// contents. Values compared as atoms must therefore originate from the same
 /// [`StringPool`](crate::StringPool). Use [`Atom::as_str`] when comparing
 /// values from different pools.
-#[derive(Clone, Copy)]
-pub struct Atom<'a>(&'a str);
+#[derive(Clone)]
+pub struct Atom<'a> {
+    value: Arc<str>,
+    marker: PhantomData<&'a str>,
+}
+
+static EMPTY_ATOM: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from(""));
 
 impl Atom<'static> {
     #[inline]
     pub fn empty() -> Self {
-        Self("")
+        Self::from_owned(Arc::clone(&EMPTY_ATOM))
     }
 }
 
 impl<'a> Atom<'a> {
     #[inline]
-    pub(crate) fn from_interned(s: &'a str) -> Self {
-        Self(s)
+    pub(crate) fn from_owned(value: Arc<str>) -> Self {
+        Self {
+            value,
+            marker: PhantomData,
+        }
     }
 
     #[inline]
-    pub fn as_str(&self) -> &'a str {
-        self.0
+    pub fn as_str(&self) -> &str {
+        &self.value
     }
 }
 
@@ -65,7 +69,7 @@ impl Default for Atom<'_> {
 impl PartialEq for Atom<'_> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        ptr::eq(self.0.as_ptr(), other.0.as_ptr())
+        Arc::ptr_eq(&self.value, &other.value)
     }
 }
 
@@ -81,14 +85,14 @@ impl PartialOrd for Atom<'_> {
 impl Ord for Atom<'_> {
     #[inline]
     fn cmp(&self, other: &Self) -> Ordering {
-        self.0.as_ptr().cmp(&other.0.as_ptr())
+        self.as_str().as_ptr().cmp(&other.as_str().as_ptr())
     }
 }
 
 impl Hash for Atom<'_> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.as_ptr().hash(state);
+        self.as_str().as_ptr().hash(state);
     }
 }
 
@@ -117,154 +121,5 @@ impl PartialEq<&str> for Atom<'_> {
     #[inline]
     fn eq(&self, other: &&str) -> bool {
         self.as_str() == *other
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Wtf8Atom<'a>(&'a Wtf8);
-
-impl Wtf8Atom<'static> {
-    #[inline]
-    pub fn new_const(s: &'static str) -> Self {
-        Self(Wtf8::from_str(s))
-    }
-
-    #[inline]
-    pub fn empty() -> Self {
-        Self::new_const("")
-    }
-}
-
-impl<'a> Wtf8Atom<'a> {
-    #[inline]
-    pub fn new<S>(s: S) -> Self
-    where
-        Self: From<S>,
-    {
-        Self::from(s)
-    }
-
-    #[inline]
-    pub fn new_in<S>(s: S, allocator: &'a crate::Allocator) -> Wtf8Atom<'a>
-    where
-        Wtf8Atom<'a>: FromIn<'a, S>,
-    {
-        Wtf8Atom::from_in(s, allocator)
-    }
-
-    #[inline]
-    pub fn as_wtf8(&self) -> &Wtf8 {
-        self.0
-    }
-}
-
-impl<'a> From<&'a str> for Wtf8Atom<'a> {
-    #[expect(clippy::inline_always)]
-    #[inline(always)]
-    fn from(s: &'a str) -> Self {
-        Self(s.into())
-    }
-}
-
-impl<'a> From<&'a Wtf8> for Wtf8Atom<'a> {
-    #[expect(clippy::inline_always)]
-    #[inline(always)]
-    fn from(s: &'a Wtf8) -> Self {
-        Self(s)
-    }
-}
-
-impl<'a, 'b> FromIn<'a, &'b str> for Wtf8Atom<'a> {
-    #[inline]
-    fn from_in(s: &'b str, allocator: &'a crate::Allocator) -> Self {
-        Self(allocator.alloc_wtf8(Wtf8::from_str(s)))
-    }
-}
-
-impl<'a, 'b> FromIn<'a, &'b Wtf8> for Wtf8Atom<'a> {
-    #[inline]
-    fn from_in(s: &'b Wtf8, allocator: &'a crate::Allocator) -> Self {
-        Self(allocator.alloc_wtf8(s))
-    }
-}
-
-impl<'a> FromIn<'a, String> for Wtf8Atom<'a> {
-    #[inline]
-    fn from_in(s: String, allocator: &'a crate::Allocator) -> Self {
-        Self(allocator.alloc_wtf8(Wtf8::from_str(s.as_str())))
-    }
-}
-
-impl<'a> FromIn<'a, Wtf8Buf> for Wtf8Atom<'a> {
-    #[inline]
-    fn from_in(s: Wtf8Buf, allocator: &'a crate::Allocator) -> Self {
-        Self(allocator.alloc_wtf8(&s))
-    }
-}
-
-impl<'a> CloneIn<'a> for Wtf8Atom<'_> {
-    type Cloned = Wtf8Atom<'a>;
-
-    #[inline]
-    fn clone_in(&self, allocator: &'a crate::Allocator) -> Self::Cloned {
-        Wtf8Atom(allocator.alloc_wtf8(self.as_wtf8()))
-    }
-}
-
-impl Default for Wtf8Atom<'_> {
-    #[inline]
-    fn default() -> Self {
-        Wtf8Atom::empty()
-    }
-}
-
-impl AsRef<Wtf8> for Wtf8Atom<'_> {
-    #[inline]
-    fn as_ref(&self) -> &Wtf8 {
-        self.as_wtf8()
-    }
-}
-
-impl Deref for Wtf8Atom<'_> {
-    type Target = Wtf8;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.as_wtf8()
-    }
-}
-
-impl Debug for Wtf8Atom<'_> {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self.as_wtf8(), f)
-    }
-}
-
-impl PartialEq<Wtf8> for Wtf8Atom<'_> {
-    #[inline]
-    fn eq(&self, other: &Wtf8) -> bool {
-        self.as_wtf8() == other
-    }
-}
-
-impl PartialEq<&Wtf8> for Wtf8Atom<'_> {
-    #[inline]
-    fn eq(&self, other: &&Wtf8) -> bool {
-        self.as_wtf8() == *other
-    }
-}
-
-impl PartialEq<str> for Wtf8Atom<'_> {
-    #[inline]
-    fn eq(&self, other: &str) -> bool {
-        self.as_wtf8().as_str() == Some(other)
-    }
-}
-
-impl PartialEq<&str> for Wtf8Atom<'_> {
-    #[inline]
-    fn eq(&self, other: &&str) -> bool {
-        self.as_wtf8().as_str() == Some(*other)
     }
 }

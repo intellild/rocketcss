@@ -69,16 +69,15 @@ const _: () = {
 
     assert!(size_of::<VendorPrefix>() == 1);
     assert!(size_of::<KnownFunction>() == 1);
-    assert!(size_of::<CssRule<'_>>() == 16);
     assert!(size_of::<Declaration<'_>>() == 32);
     assert!(size_of::<TokenOrValue<'_>>() == 24);
     assert!(size_of::<Token<'_>>() == 24);
     assert!(size_of::<CssColor<'_>>() == 16);
-    assert!(size_of::<Length<'_>>() == 16);
+    assert!(size_of::<Length>() == 16);
     assert!(size_of::<ParsedComponent<'_>>() == 32);
     assert!(size_of::<AnimationComponent<'_>>() == 16);
     assert!(size_of::<Filter<'_>>() == 16);
-    assert!(size_of::<Transform<'_>>() == 32);
+    assert!(size_of::<Transform>() == 32);
     assert!(size_of::<KeyframeSelector>() == 8);
     assert!(size_of::<Display>() == 4);
     assert!(size_of::<PlaceContent>() == 4);
@@ -89,20 +88,20 @@ const _: () = {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rocketcss_common::Allocator;
+    use rocketcss_common::{GhostToken, StringPool};
     use std::mem::size_of;
 
     #[test]
     fn position_try_rule_uses_span() {
-        let allocator = Allocator::new();
-        allocator.with_ghost(|token| {
-            let mut declaration_blocks = DeclarationBlockStore::default();
+        let mut pool = StringPool::new();
+        GhostToken::scope(|token| {
+            let mut declaration_blocks = DeclarationBlockStore::new();
             let rule = PositionTryRule {
                 span: Span::new(4, 42),
-                name: "--fallback",
-                declarations: declaration_blocks.push(DeclarationBlock::new(&allocator)),
+                name: pool.intern("--fallback"),
+                declarations: declaration_blocks.begin_block(),
             };
-            let rule = CssRule::PositionTry(allocator.boxed(rule));
+            let rule = CssRule::PositionTry(rule);
 
             assert_eq!(rule.span(&token), Span::new(4, 42));
         });
@@ -110,13 +109,13 @@ mod tests {
 
     #[test]
     fn charset_rule_uses_span() {
-        let allocator = Allocator::new();
-        allocator.with_ghost(|token| {
+        let mut pool = StringPool::new();
+        GhostToken::scope(|token| {
             let rule = CharsetRule {
                 span: Span::new(2, 19),
-                encoding: "UTF-8",
+                encoding: pool.intern("UTF-8"),
             };
-            let rule = CssRule::Charset(allocator.boxed(rule));
+            let rule = CssRule::Charset(rule);
 
             assert_eq!(rule.span(&token), Span::new(2, 19));
         });
@@ -124,12 +123,11 @@ mod tests {
 
     #[test]
     fn declaration_block_ids_remain_stable_when_store_grows() {
-        let allocator = Allocator::new();
-        let mut store = DeclarationBlockStore::default();
-        let first = store.push(DeclarationBlock::new(&allocator));
+        let mut store = DeclarationBlockStore::new();
+        let first = store.begin_block();
 
         for _ in 0..32 {
-            store.push(DeclarationBlock::new(&allocator));
+            store.begin_block();
         }
 
         assert_eq!(first.index(), 0);
@@ -144,37 +142,32 @@ mod tests {
 
     #[test]
     fn declaration_block_store_borrows_two_distinct_blocks() {
-        let allocator = Allocator::new();
-        let mut store = DeclarationBlockStore::default();
-        let first = store.push(DeclarationBlock::new(&allocator));
-        let second = store.push(DeclarationBlock::new(&allocator));
+        let mut store = DeclarationBlockStore::new();
+        let first = store.begin_block();
+        store.push_declaration(first, Declaration::Tombstone, true);
+        let second = store.begin_block();
+        store.push_declaration(second, Declaration::Tombstone, false);
+        store.prepend_block(second, first);
 
-        let (second_block, first_block) = store
-            .get_two_mut(second, first)
-            .expect("distinct IDs can be borrowed together");
-        second_block.push(Declaration::Tombstone, false);
-        first_block.push(Declaration::Tombstone, true);
-
-        assert_eq!(store.get(first).len(), 1);
-        assert!(store.get(first).is_important(0));
-        assert_eq!(store.get(second).len(), 1);
-        assert!(!store.get(second).is_important(0));
+        assert_eq!(store.get(first).len(), 0);
+        assert_eq!(store.get(second).len(), 2);
+        assert!(store.view(second).is_important(0));
+        assert!(!store.view(second).is_important(1));
         assert!(store.get_two_mut(first, first).is_none());
     }
 
     #[test]
     fn compares_nodes_while_ignoring_owned_tombstone_slots() {
-        let allocator = Allocator::new();
+        let mut pool = StringPool::new();
         assert!(FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Tombstone));
         assert!(!FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Serif));
 
-        let mut left_families = allocator.vec();
-        left_families.push(FontFamily::Custom("A"));
-        left_families.push(FontFamily::Tombstone);
-        left_families.push(FontFamily::Serif);
-        let mut right_families = allocator.vec();
-        right_families.push(FontFamily::Custom("A"));
-        right_families.push(FontFamily::Serif);
+        let left_families = std::vec![
+            FontFamily::Custom(pool.intern("A")),
+            FontFamily::Tombstone,
+            FontFamily::Serif,
+        ];
+        let right_families = std::vec![FontFamily::Custom(pool.intern("A")), FontFamily::Serif,];
 
         assert_ne!(left_families, right_families);
         assert!(left_families.eq_ignoring_tombstones(&right_families));
@@ -184,21 +177,32 @@ mod tests {
         assert_ne!(left_declaration, right_declaration);
         assert!(left_declaration.eq_ignoring_tombstones(&right_declaration));
 
-        let mut left_block = DeclarationBlock::new(&allocator);
-        left_block.push(left_declaration, false);
-        left_block.push(Declaration::Tombstone, true);
-        let mut right_block = DeclarationBlock::new(&allocator);
-        right_block.push(right_declaration, false);
+        let mut store = DeclarationBlockStore::new();
+        let left_block = store.begin_block();
+        store.push_declaration(left_block, left_declaration, false);
+        store.push_declaration(left_block, Declaration::Tombstone, true);
+        let right_block = store.begin_block();
+        store.push_declaration(right_block, right_declaration, false);
 
-        assert_ne!(left_block, right_block);
-        assert!(left_block.eq_ignoring_tombstones(&right_block));
+        assert!(
+            store
+                .view(left_block)
+                .eq_ignoring_tombstones(&store.view(right_block))
+        );
 
-        let mut important_block = DeclarationBlock::new(&allocator);
-        let mut important_families = allocator.vec();
-        important_families.push(FontFamily::Custom("A"));
-        important_families.push(FontFamily::Serif);
-        important_block.push(Declaration::FontFamily(important_families), true);
-        assert!(!left_block.eq_ignoring_tombstones(&important_block));
+        let important_block = store.begin_block();
+        let important_families =
+            std::vec![FontFamily::Custom(pool.intern("A")), FontFamily::Serif,];
+        store.push_declaration(
+            important_block,
+            Declaration::FontFamily(important_families),
+            true,
+        );
+        assert!(
+            !store
+                .view(left_block)
+                .eq_ignoring_tombstones(&store.view(important_block))
+        );
     }
 
     #[test]
@@ -222,7 +226,8 @@ mod tests {
         );
         assert!(PropertyId::All.known_id().is_some());
         assert_eq!(PropertyId::Unparsed.known_id(), None);
-        assert_eq!(PropertyId::Custom("unknown").known_id(), None);
+        let mut pool = StringPool::new();
+        assert_eq!(PropertyId::Custom(pool.intern("unknown")).known_id(), None);
 
         for (name, expected) in [
             ("CoLuMn-RuLe", PropertyId::ColumnRule(VendorPrefix::NONE)),
@@ -230,30 +235,28 @@ mod tests {
             ("GrId-CoLuMn-GaP", PropertyId::GridColumnGap),
             ("GrId-RoW-GaP", PropertyId::GridRowGap),
         ] {
-            let property_id = PropertyId::from_name(name);
+            let property_id = PropertyId::from_name(pool.intern(name));
             assert_eq!(property_id, expected);
             assert!(property_id.known_id().is_some());
             assert_eq!(property_id.vendor_prefix(), VendorPrefix::NONE);
         }
         assert_eq!(
-            PropertyId::from_name("-WeBkIt-CoLuMnS"),
+            PropertyId::from_name(pool.intern("-WeBkIt-CoLuMnS")),
             PropertyId::Columns(VendorPrefix::WEBKIT)
         );
     }
 
     #[test]
     fn selector_uses_typed_lightningcss_components() {
-        let allocator = Allocator::new();
-        let mut selector = allocator.vec();
-        selector.push(SelectorComponent::Nth(NthSelectorData {
-            kind: NthType::Child,
-            is_function: true,
-            a: 2,
-            b: 1,
-        }));
-        selector.push(SelectorComponent::PseudoClass(
-            allocator.boxed(PseudoClass::Hover),
-        ));
+        let selector = std::vec![
+            SelectorComponent::Nth(NthSelectorData {
+                kind: NthType::Child,
+                is_function: true,
+                a: 2,
+                b: 1,
+            }),
+            SelectorComponent::PseudoClass(std::boxed::Box::new(PseudoClass::Hover)),
+        ];
 
         assert!(matches!(selector[0], SelectorComponent::Nth(_)));
         assert!(matches!(
@@ -264,8 +267,8 @@ mod tests {
 
     #[test]
     fn function_state_is_accessed_through_flags() {
-        let allocator = Allocator::new();
-        let mut function = Function::new("url", allocator.vec());
+        let mut pool = StringPool::new();
+        let mut function = Function::new(pool.intern("url"), std::vec::Vec::new());
 
         assert_eq!(function.name(), "url");
         assert_eq!(function.kind(), KnownFunction::Url);
@@ -273,7 +276,7 @@ mod tests {
         assert!(!function.is_identifier());
         assert!(!function.is_unquoted_url());
 
-        function.set_name("VAR");
+        function.set_name(pool.intern("VAR"));
         function.set_identifier(true);
         function.set_unquoted_url(true);
 
@@ -286,14 +289,14 @@ mod tests {
 
     #[test]
     fn known_function_classifies_case_and_supported_vendor_prefixes() {
-        let allocator = Allocator::new();
+        let mut pool = StringPool::new();
         assert_eq!(KnownFunction::from_name("RGB"), KnownFunction::Rgb);
         assert_eq!(
             KnownFunction::from_name("-WEBKIT-LINEAR-GRADIENT"),
             KnownFunction::LinearGradient,
         );
         assert_eq!(KnownFunction::from_name("-moz-calc"), KnownFunction::Calc,);
-        let function = Function::new("-moz-calc", allocator.vec());
+        let function = Function::new(pool.intern("-moz-calc"), std::vec::Vec::new());
         assert!(function.is_vendor_prefixed());
         assert_eq!(
             KnownFunction::from_name("custom-function"),
@@ -312,6 +315,7 @@ mod tests {
         assert_eq!(Appearance::NonStandard("textfield").as_css_str(), None);
         assert_eq!(FontFormat::String("woff3").as_css_str(), None);
         assert_eq!(FontFamily::SansSerif.as_css_str(), Some("sans-serif"));
-        assert_eq!(FontFamily::Custom("Inter").as_css_str(), None);
+        let mut pool = StringPool::new();
+        assert_eq!(FontFamily::Custom(pool.intern("Inter")).as_css_str(), None);
     }
 }

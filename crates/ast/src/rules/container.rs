@@ -2,15 +2,15 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum ContainerCondition<'a> {
-    Feature(Box<'a, ContainerSizeFeature<'a>>),
-    Not(Box<'a, ContainerCondition<'a>>),
+    Feature(std::boxed::Box<ContainerSizeFeature<'a>>),
+    Not(std::boxed::Box<ContainerCondition<'a>>),
     Operation {
-        conditions: Vec<'a, ContainerCondition<'a>>,
+        conditions: std::vec::Vec<ContainerCondition<'a>>,
         operator: Operator,
     },
-    Style(Box<'a, StyleQuery<'a>>),
-    ScrollState(Box<'a, ScrollStateQuery<'a>>),
-    Unknown(Vec<'a, TokenOrValue<'a>>),
+    Style(std::boxed::Box<StyleQuery<'a>>),
+    ScrollState(std::boxed::Box<ScrollStateQuery<'a>>),
+    Unknown(std::vec::Vec<TokenOrValue<'a>>),
 }
 
 pub type ContainerSizeFeature<'a> = QueryFeature<'a, ContainerSizeFeatureId>;
@@ -27,21 +27,21 @@ pub enum ContainerSizeFeatureId {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum StyleQuery<'a> {
-    Declaration(Box<'a, Declaration<'a>>),
-    Property(Box<'a, PropertyId<'a>>),
-    Not(Box<'a, StyleQuery<'a>>),
+    Declaration(std::boxed::Box<Declaration<'a>>),
+    Property(std::boxed::Box<PropertyId<'a>>),
+    Not(std::boxed::Box<StyleQuery<'a>>),
     Operation {
-        conditions: Vec<'a, StyleQuery<'a>>,
+        conditions: std::vec::Vec<StyleQuery<'a>>,
         operator: Operator,
     },
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum ScrollStateQuery<'a> {
-    Feature(Box<'a, ScrollStateFeature<'a>>),
-    Not(Box<'a, ScrollStateQuery<'a>>),
+    Feature(std::boxed::Box<ScrollStateFeature<'a>>),
+    Not(std::boxed::Box<ScrollStateQuery<'a>>),
     Operation {
-        conditions: Vec<'a, ScrollStateQuery<'a>>,
+        conditions: std::vec::Vec<ScrollStateQuery<'a>>,
         operator: Operator,
     },
 }
@@ -59,13 +59,14 @@ pub enum ScrollStateFeatureId {
 #[derive(Debug, PartialEq, Visit)]
 pub struct Container<'a> {
     pub container_type: ContainerType,
-    pub name: Box<'a, ContainerNameList<'a>>,
+    pub name: std::boxed::Box<ContainerNameList<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ContainerRule<'a> {
-    pub condition: Option<Box<'a, ContainerCondition<'a>>>,
+    pub condition: Option<std::boxed::Box<ContainerCondition<'a>>>,
     pub span: Span,
-    pub name: Option<&'a str>,
-    pub rules: Vec<'a, CssRule<'a>>,
+    pub name: Option<Atom<'a>>,
+    #[visit(with = visit_rule_list_id, with_mut = visit_rule_list_id_mut)]
+    pub rules: RuleListId,
 }

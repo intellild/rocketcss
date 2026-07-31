@@ -9,7 +9,7 @@ impl<'i> Parse<'i> for Display {
         while !input.is_exhausted() {
             let ident = input.expect_ident()?;
             let keyword = match_ignore_ascii_case!(
-                ident,
+                &ident,
                 "none" => Some(DisplayKeyword::None),
                 "contents" => Some(DisplayKeyword::Contents),
                 "table-row-group" => Some(DisplayKeyword::TableRowGroup),
@@ -37,7 +37,7 @@ impl<'i> Parse<'i> for Display {
             }
 
             match_ignore_ascii_case!(
-                ident,
+                &ident,
                 "block" => set_once(input, &mut outside, DisplayOutside::Block)?,
                 "inline" => set_once(input, &mut outside, DisplayOutside::Inline)?,
                 "run-in" => set_once(input, &mut outside, DisplayOutside::RunIn)?,

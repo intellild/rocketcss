@@ -31,26 +31,22 @@ fn deduplicates_equivalent_font_families() {
         run("a{font-family:Inter,system-ui,sans-serif}"),
         "a{font-family:Inter,system-ui,sans-serif}"
     );
-
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
+    GhostToken::scope(|mut token| {
         let mut stylesheet = parse(
             "a{font-family:A,var(--family),a,serif}",
-            &allocator,
             &mut token,
             ParserOptions::default(),
         )
         .unwrap();
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+        let CssRule::Style(rule) = &stylesheet.root_rules()[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().get_ref();
         let declarations = stylesheet.declaration_block(rule.declarations);
         let Declaration::FontFamily(families) = &declarations.declarations[0] else {
             panic!("expected typed font-family declaration")
         };
-        assert!(matches!(families[0], FontFamily::Custom("A")));
+        assert!(matches!(&families[0], FontFamily::Custom(value) if value.as_str() == "A"));
         assert!(matches!(families[1], FontFamily::Unparsed(_)));
         assert!(matches!(families[2], FontFamily::Tombstone));
         assert!(matches!(families[3], FontFamily::Serif));
@@ -59,20 +55,17 @@ fn deduplicates_equivalent_font_families() {
 
 #[test]
 fn removes_font_family_declarations_containing_only_tombstones() {
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
+    GhostToken::scope(|mut token| {
         let mut stylesheet = parse(
             "a{font-family:var(--family);font-family:slab inherit}",
-            &allocator,
             &mut token,
             ParserOptions::default(),
         )
         .unwrap();
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+        let CssRule::Style(rule) = &stylesheet.root_rules()[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().get_ref();
         let declarations = stylesheet.declaration_block(rule.declarations);
         assert!(
             declarations

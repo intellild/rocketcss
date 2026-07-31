@@ -1,7 +1,6 @@
 use rocketcss_ast::{
-    FontFamily, KnownFunction, Token, TokenOrValue, Unit, match_ignore_ascii_case,
+    Atom, FontFamily, KnownFunction, Token, TokenOrValue, Unit, match_ignore_ascii_case,
 };
-use rocketcss_common::vec::Vec;
 
 use crate::{
     Minify, MinifyContext, Options, OptionsOp,
@@ -36,7 +35,7 @@ impl Minify for TokenOrValue<'_> {
                 if cx.value_context.property == PropertyContext::Font
                     && can_unquote_font(value) =>
             {
-                **token = Token::UnquotedFont(value);
+                **token = Token::UnquotedFont(value.clone());
                 cx.record_value_normalized();
             }
             Token::Hash(value) | Token::IdHash(value)
@@ -45,7 +44,7 @@ impl Minify for TokenOrValue<'_> {
                     .is_enabled(ValueContextFlags::MINIFY_COLORS)
                     && is_hex_color(value) =>
             {
-                **token = minify_hex_color(value);
+                **token = minify_hex_color(value.clone(), cx);
                 cx.record_value_normalized();
             }
             Token::Dimension { unit, value } => {
@@ -83,12 +82,12 @@ fn is_hex_color(value: &str) -> bool {
     matches!(value.len(), 3 | 4 | 6 | 8) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn minify_hex_color<'a>(value: &'a str) -> Token<'a> {
+fn minify_hex_color<'a>(value: Atom<'a>, cx: &mut MinifyContext<'_>) -> Token<'a> {
     match_ignore_ascii_case!(
-        value,
-        "ff0000" | "f00" => Token::Ident("red"),
-        "f0ffff" => Token::Ident("azure"),
-        "808080" => Token::Ident("gray"),
+        &value,
+        "ff0000" | "f00" => Token::Ident(cx.intern("red")),
+        "f0ffff" => Token::Ident(cx.intern("azure")),
+        "808080" => Token::Ident(cx.intern("gray")),
         _ => Token::MinifiedHash(value),
     )
 }
@@ -127,10 +126,10 @@ pub(crate) fn can_unquote_font(value: &str) -> bool {
 }
 
 fn is_generic_font_family(value: &str) -> bool {
-    FontFamily::from_name(value).is_generic()
+    FontFamily::is_generic_name(value)
 }
 
-impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
+impl<'a> Minify for std::vec::Vec<TokenOrValue<'a>> {
     /// Removes comments and redundant whitespace by compacting the existing
     /// arena vector. Separator tokens are reused rather than allocated again.
     fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
@@ -170,7 +169,7 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
 }
 
 pub(crate) fn visit_and_compact_comments_and_whitespace<'a>(
-    values: &mut Vec<'a, TokenOrValue<'a>>,
+    values: &mut std::vec::Vec<TokenOrValue<'a>>,
     preserve_space_after_comma: bool,
     visit: impl FnMut(&mut TokenOrValue<'a>),
 ) -> usize {
@@ -178,7 +177,7 @@ pub(crate) fn visit_and_compact_comments_and_whitespace<'a>(
 }
 
 pub(crate) fn minify_compacted_token_values<'a, 'cx>(
-    values: &mut Vec<'a, TokenOrValue<'a>>,
+    values: &mut std::vec::Vec<TokenOrValue<'a>>,
     cx: &mut MinifyContext<'cx>,
 ) where
     'a: 'cx,
@@ -193,7 +192,7 @@ pub(crate) fn minify_compacted_token_values<'a, 'cx>(
         return;
     }
 
-    if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) && normalize_url_values(values) {
+    if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) && normalize_url_values(values, cx) {
         cx.record_value_normalized();
     }
 
@@ -223,22 +222,24 @@ pub(crate) fn minify_compacted_token_values<'a, 'cx>(
     }
 }
 
-fn normalize_url_values<'a>(values: &mut Vec<'a, TokenOrValue<'a>>) -> bool {
-    let allocator = values.bump();
+fn normalize_url_values<'a, 'cx>(
+    values: &mut std::vec::Vec<TokenOrValue<'a>>,
+    cx: &mut MinifyContext<'cx>,
+) -> bool {
     let mut changed = false;
     for value in values {
         let TokenOrValue::Url(url) = value else {
             continue;
         };
-        if let Some(normalized) = crate::rules::normalize_url_text(url.url) {
-            url.url = allocator.alloc_str(&normalized);
+        if let Some(normalized) = crate::rules::normalize_url_text(&url.url) {
+            url.url = cx.intern(&normalized);
             changed = true;
         }
     }
     changed
 }
 
-fn protect_adjacent_function_replacements(values: &mut Vec<'_, TokenOrValue<'_>>) {
+fn protect_adjacent_function_replacements(values: &mut std::vec::Vec<TokenOrValue<'_>>) {
     for index in 0..values.len() {
         let has_unsafe_neighbor = values.get(index.wrapping_sub(1)).is_some_and(|value| {
             !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_) | Token::Comma))
@@ -258,7 +259,7 @@ fn protect_adjacent_function_replacements(values: &mut Vec<'_, TokenOrValue<'_>>
     }
 }
 
-fn minify_display(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_display(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let replacement = match values.as_slice() {
         [first, space, second]
             if is_whitespace(space) && ident_pair(first, second, "block", "flow") =>
@@ -361,7 +362,7 @@ fn minify_display(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext
             let TokenOrValue::Token(token) = &mut values[2] else {
                 unreachable!()
             };
-            **token = Token::Ident("list-item");
+            **token = Token::Ident(cx.intern("list-item"));
             values.truncate(3);
             cx.record_value_normalized();
             return;
@@ -374,7 +375,7 @@ fn minify_display(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext
     let TokenOrValue::Token(token) = &mut values[0] else {
         return;
     };
-    **token = Token::Ident(replacement);
+    **token = Token::Ident(cx.intern(replacement));
     values.truncate(1);
     cx.record_value_normalized();
 }
@@ -389,7 +390,7 @@ fn ident_pair(
         && token_ident(second).is_some_and(|value| value.eq_ignore_ascii_case(expected_second))
 }
 
-fn minify_positions(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_positions(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut layer_start = 0;
     while layer_start < values.len() {
         let layer_end = values[layer_start..]
@@ -407,20 +408,20 @@ fn minify_positions(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyConte
 }
 
 fn minify_position_layer(
-    values: &mut Vec<'_, TokenOrValue<'_>>,
+    values: &mut std::vec::Vec<TokenOrValue<'_>>,
     layer_start: usize,
     layer_end: usize,
 ) -> bool {
     let mut start = None;
     let mut end = None;
-    for index in layer_start..layer_end {
-        if is_slash(&values[index]) {
+    for (index, value) in values.iter().enumerate().take(layer_end).skip(layer_start) {
+        if is_slash(value) {
             break;
         }
-        if is_variable(&values[index]) {
+        if is_variable(value) {
             return false;
         }
-        if is_position_component(&values[index]) {
+        if is_position_component(value) {
             start.get_or_insert(index);
             end = Some(index);
         }
@@ -568,7 +569,7 @@ fn is_slash(value: &TokenOrValue<'_>) -> bool {
 }
 
 fn compact_comments_and_whitespace_with<'a>(
-    values: &mut Vec<'a, TokenOrValue<'a>>,
+    values: &mut std::vec::Vec<TokenOrValue<'a>>,
     preserve_space_after_comma: bool,
     mut visit: impl FnMut(&mut TokenOrValue<'a>),
 ) -> usize {
@@ -655,7 +656,7 @@ fn compact_comments_and_whitespace_with<'a>(
 
 #[inline]
 fn visit_token_values_through<'a>(
-    values: &mut Vec<'a, TokenOrValue<'a>>,
+    values: &mut [TokenOrValue<'a>],
     index: usize,
     visit_cursor: &mut usize,
     previous_is_unsafe_neighbor: &mut bool,
@@ -688,7 +689,7 @@ fn protect_function_replacement(value: &mut TokenOrValue<'_>) {
     }
 }
 
-fn compact_comments(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn compact_comments(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let len = values.len();
     let mut read = 0;
     let mut write = 0;
@@ -722,7 +723,7 @@ fn compact_comments(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyConte
     values.truncate(write);
 }
 
-fn compact_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn compact_whitespace(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let len = values.len();
     let preserve_space_after_comma = cx
         .value_context
@@ -763,7 +764,11 @@ fn compact_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyCon
 }
 
 #[inline]
-fn retain_compacted_value(values: &mut Vec<'_, TokenOrValue<'_>>, read: usize, write: &mut usize) {
+fn retain_compacted_value(
+    values: &mut std::vec::Vec<TokenOrValue<'_>>,
+    read: usize,
+    write: &mut usize,
+) {
     // The compacted prefix is never revisited. Swapping moves the next
     // retained value into that prefix and pushes one discarded value into the
     // consumed portion, so the tail can be truncated once after the scan.
@@ -815,7 +820,7 @@ fn is_open_parenthesis(value: &TokenOrValue<'_>) -> bool {
     matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::ParenthesisBlock))
 }
 
-fn minify_transition(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_transition(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut start = 0;
     let mut changed = false;
     loop {
@@ -834,7 +839,11 @@ fn minify_transition(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyCont
     }
 }
 
-fn sort_transition_layer(values: &mut Vec<'_, TokenOrValue<'_>>, start: usize, end: usize) -> bool {
+fn sort_transition_layer(
+    values: &mut std::vec::Vec<TokenOrValue<'_>>,
+    start: usize,
+    end: usize,
+) -> bool {
     let Some((items, count)) = collect_layer_items(values, start, end) else {
         return false;
     };
@@ -860,7 +869,7 @@ fn sort_transition_layer(values: &mut Vec<'_, TokenOrValue<'_>>, start: usize, e
     sort_items_with_ranks(values, items, ranks, count)
 }
 
-fn minify_animation(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_animation(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut start = 0;
     let mut changed = false;
     loop {
@@ -879,7 +888,11 @@ fn minify_animation(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyConte
     }
 }
 
-fn sort_animation_layer(values: &mut Vec<'_, TokenOrValue<'_>>, start: usize, end: usize) -> bool {
+fn sort_animation_layer(
+    values: &mut std::vec::Vec<TokenOrValue<'_>>,
+    start: usize,
+    end: usize,
+) -> bool {
     let Some((items, count)) = collect_layer_items(values, start, end) else {
         return false;
     };
@@ -1003,7 +1016,7 @@ fn collect_layer_items(
 }
 
 fn sort_items_with_ranks(
-    values: &mut Vec<'_, TokenOrValue<'_>>,
+    values: &mut std::vec::Vec<TokenOrValue<'_>>,
     items: [usize; 16],
     mut ranks: [u8; 16],
     count: usize,
@@ -1021,7 +1034,7 @@ fn sort_items_with_ranks(
     changed
 }
 
-fn minify_grid_auto_flow(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_grid_auto_flow(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [first, space, second] = values.as_slice() else {
         return;
     };
@@ -1037,7 +1050,7 @@ fn minify_grid_auto_flow(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut Minify
     }
 }
 
-fn minify_grid_gap(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_grid_gap(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [first, space, second] = values.as_slice() else {
         return;
     };
@@ -1052,7 +1065,7 @@ fn minify_grid_gap(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContex
     }
 }
 
-fn minify_grid_line(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_grid_line(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut changed = false;
     let mut index = 0;
     while index + 2 < values.len() {
@@ -1071,7 +1084,7 @@ fn minify_grid_line(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyConte
     }
 }
 
-fn minify_list_style(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_list_style(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     if sort_layer_by_rank(values, 0, values.len(), list_style_rank) {
         cx.record_value_normalized();
     }
@@ -1093,7 +1106,7 @@ fn list_style_rank(value: &TokenOrValue<'_>) -> Option<u8> {
     }
 }
 
-fn minify_ordered_columns(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_ordered_columns(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let Some((items, count)) = collect_layer_items(values, 0, values.len()) else {
         return;
     };
@@ -1126,7 +1139,7 @@ fn columns_has_unit(value: &TokenOrValue<'_>) -> bool {
     }
 }
 
-fn minify_ordered_border(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_ordered_border(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     // Extra components of one class (e.g. the widths in `0 0 7px 7px solid
     // black`) keep their relative order instead of being dropped, so invalid
     // values round-trip unchanged like upstream postcss-ordered-values.
@@ -1194,7 +1207,7 @@ fn border_value_rank(value: &TokenOrValue<'_>) -> Option<u8> {
     }
 }
 
-fn minify_flex_flow(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_flex_flow(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [first, space, second] = values.as_slice() else {
         return;
     };
@@ -1220,7 +1233,7 @@ fn is_flex_direction(value: &str) -> bool {
     )
 }
 
-fn minify_box_shadow(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_box_shadow(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut start = 0;
     let mut changed = false;
     loop {
@@ -1262,18 +1275,18 @@ fn box_shadow_value_rank(value: &TokenOrValue<'_>) -> Option<u8> {
 }
 
 fn sort_layer_by_rank(
-    values: &mut Vec<'_, TokenOrValue<'_>>,
+    values: &mut std::vec::Vec<TokenOrValue<'_>>,
     start: usize,
     end: usize,
     rank: fn(&TokenOrValue<'_>) -> Option<u8>,
 ) -> bool {
     let mut items = [0usize; 16];
     let mut count = 0;
-    for index in start..end {
-        if is_whitespace(&values[index]) {
+    for (index, value) in values.iter().enumerate().take(end).skip(start) {
+        if is_whitespace(value) {
             continue;
         }
-        if count == items.len() || rank(&values[index]).is_none() {
+        if count == items.len() || rank(value).is_none() {
             return false;
         }
         items[count] = index;
@@ -1294,7 +1307,7 @@ fn sort_layer_by_rank(
     changed
 }
 
-fn minify_box_sides(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_box_sides(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let count = match values.len() {
         1 => 1,
         3 if is_whitespace(&values[1]) => 2,
@@ -1327,11 +1340,11 @@ fn minify_box_sides(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyConte
     }
 }
 
-fn minify_font_weight(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_font_weight(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let [TokenOrValue::Token(token)] = values.as_mut_slice() else {
         return;
     };
-    let Token::Ident(value) = **token else {
+    let Token::Ident(value) = &**token else {
         return;
     };
     let weight = match_ignore_ascii_case!(
@@ -1344,7 +1357,7 @@ fn minify_font_weight(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyCon
     cx.record_value_normalized();
 }
 
-fn minify_font(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_font(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     for value in values.iter_mut() {
         let TokenOrValue::Token(token) = value else {
             continue;
@@ -1407,7 +1420,7 @@ fn font_family_name<'a>(value: &'a TokenOrValue<'_>) -> Option<(&'a str, bool)> 
     }
 }
 
-fn minify_repeat_style(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn minify_repeat_style(values: &mut std::vec::Vec<TokenOrValue<'_>>, cx: &mut MinifyContext) {
     let mut index = 0;
     while index + 2 < values.len() {
         let Some(left) = token_ident(&values[index]) else {
@@ -1444,7 +1457,7 @@ fn minify_repeat_style(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyCo
         let TokenOrValue::Token(token) = &mut values[index] else {
             unreachable!("repeat value was classified as a token")
         };
-        **token = Token::Ident(replacement);
+        **token = Token::Ident(cx.intern(replacement));
         drop(values.drain(index + 1..=index + 2));
         cx.record_value_normalized();
     }
@@ -1461,12 +1474,12 @@ fn canonical_repeat(value: &str) -> Option<&'static str> {
     )
 }
 
-fn token_ident<'a>(value: &TokenOrValue<'a>) -> Option<&'a str> {
+fn token_ident<'a>(value: &'a TokenOrValue<'_>) -> Option<&'a str> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    match **token {
-        Token::Ident(value) => Some(value),
+    match &**token {
+        Token::Ident(value) => Some(value.as_str()),
         _ => None,
     }
 }

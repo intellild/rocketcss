@@ -23,7 +23,7 @@ impl<'ghost> ToCss<'ghost> for LengthUnit {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Length<'_> {
+impl<'ghost> ToCss<'ghost> for Length {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -36,7 +36,7 @@ impl<'ghost> ToCss<'ghost> for Length<'_> {
     }
 }
 
-impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for Calc<'_, V> {
+impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for Calc<V> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -75,7 +75,7 @@ where
 }
 
 fn write_calc_list<'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost>>(
-    values: &[Calc<'_, V>],
+    values: &[Calc<V>],
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
@@ -88,7 +88,7 @@ fn write_calc_list<'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost>>(
     Ok(())
 }
 
-impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<'_, V> {
+impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<V> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,

@@ -3,61 +3,61 @@ use crate::*;
 #[derive(Debug, PartialEq, Visit)]
 pub enum Image<'a> {
     None,
-    Url(Box<'a, Url<'a>>),
-    Gradient(Box<'a, Gradient<'a>>),
-    ImageSet(Box<'a, ImageSet<'a>>),
+    Url(std::boxed::Box<Url<'a>>),
+    Gradient(std::boxed::Box<Gradient<'a>>),
+    ImageSet(std::boxed::Box<ImageSet<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Gradient<'a> {
     Linear {
         direction: LineDirection,
-        items: Vec<'a, GradientItem<'a, LengthValue>>,
+        items: std::vec::Vec<GradientItem<'a, LengthValue>>,
         vendor_prefix: VendorPrefix,
     },
     RepeatingLinear {
         direction: LineDirection,
-        items: Vec<'a, GradientItem<'a, LengthValue>>,
+        items: std::vec::Vec<GradientItem<'a, LengthValue>>,
         vendor_prefix: VendorPrefix,
     },
     Radial {
-        items: Vec<'a, GradientItem<'a, LengthValue>>,
-        position: Box<'a, Position<'a>>,
-        shape: Box<'a, EndingShape<'a>>,
+        items: std::vec::Vec<GradientItem<'a, LengthValue>>,
+        position: std::boxed::Box<Position>,
+        shape: std::boxed::Box<EndingShape>,
         vendor_prefix: VendorPrefix,
     },
     RepeatingRadial {
-        items: Vec<'a, GradientItem<'a, LengthValue>>,
-        position: Box<'a, Position<'a>>,
-        shape: Box<'a, EndingShape<'a>>,
+        items: std::vec::Vec<GradientItem<'a, LengthValue>>,
+        position: std::boxed::Box<Position>,
+        shape: std::boxed::Box<EndingShape>,
         vendor_prefix: VendorPrefix,
     },
     Conic {
         angle: Angle,
-        items: Vec<'a, GradientItem<'a, Angle>>,
-        position: Box<'a, Position<'a>>,
+        items: std::vec::Vec<GradientItem<'a, Angle>>,
+        position: std::boxed::Box<Position>,
     },
     RepeatingConic {
         angle: Angle,
-        items: Vec<'a, GradientItem<'a, Angle>>,
-        position: Box<'a, Position<'a>>,
+        items: std::vec::Vec<GradientItem<'a, Angle>>,
+        position: std::boxed::Box<Position>,
     },
-    WebKitGradient(Box<'a, WebKitGradient<'a>>),
+    WebKitGradient(std::boxed::Box<WebKitGradient<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum WebKitGradient<'a> {
     Linear {
-        from: Box<'a, WebKitGradientPoint>,
-        to: Box<'a, WebKitGradientPoint>,
-        stops: Vec<'a, WebKitColorStop<'a>>,
+        from: std::boxed::Box<WebKitGradientPoint>,
+        to: std::boxed::Box<WebKitGradientPoint>,
+        stops: std::vec::Vec<WebKitColorStop<'a>>,
     },
     Radial {
-        from: Box<'a, WebKitGradientPoint>,
+        from: std::boxed::Box<WebKitGradientPoint>,
         start_radius: f32,
-        to: Box<'a, WebKitGradientPoint>,
+        to: std::boxed::Box<WebKitGradientPoint>,
         end_radius: f32,
-        stops: Vec<'a, WebKitColorStop<'a>>,
+        stops: std::vec::Vec<WebKitColorStop<'a>>,
     },
 }
 
@@ -87,45 +87,45 @@ pub enum VerticalPositionKeyword {
 #[derive(Debug, PartialEq, Visit)]
 pub enum GradientItem<'a, D> {
     ColorStop {
-        color: Box<'a, CssColor<'a>>,
-        position: Option<Box<'a, DimensionPercentage<'a, D>>>,
+        color: std::boxed::Box<CssColor<'a>>,
+        position: Option<std::boxed::Box<DimensionPercentage<D>>>,
     },
-    Hint(Box<'a, DimensionPercentage<'a, D>>),
+    Hint(std::boxed::Box<DimensionPercentage<D>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum DimensionPercentage<'a, D> {
+pub enum DimensionPercentage<D> {
     Dimension(D),
     Percentage(f32),
     /// A unitless zero produced by target-aware minification.
     Zero,
-    Calc(Box<'a, Calc<'a, DimensionPercentage<'a, D>>>),
+    Calc(std::boxed::Box<Calc<DimensionPercentage<D>>>),
 }
 
-pub type LengthPercentage<'a> = DimensionPercentage<'a, LengthValue>;
-pub type AnglePercentage<'a> = DimensionPercentage<'a, Angle>;
+pub type LengthPercentage = DimensionPercentage<LengthValue>;
+pub type AnglePercentage = DimensionPercentage<Angle>;
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum PositionComponent<'a, S> {
+pub enum PositionComponent<S> {
     Center,
-    Length(Box<'a, LengthPercentage<'a>>),
+    Length(std::boxed::Box<LengthPercentage>),
     Side {
-        offset: Option<Box<'a, LengthPercentage<'a>>>,
+        offset: Option<std::boxed::Box<LengthPercentage>>,
         side: S,
     },
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum EndingShape<'a> {
-    Ellipse(Box<'a, Ellipse<'a>>),
-    Circle(Box<'a, Circle<'a>>),
+pub enum EndingShape {
+    Ellipse(std::boxed::Box<Ellipse>),
+    Circle(std::boxed::Box<Circle>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum Ellipse<'a> {
+pub enum Ellipse {
     Size {
-        x: Box<'a, LengthPercentage<'a>>,
-        y: Box<'a, LengthPercentage<'a>>,
+        x: std::boxed::Box<LengthPercentage>,
+        y: std::boxed::Box<LengthPercentage>,
     },
     Extent(ShapeExtent),
 }
@@ -139,8 +139,8 @@ pub enum ShapeExtent {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum Circle<'a> {
-    Radius(Box<'a, Length<'a>>),
+pub enum Circle {
+    Radius(std::boxed::Box<Length>),
     Extent(ShapeExtent),
 }
 
@@ -158,19 +158,19 @@ pub enum NumberOrPercentage {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum BackgroundSize<'a> {
+pub enum BackgroundSize {
     Explicit {
-        height: Box<'a, LengthPercentageOrAuto<'a>>,
-        width: Box<'a, LengthPercentageOrAuto<'a>>,
+        height: std::boxed::Box<LengthPercentageOrAuto>,
+        width: std::boxed::Box<LengthPercentageOrAuto>,
     },
     Cover,
     Contain,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum LengthPercentageOrAuto<'a> {
+pub enum LengthPercentageOrAuto {
     Auto,
-    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    LengthPercentage(std::boxed::Box<LengthPercentage>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

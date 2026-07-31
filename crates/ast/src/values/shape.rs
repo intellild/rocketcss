@@ -3,10 +3,10 @@ use crate::*;
 #[derive(Debug, PartialEq, Visit)]
 pub enum ClipPath<'a> {
     None,
-    Url(Box<'a, Url<'a>>),
+    Url(std::boxed::Box<Url<'a>>),
     Shape {
         reference_box: GeometryBox,
-        shape: Box<'a, BasicShape<'a>>,
+        shape: std::boxed::Box<BasicShape>,
     },
     Box(GeometryBox),
 }
@@ -23,16 +23,16 @@ pub enum GeometryBox {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum BasicShape<'a> {
-    Inset(Box<'a, InsetRect<'a>>),
-    Circle(Box<'a, CircleShape<'a>>),
-    Ellipse(Box<'a, EllipseShape<'a>>),
-    Polygon(Box<'a, Polygon<'a>>),
+pub enum BasicShape {
+    Inset(std::boxed::Box<InsetRect>),
+    Circle(std::boxed::Box<CircleShape>),
+    Ellipse(std::boxed::Box<EllipseShape>),
+    Polygon(std::boxed::Box<Polygon>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum ShapeRadius<'a> {
-    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+pub enum ShapeRadius {
+    LengthPercentage(std::boxed::Box<LengthPercentage>),
     ClosestSide,
     FarthestSide,
 }

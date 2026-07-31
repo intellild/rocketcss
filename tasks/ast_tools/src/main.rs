@@ -146,6 +146,9 @@ fn main() {
                 match item {
                     Item::Struct(item) if is_public(&item.vis) => {
                         assert_derives_visit(&item.attrs, &item.ident, &path);
+                        if has_visit_option(&item.attrs, "skip") {
+                            continue;
+                        }
                         nodes.push(Node {
                             ident: item.ident,
                             generics: item.generics,
@@ -154,6 +157,9 @@ fn main() {
                     }
                     Item::Enum(item) if is_public(&item.vis) => {
                         assert_derives_visit(&item.attrs, &item.ident, &path);
+                        if has_visit_option(&item.attrs, "skip") {
+                            continue;
+                        }
                         nodes.push(Node {
                             ident: item.ident,
                             generics: item.generics,
@@ -371,8 +377,11 @@ fn generate_visitor(
             alias.ident
         );
         let variant = &alias.ident;
-        let (method_generics, ty, bounds) =
+        let (method_generics, mut ty, bounds) =
             signature_parts(&alias.ident, &alias.generics, &node_trait);
+        if alias.ident == "SelectorList" {
+            ty = quote!([Selector<'a>]);
+        }
         let generic_names = type_param_names(&alias.generics);
         let mut counter = 0;
         let body = visit_type(
@@ -514,6 +523,16 @@ fn manual_methods(mode: Mode) -> TokenStream {
         quote!(&mut)
     };
     quote! {
+        /// Observes a declaration block through its stable compilation-local ID.
+        /// The ordinary block and declaration callbacks have completed before
+        /// this hook runs.
+        #[inline]
+        fn visit_declaration_block_id(
+            &mut self,
+            _id: DeclarationBlockId,
+            _cx: #context_reference #context<'_, 'a, 'ghost>,
+        ) {}
+
         #[inline]
         fn visit_declaration(
             &mut self,
@@ -601,11 +620,10 @@ fn container_impls(mode: Mode) -> TokenStream {
                     }
                 )+};
             }
-            impl_leaf_visit!(bool, char, f32, i32, u8, u16, u32, usize);
+            impl_leaf_visit!(bool, char, f32, i32, u8, u16, u32, usize, std::string::String);
 
             impl<'a, 'ghost, T: ?Sized + #node_trait<'a, 'ghost>>
-                #node_trait<'a, 'ghost>
-                for rocketcss_common::boxed::Box<'a, T>
+                #node_trait<'a, 'ghost> for std::boxed::Box<T>
             {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
@@ -615,9 +633,8 @@ fn container_impls(mode: Mode) -> TokenStream {
                     #node_trait::#visit(self.as_ref(), visitor, cx);
                 }
             }
-            impl<'a, 'ghost, T: #node_trait<'a, 'ghost> + Unpin>
-                #node_trait<'a, 'ghost>
-                for rocketcss_common::vec::Vec<'a, T>
+            impl<'a, 'ghost, T: #node_trait<'a, 'ghost>>
+                #node_trait<'a, 'ghost> for std::vec::Vec<T>
             {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
@@ -665,11 +682,10 @@ fn container_impls(mode: Mode) -> TokenStream {
                     }
                 )+};
             }
-            impl_leaf_visit_mut!(bool, char, f32, i32, u8, u16, u32, usize);
+            impl_leaf_visit_mut!(bool, char, f32, i32, u8, u16, u32, usize, std::string::String);
 
             impl<'a, 'ghost, T: ?Sized + #node_trait<'a, 'ghost>>
-                #node_trait<'a, 'ghost>
-                for rocketcss_common::boxed::Box<'a, T>
+                #node_trait<'a, 'ghost> for std::boxed::Box<T>
             {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
@@ -679,9 +695,8 @@ fn container_impls(mode: Mode) -> TokenStream {
                     #node_trait::#visit(self.as_mut(), visitor, cx);
                 }
             }
-            impl<'a, 'ghost, T: #node_trait<'a, 'ghost> + Unpin>
-                #node_trait<'a, 'ghost>
-                for rocketcss_common::vec::Vec<'a, T>
+            impl<'a, 'ghost, T: #node_trait<'a, 'ghost>>
+                #node_trait<'a, 'ghost> for std::vec::Vec<T>
             {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,

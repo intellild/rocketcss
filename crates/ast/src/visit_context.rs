@@ -1,11 +1,14 @@
-use crate::{DeclarationBlockId, DeclarationBlockStore};
-use rocketcss_common::{GhostCell, GhostToken, Ref};
-use std::pin::Pin;
+use crate::{
+    CssRule, DeclarationBlockId, DeclarationBlockStore, DefaultAtRule, RuleId, RuleListId,
+    RuleStore, SelectorListId, Visit, VisitMut,
+};
+use rocketcss_common::{DenseId, GhostToken};
 
-/// Shared GhostCell access carried through immutable AST traversal.
+/// Shared compilation-store access carried through immutable AST traversal.
 pub struct VisitContext<'token, 'ast, 'ghost> {
     token: &'token GhostToken<'ghost>,
     declaration_blocks: Option<&'token DeclarationBlockStore<'ast>>,
+    rules: Option<&'token RuleStore<'ast>>,
 }
 
 impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
@@ -14,6 +17,7 @@ impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
         Self {
             token,
             declaration_blocks: None,
+            rules: None,
         }
     }
 
@@ -25,7 +29,45 @@ impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
         Self {
             token,
             declaration_blocks: Some(declaration_blocks),
+            rules: None,
         }
+    }
+
+    #[inline]
+    pub fn new_with_stores(
+        token: &'token GhostToken<'ghost>,
+        declaration_blocks: &'token DeclarationBlockStore<'ast>,
+        rules: &'token RuleStore<'ast>,
+    ) -> Self {
+        Self {
+            token,
+            declaration_blocks: Some(declaration_blocks),
+            rules: Some(rules),
+        }
+    }
+
+    pub(crate) fn visit_rule_list<V: ?Sized + crate::Visitor<'ast, 'ghost>>(
+        &self,
+        list: RuleListId,
+        visitor: &mut V,
+    ) {
+        let rules = self
+            .rules
+            .expect("rule-list traversal requires a compilation store");
+        for (_, rule) in rules.children(list) {
+            rule.visit(visitor, self);
+        }
+    }
+
+    pub(crate) fn visit_selector_list<V: ?Sized + crate::Visitor<'ast, 'ghost>>(
+        &self,
+        list: SelectorListId,
+        visitor: &mut V,
+    ) {
+        let rules = self
+            .rules
+            .expect("selector traversal requires a compilation store");
+        visitor.visit_selector_list(rules.selectors(list), self);
     }
 
     #[inline]
@@ -40,39 +82,34 @@ impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
         f(blocks.get(id), self)
     }
 
+    pub(crate) fn visit_declaration_block<V: ?Sized + crate::Visitor<'ast, 'ghost>>(
+        &self,
+        id: DeclarationBlockId,
+        visitor: &mut V,
+    ) {
+        let blocks = self
+            .declaration_blocks
+            .expect("declaration block traversal requires a compilation store");
+        blocks.block(id).visit(visitor, self);
+        for (declaration, _) in blocks.block_iter(id) {
+            declaration.visit(visitor, self);
+        }
+        visitor.visit_declaration_block_id(id, self);
+    }
+
     #[inline]
     pub const fn token(&self) -> &'token GhostToken<'ghost> {
         self.token
     }
-
-    #[inline]
-    pub fn with_cell<T: ?Sized, R>(
-        &self,
-        cell: Pin<&GhostCell<'ghost, T>>,
-        f: impl FnOnce(Pin<&T>, &Self) -> R,
-    ) -> R {
-        f(cell.borrow(self.token), self)
-    }
-
-    #[inline]
-    pub fn with_ref<'a, T: ?Sized, R>(
-        &self,
-        reference: Ref<'a, 'ghost, T>,
-        f: impl FnOnce(Pin<&T>, &Self) -> R,
-    ) -> R {
-        f(reference.get(self.token), self)
-    }
 }
 
-/// Unique GhostCell access carried through mutable AST traversal.
+/// Unique compilation-store access carried through mutable AST traversal.
 pub struct VisitMutContext<'token, 'ast, 'ghost> {
-    state: VisitMutState<'token, 'ghost>,
+    marker: std::marker::PhantomData<&'token mut GhostToken<'ghost>>,
     declaration_blocks: DeclarationBlockVisitState<'ast>,
-}
-
-enum VisitMutState<'token, 'ghost> {
-    Available(&'token mut GhostToken<'ghost>),
-    Borrowed,
+    rules: Option<*mut RuleStore<'ast>>,
+    current_rule: Option<RuleId>,
+    traverse_rule_lists: bool,
 }
 
 enum DeclarationBlockVisitState<'ast> {
@@ -82,6 +119,36 @@ enum DeclarationBlockVisitState<'ast> {
 }
 
 struct DeclarationBlockScopeReset<'ast>(*mut DeclarationBlockVisitState<'ast>);
+struct RuleStoreScopeReset<'ast>(*mut Option<*mut RuleStore<'ast>>);
+
+struct RulePayloadRestore<'ast> {
+    rules: *mut RuleStore<'ast>,
+    rule: RuleId,
+    payload: Option<CssRule<'ast>>,
+}
+
+impl Drop for RulePayloadRestore<'_> {
+    fn drop(&mut self) {
+        let payload = self
+            .payload
+            .take()
+            .expect("a detached rule payload is restored exactly once");
+        // SAFETY: the context holds the exclusive RuleStore borrow for the
+        // traversal, and this guard restores the same slot before another
+        // rule payload is detached or the context is released.
+        *unsafe { &mut *self.rules }.get_mut(self.rule) = payload;
+    }
+}
+
+struct CurrentRuleReset(*mut Option<RuleId>, Option<RuleId>);
+
+impl Drop for CurrentRuleReset {
+    fn drop(&mut self) {
+        // SAFETY: the guard does not outlive the VisitMutContext field and
+        // restores the previous nested traversal state during unwinding.
+        unsafe { *self.0 = self.1 };
+    }
+}
 
 impl Drop for DeclarationBlockScopeReset<'_> {
     fn drop(&mut self) {
@@ -91,23 +158,158 @@ impl Drop for DeclarationBlockScopeReset<'_> {
     }
 }
 
+impl Drop for RuleStoreScopeReset<'_> {
+    fn drop(&mut self) {
+        // SAFETY: the guard points to the context field that created it.
+        unsafe { *self.0 = None };
+    }
+}
+
 impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
     #[inline]
-    pub fn new(token: &'token mut GhostToken<'ghost>) -> Self {
+    pub fn new(_token: &'token mut GhostToken<'ghost>) -> Self {
         Self {
-            state: VisitMutState::Available(token),
+            marker: std::marker::PhantomData,
             declaration_blocks: DeclarationBlockVisitState::Unavailable,
+            rules: None,
+            current_rule: None,
+            traverse_rule_lists: true,
         }
     }
 
     #[inline]
     pub fn new_with_declaration_blocks(
-        token: &'token mut GhostToken<'ghost>,
+        _token: &'token mut GhostToken<'ghost>,
         declaration_blocks: &'token mut DeclarationBlockStore<'ast>,
     ) -> Self {
         Self {
-            state: VisitMutState::Available(token),
+            marker: std::marker::PhantomData,
             declaration_blocks: DeclarationBlockVisitState::Available(declaration_blocks),
+            rules: None,
+            current_rule: None,
+            traverse_rule_lists: true,
+        }
+    }
+
+    #[inline]
+    pub fn new_with_stores(
+        _token: &'token mut GhostToken<'ghost>,
+        declaration_blocks: &'token mut DeclarationBlockStore<'ast>,
+        rules: &'token mut RuleStore<'ast>,
+    ) -> Self {
+        Self {
+            marker: std::marker::PhantomData,
+            declaration_blocks: DeclarationBlockVisitState::Available(declaration_blocks),
+            rules: Some(rules),
+            current_rule: None,
+            traverse_rule_lists: true,
+        }
+    }
+
+    #[inline]
+    pub fn new_with_stores_flat(
+        _token: &'token mut GhostToken<'ghost>,
+        declaration_blocks: &'token mut DeclarationBlockStore<'ast>,
+        rules: &'token mut RuleStore<'ast>,
+    ) -> Self {
+        Self {
+            marker: std::marker::PhantomData,
+            declaration_blocks: DeclarationBlockVisitState::Available(declaration_blocks),
+            rules: Some(rules),
+            current_rule: None,
+            traverse_rule_lists: false,
+        }
+    }
+
+    pub(crate) fn visit_rule_list<V: ?Sized + crate::VisitorMut<'ast, 'ghost>>(
+        &mut self,
+        list: RuleListId,
+        visitor: &mut V,
+    ) {
+        if !self.traverse_rule_lists {
+            return;
+        }
+        let rules = self
+            .rules
+            .expect("rule-list traversal requires a compilation store");
+        // Collect IDs before callbacks. Payload visitors may edit fields but
+        // cannot grow or structurally rewrite the rule store.
+        let ids = unsafe { &*rules }
+            .children(list)
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>();
+        for id in ids {
+            self.visit_rule(id, visitor);
+        }
+    }
+
+    pub(crate) fn visit_selector_list<V: ?Sized + crate::VisitorMut<'ast, 'ghost>>(
+        &mut self,
+        list: SelectorListId,
+        visitor: &mut V,
+    ) {
+        let rules = self
+            .rules
+            .expect("selector traversal requires a compilation store");
+        // SAFETY: structural rule growth is unavailable during visitor
+        // callbacks. Selector ranges are fixed-size slots in the same store.
+        visitor.visit_selector_list(unsafe { &mut *rules }.selectors_mut(list), self);
+    }
+
+    pub fn visit_rule<V: ?Sized + crate::VisitorMut<'ast, 'ghost>>(
+        &mut self,
+        id: RuleId,
+        visitor: &mut V,
+    ) {
+        let rules = self
+            .rules
+            .expect("rule traversal requires a compilation store");
+        let payload = std::mem::replace(
+            unsafe { &mut *rules }.get_mut(id),
+            CssRule::Custom(DefaultAtRule),
+        );
+        let mut restore = RulePayloadRestore {
+            rules,
+            rule: id,
+            payload: Some(payload),
+        };
+        let previous = self.current_rule.replace(id);
+        let _current_reset = CurrentRuleReset(&mut self.current_rule, previous);
+        restore
+            .payload
+            .as_mut()
+            .expect("the detached payload is available during traversal")
+            .visit_mut(visitor, self);
+    }
+
+    #[inline]
+    pub fn current_rule(&self) -> RuleId {
+        self.current_rule
+            .expect("rule-local traversal has a current RuleId")
+    }
+
+    pub fn with_selector_list<R>(
+        &mut self,
+        id: SelectorListId,
+        callback: impl FnOnce(&mut [crate::Selector<'ast>]) -> R,
+    ) -> R {
+        let rules = self
+            .rules
+            .expect("selector mutation requires a compilation store");
+        // SAFETY: visitor callbacks cannot grow or structurally rewrite the
+        // rule store, and the selector list owns a fixed dense range.
+        callback(unsafe { &mut *rules }.selectors_mut(id))
+    }
+
+    #[inline]
+    pub fn rule_store(&self) -> &RuleStore<'ast> {
+        // SAFETY: rule payloads are detached before callbacks run. Consumers
+        // may inspect already-restored preorder predecessors but cannot mutate
+        // or grow the store through this shared view.
+        unsafe {
+            &*self
+                .rules
+                .expect("rule inspection requires a compilation store")
         }
     }
 
@@ -131,6 +333,56 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
         result
     }
 
+    pub(crate) fn visit_declaration_block<V: ?Sized + crate::VisitorMut<'ast, 'ghost>>(
+        &mut self,
+        id: DeclarationBlockId,
+        visitor: &mut V,
+    ) {
+        let DeclarationBlockVisitState::Available(blocks) = std::mem::replace(
+            &mut self.declaration_blocks,
+            DeclarationBlockVisitState::Borrowed,
+        ) else {
+            panic!("declaration block traversal requires an available compilation store");
+        };
+        // SAFETY: the state stores a live exclusive borrow and remains marked
+        // `Borrowed` until every header/declaration callback has completed.
+        let blocks = unsafe { &mut *blocks };
+        blocks.block_mut(id).visit_mut(visitor, self);
+        let declaration_ids = blocks
+            .block(id)
+            .ranges()
+            .iter()
+            .flat_map(|range| range.as_usize_range())
+            .map(|index| {
+                crate::DeclarationId::from_index(index)
+                    .expect("a declaration block range contains valid IDs")
+            })
+            .collect::<std::vec::Vec<_>>();
+        for declaration in declaration_ids {
+            blocks.declaration_mut(declaration).visit_mut(visitor, self);
+        }
+        self.declaration_blocks = DeclarationBlockVisitState::Available(blocks);
+        visitor.visit_declaration_block_id(id, self);
+    }
+
+    pub fn with_declaration_block_store<R>(
+        &mut self,
+        callback: impl FnOnce(&mut DeclarationBlockStore<'ast>, &mut Self) -> R,
+    ) -> R {
+        let DeclarationBlockVisitState::Available(blocks) = std::mem::replace(
+            &mut self.declaration_blocks,
+            DeclarationBlockVisitState::Borrowed,
+        ) else {
+            panic!("declaration block access requires an available compilation store");
+        };
+        // SAFETY: the state stores a live exclusive borrow and remains marked
+        // `Borrowed` until the callback returns.
+        let blocks = unsafe { &mut *blocks };
+        let result = callback(blocks, self);
+        self.declaration_blocks = DeclarationBlockVisitState::Available(blocks);
+        result
+    }
+
     pub fn with_declaration_blocks<R>(
         &mut self,
         declaration_blocks: &mut DeclarationBlockStore<'ast>,
@@ -148,41 +400,15 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
         callback(self)
     }
 
-    #[inline]
-    pub fn with_cell<T: ?Sized, R>(
+    pub fn with_stores<R>(
         &mut self,
-        cell: Pin<&GhostCell<'ghost, T>>,
-        f: impl FnOnce(Pin<&mut T>, &mut Self) -> R,
+        declaration_blocks: &mut DeclarationBlockStore<'ast>,
+        rules: &mut RuleStore<'ast>,
+        callback: impl FnOnce(&mut Self) -> R,
     ) -> R {
-        let VisitMutState::Available(token) =
-            std::mem::replace(&mut self.state, VisitMutState::Borrowed)
-        else {
-            panic!("nested mutable GhostCell access");
-        };
-        let result = {
-            let value = cell.borrow_mut(&mut *token);
-            f(value, self)
-        };
-        self.state = VisitMutState::Available(token);
-        result
-    }
-
-    #[inline]
-    pub fn with_ref<'a, T: ?Sized, R>(
-        &mut self,
-        reference: Ref<'a, 'ghost, T>,
-        f: impl FnOnce(Pin<&mut T>, &mut Self) -> R,
-    ) -> R {
-        let VisitMutState::Available(token) =
-            std::mem::replace(&mut self.state, VisitMutState::Borrowed)
-        else {
-            panic!("nested mutable Ref access");
-        };
-        let result = {
-            let value = reference.get_mut(&mut *token);
-            f(value, self)
-        };
-        self.state = VisitMutState::Available(token);
-        result
+        assert!(self.rules.is_none(), "rule store is already available");
+        self.rules = Some(rules);
+        let _rules_reset = RuleStoreScopeReset(&mut self.rules);
+        self.with_declaration_blocks(declaration_blocks, callback)
     }
 }

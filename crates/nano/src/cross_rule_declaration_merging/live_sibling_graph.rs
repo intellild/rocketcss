@@ -1,12 +1,15 @@
-use rocketcss_ast::{CssRule, DeclarationBlockId, DeclarationBlockStore, Selector, StyleSheet};
+use rocketcss_ast::{
+    CssRule, DeclarationBlockId, DeclarationBlockStore, EffectiveKeyId, RuleListId, RuleStore,
+    Selector,
+};
 use rocketcss_common::{DenseMap, DenseStore, define_dense_id};
 use rustc_hash::FxHashMap;
 
 use super::RuleId;
 use super::candidates::{Candidate, SameSelectorCandidateList};
-use crate::utils::{
+use super::discovery::{
     DeclarationBlockEntries, DeclarationBlockEntry, DeclarationBlockEntryId, DeclarationBlockKind,
-    EffectiveKeyId, RuleListId, RuleListSegmentId,
+    RuleListSegmentId,
 };
 
 define_dense_id!(struct SequenceId);
@@ -18,7 +21,7 @@ const _: () = {
 
 #[derive(Debug)]
 struct LiveRule {
-    declarations: DeclarationBlockId,
+    ast_rule: rocketcss_ast::RuleId,
     effective_key: EffectiveKeyId,
     previous_live: Option<RuleId>,
     next_live: Option<RuleId>,
@@ -59,8 +62,8 @@ impl LiveSiblingGraph {
         let mut graph = Self {
             rules: DenseStore::with_capacity(style_rule_count),
             sequences: DenseStore::with_capacity(style_rule_count),
-            sequence_by_block: DenseMap::from_store(store, |_| None),
-            non_empty_blocks: DenseMap::from_store(store, |_| false),
+            sequence_by_block: store.map(|_| None),
+            non_empty_blocks: store.map(|_| false),
             same_selector_candidates: SameSelectorCandidateList::default(),
             declaration_links: Vec::with_capacity(style_rule_count.saturating_sub(1)),
         };
@@ -68,19 +71,11 @@ impl LiveSiblingGraph {
             (RuleListId, RuleListSegmentId),
             (RuleId, DeclarationBlockEntryId),
         > = FxHashMap::default();
-        let mut declaration_chain = Vec::new();
-        let mut declaration_chain_seen = DenseMap::from_store(store, |_| false);
-
         for (entry_id, entry) in declaration_blocks.iter_enumerated() {
             let DeclarationBlockKind::Style { .. } = entry.kind else {
                 continue;
             };
-            let rule = graph.push_rule(
-                entry,
-                store,
-                &mut declaration_chain,
-                &mut declaration_chain_seen,
-            );
+            let rule = graph.push_rule(entry, store);
             let segment = (entry.rule_list, entry.rule_list_segment);
             if let Some(&(previous, previous_entry)) = last_style_by_segment.get(&segment)
                 && declaration_blocks[previous_entry].is_direct_sibling_of(entry)
@@ -97,8 +92,6 @@ impl LiveSiblingGraph {
         &mut self,
         entry: &DeclarationBlockEntry,
         store: &DeclarationBlockStore<'_>,
-        declaration_chain: &mut Vec<DeclarationBlockId>,
-        declaration_chain_seen: &mut DenseMap<DeclarationBlockId, bool>,
     ) -> RuleId {
         let DeclarationBlockKind::Style {
             has_children,
@@ -109,43 +102,24 @@ impl LiveSiblingGraph {
         };
         let rule = self.rules.next_id();
         let sequence = self.sequences.next_id();
-        collect_declaration_chain(
-            entry.declarations,
-            store,
-            declaration_chain,
-            declaration_chain_seen,
+        let declarations = entry.declarations;
+        let old_sequence = self.sequence_by_block[declarations].replace(sequence);
+        debug_assert!(
+            old_sequence.is_none(),
+            "a declaration block belongs to only one sequence"
         );
-        declaration_chain.reverse();
-        let head = *declaration_chain
-            .first()
-            .expect("a declaration chain contains its active block");
-        let tail = *declaration_chain
-            .last()
-            .expect("a declaration chain contains its active block");
-        let mut non_empty_block_count = 0_u32;
-        for &declarations in declaration_chain.iter() {
-            let old_sequence = self.sequence_by_block[declarations].replace(sequence);
-            debug_assert!(
-                old_sequence.is_none(),
-                "a declaration block belongs to only one sequence"
-            );
-            if !store.get(declarations).is_output_empty() {
-                self.non_empty_blocks[declarations] = true;
-                non_empty_block_count = non_empty_block_count
-                    .checked_add(1)
-                    .expect("declaration block count exceeds u32::MAX");
-            }
-        }
+        let non_empty_block_count = u32::from(!store.view(declarations).is_output_empty());
+        self.non_empty_blocks[declarations] = non_empty_block_count != 0;
         let inserted_sequence = self.sequences.push(DeclarationSequence {
             parent: sequence,
-            head,
-            tail,
+            head: declarations,
+            tail: declarations,
             non_empty_block_count,
             active_owner: rule,
         });
         debug_assert_eq!(inserted_sequence, sequence);
         let inserted_rule = self.rules.push(LiveRule {
-            declarations: entry.declarations,
+            ast_rule: entry.rule,
             effective_key: entry.effective_key,
             previous_live: None,
             next_live: None,
@@ -189,24 +163,31 @@ impl LiveSiblingGraph {
 
     pub(super) fn commit(
         &self,
-        stylesheet: &mut StyleSheet<'_>,
+        rules: &mut RuleStore<'_>,
         store: &mut DeclarationBlockStore<'_>,
     ) -> bool {
-        for &(current, previous) in &self.declaration_links {
-            store.get_mut(current).set_previous_merged(Some(previous));
-        }
+        materialize_declaration_links(&self.declaration_links, store);
 
-        let mut retired = DenseMap::from_store(store, |_| false);
         let mut has_retired = false;
         for rule in self.rules.iter().filter(|rule| !rule.live) {
-            retired[rule.declarations] = true;
+            match rules.get_mut(rule.ast_rule) {
+                CssRule::Style(style) => {
+                    let selectors = style.selectors;
+                    for selector in rules.selectors_mut(selectors) {
+                        *selector = Selector::Tombstone;
+                    }
+                }
+                CssRule::Nesting(nesting) => {
+                    let selectors = nesting.style.selectors;
+                    for selector in rules.selectors_mut(selectors) {
+                        *selector = Selector::Tombstone;
+                    }
+                }
+                _ => unreachable!("the live graph contains only style rules"),
+            }
             has_retired = true;
         }
-        if !has_retired {
-            return false;
-        }
-        retire_style_rules(&mut stylesheet.rules, &retired);
-        true
+        has_retired
     }
 
     pub(super) fn candidate_is_live_edge(
@@ -292,51 +273,32 @@ impl LiveSiblingGraph {
     }
 }
 
-fn collect_declaration_chain(
-    declarations: DeclarationBlockId,
-    store: &DeclarationBlockStore<'_>,
-    chain: &mut Vec<DeclarationBlockId>,
-    seen: &mut DenseMap<DeclarationBlockId, bool>,
+fn materialize_declaration_links(
+    links: &[(DeclarationBlockId, DeclarationBlockId)],
+    store: &mut DeclarationBlockStore<'_>,
 ) {
-    for declarations in chain.drain(..) {
-        seen[declarations] = false;
+    let mut previous_by_current = FxHashMap::default();
+    for &(current, previous) in links {
+        let replaced = previous_by_current.insert(current, previous);
+        debug_assert!(replaced.is_none(), "a block has one logical predecessor");
     }
-    chain.push(declarations);
-    seen[declarations] = true;
-    let mut current = store.get(declarations).previous_merged();
-    while let Some(declarations) = current {
-        if std::mem::replace(&mut seen[declarations], true) {
-            break;
-        }
-        current = store.get(declarations).previous_merged();
-        chain.push(declarations);
-    }
-}
 
-fn retire_style_rules<'ast>(
-    rules: &mut [CssRule<'ast>],
-    retired: &DenseMap<DeclarationBlockId, bool>,
-) {
-    for rule in rules {
-        match rule {
-            CssRule::Media(rule) => retire_style_rules(&mut rule.rules, retired),
-            CssRule::Style(rule) => {
-                retire_style_rules(rule.as_mut().rules_mut(), retired);
-                let should_retire = retired[rule.as_ref().get_ref().declarations];
-                if should_retire {
-                    for selector in rule.as_mut().selectors_mut() {
-                        *selector = Selector::Tombstone;
-                    }
-                }
+    let mut applied = rustc_hash::FxHashSet::default();
+    let mut chain = Vec::new();
+    for &(target, _) in links {
+        chain.clear();
+        let mut current = target;
+        while !applied.contains(&current) {
+            let Some(&previous) = previous_by_current.get(&current) else {
+                break;
+            };
+            chain.push((current, previous));
+            current = previous;
+        }
+        for &(current, previous) in chain.iter().rev() {
+            if applied.insert(current) {
+                store.prepend_block(current, previous);
             }
-            CssRule::Supports(rule) => retire_style_rules(&mut rule.rules, retired),
-            CssRule::MozDocument(rule) => retire_style_rules(&mut rule.rules, retired),
-            CssRule::Nesting(rule) => retire_style_rules(rule.style.as_mut().rules_mut(), retired),
-            CssRule::LayerBlock(rule) => retire_style_rules(&mut rule.rules, retired),
-            CssRule::Container(rule) => retire_style_rules(&mut rule.rules, retired),
-            CssRule::Scope(rule) => retire_style_rules(&mut rule.rules, retired),
-            CssRule::StartingStyle(rule) => retire_style_rules(&mut rule.rules, retired),
-            _ => {}
         }
     }
 }

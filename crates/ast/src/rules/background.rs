@@ -1,9 +1,9 @@
 use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Position<'a> {
-    pub x: Box<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
-    pub y: Box<'a, PositionComponent<'a, VerticalPositionKeyword>>,
+pub struct Position {
+    pub x: std::boxed::Box<PositionComponent<HorizontalPositionKeyword>>,
+    pub y: std::boxed::Box<PositionComponent<VerticalPositionKeyword>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -14,27 +14,27 @@ pub struct WebKitGradientPoint {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct WebKitColorStop<'a> {
-    pub color: Box<'a, CssColor<'a>>,
+    pub color: std::boxed::Box<CssColor<'a>>,
     pub position: f32,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ImageSet<'a> {
-    pub options: Vec<'a, ImageSetOption<'a>>,
+    pub options: std::vec::Vec<ImageSetOption<'a>>,
     pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ImageSetOption<'a> {
     pub file_type: Option<&'a str>,
-    pub image: Box<'a, Image<'a>>,
+    pub image: std::boxed::Box<Image<'a>>,
     pub resolution: Resolution,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct BackgroundPosition<'a> {
-    pub x: Box<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
-    pub y: Box<'a, PositionComponent<'a, VerticalPositionKeyword>>,
+pub struct BackgroundPosition {
+    pub x: std::boxed::Box<PositionComponent<HorizontalPositionKeyword>>,
+    pub y: std::boxed::Box<PositionComponent<VerticalPositionKeyword>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -47,20 +47,20 @@ pub struct BackgroundRepeat {
 pub struct Background<'a> {
     pub attachment: BackgroundAttachment,
     pub clip: BackgroundClip,
-    pub color: Box<'a, CssColor<'a>>,
-    pub image: Box<'a, Image<'a>>,
+    pub color: std::boxed::Box<CssColor<'a>>,
+    pub image: std::boxed::Box<Image<'a>>,
     pub origin: BackgroundOrigin,
-    pub position: Box<'a, BackgroundPosition<'a>>,
+    pub position: std::boxed::Box<BackgroundPosition>,
     pub repeat: BackgroundRepeat,
-    pub size: Box<'a, BackgroundSize<'a>>,
+    pub size: std::boxed::Box<BackgroundSize>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BoxShadow<'a> {
-    pub blur: Box<'a, Length<'a>>,
-    pub color: Box<'a, CssColor<'a>>,
+    pub blur: std::boxed::Box<Length>,
+    pub color: std::boxed::Box<CssColor<'a>>,
     pub inset: bool,
-    pub spread: Box<'a, Length<'a>>,
-    pub x_offset: Box<'a, Length<'a>>,
-    pub y_offset: Box<'a, Length<'a>>,
+    pub spread: std::boxed::Box<Length>,
+    pub x_offset: std::boxed::Box<Length>,
+    pub y_offset: std::boxed::Box<Length>,
 }

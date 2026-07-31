@@ -1,4 +1,5 @@
 use super::*;
+use rocketcss_common::StringPool;
 
 use crate::MinifyStats;
 use crate::context;
@@ -43,7 +44,8 @@ fn property_context_dispatches_by_property_id() {
             context::PropertyContext::Generic
         );
 
-        let columns = PropertyId::from_name("CoLuMnS");
+        let mut pool = StringPool::new();
+        let columns = PropertyId::from_name(pool.intern("CoLuMnS"));
         assert_eq!(columns, PropertyId::Columns(VendorPrefix::NONE));
         assert_eq!(
             properties::value_context(&columns, true, true).property,
@@ -54,7 +56,7 @@ fn property_context_dispatches_by_property_id() {
             context::PropertyContext::Generic
         );
 
-        let prefixed_animation = PropertyId::from_name("-WebKit-ANIMATION");
+        let prefixed_animation = PropertyId::from_name(pool.intern("-WebKit-ANIMATION"));
         assert_eq!(
             prefixed_animation,
             PropertyId::Animation(VendorPrefix::WEBKIT)
@@ -78,18 +80,16 @@ fn property_context_dispatches_by_property_id() {
 
 #[test]
 fn plugin_exposes_local_normalization_stats() {
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
+    GhostToken::scope(|mut token| {
         let mut stylesheet = parse(
             "a{width:16px;width:16px}",
-            &allocator,
             &mut token,
             ParserOptions::default(),
         )
         .unwrap();
         let mut plugins = Plugins::new();
         plugins.add(MinifyPlugin::default());
-        let mut plugin_context = PluginContext::new(&allocator, &mut token);
+        let mut plugin_context = PluginContext::new(&mut token);
         plugins.run(&mut stylesheet, &mut plugin_context).unwrap();
         let stats = plugin_context.get::<MinifyStats>().unwrap();
         assert_eq!(stats.values_normalized, 2);

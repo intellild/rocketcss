@@ -11,5 +11,5 @@ pub enum ContainerType {
 #[derive(Debug, PartialEq, Visit)]
 pub enum ContainerNameList<'a> {
     None,
-    Names(Vec<'a, &'a str>),
+    Names(std::vec::Vec<&'a str>),
 }

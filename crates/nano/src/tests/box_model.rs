@@ -78,11 +78,9 @@ fn box_ir_preserves_fallback_and_logical_property_barriers() {
 
 #[test]
 fn keeps_existing_token_storage() {
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
+    GhostToken::scope(|mut token| {
         let mut stylesheet = parse(
             "a{margin:1px 1px 1px 1px}",
-            &allocator,
             &mut token,
             ParserOptions::default(),
         )
@@ -148,10 +146,9 @@ fn s2_preserves_parent_declaration_positions_around_a_nested_rule() {
 fn unparsed_value_storage<'a>(
     stylesheet: &Compilation<'a>,
 ) -> (*const TokenOrValue<'a>, *const Token<'a>) {
-    let CssRule::Style(rule) = &stylesheet.rules[0] else {
+    let CssRule::Style(rule) = &stylesheet.root_rules()[0] else {
         panic!("expected style rule")
     };
-    let rule = rule.as_ref().get_ref();
     let declarations = stylesheet.declaration_block(rule.declarations);
     let Declaration::Unparsed(property) = &declarations.declarations[0] else {
         panic!("expected unparsed property")

@@ -3,14 +3,13 @@ use crate::prelude::*;
 
 pub(super) const MAX_NESTING_DEPTH: usize = 500;
 
-/// Parses a stylesheet using the span-only tokenizer and arena-backed AST.
+/// Parses a stylesheet into compilation-owned source-order stores.
 pub fn parse<'i, 'ghost>(
     source: &'i str,
-    allocator: &'i Allocator,
     token: &mut GhostToken<'ghost>,
     options: ParserOptions<'i>,
 ) -> Result<Compilation<'i>, Error<'i>> {
-    Compiler::new(allocator).parse(source, token, options)
+    Compiler::new().parse(source, token, options)
 }
 
 pub(crate) fn parse_stylesheet<'i, 'ghost>(
@@ -18,8 +17,7 @@ pub(crate) fn parse_stylesheet<'i, 'ghost>(
     token: &mut GhostToken<'ghost>,
     options: ParserOptions<'i>,
 ) -> Result<StyleSheet<'i>, Error<'i>> {
-    let allocator = compiler.allocator();
-    let mut license_comments = allocator.vec();
+    let mut license_comments = std::vec::Vec::new();
 
     let mut state = compiler.state();
     while let Ok(token) = compiler.next_including_whitespace_and_comments() {
@@ -34,7 +32,7 @@ pub(crate) fn parse_stylesheet<'i, 'ghost>(
     }
     compiler.reset(&state);
 
-    let rules = parse_rule_list(compiler, allocator, token, &options, 0)
+    let rules = parse_rule_list(compiler, token, &options, 0)
         .map_err(|error| into_error(error, options.filename))?;
 
     Ok(StyleSheet {
@@ -80,7 +78,7 @@ pub(super) fn into_error<'i>(
             ParserError::UnexpectedToken(token)
         }
         ParseErrorKind::Basic(BasicParseErrorKind::AtRuleInvalid(name)) => {
-            ParserError::InvalidAtRule(name)
+            ParserError::InvalidAtRule(name.to_owned().into())
         }
         ParseErrorKind::Basic(_) => ParserError::InvalidRule,
     };

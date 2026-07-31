@@ -312,7 +312,7 @@ impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for GradientItem<'_, D> {
     }
 }
 
-impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for DimensionPercentage<'_, D> {
+impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for DimensionPercentage<D> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -330,7 +330,7 @@ impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for DimensionPercentage<'_, D> {
     }
 }
 
-impl<'ghost, S: ToCss<'ghost>> ToCss<'ghost> for PositionComponent<'_, S> {
+impl<'ghost, S: ToCss<'ghost>> ToCss<'ghost> for PositionComponent<S> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -351,7 +351,7 @@ impl<'ghost, S: ToCss<'ghost>> ToCss<'ghost> for PositionComponent<'_, S> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for EndingShape<'_> {
+impl<'ghost> ToCss<'ghost> for EndingShape {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -364,7 +364,7 @@ impl<'ghost> ToCss<'ghost> for EndingShape<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Ellipse<'_> {
+impl<'ghost> ToCss<'ghost> for Ellipse {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -386,7 +386,7 @@ impl<'ghost> ToCss<'ghost> for Ellipse<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Circle<'_> {
+impl<'ghost> ToCss<'ghost> for Circle {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -431,7 +431,7 @@ impl<'ghost> ToCss<'ghost> for NumberOrPercentage {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BackgroundSize<'_> {
+impl<'ghost> ToCss<'ghost> for BackgroundSize {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -449,7 +449,7 @@ impl<'ghost> ToCss<'ghost> for BackgroundSize<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for LengthPercentageOrAuto<'_> {
+impl<'ghost> ToCss<'ghost> for LengthPercentageOrAuto {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -645,7 +645,7 @@ impl<'ghost> ToCss<'ghost> for PositionProperty {
     }
 }
 
-impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Size2D<'_, T> {
+impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Size2D<T> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -660,7 +660,7 @@ impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Size2D<'_, T> {
     }
 }
 
-impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Rect<'_, T> {
+impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Rect<T> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -685,7 +685,7 @@ impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Rect<'_, T> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BorderSideWidth<'_> {
+impl<'ghost> ToCss<'ghost> for BorderSideWidth {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -700,7 +700,7 @@ impl<'ghost> ToCss<'ghost> for BorderSideWidth<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for LengthOrNumber<'_> {
+impl<'ghost> ToCss<'ghost> for LengthOrNumber {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -713,7 +713,7 @@ impl<'ghost> ToCss<'ghost> for LengthOrNumber<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BorderImageSideWidth<'_> {
+impl<'ghost> ToCss<'ghost> for BorderImageSideWidth {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -890,7 +890,7 @@ impl<'ghost> ToCss<'ghost> for JustifyItems {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for GapValue<'_> {
+impl<'ghost> ToCss<'ghost> for GapValue {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -973,7 +973,7 @@ impl<'ghost> ToCss<'ghost> for TrackListItem<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TrackSize<'_> {
+impl<'ghost> ToCss<'ghost> for TrackSize {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -997,7 +997,7 @@ impl<'ghost> ToCss<'ghost> for TrackSize<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TrackBreadth<'_> {
+impl<'ghost> ToCss<'ghost> for TrackBreadth {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1124,7 +1124,7 @@ impl<'ghost> ToCss<'ghost> for AbsoluteFontWeight {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for FontSize<'_> {
+impl<'ghost> ToCss<'ghost> for FontSize {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1172,7 +1172,7 @@ impl<'ghost> ToCss<'ghost> for FontStyle {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for LineHeight<'_> {
+impl<'ghost> ToCss<'ghost> for LineHeight {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1186,7 +1186,7 @@ impl<'ghost> ToCss<'ghost> for LineHeight<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for VerticalAlign<'_> {
+impl<'ghost> ToCss<'ghost> for VerticalAlign {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1301,7 +1301,7 @@ impl<'ghost> ToCss<'ghost> for AnimationTimeline<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for AnimationAttachmentRange<'_> {
+impl<'ghost> ToCss<'ghost> for AnimationAttachmentRange {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1347,7 +1347,7 @@ fn write_comma_values<'ghost, PrinterT: PrinterTrait, T: ToCss<'ghost>>(
     Ok(())
 }
 
-impl<'ghost> ToCss<'ghost> for Transform<'_> {
+impl<'ghost> ToCss<'ghost> for Transform {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1429,7 +1429,7 @@ impl<'ghost> ToCss<'ghost> for Transform<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Perspective<'_> {
+impl<'ghost> ToCss<'ghost> for Perspective {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1442,7 +1442,7 @@ impl<'ghost> ToCss<'ghost> for Perspective<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Translate<'_> {
+impl<'ghost> ToCss<'ghost> for Translate {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1480,7 +1480,7 @@ impl<'ghost> ToCss<'ghost> for Scale {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Spacing<'_> {
+impl<'ghost> ToCss<'ghost> for Spacing {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1493,7 +1493,7 @@ impl<'ghost> ToCss<'ghost> for Spacing<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TextDecorationLine<'_> {
+impl<'ghost> ToCss<'ghost> for TextDecorationLine {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1514,7 +1514,7 @@ impl<'ghost> ToCss<'ghost> for TextDecorationLine<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TextDecorationThickness<'_> {
+impl<'ghost> ToCss<'ghost> for TextDecorationThickness {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1686,7 +1686,7 @@ impl<'ghost> ToCss<'ghost> for SVGPaintFallback<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for StrokeDasharray<'_> {
+impl<'ghost> ToCss<'ghost> for StrokeDasharray {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1742,7 +1742,7 @@ impl<'ghost> ToCss<'ghost> for ClipPath<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BasicShape<'_> {
+impl<'ghost> ToCss<'ghost> for BasicShape {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1757,7 +1757,7 @@ impl<'ghost> ToCss<'ghost> for BasicShape<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ShapeRadius<'_> {
+impl<'ghost> ToCss<'ghost> for ShapeRadius {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1873,12 +1873,15 @@ impl<'ghost> ToCss<'ghost> for ContainerNameList<'_> {
     }
 }
 
-fn write_ident_list<PrinterT: PrinterTrait>(values: &[&str], dest: &mut PrinterT) -> fmt::Result {
+fn write_ident_list<T: AsRef<str>, PrinterT: PrinterTrait>(
+    values: &[T],
+    dest: &mut PrinterT,
+) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
             dest.write_char(' ')?;
         }
-        serialize_identifier(value, dest)?;
+        serialize_identifier(value.as_ref(), dest)?;
     }
     Ok(())
 }

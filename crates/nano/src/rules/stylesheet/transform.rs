@@ -1,8 +1,11 @@
 use super::*;
 
-pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
+pub(super) fn minify_transform_function(
+    function: &mut Function<'_>,
+    cx: &mut MinifyContext<'_>,
+) -> bool {
     if function.kind() == KnownFunction::RotateZ && function.arguments.len() == 1 {
-        function.set_name("rotate");
+        function.set_name(cx.intern("rotate"));
         return true;
     }
     if function.kind() == KnownFunction::Matrix3d {
@@ -19,7 +22,7 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
             && number_at(values, 28) == Some(0.0)
             && number_at(values, 30) == Some(1.0)
         {
-            function.set_name("matrix");
+            function.set_name(cx.intern("matrix"));
             compact_arguments(
                 &mut function.arguments,
                 &[0, 1, 2, 3, 8, 9, 10, 11, 24, 25, 26],
@@ -39,7 +42,7 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
             (Some(0.0), Some(0.0), Some(1.0)) => "rotate",
             _ => return false,
         };
-        function.set_name(name);
+        function.set_name(cx.intern(name));
         compact_arguments(&mut function.arguments, &[6]);
         return true;
     }
@@ -57,12 +60,12 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
             return true;
         }
         if second == Some(1.0) {
-            function.set_name("scaleX");
+            function.set_name(cx.intern("scaleX"));
             function.arguments.truncate(1);
             return true;
         }
         if first == Some(1.0) {
-            function.set_name("scaleY");
+            function.set_name(cx.intern("scaleY"));
             compact_arguments(&mut function.arguments, &[2]);
             return true;
         }
@@ -83,7 +86,7 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
         } else {
             return false;
         };
-        function.set_name(name);
+        function.set_name(cx.intern(name));
         compact_arguments(&mut function.arguments, &[index]);
         return true;
     }
@@ -93,7 +96,7 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
             return true;
         }
         if number_at(&function.arguments, 0) == Some(0.0) {
-            function.set_name("translateY");
+            function.set_name(cx.intern("translateY"));
             compact_arguments(&mut function.arguments, &[2]);
             return true;
         }
@@ -104,7 +107,7 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
         && number_at(&function.arguments, 0) == Some(0.0)
         && number_at(&function.arguments, 2) == Some(0.0)
     {
-        function.set_name("translateZ");
+        function.set_name(cx.intern("translateZ"));
         compact_arguments(&mut function.arguments, &[4]);
         return true;
     }
@@ -116,10 +119,7 @@ fn is_empty_variable_function(value: &TokenOrValue<'_>) -> bool {
         if function.arguments.is_empty() && function.kind().is_variable())
 }
 
-fn compact_arguments(
-    arguments: &mut rocketcss_common::vec::Vec<'_, TokenOrValue<'_>>,
-    indices: &[usize],
-) {
+fn compact_arguments(arguments: &mut std::vec::Vec<TokenOrValue<'_>>, indices: &[usize]) {
     for (target, &source) in indices.iter().enumerate() {
         if target != source {
             arguments.swap(target, source);
