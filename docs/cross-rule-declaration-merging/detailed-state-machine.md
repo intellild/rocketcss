@@ -30,8 +30,9 @@ The merge IR preserves semantic ownership independently of physical storage:
 - S5 reifies the complete stable result into compact stylesheet stores.
 
 The target storage uses typed dense IDs, a preorder syntax tape, and a lexical
-source-order declaration tape. Pinned declaration blocks, AST `Box` values,
-and the AST arena allocator are migration-only infrastructure. Ordinary
+source-order declaration tape. Pinned declaration blocks,
+`rocketcss_common::boxed::Box`, and `rocketcss_common::Allocator` are
+migration-only infrastructure. Ordinary
 long-lived Rust references to mutable style rules are not part of the model.
 Code generation is outside the minify pipeline and observes only the compact
 flat IR produced by S5.

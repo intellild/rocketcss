@@ -3,8 +3,9 @@
 ## Compilation-owned stores
 
 `Compiler` owns the source, source map, atom pool, and the stores that form one
-parsed compilation. `StyleSheet` is a root ID plus stylesheet metadata; it does
-not own a recursive object graph.
+parsed compilation. It is constructed without an allocator argument.
+`StyleSheet` is a root ID plus stylesheet metadata; it does not own a recursive
+object graph.
 
 ```rust,ignore
 struct Compilation {
@@ -48,10 +49,10 @@ the parent's first child and `next_sibling`; a complete subtree remains a dense
 preorder interval. Equivalent encodings are acceptable if these operations
 remain constant-time and do not require a recursive walk.
 
-The flat topology replaces `Box<CssRule>`, boxed rule payloads, and address-based
-identity. Visitors receive IDs plus a `Compilation`/store view. Structural
-mutable visitors emit rewrite operations instead of retaining mutable
-references while stores grow.
+The flat topology replaces `rocketcss_common::boxed::Box`, boxed rule payloads,
+and address-based identity. Visitors receive IDs plus a `Compilation`/store
+view. Structural mutable visitors emit rewrite operations instead of retaining
+mutable references while stores grow.
 
 ## Source-order allocation invariant
 
@@ -157,13 +158,14 @@ The target AST has no stable-address requirement:
 - store growth may relocate memory without invalidating IDs; and
 - reification builds new stores rather than mutating an address-linked tree.
 
-Consequently, existing AST `Box` wrappers and the AST arena allocator become
-dead infrastructure once their last node type migrates. The migration must
-remove them from parser constructors, AST types, visitors, minifiers, and
-codegen instead of retaining a compatibility allocation layer.
+Consequently, `rocketcss_common::boxed::Box` and
+`rocketcss_common::Allocator` become dead infrastructure once their last node
+type migrates. The migration removes them from parser constructors, AST types,
+visitors, minifiers, codegen, and `Compiler::new`; it must not retain a
+compatibility allocation layer.
 
-This does not prohibit unrelated compiler memory tools. The atom `StringPool`
-still needs compilation-lifetime string storage, and analyses may use an
-independent scratch allocator. Their APIs must not expose AST addresses or
-reintroduce ownership through references.
-
+`StringPool` changes from allocator-backed storage to an owned compiler store.
+Its internal backing allocation is not AST ownership and must not expose AST
+addresses. A future analysis may introduce an independent scratch facility only
+when a benchmark justifies it; such a facility is outside the AST API and does
+not preserve the existing allocator.
