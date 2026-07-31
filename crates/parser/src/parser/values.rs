@@ -23,28 +23,25 @@ pub(super) fn single_token<'a, 'i>(value: &'a [TokenOrValue<'i>]) -> Option<&'a 
 
 pub(super) fn collect_tokens<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
     depth: usize,
-) -> Result<Vec<'i, TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
-    collect_tokens_impl(input, allocator, depth, false)
+) -> Result<std::vec::Vec<TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
+    collect_tokens_impl(input, depth, false)
 }
 
 pub(super) fn collect_custom_property_tokens<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
     depth: usize,
-) -> Result<Vec<'i, TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
-    collect_tokens_impl(input, allocator, depth, true)
+) -> Result<std::vec::Vec<TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
+    collect_tokens_impl(input, depth, true)
 }
 
 fn collect_tokens_impl<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
     depth: usize,
     parse_embedded_values: bool,
-) -> Result<Vec<'i, TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<std::vec::Vec<TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut tokens = allocator.vec();
+    let mut tokens = std::vec::Vec::new();
 
     loop {
         let state = input.state();
@@ -57,43 +54,47 @@ fn collect_tokens_impl<'i>(
         match token {
             ValueToken::Function(name) => {
                 let arguments = input.parse_nested_block(|input| {
-                    collect_tokens_impl(input, allocator, depth + 1, parse_embedded_values)
+                    collect_tokens_impl(input, depth + 1, parse_embedded_values)
                 })?;
                 let mut function = Function::new(name, arguments);
                 validate_rgb_function(&mut function);
-                let function = allocator.boxed(function);
+                let function = std::boxed::Box::new(function);
                 if parse_embedded_values
                     && function.kind().is_color()
                     && (!matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba)
                         || function.is_valid_rgb())
                 {
-                    tokens.push(TokenOrValue::Color(
-                        allocator.boxed(CssColor::Function(function)),
-                    ));
+                    tokens.push(TokenOrValue::Color(std::boxed::Box::new(
+                        CssColor::Function(function),
+                    )));
                 } else {
                     tokens.push(TokenOrValue::Function(function));
                 }
             }
             ValueToken::Hash(value) if parse_embedded_values => {
-                if let Some(color) = parse_hex_color(value) {
-                    tokens.push(TokenOrValue::Color(allocator.boxed(CssColor::Rgba(color))));
+                if let Some(color) = parse_hex_color(&value) {
+                    tokens.push(TokenOrValue::Color(std::boxed::Box::new(CssColor::Rgba(
+                        color,
+                    ))));
                 } else {
-                    tokens.push(TokenOrValue::Token(
-                        allocator.boxed(ValueToken::Hash(value)),
-                    ));
+                    tokens.push(TokenOrValue::Token(std::boxed::Box::new(ValueToken::Hash(
+                        value,
+                    ))));
                 }
             }
             ValueToken::IdHash(value) if parse_embedded_values => {
-                if let Some(color) = parse_hex_color(value) {
-                    tokens.push(TokenOrValue::Color(allocator.boxed(CssColor::Rgba(color))));
+                if let Some(color) = parse_hex_color(&value) {
+                    tokens.push(TokenOrValue::Color(std::boxed::Box::new(CssColor::Rgba(
+                        color,
+                    ))));
                 } else {
-                    tokens.push(TokenOrValue::Token(
-                        allocator.boxed(ValueToken::IdHash(value)),
-                    ));
+                    tokens.push(TokenOrValue::Token(std::boxed::Box::new(
+                        ValueToken::IdHash(value),
+                    )));
                 }
             }
             ValueToken::UnquotedUrl(url) => {
-                tokens.push(TokenOrValue::Url(allocator.boxed(Url {
+                tokens.push(TokenOrValue::Url(std::boxed::Box::new(Url {
                     span: input.current_token_span().unwrap_or_default(),
                     url,
                 })));
@@ -110,12 +111,12 @@ fn collect_tokens_impl<'i>(
                     ValueToken::CurlyBracketBlock => ValueToken::CloseCurlyBracket,
                     _ => unreachable!(),
                 };
-                tokens.push(TokenOrValue::Token(allocator.boxed(opening)));
+                tokens.push(TokenOrValue::Token(std::boxed::Box::new(opening)));
                 let nested = input.parse_nested_block(|input| {
-                    collect_tokens_impl(input, allocator, depth + 1, parse_embedded_values)
+                    collect_tokens_impl(input, depth + 1, parse_embedded_values)
                 })?;
                 tokens.extend(nested);
-                tokens.push(TokenOrValue::Token(allocator.boxed(closing)));
+                tokens.push(TokenOrValue::Token(std::boxed::Box::new(closing)));
             }
             ValueToken::BadUrl(_)
             | ValueToken::BadString(_)
@@ -128,14 +129,14 @@ fn collect_tokens_impl<'i>(
                 input.reset(&state);
                 return Err(input.new_custom_error(ParserError::UnexpectedToken(token)));
             }
-            token => tokens.push(TokenOrValue::Token(allocator.boxed(token))),
+            token => tokens.push(TokenOrValue::Token(std::boxed::Box::new(token))),
         }
     }
 
     Ok(tokens)
 }
 
-pub(super) fn remove_important(value: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
+pub(super) fn remove_important(value: &mut std::vec::Vec<TokenOrValue<'_>>) -> bool {
     let Some(important_index) = previous_non_whitespace(value, value.len()) else {
         return false;
     };
@@ -166,24 +167,24 @@ pub(super) fn previous_non_whitespace(value: &[TokenOrValue<'_>], before: usize)
     })
 }
 
-pub(super) fn trim_trailing_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
+pub(super) fn trim_trailing_whitespace(value: &mut std::vec::Vec<TokenOrValue<'_>>) {
     while matches!(value.last(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_)))
     {
         value.pop();
     }
 }
 
-pub(super) fn trim_leading_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
+pub(super) fn trim_leading_whitespace(value: &mut std::vec::Vec<TokenOrValue<'_>>) {
     while matches!(value.first(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_)))
     {
         value.remove(0);
     }
 }
 
-pub(super) fn token_ident<'i>(value: &TokenOrValue<'i>) -> Option<&'i str> {
+pub(super) fn token_ident<'a>(value: &'a TokenOrValue<'_>) -> Option<&'a str> {
     match value {
-        TokenOrValue::Token(token) => match **token {
-            ValueToken::Ident(name) => Some(name),
+        TokenOrValue::Token(token) => match &**token {
+            ValueToken::Ident(name) => Some(name.as_str()),
             _ => None,
         },
         _ => None,

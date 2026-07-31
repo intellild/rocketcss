@@ -1,13 +1,104 @@
 use super::*;
+use rocketcss_common::{DenseRange, DenseStore, define_dense_id};
 
 /// A selector list in source order.
-pub type SelectorList<'a> = Vec<'a, Selector<'a>>;
+pub type SelectorList<'a> = std::vec::Vec<Selector<'a>>;
+
+define_dense_id!(pub struct SelectorId);
+define_dense_id!(pub struct SelectorListId);
+
+#[derive(Debug, Default, PartialEq, Visit)]
+#[visit(skip)]
+pub struct SelectorStore<'a> {
+    #[visit(skip)]
+    selectors: DenseStore<SelectorId, Selector<'a>>,
+    #[visit(skip)]
+    lists: DenseStore<SelectorListId, DenseRange<SelectorId>>,
+}
+
+impl<'a> SelectorStore<'a> {
+    #[inline]
+    pub const fn new() -> Self {
+        Self {
+            selectors: DenseStore::new(),
+            lists: DenseStore::new(),
+        }
+    }
+
+    #[inline]
+    pub fn push_list(&mut self, selectors: SelectorList<'a>) -> SelectorListId {
+        let cursor = self.selectors.cursor();
+        for selector in selectors {
+            self.selectors.push(selector);
+        }
+        self.lists.push(self.selectors.range_since(cursor))
+    }
+
+    #[inline]
+    pub fn get(&self, id: SelectorListId) -> &[Selector<'a>] {
+        self.selectors.get_range(self.lists[id])
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, id: SelectorListId) -> &mut [Selector<'a>] {
+        self.selectors.get_range_mut(self.lists[id])
+    }
+
+    #[inline]
+    pub fn slots(&self) -> impl ExactSizeIterator<Item = (SelectorId, &Selector<'a>)> {
+        self.selectors.iter_enumerated()
+    }
+
+    #[inline]
+    pub fn range(&self, id: SelectorListId) -> DenseRange<SelectorId> {
+        self.lists[id]
+    }
+
+    pub fn compact(&mut self) {
+        let mut source = std::mem::take(&mut self.selectors);
+        let old_lists = std::mem::take(&mut self.lists);
+        let mut selectors = DenseStore::new();
+        let mut lists = DenseStore::with_capacity(old_lists.len());
+        for range in old_lists.iter().copied() {
+            let cursor = selectors.cursor();
+            for index in range.as_usize_range() {
+                let id = SelectorId::from_index(index)
+                    .expect("a selector range contains valid dense IDs");
+                let selector = std::mem::replace(source.get_mut(id), Selector::Tombstone);
+                if !selector.is_tombstone() {
+                    selectors.push(selector);
+                }
+            }
+            lists.push(selectors.range_since(cursor));
+        }
+        self.selectors = selectors;
+        self.lists = lists;
+    }
+
+    pub fn validate(&self) -> Result<(), &'static str> {
+        let mut owners = std::vec![false; self.selectors.len()];
+        for range in self.lists.iter().copied() {
+            if range.end() > self.selectors.len() {
+                return Err("selector list range exceeds the selector tape");
+            }
+            for owned in &mut owners[range.as_usize_range()] {
+                if std::mem::replace(owned, true) {
+                    return Err("a selector occurrence belongs to multiple lists");
+                }
+            }
+        }
+        if owners.iter().any(|owned| !owned) {
+            return Err("a selector occurrence has no list owner");
+        }
+        Ok(())
+    }
+}
 
 /// A complex selector, a losslessly preserved invalid selector, or a removed selector.
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum Selector<'a> {
     /// A valid selector. Components are stored in parse order.
-    Parsed(Vec<'a, SelectorComponent<'a>>),
+    Parsed(std::vec::Vec<SelectorComponent<'a>>),
     /// An invalid selector preserved by parser error recovery.
     #[visit(skip)]
     Unparsed(Atom<'a>),
@@ -17,12 +108,12 @@ pub enum Selector<'a> {
 
 impl<'a> Selector<'a> {
     #[inline]
-    pub fn parsed(components: Vec<'a, SelectorComponent<'a>>) -> Self {
+    pub fn parsed(components: std::vec::Vec<SelectorComponent<'a>>) -> Self {
         Self::Parsed(components)
     }
 
     #[inline]
-    pub fn as_parsed(&self) -> Option<&Vec<'a, SelectorComponent<'a>>> {
+    pub fn as_parsed(&self) -> Option<&std::vec::Vec<SelectorComponent<'a>>> {
         match self {
             Self::Parsed(components) => Some(components),
             Self::Unparsed(_) | Self::Tombstone => None,
@@ -30,7 +121,7 @@ impl<'a> Selector<'a> {
     }
 
     #[inline]
-    pub fn as_parsed_mut(&mut self) -> Option<&mut Vec<'a, SelectorComponent<'a>>> {
+    pub fn as_parsed_mut(&mut self) -> Option<&mut std::vec::Vec<SelectorComponent<'a>>> {
         match self {
             Self::Parsed(components) => Some(components),
             Self::Unparsed(_) | Self::Tombstone => None,
@@ -68,7 +159,7 @@ impl std::ops::DerefMut for Selector<'_> {
 /// A CSS simple selector or combinator.
 ///
 /// This mirrors `parcel_selectors::parser::Component`, specialized for
-/// lightningcss' selector implementation and arena-backed containers.
+/// lightningcss' selector implementation and owned containers.
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum SelectorComponent<'a> {
     Combinator(Combinator),
@@ -101,29 +192,29 @@ pub enum SelectorComponent<'a> {
         case_sensitivity: ParsedCaseSensitivity,
         never_matches: bool,
     },
-    AttributeOther(Box<'a, AttrSelector<'a>>),
+    AttributeOther(std::boxed::Box<AttrSelector<'a>>),
 
-    Negation(Vec<'a, Selector<'a>>),
+    Negation(std::vec::Vec<Selector<'a>>),
     Root,
     Empty,
     Scope,
     Nth(NthSelectorData),
     NthOf {
         data: NthSelectorData,
-        selectors: Vec<'a, Selector<'a>>,
+        selectors: std::vec::Vec<Selector<'a>>,
     },
-    PseudoClass(Box<'a, PseudoClass<'a>>),
-    Slotted(Box<'a, Selector<'a>>),
-    Part(Vec<'a, Atom<'a>>),
-    Host(Option<Box<'a, Selector<'a>>>),
-    Where(Vec<'a, Selector<'a>>),
-    Is(Vec<'a, Selector<'a>>),
+    PseudoClass(std::boxed::Box<PseudoClass<'a>>),
+    Slotted(std::boxed::Box<Selector<'a>>),
+    Part(std::vec::Vec<Atom<'a>>),
+    Host(Option<std::boxed::Box<Selector<'a>>>),
+    Where(std::vec::Vec<Selector<'a>>),
+    Is(std::vec::Vec<Selector<'a>>),
     Any {
         vendor_prefix: VendorPrefix,
-        selectors: Vec<'a, Selector<'a>>,
+        selectors: std::vec::Vec<Selector<'a>>,
     },
-    Has(Vec<'a, Selector<'a>>),
-    PseudoElement(Box<'a, PseudoElement<'a>>),
+    Has(std::vec::Vec<Selector<'a>>),
+    PseudoElement(std::boxed::Box<PseudoElement<'a>>),
     Nesting,
 }
 
@@ -213,7 +304,7 @@ pub enum Direction {
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub enum PseudoClass<'a> {
     Lang {
-        languages: Vec<'a, Atom<'a>>,
+        languages: std::vec::Vec<Atom<'a>>,
     },
     Dir {
         direction: Direction,
@@ -270,16 +361,16 @@ pub enum PseudoClass<'a> {
     Autofill(VendorPrefix),
     ActiveViewTransition,
     ActiveViewTransitionType {
-        kinds: Vec<'a, Atom<'a>>,
+        kinds: std::vec::Vec<Atom<'a>>,
     },
     State {
         state: Atom<'a>,
     },
     Local {
-        selector: Box<'a, Selector<'a>>,
+        selector: std::boxed::Box<Selector<'a>>,
     },
     Global {
-        selector: Box<'a, Selector<'a>>,
+        selector: std::boxed::Box<Selector<'a>>,
     },
     WebKitScrollbar(WebKitScrollbarPseudoClass),
     Custom {
@@ -287,7 +378,7 @@ pub enum PseudoClass<'a> {
     },
     CustomFunction {
         name: Atom<'a>,
-        arguments: Vec<'a, TokenOrValue<'a>>,
+        arguments: std::vec::Vec<TokenOrValue<'a>>,
     },
 }
 
@@ -327,23 +418,23 @@ pub enum PseudoElement<'a> {
     Cue,
     CueRegion,
     CueFunction {
-        selector: Box<'a, Selector<'a>>,
+        selector: std::boxed::Box<Selector<'a>>,
     },
     CueRegionFunction {
-        selector: Box<'a, Selector<'a>>,
+        selector: std::boxed::Box<Selector<'a>>,
     },
     ViewTransition,
     ViewTransitionGroup {
-        part: Box<'a, ViewTransitionPartSelector<'a>>,
+        part: std::boxed::Box<ViewTransitionPartSelector<'a>>,
     },
     ViewTransitionImagePair {
-        part: Box<'a, ViewTransitionPartSelector<'a>>,
+        part: std::boxed::Box<ViewTransitionPartSelector<'a>>,
     },
     ViewTransitionOld {
-        part: Box<'a, ViewTransitionPartSelector<'a>>,
+        part: std::boxed::Box<ViewTransitionPartSelector<'a>>,
     },
     ViewTransitionNew {
-        part: Box<'a, ViewTransitionPartSelector<'a>>,
+        part: std::boxed::Box<ViewTransitionPartSelector<'a>>,
     },
     PickerFunction {
         identifier: Atom<'a>,
@@ -357,7 +448,7 @@ pub enum PseudoElement<'a> {
     },
     CustomFunction {
         name: Atom<'a>,
-        arguments: Vec<'a, TokenOrValue<'a>>,
+        arguments: std::vec::Vec<TokenOrValue<'a>>,
     },
 }
 

@@ -23,10 +23,10 @@ pub(crate) fn write_custom_font_family<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
 ) -> fmt::Result {
     let requires_quotes = value.is_empty()
-        || !matches!(FontFamily::from_name(value), FontFamily::Custom(_))
+        || FontFamily::is_known_name(value)
         || value
             .split_ascii_whitespace()
-            .any(|part| !matches!(FontFamily::from_name(part), FontFamily::Custom(_)))
+            .any(FontFamily::is_known_name)
         || value.starts_with(' ')
         || value.ends_with(' ')
         || value.contains("  ")

@@ -9,16 +9,14 @@ impl<'i> Parse<'i> for CssColor<'i> {
             ValueToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => {
                 Ok(CssColor::CurrentColor)
             }
-            ValueToken::Ident(name) => KnownColor::from_name(name)
+            ValueToken::Ident(name) => KnownColor::from_name(&name)
                 .map(CssColor::Known)
                 .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),
-            ValueToken::Hash(value) | ValueToken::IdHash(value) => parse_hex_color(value)
+            ValueToken::Hash(value) | ValueToken::IdHash(value) => parse_hex_color(&value)
                 .map(CssColor::Rgba)
                 .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),
-            ValueToken::Function(name) if KnownFunction::from_name(name).is_color() => {
-                let allocator = input.allocator();
-                let arguments =
-                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+            ValueToken::Function(name) if KnownFunction::from_name(&name).is_color() => {
+                let arguments = input.parse_nested_block(|input| collect_tokens(input, 1))?;
                 let mut function = Function::new(name, arguments);
                 if matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
                     if !is_supported_rgb_function(&function) {
@@ -26,7 +24,7 @@ impl<'i> Parse<'i> for CssColor<'i> {
                     }
                     function.set_valid_rgb(true);
                 }
-                Ok(CssColor::Function(allocator.boxed(function)))
+                Ok(CssColor::Function(std::boxed::Box::new(function)))
             }
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }

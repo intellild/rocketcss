@@ -3,10 +3,10 @@ use crate::*;
 #[derive(Debug, PartialEq, Visit)]
 pub enum SVGPaint<'a> {
     Url {
-        fallback: Option<Box<'a, SVGPaintFallback<'a>>>,
-        url: Box<'a, Url<'a>>,
+        fallback: Option<std::boxed::Box<SVGPaintFallback<'a>>>,
+        url: std::boxed::Box<Url<'a>>,
     },
-    Color(Box<'a, CssColor<'a>>),
+    Color(std::boxed::Box<CssColor<'a>>),
     ContextFill,
     ContextStroke,
     None,
@@ -15,7 +15,7 @@ pub enum SVGPaint<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum SVGPaintFallback<'a> {
     None,
-    Color(Box<'a, CssColor<'a>>),
+    Color(std::boxed::Box<CssColor<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -41,15 +41,15 @@ pub enum StrokeLinejoin {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum StrokeDasharray<'a> {
+pub enum StrokeDasharray {
     None,
-    Values(Vec<'a, LengthPercentage<'a>>),
+    Values(std::vec::Vec<LengthPercentage>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Marker<'a> {
     None,
-    Url(Box<'a, Url<'a>>),
+    Url(std::boxed::Box<Url<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

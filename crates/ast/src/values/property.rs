@@ -18,6 +18,6 @@ pub enum CSSWideOr<T> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum CustomPropertyName<'a> {
-    Custom(&'a str),
-    Unknown(&'a str),
+    Custom(Atom<'a>),
+    Unknown(Atom<'a>),
 }

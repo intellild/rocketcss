@@ -34,14 +34,20 @@ impl<'ghost> ToCss<'ghost> for Token<'_> {
         use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
 
         match self {
-            Self::Ident(value) => CssToken::Ident(CowRcStr::from(*value)).to_css(dest),
-            Self::AtKeyword(value) => CssToken::AtKeyword(CowRcStr::from(*value)).to_css(dest),
-            Self::Hash(value) => CssToken::Hash(CowRcStr::from(*value)).to_css(dest),
-            Self::IdHash(value) => CssToken::IDHash(CowRcStr::from(*value)).to_css(dest),
+            Self::Ident(value) => CssToken::Ident(CowRcStr::from(value.as_str())).to_css(dest),
+            Self::AtKeyword(value) => {
+                CssToken::AtKeyword(CowRcStr::from(value.as_str())).to_css(dest)
+            }
+            Self::Hash(value) => CssToken::Hash(CowRcStr::from(value.as_str())).to_css(dest),
+            Self::IdHash(value) => CssToken::IDHash(CowRcStr::from(value.as_str())).to_css(dest),
             Self::MinifiedHash(value) => write_minified_hash(value, dest),
-            Self::String(value) => CssToken::QuotedString(CowRcStr::from(*value)).to_css(dest),
+            Self::String(value) => {
+                CssToken::QuotedString(CowRcStr::from(value.as_str())).to_css(dest)
+            }
             Self::UnquotedFont(value) => write_unquoted_font(value, dest),
-            Self::UnquotedUrl(value) => CssToken::UnquotedUrl(CowRcStr::from(*value)).to_css(dest),
+            Self::UnquotedUrl(value) => {
+                CssToken::UnquotedUrl(CowRcStr::from(value.as_str())).to_css(dest)
+            }
             Self::Delim(value) => {
                 for character in value.chars() {
                     CssToken::Delim(character).to_css(dest)?;
@@ -231,10 +237,10 @@ impl<'ghost> ToCss<'ghost> for Url<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("url(")?;
-        if !dest.prettify() && can_write_unquoted_url(self.url) {
-            write_unquoted_url(self.url, dest)?;
+        if !dest.prettify() && can_write_unquoted_url(&self.url) {
+            write_unquoted_url(&self.url, dest)?;
         } else {
-            serialize_string(self.url, dest)?;
+            serialize_string(&self.url, dest)?;
         }
         dest.write_char(')')
     }
@@ -351,7 +357,7 @@ impl<'ghost> ToCss<'ghost> for DashedIdentReference<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_dashed_ident(self.ident, dest)?;
+        write_dashed_ident(&self.ident, dest)?;
         if let Some(from) = &self.from {
             dest.write_str(" from ")?;
             from.to_css(dest, _cx)?;

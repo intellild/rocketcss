@@ -3,8 +3,8 @@ use crate::*;
 #[derive(Debug, PartialEq, Visit)]
 pub enum ViewTransitionProperty<'a> {
     Navigation(Navigation),
-    Types(Box<'a, NoneOrCustomIdentList<'a>>),
-    Custom(Box<'a, CustomProperty<'a>>),
+    Types(std::boxed::Box<NoneOrCustomIdentList<'a>>),
+    Custom(std::boxed::Box<CustomProperty<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -15,12 +15,12 @@ pub enum Navigation {
 
 #[derive(Debug, PartialEq, Eq, Hash, Visit)]
 pub struct ViewTransitionPartSelector<'a> {
-    pub classes: Vec<'a, &'a str>,
-    pub name: Option<Box<'a, ViewTransitionPartName<'a>>>,
+    pub classes: std::vec::Vec<&'a str>,
+    pub name: Option<std::boxed::Box<ViewTransitionPartName<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ViewTransitionRule<'a> {
     pub span: Span,
-    pub properties: Vec<'a, ViewTransitionProperty<'a>>,
+    pub properties: std::vec::Vec<ViewTransitionProperty<'a>>,
 }

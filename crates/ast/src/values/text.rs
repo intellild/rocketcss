@@ -82,15 +82,15 @@ pub enum TextJustify {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum Spacing<'a> {
+pub enum Spacing {
     Normal,
-    Length(Box<'a, Length<'a>>),
+    Length(std::boxed::Box<Length>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum TextDecorationLine<'a> {
+pub enum TextDecorationLine {
     ExclusiveTextDecorationLine(ExclusiveTextDecorationLine),
-    Value(Vec<'a, OtherTextDecorationLine>),
+    Value(std::vec::Vec<OtherTextDecorationLine>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -118,10 +118,10 @@ pub enum TextDecorationStyle {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum TextDecorationThickness<'a> {
+pub enum TextDecorationThickness {
     Auto,
     FromFont,
-    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    LengthPercentage(std::boxed::Box<LengthPercentage>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

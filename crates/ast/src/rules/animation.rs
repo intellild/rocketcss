@@ -4,8 +4,8 @@ use crate::*;
 pub struct Transition<'a> {
     pub delay: Time,
     pub duration: Time,
-    pub property: Box<'a, PropertyId<'a>>,
-    pub timing_function: Box<'a, EasingFunction>,
+    pub property: std::boxed::Box<PropertyId<'a>>,
+    pub timing_function: std::boxed::Box<EasingFunction>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -15,15 +15,15 @@ pub struct ScrollTimeline {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ViewTimeline<'a> {
+pub struct ViewTimeline {
     pub axis: ScrollAxis,
-    pub inset: Box<'a, Size2D<'a, LengthPercentageOrAuto<'a>>>,
+    pub inset: std::boxed::Box<Size2D<LengthPercentageOrAuto>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct AnimationRange<'a> {
-    pub end: Box<'a, AnimationRangeEnd<'a>>,
-    pub start: Box<'a, AnimationRangeStart<'a>>,
+pub struct AnimationRange {
+    pub end: std::boxed::Box<AnimationRangeEnd>,
+    pub start: std::boxed::Box<AnimationRangeStart>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -31,14 +31,14 @@ pub struct Animation<'a> {
     /// Components in authored order, so parsing and printing round-trips
     /// losslessly. The `ORDER_VALUES` minify pass sorts them into canonical
     /// order in place.
-    pub components: Vec<'a, AnimationComponent<'a>>,
+    pub components: std::vec::Vec<AnimationComponent<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum AnimationComponent<'a> {
-    Name(Box<'a, AnimationName<'a>>),
+    Name(std::boxed::Box<AnimationName<'a>>),
     Duration(Time),
-    TimingFunction(Box<'a, EasingFunction>),
+    TimingFunction(std::boxed::Box<EasingFunction>),
     Delay(Time),
     IterationCount(AnimationIterationCount),
     Direction(AnimationDirection),
@@ -80,7 +80,8 @@ impl AnimationName<'_> {
     /// value is already `none`.
     pub fn keyword_class(&self) -> Option<AnimationKeywordClass> {
         let name = match self {
-            Self::Ident(name) | Self::String(name) => *name,
+            Self::Ident(name) => name.as_str(),
+            Self::String(name) => name.as_str(),
             Self::None => return None,
         };
         match_ignore_ascii_case!(

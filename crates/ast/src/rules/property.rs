@@ -2,27 +2,27 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum ParsedComponent<'a> {
-    Length(Length<'a>),
+    Length(Length),
     Number(f32),
     Percentage(f32),
-    LengthPercentage(LengthPercentage<'a>),
+    LengthPercentage(LengthPercentage),
     String(&'a str),
     Color(CssColor<'a>),
-    Image(Box<'a, Image<'a>>),
+    Image(std::boxed::Box<Image<'a>>),
     Url(Url<'a>),
     Integer(i32),
     Angle(Angle),
     Time(Time),
     Resolution(Resolution),
-    TransformFunction(Box<'a, Transform<'a>>),
-    TransformList(Vec<'a, Transform<'a>>),
+    TransformFunction(std::boxed::Box<Transform>),
+    TransformList(std::vec::Vec<Transform>),
     CustomIdent(&'a str),
     Literal(&'a str),
     Repeated {
-        components: Vec<'a, ParsedComponent<'a>>,
+        components: std::vec::Vec<ParsedComponent<'a>>,
         multiplier: Multiplier,
     },
-    TokenList(Vec<'a, TokenOrValue<'a>>),
+    TokenList(std::vec::Vec<TokenOrValue<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -33,13 +33,13 @@ pub enum Multiplier {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum SyntaxString<'a> {
-    Components(Vec<'a, SyntaxComponent<'a>>),
+pub enum SyntaxString {
+    Components(std::vec::Vec<SyntaxComponent>),
     Universal,
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
-pub enum SyntaxComponentKind<'a> {
+pub enum SyntaxComponentKind {
     Length,
     Number,
     Percentage,
@@ -55,15 +55,15 @@ pub enum SyntaxComponentKind<'a> {
     TransformFunction,
     TransformList,
     CustomIdent,
-    Literal(&'a str),
+    Literal(std::string::String),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct UnparsedProperty<'a> {
-    pub property_id: Box<'a, PropertyId<'a>>,
+    pub property_id: std::boxed::Box<PropertyId<'a>>,
     #[visit(skip)]
     pub reason: UnparsedPropertyReason,
-    pub value: Vec<'a, TokenOrValue<'a>>,
+    pub value: std::vec::Vec<TokenOrValue<'a>>,
 }
 
 /// Why a declaration could not be represented by its typed value AST.
@@ -85,21 +85,21 @@ pub enum UnparsedPropertyReason {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct CustomProperty<'a> {
-    pub name: Box<'a, CustomPropertyName<'a>>,
-    pub value: Vec<'a, TokenOrValue<'a>>,
+    pub name: std::boxed::Box<CustomPropertyName<'a>>,
+    pub value: std::vec::Vec<TokenOrValue<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct PropertyRule<'a> {
     pub inherits: bool,
-    pub initial_value: Option<Box<'a, ParsedComponent<'a>>>,
+    pub initial_value: Option<std::boxed::Box<ParsedComponent<'a>>>,
     pub span: Span,
-    pub name: &'a str,
-    pub syntax: Box<'a, SyntaxString<'a>>,
+    pub name: Atom<'a>,
+    pub syntax: std::boxed::Box<SyntaxString>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct SyntaxComponent<'a> {
-    pub kind: Box<'a, SyntaxComponentKind<'a>>,
+pub struct SyntaxComponent {
+    pub kind: std::boxed::Box<SyntaxComponentKind>,
     pub multiplier: Multiplier,
 }

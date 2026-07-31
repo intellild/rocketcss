@@ -1,14 +1,12 @@
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 use rocketcss_ast::{
-    CSSWideOr, Columns, CssColor, Declaration, DeclarationBlock, DeclarationBlockId,
-    DeclarationBlockStore, EqIgnoringTombstones, KnownFunction, LengthValue, Margin, Padding,
-    PropertyId, Token, TokenOrValue, UnparsedProperty, UnparsedPropertyReason, VendorPrefix, Visit,
-    VisitContext, Visitor, match_ignore_ascii_case,
+    CSSWideOr, Columns, CssColor, Declaration, DeclarationBlockId, DeclarationBlockStore,
+    EqIgnoringTombstones, KnownFunction, LengthValue, Margin, Padding, PropertyId, Token,
+    TokenOrValue, UnparsedProperty, UnparsedPropertyReason, VendorPrefix, Visit, VisitContext,
+    Visitor, match_ignore_ascii_case,
 };
-use rocketcss_common::{
-    GhostToken,
-    prelude::{AdaptiveHashMap, Allocator, Vec},
-};
+use rocketcss_common::GhostToken;
+use rustc_hash::FxHashMap;
 
 fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     match value {
@@ -24,18 +22,7 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     }
 }
 
-impl<'a> Minify for DeclarationBlock<'a> {
-    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        let allocator = cx.allocator();
-        let mut minifier = DeclarationBlockMinifier::new(allocator);
-        minifier.minify(self, cx);
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct UnknownDeclarationKey<'a> {
     property_id: PropertyId<'a>,
     important: bool,
@@ -109,16 +96,16 @@ impl DeclarationLocation {
 }
 
 #[derive(Debug)]
-struct DeclarationMap<'scratch, 'ast> {
-    known: AdaptiveHashMap<'scratch, KnownDeclarationKey, DeclarationLocation>,
-    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'ast>, DeclarationLocation>,
+struct DeclarationMap<'ast> {
+    known: FxHashMap<KnownDeclarationKey, DeclarationLocation>,
+    unknown: FxHashMap<UnknownDeclarationKey<'ast>, DeclarationLocation>,
 }
 
-impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
-    fn new(allocator: &'scratch Allocator) -> Self {
+impl<'ast> DeclarationMap<'ast> {
+    fn new() -> Self {
         Self {
-            known: AdaptiveHashMap::new_in(allocator),
-            unknown: AdaptiveHashMap::new_in(allocator),
+            known: FxHashMap::default(),
+            unknown: FxHashMap::default(),
         }
     }
 
@@ -184,25 +171,25 @@ enum BoxProperty {
 }
 
 #[derive(Debug)]
-struct BoxFamilyIr<'a> {
-    pending_longhands: Vec<'a, DeclarationLocation>,
+struct BoxFamilyIr {
+    pending_longhands: std::vec::Vec<DeclarationLocation>,
     sides: [DeclarationLocation; 4],
     shorthand: DeclarationLocation,
 }
 
 #[derive(Debug)]
-struct ColumnsIr<'a> {
-    pending_longhands: Vec<'a, DeclarationLocation>,
+struct ColumnsIr {
+    pending_longhands: std::vec::Vec<DeclarationLocation>,
     count: DeclarationLocation,
     width: DeclarationLocation,
     shorthand: DeclarationLocation,
 }
 
-impl<'a> ColumnsIr<'a> {
+impl ColumnsIr {
     #[inline]
-    fn new(allocator: &'a Allocator) -> Self {
+    fn new() -> Self {
         Self {
-            pending_longhands: allocator.vec(),
+            pending_longhands: std::vec::Vec::new(),
             count: DeclarationLocation::EMPTY,
             width: DeclarationLocation::EMPTY,
             shorthand: DeclarationLocation::EMPTY,
@@ -218,11 +205,11 @@ impl<'a> ColumnsIr<'a> {
     }
 }
 
-impl<'a> BoxFamilyIr<'a> {
+impl BoxFamilyIr {
     #[inline]
-    fn new(allocator: &'a Allocator) -> Self {
+    fn new() -> Self {
         Self {
-            pending_longhands: allocator.vec(),
+            pending_longhands: std::vec::Vec::new(),
             sides: [DeclarationLocation::EMPTY; 4],
             shorthand: DeclarationLocation::EMPTY,
         }
@@ -236,90 +223,53 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-enum DeclarationBlocks<'sequence, 'ast> {
-    Direct(&'sequence mut DeclarationBlock<'ast>),
-    Store {
-        blocks: &'sequence [DeclarationBlockId],
-        store: &'sequence mut DeclarationBlockStore<'ast>,
-    },
-}
-
 struct DeclarationSequence<'sequence, 'ast> {
-    blocks: DeclarationBlocks<'sequence, 'ast>,
+    blocks: &'sequence [DeclarationBlockId],
+    store: &'sequence mut DeclarationBlockStore<'ast>,
 }
 
 impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
-    #[inline]
-    fn direct(block: &'sequence mut DeclarationBlock<'ast>) -> Self {
-        Self {
-            blocks: DeclarationBlocks::Direct(block),
-        }
-    }
-
     #[inline]
     fn store(
         blocks: &'sequence [DeclarationBlockId],
         store: &'sequence mut DeclarationBlockStore<'ast>,
     ) -> Self {
-        Self {
-            blocks: DeclarationBlocks::Store { blocks, store },
-        }
+        Self { blocks, store }
     }
 
     #[inline]
     fn block_count(&self) -> usize {
-        match &self.blocks {
-            DeclarationBlocks::Direct(_) => 1,
-            DeclarationBlocks::Store { blocks, .. } => blocks.len(),
-        }
+        self.blocks.len()
     }
 
     #[inline]
     fn locations_fit(&self) -> bool {
         let block_count = self.block_count();
         block_count <= DeclarationLocation::MAX_COUNT
-            && (0..block_count)
-                .all(|block| self.block(block).len() <= DeclarationLocation::MAX_COUNT)
+            && (0..block_count).all(|block| self.block_len(block) <= DeclarationLocation::MAX_COUNT)
     }
 
     #[inline]
-    fn block(&self, index: usize) -> &DeclarationBlock<'ast> {
-        match &self.blocks {
-            DeclarationBlocks::Direct(block) => {
-                debug_assert_eq!(index, 0);
-                block
-            }
-            DeclarationBlocks::Store { blocks, store } => store.get(blocks[index]),
-        }
+    fn block_id(&self, index: usize) -> DeclarationBlockId {
+        self.blocks[index]
     }
 
     #[inline]
-    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast> {
-        match &mut self.blocks {
-            DeclarationBlocks::Direct(block) => {
-                debug_assert_eq!(index, 0);
-                block
-            }
-            DeclarationBlocks::Store { blocks, store } => store.get_mut(blocks[index]),
-        }
-    }
-
-    #[inline]
-    fn block_id(&self, index: usize) -> Option<DeclarationBlockId> {
-        match &self.blocks {
-            DeclarationBlocks::Direct(_) => None,
-            DeclarationBlocks::Store { blocks, .. } => Some(blocks[index]),
-        }
+    fn block_len(&self, index: usize) -> usize {
+        self.store.declaration_count(self.block_id(index))
     }
 
     #[inline]
     fn declaration(&self, location: DeclarationLocation) -> &Declaration<'ast> {
-        &self.block(location.block()).declarations[location.declaration()]
+        self.store
+            .block_declaration(self.block_id(location.block()), location.declaration())
     }
 
     #[inline]
     fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
-        &mut self.block_mut(location.block()).declarations[location.declaration()]
+        let block = self.block_id(location.block());
+        self.store
+            .block_declaration_mut(block, location.declaration())
     }
 
     #[inline]
@@ -333,45 +283,46 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn is_important(&self, location: DeclarationLocation) -> bool {
-        self.block(location.block())
-            .is_important(location.declaration())
-    }
-
-    #[inline]
-    fn allocator(&self, location: DeclarationLocation) -> &'ast Allocator {
-        self.block(location.block()).declarations.bump()
+        self.store
+            .block_is_important(self.block_id(location.block()), location.declaration())
     }
 }
 
-pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
-    ir: DeclarationIr<'scratch, 'ast>,
+pub(crate) struct DeclarationBlockMinifier<'ast> {
+    ir: DeclarationIr<'ast>,
 }
 
-impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
-    pub(crate) fn new(allocator: &'scratch Allocator) -> Self {
+impl<'ast> DeclarationBlockMinifier<'ast> {
+    pub(crate) fn new() -> Self {
         Self {
-            ir: DeclarationIr::new(allocator),
+            ir: DeclarationIr::new(),
         }
     }
 
     #[inline]
-    pub(crate) fn minify(
+    pub(crate) fn minify<'scratch>(
         &mut self,
-        block: &mut DeclarationBlock<'ast>,
+        block: DeclarationBlockId,
+        store: &mut DeclarationBlockStore<'ast>,
         cx: &mut MinifyContext<'scratch>,
-    ) {
-        if block.len() < 2 {
+    ) where
+        'ast: 'scratch,
+    {
+        if store.declaration_count(block) < 2 {
             return;
         }
-        let mut sequence = DeclarationSequence::direct(block);
+        let blocks = [block];
+        let mut sequence = DeclarationSequence::store(&blocks, store);
         self.minify_non_trivial(&mut sequence, cx);
     }
 
-    fn minify_non_trivial(
+    fn minify_non_trivial<'scratch>(
         &mut self,
         sequence: &mut DeclarationSequence<'_, 'ast>,
         cx: &mut MinifyContext<'scratch>,
-    ) {
+    ) where
+        'ast: 'scratch,
+    {
         if !sequence.locations_fit() {
             return;
         }
@@ -379,13 +330,15 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         deduplicate_declarations(sequence, &mut self.ir, cx);
     }
 
-    pub(crate) fn deduplicate_exact_sequence(
+    pub(crate) fn deduplicate_exact_sequence<'scratch>(
         &mut self,
         blocks: &[DeclarationBlockId],
         store: &mut DeclarationBlockStore<'ast>,
         cx: &mut MinifyContext<'scratch>,
         mut on_block_emptied: impl FnMut(DeclarationBlockId),
-    ) {
+    ) where
+        'ast: 'scratch,
+    {
         let sequence = DeclarationSequence::store(blocks, store);
         if !sequence.locations_fit() {
             return;
@@ -401,12 +354,12 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     }
 }
 
-struct ExactDeclarationHistory<'sequence, 'scratch, 'ast> {
-    declarations: &'sequence mut DeclarationMap<'scratch, 'ast>,
+struct ExactDeclarationHistory<'sequence, 'ast> {
+    declarations: &'sequence mut DeclarationMap<'ast>,
     sequence: DeclarationSequence<'sequence, 'ast>,
 }
 
-impl<'scratch, 'ast> ExactDeclarationHistory<'_, 'scratch, 'ast>
+impl<'scratch, 'ast> ExactDeclarationHistory<'_, 'ast>
 where
     'ast: 'scratch,
 {
@@ -416,7 +369,7 @@ where
         cx: &mut MinifyContext<'scratch>,
         on_block_emptied: &mut impl FnMut(DeclarationBlockId),
     ) {
-        let declaration_count = self.sequence.block(block).len();
+        let declaration_count = self.sequence.block_len(block);
         for declaration in 0..declaration_count {
             let current = DeclarationLocation::new(block, declaration);
             if self.sequence.declaration(current).is_tombstone() {
@@ -432,10 +385,8 @@ where
             ) else {
                 continue;
             };
-            let removed_block = self.sequence.block(removed.block());
-            if removed_block.is_output_empty()
-                && let Some(id) = self.sequence.block_id(removed.block())
-            {
+            let id = self.sequence.block_id(removed.block());
+            if self.sequence.store.view(id).is_output_empty() {
                 on_block_emptied(id);
             }
         }
@@ -443,21 +394,21 @@ where
 }
 
 #[derive(Debug)]
-struct DeclarationIr<'scratch, 'ast> {
-    declarations: DeclarationMap<'scratch, 'ast>,
-    boxes: [[BoxFamilyIr<'scratch>; 2]; BoxFamily::COUNT],
+struct DeclarationIr<'ast> {
+    declarations: DeclarationMap<'ast>,
+    boxes: [[BoxFamilyIr; 2]; BoxFamily::COUNT],
     dirty_boxes: u8,
-    columns: [[ColumnsIr<'scratch>; 2]; 5],
+    columns: [[ColumnsIr; 2]; 5],
     dirty_columns: u16,
 }
 
-impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
-    fn new(allocator: &'scratch Allocator) -> Self {
+impl<'ast> DeclarationIr<'ast> {
+    fn new() -> Self {
         Self {
-            declarations: DeclarationMap::new(allocator),
-            boxes: std::array::from_fn(|_| std::array::from_fn(|_| BoxFamilyIr::new(allocator))),
+            declarations: DeclarationMap::new(),
+            boxes: std::array::from_fn(|_| std::array::from_fn(|_| BoxFamilyIr::new())),
             dirty_boxes: 0,
-            columns: std::array::from_fn(|_| std::array::from_fn(|_| ColumnsIr::new(allocator))),
+            columns: std::array::from_fn(|_| std::array::from_fn(|_| ColumnsIr::new())),
             dirty_columns: 0,
         }
     }
@@ -470,7 +421,7 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
     }
 
     #[inline]
-    fn box_family(&mut self, family: BoxFamily, important: bool) -> &mut BoxFamilyIr<'scratch> {
+    fn box_family(&mut self, family: BoxFamily, important: bool) -> &mut BoxFamilyIr {
         let importance = usize::from(important);
         self.dirty_boxes |= 1 << (family.index() * 2 + importance);
         &mut self.boxes[family.index()][importance]
@@ -501,11 +452,7 @@ impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
     }
 
     #[inline]
-    fn columns(
-        &mut self,
-        prefix: VendorPrefix,
-        important: bool,
-    ) -> Option<&mut ColumnsIr<'scratch>> {
+    fn columns(&mut self, prefix: VendorPrefix, important: bool) -> Option<&mut ColumnsIr> {
         let prefix = vendor_prefix_index(prefix)?;
         let importance = usize::from(important);
         self.dirty_columns |= 1 << (prefix * 2 + importance);
@@ -540,13 +487,13 @@ fn vendor_prefix_index(prefix: VendorPrefix) -> Option<usize> {
 
 fn deduplicate_declarations<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, 'ast>,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) where
     'ast: 'scratch,
 {
     for block in 0..sequence.block_count() {
-        let declaration_count = sequence.block(block).len();
+        let declaration_count = sequence.block_len(block);
         for declaration in 0..declaration_count {
             let current = DeclarationLocation::new(block, declaration);
             if sequence.declaration(current).is_tombstone() {
@@ -580,7 +527,7 @@ fn process_columns_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) -> bool
 where
@@ -722,7 +669,6 @@ where
     'ast: 'cx,
 {
     let target = std::cmp::max(width, count);
-    let allocator = sequence.allocator(target);
     if matches!(sequence.declaration(width), Declaration::ColumnWidth(CSSWideOr::Value(_), value_prefix) if *value_prefix == prefix)
         && matches!(sequence.declaration(count), Declaration::ColumnCount(CSSWideOr::Value(_), value_prefix) if *value_prefix == prefix)
     {
@@ -739,7 +685,7 @@ where
         sequence.replace(
             target,
             Declaration::Columns(
-                CSSWideOr::Value(allocator.boxed(Columns {
+                CSSWideOr::Value(std::boxed::Box::new(Columns {
                     count: count_value,
                     width: width_value,
                 })),
@@ -781,7 +727,7 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    declarations: &mut DeclarationMap<'scratch, 'ast>,
+    declarations: &mut DeclarationMap<'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) -> Option<DeclarationLocation>
 where
@@ -816,7 +762,7 @@ fn process_box_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) -> bool
 where
@@ -1092,25 +1038,20 @@ fn fold_unparsed_box_side<'a>(
         4 => true,
         _ => unreachable!(),
     };
-    let allocator = shorthand.value.bump();
     let mut target_index = value_index;
     if component_count < 4 && !component_is_unique {
         let additions = match component_count {
             1 => [
-                clone_simple_token_or_value(&shorthand.value[0], allocator),
-                clone_simple_token_or_value(&shorthand.value[0], allocator),
-                clone_simple_token_or_value(&shorthand.value[0], allocator),
+                clone_simple_token_or_value(&shorthand.value[0]),
+                clone_simple_token_or_value(&shorthand.value[0]),
+                clone_simple_token_or_value(&shorthand.value[0]),
             ],
             2 => [
-                clone_simple_token_or_value(&shorthand.value[0], allocator),
-                clone_simple_token_or_value(&shorthand.value[2], allocator),
+                clone_simple_token_or_value(&shorthand.value[0]),
+                clone_simple_token_or_value(&shorthand.value[2]),
                 None,
             ],
-            3 => [
-                clone_simple_token_or_value(&shorthand.value[2], allocator),
-                None,
-                None,
-            ],
+            3 => [clone_simple_token_or_value(&shorthand.value[2]), None, None],
             _ => unreachable!(),
         };
         if additions.iter().flatten().count() != 4 - component_count {
@@ -1119,7 +1060,9 @@ fn fold_unparsed_box_side<'a>(
         for addition in additions.into_iter().flatten() {
             shorthand
                 .value
-                .push(TokenOrValue::Token(allocator.boxed(Token::WhiteSpace(" "))));
+                .push(TokenOrValue::Token(std::boxed::Box::new(
+                    Token::WhiteSpace(" "),
+                )));
             shorthand.value.push(addition);
         }
         target_index = side * 2;
@@ -1128,10 +1071,7 @@ fn fold_unparsed_box_side<'a>(
     true
 }
 
-fn clone_simple_token_or_value<'a>(
-    value: &TokenOrValue<'a>,
-    allocator: &'a Allocator,
-) -> Option<TokenOrValue<'a>> {
+fn clone_simple_token_or_value<'a>(value: &TokenOrValue<'a>) -> Option<TokenOrValue<'a>> {
     match value {
         TokenOrValue::Token(token)
             if matches!(
@@ -1139,13 +1079,13 @@ fn clone_simple_token_or_value<'a>(
                 Token::Ident(_) | Token::Number(_) | Token::Percentage(_) | Token::Dimension { .. }
             ) =>
         {
-            Some(TokenOrValue::Token(allocator.boxed((**token).clone())))
+            Some(TokenOrValue::Token(std::boxed::Box::new((**token).clone())))
         }
         TokenOrValue::Length(length) => Some(TokenOrValue::Length(LengthValue {
             unit: length.unit,
             value: length.value,
         })),
-        TokenOrValue::DashedIdent(value) => Some(TokenOrValue::DashedIdent(value)),
+        TokenOrValue::DashedIdent(value) => Some(TokenOrValue::DashedIdent(value.clone())),
         _ => None,
     }
 }
@@ -1161,7 +1101,6 @@ where
 {
     if let Some(keyword) = css_wide_box_longhands(sequence, locations) {
         let target = *locations.iter().max().expect("four box sides");
-        let allocator = sequence.allocator(target);
         let property_id = match family {
             BoxFamily::Margin => PropertyId::Margin,
             BoxFamily::Padding => PropertyId::Padding,
@@ -1173,7 +1112,7 @@ where
         }
         sequence.replace(
             target,
-            Declaration::CSSWide(allocator.boxed(property_id), keyword),
+            Declaration::CSSWide(std::boxed::Box::new(property_id), keyword),
         );
         record_merged_longhands(locations, target, cx);
         return true;
@@ -1236,7 +1175,6 @@ where
         .into_iter()
         .max()
         .expect("four box sides");
-    let allocator = sequence.allocator(target);
     let top_declaration = sequence.replace(top, Declaration::Tombstone);
     let right_declaration = sequence.replace(right, Declaration::Tombstone);
     let bottom_declaration = sequence.replace(bottom, Declaration::Tombstone);
@@ -1257,7 +1195,7 @@ where
             };
             sequence.replace(
                 target,
-                Declaration::Margin(allocator.boxed(Margin {
+                Declaration::Margin(std::boxed::Box::new(Margin {
                     top: top_value,
                     right: right_value,
                     bottom: bottom_value,
@@ -1280,7 +1218,7 @@ where
             };
             sequence.replace(
                 target,
-                Declaration::Padding(allocator.boxed(Padding {
+                Declaration::Padding(std::boxed::Box::new(Padding {
                     top: top_value,
                     right: right_value,
                     bottom: bottom_value,
@@ -1333,17 +1271,18 @@ where
     }
 
     let target = *locations.iter().max().expect("four box sides");
-    let allocator = sequence.allocator(target);
     let mut sides = locations.map(|location| {
         let Declaration::Unparsed(value) = sequence.declaration_mut(location) else {
             unreachable!("unparsed box IR validates every side")
         };
-        std::mem::replace(&mut value.value, allocator.vec())
+        std::mem::take(&mut value.value)
     });
-    let mut value = std::mem::replace(&mut sides[0], allocator.vec());
+    let mut value = std::mem::take(&mut sides[0]);
     if !all_equal {
         for side in &mut sides[1..] {
-            value.push(TokenOrValue::Token(allocator.boxed(Token::WhiteSpace(" "))));
+            value.push(TokenOrValue::Token(std::boxed::Box::new(
+                Token::WhiteSpace(" "),
+            )));
             value.append(side);
         }
     }
@@ -1462,6 +1401,7 @@ mod tests {
         BorderColor, Function, Gradient, GradientItem, Image, KnownColor, LineDirection, SVGPaint,
         VerticalPositionKeyword,
     };
+    use rocketcss_common::StringPool;
 
     #[test]
     fn declaration_location_fits_in_one_word() {
@@ -1485,38 +1425,36 @@ mod tests {
 
     #[test]
     fn functional_color_barrier_walks_nested_color_values() {
-        let allocator = Allocator::new();
-        let unresolved_color = || {
-            CssColor::Function(allocator.boxed(Function::new(
-                "color-mix",
-                rocketcss_common::vec::Vec::new_in(&allocator),
+        let mut pool = StringPool::new();
+        let mut unresolved_color = || {
+            CssColor::Function(std::boxed::Box::new(Function::new(
+                pool.intern("color-mix"),
+                std::vec::Vec::new(),
             )))
         };
         let known_color = || CssColor::Known(KnownColor::Red);
 
-        let direct = Declaration::Color(allocator.boxed(unresolved_color()));
-        let border = Declaration::BorderColor(allocator.boxed(BorderColor {
-            bottom: allocator.boxed(known_color()),
-            left: allocator.boxed(known_color()),
-            right: allocator.boxed(known_color()),
-            top: allocator.boxed(unresolved_color()),
+        let direct = Declaration::Color(std::boxed::Box::new(unresolved_color()));
+        let border = Declaration::BorderColor(std::boxed::Box::new(BorderColor {
+            bottom: std::boxed::Box::new(known_color()),
+            left: std::boxed::Box::new(known_color()),
+            right: std::boxed::Box::new(known_color()),
+            top: std::boxed::Box::new(unresolved_color()),
         }));
-        let mut gradient_items = allocator.vec();
-        gradient_items.push(GradientItem::ColorStop {
-            color: allocator.boxed(unresolved_color()),
+        let gradient_items = std::vec![GradientItem::ColorStop {
+            color: std::boxed::Box::new(unresolved_color()),
             position: None,
-        });
-        let mut images = allocator.vec();
-        images.push(Image::Gradient(allocator.boxed(Gradient::Linear {
+        }];
+        let images = std::vec![Image::Gradient(std::boxed::Box::new(Gradient::Linear {
             direction: LineDirection::Vertical(VerticalPositionKeyword::Bottom),
             items: gradient_items,
             vendor_prefix: VendorPrefix::NONE,
-        })));
+        }))];
         let background_image = Declaration::BackgroundImage(images);
-        let fill = Declaration::Fill(
-            allocator.boxed(SVGPaint::Color(allocator.boxed(unresolved_color()))),
-        );
-        let plain = Declaration::Color(allocator.boxed(known_color()));
+        let fill = Declaration::Fill(std::boxed::Box::new(SVGPaint::Color(std::boxed::Box::new(
+            unresolved_color(),
+        ))));
+        let plain = Declaration::Color(std::boxed::Box::new(known_color()));
 
         for declaration in [&direct, &border, &background_image, &fill] {
             assert!(functional_color_requires_history_barrier(declaration));

@@ -40,12 +40,9 @@ fn lightningcss_stylesheet_ast_to_css_corpus() {
             .to_css(LightningPrinterOptions::default())
             .expect("upstream AST should serialize")
             .code;
-
-        let allocator = Allocator::new();
-        let actual = allocator.with_ghost(|mut token| {
+        let actual = GhostToken::scope(|mut token| {
             let stylesheet = parse(
                 source,
-                &allocator,
                 &mut token,
                 ParserOptions {
                     error_recovery,

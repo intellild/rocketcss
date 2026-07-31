@@ -4,30 +4,30 @@ use crate::*;
 pub enum TrackSizing<'a> {
     None,
     TrackList {
-        items: Vec<'a, TrackListItem<'a>>,
-        line_names: Vec<'a, Vec<'a, &'a str>>,
+        items: std::vec::Vec<TrackListItem<'a>>,
+        line_names: std::vec::Vec<std::vec::Vec<&'a str>>,
     },
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum TrackListItem<'a> {
-    TrackSize(Box<'a, TrackSize<'a>>),
-    TrackRepeat(Box<'a, TrackRepeat<'a>>),
+    TrackSize(std::boxed::Box<TrackSize>),
+    TrackRepeat(std::boxed::Box<TrackRepeat<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum TrackSize<'a> {
-    TrackBreadth(Box<'a, TrackBreadth<'a>>),
+pub enum TrackSize {
+    TrackBreadth(std::boxed::Box<TrackBreadth>),
     MinMax {
-        max: Box<'a, TrackBreadth<'a>>,
-        min: Box<'a, TrackBreadth<'a>>,
+        max: std::boxed::Box<TrackBreadth>,
+        min: std::boxed::Box<TrackBreadth>,
     },
-    FitContent(Box<'a, LengthPercentage<'a>>),
+    FitContent(std::boxed::Box<LengthPercentage>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum TrackBreadth<'a> {
-    Length(Box<'a, LengthPercentage<'a>>),
+pub enum TrackBreadth {
+    Length(std::boxed::Box<LengthPercentage>),
     Flex(f32),
     MinContent,
     MaxContent,
@@ -51,7 +51,7 @@ pub enum AutoFlowDirection {
 pub enum GridTemplateAreas<'a> {
     None,
     Areas {
-        areas: Vec<'a, Option<&'a str>>,
+        areas: std::vec::Vec<Option<&'a str>>,
         columns: u32,
     },
 }

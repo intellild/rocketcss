@@ -68,7 +68,7 @@ fn write_four<'ghost, PrinterT: PrinterTrait, T: ToCss<'ghost> + PartialEq>(
     Ok(())
 }
 
-impl<'ghost> ToCss<'ghost> for Position<'_> {
+impl<'ghost> ToCss<'ghost> for Position {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -145,7 +145,7 @@ impl<'ghost> ToCss<'ghost> for ImageSetOption<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BackgroundPosition<'_> {
+impl<'ghost> ToCss<'ghost> for BackgroundPosition {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -221,8 +221,8 @@ impl<'ghost> ToCss<'ghost> for Background<'_> {
     }
 }
 
-fn is_zero_background_position(position: &BackgroundPosition<'_>) -> bool {
-    fn is_zero(component: &PositionComponent<'_, impl Sized>) -> bool {
+fn is_zero_background_position(position: &BackgroundPosition) -> bool {
+    fn is_zero(component: &PositionComponent<impl Sized>) -> bool {
         matches!(
             component,
             PositionComponent::Length(value)
@@ -291,16 +291,16 @@ macro_rules! logical_pair {
 }
 
 logical_pair! {
-    InsetBlock<'_>, block_start, block_end;
-    InsetInline<'_>, inline_start, inline_end;
-    MarginBlock<'_>, block_start, block_end;
-    MarginInline<'_>, inline_start, inline_end;
-    PaddingBlock<'_>, block_start, block_end;
-    PaddingInline<'_>, inline_start, inline_end;
-    ScrollMarginBlock<'_>, block_start, block_end;
-    ScrollMarginInline<'_>, inline_start, inline_end;
-    ScrollPaddingBlock<'_>, block_start, block_end;
-    ScrollPaddingInline<'_>, inline_start, inline_end;
+    InsetBlock, block_start, block_end;
+    InsetInline, inline_start, inline_end;
+    MarginBlock, block_start, block_end;
+    MarginInline, inline_start, inline_end;
+    PaddingBlock, block_start, block_end;
+    PaddingInline, inline_start, inline_end;
+    ScrollMarginBlock, block_start, block_end;
+    ScrollMarginInline, inline_start, inline_end;
+    ScrollPaddingBlock, block_start, block_end;
+    ScrollPaddingInline, inline_start, inline_end;
 }
 
 macro_rules! physical_four {
@@ -316,13 +316,13 @@ macro_rules! physical_four {
 }
 
 physical_four! {
-    Inset<'_>;
-    Margin<'_>;
-    Padding<'_>;
-    ScrollMargin<'_>;
-    ScrollPadding<'_>;
+    Inset;
+    Margin;
+    Padding;
+    ScrollMargin;
+    ScrollPadding;
     BorderColor<'_>;
-    BorderWidth<'_>;
+    BorderWidth;
 }
 
 impl<'ghost> ToCss<'ghost> for BorderStyle {
@@ -335,7 +335,7 @@ impl<'ghost> ToCss<'ghost> for BorderStyle {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BorderRadius<'_> {
+impl<'ghost> ToCss<'ghost> for BorderRadius {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -386,7 +386,7 @@ impl<'ghost> ToCss<'ghost> for BorderImageRepeat {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BorderImageSlice<'_> {
+impl<'ghost> ToCss<'ghost> for BorderImageSlice {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -438,7 +438,7 @@ impl<'ghost> ToCss<'ghost> for BorderBlockStyle {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BorderBlockWidth<'_> {
+impl<'ghost> ToCss<'ghost> for BorderBlockWidth {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -468,7 +468,7 @@ impl<'ghost> ToCss<'ghost> for BorderInlineStyle {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BorderInlineWidth<'_> {
+impl<'ghost> ToCss<'ghost> for BorderInlineWidth {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -504,7 +504,7 @@ impl<'ghost> ToCss<'ghost> for FlexFlow {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Flex<'_> {
+impl<'ghost> ToCss<'ghost> for Flex {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -534,7 +534,7 @@ macro_rules! place_pair {
 
 place_pair! { PlaceContent; PlaceSelf; PlaceItems }
 
-impl<'ghost> ToCss<'ghost> for Gap<'_> {
+impl<'ghost> ToCss<'ghost> for Gap {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -573,7 +573,7 @@ impl<'ghost> ToCss<'ghost> for ColumnRule<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ColumnWidth<'_> {
+impl<'ghost> ToCss<'ghost> for ColumnWidth {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -599,7 +599,7 @@ impl<'ghost> ToCss<'ghost> for ColumnCount {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Columns<'_> {
+impl<'ghost> ToCss<'ghost> for Columns {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -686,7 +686,7 @@ impl<'ghost> ToCss<'ghost> for GridTemplate<'_> {
 }
 
 fn write_track_sizes<'ghost, PrinterT: PrinterTrait>(
-    values: &[TrackSize<'_>],
+    values: &[TrackSize],
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
@@ -808,7 +808,7 @@ impl<'ghost> ToCss<'ghost> for ScrollTimeline {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ViewTimeline<'_> {
+impl<'ghost> ToCss<'ghost> for ViewTimeline {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -820,7 +820,7 @@ impl<'ghost> ToCss<'ghost> for ViewTimeline<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for AnimationRange<'_> {
+impl<'ghost> ToCss<'ghost> for AnimationRange {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -952,7 +952,7 @@ impl<'ghost> ToCss<'ghost> for TextTransform {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TextIndent<'_> {
+impl<'ghost> ToCss<'ghost> for TextIndent {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1102,7 +1102,7 @@ impl<'ghost> ToCss<'ghost> for Composes<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for InsetRect<'_> {
+impl<'ghost> ToCss<'ghost> for InsetRect {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1116,7 +1116,7 @@ impl<'ghost> ToCss<'ghost> for InsetRect<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for CircleShape<'_> {
+impl<'ghost> ToCss<'ghost> for CircleShape {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1130,7 +1130,7 @@ impl<'ghost> ToCss<'ghost> for CircleShape<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for EllipseShape<'_> {
+impl<'ghost> ToCss<'ghost> for EllipseShape {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1146,7 +1146,7 @@ impl<'ghost> ToCss<'ghost> for EllipseShape<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Polygon<'_> {
+impl<'ghost> ToCss<'ghost> for Polygon {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1160,7 +1160,7 @@ impl<'ghost> ToCss<'ghost> for Polygon<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Point<'_> {
+impl<'ghost> ToCss<'ghost> for Point {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1284,7 +1284,7 @@ impl<'ghost> ToCss<'ghost> for FamilyName<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        crate::values::font::write_custom_font_family(self.0, dest)
+        crate::values::font::write_custom_font_family(&self.0, dest)
     }
 }
 
@@ -1403,7 +1403,7 @@ impl<'ghost> ToCss<'ghost> for FontTechnology {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for FontFaceStyle<'_> {
+impl<'ghost> ToCss<'ghost> for FontFaceStyle {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1579,7 +1579,7 @@ impl<'ghost> ToCss<'ghost> for Multiplier {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for SyntaxString<'_> {
+impl<'ghost> ToCss<'ghost> for SyntaxString {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1600,7 +1600,7 @@ impl<'ghost> ToCss<'ghost> for SyntaxString<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for SyntaxComponentKind<'_> {
+impl<'ghost> ToCss<'ghost> for SyntaxComponentKind {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1621,7 +1621,7 @@ impl<'ghost> ToCss<'ghost> for SyntaxComponentKind<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for SyntaxComponent<'_> {
+impl<'ghost> ToCss<'ghost> for SyntaxComponent {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -1810,20 +1810,15 @@ impl<'ghost> ToCss<'ghost> for DefaultAtRule {
 }
 
 pub(crate) fn write_rule_list<'ghost, PrinterT: PrinterTrait>(
-    rules: &[CssRule<'_>],
+    rules: RuleListId,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     let mut first = true;
     let mut last_without_block = false;
-    for rule in rules {
+    for (_, rule) in cx.rules(rules) {
         if matches!(rule, CssRule::Style(style)
-            if style
-                .as_ref()
-                .get_ref()
-                .selectors
-                .iter()
-                .all(Selector::is_tombstone))
+            if cx.selectors(style.selectors).iter().all(Selector::is_tombstone))
         {
             continue;
         }
@@ -1877,7 +1872,7 @@ enum LastSemicolon {
 }
 
 fn write_declarations<'ghost, PrinterT: PrinterTrait>(
-    declarations: &DeclarationBlock<'_>,
+    declarations: DeclarationBlockRef<'_, '_>,
     dest: &mut PrinterT,
     last_semicolon: LastSemicolon,
     cx: &ToCssContext<'_, '_, 'ghost>,
@@ -1909,16 +1904,7 @@ fn style_rule_chain_is_output_empty<'ghost>(
     tail: &StyleRule<'_>,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> bool {
-    let mut current = cx.declaration_block(tail.declarations);
-    loop {
-        if !current.is_output_empty() {
-            return false;
-        }
-        let Some(previous) = current.previous_merged() else {
-            return true;
-        };
-        current = cx.declaration_block(previous);
-    }
+    cx.declaration_block(tail.declarations).is_output_empty()
 }
 
 fn write_style_rule_declaration_chain<'ghost, PrinterT: PrinterTrait>(
@@ -1927,65 +1913,32 @@ fn write_style_rule_declaration_chain<'ghost, PrinterT: PrinterTrait>(
     last_semicolon: LastSemicolon,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
-    write_style_rule_declaration_chain_recursive(
+    write_declarations(
         cx.declaration_block(tail.declarations),
         dest,
         last_semicolon,
         cx,
     )
-    .map(|_| ())
-}
-
-fn write_style_rule_declaration_chain_recursive<'ghost, PrinterT: PrinterTrait>(
-    current: &DeclarationBlock<'_>,
-    dest: &mut PrinterT,
-    last_semicolon: LastSemicolon,
-    cx: &ToCssContext<'_, '_, 'ghost>,
-) -> Result<bool, fmt::Error> {
-    let current_is_empty = current.is_output_empty();
-    let wrote_previous = if let Some(previous) = current.previous_merged() {
-        write_style_rule_declaration_chain_recursive(
-            cx.declaration_block(previous),
-            dest,
-            if current_is_empty {
-                last_semicolon
-            } else {
-                LastSemicolon::Required
-            },
-            cx,
-        )?
-    } else {
-        false
-    };
-
-    if current_is_empty {
-        return Ok(wrote_previous);
-    }
-    if wrote_previous {
-        dest.new_line()?;
-    }
-    write_declarations(current, dest, last_semicolon, cx)?;
-    Ok(true)
-}
-
-impl<'ghost> ToCss<'ghost> for DeclarationBlock<'_> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        write_declarations(self, dest, LastSemicolon::Omit, _cx)
-    }
 }
 
 fn write_declaration_block<'ghost, PrinterT: PrinterTrait>(
-    declarations: &DeclarationBlock<'_>,
+    declarations: DeclarationBlockRef<'_, '_>,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     write_block(dest, |dest| {
         write_declarations(declarations, dest, LastSemicolon::Optional, cx)
     })
+}
+
+impl<'ghost> ToCss<'ghost> for DeclarationBlockRef<'_, '_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result {
+        write_declarations(*self, dest, LastSemicolon::Omit, cx)
+    }
 }
 
 impl<'ghost> ToCss<'ghost> for StyleSheet<'_> {
@@ -1998,12 +1951,12 @@ impl<'ghost> ToCss<'ghost> for StyleSheet<'_> {
             dest.write_str("/*")?;
             dest.write_str(comment)?;
             dest.write_str("*/")?;
-            if index + 1 < self.license_comments.len() || !self.rules.is_empty() {
+            if index + 1 < self.license_comments.len() || !_cx.rule_list_is_empty(self.rules) {
                 dest.new_line()?;
             }
         }
-        write_rule_list(&self.rules, dest, _cx)?;
-        if !self.rules.is_empty() {
+        write_rule_list(self.rules, dest, _cx)?;
+        if !_cx.rule_list_is_empty(self.rules) {
             dest.new_line()?;
         }
         Ok(())
@@ -2017,7 +1970,7 @@ impl<'ghost> ToCss<'ghost> for Compilation<'_> {
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let (stylesheet, declaration_blocks) = self.parts();
-        let cx = ToCssContext::new_with_declaration_blocks(cx.token(), declaration_blocks);
+        let cx = ToCssContext::new_with_stores(cx.token(), declaration_blocks, self.rule_store());
         stylesheet.to_css(dest, &cx)
     }
 }
@@ -2030,7 +1983,7 @@ impl<'ghost> ToCss<'ghost> for MediaRule<'_> {
     ) -> fmt::Result {
         dest.write_str("@media ")?;
         self.query.to_css(dest, _cx)?;
-        write_block(dest, |dest| write_rule_list(&self.rules, dest, _cx))
+        write_block(dest, |dest| write_rule_list(self.rules, dest, _cx))
     }
 }
 
@@ -2041,7 +1994,7 @@ impl<'ghost> ToCss<'ghost> for ImportRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@import ")?;
-        serialize_string(self.url, dest)?;
+        serialize_string(&self.url, dest)?;
         if let Some(layer) = &self.layer {
             dest.write_str(" layer")?;
             if !layer.is_empty() {
@@ -2075,25 +2028,26 @@ impl<'ghost> ToCss<'ghost> for StyleRule<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        if self.selectors.iter().all(Selector::is_tombstone) {
+        let selectors = _cx.selectors(self.selectors);
+        if selectors.iter().all(Selector::is_tombstone) {
             return Ok(());
         }
-        self.selectors.to_css(dest, _cx)?;
+        write_comma_separated(selectors, dest, _cx)?;
         write_block(dest, |dest| {
             write_style_rule_declaration_chain(
                 self,
                 dest,
-                if self.rules.is_empty() {
+                if _cx.rule_list_is_empty(self.rules) {
                     LastSemicolon::Optional
                 } else {
                     LastSemicolon::Required
                 },
                 _cx,
             )?;
-            if !style_rule_chain_is_output_empty(self, _cx) && !self.rules.is_empty() {
+            if !style_rule_chain_is_output_empty(self, _cx) && !_cx.rule_list_is_empty(self.rules) {
                 dest.blank_line()?;
             }
-            write_rule_list(&self.rules, dest, _cx)
+            write_rule_list(self.rules, dest, _cx)
         })
     }
 }
@@ -2126,7 +2080,7 @@ impl<'ghost> ToCss<'ghost> for KeyframesRule<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Keyframe<'_> {
+impl<'ghost> ToCss<'ghost> for Keyframe {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -2240,7 +2194,7 @@ impl<'ghost> ToCss<'ghost> for FontPaletteValuesRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@font-palette-values ")?;
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         write_named_property_block(&self.properties, dest, _cx)
     }
 }
@@ -2304,7 +2258,7 @@ impl<'ghost> ToCss<'ghost> for FontFeatureDeclaration<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         dest.delim(Delimiter::Colon)?;
         for (index, value) in self.values.iter().enumerate() {
             if index > 0 {
@@ -2371,7 +2325,7 @@ impl<'ghost> ToCss<'ghost> for PageSelector<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        if let Some(name) = self.name {
+        if let Some(name) = &self.name {
             serialize_identifier(name, dest)?;
         }
         for pseudo_class in &self.pseudo_classes {
@@ -2390,7 +2344,7 @@ impl<'ghost> ToCss<'ghost> for SupportsRule<'_> {
     ) -> fmt::Result {
         dest.write_str("@supports ")?;
         self.condition.to_css(dest, _cx)?;
-        write_block(dest, |dest| write_rule_list(&self.rules, dest, _cx))
+        write_block(dest, |dest| write_rule_list(self.rules, dest, _cx))
     }
 }
 
@@ -2401,7 +2355,7 @@ impl<'ghost> ToCss<'ghost> for CounterStyleRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@counter-style ")?;
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         write_declaration_block(_cx.declaration_block(self.declarations), dest, _cx)
     }
 }
@@ -2413,7 +2367,7 @@ impl<'ghost> ToCss<'ghost> for CharsetRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@charset ")?;
-        serialize_string(self.encoding, dest)?;
+        serialize_string(&self.encoding, dest)?;
         dest.write_char(';')
     }
 }
@@ -2425,11 +2379,11 @@ impl<'ghost> ToCss<'ghost> for NamespaceRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@namespace ")?;
-        if let Some(prefix) = self.prefix {
+        if let Some(prefix) = &self.prefix {
             serialize_identifier(prefix, dest)?;
             dest.write_char(' ')?;
         }
-        serialize_string(self.url, dest)?;
+        serialize_string(&self.url, dest)?;
         dest.write_char(';')
     }
 }
@@ -2441,7 +2395,7 @@ impl<'ghost> ToCss<'ghost> for MozDocumentRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@-moz-document url-prefix()")?;
-        write_block(dest, |dest| write_rule_list(&self.rules, dest, _cx))
+        write_block(dest, |dest| write_rule_list(self.rules, dest, _cx))
     }
 }
 
@@ -2452,7 +2406,7 @@ impl<'ghost> ToCss<'ghost> for NestingRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@nest ")?;
-        self.style.as_ref().get_ref().to_css(dest, _cx)
+        self.style.to_css(dest, _cx)
     }
 }
 
@@ -2492,14 +2446,14 @@ impl<'ghost> ToCss<'ghost> for CustomMediaRule<'_> {
     ) -> fmt::Result {
         dest.write_str("@custom-media ")?;
         dest.write_str("--")?;
-        serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
+        serialize_name(self.name.strip_prefix("--").unwrap_or(&self.name), dest)?;
         dest.write_char(' ')?;
         self.query.to_css(dest, _cx)?;
         dest.write_char(';')
     }
 }
 
-fn write_layer_name<PrinterT: PrinterTrait>(name: &[&str], dest: &mut PrinterT) -> fmt::Result {
+fn write_layer_name<PrinterT: PrinterTrait>(name: &[Atom<'_>], dest: &mut PrinterT) -> fmt::Result {
     for (index, part) in name.iter().enumerate() {
         if index > 0 {
             dest.write_char('.')?;
@@ -2537,7 +2491,7 @@ impl<'ghost> ToCss<'ghost> for LayerBlockRule<'_> {
             dest.write_char(' ')?;
             write_layer_name(name, dest)?;
         }
-        write_block(dest, |dest| write_rule_list(&self.rules, dest, _cx))
+        write_block(dest, |dest| write_rule_list(self.rules, dest, _cx))
     }
 }
 
@@ -2549,7 +2503,7 @@ impl<'ghost> ToCss<'ghost> for PropertyRule<'_> {
     ) -> fmt::Result {
         dest.write_str("@property ")?;
         dest.write_str("--")?;
-        serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
+        serialize_name(self.name.strip_prefix("--").unwrap_or(&self.name), dest)?;
         write_block(dest, |dest| {
             dest.write_str("syntax")?;
             dest.delim(Delimiter::Colon)?;
@@ -2579,7 +2533,7 @@ impl<'ghost> ToCss<'ghost> for ContainerRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@container")?;
-        if let Some(name) = self.name {
+        if let Some(name) = &self.name {
             dest.write_char(' ')?;
             serialize_identifier(name, dest)?;
         }
@@ -2587,7 +2541,7 @@ impl<'ghost> ToCss<'ghost> for ContainerRule<'_> {
             dest.write_char(' ')?;
             condition.to_css(dest, _cx)?;
         }
-        write_block(dest, |dest| write_rule_list(&self.rules, dest, _cx))
+        write_block(dest, |dest| write_rule_list(self.rules, dest, _cx))
     }
 }
 
@@ -2608,7 +2562,7 @@ impl<'ghost> ToCss<'ghost> for ScopeRule<'_> {
             end.to_css(dest, _cx)?;
             dest.write_char(')')?;
         }
-        write_block(dest, |dest| write_rule_list(&self.rules, dest, _cx))
+        write_block(dest, |dest| write_rule_list(self.rules, dest, _cx))
     }
 }
 
@@ -2619,7 +2573,7 @@ impl<'ghost> ToCss<'ghost> for StartingStyleRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("@starting-style")?;
-        write_block(dest, |dest| write_rule_list(&self.rules, dest, _cx))
+        write_block(dest, |dest| write_rule_list(self.rules, dest, _cx))
     }
 }
 
@@ -2642,7 +2596,7 @@ impl<'ghost> ToCss<'ghost> for PositionTryRule<'_> {
     ) -> fmt::Result {
         dest.write_str("@position-try ")?;
         dest.write_str("--")?;
-        serialize_name(self.name.strip_prefix("--").unwrap_or(self.name), dest)?;
+        serialize_name(self.name.strip_prefix("--").unwrap_or(&self.name), dest)?;
         write_declaration_block(_cx.declaration_block(self.declarations), dest, _cx)
     }
 }
@@ -2654,7 +2608,7 @@ impl<'ghost> ToCss<'ghost> for UnknownAtRule<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_char('@')?;
-        serialize_identifier(self.name, dest)?;
+        serialize_identifier(&self.name, dest)?;
         if !self.prelude.is_empty() {
             dest.write_char(' ')?;
             crate::token::write_token_list(&self.prelude, dest, _cx)?;

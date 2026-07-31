@@ -1,16 +1,14 @@
 use super::*;
 
-use rocketcss_common::{boxed::Box, vec::Vec};
-
 #[derive(Debug, PartialEq, Visit)]
 pub enum MediaCondition<'a> {
-    Feature(Box<'a, MediaFeature<'a>>),
-    Not(Box<'a, MediaCondition<'a>>),
+    Feature(std::boxed::Box<MediaFeature<'a>>),
+    Not(std::boxed::Box<MediaCondition<'a>>),
     Operation {
-        conditions: Vec<'a, MediaCondition<'a>>,
+        conditions: std::vec::Vec<MediaCondition<'a>>,
         operator: Operator,
     },
-    Unknown(Vec<'a, TokenOrValue<'a>>),
+    Unknown(std::vec::Vec<TokenOrValue<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -28,10 +26,10 @@ pub enum QueryFeature<'a, FeatureId> {
         value: MediaFeatureValue<'a>,
     },
     Interval {
-        end: Box<'a, MediaFeatureValue<'a>>,
+        end: std::boxed::Box<MediaFeatureValue<'a>>,
         end_operator: MediaFeatureComparison,
         name: MediaFeatureName<'a, FeatureId>,
-        start: Box<'a, MediaFeatureValue<'a>>,
+        start: std::boxed::Box<MediaFeatureValue<'a>>,
         start_operator: MediaFeatureComparison,
     },
 }
@@ -39,8 +37,8 @@ pub enum QueryFeature<'a, FeatureId> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum MediaFeatureName<'a, FeatureId> {
     Standard(FeatureId),
-    Custom(&'a str),
-    Unknown(&'a str),
+    Custom(Atom<'a>),
+    Unknown(Atom<'a>),
 }
 
 pub type MediaFeature<'a> = QueryFeature<'a, MediaFeatureId>;
@@ -92,14 +90,14 @@ pub enum MediaFeatureId {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum MediaFeatureValue<'a> {
-    Length(Length<'a>),
+    Length(Length),
     Number(f32),
     Integer(i32),
     Boolean(bool),
     Resolution(Resolution),
     Ratio(Ratio),
-    Ident(&'a str),
-    Env(Box<'a, EnvironmentVariable<'a>>),
+    Ident(Atom<'a>),
+    Env(std::boxed::Box<EnvironmentVariable<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -122,7 +120,7 @@ pub enum MediaType<'a> {
     All,
     Print,
     Screen,
-    Custom(&'a str),
+    Custom(Atom<'a>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -133,11 +131,11 @@ pub enum Qualifier {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum SupportsCondition<'a> {
-    Not(Box<'a, SupportsCondition<'a>>),
-    And(Vec<'a, SupportsCondition<'a>>),
-    Or(Vec<'a, SupportsCondition<'a>>),
+    Not(std::boxed::Box<SupportsCondition<'a>>),
+    And(std::vec::Vec<SupportsCondition<'a>>),
+    Or(std::vec::Vec<SupportsCondition<'a>>),
     Declaration {
-        property_id: Box<'a, PropertyId<'a>>,
+        property_id: std::boxed::Box<PropertyId<'a>>,
         value: &'a str,
     },
     Selector(&'a str),

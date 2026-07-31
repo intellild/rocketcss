@@ -101,15 +101,13 @@ fn separator_compaction_respects_independent_options() {
 }
 
 fn custom_property_token_shape(source: &str, options: MinifyOptions) -> String {
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
-        let mut stylesheet =
-            parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
+    GhostToken::scope(|mut token| {
+        let mut stylesheet = parse(source, &mut token, ParserOptions::default()).unwrap();
         minify(&mut stylesheet, &mut token, options);
-        let rocketcss_ast::CssRule::Style(rule) = &stylesheet.rules[0] else {
+        let rocketcss_ast::CssRule::Style(rule) = &stylesheet.root_rules()[0] else {
             panic!("expected style rule")
         };
-        let declaration_block = stylesheet.declaration_block(rule.as_ref().get_ref().declarations);
+        let declaration_block = stylesheet.declaration_block(rule.declarations);
         let rocketcss_ast::Declaration::Custom(property) = &declaration_block.declarations[0]
         else {
             panic!("expected custom property")

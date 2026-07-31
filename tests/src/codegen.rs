@@ -1,5 +1,5 @@
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
-use rocketcss_common::Allocator;
+use rocketcss_common::GhostToken;
 use rocketcss_parser::{ParserOptions, parse};
 
 use crate::{expected_path, fixture_paths, read_fixture};
@@ -9,9 +9,8 @@ fn prints_expected_css() {
     for input in fixture_paths("codegen") {
         let source = read_fixture(&input);
         let expected = read_fixture(&expected_path(&input));
-        let allocator = Allocator::new();
-        allocator.with_ghost(|mut token| {
-            let stylesheet = parse(&source, &allocator, &mut token, ParserOptions::default())
+        GhostToken::scope(|mut token| {
+            let stylesheet = parse(&source, &mut token, ParserOptions::default())
                 .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
 
             let actual = stylesheet
@@ -26,11 +25,9 @@ fn prints_expected_css() {
 #[test]
 #[ignore]
 fn preserves_leading_license_comments_in_all_output_modes() {
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
+    GhostToken::scope(|mut token| {
         let stylesheet = parse(
             "/*! first */ /*! second */ /* ordinary */ a { color: red; }",
-            &allocator,
             &mut token,
             ParserOptions::default(),
         )

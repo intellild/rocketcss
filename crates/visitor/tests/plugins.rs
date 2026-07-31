@@ -16,7 +16,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for Rename<'a> {
         if let SelectorComponent::Class(name) = component
             && *name == self.from
         {
-            *name = self.to;
+            *name = self.to.clone();
         }
         component.visit_mut_children(self, cx);
     }
@@ -44,9 +44,8 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordPlugin {
 
 #[test]
 fn plugins_run_in_registration_order_and_share_context() {
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
-        let mut compiler = rocketcss_parser::Compiler::new(&allocator);
+    GhostToken::scope(|mut token| {
+        let mut compiler = rocketcss_parser::Compiler::new();
         let mut sheet = compiler
             .parse(
                 ".first {}",
@@ -54,9 +53,9 @@ fn plugins_run_in_registration_order_and_share_context() {
                 rocketcss_parser::ParserOptions::default(),
             )
             .unwrap();
-        let middle = compiler.intern("middle");
-        let last = compiler.intern("last");
-        let mut context = PluginContext::new(&allocator, &mut token);
+        let middle = sheet.intern("middle");
+        let last = sheet.intern("last");
+        let mut context = PluginContext::new(&mut token);
         context.insert(std::vec::Vec::<&'static str>::new());
         let mut plugins = Plugins::new();
         plugins.add(RecordPlugin("one"));
@@ -82,12 +81,11 @@ fn plugins_run_in_registration_order_and_share_context() {
             context.get::<std::vec::Vec<&str>>().unwrap(),
             &["one", "two"]
         );
-        let CssRule::Style(rule) = &sheet.rules[0] else {
+        let CssRule::Style(rule) = &sheet.root_rules()[0] else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().get_ref();
         assert!(matches!(
-            rule.selectors[0][0],
+            &sheet.selectors(rule.selectors)[0][0],
             SelectorComponent::Class(name) if name == "last"
         ));
     });
@@ -122,16 +120,14 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for FailingPlugin {
 
 #[test]
 fn plugin_errors_include_the_plugin_name() {
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
+    GhostToken::scope(|mut token| {
         let mut sheet = rocketcss_parser::parse(
             "a {}",
-            &allocator,
             &mut token,
             rocketcss_parser::ParserOptions::default(),
         )
         .unwrap();
-        let mut context = PluginContext::new(&allocator, &mut token);
+        let mut context = PluginContext::new(&mut token);
         let mut plugins = Plugins::new();
         plugins.add(FailingPlugin);
 

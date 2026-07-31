@@ -6,7 +6,6 @@
     unused_variables
 )]
 use crate::*;
-use std::pin::Pin;
 /// Typed callbacks invoked while traversing CSS AST nodes.
 pub trait VisitorMut<'a, 'ghost> {
     #[inline]
@@ -82,11 +81,35 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
+    fn visit_rule_topology(
+        &mut self,
+        node: &mut RuleTopology,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_syntax_node(
+        &mut self,
+        node: &mut SyntaxNode,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_rule_store(
+        &mut self,
+        node: &mut RuleStore<'a>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
     fn visit_css_rule(&mut self, node: &mut CssRule<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_length(&mut self, node: &mut Length<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_length(&mut self, node: &mut Length, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -98,7 +121,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_calc<V>(&mut self, node: &mut Calc<'a, V>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    fn visit_calc<V>(&mut self, node: &mut Calc<V>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
     where
         V: VisitMut<'a, 'ghost>,
     {
@@ -107,7 +130,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_math_function<V>(
         &mut self,
-        node: &mut MathFunction<'a, V>,
+        node: &mut MathFunction<V>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         V: VisitMut<'a, 'ghost>,
@@ -241,7 +264,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_view_timeline(
         &mut self,
-        node: &mut ViewTimeline<'a>,
+        node: &mut ViewTimeline,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -249,7 +272,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_animation_range(
         &mut self,
-        node: &mut AnimationRange<'a>,
+        node: &mut AnimationRange,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -399,11 +422,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_position(
-        &mut self,
-        node: &mut Position<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_position(&mut self, node: &mut Position, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -441,7 +460,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_background_position(
         &mut self,
-        node: &mut BackgroundPosition<'a>,
+        node: &mut BackgroundPosition,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -473,7 +492,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_border_radius(
         &mut self,
-        node: &mut BorderRadius<'a>,
+        node: &mut BorderRadius,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -489,7 +508,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_border_image_slice(
         &mut self,
-        node: &mut BorderImageSlice<'a>,
+        node: &mut BorderImageSlice,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -521,7 +540,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_border_width(
         &mut self,
-        node: &mut BorderWidth<'a>,
+        node: &mut BorderWidth,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -545,7 +564,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_border_block_width(
         &mut self,
-        node: &mut BorderBlockWidth<'a>,
+        node: &mut BorderBlockWidth,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -569,7 +588,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_border_inline_width(
         &mut self,
-        node: &mut BorderInlineWidth<'a>,
+        node: &mut BorderInlineWidth,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -671,7 +690,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_font_face_style(
         &mut self,
-        node: &mut FontFaceStyle<'a>,
+        node: &mut FontFaceStyle,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -801,11 +820,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_keyframe(
-        &mut self,
-        node: &mut Keyframe<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_keyframe(&mut self, node: &mut Keyframe, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -831,7 +846,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_inset_block(
         &mut self,
-        node: &mut InsetBlock<'a>,
+        node: &mut InsetBlock,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -839,13 +854,13 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_inset_inline(
         &mut self,
-        node: &mut InsetInline<'a>,
+        node: &mut InsetInline,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_inset(&mut self, node: &mut Inset<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_inset(&mut self, node: &mut Inset, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -853,7 +868,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_flex(&mut self, node: &mut Flex<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_flex(&mut self, node: &mut Flex, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -877,7 +892,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_gap(&mut self, node: &mut Gap<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_gap(&mut self, node: &mut Gap, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -891,7 +906,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_column_width(
         &mut self,
-        node: &mut ColumnWidth<'a>,
+        node: &mut ColumnWidth,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -905,7 +920,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_columns(&mut self, node: &mut Columns<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_columns(&mut self, node: &mut Columns, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -959,7 +974,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_margin_block(
         &mut self,
-        node: &mut MarginBlock<'a>,
+        node: &mut MarginBlock,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -967,19 +982,19 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_margin_inline(
         &mut self,
-        node: &mut MarginInline<'a>,
+        node: &mut MarginInline,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_margin(&mut self, node: &mut Margin<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_margin(&mut self, node: &mut Margin, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
     fn visit_padding_block(
         &mut self,
-        node: &mut PaddingBlock<'a>,
+        node: &mut PaddingBlock,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -987,19 +1002,19 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_padding_inline(
         &mut self,
-        node: &mut PaddingInline<'a>,
+        node: &mut PaddingInline,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_padding(&mut self, node: &mut Padding<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_padding(&mut self, node: &mut Padding, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
     fn visit_scroll_margin_block(
         &mut self,
-        node: &mut ScrollMarginBlock<'a>,
+        node: &mut ScrollMarginBlock,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1007,7 +1022,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_scroll_margin_inline(
         &mut self,
-        node: &mut ScrollMarginInline<'a>,
+        node: &mut ScrollMarginInline,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1015,7 +1030,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_scroll_margin(
         &mut self,
-        node: &mut ScrollMargin<'a>,
+        node: &mut ScrollMargin,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1023,7 +1038,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_scroll_padding_block(
         &mut self,
-        node: &mut ScrollPaddingBlock<'a>,
+        node: &mut ScrollPaddingBlock,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1031,7 +1046,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_scroll_padding_inline(
         &mut self,
-        node: &mut ScrollPaddingInline<'a>,
+        node: &mut ScrollPaddingInline,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1039,7 +1054,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_scroll_padding(
         &mut self,
-        node: &mut ScrollPadding<'a>,
+        node: &mut ScrollPadding,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1103,7 +1118,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_syntax_string(
         &mut self,
-        node: &mut SyntaxString<'a>,
+        node: &mut SyntaxString,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1111,7 +1126,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_syntax_component_kind(
         &mut self,
-        node: &mut SyntaxComponentKind<'a>,
+        node: &mut SyntaxComponentKind,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1151,23 +1166,19 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_syntax_component(
         &mut self,
-        node: &mut SyntaxComponent<'a>,
+        node: &mut SyntaxComponent,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_inset_rect(
-        &mut self,
-        node: &mut InsetRect<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_inset_rect(&mut self, node: &mut InsetRect, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
     fn visit_circle_shape(
         &mut self,
-        node: &mut CircleShape<'a>,
+        node: &mut CircleShape,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1175,17 +1186,17 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_ellipse_shape(
         &mut self,
-        node: &mut EllipseShape<'a>,
+        node: &mut EllipseShape,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_polygon(&mut self, node: &mut Polygon<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_polygon(&mut self, node: &mut Polygon, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_point(&mut self, node: &mut Point<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_point(&mut self, node: &mut Point, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1228,6 +1239,14 @@ pub trait VisitorMut<'a, 'ghost> {
     fn visit_compilation(
         &mut self,
         node: &mut Compilation<'a>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_declaration_block_store(
+        &mut self,
+        node: &mut DeclarationBlockStore<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1327,10 +1346,10 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_style_rule(
         &mut self,
-        mut node: Pin<&mut StyleRule<'a>>,
+        node: &mut StyleRule<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
-        VisitMut::visit_mut_children(&mut node, self, cx);
+        VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
     fn visit_declaration_block(
@@ -1351,7 +1370,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_text_indent(
         &mut self,
-        node: &mut TextIndent<'a>,
+        node: &mut TextIndent,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1745,11 +1764,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_gap_value(
-        &mut self,
-        node: &mut GapValue<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_gap_value(&mut self, node: &mut GapValue, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1831,7 +1846,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_animation_attachment_range(
         &mut self,
-        node: &mut AnimationAttachmentRange<'a>,
+        node: &mut AnimationAttachmentRange,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1851,7 +1866,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_border_side_width(
         &mut self,
-        node: &mut BorderSideWidth<'a>,
+        node: &mut BorderSideWidth,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1859,7 +1874,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_length_or_number(
         &mut self,
-        node: &mut LengthOrNumber<'a>,
+        node: &mut LengthOrNumber,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1875,7 +1890,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_border_image_side_width(
         &mut self,
-        node: &mut BorderImageSideWidth<'a>,
+        node: &mut BorderImageSideWidth,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1961,17 +1976,14 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_size_2_d<T>(
-        &mut self,
-        node: &mut Size2D<'a, T>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) where
+    fn visit_size_2_d<T>(&mut self, node: &mut Size2D<T>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
         T: VisitMut<'a, 'ghost>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_rect<T>(&mut self, node: &mut Rect<'a, T>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    fn visit_rect<T>(&mut self, node: &mut Rect<T>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
     where
         T: VisitMut<'a, 'ghost>,
     {
@@ -2090,11 +2102,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_font_size(
-        &mut self,
-        node: &mut FontSize<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_font_size(&mut self, node: &mut FontSize, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2152,7 +2160,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_line_height(
         &mut self,
-        node: &mut LineHeight<'a>,
+        node: &mut LineHeight,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2160,7 +2168,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_vertical_align(
         &mut self,
-        node: &mut VerticalAlign<'a>,
+        node: &mut VerticalAlign,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2190,17 +2198,13 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_track_size(
-        &mut self,
-        node: &mut TrackSize<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_track_size(&mut self, node: &mut TrackSize, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
     fn visit_track_breadth(
         &mut self,
-        node: &mut TrackBreadth<'a>,
+        node: &mut TrackBreadth,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2294,7 +2298,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_dimension_percentage<D>(
         &mut self,
-        node: &mut DimensionPercentage<'a, D>,
+        node: &mut DimensionPercentage<D>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         D: VisitMut<'a, 'ghost>,
@@ -2304,7 +2308,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_position_component<S>(
         &mut self,
-        node: &mut PositionComponent<'a, S>,
+        node: &mut PositionComponent<S>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         S: VisitMut<'a, 'ghost>,
@@ -2314,13 +2318,13 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_ending_shape(
         &mut self,
-        node: &mut EndingShape<'a>,
+        node: &mut EndingShape,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_ellipse(&mut self, node: &mut Ellipse<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_ellipse(&mut self, node: &mut Ellipse, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2332,7 +2336,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_circle(&mut self, node: &mut Circle<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_circle(&mut self, node: &mut Circle, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2356,7 +2360,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_background_size(
         &mut self,
-        node: &mut BackgroundSize<'a>,
+        node: &mut BackgroundSize,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2364,7 +2368,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_length_percentage_or_auto(
         &mut self,
-        node: &mut LengthPercentageOrAuto<'a>,
+        node: &mut LengthPercentageOrAuto,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2542,7 +2546,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_basic_shape(
         &mut self,
-        node: &mut BasicShape<'a>,
+        node: &mut BasicShape,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2550,7 +2554,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_shape_radius(
         &mut self,
-        node: &mut ShapeRadius<'a>,
+        node: &mut ShapeRadius,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2594,7 +2598,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_stroke_dasharray(
         &mut self,
-        node: &mut StrokeDasharray<'a>,
+        node: &mut StrokeDasharray,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2700,13 +2704,13 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_spacing(&mut self, node: &mut Spacing<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_spacing(&mut self, node: &mut Spacing, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
     fn visit_text_decoration_line(
         &mut self,
-        node: &mut TextDecorationLine<'a>,
+        node: &mut TextDecorationLine,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2738,7 +2742,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_text_decoration_thickness(
         &mut self,
-        node: &mut TextDecorationThickness<'a>,
+        node: &mut TextDecorationThickness,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2816,11 +2820,7 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_transform(
-        &mut self,
-        node: &mut Transform<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_transform(&mut self, node: &mut Transform, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2850,17 +2850,13 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_perspective(
         &mut self,
-        node: &mut Perspective<'a>,
+        node: &mut Perspective,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_translate(
-        &mut self,
-        node: &mut Translate<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_translate(&mut self, node: &mut Translate, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -3001,27 +2997,9 @@ pub trait VisitorMut<'a, 'ghost> {
         visitor.leave_node(AstType::ScrollStateFeature);
     }
     #[inline]
-    fn visit_declaration_block_store(
-        &mut self,
-        node: &mut DeclarationBlockStore<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        self.visit_declaration_block_store_children(node, cx);
-    }
-    ///Continues traversal of [`DeclarationBlockStore`] without redispatching its visitor callback.
-    fn visit_declaration_block_store_children(
-        &mut self,
-        node: &mut DeclarationBlockStore<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        let visitor = self;
-        visitor.enter_node(AstType::DeclarationBlockStore);
-        visitor.leave_node(AstType::DeclarationBlockStore);
-    }
-    #[inline]
     fn visit_selector_list(
         &mut self,
-        node: &mut SelectorList<'a>,
+        node: &mut [Selector<'a>],
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         self.visit_selector_list_children(node, cx);
@@ -3029,7 +3007,7 @@ pub trait VisitorMut<'a, 'ghost> {
     ///Continues traversal of [`SelectorList`] without redispatching its visitor callback.
     fn visit_selector_list_children(
         &mut self,
-        node: &mut SelectorList<'a>,
+        node: &mut [Selector<'a>],
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
@@ -3042,7 +3020,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_animation_range_start(
         &mut self,
-        node: &mut AnimationRangeStart<'a>,
+        node: &mut AnimationRangeStart,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         self.visit_animation_range_start_children(node, cx);
@@ -3050,7 +3028,7 @@ pub trait VisitorMut<'a, 'ghost> {
     ///Continues traversal of [`AnimationRangeStart`] without redispatching its visitor callback.
     fn visit_animation_range_start_children(
         &mut self,
-        node: &mut AnimationRangeStart<'a>,
+        node: &mut AnimationRangeStart,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
@@ -3061,7 +3039,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_animation_range_end(
         &mut self,
-        node: &mut AnimationRangeEnd<'a>,
+        node: &mut AnimationRangeEnd,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         self.visit_animation_range_end_children(node, cx);
@@ -3069,7 +3047,7 @@ pub trait VisitorMut<'a, 'ghost> {
     ///Continues traversal of [`AnimationRangeEnd`] without redispatching its visitor callback.
     fn visit_animation_range_end_children(
         &mut self,
-        node: &mut AnimationRangeEnd<'a>,
+        node: &mut AnimationRangeEnd,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
@@ -3080,7 +3058,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_length_percentage(
         &mut self,
-        node: &mut LengthPercentage<'a>,
+        node: &mut LengthPercentage,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         self.visit_length_percentage_children(node, cx);
@@ -3088,7 +3066,7 @@ pub trait VisitorMut<'a, 'ghost> {
     ///Continues traversal of [`LengthPercentage`] without redispatching its visitor callback.
     fn visit_length_percentage_children(
         &mut self,
-        node: &mut LengthPercentage<'a>,
+        node: &mut LengthPercentage,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
@@ -3099,7 +3077,7 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_angle_percentage(
         &mut self,
-        node: &mut AnglePercentage<'a>,
+        node: &mut AnglePercentage,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         self.visit_angle_percentage_children(node, cx);
@@ -3107,13 +3085,23 @@ pub trait VisitorMut<'a, 'ghost> {
     ///Continues traversal of [`AnglePercentage`] without redispatching its visitor callback.
     fn visit_angle_percentage_children(
         &mut self,
-        node: &mut AnglePercentage<'a>,
+        node: &mut AnglePercentage,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
         visitor.enter_node(AstType::AnglePercentage);
         VisitMut::visit_mut(node, visitor, cx);
         visitor.leave_node(AstType::AnglePercentage);
+    }
+    /// Observes a declaration block through its stable compilation-local ID.
+    /// The ordinary block and declaration callbacks have completed before
+    /// this hook runs.
+    #[inline]
+    fn visit_declaration_block_id(
+        &mut self,
+        _id: DeclarationBlockId,
+        _cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
     }
     #[inline]
     fn visit_declaration(
@@ -3164,10 +3152,18 @@ macro_rules! impl_leaf_visit_mut {
         : & mut VisitMutContext < '_, 'a, 'ghost >,) {} })+
     };
 }
-impl_leaf_visit_mut!(bool, char, f32, i32, u8, u16, u32, usize);
-impl<'a, 'ghost, T: ?Sized + VisitMut<'a, 'ghost>> VisitMut<'a, 'ghost>
-    for rocketcss_common::boxed::Box<'a, T>
-{
+impl_leaf_visit_mut!(
+    bool,
+    char,
+    f32,
+    i32,
+    u8,
+    u16,
+    u32,
+    usize,
+    std::string::String
+);
+impl<'a, 'ghost, T: ?Sized + VisitMut<'a, 'ghost>> VisitMut<'a, 'ghost> for std::boxed::Box<T> {
     fn visit_mut<VisitorT: ?Sized + VisitorMut<'a, 'ghost>>(
         &mut self,
         visitor: &mut VisitorT,
@@ -3176,9 +3172,7 @@ impl<'a, 'ghost, T: ?Sized + VisitMut<'a, 'ghost>> VisitMut<'a, 'ghost>
         VisitMut::visit_mut(self.as_mut(), visitor, cx);
     }
 }
-impl<'a, 'ghost, T: VisitMut<'a, 'ghost> + Unpin> VisitMut<'a, 'ghost>
-    for rocketcss_common::vec::Vec<'a, T>
-{
+impl<'a, 'ghost, T: VisitMut<'a, 'ghost>> VisitMut<'a, 'ghost> for std::vec::Vec<T> {
     fn visit_mut<VisitorT: ?Sized + VisitorMut<'a, 'ghost>>(
         &mut self,
         visitor: &mut VisitorT,

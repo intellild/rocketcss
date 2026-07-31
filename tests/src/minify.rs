@@ -2,7 +2,7 @@ use std::path::Path;
 
 use rocketcss_ast::CssRule;
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
-use rocketcss_common::Allocator;
+use rocketcss_common::GhostToken;
 use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
@@ -51,9 +51,8 @@ fn minifies_enabled_s2_only_cross_rule_fixtures() {
 fn assert_minifies_static_fixture(input: &Path) {
     let source = read_fixture(input);
     let expected = read_fixture(&expected_path(input));
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
-        let mut stylesheet = parse(&source, &allocator, &mut token, ParserOptions::default())
+    GhostToken::scope(|mut token| {
+        let mut stylesheet = parse(&source, &mut token, ParserOptions::default())
             .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
@@ -91,15 +90,14 @@ fn synthesized_cross_rule_fixture_preserves_combined_source_span() {
         "fixtures/minify/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/assigns-combined-source-span-to-synthesized-rule/input.css",
     );
     let source = read_fixture(&input);
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
-        let mut stylesheet = parse(&source, &allocator, &mut token, ParserOptions::default())
+    GhostToken::scope(|mut token| {
+        let mut stylesheet = parse(&source, &mut token, ParserOptions::default())
             .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
 
-        assert_eq!(stylesheet.rules.len(), 1);
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+        assert_eq!(stylesheet.root_rules().len(), 1);
+        let CssRule::Style(rule) = &stylesheet.root_rules()[0] else {
             panic!("expected one synthesized style rule");
         };
         assert_eq!(rule.span.start, 0);

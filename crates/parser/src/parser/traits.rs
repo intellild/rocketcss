@@ -1,6 +1,4 @@
-use std::fmt;
-
-use rocketcss_common::Allocator;
+use std::{borrow::Cow, fmt};
 
 use super::ParseError;
 use crate::{Compiler, SourceLocation, TokenAndSpan};
@@ -12,7 +10,7 @@ pub enum ParserError<'i> {
     InvalidDeclaration,
     InvalidSelector,
     InvalidValue,
-    InvalidAtRule(&'i str),
+    InvalidAtRule(Cow<'i, str>),
     UnexpectedImportRule,
     UnexpectedNamespaceRule,
     UnexpectedToken(TokenAndSpan),
@@ -66,17 +64,15 @@ impl std::error::Error for Error<'_> {}
 pub struct ParserOptions<'i> {
     pub filename: &'i str,
     pub error_recovery: bool,
+    pub origin: rocketcss_ast::CascadeOrigin,
 }
 
 /// A lightningcss-style trait for values parsed from CSS syntax.
 pub trait Parse<'i>: Sized {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>>;
 
-    fn parse_string(
-        source: &'i str,
-        allocator: &'i Allocator,
-    ) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        Compiler::new_with_source(source, allocator).parse_entirely(Self::parse)
+    fn parse_string(source: &'i str) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        Compiler::new_with_source(source).parse_entirely(Self::parse)
     }
 }
 

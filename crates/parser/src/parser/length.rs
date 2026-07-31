@@ -1,7 +1,7 @@
 use super::values::collect_tokens;
 use crate::prelude::*;
 
-impl<'i> Parse<'i> for Length<'i> {
+impl<'i> Parse<'i> for Length {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
         match input.next()?.clone() {
@@ -19,7 +19,7 @@ impl<'i> Parse<'i> for Length<'i> {
     }
 }
 
-impl<'i> Parse<'i> for LengthPercentage<'i> {
+impl<'i> Parse<'i> for LengthPercentage {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
         match input.next()?.clone() {
@@ -37,7 +37,6 @@ impl<'i> Parse<'i> for LengthPercentage<'i> {
 
 impl<'i> Parse<'i> for Size<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let location = input.current_source_location();
         let token = input.next()?.clone();
         match token {
@@ -67,26 +66,25 @@ impl<'i> Parse<'i> for Size<'i> {
                     input.expect_exhausted()?;
                     Ok(value)
                 })?;
-                Ok(Size::FitContentFunction(allocator.boxed(value)))
+                Ok(Size::FitContentFunction(std::boxed::Box::new(value)))
             }
-            ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
-                let arguments =
-                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
-                Ok(Size::MathFunction(
-                    allocator.boxed(Function::new(name, arguments)),
-                ))
+            ValueToken::Function(name) if KnownFunction::from_name(&name).is_math() => {
+                let arguments = input.parse_nested_block(|input| collect_tokens(input, 1))?;
+                Ok(Size::MathFunction(std::boxed::Box::new(Function::new(
+                    name, arguments,
+                ))))
             }
-            ValueToken::Percentage(value) => Ok(Size::LengthPercentage(
-                allocator.boxed(DimensionPercentage::Percentage(value)),
-            )),
+            ValueToken::Percentage(value) => Ok(Size::LengthPercentage(std::boxed::Box::new(
+                DimensionPercentage::Percentage(value),
+            ))),
             ValueToken::Dimension { unit, value } => {
                 let unit = parse_length_unit(&unit)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Size::LengthPercentage(allocator.boxed(
+                Ok(Size::LengthPercentage(std::boxed::Box::new(
                     DimensionPercentage::Dimension(LengthValue { unit, value }),
                 )))
             }
-            ValueToken::Number(0.0) => Ok(Size::LengthPercentage(allocator.boxed(
+            ValueToken::Number(0.0) => Ok(Size::LengthPercentage(std::boxed::Box::new(
                 DimensionPercentage::Dimension(LengthValue {
                     unit: LengthUnit::Px,
                     value: 0.0,
@@ -99,7 +97,6 @@ impl<'i> Parse<'i> for Size<'i> {
 
 impl<'i> Parse<'i> for MaxSize<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let location = input.current_source_location();
         let token = input.next()?.clone();
         match token {
@@ -129,26 +126,25 @@ impl<'i> Parse<'i> for MaxSize<'i> {
                     input.expect_exhausted()?;
                     Ok(value)
                 })?;
-                Ok(Self::FitContentFunction(allocator.boxed(value)))
+                Ok(Self::FitContentFunction(std::boxed::Box::new(value)))
             }
-            ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
-                let arguments =
-                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
-                Ok(Self::MathFunction(
-                    allocator.boxed(Function::new(name, arguments)),
-                ))
+            ValueToken::Function(name) if KnownFunction::from_name(&name).is_math() => {
+                let arguments = input.parse_nested_block(|input| collect_tokens(input, 1))?;
+                Ok(Self::MathFunction(std::boxed::Box::new(Function::new(
+                    name, arguments,
+                ))))
             }
-            ValueToken::Percentage(value) => Ok(Self::LengthPercentage(
-                allocator.boxed(DimensionPercentage::Percentage(value)),
-            )),
+            ValueToken::Percentage(value) => Ok(Self::LengthPercentage(std::boxed::Box::new(
+                DimensionPercentage::Percentage(value),
+            ))),
             ValueToken::Dimension { unit, value } => {
                 let unit = parse_length_unit(&unit)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Self::LengthPercentage(allocator.boxed(
+                Ok(Self::LengthPercentage(std::boxed::Box::new(
                     DimensionPercentage::Dimension(LengthValue { unit, value }),
                 )))
             }
-            ValueToken::Number(0.0) => Ok(Self::LengthPercentage(allocator.boxed(
+            ValueToken::Number(0.0) => Ok(Self::LengthPercentage(std::boxed::Box::new(
                 DimensionPercentage::Dimension(LengthValue {
                     unit: LengthUnit::Px,
                     value: 0.0,

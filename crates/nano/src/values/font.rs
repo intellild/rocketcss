@@ -1,9 +1,8 @@
 use rocketcss_ast::FontFamily;
-use rocketcss_common::vec::Vec;
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 
-impl<'a> Minify for Vec<'a, FontFamily<'a>> {
+impl<'a> Minify for std::vec::Vec<FontFamily<'a>> {
     fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
         Self: 'cx,

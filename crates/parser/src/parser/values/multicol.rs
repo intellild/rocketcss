@@ -20,9 +20,8 @@ impl<'i> Parse<'i> for LineStyle {
     }
 }
 
-impl<'i> Parse<'i> for BorderSideWidth<'i> {
+impl<'i> Parse<'i> for BorderSideWidth {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         if let Ok(ident) = input.try_parse(Compiler::expect_ident) {
             return match_ignore_ascii_case!(
                 ident,
@@ -36,13 +35,12 @@ impl<'i> Parse<'i> for BorderSideWidth<'i> {
         if !is_non_negative_length(&length) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self::Length(allocator.boxed(length)))
+        Ok(Self::Length(std::boxed::Box::new(length)))
     }
 }
 
 impl<'i> Parse<'i> for ColumnRule<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let mut width = None;
         let mut style = None;
         let mut color = None;
@@ -51,7 +49,7 @@ impl<'i> Parse<'i> for ColumnRule<'i> {
             if width.is_none()
                 && let Ok(value) = input.try_parse(BorderSideWidth::parse)
             {
-                width = Some(allocator.boxed(value));
+                width = Some(std::boxed::Box::new(value));
                 continue;
             }
             if style.is_none()
@@ -63,7 +61,7 @@ impl<'i> Parse<'i> for ColumnRule<'i> {
             if color.is_none()
                 && let Ok(value) = input.try_parse(CssColor::parse)
             {
-                color = Some(allocator.boxed(value));
+                color = Some(std::boxed::Box::new(value));
                 continue;
             }
             return Err(input.new_custom_error(ParserError::InvalidValue));
@@ -80,7 +78,7 @@ impl<'i> Parse<'i> for ColumnRule<'i> {
     }
 }
 
-impl<'i> Parse<'i> for ColumnWidth<'i> {
+impl<'i> Parse<'i> for ColumnWidth {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if input
             .try_parse(|input| input.expect_ident_matching("auto"))
@@ -88,12 +86,11 @@ impl<'i> Parse<'i> for ColumnWidth<'i> {
         {
             return Ok(Self::Auto);
         }
-        let allocator = input.allocator();
         let length = Length::parse(input)?;
         if !is_non_negative_length(&length) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self::Length(allocator.boxed(length)))
+        Ok(Self::Length(std::boxed::Box::new(length)))
     }
 }
 
@@ -113,9 +110,8 @@ impl<'i> Parse<'i> for ColumnCount {
     }
 }
 
-impl<'i> Parse<'i> for Columns<'i> {
+impl<'i> Parse<'i> for Columns {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let mut width = None;
         let mut count = None;
         let mut auto_count = 0u8;
@@ -125,7 +121,7 @@ impl<'i> Parse<'i> for Columns<'i> {
                 && let Ok(value) = input.try_parse(Length::parse)
                 && is_non_negative_length(&value)
             {
-                width = Some(ColumnWidth::Length(allocator.boxed(value)));
+                width = Some(ColumnWidth::Length(std::boxed::Box::new(value)));
                 continue;
             }
             if count.is_none()
@@ -157,7 +153,7 @@ impl<'i> Parse<'i> for Columns<'i> {
     }
 }
 
-impl<'i> Parse<'i> for GapValue<'i> {
+impl<'i> Parse<'i> for GapValue {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if input
             .try_parse(|input| input.expect_ident_matching("normal"))
@@ -165,23 +161,22 @@ impl<'i> Parse<'i> for GapValue<'i> {
         {
             return Ok(Self::Normal);
         }
-        let allocator = input.allocator();
         let value = LengthPercentage::parse(input)?;
         if !is_non_negative_length_percentage(&value) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self::LengthPercentage(allocator.boxed(value)))
+        Ok(Self::LengthPercentage(std::boxed::Box::new(value)))
     }
 }
 
-fn is_non_negative_length(value: &Length<'_>) -> bool {
+fn is_non_negative_length(value: &Length) -> bool {
     match value {
         Length::Value(value) => value.value >= 0.0,
         Length::Calc(_) => true,
     }
 }
 
-fn is_non_negative_length_percentage(value: &LengthPercentage<'_>) -> bool {
+fn is_non_negative_length_percentage(value: &LengthPercentage) -> bool {
     match value {
         LengthPercentage::Dimension(value) => value.value >= 0.0,
         LengthPercentage::Percentage(value) => *value >= 0.0,

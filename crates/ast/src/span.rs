@@ -1,5 +1,4 @@
 use crate::Visit;
-use rocketcss_common::boxed::Box;
 
 pub const DUMMY_SP: Span = Span { start: 0, end: 0 };
 
@@ -58,7 +57,7 @@ where
     }
 }
 
-impl<'a, S> GetSpan for Box<'a, S>
+impl<S> GetSpan for std::boxed::Box<S>
 where
     S: GetSpan,
 {
@@ -68,7 +67,7 @@ where
     }
 }
 
-impl<'a, S> SetSpan for Box<'a, S>
+impl<S> SetSpan for std::boxed::Box<S>
 where
     S: SetSpan,
 {

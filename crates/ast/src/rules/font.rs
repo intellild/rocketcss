@@ -2,19 +2,19 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum FontFaceProperty<'a> {
-    Source(Vec<'a, Source<'a>>),
-    FontFamily(Box<'a, FontFamily<'a>>),
-    FontStyle(Box<'a, FontFaceStyle<'a>>),
-    FontWeight(Box<'a, Size2D<'a, FontWeight>>),
-    FontStretch(Box<'a, Size2D<'a, FontStretch>>),
-    UnicodeRange(Vec<'a, UnicodeRange>),
-    Custom(Box<'a, CustomProperty<'a>>),
+    Source(std::vec::Vec<Source<'a>>),
+    FontFamily(std::boxed::Box<FontFamily<'a>>),
+    FontStyle(std::boxed::Box<FontFaceStyle>),
+    FontWeight(std::boxed::Box<Size2D<FontWeight>>),
+    FontStretch(std::boxed::Box<Size2D<FontStretch>>),
+    UnicodeRange(std::vec::Vec<UnicodeRange>),
+    Custom(std::boxed::Box<CustomProperty<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Source<'a> {
-    Url(Box<'a, UrlSource<'a>>),
-    Local(Box<'a, FontFamily<'a>>),
+    Url(std::boxed::Box<UrlSource<'a>>),
+    Local(std::boxed::Box<FontFamily<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -45,18 +45,18 @@ pub enum FontTechnology {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum FontFaceStyle<'a> {
+pub enum FontFaceStyle {
     Normal,
     Italic,
-    Oblique(Box<'a, Size2D<'a, Angle>>),
+    Oblique(std::boxed::Box<Size2D<Angle>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum FontPaletteValuesProperty<'a> {
-    FontFamily(Box<'a, FontFamily<'a>>),
-    BasePalette(Box<'a, BasePalette>),
-    OverrideColors(Vec<'a, OverrideColors<'a>>),
-    Custom(Box<'a, CustomProperty<'a>>),
+    FontFamily(std::boxed::Box<FontFamily<'a>>),
+    BasePalette(std::boxed::Box<BasePalette>),
+    OverrideColors(std::vec::Vec<OverrideColors<'a>>),
+    Custom(std::boxed::Box<CustomProperty<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -79,25 +79,25 @@ pub enum FontFeatureSubruleType {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Font<'a> {
-    pub family: Vec<'a, FontFamily<'a>>,
-    pub line_height: Box<'a, LineHeight<'a>>,
-    pub size: Box<'a, FontSize<'a>>,
+    pub family: std::vec::Vec<FontFamily<'a>>,
+    pub line_height: std::boxed::Box<LineHeight>,
+    pub size: std::boxed::Box<FontSize>,
     pub stretch: FontStretch,
-    pub style: Box<'a, FontStyle>,
+    pub style: std::boxed::Box<FontStyle>,
     pub variant_caps: FontVariantCaps,
-    pub weight: Box<'a, FontWeight>,
+    pub weight: std::boxed::Box<FontWeight>,
 }
 #[derive(Debug, PartialEq, Visit)]
 pub struct FontFaceRule<'a> {
     pub span: Span,
-    pub properties: Vec<'a, FontFaceProperty<'a>>,
+    pub properties: std::vec::Vec<FontFaceProperty<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct UrlSource<'a> {
-    pub format: Option<Box<'a, FontFormat<'a>>>,
-    pub tech: Vec<'a, FontTechnology>,
-    pub url: Box<'a, Url<'a>>,
+    pub format: Option<std::boxed::Box<FontFormat<'a>>>,
+    pub tech: std::vec::Vec<FontTechnology>,
+    pub url: std::boxed::Box<Url<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -109,35 +109,35 @@ pub struct UnicodeRange {
 #[derive(Debug, PartialEq, Visit)]
 pub struct FontPaletteValuesRule<'a> {
     pub span: Span,
-    pub name: &'a str,
-    pub properties: Vec<'a, FontPaletteValuesProperty<'a>>,
+    pub name: Atom<'a>,
+    pub properties: std::vec::Vec<FontPaletteValuesProperty<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct OverrideColors<'a> {
-    pub color: Box<'a, CssColor<'a>>,
+    pub color: std::boxed::Box<CssColor<'a>>,
     pub index: u16,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct FontFeatureValuesRule<'a> {
     pub span: Span,
-    pub name: Vec<'a, FamilyName<'a>>,
-    pub rules: Vec<'a, FontFeatureSubrule<'a>>,
+    pub name: std::vec::Vec<FamilyName<'a>>,
+    pub rules: std::vec::Vec<FontFeatureSubrule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct FontFeatureSubrule<'a> {
-    pub declarations: Vec<'a, FontFeatureDeclaration<'a>>,
+    pub declarations: std::vec::Vec<FontFeatureDeclaration<'a>>,
     pub span: Span,
     pub name: FontFeatureSubruleType,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct FontFeatureDeclaration<'a> {
-    pub name: &'a str,
-    pub values: Vec<'a, i32>,
+    pub name: Atom<'a>,
+    pub values: std::vec::Vec<i32>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct FamilyName<'a>(pub &'a str);
+pub struct FamilyName<'a>(pub Atom<'a>);
