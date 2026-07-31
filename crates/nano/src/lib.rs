@@ -13,7 +13,7 @@ mod values;
 pub mod prelude;
 
 use rocketcss_allocator::{Allocator, GhostToken};
-use rocketcss_ast::{match_ignore_ascii_case, *};
+use rocketcss_ast::*;
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut};
 
 pub use context::{MinifyContext, MinifyStats};
@@ -169,6 +169,12 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         node: &mut UnparsedProperty<'ast>,
         cx: &mut VisitMutContext<'_, 'ghost>,
     ) {
+        if matches!(
+            node.reason,
+            UnparsedPropertyReason::UnknownProperty | UnparsedPropertyReason::InvalidValue
+        ) {
+            return;
+        }
         let previous = self.cx.value_context;
         self.cx.value_context = properties::value_context(
             &node.property_id,
@@ -176,7 +182,13 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
             self.cx
                 .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
         );
-        node.visit_mut_children(self, cx);
+        if matches!(node.reason, UnparsedPropertyReason::UnsupportedGrammar) {
+            node.visit_mut_children(self, cx);
+        } else {
+            self.cx
+                .value_context
+                .set_enabled(context::ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
+        }
         node.minify(&mut self.cx);
         self.cx.value_context = previous;
     }
@@ -194,14 +206,55 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         if match_ignore_ascii_case!(name, "--font-family" => true, _ => false) {
             self.cx.value_context.property = context::PropertyContext::Font;
         }
-        node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
+        let fuse_token_compaction = !self
+            .cx
+            .value_context
+            .is_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+            && self.cx.is_enabled(
+                Options::DISCARD_COMMENTS | Options::NORMALIZE_WHITESPACE,
+                OptionsOp::And,
+            );
+        if fuse_token_compaction {
+            node.name.visit_mut(self, cx);
+            let preserve_space_after_comma = self
+                .cx
+                .value_context
+                .is_enabled(context::ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
+            let normalized = token::visit_and_compact_comments_and_whitespace(
+                &mut node.value,
+                preserve_space_after_comma,
+                |value| value.visit_mut(self, cx),
+            );
+            for _ in 0..normalized {
+                self.cx.record_value_normalized();
+            }
+            token::minify_compacted_token_values(&mut node.value, &mut self.cx);
+        } else {
+            node.visit_mut_children(self, cx);
+            node.minify(&mut self.cx);
+        }
         self.cx.value_context = previous;
     }
 
     fn visit_function(&mut self, node: &mut Function<'ast>, cx: &mut VisitMutContext<'_, 'ghost>) {
         let previous = self.cx.value_context;
         let kind = node.kind();
+        if matches!(kind, KnownFunction::Rgb | KnownFunction::Rgba) && !node.is_valid_rgb() {
+            return;
+        }
+        if kind.is_color() {
+            self.cx
+                .value_context
+                .set_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS, true);
+            node.visit_mut_children(self, cx);
+            self.cx.value_context = previous;
+            self.cx
+                .value_context
+                .set_enabled(context::ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
+            node.minify(&mut self.cx);
+            self.cx.value_context = previous;
+            return;
+        }
         if kind.is_math() {
             self.cx.value_context.set_enabled(
                 context::ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH

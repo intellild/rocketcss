@@ -125,6 +125,7 @@ pub(crate) fn custom_property_context(cx: &MinifyContext) -> ValueContext {
         ValueContextFlags::SKIP_VALUE_TRANSFORMS,
         cx.is_enabled(Options::TRANSFORM_CUSTOM_PROPERTIES, OptionsOp::None),
     );
+    value_context.set_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
     value_context
 }
 

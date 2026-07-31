@@ -96,6 +96,8 @@ macro_rules! define_properties {
                 $(#[$meta])*
                 $property($value $(, $vp)?),
             )+
+            /// A CSS-wide keyword shared by every known property grammar.
+            CSSWide(Box<'a, PropertyId<'a>>, CSSWideKeyword),
             Unparsed(Box<'a, UnparsedProperty<'a>>),
             Custom(Box<'a, CustomProperty<'a>>),
             /// Tombstone for a declaration removed by an in-place transform.
@@ -175,6 +177,7 @@ macro_rules! define_properties {
             pub fn known_id_and_prefix(&self) -> Option<(u32, VendorPrefix)> {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some((KnownPropertyDiscriminant::$property as u32, declaration_prefix!($(vendor_prefix: $vp)?))),)+
+                    Self::CSSWide(property_id, _) => property_id.known_id_and_prefix(),
                     Self::Unparsed(value) => value.property_id.known_id_and_prefix(),
                     Self::Custom(_) | Self::Tombstone => None,
                 }
@@ -185,6 +188,7 @@ macro_rules! define_properties {
             pub fn property_id(&self) -> Option<PropertyId<'a>> {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some(declaration_property_id!(PropertyId::$property$(, vendor_prefix: $vp)?)),)+
+                    Self::CSSWide(property_id, _) => Some(**property_id),
                     Self::Unparsed(value) => Some(*value.property_id),
                     Self::Custom(value) => Some(PropertyId::Custom(match &*value.name {
                         CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
@@ -197,6 +201,7 @@ macro_rules! define_properties {
             pub fn name(&self) -> &'a str {
                 match self {
                     $(Self::$property(..) => $name,)+
+                    Self::CSSWide(property_id, _) => property_id.name(),
                     Self::Unparsed(value) => value.property_id.name(),
                     Self::Custom(value) => match &*value.name {
                         CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
@@ -209,6 +214,7 @@ macro_rules! define_properties {
             pub fn vendor_prefix(&self) -> VendorPrefix {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => declaration_prefix!($(vendor_prefix: $vp)?),)+
+                    Self::CSSWide(property_id, _) => property_id.vendor_prefix(),
                     Self::Unparsed(value) => value.property_id.vendor_prefix(),
                     Self::Custom(_) | Self::Tombstone => VendorPrefix::NONE,
                 }

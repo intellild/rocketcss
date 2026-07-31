@@ -20,6 +20,10 @@ impl Minify for TokenOrValue<'_> {
             || cx
                 .value_context
                 .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+            || (cx
+                .value_context
+                .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS)
+                && matches!(self, TokenOrValue::Token(_)))
         {
             return;
         }
@@ -68,21 +72,6 @@ impl Minify for TokenOrValue<'_> {
                         .is_enabled(ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE) =>
             {
                 **token = Token::Number(0.0);
-                cx.record_value_normalized();
-            }
-            Token::UnknownDimension { unit: ".", value } => {
-                **token = Token::Number(*value);
-                cx.record_value_normalized();
-            }
-            Token::UnknownDimension { unit, value }
-                if unit.strip_prefix('.').is_some_and(
-                    |unit| match_ignore_ascii_case!(unit, "px" => true, _ => false),
-                ) =>
-            {
-                **token = Token::Dimension {
-                    unit: Unit::Length(rocketcss_ast::LengthUnit::Px),
-                    value: *value,
-                };
                 cx.record_value_normalized();
             }
             _ => {}
@@ -148,52 +137,89 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
     where
         Self: 'cx,
     {
-        protect_adjacent_function_replacements(self);
-        if cx.is_enabled(Options::DISCARD_COMMENTS, OptionsOp::Any) {
-            discard_comments(self, cx);
-        }
-        if cx.is_enabled(Options::NORMALIZE_WHITESPACE, OptionsOp::Any) {
-            normalize_whitespace(self, cx);
-        }
-        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
-            || cx
-                .value_context
-                .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+        if cx
+            .value_context
+            .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
         {
             return;
         }
-
-        if minify_broken_decimal_tokens(self) {
-            cx.record_value_normalized();
-        }
-        if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) && normalize_url_values(self) {
-            cx.record_value_normalized();
-        }
-
-        match cx.value_context.property {
-            PropertyContext::Animation => minify_animation(self, cx),
-            PropertyContext::Border | PropertyContext::Outline => minify_ordered_border(self, cx),
-            PropertyContext::Box => minify_box_sides(self, cx),
-            PropertyContext::BoxShadow => minify_box_shadow(self, cx),
-            PropertyContext::Columns => minify_ordered_columns(self, cx),
-            PropertyContext::Display => minify_display(self, cx),
-            PropertyContext::FlexFlow => minify_flex_flow(self, cx),
-            PropertyContext::Font => minify_font(self, cx),
-            PropertyContext::FontWeight => minify_font_weight(self, cx),
-            PropertyContext::GridAutoFlow => minify_grid_auto_flow(self, cx),
-            PropertyContext::GridGap => minify_grid_gap(self, cx),
-            PropertyContext::GridLine => minify_grid_line(self, cx),
-            PropertyContext::ListStyle => minify_list_style(self, cx),
-            PropertyContext::Position => {
-                minify_positions(self, cx);
-                minify_repeat_style(self, cx);
+        match (
+            cx.is_enabled(Options::DISCARD_COMMENTS, OptionsOp::Any),
+            cx.is_enabled(Options::NORMALIZE_WHITESPACE, OptionsOp::Any),
+        ) {
+            (true, true) => {
+                let preserve_space_after_comma = cx
+                    .value_context
+                    .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
+                let normalized =
+                    compact_comments_and_whitespace_with(self, preserve_space_after_comma, |_| {});
+                record_value_normalized(cx, normalized);
             }
-            PropertyContext::Repeat => minify_repeat_style(self, cx),
-            PropertyContext::TimingFunction => {}
-            PropertyContext::Transform => {}
-            PropertyContext::Transition => minify_transition(self, cx),
-            PropertyContext::Generic => {}
+            (true, false) => {
+                protect_adjacent_function_replacements(self);
+                compact_comments(self, cx);
+            }
+            (false, true) => {
+                protect_adjacent_function_replacements(self);
+                compact_whitespace(self, cx);
+            }
+            (false, false) => protect_adjacent_function_replacements(self),
         }
+        minify_compacted_token_values(self, cx);
+    }
+}
+
+pub(crate) fn visit_and_compact_comments_and_whitespace<'a>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    preserve_space_after_comma: bool,
+    visit: impl FnMut(&mut TokenOrValue<'a>),
+) -> usize {
+    compact_comments_and_whitespace_with(values, preserve_space_after_comma, visit)
+}
+
+pub(crate) fn minify_compacted_token_values<'a, 'cx>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    cx: &mut MinifyContext<'cx>,
+) where
+    'a: 'cx,
+{
+    if cx
+        .value_context
+        .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS)
+    {
+        return;
+    }
+    if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
+        return;
+    }
+
+    if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) && normalize_url_values(values) {
+        cx.record_value_normalized();
+    }
+
+    match cx.value_context.property {
+        PropertyContext::Animation => minify_animation(values, cx),
+        PropertyContext::Border | PropertyContext::Outline => minify_ordered_border(values, cx),
+        PropertyContext::Box => minify_box_sides(values, cx),
+        PropertyContext::BoxShadow => minify_box_shadow(values, cx),
+        PropertyContext::Columns => minify_ordered_columns(values, cx),
+        PropertyContext::Display => minify_display(values, cx),
+        PropertyContext::FlexFlow => minify_flex_flow(values, cx),
+        PropertyContext::Font => minify_font(values, cx),
+        PropertyContext::FontWeight => minify_font_weight(values, cx),
+        PropertyContext::GridAutoFlow => minify_grid_auto_flow(values, cx),
+        PropertyContext::GridGap => minify_grid_gap(values, cx),
+        PropertyContext::GridLine => minify_grid_line(values, cx),
+        PropertyContext::ListStyle => minify_list_style(values, cx),
+        PropertyContext::Position => {
+            minify_positions(values, cx);
+            minify_repeat_style(values, cx);
+        }
+        PropertyContext::Repeat => minify_repeat_style(values, cx),
+        PropertyContext::TimingFunction => {}
+        PropertyContext::Transform => {}
+        PropertyContext::Transition => minify_transition(values, cx),
+        PropertyContext::Generic => {}
     }
 }
 
@@ -208,46 +234,6 @@ fn normalize_url_values<'a>(values: &mut Vec<'a, TokenOrValue<'a>>) -> bool {
             url.url = allocator.alloc_str(&normalized);
             changed = true;
         }
-    }
-    changed
-}
-
-fn minify_broken_decimal_tokens(values: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
-    let mut changed = false;
-    let mut index = 0;
-    while index + 1 < values.len() {
-        let is_number = matches!(values[index], TokenOrValue::Token(ref token) if matches!(**token, Token::Number(_)));
-        let is_dot = matches!(values[index + 1], TokenOrValue::Token(ref token) if matches!(&**token, Token::Delim(value) if *value == "."));
-        if !is_number || !is_dot {
-            index += 1;
-            continue;
-        }
-        if values.get(index + 2).is_some_and(|value| {
-            matches!(value, TokenOrValue::Token(token) if matches!(&**token, Token::Ident(unit) if match_ignore_ascii_case!(unit, "px" => true, _ => false)))
-        }) {
-            let TokenOrValue::Token(token) = &mut values[index] else {
-                unreachable!()
-            };
-            let Token::Number(value) = **token else {
-                unreachable!()
-            };
-            **token = Token::Dimension {
-                unit: Unit::Length(rocketcss_ast::LengthUnit::Px),
-                value,
-            };
-            values.drain(index + 1..=index + 2);
-            changed = true;
-            continue;
-        }
-        let next_is_boundary = values.get(index + 2).is_none_or(|value| {
-            matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Semicolon | Token::CloseParenthesis))
-        });
-        if next_is_boundary {
-            values.remove(index + 1);
-            changed = true;
-            continue;
-        }
-        index += 1;
     }
     changed
 }
@@ -581,90 +567,243 @@ fn is_slash(value: &TokenOrValue<'_>) -> bool {
     matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::Delim("/")))
 }
 
-fn discard_comments(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
-    let mut index = 0;
-    while index < values.len() {
-        if !matches!(&values[index], TokenOrValue::Token(token) if matches!(**token, Token::Comment(_)))
-        {
-            index += 1;
+fn compact_comments_and_whitespace_with<'a>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    preserve_space_after_comma: bool,
+    mut visit: impl FnMut(&mut TokenOrValue<'a>),
+) -> usize {
+    let len = values.len();
+    let mut read = 0;
+    let mut write = 0;
+    let mut visit_cursor = 0;
+    let mut previous_is_unsafe_neighbor = false;
+    let mut normalized = 0;
+    while read < len {
+        visit_token_values_through(
+            values,
+            read,
+            &mut visit_cursor,
+            &mut previous_is_unsafe_neighbor,
+            &mut visit,
+        );
+        if !is_whitespace_or_comment(&values[read]) {
+            retain_compacted_value(values, read, &mut write);
+            read += 1;
             continue;
         }
 
-        let needs_separator = index > 0
-            && index + 1 < values.len()
-            && !is_whitespace_or_comment(&values[index - 1])
-            && !is_whitespace_or_comment(&values[index + 1])
-            && whitespace_is_required(&values[index - 1], &values[index + 1]);
-        if needs_separator {
-            let TokenOrValue::Token(token) = &mut values[index] else {
-                unreachable!("comments are tokens")
-            };
-            **token = Token::WhiteSpace(" ");
-            index += 1;
-        } else {
-            values.remove(index);
+        let mut first_whitespace = None;
+        let mut whitespace_count = 0;
+        let mut comment_count = 0;
+        while read < len && is_whitespace_or_comment(&values[read]) {
+            if is_whitespace(&values[read]) {
+                first_whitespace.get_or_insert(read);
+                whitespace_count += 1;
+            } else {
+                comment_count += 1;
+            }
+            read += 1;
+            if read < len {
+                visit_token_values_through(
+                    values,
+                    read,
+                    &mut visit_cursor,
+                    &mut previous_is_unsafe_neighbor,
+                    &mut visit,
+                );
+            }
         }
+
+        let has_neighbors = write > 0 && read < len;
+        let whitespace_required =
+            has_neighbors && whitespace_is_required(&values[write - 1], &values[read]);
+        let comment_became_whitespace = whitespace_count == 0 && whitespace_required;
+        let has_whitespace = whitespace_count > 0 || comment_became_whitespace;
+        let keep_space = has_whitespace
+            && has_neighbors
+            && (whitespace_required
+                || multiplication_requires_whitespace(
+                    &values[write - 1],
+                    &values[read],
+                    &values[read + 1..],
+                )
+                || (preserve_space_after_comma && is_comma(&values[write - 1])));
+
+        normalized += comment_count;
+
+        let whitespace_changed = if whitespace_count == 0 {
+            false
+        } else if keep_space {
+            whitespace_count > 1
+                || first_whitespace.is_some_and(|index| !is_normalized_whitespace(&values[index]))
+        } else {
+            true
+        };
+        if whitespace_changed {
+            normalized += 1;
+        }
+
+        if keep_space {
+            let separator = first_whitespace.unwrap_or(read - 1);
+            set_normalized_whitespace(&mut values[separator]);
+            retain_compacted_value(values, separator, &mut write);
+        }
+    }
+    values.truncate(write);
+    normalized
+}
+
+#[inline]
+fn visit_token_values_through<'a>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    index: usize,
+    visit_cursor: &mut usize,
+    previous_is_unsafe_neighbor: &mut bool,
+    visit: &mut impl FnMut(&mut TokenOrValue<'a>),
+) {
+    while *visit_cursor <= index {
+        let value = &mut values[*visit_cursor];
+        visit(value);
+        if *previous_is_unsafe_neighbor {
+            protect_function_replacement(value);
+        }
+        *previous_is_unsafe_neighbor = !matches!(
+            value,
+            TokenOrValue::Token(token)
+                if matches!(**token, Token::WhiteSpace(_) | Token::Comma)
+        );
+        *visit_cursor += 1;
+    }
+}
+
+fn protect_function_replacement(value: &mut TokenOrValue<'_>) {
+    let TokenOrValue::Function(function) = value else {
+        return;
+    };
+    if matches!(
+        function.replacement,
+        Some(rocketcss_ast::FunctionReplacement::Rgb { .. })
+    ) {
+        function.replacement = None;
+    }
+}
+
+fn compact_comments(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+    let len = values.len();
+    let mut read = 0;
+    let mut write = 0;
+    while read < len {
+        if !matches!(&values[read], TokenOrValue::Token(token) if matches!(**token, Token::Comment(_)))
+        {
+            retain_compacted_value(values, read, &mut write);
+            read += 1;
+            continue;
+        }
+
+        let start = read;
+        while read < len
+            && matches!(&values[read], TokenOrValue::Token(token) if matches!(**token, Token::Comment(_)))
+        {
+            read += 1;
+        }
+
+        let keep_space = write > 0
+            && read < len
+            && !is_whitespace_or_comment(&values[write - 1])
+            && !is_whitespace_or_comment(&values[read])
+            && whitespace_is_required(&values[write - 1], &values[read]);
+        record_value_normalized(cx, read - start);
+        if keep_space {
+            let separator = read - 1;
+            set_normalized_whitespace(&mut values[separator]);
+            retain_compacted_value(values, separator, &mut write);
+        }
+    }
+    values.truncate(write);
+}
+
+fn compact_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+    let len = values.len();
+    let preserve_space_after_comma = cx
+        .value_context
+        .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
+    let mut read = 0;
+    let mut write = 0;
+    while read < len {
+        if !is_whitespace(&values[read]) {
+            retain_compacted_value(values, read, &mut write);
+            read += 1;
+            continue;
+        }
+
+        let start = read;
+        let was_normalized_space = is_normalized_whitespace(&values[start]);
+        while read < len && is_whitespace(&values[read]) {
+            read += 1;
+        }
+
+        let keep_space = write > 0
+            && read < len
+            && (whitespace_is_required(&values[write - 1], &values[read])
+                || multiplication_requires_whitespace(
+                    &values[write - 1],
+                    &values[read],
+                    &values[read + 1..],
+                )
+                || (preserve_space_after_comma && is_comma(&values[write - 1])));
+        if !keep_space || read > start + 1 || !was_normalized_space {
+            cx.record_value_normalized();
+        }
+        if keep_space {
+            set_normalized_whitespace(&mut values[start]);
+            retain_compacted_value(values, start, &mut write);
+        }
+    }
+    values.truncate(write);
+}
+
+#[inline]
+fn retain_compacted_value(values: &mut Vec<'_, TokenOrValue<'_>>, read: usize, write: &mut usize) {
+    // The compacted prefix is never revisited. Swapping moves the next
+    // retained value into that prefix and pushes one discarded value into the
+    // consumed portion, so the tail can be truncated once after the scan.
+    if read != *write {
+        values.swap(read, *write);
+    }
+    *write += 1;
+}
+
+#[inline]
+fn set_normalized_whitespace(value: &mut TokenOrValue<'_>) {
+    let TokenOrValue::Token(token) = value else {
+        unreachable!("separator nodes are tokens")
+    };
+    **token = Token::WhiteSpace(" ");
+}
+
+#[inline]
+fn is_normalized_whitespace(value: &TokenOrValue<'_>) -> bool {
+    matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(" ")))
+}
+
+fn record_value_normalized(cx: &mut MinifyContext, count: usize) {
+    for _ in 0..count {
         cx.record_value_normalized();
     }
 }
 
-fn normalize_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
-    let mut index = 0;
-    while index < values.len() {
-        if !is_whitespace(&values[index]) {
-            index += 1;
-            continue;
-        }
-
-        let start = index;
-        let mut end = start + 1;
-        while end < values.len() && is_whitespace(&values[end]) {
-            end += 1;
-        }
-
-        let keep_space = start > 0
-            && end < values.len()
-            && (whitespace_is_required(&values[start - 1], &values[end])
-                || multiplication_before_parentheses(values, start, end)
-                || (cx
-                    .value_context
-                    .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA)
-                    && is_comma(&values[start - 1])));
-        if keep_space {
-            let TokenOrValue::Token(token) = &mut values[start] else {
-                unreachable!("separator nodes are tokens")
-            };
-            let was_normalized_space = matches!(**token, Token::WhiteSpace(" "));
-            **token = Token::WhiteSpace(" ");
-            if end > start + 1 {
-                drop(values.drain(start + 1..end));
-                cx.record_value_normalized();
-            } else if !was_normalized_space {
-                cx.record_value_normalized();
-            }
-            index = start + 1;
-        } else {
-            drop(values.drain(start..end));
-            cx.record_value_normalized();
-            index = start;
-        }
-    }
-}
-
-fn multiplication_before_parentheses(
-    values: &[TokenOrValue<'_>],
-    whitespace_start: usize,
-    whitespace_end: usize,
+fn multiplication_requires_whitespace(
+    before: &TokenOrValue<'_>,
+    after: &TokenOrValue<'_>,
+    following: &[TokenOrValue<'_>],
 ) -> bool {
-    let before = &values[whitespace_start - 1];
-    let after = &values[whitespace_end];
     if is_delim(before, "*") && is_open_parenthesis(after) {
         return true;
     }
     is_delim(after, "*")
-        && values
-            .get(whitespace_end + 1..)
-            .and_then(|values| values.iter().find(|value| !is_whitespace_or_comment(value)))
+        && following
+            .iter()
+            .find(|value| !is_whitespace_or_comment(value))
             .is_some_and(is_open_parenthesis)
 }
 

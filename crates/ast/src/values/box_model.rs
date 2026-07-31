@@ -57,6 +57,7 @@ pub enum Visibility {
 pub enum Size<'a> {
     Auto,
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    MathFunction(Box<'a, Function<'a>>),
     MinContent { vendor_prefix: VendorPrefix },
     MaxContent { vendor_prefix: VendorPrefix },
     FitContent { vendor_prefix: VendorPrefix },
@@ -69,6 +70,7 @@ pub enum Size<'a> {
 pub enum MaxSize<'a> {
     None,
     LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    MathFunction(Box<'a, Function<'a>>),
     MinContent { vendor_prefix: VendorPrefix },
     MaxContent { vendor_prefix: VendorPrefix },
     FitContent { vendor_prefix: VendorPrefix },

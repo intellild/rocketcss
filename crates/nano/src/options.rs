@@ -26,7 +26,7 @@ bitflags! {
         const DEDUPLICATE_LISTS = 1 << 9;
         /// Normalize URL whitespace, default ports, and dot path segments.
         const NORMALIZE_URLS = 1 << 10;
-        /// Transform values inside custom properties.
+        /// Transform parsed values inside custom properties.
         const TRANSFORM_CUSTOM_PROPERTIES = 1 << 11;
         /// Merge physically adjacent style rules with equal selectors.
         const MERGE_ADJACENT_RULES = 1 << 12;

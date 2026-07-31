@@ -27,12 +27,15 @@ fn removes_exact_duplicate_declarations_within_one_block() {
         "a{-webkit-user-select:none}"
     );
     assert_eq!(run("a{--x:1;--x:1}"), "a{--x:1}");
-    assert_eq!(run("a{unknown:value;unknown:value}"), "a{unknown:value}");
+    assert_eq!(
+        run("a{unknown:value;unknown:value}"),
+        "a{unknown:value;unknown:value}"
+    );
     assert_eq!(
         run(
             ".aligncenter{clear:both;clear:both;clip:auto;clip:auto;margin-left:auto;margin-left:auto;margin-right:auto;margin-right:auto;display:block;display:block}"
         ),
-        ".aligncenter{clear:both;clip:auto;margin-left:auto;margin-right:auto;display:block}"
+        ".aligncenter{clear:both;clear:both;clip:auto;clip:auto;margin-left:auto;margin-right:auto;display:block}"
     );
     assert_eq!(
         run(
@@ -81,6 +84,26 @@ fn removes_exact_duplicate_declarations_within_one_block() {
             "a{color:red;width:1px}"
         );
     });
+}
+
+#[test]
+fn preserves_unresolved_functional_colors_as_history_barriers() {
+    assert_eq!(
+        run("a{color:red;color:rgb(foo)}"),
+        "a{color:red;color:rgb(foo)}"
+    );
+    assert_eq!(
+        run("a{color:red;color:RGB(0px 0 0)}"),
+        "a{color:red;color:RGB(0px 0 0)}"
+    );
+    assert_eq!(
+        run("a{color:red;color:rgb(0,,0,0);color:rgb(0/0/0)}"),
+        "a{color:red;color:rgb(0,,0,0);color:rgb(0/0/0)}"
+    );
+    assert_eq!(
+        run("a{color:rgb(0 0 0);color:blue}"),
+        "a{color:#000;color:#00f}"
+    );
 }
 
 #[test]

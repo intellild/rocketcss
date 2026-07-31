@@ -30,6 +30,7 @@ pub use traits::{Error, Parse, ParserError, ParserOptions};
 pub struct ParserState {
     tokenizer: TokenizerState,
     at_start_of: Option<BlockType>,
+    comments_seen: u32,
 }
 
 impl ParserState {
@@ -185,6 +186,7 @@ pub struct ParserInput<'i> {
     source: &'i str,
     allocator: &'i Allocator,
     cached_token: Option<CachedToken<'i>>,
+    comments_seen: u32,
     source_map_url: Option<&'i str>,
     source_url: Option<&'i str>,
 }
@@ -203,6 +205,7 @@ impl<'i> ParserInput<'i> {
             source,
             allocator,
             cached_token: None,
+            comments_seen: 0,
             source_map_url: None,
             source_url: None,
         }
@@ -217,6 +220,7 @@ impl<'i> ParserInput<'i> {
     }
 
     fn observe_comment(&mut self, token: TokenAndSpan) {
+        self.comments_seen = self.comments_seen.wrapping_add(1);
         let raw = &self.source[token.span.start as usize..token.span.end as usize];
         let contents = raw
             .strip_prefix("/*")
@@ -440,6 +444,7 @@ impl<'i, 't> Parser<'i, 't> {
         ParserState {
             tokenizer: self.input.tokenizer.state(),
             at_start_of: self.at_start_of,
+            comments_seen: self.input.comments_seen,
         }
     }
 
@@ -447,6 +452,12 @@ impl<'i, 't> Parser<'i, 't> {
     pub fn reset(&mut self, state: &ParserState) {
         self.input.tokenizer.reset(&state.tokenizer);
         self.at_start_of = state.at_start_of;
+        self.input.comments_seen = state.comments_seen;
+    }
+
+    #[inline]
+    pub(crate) fn saw_comments_since(&self, state: &ParserState) -> bool {
+        self.input.comments_seen != state.comments_seen
     }
 
     pub fn try_parse<F, T, E>(&mut self, parse: F) -> Result<T, E>
@@ -553,9 +564,6 @@ impl<'i, 't> Parser<'i, 't> {
                 self.input.source,
                 self.input.allocator,
             );
-            if lexical.token == Token::Comment {
-                self.input.observe_comment(lexical);
-            }
             self.input.cached_token = Some(CachedToken {
                 lexical,
                 value,
@@ -564,6 +572,9 @@ impl<'i, 't> Parser<'i, 't> {
         }
 
         let lexical = self.input.cached_lexical();
+        if lexical.token == Token::Comment {
+            self.input.observe_comment(lexical);
+        }
         self.at_start_of = BlockType::opening(lexical.token);
         Ok(self.input.cached_value())
     }

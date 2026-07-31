@@ -1,6 +1,6 @@
 use super::{
     media::{parse_import, parse_media_list, parse_supports_condition},
-    properties::parse_declaration,
+    properties::{CssWideValueHint, parse_declaration_with_css_wide_hint},
     rules::*,
     selector::{parse_selector_list, parse_selector_list_with_recovery, parse_selector_string},
     stylesheet::{check_depth, recover_declaration, recover_rule, span_from},
@@ -546,35 +546,39 @@ pub(super) fn parse_style_contents<'i, 't, 'ghost>(
             }
             ValueToken::Ident(name) => {
                 let has_colon = input.try_parse(Parser::expect_colon).is_ok();
-                let next_delimiter = next_rule_body_delimiter(input);
+                let scan = scan_rule_body(input, !name.starts_with("--"));
                 if has_colon
                     && (name.starts_with("--")
-                        || next_delimiter != Some(RuleBodyDelimiter::CurlyBracket))
+                        || scan.delimiter != Some(RuleBodyDelimiter::CurlyBracket))
                 {
-                    parse_declaration(input, allocator, name, depth).map(
-                        |(declaration, important)| {
-                            if rules.is_empty() {
-                                declarations.push(declaration, important);
-                            } else if let Some(CssRule::NestedDeclarations(rule)) = rules.last_mut()
-                            {
-                                rule.declarations
-                                    .as_ref()
-                                    .borrow_mut(token)
-                                    .push(declaration, important);
-                            } else {
-                                let mut nested = DeclarationBlock::new(allocator);
-                                nested.push(declaration, important);
-                                rules.push(CssRule::NestedDeclarations(allocator.boxed(
-                                    NestedDeclarationsRule {
-                                        declarations: allocator.alloc_ghost(nested),
-                                        span: DUMMY_SP,
-                                    },
-                                )));
-                            }
-                            None
-                        },
+                    parse_declaration_with_css_wide_hint(
+                        input,
+                        allocator,
+                        name,
+                        depth,
+                        scan.css_wide_hint(),
                     )
-                } else if !has_colon && next_delimiter != Some(RuleBodyDelimiter::CurlyBracket) {
+                    .map(|(declaration, important)| {
+                        if rules.is_empty() {
+                            declarations.push(declaration, important);
+                        } else if let Some(CssRule::NestedDeclarations(rule)) = rules.last_mut() {
+                            rule.declarations
+                                .as_ref()
+                                .borrow_mut(token)
+                                .push(declaration, important);
+                        } else {
+                            let mut nested = DeclarationBlock::new(allocator);
+                            nested.push(declaration, important);
+                            rules.push(CssRule::NestedDeclarations(allocator.boxed(
+                                NestedDeclarationsRule {
+                                    declarations: allocator.alloc_ghost(nested),
+                                    span: DUMMY_SP,
+                                },
+                            )));
+                        }
+                        None
+                    })
+                } else if !has_colon && scan.delimiter != Some(RuleBodyDelimiter::CurlyBracket) {
                     Err(input.new_custom_error(ParserError::InvalidDeclaration))
                 } else {
                     input.reset(&start);
@@ -609,12 +613,68 @@ enum RuleBodyDelimiter {
     CurlyBracket,
 }
 
-fn next_rule_body_delimiter(input: &mut Parser<'_, '_>) -> Option<RuleBodyDelimiter> {
+struct RuleBodyScan<'i> {
+    delimiter: Option<RuleBodyDelimiter>,
+    css_wide_candidate: Option<&'i str>,
+}
+
+impl<'i> RuleBodyScan<'i> {
+    fn css_wide_hint(&self) -> CssWideValueHint<'i> {
+        self.css_wide_candidate
+            .map_or(CssWideValueHint::NotCssWide, CssWideValueHint::Candidate)
+    }
+}
+
+fn drain_rule_body(input: &mut Parser<'_, '_>) {
+    while input.next().is_ok() {}
+}
+
+fn scan_single_ident_value<'i>(input: &mut Parser<'i, '_>) -> Option<&'i str> {
+    let ident = match input.next() {
+        Ok(ValueToken::Ident(value)) => *value,
+        Ok(_) => {
+            drain_rule_body(input);
+            return None;
+        }
+        Err(_) => return None,
+    };
+
+    match input.next() {
+        Err(_) => Some(ident),
+        Ok(ValueToken::Delim("!")) => {
+            let is_important = matches!(
+                input.next(),
+                Ok(ValueToken::Ident(value)) if value.eq_ignore_ascii_case("important")
+            );
+            let is_exhausted = input.next().is_err();
+            if is_important && is_exhausted {
+                Some(ident)
+            } else {
+                drain_rule_body(input);
+                None
+            }
+        }
+        Ok(_) => {
+            drain_rule_body(input);
+            None
+        }
+    }
+}
+
+// This single pass serves both nested-rule disambiguation and declaration-value
+// classification. A future byte/SIMD scanner must fall back for escapes and
+// comments so the decoded candidate and lossless behavior stay unchanged.
+fn scan_rule_body<'i>(input: &mut Parser<'i, '_>, scan_css_wide: bool) -> RuleBodyScan<'i> {
     let state = input.state();
+    let mut css_wide_candidate = None;
     let _: Result<(), ParseError<'_, ()>> = input.parse_until_before(
         Delimiter::Semicolon | Delimiter::CurlyBracketBlock,
         |input| {
-            while input.next().is_ok() {}
+            if scan_css_wide {
+                css_wide_candidate = scan_single_ident_value(input);
+            } else {
+                drain_rule_body(input);
+            }
             Ok(())
         },
     );
@@ -623,6 +683,10 @@ fn next_rule_body_delimiter(input: &mut Parser<'_, '_>) -> Option<RuleBodyDelimi
         Ok(ValueToken::CurlyBracketBlock) => Some(RuleBodyDelimiter::CurlyBracket),
         _ => None,
     };
+    let css_wide_candidate = css_wide_candidate.filter(|_| !input.saw_comments_since(&state));
     input.reset(&state);
-    delimiter
+    RuleBodyScan {
+        delimiter,
+        css_wide_candidate,
+    }
 }

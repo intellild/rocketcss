@@ -117,6 +117,115 @@ The minifier should retain only the declaration IR allocated from the scratch
 allocator. It does not need to cache a separate allocator field when no caller
 reads it.
 
+## Custom-property token traversal fusion
+
+Status: implemented for the default combined comment-discard and whitespace
+normalization path.
+
+Custom properties previously traversed their token trees and top-level token
+lists separately:
+
+```text
+Minifier::visit_custom_property
+  set the custom-property value context
+       ↓
+  node.visit_mut_children
+    recursively visit and minify every TokenOrValue
+       ↓
+  CustomProperty::minify
+       ↓
+  Vec<TokenOrValue>::minify
+    rescan the top-level list for adjacency, comment/whitespace compaction,
+    URL normalization, and context-specific value transforms
+```
+
+This guaranteed the required post-order behavior, but read every top-level
+custom-property value at least twice. Custom properties with long token lists
+or deeply nested functions amplify visitor dispatch and cache traffic.
+
+The specialized custom-property value walker now fuses the recursive visitor
+step with the first token-list minify pass. After visiting and minifying an
+entry's children, the same outer scan updates the neighbor state used by
+function-replacement protection and compacts comments and whitespace through a
+write cursor. Transformations that require the finalized whole list still run
+afterward.
+
+The general AST visitor remains the fallback for independent option
+combinations; the optimization does not blindly fold all
+`Vec<TokenOrValue>::minify` operations into the fused scan. Whole-list and
+order-sensitive transforms continue to observe the compacted post-order
+result. The fused path preserves:
+
+- the custom-property value context, including the `--font-family` special
+  case;
+- invalid-function and raw-token skip behavior;
+- nested function, variable, and environment-variable post-order minification;
+- comment and whitespace option combinations and separator identity;
+- arena-backed token identity where the current implementation reuses nodes;
+  and
+- minification statistics.
+
+Benchmark the implementation as an isolated change. The expected benefit
+depends on custom-property token volume; removing one traversal does not avoid
+the later whole-list passes required by property-specific transforms.
+
+## Single-pass RGB argument validation
+
+Status: optimization candidate.
+
+`collect_tokens_impl` currently builds the complete argument list for every
+function. RGB and RGBA functions then call `is_supported_rgb_function`, which
+iterates the resulting `TokenOrValue` list again to decide whether the function
+can use the typed color path. Typed color parsing and custom-property embedded
+value parsing both need this result, so delaying validation until minification
+would change the parser's lossless fallback boundary.
+
+RGB syntax can instead be validated while its immediate arguments are being
+collected. Use a compact state machine that consumes the original `ValueToken`
+stream and recognizes the currently supported forms:
+
+```text
+legacy:
+  component , component , component
+  component , component , component , alpha
+
+modern:
+  component component component
+  component component component / alpha
+```
+
+The state machine must preserve the existing distinctions:
+
+- whitespace is ignored, but comments make the RGB syntax unsupported;
+- legacy components must all be numbers or all be percentages;
+- modern components may mix numbers, percentages, and `none`;
+- legacy alpha accepts a number or percentage, while modern alpha also accepts
+  `none`;
+- nested functions, variables, grouping blocks, and additional significant
+  tokens make the outer RGB function unsupported; and
+- collection continues after the state becomes invalid so serialization
+  remains lossless.
+
+Only the immediate argument stream belongs to a validator. A nested RGB
+function receives its own state machine, while its parent observes a single
+function token and rejects it as an RGB component. The completed validation
+result should be shared by typed color parsing and the generic function path,
+removing both post-collection argument scans.
+
+Do not pass an optional validator through the ordinary collection path and add
+a runtime branch for every token. RGB functions are relatively uncommon and
+their argument lists are short, so that overhead could exceed the saved
+traversal. Prefer a no-op and RGB observer selected through generic or
+const-generic dispatch so the ordinary path compiles without validation work.
+Cache the function's typed kind for validation and embedded-color
+classification rather than repeatedly classifying its name.
+
+Benchmark this as an isolated parser change with both RGB-heavy input and the
+Bootstrap and Tailwind workloads. Inspect code size as well as runtime because
+specializing the collector can produce a second monomorphized copy. The
+optimization is expected to be sub-millisecond on representative inputs; it
+should be accepted only if function-heavy inputs without RGB do not regress.
+
 ## Benchmarking method
 
 Evaluate performance changes as isolated commits on CodSpeed. Compare matching

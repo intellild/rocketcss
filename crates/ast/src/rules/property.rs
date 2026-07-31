@@ -61,7 +61,26 @@ pub enum SyntaxComponentKind<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub struct UnparsedProperty<'a> {
     pub property_id: Box<'a, PropertyId<'a>>,
+    #[visit(skip)]
+    pub reason: UnparsedPropertyReason,
     pub value: Vec<'a, TokenOrValue<'a>>,
+}
+
+/// Why a declaration could not be represented by its typed value AST.
+///
+/// Keeping this decision in the parsed tree lets transforms distinguish
+/// unsupported grammar from values whose syntax or semantics are opaque.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Visit)]
+pub enum UnparsedPropertyReason {
+    /// RocketCSS recognizes the property, but does not implement its grammar yet.
+    UnsupportedGrammar,
+    /// The property name is unknown, so its value grammar is also unknown.
+    UnknownProperty,
+    /// A supported grammar contains a function or comment that cannot be
+    /// validated without preserving its original token representation.
+    OpaqueValue,
+    /// The implemented grammar rejected an otherwise tokenizable value.
+    InvalidValue,
 }
 
 #[derive(Debug, PartialEq, Visit)]

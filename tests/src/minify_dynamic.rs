@@ -205,6 +205,30 @@ fn still_requires_unsupported_transform(
         ),
         ("zindex", "", "z-index rebasing not implemented"),
         ("svgo", "", "SVG optimization out of scope"),
+        // postcss-normalize-display-values repairs invalid combinations of
+        // legacy internal display roles with an extra `flow` keyword. The
+        // default RocketCSS pipeline preserves invalid values losslessly;
+        // repair belongs in a separate opt-in plugin.
+        (
+            "normalize-display-values",
+            "table-cell flow",
+            "invalid display value repair is out of scope",
+        ),
+        (
+            "normalize-display-values",
+            "table-caption flow",
+            "invalid display value repair is out of scope",
+        ),
+        (
+            "normalize-display-values",
+            "ruby-base flow",
+            "invalid display value repair is out of scope",
+        ),
+        (
+            "normalize-display-values",
+            "ruby-text flow",
+            "invalid display value repair is out of scope",
+        ),
         // postcss-ordered-values: the ordering transform is implemented, but
         // the recorded expectations come from the plugin in isolation while
         // the harness runs the full minify pipeline.
@@ -527,6 +551,16 @@ fn still_requires_unsupported_transform(
         ("convert-values", "calc", "calc arithmetic differs"),
         (
             "convert-values",
+            "opacity:1.",
+            "broken decimal tokens are preserved instead of repaired",
+        ),
+        (
+            "convert-values",
+            "width:10.px",
+            "broken dimension tokens are preserved instead of repaired",
+        ),
+        (
+            "convert-values",
             "comma separated",
             "pipeline further minifies the value",
         ),
@@ -632,7 +666,11 @@ fn still_requires_unsupported_transform(
             "transparent",
             "rgba(0,0,0,0) conversion differs",
         ),
-        ("colormin", "custom properties", "option-dependent upstream"),
+        (
+            "colormin",
+            "transformCustomProperties is false",
+            "the dynamic harness runs the default custom-property transform options",
+        ),
         ("colormin", "Browserslist", "option-dependent upstream"),
         ("colormin", "slash alpha", "hex8 alpha output differs"),
         // postcss-discard-duplicates gaps.
@@ -772,6 +810,11 @@ fn still_requires_unsupported_transform(
         ),
         (
             "minify-font-values",
+            "--font-family",
+            "font-family strings remain raw tokens, and raw tokens are not minified",
+        ),
+        (
+            "minify-font-values",
             "font property #3",
             "font shorthand minification gap",
         ),
@@ -784,6 +827,26 @@ fn still_requires_unsupported_transform(
             "minify-font-values",
             "css variables",
             "var() in font-family differs",
+        ),
+        (
+            "timing-functions",
+            "1e-1px",
+            "invalid cubic-bezier coordinates are preserved",
+        ),
+        (
+            "ordered-values",
+            "invalid columns",
+            "invalid typed values are preserved instead of reordered",
+        ),
+        (
+            "ordered-values",
+            "order grid-column-gap",
+            "invalid legacy gap values are preserved instead of reordered",
+        ),
+        (
+            "ordered-values",
+            "order grid-row-gap",
+            "invalid legacy gap values are preserved instead of reordered",
         ),
         // postcss-discard-empty gaps (mirrors the static skip list).
         (

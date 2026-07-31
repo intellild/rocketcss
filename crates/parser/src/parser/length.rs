@@ -1,3 +1,4 @@
+use super::values::collect_tokens;
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for Length<'i> {
@@ -60,6 +61,21 @@ impl<'i> Parse<'i> for Size<'i> {
                 vendor_prefix: VendorPrefix::NONE,
             }),
             ValueToken::Ident(name) if name.eq_ignore_ascii_case("contain") => Ok(Size::Contain),
+            ValueToken::Function(name) if name.eq_ignore_ascii_case("fit-content") => {
+                let value = input.parse_nested_block(|input| {
+                    let value = LengthPercentage::parse(input)?;
+                    input.expect_exhausted()?;
+                    Ok(value)
+                })?;
+                Ok(Size::FitContentFunction(allocator.boxed(value)))
+            }
+            ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
+                let arguments =
+                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+                Ok(Size::MathFunction(
+                    allocator.boxed(Function::new(name, arguments)),
+                ))
+            }
             ValueToken::Percentage(value) => Ok(Size::LengthPercentage(
                 allocator.boxed(DimensionPercentage::Percentage(value)),
             )),
@@ -71,6 +87,68 @@ impl<'i> Parse<'i> for Size<'i> {
                 )))
             }
             ValueToken::Number(0.0) => Ok(Size::LengthPercentage(allocator.boxed(
+                DimensionPercentage::Dimension(LengthValue {
+                    unit: LengthUnit::Px,
+                    value: 0.0,
+                }),
+            ))),
+            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
+        }
+    }
+}
+
+impl<'i> Parse<'i> for MaxSize<'i> {
+    fn parse<'t>(input: &mut Parser<'i, 't>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let allocator = input.allocator();
+        let location = input.current_source_location();
+        let token = input.next()?.clone();
+        match token {
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("none") => Ok(Self::None),
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("min-content") => {
+                Ok(Self::MinContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("max-content") => {
+                Ok(Self::MaxContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("fit-content") => {
+                Ok(Self::FitContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("stretch") => Ok(Self::Stretch {
+                vendor_prefix: VendorPrefix::NONE,
+            }),
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("contain") => Ok(Self::Contain),
+            ValueToken::Function(name) if name.eq_ignore_ascii_case("fit-content") => {
+                let value = input.parse_nested_block(|input| {
+                    let value = LengthPercentage::parse(input)?;
+                    input.expect_exhausted()?;
+                    Ok(value)
+                })?;
+                Ok(Self::FitContentFunction(allocator.boxed(value)))
+            }
+            ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
+                let arguments =
+                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+                Ok(Self::MathFunction(
+                    allocator.boxed(Function::new(name, arguments)),
+                ))
+            }
+            ValueToken::Percentage(value) => Ok(Self::LengthPercentage(
+                allocator.boxed(DimensionPercentage::Percentage(value)),
+            )),
+            ValueToken::Dimension { unit, value } => {
+                let unit = parse_length_unit(&unit)
+                    .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
+                Ok(Self::LengthPercentage(allocator.boxed(
+                    DimensionPercentage::Dimension(LengthValue { unit, value }),
+                )))
+            }
+            ValueToken::Number(0.0) => Ok(Self::LengthPercentage(allocator.boxed(
                 DimensionPercentage::Dimension(LengthValue {
                     unit: LengthUnit::Px,
                     value: 0.0,

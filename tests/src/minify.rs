@@ -129,6 +129,9 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
         "/lightningcss/math/color-sign/",
         "/lightningcss/math/opacity-filter/",
         "/lightningcss/math/width-max/",
+        // Lightning CSS normalizes invalid `display: table-cell flow` to
+        // `display: table-cell`; RocketCSS preserves the invalid token stream.
+        "/lightningcss/values/display/",
         "/lightningcss/rules/keyframe-merge/",
         "/lightningcss/rules/merge-layer/",
         "/lightningcss/rules/merge-media/",

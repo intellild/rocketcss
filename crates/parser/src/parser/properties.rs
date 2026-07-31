@@ -1,6 +1,7 @@
 use super::values::{
-    collect_tokens, css_wide_keyword, parse_animation_list, parse_font_family_list,
-    remove_important, trim_leading_whitespace, value_contains_comment,
+    collect_custom_property_tokens, collect_tokens, css_wide_keyword, parse_animation_list,
+    parse_comma_separated, parse_font_family_list, remove_important, trim_leading_whitespace,
+    value_contains_comment,
 };
 use crate::prelude::*;
 
@@ -10,13 +11,69 @@ pub(super) fn parse_declaration<'i, 't>(
     name: &'i str,
     depth: usize,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
+    parse_declaration_with_css_wide_hint(input, allocator, name, depth, CssWideValueHint::Unscanned)
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CssWideValueHint<'i> {
+    Unscanned,
+    NotCssWide,
+    Candidate(&'i str),
+}
+
+pub(super) fn parse_declaration_with_css_wide_hint<'i, 't>(
+    input: &mut Parser<'i, 't>,
+    allocator: &'i Allocator,
+    name: &'i str,
+    depth: usize,
+    css_wide_hint: CssWideValueHint<'i>,
+) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
     let property_id = PropertyId::from_name(name);
+    let mut typed_grammar_supported = false;
 
     if !name.starts_with("--") {
         let start = input.state();
-        if let Some(Ok(declaration)) =
-            try_parse_typed_declaration(input, &property_id, allocator, depth)
+        let wide_keyword = match (property_id.known_id(), css_wide_hint) {
+            (Some(_), CssWideValueHint::Unscanned) => input.try_parse(parse_css_wide_keyword).ok(),
+            (Some(_), CssWideValueHint::Candidate(ident)) => {
+                if let Some(keyword) = css_wide_keyword(ident) {
+                    let parsed_ident = input.expect_ident()?;
+                    debug_assert_eq!(parsed_ident, ident);
+                    Some(keyword)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(keyword) = wide_keyword {
+            if let Some(important) = parse_declaration_end(input)
+                && !input.saw_comments_since(&start)
+            {
+                let _ = input.try_parse(Parser::expect_semicolon);
+                let declaration = match property_id {
+                    PropertyId::All => Declaration::All(keyword),
+                    PropertyId::ColumnWidth(prefix) => {
+                        Declaration::ColumnWidth(CSSWideOr::CSSWide(keyword), prefix)
+                    }
+                    PropertyId::ColumnCount(prefix) => {
+                        Declaration::ColumnCount(CSSWideOr::CSSWide(keyword), prefix)
+                    }
+                    PropertyId::Columns(prefix) => {
+                        Declaration::Columns(CSSWideOr::CSSWide(keyword), prefix)
+                    }
+                    _ => Declaration::CSSWide(allocator.boxed(property_id), keyword),
+                };
+                return Ok((declaration, important));
+            }
+            input.reset(&start);
+        }
+
+        let typed = try_parse_typed_declaration(input, &property_id, allocator, depth);
+        typed_grammar_supported = typed.is_some();
+        if let Some(Ok(declaration)) = typed
             && let Some(important) = parse_declaration_end(input)
+            && !input.saw_comments_since(&start)
         {
             let _ = input.try_parse(Parser::expect_semicolon);
             return Ok((declaration, important));
@@ -25,7 +82,11 @@ pub(super) fn parse_declaration<'i, 't>(
     }
 
     let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
-        collect_tokens(input, allocator, depth + 1)
+        if name.starts_with("--") {
+            collect_custom_property_tokens(input, allocator, depth + 1)
+        } else {
+            collect_tokens(input, allocator, depth + 1)
+        }
     })?;
     let _ = input.try_parse(Parser::expect_semicolon);
     let important = remove_important(&mut value);
@@ -37,7 +98,8 @@ pub(super) fn parse_declaration<'i, 't>(
         }))
     } else {
         trim_leading_whitespace(&mut value);
-        unparsed_declaration(property_id, value, allocator)
+        let reason = unparsed_reason(&property_id, &value, typed_grammar_supported);
+        unparsed_declaration(property_id, value, reason, allocator)
     };
 
     Ok((declaration, important))
@@ -46,12 +108,54 @@ pub(super) fn parse_declaration<'i, 't>(
 pub(super) fn unparsed_declaration<'i>(
     property_id: PropertyId<'i>,
     value: Vec<'i, TokenOrValue<'i>>,
+    reason: UnparsedPropertyReason,
     allocator: &'i Allocator,
 ) -> Declaration<'i> {
     Declaration::Unparsed(allocator.boxed(UnparsedProperty {
         property_id: allocator.boxed(property_id),
+        reason,
         value,
     }))
+}
+
+fn unparsed_reason(
+    property_id: &PropertyId<'_>,
+    value: &[TokenOrValue<'_>],
+    typed_grammar_supported: bool,
+) -> UnparsedPropertyReason {
+    if matches!(property_id, PropertyId::Custom(_)) {
+        return UnparsedPropertyReason::UnknownProperty;
+    }
+    if value.iter().any(token_value_is_comment) {
+        return UnparsedPropertyReason::OpaqueValue;
+    }
+    if !typed_grammar_supported {
+        return UnparsedPropertyReason::UnsupportedGrammar;
+    }
+    // `background` currently has a typed fast path for color-only values, but
+    // its full shorthand grammar is not implemented yet. A failed fast path
+    // therefore means "unsupported grammar", not invalid syntax.
+    if matches!(property_id, PropertyId::Background) {
+        return UnparsedPropertyReason::UnsupportedGrammar;
+    }
+    if value.iter().any(token_value_is_opaque) {
+        return UnparsedPropertyReason::OpaqueValue;
+    }
+    UnparsedPropertyReason::InvalidValue
+}
+
+fn token_value_is_comment(value: &TokenOrValue<'_>) -> bool {
+    matches!(
+        value,
+        TokenOrValue::Token(token) if matches!(**token, ValueToken::Comment(_))
+    )
+}
+
+fn token_value_is_opaque(value: &TokenOrValue<'_>) -> bool {
+    matches!(
+        value,
+        TokenOrValue::Function(_) | TokenOrValue::Var(_) | TokenOrValue::Env(_)
+    )
 }
 
 fn try_parse_typed_declaration<'i, 't>(
@@ -74,6 +178,37 @@ fn try_parse_typed_declaration<'i, 't>(
         PropertyId::BackgroundColor => parse!(|input| {
             CssColor::parse(input).map(|value| Declaration::BackgroundColor(allocator.boxed(value)))
         }),
+        property_id @ (PropertyId::BorderTopColor
+        | PropertyId::BorderBottomColor
+        | PropertyId::BorderLeftColor
+        | PropertyId::BorderRightColor
+        | PropertyId::BorderBlockStartColor
+        | PropertyId::BorderBlockEndColor
+        | PropertyId::BorderInlineStartColor
+        | PropertyId::BorderInlineEndColor
+        | PropertyId::OutlineColor) => parse!(|input| {
+            let value = allocator.boxed(CssColor::parse(input)?);
+            Ok(match property_id {
+                PropertyId::BorderTopColor => Declaration::BorderTopColor(value),
+                PropertyId::BorderBottomColor => Declaration::BorderBottomColor(value),
+                PropertyId::BorderLeftColor => Declaration::BorderLeftColor(value),
+                PropertyId::BorderRightColor => Declaration::BorderRightColor(value),
+                PropertyId::BorderBlockStartColor => Declaration::BorderBlockStartColor(value),
+                PropertyId::BorderBlockEndColor => Declaration::BorderBlockEndColor(value),
+                PropertyId::BorderInlineStartColor => Declaration::BorderInlineStartColor(value),
+                PropertyId::BorderInlineEndColor => Declaration::BorderInlineEndColor(value),
+                PropertyId::OutlineColor => Declaration::OutlineColor(value),
+                _ => unreachable!(),
+            })
+        }),
+        PropertyId::TextDecorationColor(prefix) => parse!(|input| {
+            CssColor::parse(input)
+                .map(|value| Declaration::TextDecorationColor(allocator.boxed(value), *prefix))
+        }),
+        PropertyId::TextEmphasisColor(prefix) => parse!(|input| {
+            CssColor::parse(input)
+                .map(|value| Declaration::TextEmphasisColor(allocator.boxed(value), *prefix))
+        }),
         PropertyId::Background => parse!(|input| {
             let mut values = allocator.vec();
             values.push(Background::parse(input)?);
@@ -94,29 +229,14 @@ fn try_parse_typed_declaration<'i, 't>(
                 .map(|value| Declaration::ColumnRule(allocator.boxed(value), *prefix))
         }),
         PropertyId::ColumnWidth(prefix) => parse!(|input| {
-            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
-                return Ok(Declaration::ColumnWidth(
-                    CSSWideOr::CSSWide(keyword),
-                    *prefix,
-                ));
-            }
             ColumnWidth::parse(input)
                 .map(|value| Declaration::ColumnWidth(CSSWideOr::Value(value), *prefix))
         }),
         PropertyId::ColumnCount(prefix) => parse!(|input| {
-            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
-                return Ok(Declaration::ColumnCount(
-                    CSSWideOr::CSSWide(keyword),
-                    *prefix,
-                ));
-            }
             ColumnCount::parse(input)
                 .map(|value| Declaration::ColumnCount(CSSWideOr::Value(value), *prefix))
         }),
         PropertyId::Columns(prefix) => parse!(|input| {
-            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
-                return Ok(Declaration::Columns(CSSWideOr::CSSWide(keyword), *prefix));
-            }
             Columns::parse(input).map(|value| {
                 Declaration::Columns(CSSWideOr::Value(allocator.boxed(value)), *prefix)
             })
@@ -126,6 +246,56 @@ fn try_parse_typed_declaration<'i, 't>(
         }),
         PropertyId::GridRowGap => parse!(|input| {
             GapValue::parse(input).map(|value| Declaration::GridRowGap(allocator.boxed(value)))
+        }),
+        PropertyId::RowGap => parse!(|input| {
+            GapValue::parse(input).map(|value| Declaration::RowGap(allocator.boxed(value)))
+        }),
+        PropertyId::ColumnGap => parse!(|input| {
+            GapValue::parse(input).map(|value| Declaration::ColumnGap(allocator.boxed(value)))
+        }),
+        property_id @ (PropertyId::BorderTopStyle
+        | PropertyId::BorderBottomStyle
+        | PropertyId::BorderLeftStyle
+        | PropertyId::BorderRightStyle
+        | PropertyId::BorderBlockStartStyle
+        | PropertyId::BorderBlockEndStyle
+        | PropertyId::BorderInlineStartStyle
+        | PropertyId::BorderInlineEndStyle) => parse!(|input| {
+            let value = LineStyle::parse(input)?;
+            Ok(match property_id {
+                PropertyId::BorderTopStyle => Declaration::BorderTopStyle(value),
+                PropertyId::BorderBottomStyle => Declaration::BorderBottomStyle(value),
+                PropertyId::BorderLeftStyle => Declaration::BorderLeftStyle(value),
+                PropertyId::BorderRightStyle => Declaration::BorderRightStyle(value),
+                PropertyId::BorderBlockStartStyle => Declaration::BorderBlockStartStyle(value),
+                PropertyId::BorderBlockEndStyle => Declaration::BorderBlockEndStyle(value),
+                PropertyId::BorderInlineStartStyle => Declaration::BorderInlineStartStyle(value),
+                PropertyId::BorderInlineEndStyle => Declaration::BorderInlineEndStyle(value),
+                _ => unreachable!(),
+            })
+        }),
+        property_id @ (PropertyId::BorderTopWidth
+        | PropertyId::BorderBottomWidth
+        | PropertyId::BorderLeftWidth
+        | PropertyId::BorderRightWidth
+        | PropertyId::BorderBlockStartWidth
+        | PropertyId::BorderBlockEndWidth
+        | PropertyId::BorderInlineStartWidth
+        | PropertyId::BorderInlineEndWidth
+        | PropertyId::OutlineWidth) => parse!(|input| {
+            let value = allocator.boxed(BorderSideWidth::parse(input)?);
+            Ok(match property_id {
+                PropertyId::BorderTopWidth => Declaration::BorderTopWidth(value),
+                PropertyId::BorderBottomWidth => Declaration::BorderBottomWidth(value),
+                PropertyId::BorderLeftWidth => Declaration::BorderLeftWidth(value),
+                PropertyId::BorderRightWidth => Declaration::BorderRightWidth(value),
+                PropertyId::BorderBlockStartWidth => Declaration::BorderBlockStartWidth(value),
+                PropertyId::BorderBlockEndWidth => Declaration::BorderBlockEndWidth(value),
+                PropertyId::BorderInlineStartWidth => Declaration::BorderInlineStartWidth(value),
+                PropertyId::BorderInlineEndWidth => Declaration::BorderInlineEndWidth(value),
+                PropertyId::OutlineWidth => Declaration::OutlineWidth(value),
+                _ => unreachable!(),
+            })
         }),
         PropertyId::Animation(prefix) if !value_contains_comment(input) => {
             parse!(|input| {
@@ -153,6 +323,83 @@ fn try_parse_typed_declaration<'i, 't>(
                 _ => unreachable!(),
             })
         }),
+        property_id @ (PropertyId::MaxWidth
+        | PropertyId::MaxHeight
+        | PropertyId::MaxBlockSize
+        | PropertyId::MaxInlineSize) => parse!(|input| {
+            let value = allocator.boxed(MaxSize::parse(input)?);
+            Ok(match property_id {
+                PropertyId::MaxWidth => Declaration::MaxWidth(value),
+                PropertyId::MaxHeight => Declaration::MaxHeight(value),
+                PropertyId::MaxBlockSize => Declaration::MaxBlockSize(value),
+                PropertyId::MaxInlineSize => Declaration::MaxInlineSize(value),
+                _ => unreachable!(),
+            })
+        }),
+        PropertyId::AnimationName(prefix) if !value_contains_comment(input) => parse!(|input| {
+            parse_comma_separated(input, AnimationName::parse)
+                .map(|value| Declaration::AnimationName(value, *prefix))
+        }),
+        PropertyId::AnimationDuration(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, Time::parse)
+                    .map(|value| Declaration::AnimationDuration(value, *prefix))
+            })
+        }
+        PropertyId::AnimationDelay(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, Time::parse)
+                    .map(|value| Declaration::AnimationDelay(value, *prefix))
+            })
+        }
+        PropertyId::AnimationTimingFunction(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, EasingFunction::parse)
+                    .map(|value| Declaration::AnimationTimingFunction(value, *prefix))
+            })
+        }
+        PropertyId::AnimationIterationCount(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, AnimationIterationCount::parse)
+                    .map(|value| Declaration::AnimationIterationCount(value, *prefix))
+            })
+        }
+        PropertyId::AnimationDirection(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, AnimationDirection::parse)
+                    .map(|value| Declaration::AnimationDirection(value, *prefix))
+            })
+        }
+        PropertyId::AnimationFillMode(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, AnimationFillMode::parse)
+                    .map(|value| Declaration::AnimationFillMode(value, *prefix))
+            })
+        }
+        PropertyId::AnimationPlayState(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, AnimationPlayState::parse)
+                    .map(|value| Declaration::AnimationPlayState(value, *prefix))
+            })
+        }
+        PropertyId::TransitionDuration(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, Time::parse)
+                    .map(|value| Declaration::TransitionDuration(value, *prefix))
+            })
+        }
+        PropertyId::TransitionDelay(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, Time::parse)
+                    .map(|value| Declaration::TransitionDelay(value, *prefix))
+            })
+        }
+        PropertyId::TransitionTimingFunction(prefix) if !value_contains_comment(input) => {
+            parse!(|input| {
+                parse_comma_separated(input, EasingFunction::parse)
+                    .map(|value| Declaration::TransitionTimingFunction(value, *prefix))
+            })
+        }
         PropertyId::All => parse!(|input| {
             let ident = input.expect_ident()?;
             css_wide_keyword(ident)

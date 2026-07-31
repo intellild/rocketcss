@@ -133,6 +133,212 @@ fn parses_style_rule_selectors_and_declarations() {
 }
 
 #[test]
+fn rgb_functions_are_reified_only_after_strict_validation() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a{--valid:rgb(0 0 0);--invalid:rgb(foo);\
+             --bad-commas:rgb(0,,0,0);--bad-slashes:rgb(0/0/0);--raw:10.px}\
+             b{color:rgb(0,,0,0);color:rgb(0/0/0)}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(rule) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = &rule
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations;
+
+        assert!(matches!(
+            &declarations[0],
+            Declaration::Custom(value)
+                if matches!(
+                    &value.value[..],
+                    [TokenOrValue::Color(color)]
+                        if matches!(
+                            &**color,
+                            CssColor::Function(function)
+                                if function.kind() == KnownFunction::Rgb
+                                    && function.is_valid_rgb()
+                        )
+                )
+        ));
+        for declaration in &declarations[1..4] {
+            assert!(matches!(
+                declaration,
+                Declaration::Custom(value)
+                    if matches!(
+                        &value.value[..],
+                        [TokenOrValue::Function(function)]
+                            if function.kind() == KnownFunction::Rgb
+                                && !function.is_valid_rgb()
+                    )
+            ));
+        }
+        assert!(matches!(
+            &declarations[4],
+            Declaration::Custom(value)
+                if value
+                    .value
+                    .iter()
+                    .all(|value| matches!(value, TokenOrValue::Token(_)))
+        ));
+
+        let CssRule::Style(rule) = &sheet.rules[1] else {
+            panic!("expected style rule")
+        };
+        for declaration in &rule
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations
+        {
+            assert!(matches!(
+                declaration,
+                Declaration::Unparsed(value)
+                    if value.reason == UnparsedPropertyReason::OpaqueValue
+                        && matches!(
+                            &value.value[..],
+                            [TokenOrValue::Function(function)]
+                                if function.kind() == KnownFunction::Rgb
+                                    && !function.is_valid_rgb()
+                        )
+            ));
+        }
+    })
+}
+
+#[test]
+fn modern_rgb_accepts_mixed_and_missing_components() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a{--mixed:rgb(255 50% 0);--missing:rgb(none 50% 0/none);\
+             --out-of-range:rgba(300 -10 0);--legacy-rgba:rgba(1,2,3);\
+             color:rgb(255 50% 0);background-color:rgb(none 50% 0/none)}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(rule) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = &rule
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations;
+
+        for declaration in &declarations[..4] {
+            assert!(matches!(
+                declaration,
+                Declaration::Custom(value)
+                    if matches!(
+                        &value.value[..],
+                        [TokenOrValue::Color(color)]
+                            if matches!(
+                                &**color,
+                                CssColor::Function(function) if function.is_valid_rgb()
+                            )
+                    )
+            ));
+        }
+        for declaration in &declarations[4..] {
+            assert!(matches!(
+                declaration,
+                Declaration::Color(color) | Declaration::BackgroundColor(color)
+                    if matches!(
+                        &**color,
+                        CssColor::Function(function) if function.is_valid_rgb()
+                    )
+            ));
+        }
+    })
+}
+
+#[test]
+fn review_regressions_preserve_invalid_and_commented_declarations() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a{display:;display:none flow;display:table-cell flow;\
+             transform:initial/**/;all:initial/**/;columns:initial/**/;\
+             display:inline-block;display:-webkit-inline-box;display:-moz-inline-box}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(rule) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = &rule
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations;
+
+        for declaration in &declarations[..3] {
+            assert!(matches!(
+                declaration,
+                Declaration::Unparsed(value)
+                    if value.reason == UnparsedPropertyReason::InvalidValue
+            ));
+        }
+        for declaration in &declarations[3..6] {
+            assert!(
+                matches!(
+                    declaration,
+                    Declaration::Unparsed(value)
+                        if value.reason == UnparsedPropertyReason::OpaqueValue
+                            && value.value.iter().any(|value| matches!(
+                                value,
+                                TokenOrValue::Token(token)
+                                    if matches!(**token, ValueToken::Comment(_))
+                            ))
+                ),
+                "{declaration:?}"
+            );
+        }
+        assert!(matches!(
+            &declarations[6],
+            Declaration::Display(Display::Pair {
+                outside: DisplayOutside::Inline,
+                inside: DisplayInside::FlowRoot,
+                is_list_item: false,
+            })
+        ));
+        for (declaration, prefix) in [
+            (&declarations[7], VendorPrefix::WEBKIT),
+            (&declarations[8], VendorPrefix::MOZ),
+        ] {
+            assert!(matches!(
+                declaration,
+                Declaration::Display(Display::Pair {
+                    outside: DisplayOutside::Inline,
+                    inside: DisplayInside::Box { vendor_prefix },
+                    is_list_item: false,
+                }) if *vendor_prefix == prefix
+            ));
+        }
+    })
+}
+
+#[test]
 fn parses_named_colors_as_known_color_nodes() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
@@ -189,14 +395,13 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
             SelectorComponent::Class("foo")
         ));
 
-        let Declaration::Unparsed(width) =
-            &rule.declarations.as_ref().borrow(&token).declarations[0]
+        let Declaration::Width(width) = &rule.declarations.as_ref().borrow(&token).declarations[0]
         else {
-            panic!("expected unparsed width")
+            panic!("expected typed width")
         };
         assert!(matches!(
-            &width.value[0],
-            TokenOrValue::Function(function)
+            &**width,
+            Size::MathFunction(function)
                 if function.name() == "calc"
                     && function.arguments.iter().any(|value| matches!(
                         value,
@@ -1140,10 +1345,9 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
 
         assert!(matches!(
             &declarations[1],
-            Declaration::Unparsed(value)
-                if matches!(&*value.property_id, PropertyId::Width)
-                    && matches!(&value.value[0], TokenOrValue::Function(function)
-                        if function.name().eq_ignore_ascii_case("calc"))
+            Declaration::Width(value)
+                if matches!(&**value, Size::MathFunction(function)
+                    if function.name().eq_ignore_ascii_case("calc"))
         ));
         assert!(style.declarations.as_ref().borrow(&token).is_important(1));
         assert!(matches!(
@@ -1172,6 +1376,190 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
         ));
         assert!(!style.declarations.as_ref().borrow(&token).is_important(5));
         assert!(matches!(&declarations[6], Declaration::Height(_)));
+    })
+}
+
+#[test]
+fn declaration_ast_distinguishes_typed_opaque_invalid_and_unsupported_values() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            r#"a {
+                width: initial;
+                max-width: fit-content(10px);
+                border-top-style: solid;
+                animation-duration: 1s, 200ms;
+                opacity: calc(.5);
+                width: potato;
+                transform: translateX(1px);
+                future-property: fn(1);
+            }"#,
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(style) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = &style
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations;
+
+        assert!(matches!(
+            &declarations[0],
+            Declaration::CSSWide(property_id, CSSWideKeyword::Initial)
+                if matches!(**property_id, PropertyId::Width)
+        ));
+        assert!(matches!(
+            &declarations[1],
+            Declaration::MaxWidth(value)
+                if matches!(**value, MaxSize::FitContentFunction(_))
+        ));
+        assert!(matches!(
+            &declarations[2],
+            Declaration::BorderTopStyle(LineStyle::Solid)
+        ));
+        assert!(matches!(
+            &declarations[3],
+            Declaration::AnimationDuration(values, prefix)
+                if values.len() == 2 && *prefix == VendorPrefix::NONE
+        ));
+        assert!(matches!(
+            &declarations[4],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::OpaqueValue
+        ));
+        assert!(matches!(
+            &declarations[5],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::InvalidValue
+        ));
+        assert!(matches!(
+            &declarations[6],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::UnsupportedGrammar
+        ));
+        assert!(matches!(
+            &declarations[7],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::UnknownProperty
+        ));
+    })
+}
+
+#[test]
+fn css_wide_probe_preserves_typed_and_lossless_declaration_paths() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            r#"a {
+                width: 1px;
+                height: InHeRiT !important;
+                max-width: unset extra;
+                opacity: /**/ revert;
+                --theme: initial;
+                future-property: revert-layer;
+                column-width: revert-layer;
+                columns: initial/**/;
+                all: UNSET;
+            }"#,
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(style) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declaration_block = style
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token);
+        let declarations = &declaration_block.declarations;
+
+        assert!(matches!(&declarations[0], Declaration::Width(_)));
+        assert!(matches!(
+            &declarations[1],
+            Declaration::CSSWide(property_id, CSSWideKeyword::Inherit)
+                if matches!(**property_id, PropertyId::Height)
+        ));
+        assert!(declaration_block.is_important(1));
+        assert!(matches!(
+            &declarations[2],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::InvalidValue
+        ));
+        assert!(matches!(
+            &declarations[3],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::OpaqueValue
+        ));
+        assert!(matches!(&declarations[4], Declaration::Custom(_)));
+        assert!(matches!(
+            &declarations[5],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::UnknownProperty
+        ));
+        assert!(matches!(
+            &declarations[6],
+            Declaration::ColumnWidth(
+                CSSWideOr::CSSWide(CSSWideKeyword::RevertLayer),
+                VendorPrefix::NONE
+            )
+        ));
+        assert!(matches!(
+            &declarations[7],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::OpaqueValue
+        ));
+        assert!(matches!(
+            &declarations[8],
+            Declaration::All(CSSWideKeyword::Unset)
+        ));
+    })
+}
+
+#[test]
+fn css_wide_prescan_handles_escapes_and_an_omitted_final_semicolon() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            r#"a {
+                color: \69nitial;
+                min-width: revert-layer
+            }"#,
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(style) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = style
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token);
+
+        assert!(matches!(
+            &declarations.declarations[0],
+            Declaration::CSSWide(property_id, CSSWideKeyword::Initial)
+                if matches!(**property_id, PropertyId::Color)
+        ));
+        assert!(matches!(
+            &declarations.declarations[1],
+            Declaration::CSSWide(property_id, CSSWideKeyword::RevertLayer)
+                if matches!(**property_id, PropertyId::MinWidth)
+        ));
     })
 }
 

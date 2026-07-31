@@ -10,6 +10,7 @@ impl<'ghost> ToCss<'ghost> for CssColor<'_> {
             Self::CurrentColor => dest.write_str("currentColor"),
             Self::Known(value) => value.rgba().to_css(dest, _cx),
             Self::Rgba(value) => value.to_css(dest, _cx),
+            Self::Function(value) => value.to_css(dest, _cx),
             Self::Lab(value) => value.to_css(dest, _cx),
             Self::Predefined(value) => value.to_css(dest, _cx),
             Self::Float(value) => value.to_css(dest, _cx),

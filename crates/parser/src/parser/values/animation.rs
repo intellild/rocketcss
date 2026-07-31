@@ -69,6 +69,14 @@ impl<'i> Parse<'i> for EasingFunction {
                 let y2 = input.expect_number()?;
                 Ok(Self::CubicBezier { x1, x2, y1, y2 })
             }),
+            "frames" => input.parse_nested_block(|input| {
+                let count = input.expect_integer()?;
+                input.expect_exhausted()?;
+                if count <= 0 {
+                    return Err(input.new_custom_error(ParserError::InvalidValue));
+                }
+                Ok(Self::Frames(count))
+            }),
             "steps" => input.parse_nested_block(|input| {
                 let count = input.expect_integer()?;
                 let position = input
@@ -231,6 +239,21 @@ pub(crate) fn parse_animation_list<'i, 't>(
     let mut values = allocator.vec();
     loop {
         values.push(input.parse_until_before(Delimiter::Comma, Animation::parse)?);
+        if input.try_parse(Parser::expect_comma).is_err() {
+            break;
+        }
+    }
+    Ok(values)
+}
+
+pub(crate) fn parse_comma_separated<'i, 't, T: Unpin>(
+    input: &mut Parser<'i, 't>,
+    parser: impl Fn(&mut Parser<'i, 't>) -> Result<T, ParseError<'i, ParserError<'i>>>,
+) -> Result<Vec<'i, T>, ParseError<'i, ParserError<'i>>> {
+    let allocator = input.allocator();
+    let mut values = allocator.vec();
+    loop {
+        values.push(parser(input)?);
         if input.try_parse(Parser::expect_comma).is_err() {
             break;
         }

@@ -22,6 +22,16 @@ fn normalizes_numbers_colors_and_lengths() {
 }
 
 #[test]
+fn minifies_mixed_modern_rgb_components_and_preserves_none() {
+    assert_eq!(
+        run("a{color:rgb(255 50% 0)}b{color:rgb(none 50% 0/none)}\
+             c{color:rgba(1,2,3)}d{color:rgba(300 -10 0/200%)}"),
+        "a{color:#ff8000}b{color:rgb(none 50% 0/none)}\
+         c{color:#010203}d{color:red}"
+    );
+}
+
+#[test]
 fn serializes_rgb_channels_as_integers() {
     let mut options = MinifyOptions::default();
     options.flags.remove(Options::USE_HEX_ALPHA_COLORS);

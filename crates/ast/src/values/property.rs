@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Visit)]
 pub enum CSSWideKeyword {
     Initial,
     Inherit,

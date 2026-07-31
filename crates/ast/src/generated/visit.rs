@@ -831,6 +831,14 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
+    fn visit_unparsed_property_reason(
+        &mut self,
+        node: &UnparsedPropertyReason,
+        cx: &VisitContext<'_, 'ghost>,
+    ) {
+        Visit::visit_children(node, self, cx);
+    }
+    #[inline]
     fn visit_custom_property(&mut self, node: &CustomProperty<'a>, cx: &VisitContext<'_, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }

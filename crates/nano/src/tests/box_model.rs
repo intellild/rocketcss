@@ -28,6 +28,10 @@ fn minifies_box_longhands_through_single_pass_ir() {
         ),
         "a{margin:1px !important}"
     );
+    assert_eq!(
+        run("a{margin-bottom:unset;margin-top:unset;margin-left:unset;margin-right:unset}"),
+        "a{margin:unset}"
+    );
 }
 
 #[test]

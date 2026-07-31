@@ -7,6 +7,7 @@ pub enum CssColor<'a> {
     CurrentColor,
     Known(KnownColor),
     Rgba(RGBA),
+    Function(Box<'a, Function<'a>>),
     Lab(Box<'a, LABColor>),
     Predefined(Box<'a, PredefinedColor>),
     Float(Box<'a, FloatColor>),

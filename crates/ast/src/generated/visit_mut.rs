@@ -1043,6 +1043,14 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
+    fn visit_unparsed_property_reason(
+        &mut self,
+        node: &mut UnparsedPropertyReason,
+        cx: &mut VisitMutContext<'_, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
     fn visit_custom_property(
         &mut self,
         node: &mut CustomProperty<'a>,

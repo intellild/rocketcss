@@ -1,4 +1,7 @@
-use super::stylesheet::check_depth;
+use super::{
+    color::{parse_hex_color, validate_rgb_function},
+    stylesheet::check_depth,
+};
 use crate::prelude::*;
 
 mod animation;
@@ -7,7 +10,7 @@ mod box_model;
 mod font;
 mod multicol;
 
-pub(super) use animation::{parse_animation_list, value_contains_comment};
+pub(super) use animation::{parse_animation_list, parse_comma_separated, value_contains_comment};
 pub(super) use font::parse_font_family_list;
 
 pub(super) fn single_token<'a, 'i>(value: &'a [TokenOrValue<'i>]) -> Option<&'a ValueToken<'i>> {
@@ -23,6 +26,23 @@ pub(super) fn collect_tokens<'i, 't>(
     allocator: &'i Allocator,
     depth: usize,
 ) -> Result<Vec<'i, TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
+    collect_tokens_impl(input, allocator, depth, false)
+}
+
+pub(super) fn collect_custom_property_tokens<'i, 't>(
+    input: &mut Parser<'i, 't>,
+    allocator: &'i Allocator,
+    depth: usize,
+) -> Result<Vec<'i, TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
+    collect_tokens_impl(input, allocator, depth, true)
+}
+
+fn collect_tokens_impl<'i, 't>(
+    input: &mut Parser<'i, 't>,
+    allocator: &'i Allocator,
+    depth: usize,
+    parse_embedded_values: bool,
+) -> Result<Vec<'i, TokenOrValue<'i>>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut tokens = allocator.vec();
 
@@ -36,11 +56,41 @@ pub(super) fn collect_tokens<'i, 't>(
 
         match token {
             ValueToken::Function(name) => {
-                let arguments = input
-                    .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
-                tokens.push(TokenOrValue::Function(
-                    allocator.boxed(Function::new(name, arguments)),
-                ));
+                let arguments = input.parse_nested_block(|input| {
+                    collect_tokens_impl(input, allocator, depth + 1, parse_embedded_values)
+                })?;
+                let mut function = Function::new(name, arguments);
+                validate_rgb_function(&mut function);
+                let function = allocator.boxed(function);
+                if parse_embedded_values
+                    && function.kind().is_color()
+                    && (!matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba)
+                        || function.is_valid_rgb())
+                {
+                    tokens.push(TokenOrValue::Color(
+                        allocator.boxed(CssColor::Function(function)),
+                    ));
+                } else {
+                    tokens.push(TokenOrValue::Function(function));
+                }
+            }
+            ValueToken::Hash(value) if parse_embedded_values => {
+                if let Some(color) = parse_hex_color(value) {
+                    tokens.push(TokenOrValue::Color(allocator.boxed(CssColor::Rgba(color))));
+                } else {
+                    tokens.push(TokenOrValue::Token(
+                        allocator.boxed(ValueToken::Hash(value)),
+                    ));
+                }
+            }
+            ValueToken::IdHash(value) if parse_embedded_values => {
+                if let Some(color) = parse_hex_color(value) {
+                    tokens.push(TokenOrValue::Color(allocator.boxed(CssColor::Rgba(color))));
+                } else {
+                    tokens.push(TokenOrValue::Token(
+                        allocator.boxed(ValueToken::IdHash(value)),
+                    ));
+                }
             }
             ValueToken::UnquotedUrl(url) => {
                 tokens.push(TokenOrValue::Url(allocator.boxed(Url {
@@ -61,8 +111,9 @@ pub(super) fn collect_tokens<'i, 't>(
                     _ => unreachable!(),
                 };
                 tokens.push(TokenOrValue::Token(allocator.boxed(opening)));
-                let nested = input
-                    .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
+                let nested = input.parse_nested_block(|input| {
+                    collect_tokens_impl(input, allocator, depth + 1, parse_embedded_values)
+                })?;
                 tokens.extend(nested);
                 tokens.push(TokenOrValue::Token(allocator.boxed(closing)));
             }
@@ -103,7 +154,8 @@ pub(super) fn remove_important(value: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
         trim_trailing_whitespace(value);
         return false;
     }
-    value.truncate(bang_index);
+    value.remove(important_index);
+    value.remove(bang_index);
     trim_trailing_whitespace(value);
     true
 }
@@ -115,14 +167,14 @@ pub(super) fn previous_non_whitespace(value: &[TokenOrValue<'_>], before: usize)
 }
 
 pub(super) fn trim_trailing_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
-    while matches!(value.last(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_) | ValueToken::Comment(_)))
+    while matches!(value.last(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_)))
     {
         value.pop();
     }
 }
 
 pub(super) fn trim_leading_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
-    while matches!(value.first(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_) | ValueToken::Comment(_)))
+    while matches!(value.first(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_)))
     {
         value.remove(0);
     }

@@ -4,9 +4,9 @@ use rocketcss_allocator::{
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 use rocketcss_ast::{
-    CSSWideOr, Columns, Declaration, DeclarationBlock, EqIgnoringTombstones, KnownFunction,
-    LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, VendorPrefix,
-    match_ignore_ascii_case,
+    CSSWideOr, Columns, CssColor, Declaration, DeclarationBlock, EqIgnoringTombstones,
+    KnownFunction, LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty,
+    UnparsedPropertyReason, VendorPrefix, Visit, VisitContext, Visitor, match_ignore_ascii_case,
 };
 
 fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
@@ -495,6 +495,10 @@ fn deduplicate_declarations<'scratch, 'ast>(
             if sequence.declaration(current).is_tombstone() {
                 continue;
             }
+            if declaration_skips_minification(sequence.declaration(current)) {
+                ir.clear();
+                continue;
+            }
             let important = sequence.is_important(current);
             if process_columns_declaration(sequence, current, important, ir, cx) {
                 continue;
@@ -836,6 +840,7 @@ fn box_property(declaration: &Declaration<'_>) -> Option<BoxProperty> {
         }
         Declaration::PaddingLeft(..) => return Some(BoxProperty::Longhand(BoxFamily::Padding, 3)),
         Declaration::All(..) => return Some(BoxProperty::BarrierAll),
+        Declaration::CSSWide(property_id, _) => &**property_id,
         Declaration::Unparsed(value) => &*value.property_id,
         _ => return None,
     };
@@ -1094,6 +1099,26 @@ fn merge_box_longhands<'ast, 'cx>(
 where
     'ast: 'cx,
 {
+    if let Some(keyword) = css_wide_box_longhands(sequence, locations) {
+        let target = *locations.iter().max().expect("four box sides");
+        let allocator = sequence.allocator(target);
+        let property_id = match family {
+            BoxFamily::Margin => PropertyId::Margin,
+            BoxFamily::Padding => PropertyId::Padding,
+        };
+        for &location in &locations {
+            if location != target {
+                sequence.replace(location, Declaration::Tombstone);
+            }
+        }
+        sequence.replace(
+            target,
+            Declaration::CSSWide(allocator.boxed(property_id), keyword),
+        );
+        record_merged_longhands(locations, target, cx);
+        return true;
+    }
+
     let typed = match family {
         BoxFamily::Margin => locations.iter().all(|&location| {
             matches!(
@@ -1118,6 +1143,24 @@ where
         return merge_typed_box_longhands(sequence, locations, family, cx);
     }
     merge_unparsed_box_longhands(sequence, locations, family, cx)
+}
+
+fn css_wide_box_longhands(
+    sequence: &DeclarationSequence<'_, '_, '_>,
+    locations: [DeclarationLocation; 4],
+) -> Option<rocketcss_ast::CSSWideKeyword> {
+    let Declaration::CSSWide(_, keyword) = sequence.declaration(locations[0]) else {
+        return None;
+    };
+    locations[1..]
+        .iter()
+        .all(|&location| {
+            matches!(
+                sequence.declaration(location),
+                Declaration::CSSWide(_, candidate) if candidate == keyword
+            )
+        })
+        .then_some(*keyword)
 }
 
 fn merge_typed_box_longhands<'ast, 'cx>(
@@ -1284,6 +1327,9 @@ fn minify_unparsed_declaration<'ast, 'cx>(
     let Declaration::Unparsed(value) = sequence.declaration_mut(location) else {
         return;
     };
+    if !matches!(value.reason, UnparsedPropertyReason::UnsupportedGrammar) {
+        return;
+    }
     let previous = cx.value_context;
     cx.value_context = crate::properties::value_context(
         &value.property_id,
@@ -1292,6 +1338,43 @@ fn minify_unparsed_declaration<'ast, 'cx>(
     );
     value.minify(cx);
     cx.value_context = previous;
+}
+
+fn declaration_skips_minification(declaration: &Declaration<'_>) -> bool {
+    matches!(
+        declaration,
+        Declaration::Unparsed(value)
+            if !matches!(
+                value.reason,
+                UnparsedPropertyReason::UnsupportedGrammar
+            )
+    ) || functional_color_requires_history_barrier(declaration)
+}
+
+fn functional_color_requires_history_barrier(declaration: &Declaration<'_>) -> bool {
+    let mut visitor = FunctionalColorBarrierVisitor::default();
+    GhostToken::scope(|token| {
+        declaration.visit(&mut visitor, &VisitContext::new(&token));
+    });
+    visitor.requires_barrier
+}
+
+#[derive(Default)]
+struct FunctionalColorBarrierVisitor {
+    requires_barrier: bool,
+}
+
+impl<'ast, 'ghost> Visitor<'ast, 'ghost> for FunctionalColorBarrierVisitor {
+    fn visit_css_color(&mut self, node: &CssColor<'ast>, cx: &VisitContext<'_, 'ghost>) {
+        if matches!(
+            node,
+            CssColor::Function(function) if function.replacement.is_none()
+        ) {
+            self.requires_barrier = true;
+        } else {
+            node.visit_children(self, cx);
+        }
+    }
 }
 
 fn is_css_wide_value(value: &TokenOrValue<'_>) -> bool {
@@ -1315,6 +1398,10 @@ fn declaration_contains_variable(declaration: &Declaration<'_>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rocketcss_ast::{
+        BorderColor, Function, Gradient, GradientItem, Image, KnownColor, LineDirection, SVGPaint,
+        VerticalPositionKeyword,
+    };
 
     #[test]
     fn declaration_location_fits_in_one_word() {
@@ -1334,5 +1421,46 @@ mod tests {
         assert_eq!(key.property_id(), 349);
         assert_eq!(key.vendor_prefix(), prefix);
         assert!(key.is_important());
+    }
+
+    #[test]
+    fn functional_color_barrier_walks_nested_color_values() {
+        let allocator = Allocator::new();
+        let unresolved_color = || {
+            CssColor::Function(allocator.boxed(Function::new(
+                "color-mix",
+                rocketcss_allocator::vec::Vec::new_in(&allocator),
+            )))
+        };
+        let known_color = || CssColor::Known(KnownColor::Red);
+
+        let direct = Declaration::Color(allocator.boxed(unresolved_color()));
+        let border = Declaration::BorderColor(allocator.boxed(BorderColor {
+            bottom: allocator.boxed(known_color()),
+            left: allocator.boxed(known_color()),
+            right: allocator.boxed(known_color()),
+            top: allocator.boxed(unresolved_color()),
+        }));
+        let mut gradient_items = allocator.vec();
+        gradient_items.push(GradientItem::ColorStop {
+            color: allocator.boxed(unresolved_color()),
+            position: None,
+        });
+        let mut images = allocator.vec();
+        images.push(Image::Gradient(allocator.boxed(Gradient::Linear {
+            direction: LineDirection::Vertical(VerticalPositionKeyword::Bottom),
+            items: gradient_items,
+            vendor_prefix: VendorPrefix::NONE,
+        })));
+        let background_image = Declaration::BackgroundImage(images);
+        let fill = Declaration::Fill(
+            allocator.boxed(SVGPaint::Color(allocator.boxed(unresolved_color()))),
+        );
+        let plain = Declaration::Color(allocator.boxed(known_color()));
+
+        for declaration in [&direct, &border, &background_image, &fill] {
+            assert!(functional_color_requires_history_barrier(declaration));
+        }
+        assert!(!functional_color_requires_history_barrier(&plain));
     }
 }
