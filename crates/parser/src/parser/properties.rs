@@ -16,11 +16,10 @@ pub(super) fn parse_declaration<'i, 't>(
 
     if !name.starts_with("--") {
         let start = input.state();
-        if property_id.known_id().is_some() {
-            if let Ok(keyword) = input.parse_until_before(
-                Delimiter::Bang | Delimiter::Semicolon,
-                parse_css_wide_keyword,
-            ) && let Some(important) = parse_declaration_end(input)
+        if property_id.known_id().is_some()
+            && let Ok(keyword) = input.try_parse(parse_css_wide_keyword)
+        {
+            if let Some(important) = parse_declaration_end(input)
                 && !input.saw_comments_since(&start)
             {
                 let _ = input.try_parse(Parser::expect_semicolon);
@@ -202,29 +201,14 @@ fn try_parse_typed_declaration<'i, 't>(
                 .map(|value| Declaration::ColumnRule(allocator.boxed(value), *prefix))
         }),
         PropertyId::ColumnWidth(prefix) => parse!(|input| {
-            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
-                return Ok(Declaration::ColumnWidth(
-                    CSSWideOr::CSSWide(keyword),
-                    *prefix,
-                ));
-            }
             ColumnWidth::parse(input)
                 .map(|value| Declaration::ColumnWidth(CSSWideOr::Value(value), *prefix))
         }),
         PropertyId::ColumnCount(prefix) => parse!(|input| {
-            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
-                return Ok(Declaration::ColumnCount(
-                    CSSWideOr::CSSWide(keyword),
-                    *prefix,
-                ));
-            }
             ColumnCount::parse(input)
                 .map(|value| Declaration::ColumnCount(CSSWideOr::Value(value), *prefix))
         }),
         PropertyId::Columns(prefix) => parse!(|input| {
-            if let Ok(keyword) = input.try_parse(parse_css_wide_keyword) {
-                return Ok(Declaration::Columns(CSSWideOr::CSSWide(keyword), *prefix));
-            }
             Columns::parse(input).map(|value| {
                 Declaration::Columns(CSSWideOr::Value(allocator.boxed(value)), *prefix)
             })

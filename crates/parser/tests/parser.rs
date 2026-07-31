@@ -1402,6 +1402,80 @@ fn declaration_ast_distinguishes_typed_opaque_invalid_and_unsupported_values() {
 }
 
 #[test]
+fn css_wide_probe_preserves_typed_and_lossless_declaration_paths() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            r#"a {
+                width: 1px;
+                height: InHeRiT !important;
+                max-width: unset extra;
+                opacity: /**/ revert;
+                --theme: initial;
+                future-property: revert-layer;
+                column-width: revert-layer;
+                columns: initial/**/;
+                all: UNSET;
+            }"#,
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(style) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declaration_block = style
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token);
+        let declarations = &declaration_block.declarations;
+
+        assert!(matches!(&declarations[0], Declaration::Width(_)));
+        assert!(matches!(
+            &declarations[1],
+            Declaration::CSSWide(property_id, CSSWideKeyword::Inherit)
+                if matches!(**property_id, PropertyId::Height)
+        ));
+        assert!(declaration_block.is_important(1));
+        assert!(matches!(
+            &declarations[2],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::InvalidValue
+        ));
+        assert!(matches!(
+            &declarations[3],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::OpaqueValue
+        ));
+        assert!(matches!(&declarations[4], Declaration::Custom(_)));
+        assert!(matches!(
+            &declarations[5],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::UnknownProperty
+        ));
+        assert!(matches!(
+            &declarations[6],
+            Declaration::ColumnWidth(
+                CSSWideOr::CSSWide(CSSWideKeyword::RevertLayer),
+                VendorPrefix::NONE
+            )
+        ));
+        assert!(matches!(
+            &declarations[7],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::OpaqueValue
+        ));
+        assert!(matches!(
+            &declarations[8],
+            Declaration::All(CSSWideKeyword::Unset)
+        ));
+    })
+}
+
+#[test]
 #[ignore = "the overlay property does not have typed metadata yet"]
 fn recognizes_overlay_as_a_known_property() {
     let allocator = Allocator::new();
