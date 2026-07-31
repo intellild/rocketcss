@@ -82,30 +82,19 @@ pub(super) fn minify_rgb_function(
     function: &Function<'_>,
     cx: &MinifyContext,
 ) -> Option<FunctionReplacement> {
-    let is_rgb = match function.kind() {
-        KnownFunction::Rgb => true,
-        KnownFunction::Rgba => false,
-        _ => return None,
-    };
+    if !matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
+        return None;
+    }
     let mut components = function.arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
             if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
     });
-    let (red, red_percentage, red_normalized) = color_component(components.next()?)?;
-    let (green, green_percentage, green_normalized) = color_component(components.next()?)?;
-    let (blue, blue_percentage, blue_normalized) = color_component(components.next()?)?;
-    let uses_percentage = red_percentage.or(green_percentage).or(blue_percentage);
-    if [red_percentage, green_percentage, blue_percentage]
-        .into_iter()
-        .flatten()
-        .any(|component| Some(component) != uses_percentage)
-    {
-        return None;
-    }
+    let (red, red_normalized) = color_component(components.next()?)?;
+    let (green, green_normalized) = color_component(components.next()?)?;
+    let (blue, blue_normalized) = color_component(components.next()?)?;
     let alpha = match components.next() {
         Some(value) => color_alpha(value)?,
-        None if is_rgb => 1.0,
-        None => return None,
+        None => 1.0,
     };
     if components.next().is_some() {
         return None;
@@ -134,24 +123,25 @@ fn color_alpha(value: &TokenOrValue<'_>) -> Option<f32> {
         return None;
     };
     match **token {
-        Token::Number(value) => Some(value),
-        Token::Percentage(value) => Some(value),
+        Token::Number(value) | Token::Percentage(value) => Some(value.clamp(0.0, 1.0)),
         _ => None,
     }
 }
 
-fn color_component(value: &TokenOrValue<'_>) -> Option<(u8, Option<bool>, f32)> {
+fn color_component(value: &TokenOrValue<'_>) -> Option<(u8, f32)> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    let (value, percentage, normalized) = match **token {
-        Token::Number(value) if (0.0..=255.0).contains(&value) => {
-            (value, (value != 0.0).then_some(false), value / 255.0)
+    let (value, normalized) = match **token {
+        Token::Number(value) => {
+            let value = value.clamp(0.0, 255.0);
+            (value, value / 255.0)
         }
-        Token::Percentage(value) if (0.0..=1.0).contains(&value) => {
-            (value * 255.0, (value != 0.0).then_some(true), value)
+        Token::Percentage(value) => {
+            let value = value.clamp(0.0, 1.0);
+            (value * 255.0, value)
         }
         _ => return None,
     };
-    Some((value.round() as u8, percentage, normalized))
+    Some((value.round() as u8, normalized))
 }

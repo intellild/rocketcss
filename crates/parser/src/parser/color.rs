@@ -58,7 +58,7 @@ fn is_supported_rgb_function(function: &Function<'_>) -> bool {
     } else {
         validate_modern_rgb(first, second, &mut components)
     };
-    has_alpha.is_some_and(|has_alpha| !matches!(function.kind(), KnownFunction::Rgba) || has_alpha)
+    has_alpha.is_some()
 }
 
 fn validate_legacy_rgb<'a>(
@@ -91,12 +91,11 @@ fn validate_modern_rgb<'a>(
     second: &'a TokenOrValue<'a>,
     components: &mut impl Iterator<Item = &'a TokenOrValue<'a>>,
 ) -> Option<bool> {
-    let first_kind = rgb_component_kind(first)?;
-    if rgb_component_kind(second) != Some(first_kind) {
+    if !is_modern_rgb_component(first) || !is_modern_rgb_component(second) {
         return None;
     }
     let third = components.next()?;
-    if rgb_component_kind(third) != Some(first_kind) {
+    if !is_modern_rgb_component(third) {
         return None;
     }
 
@@ -104,10 +103,29 @@ fn validate_modern_rgb<'a>(
         None => Some(false),
         Some(slash) if is_slash(slash) => {
             let alpha = components.next()?;
-            (is_rgb_alpha(alpha) && components.next().is_none()).then_some(true)
+            (is_modern_rgb_alpha(alpha) && components.next().is_none()).then_some(true)
         }
         Some(_) => None,
     }
+}
+
+fn is_modern_rgb_component(value: &TokenOrValue<'_>) -> bool {
+    rgb_component_kind(value).is_some() || is_none_keyword(value)
+}
+
+fn is_modern_rgb_alpha(value: &TokenOrValue<'_>) -> bool {
+    is_rgb_alpha(value) || is_none_keyword(value)
+}
+
+fn is_none_keyword(value: &TokenOrValue<'_>) -> bool {
+    matches!(
+        value,
+        TokenOrValue::Token(token)
+            if matches!(
+                &**token,
+                ValueToken::Ident(value) if value.eq_ignore_ascii_case("none")
+            )
+    )
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -121,12 +139,8 @@ fn rgb_component_kind(value: &TokenOrValue<'_>) -> Option<RgbComponentKind> {
         return None;
     };
     match **token {
-        ValueToken::Number(value) if (0.0..=255.0).contains(&value) => {
-            Some(RgbComponentKind::Number)
-        }
-        ValueToken::Percentage(value) if (0.0..=1.0).contains(&value) => {
-            Some(RgbComponentKind::Percentage)
-        }
+        ValueToken::Number(_) => Some(RgbComponentKind::Number),
+        ValueToken::Percentage(_) => Some(RgbComponentKind::Percentage),
         _ => None,
     }
 }
@@ -135,11 +149,7 @@ fn is_rgb_alpha(value: &TokenOrValue<'_>) -> bool {
     let TokenOrValue::Token(token) = value else {
         return false;
     };
-    matches!(
-        **token,
-        ValueToken::Number(value) | ValueToken::Percentage(value)
-            if (0.0..=1.0).contains(&value)
-    )
+    matches!(**token, ValueToken::Number(_) | ValueToken::Percentage(_))
 }
 
 fn is_comma(value: &TokenOrValue<'_>) -> bool {

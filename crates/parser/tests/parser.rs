@@ -218,6 +218,57 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
 }
 
 #[test]
+fn modern_rgb_accepts_mixed_and_missing_components() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a{--mixed:rgb(255 50% 0);--missing:rgb(none 50% 0/none);\
+             --out-of-range:rgba(300 -10 0);--legacy-rgba:rgba(1,2,3);\
+             color:rgb(255 50% 0);background-color:rgb(none 50% 0/none)}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(rule) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = &rule
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token)
+            .declarations;
+
+        for declaration in &declarations[..4] {
+            assert!(matches!(
+                declaration,
+                Declaration::Custom(value)
+                    if matches!(
+                        &value.value[..],
+                        [TokenOrValue::Color(color)]
+                            if matches!(
+                                &**color,
+                                CssColor::Function(function) if function.is_valid_rgb()
+                            )
+                    )
+            ));
+        }
+        for declaration in &declarations[4..] {
+            assert!(matches!(
+                declaration,
+                Declaration::Color(color) | Declaration::BackgroundColor(color)
+                    if matches!(
+                        &**color,
+                        CssColor::Function(function) if function.is_valid_rgb()
+                    )
+            ));
+        }
+    })
+}
+
+#[test]
 fn review_regressions_preserve_invalid_and_commented_declarations() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {

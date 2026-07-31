@@ -54,8 +54,11 @@ fn separator_compaction_respects_independent_options() {
     let mut discard_only = MinifyOptions::default();
     discard_only.flags.remove(Options::NORMALIZE_WHITESPACE);
     assert_eq!(
-        run_with_options("a{--x:foo/**/bar;--y:foo /**/ bar}", discard_only),
-        "a{--x:foo bar;--y:foo  bar}"
+        run_with_options(
+            "a{--x:foo/**/bar;--y:foo /**/ bar;--multiply:1/**/*/**/(2)}",
+            discard_only
+        ),
+        "a{--x:foo bar;--y:foo  bar;--multiply:1*(2)}"
     );
 
     let mut normalize_only = MinifyOptions::default();
@@ -63,6 +66,28 @@ fn separator_compaction_respects_independent_options() {
     assert_eq!(
         custom_property_token_shape("a{--x:  foo  /**/  bar  }", normalize_only),
         "iwcwi"
+    );
+
+    let mut preserve_fallback_space = MinifyOptions::default();
+    preserve_fallback_space
+        .flags
+        .insert(Options::PRESERVE_VARIABLE_FALLBACK_SPACE);
+    assert_eq!(
+        run_with_options(
+            "a{--comment-only:var(--x,/**/fallback);--authored-space:var(--x,/**/ fallback)}",
+            preserve_fallback_space
+        ),
+        "a{--comment-only:var(--x,fallback);--authored-space:var(--x, fallback)}"
+    );
+    preserve_fallback_space
+        .flags
+        .remove(Options::NORMALIZE_WHITESPACE);
+    assert_eq!(
+        run_with_options(
+            "a{--comment-only:var(--x,/**/fallback);--authored-space:var(--x,/**/ fallback)}",
+            preserve_fallback_space
+        ),
+        "a{--comment-only:var(--x,fallback);--authored-space:var(--x, fallback)}"
     );
 
     let mut preserve_both = MinifyOptions::default();
