@@ -14,6 +14,11 @@
 
 ## Responsibility
 
+In the target [flat AST IR](../flat-ast-ir/README.md), synthesized payloads may
+be appended to dense stores, but their allocation IDs do not define output
+order. Every committed S3 result carries a semantic insertion position for S4
+and S5.
+
 S3 factors a provably movable common effect sequence from two live-adjacent
 rules with different selectors:
 

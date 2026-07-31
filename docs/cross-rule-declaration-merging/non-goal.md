@@ -11,6 +11,7 @@
 - [Non-goals](./non-goal.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
+- [Flat source-order AST IR](../flat-ast-ir/README.md)
 
 ## Conditional at-rules
 
@@ -82,8 +83,8 @@ The design does not:
 
 - infer selector-list equivalence from reordered selector arms;
 - split one authored selector list into independently owned selector arms;
-- move selector AST ownership out of a live endpoint;
-- factor selectors when arena-aware deep materialization is unavailable;
+- move selector occurrence ownership out of a live endpoint;
+- factor selectors when lossless selector-value materialization is unavailable;
 - defer synthesized-selector canonicalization to a second minify pass; or
 - treat a parsed selector as valid without effective-selector validation.
 
@@ -141,11 +142,11 @@ The design does not:
 - retain a selector-dead parent's descendants as independently outputting
   rules.
 
-S4 determines logical retention and produces a complete AST reification plan,
+S4 determines logical retention and produces a complete reification plan,
 including the lossless declaration representation for every non-empty IR. It
-does not serialize CSS. S5 only commits that plan into the stylesheet AST.
-Code generation remains outside the minify pipeline and never consumes merge IR
-directly.
+does not serialize CSS. S5 commits that plan into compact stylesheet stores.
+Code generation remains outside the minify pipeline and never consumes merge
+IR directly.
 
 ## Deferred implementation choices
 
@@ -154,21 +155,22 @@ the invariants in the other documents:
 
 - packed versus direct state representation;
 - dense known-property slots versus hash-indexed declaration effects;
-- stable `RuleId` allocation;
-- live-adjacency representation;
-- interning for selector and conditional-context keys;
-- ordered tree, order-maintenance labels, or history rebuild for semantic
-  source order;
 - eager versus lazy history maintenance;
 - physical conditional-block coalescing versus logical regions;
 - concrete storage encoding for metadata-generated affected-longhand and
   may-alias sets;
 - target-aware selector compatibility;
 - profitability thresholds;
-- S4 representation-profitability and S5 physical-compaction policy;
+- S4 representation-profitability and S5 compaction thresholds;
 - small-vector and hash-table thresholds; and
 - concrete combined-span encoding after selector and declaration origins have
   been preserved.
+
+Stable typed IDs, explicit topology/live adjacency, canonical selector/context
+keys, lexical source-order declaration allocation, and terminal S5 flat-store
+reification are no longer deferred choices. They are specified in
+[Flat source-order AST IR](../flat-ast-ir/README.md). The exact tagged rule
+layout and selector-component granularity remain benchmark decisions.
 
 These are not permission to weaken semantic identity, source ordering,
 candidate invalidation, or lossless serialization.

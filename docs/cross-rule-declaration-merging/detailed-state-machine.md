@@ -11,10 +11,11 @@
 - [Non-goals](./non-goal.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
+- [Flat source-order AST IR](../flat-ast-ir/README.md)
 
 ## State ownership
 
-The merge IR preserves AST ownership:
+The merge IR preserves semantic ownership independently of physical storage:
 
 - authored style rules stay in their original rule lists;
 - existing local and ancestor selectors are immutable;
@@ -26,12 +27,14 @@ The merge IR preserves AST ownership:
 - S3 creates a logical synthesized style rule in the owning rule-list segment;
 - S4 incrementally stabilizes logical retention and the AST reification plan;
   and
-- S5 reifies the complete stable result into the stylesheet AST.
+- S5 reifies the complete stable result into compact stylesheet stores.
 
-Pinned declaration blocks and stable identifiers should be reused. Ordinary
+The target storage uses typed dense IDs, a preorder syntax tape, and a lexical
+source-order declaration tape. Pinned declaration blocks, AST `Box` values,
+and the AST arena allocator are migration-only infrastructure. Ordinary
 long-lived Rust references to mutable style rules are not part of the model.
-Code generation is outside the minify pipeline and observes only the AST
-produced by S5.
+Code generation is outside the minify pipeline and observes only the compact
+flat IR produced by S5.
 
 ## Core identifiers
 
@@ -184,6 +187,12 @@ struct PartialMergePlan<'ast> {
     insertion_order: SemanticSourceOrderKey,
 }
 ```
+
+These tables describe semantic state. In the flat implementation, rule and
+declaration origins are dense IDs into compilation-owned stores; ordered
+sequences are ranges or range lists, and synthesized insertion positions are
+stored explicitly until S5. Authored declaration IDs are allocated in lexical
+source order, including around nested rules.
 
 The concrete containers may change. The ownership and dependency relationships
 must not.
