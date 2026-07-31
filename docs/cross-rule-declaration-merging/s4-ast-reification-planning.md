@@ -17,16 +17,21 @@
 S4 converts the stable logical merge result into one complete,
 deterministic `AstReificationPlan`.
 
+`AstReificationPlan` is the semantic name retained during migration. Its target
+physical output is the [flat source-order AST IR](../flat-ast-ir/README.md), not
+a rebuilt tree of boxes and arena references.
+
 S4 answers:
 
 - which logical nodes remain or are removed;
-- which AST rule owns each retained declaration sequence;
+- which output rule owns each retained declaration sequence;
 - which authored declaration origins can be reused;
 - which partially live effects require typed declarations;
 - where synthesized rules and selectors will be inserted; and
-- which retired storage must remain available until commit.
+- which retired storage must remain available until commit; and
+- where every retained or synthesized node appears in final semantic order.
 
-S4 does not modify the stylesheet AST. It also does not discover new semantic
+S4 does not modify the stylesheet stores. It also does not discover new semantic
 merges, new declaration pruning, or new graph edges.
 
 > Implementation status: while only S1/S2 are implemented, S1 directly links
@@ -109,7 +114,7 @@ the authored occurrences. Representation planning cannot upgrade an
 incremental exact-only result into a new semantic optimization.
 
 An `EffectiveRuleHistory` is only a cross-sequence analysis index. It never
-becomes a `DeclarationSequenceId` and never chooses a shared AST owner. Every
+becomes a `DeclarationSequenceId` and never chooses a shared output owner. Every
 occurrence retains its sequence owner unless S1 has already coalesced that
 sequence or S3 has committed a separately proven synthesized sequence. S4
 plans each retained sequence independently.
@@ -151,16 +156,21 @@ struct AstReificationPlan<'ast> {
 }
 ```
 
+The flat implementation additionally records retained declaration ranges and
+semantic insertion positions. Reusing a range is valid only when it cannot
+include a live declaration owned by another occurrence; otherwise the plan
+keeps multiple ordered ranges or materializes a replacement during S5.
+
 A complete output satisfies:
 
 | Output component        | Requirement                                                                     |
 | ----------------------- | ------------------------------------------------------------------------------- |
-| Sequence plans          | Every non-empty retained sequence has exactly one AST owner and representation. |
+| Sequence plans          | Every non-empty retained sequence has exactly one output owner and representation. |
 | Synthesized rules       | Every logical S3 rule has one insertion plan.                                   |
 | Removals                | Every removable logical node is listed post-order.                              |
 | Retained opaque content | Never listed as removable by inference.                                         |
 | Retired storage         | Remains addressable until its sequence representation is complete.              |
-| AST mutations           | None.                                                                           |
+| Physical mutations      | None.                                                                           |
 | Completeness            | `ast_plan.complete == true`.                                                    |
 
 S4 planning is infallible for committed semantic state. An inability to build a
@@ -370,7 +380,7 @@ all feedback work has stabilized.
 - S4 work runs only against current revisions of its S1-S3 dependencies.
 - Cleanup walks retained ownership post-order.
 - Logical emptiness was already reflected in adjacency before S4.
-- Every non-empty sequence receives exactly one final AST owner.
+- Every non-empty sequence receives exactly one final output owner.
 - Every live effect appears exactly once in the planned semantic sequence.
 - Dead effects are never revived.
 - Authored shorthand, opaque values, and fallback chains are reused only when

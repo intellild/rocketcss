@@ -22,6 +22,8 @@
   algorithms.
 - [Performance](./performance.md): measured regressions, retained optimizations,
   and future hot-path work.
+- [Flat source-order AST IR](../flat-ast-ir/README.md): target dense storage,
+  source-order allocation, effective-key IDs, and S5 compaction.
 
 ## Status
 
@@ -31,20 +33,23 @@ profitability optimizations are intentionally deferred.
 
 The pass operates after selector minification and canonicalization. It builds a
 semantic declaration-effect IR, runs the merge state machine over that IR, and
-then reifies the stable result back into the stylesheet AST before minification
-returns. Code generation is not part of the minify pipeline: it receives only
-the reified AST and does not consume merge state or declaration-effect IR.
+then reifies the stable result into the stylesheet's physical representation
+before minification returns. The current implementation still targets a nested
+arena AST; the target representation is the
+[flat source-order AST IR](../flat-ast-ir/README.md). Code generation is not
+part of the minify pipeline: it receives only committed AST state and does not
+consume merge state or declaration-effect IR.
 
 ```text
-stylesheet AST
+stylesheet representation
 -> discovery and declaration-effect IR
 -> S1/S2/S3 semantic fixed point
--> S4 AST reification plan
--> S5 AST commit
--> minify returns the rewritten AST
+-> S4 reification plan
+-> S5 compacting commit
+-> minify returns the rewritten flat IR
 
 later:
-rewritten AST -> code generation
+rewritten flat IR -> code generation
 ```
 
 ## Goals
@@ -157,14 +162,24 @@ struct DeclarationHistoryContextKey<'ast> {
     phase: CascadePhaseKey,
 }
 
-struct EffectiveRuleKey<'ast> {
+struct EffectiveKeyData {
     history_segment: HistorySegmentId,
-    context: DeclarationHistoryContextKey<'ast>,
-    selectors: EffectiveSelectorKey<'ast>,
+    condition_path: ContextPathId,
+    selector_path: SelectorPathId,
+    layer: LayerContextId,
+    origin_and_phase: u32,
 }
+
+type EffectiveRuleKey = EffectiveKeyId;
 ```
 
-Equality is typed structural equality after any earlier canonicalization.
+The target flat IR interns `EffectiveKeyData` with typed structural equality
+and stores the resulting compact ID on each uniquely owned declaration
+occurrence. Occurrence IDs are not value IDs: separately authored equal
+selectors may share a canonical `SelectorValueId` without sharing source
+identity. See [Effective keys in the flat IR](../flat-ast-ir/effective-key.md).
+
+Equality at the merge boundary is dense-ID equality after canonicalization.
 Boolean equivalence, implication, overlap, union, and condition reordering are
 not inferred.
 
@@ -287,8 +302,10 @@ hand-written property-family tables.
 
 ## Nesting model
 
-The AST remains nested. Effective selectors are calculated as immutable
-semantic keys while every style rule remains owned by its original child list.
+CSS nesting remains semantic even when physical storage is flat. Effective
+selectors are calculated as immutable semantic keys while every style rule
+retains its original parent and sibling-list identity through topology
+metadata. Flattening the stores does not flatten or lift authored CSS nesting.
 
 Selector resolution is an AST operation, not textual Cartesian expansion:
 
@@ -379,9 +396,10 @@ identities.
 
 RocketCSS keeps the right rule as the active output owner. The merge IR links
 the left declaration sequence before the right sequence, and the left endpoint
-is retired from adjacency. S4 plans whether the final ordered sequence is
-represented through `previous_merged` or compacted into another equivalent AST
-form, and S5 commits that choice:
+is retired from adjacency. In the target flat IR, physically adjacent
+declaration ranges can be coalesced directly; other sequences retain ordered
+ranges until S4/S5 compact them. `previous_merged` is only a transitional
+nested-AST encoding and is not part of the target representation:
 
 ```text
 left declaration blocks
@@ -481,9 +499,11 @@ Validity requires:
 9. a lossless S4 AST representation exists for every residual and synthesized
    effect sequence.
 
-Endpoint selector ASTs are immutable and cannot be moved. Commit requires an
-arena-aware deep materialization of the selector union. If materialization or
-validation is unavailable, S3 is disabled.
+Endpoint selector values are immutable and cannot be moved. Commit appends a
+validated selector-union payload and records its canonical value ID. During the
+current nested-AST migration this may still require arena-aware deep
+materialization; the target flat IR uses dense-store insertion instead. If
+materialization or validation is unavailable, S3 is disabled.
 
 ### S4: logical cleanup and AST reification planning
 
@@ -508,7 +528,7 @@ Cleanup planning is post-order. It also plans removal of:
 Opaque or unsupported nodes are never declared empty by this pass. Any retained
 opaque content pins every style-rule ancestor.
 
-For every non-empty declaration sequence, S4 chooses a lossless AST
+For every non-empty declaration sequence, S4 chooses a lossless physical
 representation. It retains authored shorthand and fallback chains where they
 still describe exactly the live effects, plans typed longhands when partial
 effect liveness makes an authored shorthand unusable, and may recombine effects
@@ -520,7 +540,7 @@ a new representation or cleanup plan increments its plan revision and
 invalidates dependent profitability, ownership, or representation snapshots.
 Those dependencies are re-enqueued and stabilization resumes. At the final
 fixed point, empty IRs have removal plans and non-empty IRs have lossless
-declaration representations and final AST owners.
+declaration representations and final output owners.
 
 Every S2 edit and S3 candidate proves its effects remain reifiable before
 semantic commit. S4 may choose among equivalent representations and feed
@@ -532,25 +552,28 @@ an unrepresentable semantic state valid.
 The complete S5 plan-input and AST-output state enumeration is in
 [S5: AST reification commit](./s5-ast-reification-commit.md).
 
-S5 is the only stage that writes the stable semantic result back into the
-stylesheet AST. It consumes the complete S4 plan and:
+S5 is the only stage that writes the stable semantic result into the final
+stylesheet representation. The target implementation allocates fresh dense
+stores and emits surviving nodes in semantic order. It consumes the complete
+S4 plan and:
 
-1. writes the planned declarations and importance bits to each active AST
+1. writes the planned declarations and importance bits to each active output
    owner;
 2. preserves the planned authored shorthand and fallback occurrences;
 3. materializes the planned typed longhand replacements;
-4. writes synthesized selectors and synthesized
-   rules into their final AST owners;
-5. applies the planned removals and compacts rule lists; and
+4. writes synthesized selectors and rules at their planned semantic positions;
+5. rebuilds rule topology and compact declaration ranges while dropping
+   tombstones and retired nodes; and
 6. releases all merge-only sequence and retired-storage relationships.
 
 S4 representation choice may optimize size, but profitability never authorizes
 a semantic change. The S5 commit is one-way for this minify invocation and does
 not restart S1-S4.
 
-After S5, code generation serializes the resulting AST through its ordinary
+After S5, code generation serializes the resulting flat IR through its ordinary
 entry points. It does not follow merge IR, inspect effect indexes, or decide how
-shorthand effects should be materialized.
+shorthand effects should be materialized. No AST `Box`, AST arena allocation,
+or address-stable merge link is needed after the flat-storage migration.
 
 ## Candidate requirement
 
@@ -585,17 +608,20 @@ revisions. Any endpoint change invalidates and recomputes the candidate.
   declarations.
 - S1 and S3 never cross a rule-list segment.
 - Histories are ordered by semantic source position, not discovery time.
+- Authored declaration IDs are initially allocated in lexical source order.
+- A declaration range never absorbs a live slot owned by another rule or
+  nested declaration run.
 - Editing any block in a merged sequence increments its aggregate revision.
 - Every effect occurrence retains an authored or synthesized source origin until
   S5 completes.
-- Every committed effect state has a lossless AST reification path.
+- Every committed effect state has a lossless flat-IR reification path.
 - Every retained non-endpoint node prevents an edge from skipping over it.
 - S3 commit is one atomic live-graph transition.
 - Synthesized selectors are canonicalized during the same pass.
 - Dirty queues are hints; consumers revalidate current eligibility.
 - The pass stops only at a complete work-queue and history-generation fixed
   point.
-- Code generation observes only the AST reified by S5.
+- Code generation observes only the flat representation reified by S5.
 
 Implementation details and unsupported transformations are listed in
 [Non-goals](./non-goal.md). State ownership and transitions are specified in

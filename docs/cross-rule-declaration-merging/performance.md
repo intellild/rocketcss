@@ -5,7 +5,7 @@ does not change the correctness model in the S1-S5 design documents.
 
 ## S1 selector matching
 
-### Keep structural equality as the default
+### Keep structural equality until canonical IDs already exist
 
 An experiment cached a full `FxHasher` fingerprint for every style rule that
 participated in an S1 candidate. It regressed the CodSpeed minify benchmarks:
@@ -21,11 +21,12 @@ the first unequal selector component while hashing must visit every live
 selector component. An S1 rule participates in at most two adjacent
 comparisons, which is not enough reuse to amortize a full hash.
 
-S1 should therefore use `equal_live_selectors` directly unless a selector
-identity is already computed by an earlier pass and can be reused without an
-additional selector traversal. A future shared identity must preserve
-tombstone filtering and must only be a prefilter; structural equality remains
-the collision-safe final check.
+S1 should therefore use `equal_live_selectors` directly in the current nested
+AST. The [flat source-order AST IR](../flat-ast-ir/README.md) changes the cost
+boundary: selector/context canonicalization happens once during parse and
+rule-local normalization, then S1 compares `EffectiveKeyId` values. Exact
+structural equality remains the collision-safe check inside the interner, not
+on every S1 edge.
 
 ### Structural adjacency discovery
 
@@ -37,7 +38,9 @@ map lookups for every adjacent style-rule pair.
 
 `DeclarationBlockEntry` now records `RuleListId`, `RuleListSegmentId`, and
 `SiblingOrdinal`, and candidate discovery rejects entries whose structural
-locations do not form a direct edge.
+locations do not form a direct edge. The target flat syntax tape stores parent,
+next-sibling, and subtree-end metadata directly, eliminating both the rewalk
+and pointer map.
 
 ## Allocation and indexing candidates
 
@@ -83,11 +86,13 @@ with the stylesheet. They are not stored as one-element vectors in
 
 ### Effective-key path cost
 
-The declaration-block walker builds compact parent-linked selector and
+The current declaration-block walker builds compact parent-linked selector and
 conditional paths with rolling fingerprints while it traverses the stylesheet,
-then interns each path pair into a dense `EffectiveKeyId`. Each
-`DeclarationBlockEntry` stores that ID directly. This removes the former owned
-selector/condition path vectors and the later full-key interning pass.
+then interns each path pair into a dense `EffectiveKeyId`. The target flat IR
+moves this work to parse and selector-local normalization, where context is
+already available. Each uniquely owned declaration occurrence stores the ID
+directly, so cross-rule minify pays neither an owned-path allocation nor a
+full-stylesheet discovery walk.
 
 The same traversal also remembers the last declaration-block entry for each
 effective key. A key's S2 history is linked only when its second entry is
@@ -97,24 +102,37 @@ head, and tail arrays for keys that never repeat.
 
 ## Deferred optimization candidates
 
-### Intern complete selector objects
+### Selector storage granularity
 
-The compiler string pool already makes selector atoms cheap to compare, but
-`Selector` and `SelectorList` remain independently allocated AST structures.
-A compiler-scoped pool for complete selectors could make equality and hashing
-pointer-based when the same full selector occurs many times.
+The target design requires canonical selector value IDs for effective-key
+construction, but does not require every selector component to be independently
+interned. Most complete selectors in Bootstrap and Tailwind are unique, so a
+hash table for all mutable occurrence objects may cost more than it saves.
 
-This is deliberately deferred. Selector nodes are mutable and may be replaced
-with tombstones during minification, so sharing them requires an explicit
-immutability, copy-on-write, or re-interning boundary. Most selectors in the
-current Bootstrap and Tailwind inputs are unique, which may leave the pool's
-hash-table and canonicalization cost larger than the comparisons it removes.
+Benchmark a flat component tape with `(offset, len)` selector headers against
+per-component dense IDs. Keep immutable canonical values at the effective-key
+boundary and replace an occurrence ID when selector minification changes it.
+Do not retain mutable shared selector nodes or a compatibility layer of arena
+references.
 
-Benchmark this only after compact effective-key IDs and lazy S2 histories have
-landed. Implement it only if updated profiles still attribute material time to
-structural selector hash/equality and the measured full-selector reuse rate
-amortizes pool construction. Keep the pass-local dense effective-key identity
-even if a compiler-scoped selector pool is later added.
+## Flat storage and allocation
+
+Current representative type sizes are `CssRule = 16`, `StyleRule = 64`,
+`DeclarationBlock = 64`, `Declaration = 32`, `Selector = 32`, and
+`SelectorComponent = 40` bytes. A declaration-block header containing two
+range words, an effective-key ID, and compact flags can approach 16 bytes,
+while declaration payloads remain in a contiguous tape.
+
+The expected wins are fewer pointer loads, no recursive declaration-block
+discovery, compact ID comparisons, and sequential parse/minify/codegen scans.
+The risks are excessive per-node indirection, interner construction cost, and
+extra S5 copying. Measure parse, minify, codegen, peak memory, and output size
+separately.
+
+Once all AST owners use dense stores, the current `Box` hierarchy and AST arena
+allocator are pure overhead and should be deleted. A compiler-scoped atom pool
+and pass-local scratch allocation remain valid independent facilities; they
+must not keep address-based AST APIs alive.
 
 ### Compress initial maximal same-selector runs
 

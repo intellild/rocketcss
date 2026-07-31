@@ -137,20 +137,25 @@ second entry because a one-entry history has no cross-block relationship.
 Subsequent S1-S4 mutations increment `generation` and enqueue the same history
 identity when it is not already queued.
 
-The exact-only implementation does not require one allocation per history. Its
-immutable initial histories may use one-dimensional linked storage:
+The exact-only implementation does not require one allocation per history. In
+the target flat IR, parser/normalization discovery observes declaration blocks
+in lexical source order and stores a compact `EffectiveKeyId` on each uniquely
+owned occurrence. Immutable initial histories use one-dimensional linked
+storage:
 
 ```rust,ignore
-blocks: Vec<Ref<DeclarationBlock>>
-next_in_history: Vec<Option<NonZeroU32>>
+occurrences: DenseStore<DeclarationOccurrence, DeclarationOccurrenceId>
+next_in_history: Vec<Option<DeclarationOccurrenceId>>
 history_heads: Vec<u32>
 ```
 
-Only keys with at least two entries need storage. `blocks` retains the
-source-ordered references, `next_in_history` links entries with the same
-effective-rule identity, and `history_heads` starts each S2 traversal. This is
-a physical representation of the same ordered histories; it does not change
-their semantic identity or permit comparisons between histories.
+Only keys with at least two entries need storage. `occurrences` retains the
+source-ordered block IDs and effective keys, `next_in_history` links entries
+with the same canonical identity, and `history_heads` starts each S2 traversal.
+This is a physical representation of the same ordered histories; it does not
+change their semantic identity or permit comparisons between histories. The
+target pipeline builds these links while parsing/finalizing keys and does not
+need a recursive `walk_declaration_blocks` prepass.
 
 `Candidate(left, right)` is an edge representation for S1/S3. It must not be
 used to reconstruct an S2 history through pair chaining, tail maps, or another

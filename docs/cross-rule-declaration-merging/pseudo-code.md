@@ -11,9 +11,46 @@
 - [Non-goals](./non-goal.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
+- [Flat source-order AST IR](../flat-ast-ir/README.md)
 
 This file shows control flow only. State ownership and transition requirements
 are normative in [Detailed state machine](./detailed-state-machine.md).
+
+## Physical flat-IR binding
+
+The semantic algorithms below use named structures for clarity. Their target
+physical input is produced without a recursive declaration-block discovery
+pass:
+
+```rust,ignore
+fn finish_declaration_run(
+    compilation: &mut Compilation,
+    start: DeclarationId,
+    context: ContextPathId,
+    selector: SelectorValueId,
+) -> DeclarationBlockId {
+    let key = compilation.effective_keys.intern(EffectiveKeyData {
+        selector_path: selector.into(),
+        condition_path: context,
+        layer: compilation.current_layer(),
+        origin_and_phase: compilation.current_origin_and_phase(),
+        history_segment: compilation.current_history_segment(),
+    });
+
+    compilation.declaration_blocks.push(DeclarationBlockHeader {
+        offset: start.index(),
+        len: compilation.declarations.next_id().index() - start.index(),
+        effective_key: key,
+        flags: DeclarationBlockFlags::empty(),
+    })
+}
+```
+
+The parser appends every property before parsing the following nested node, so
+declaration IDs reflect lexical order. Selector-local normalization recomputes
+the key when it replaces a selector value. Syntax topology supplies direct
+sibling and subtree relationships; the target scanner does not need
+`walk_declaration_blocks`.
 
 ## Typed context keys
 
@@ -44,11 +81,7 @@ struct DeclarationHistoryContextKey<'ast> {
     phase: CascadePhaseKey,
 }
 
-struct EffectiveRuleKey<'ast> {
-    history_segment: HistorySegmentId,
-    context: DeclarationHistoryContextKey<'ast>,
-    selectors: EffectiveSelectorKey<'ast>,
-}
+type EffectiveRuleKey = EffectiveKeyId;
 
 struct EmissionIdentity {
     wrapper_kind: StyleWrapperKind,

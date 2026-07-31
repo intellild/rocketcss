@@ -15,7 +15,8 @@
 ## Responsibility
 
 In the complete S1-S5 design, S5 is the only stage that writes the stable
-cross-rule merge result back into the stylesheet AST.
+cross-rule merge result into the final stylesheet representation. The target
+representation is the [flat source-order AST IR](../flat-ast-ir/README.md).
 
 The current S1/S2 implementation has transitional commit passes. S1 writes
 `previous_merged` links and selector tombstones. Incremental S2 may tombstone
@@ -24,17 +25,18 @@ leaf rules. This exception exists only until the S4 plan and S5 commit are
 implemented; it must not include cross-block shorthand/longhand or columns
 rewrites and must not be extended to S3.
 
-It consumes the complete S4 plan and performs a one-way commit:
+It consumes the complete S4 plan and performs a one-way compacting commit:
 
 - write declarations and importance bits;
 - materialize typed replacement declarations;
 - insert synthesized rules and selector lists;
-- remove planned nodes and compact rule lists; and
+- remove planned nodes, compact rule/declaration tapes, and rebuild topology;
+  and
 - release merge-only storage and revision state.
 
 S5 makes no semantic, candidate, selector-union, or profitability decision.
 Code generation is outside this minify pipeline and later consumes only the
-ordinary rewritten AST.
+ordinary committed flat IR.
 
 ## Input state
 
@@ -54,14 +56,14 @@ belongs to [S4](./s4-ast-reification-planning.md#completion-condition).
 
 | Plan item         | Required state                                                                 |
 | ----------------- | ------------------------------------------------------------------------------ |
-| Sequence          | One final AST owner and one declaration representation.                        |
+| Sequence          | One final output owner and one declaration representation.                     |
 | Reused origin     | Points to retained authored storage and has exact planned order.               |
 | Typed replacement | Fully materializable without semantic analysis.                                |
 | Synthesized rule  | Has validated selectors, declaration plan, owner list, and insertion position. |
 | Removal           | Refers to a logically dead node and respects post-order ownership.             |
 | Retired storage   | Remains pinned until all consumers are written.                                |
 
-### AST visibility states
+### Pre-commit visibility states
 
 Before commit, the AST may still contain:
 
@@ -72,7 +74,9 @@ Before commit, the AST may still contain:
 | Missing S3 shared rule     | The logical synthesized rule is not yet in the AST.             |
 | Logically dead node        | S4 plans removal, but the AST still owns it.                    |
 
-S5 resolves all of these differences.
+S5 resolves all of these differences. Synthesized store allocation order is
+never used as output order; the plan's semantic insertion positions are
+authoritative.
 
 ## Declaration commit states
 
@@ -90,19 +94,20 @@ and encoded by S4.
 
 ## Output state
 
-After successful commit:
+After successful commit, S5 has allocated fresh dense stores and emitted all
+surviving values in semantic order:
 
 | State component           | Required output                                                |
 | ------------------------- | -------------------------------------------------------------- |
-| Stylesheet AST            | Exactly represents the stable live effect and ownership state. |
-| Declaration owners        | Each retained sequence is written to exactly one AST owner.    |
+| Stylesheet flat IR        | Exactly represents the stable live effect and ownership state. |
+| Declaration owners        | Each retained sequence is written to exactly one output owner. |
 | Synthesized rules         | Present at their semantic insertion positions.                 |
 | Planned removals          | Physically absent; owning lists compacted.                     |
 | Retired storage           | No longer externally observable.                               |
 | Merge IR                  | Cleared or dropped.                                            |
 | Revisions and work queues | Cleared or dropped.                                            |
 | `state.reified`           | `true`.                                                        |
-| Codegen dependency        | AST only.                                                      |
+| Codegen dependency        | Committed flat IR only.                                        |
 
 ### Ownership and storage output
 
@@ -114,9 +119,9 @@ before S5:
   right is logical active_output_owner
 
 after S5:
-  right AST rule owns the complete planned declaration sequence
-  left AST shell is removed if planned
-  previous_merged/retired-storage links are cleared
+  right rule header owns one compact planned declaration sequence
+  left syntax node is omitted if planned
+  previous_merged/retired-storage links do not exist
 ```
 
 No merge-only reference may be needed by code generation.
@@ -127,14 +132,17 @@ The conceptual commit order is:
 
 1. materialize declaration representations while all referenced origins remain
    available;
-2. write declarations to active owners;
-3. insert synthesized selectors and rules;
-4. apply post-order removals and compact rule lists;
+2. append declarations to the new tape and record compact ranges;
+3. emit retained and synthesized rules in semantic preorder;
+4. fill parent, direct-sibling, and subtree-end topology while omitting planned
+   removals;
 5. clear merge-only storage and revisions; and
-6. set `reified = true`.
+6. swap in the new stores and set `reified = true`.
 
 An implementation may batch these operations differently if it preserves the
-same dependency order and cannot expose a partially committed AST.
+same dependency order and cannot expose a partially committed representation.
+After the flat migration, code generation requires no AST `Box`, arena-owned
+node, or address-stable reference.
 
 ## Transition examples
 
@@ -367,7 +375,7 @@ histories, or retired storage.
 ## Invariants
 
 - S5 starts only with a complete S4 plan.
-- S5 is the only stage that mutates AST ownership for this feature.
+- S5 is the only stage that commits physical ownership for this feature.
 - Every retained sequence is written exactly once.
 - Planned declaration order, fallback order, prefixes, and importance survive.
 - Synthesized selectors and rules use their already validated plans.

@@ -14,6 +14,11 @@
 
 ## Responsibility
 
+The target physical representation for this stage is specified by
+[Flat source-order AST IR: minification and reification](../flat-ast-ir/minify-and-reification.md).
+The rule-list and segment identities below remain semantic constraints even
+when the tree is stored as a flat syntax tape.
+
 S1 coalesces two live-adjacent style-rule endpoints when they have exactly the
 same effective rule identity and emission identity.
 
@@ -360,16 +365,19 @@ See [S3 candidate invalidation](./s3-selector-partial-factoring.md#candidate-inv
 
 ### Effect on S4
 
-S1 creates a retired storage node and one active output owner. S4 must assign
-the complete sequence to the right owner and plan removal of the retired AST
-shell only after no plan depends on its storage. See
+S1 creates a retired syntax node and one active output owner. Physically
+adjacent declaration ranges may be coalesced immediately. If their physical gap
+contains any live foreign declaration, including one from a nested child, S1
+must retain an ordered multi-range sequence until S5. S4 assigns the complete
+sequence to the right owner and plans removal of the retired shell only after
+no plan depends on its storage. See
 [S4 sequence representation states](./s4-ast-reification-planning.md#sequence-representation-states).
 
 ### Effect on S5
 
-S5 writes the combined declaration representation to the right AST owner,
-removes or compacts the retired left rule according to the S4 plan, and clears
-the merge-only storage link. See
+S5 writes the combined declaration representation to the right output owner,
+removes the retired left rule while compacting the flat tapes, and clears the
+merge-only storage relationship. See
 [S5 ownership commit](./s5-ast-reification-commit.md#ownership-and-storage-output).
 
 ## Invariants
@@ -380,11 +388,15 @@ the merge-only storage link. See
 - The left endpoint has no retained child content.
 - The right endpoint is the active output owner.
 - Declaration blocks and source-order keys retain their original order.
+- A physical range is widened only across adjacent slots or a gap proven to
+  contain tombstones exclusively.
+- Live declarations owned by descendants or neighboring rules are never
+  absorbed into the merged range.
 - History entries are preserved rather than collapsed.
 - The combined aggregate revision changes.
 - Old incident edge work and S3 candidates are removed before reconnection.
 - Only final live edges are classified.
-- No authored declaration or selector AST is rewritten in S1.
+- No authored declaration or selector payload is rewritten in S1.
 - Every successful output has a lossless S4 representation path.
 
 ## Completion condition
