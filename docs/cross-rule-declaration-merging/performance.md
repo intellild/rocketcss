@@ -117,6 +117,58 @@ The minifier should retain only the declaration IR allocated from the scratch
 allocator. It does not need to cache a separate allocator field when no caller
 reads it.
 
+## Custom-property token traversal fusion
+
+Status: implemented for the default combined comment-discard and whitespace
+normalization path.
+
+Custom properties previously traversed their token trees and top-level token
+lists separately:
+
+```text
+Minifier::visit_custom_property
+  set the custom-property value context
+       ↓
+  node.visit_mut_children
+    recursively visit and minify every TokenOrValue
+       ↓
+  CustomProperty::minify
+       ↓
+  Vec<TokenOrValue>::minify
+    rescan the top-level list for adjacency, comment/whitespace compaction,
+    URL normalization, and context-specific value transforms
+```
+
+This guaranteed the required post-order behavior, but read every top-level
+custom-property value at least twice. Custom properties with long token lists
+or deeply nested functions amplify visitor dispatch and cache traffic.
+
+The specialized custom-property value walker now fuses the recursive visitor
+step with the first token-list minify pass. After visiting and minifying an
+entry's children, the same outer scan updates the neighbor state used by
+function-replacement protection and compacts comments and whitespace through a
+write cursor. Transformations that require the finalized whole list still run
+afterward.
+
+The general AST visitor remains the fallback for independent option
+combinations; the optimization does not blindly fold all
+`Vec<TokenOrValue>::minify` operations into the fused scan. Whole-list and
+order-sensitive transforms continue to observe the compacted post-order
+result. The fused path preserves:
+
+- the custom-property value context, including the `--font-family` special
+  case;
+- invalid-function and raw-token skip behavior;
+- nested function, variable, and environment-variable post-order minification;
+- comment and whitespace option combinations and separator identity;
+- arena-backed token identity where the current implementation reuses nodes;
+  and
+- minification statistics.
+
+Benchmark the implementation as an isolated change. The expected benefit
+depends on custom-property token volume; removing one traversal does not avoid
+the later whole-list passes required by property-specific transforms.
+
 ## Benchmarking method
 
 Evaluate performance changes as isolated commits on CodSpeed. Compare matching

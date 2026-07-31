@@ -206,8 +206,33 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         if match_ignore_ascii_case!(name, "--font-family" => true, _ => false) {
             self.cx.value_context.property = context::PropertyContext::Font;
         }
-        node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
+        let fuse_token_compaction = !self
+            .cx
+            .value_context
+            .is_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+            && self.cx.is_enabled(
+                Options::DISCARD_COMMENTS | Options::NORMALIZE_WHITESPACE,
+                OptionsOp::And,
+            );
+        if fuse_token_compaction {
+            node.name.visit_mut(self, cx);
+            let preserve_space_after_comma = self
+                .cx
+                .value_context
+                .is_enabled(context::ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
+            let normalized = token::visit_and_compact_comments_and_whitespace(
+                &mut node.value,
+                preserve_space_after_comma,
+                |value| value.visit_mut(self, cx),
+            );
+            for _ in 0..normalized {
+                self.cx.record_value_normalized();
+            }
+            token::minify_compacted_token_values(&mut node.value, &mut self.cx);
+        } else {
+            node.visit_mut_children(self, cx);
+            node.minify(&mut self.cx);
+        }
         self.cx.value_context = previous;
     }
 

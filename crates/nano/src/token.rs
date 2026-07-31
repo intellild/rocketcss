@@ -143,54 +143,83 @@ impl<'a> Minify for Vec<'a, TokenOrValue<'a>> {
         {
             return;
         }
-        protect_adjacent_function_replacements(self);
         match (
             cx.is_enabled(Options::DISCARD_COMMENTS, OptionsOp::Any),
             cx.is_enabled(Options::NORMALIZE_WHITESPACE, OptionsOp::Any),
         ) {
-            (true, true) => compact_comments_and_whitespace(self, cx),
-            (true, false) => compact_comments(self, cx),
-            (false, true) => compact_whitespace(self, cx),
-            (false, false) => {}
-        }
-        if cx
-            .value_context
-            .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS)
-        {
-            return;
-        }
-        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
-            return;
-        }
-
-        if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) && normalize_url_values(self) {
-            cx.record_value_normalized();
-        }
-
-        match cx.value_context.property {
-            PropertyContext::Animation => minify_animation(self, cx),
-            PropertyContext::Border | PropertyContext::Outline => minify_ordered_border(self, cx),
-            PropertyContext::Box => minify_box_sides(self, cx),
-            PropertyContext::BoxShadow => minify_box_shadow(self, cx),
-            PropertyContext::Columns => minify_ordered_columns(self, cx),
-            PropertyContext::Display => minify_display(self, cx),
-            PropertyContext::FlexFlow => minify_flex_flow(self, cx),
-            PropertyContext::Font => minify_font(self, cx),
-            PropertyContext::FontWeight => minify_font_weight(self, cx),
-            PropertyContext::GridAutoFlow => minify_grid_auto_flow(self, cx),
-            PropertyContext::GridGap => minify_grid_gap(self, cx),
-            PropertyContext::GridLine => minify_grid_line(self, cx),
-            PropertyContext::ListStyle => minify_list_style(self, cx),
-            PropertyContext::Position => {
-                minify_positions(self, cx);
-                minify_repeat_style(self, cx);
+            (true, true) => {
+                let preserve_space_after_comma = cx
+                    .value_context
+                    .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
+                let normalized =
+                    compact_comments_and_whitespace_with(self, preserve_space_after_comma, |_| {});
+                record_value_normalized(cx, normalized);
             }
-            PropertyContext::Repeat => minify_repeat_style(self, cx),
-            PropertyContext::TimingFunction => {}
-            PropertyContext::Transform => {}
-            PropertyContext::Transition => minify_transition(self, cx),
-            PropertyContext::Generic => {}
+            (true, false) => {
+                protect_adjacent_function_replacements(self);
+                compact_comments(self, cx);
+            }
+            (false, true) => {
+                protect_adjacent_function_replacements(self);
+                compact_whitespace(self, cx);
+            }
+            (false, false) => protect_adjacent_function_replacements(self),
         }
+        minify_compacted_token_values(self, cx);
+    }
+}
+
+pub(crate) fn visit_and_compact_comments_and_whitespace<'a>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    preserve_space_after_comma: bool,
+    visit: impl FnMut(&mut TokenOrValue<'a>),
+) -> usize {
+    compact_comments_and_whitespace_with(values, preserve_space_after_comma, visit)
+}
+
+pub(crate) fn minify_compacted_token_values<'a, 'cx>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    cx: &mut MinifyContext<'cx>,
+) where
+    'a: 'cx,
+{
+    if cx
+        .value_context
+        .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS)
+    {
+        return;
+    }
+    if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None) {
+        return;
+    }
+
+    if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) && normalize_url_values(values) {
+        cx.record_value_normalized();
+    }
+
+    match cx.value_context.property {
+        PropertyContext::Animation => minify_animation(values, cx),
+        PropertyContext::Border | PropertyContext::Outline => minify_ordered_border(values, cx),
+        PropertyContext::Box => minify_box_sides(values, cx),
+        PropertyContext::BoxShadow => minify_box_shadow(values, cx),
+        PropertyContext::Columns => minify_ordered_columns(values, cx),
+        PropertyContext::Display => minify_display(values, cx),
+        PropertyContext::FlexFlow => minify_flex_flow(values, cx),
+        PropertyContext::Font => minify_font(values, cx),
+        PropertyContext::FontWeight => minify_font_weight(values, cx),
+        PropertyContext::GridAutoFlow => minify_grid_auto_flow(values, cx),
+        PropertyContext::GridGap => minify_grid_gap(values, cx),
+        PropertyContext::GridLine => minify_grid_line(values, cx),
+        PropertyContext::ListStyle => minify_list_style(values, cx),
+        PropertyContext::Position => {
+            minify_positions(values, cx);
+            minify_repeat_style(values, cx);
+        }
+        PropertyContext::Repeat => minify_repeat_style(values, cx),
+        PropertyContext::TimingFunction => {}
+        PropertyContext::Transform => {}
+        PropertyContext::Transition => minify_transition(values, cx),
+        PropertyContext::Generic => {}
     }
 }
 
@@ -538,14 +567,25 @@ fn is_slash(value: &TokenOrValue<'_>) -> bool {
     matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::Delim("/")))
 }
 
-fn compact_comments_and_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
+fn compact_comments_and_whitespace_with<'a>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    preserve_space_after_comma: bool,
+    mut visit: impl FnMut(&mut TokenOrValue<'a>),
+) -> usize {
     let len = values.len();
-    let preserve_space_after_comma = cx
-        .value_context
-        .is_enabled(ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
     let mut read = 0;
     let mut write = 0;
+    let mut visit_cursor = 0;
+    let mut previous_is_unsafe_neighbor = false;
+    let mut normalized = 0;
     while read < len {
+        visit_token_values_through(
+            values,
+            read,
+            &mut visit_cursor,
+            &mut previous_is_unsafe_neighbor,
+            &mut visit,
+        );
         if !is_whitespace_or_comment(&values[read]) {
             retain_compacted_value(values, read, &mut write);
             read += 1;
@@ -563,6 +603,15 @@ fn compact_comments_and_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &
                 comment_count += 1;
             }
             read += 1;
+            if read < len {
+                visit_token_values_through(
+                    values,
+                    read,
+                    &mut visit_cursor,
+                    &mut previous_is_unsafe_neighbor,
+                    &mut visit,
+                );
+            }
         }
 
         let has_neighbors = write > 0 && read < len;
@@ -580,7 +629,7 @@ fn compact_comments_and_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &
                 )
                 || (preserve_space_after_comma && is_comma(&values[write - 1])));
 
-        record_value_normalized(cx, comment_count);
+        normalized += comment_count;
 
         let whitespace_changed = if whitespace_count == 0 {
             false
@@ -591,7 +640,7 @@ fn compact_comments_and_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &
             true
         };
         if whitespace_changed {
-            cx.record_value_normalized();
+            normalized += 1;
         }
 
         if keep_space {
@@ -601,6 +650,42 @@ fn compact_comments_and_whitespace(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &
         }
     }
     values.truncate(write);
+    normalized
+}
+
+#[inline]
+fn visit_token_values_through<'a>(
+    values: &mut Vec<'a, TokenOrValue<'a>>,
+    index: usize,
+    visit_cursor: &mut usize,
+    previous_is_unsafe_neighbor: &mut bool,
+    visit: &mut impl FnMut(&mut TokenOrValue<'a>),
+) {
+    while *visit_cursor <= index {
+        let value = &mut values[*visit_cursor];
+        visit(value);
+        if *previous_is_unsafe_neighbor {
+            protect_function_replacement(value);
+        }
+        *previous_is_unsafe_neighbor = !matches!(
+            value,
+            TokenOrValue::Token(token)
+                if matches!(**token, Token::WhiteSpace(_) | Token::Comma)
+        );
+        *visit_cursor += 1;
+    }
+}
+
+fn protect_function_replacement(value: &mut TokenOrValue<'_>) {
+    let TokenOrValue::Function(function) = value else {
+        return;
+    };
+    if matches!(
+        function.replacement,
+        Some(rocketcss_ast::FunctionReplacement::Rgb { .. })
+    ) {
+        function.replacement = None;
+    }
 }
 
 fn compact_comments(values: &mut Vec<'_, TokenOrValue<'_>>, cx: &mut MinifyContext) {
