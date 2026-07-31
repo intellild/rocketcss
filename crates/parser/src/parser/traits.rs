@@ -1,6 +1,6 @@
 use std::fmt;
 
-use rocketcss_allocator::Allocator;
+use rocketcss_common::Allocator;
 
 use super::ParseError;
 use crate::{Compiler, SourceLocation, TokenAndSpan};

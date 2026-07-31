@@ -3,14 +3,17 @@ mod declaration_override;
 mod live_sibling_graph;
 mod same_selector;
 
-use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{CssRule, DeclarationBlockStore, StyleSheet};
+use rocketcss_common::define_dense_id;
+use rocketcss_common::vec::Vec;
 
 use self::declaration_override::DeclarationOverrideCommitPass;
 use self::live_sibling_graph::LiveSiblingGraph;
 use crate::rules::DeclarationBlockMinifier;
 use crate::utils::walk_declaration_blocks;
 use crate::{MinifyContext, Options, OptionsOp};
+
+define_dense_id!(pub(super) struct RuleId);
 
 pub(crate) fn merge_cross_rule_declarations<'ast, 'scratch>(
     stylesheet: &mut StyleSheet<'ast>,

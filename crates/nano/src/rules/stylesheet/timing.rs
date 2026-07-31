@@ -23,7 +23,7 @@ pub(super) fn minify_cubic_bezier(arguments: &[TokenOrValue<'_>]) -> Option<&'st
 }
 
 pub(super) fn minify_steps(
-    arguments: &mut rocketcss_allocator::vec::Vec<'_, TokenOrValue<'_>>,
+    arguments: &mut rocketcss_common::vec::Vec<'_, TokenOrValue<'_>>,
 ) -> Option<&'static str> {
     let [count, comma, position] = arguments.as_slice() else {
         return None;

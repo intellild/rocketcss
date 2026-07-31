@@ -1,16 +1,21 @@
-use std::num::NonZeroU32;
-
 use rocketcss_ast::{DeclarationBlockId, DeclarationBlockStore};
+use rocketcss_common::{DenseStore, define_dense_id};
 use rustc_hash::FxHashSet;
 
 use crate::MinifyContext;
 use crate::rules::DeclarationBlockMinifier;
-use crate::utils::DeclarationBlockEntry;
+use crate::utils::DeclarationBlockEntries;
+
+define_dense_id!(struct OverrideEntryId);
+
+struct OverrideEntry {
+    block: DeclarationBlockId,
+    next: Option<OverrideEntryId>,
+}
 
 pub(super) struct DeclarationOverrideCommitPass {
-    blocks: std::vec::Vec<DeclarationBlockId>,
-    next_in_history: std::vec::Vec<Option<NonZeroU32>>,
-    history_heads: std::vec::Vec<u32>,
+    entries: DenseStore<OverrideEntryId, OverrideEntry>,
+    history_heads: std::vec::Vec<OverrideEntryId>,
 }
 
 #[derive(Debug, Default)]
@@ -19,7 +24,7 @@ pub(super) struct DeclarationOverrideCommitResult {
 }
 
 impl DeclarationOverrideCommitPass {
-    pub(super) fn discover(declaration_blocks: &[DeclarationBlockEntry]) -> Option<Self> {
+    pub(super) fn discover(declaration_blocks: &DeclarationBlockEntries) -> Option<Self> {
         let history_count = declaration_blocks
             .iter()
             .filter(|entry| entry.starts_declaration_history())
@@ -28,35 +33,30 @@ impl DeclarationOverrideCommitPass {
             return None;
         }
 
-        let mut blocks = std::vec::Vec::new();
-        let mut next_in_history = std::vec::Vec::new();
+        let mut entries = DenseStore::new();
         let mut history_heads = std::vec::Vec::with_capacity(history_count);
-        for (source_head, entry) in declaration_blocks.iter().enumerate() {
+        for (source_head, entry) in declaration_blocks.iter_enumerated() {
             if !entry.starts_declaration_history() {
                 continue;
             }
 
-            history_heads.push(
-                u32::try_from(blocks.len()).expect("declaration history count exceeds u32::MAX"),
-            );
+            history_heads.push(entries.next_id());
             let mut current = Some(source_head);
-            while let Some(source_index) = current {
-                let entry = &declaration_blocks[source_index];
-                let output_index = blocks.len();
-                blocks.push(entry.declarations);
-                next_in_history.push(None);
+            while let Some(source_id) = current {
+                let entry = &declaration_blocks[source_id];
+                let output_id = entries.push(OverrideEntry {
+                    block: entry.declarations,
+                    next: None,
+                });
                 current = entry.next_declaration_history_entry();
                 if current.is_some() {
-                    let next_output = u32::try_from(blocks.len())
-                        .expect("declaration history count exceeds u32::MAX");
-                    next_in_history[output_index] = Some(encode_history_link(next_output));
+                    entries[output_id].next = Some(entries.next_id());
                 }
             }
         }
 
         Some(Self {
-            blocks,
-            next_in_history,
+            entries,
             history_heads,
         })
     }
@@ -77,11 +77,11 @@ impl DeclarationOverrideCommitPass {
             expanded_history.clear();
             seen.clear();
             let mut current = Some(history_head);
-            while let Some(block) = current {
-                let block = usize::try_from(block).expect("declaration block index fits usize");
-                let declarations = self.blocks[block];
+            while let Some(entry_id) = current {
+                let entry = &self.entries[entry_id];
+                let declarations = entry.block;
                 append_declaration_chain(declarations, store, &mut seen, &mut expanded_history);
-                current = self.next_in_history[block].map(|next| next.get() - 1);
+                current = entry.next;
             }
 
             minifier.deduplicate_exact_sequence(&expanded_history, store, cx, |declarations| {
@@ -90,15 +90,6 @@ impl DeclarationOverrideCommitPass {
         }
         DeclarationOverrideCommitResult { newly_empty }
     }
-}
-
-fn encode_history_link(index: u32) -> NonZeroU32 {
-    NonZeroU32::new(
-        index
-            .checked_add(1)
-            .expect("declaration history count exceeds u32::MAX"),
-    )
-    .expect("encoded declaration history index is non-zero")
 }
 
 fn append_declaration_chain(
@@ -118,8 +109,8 @@ fn append_declaration_chain(
 
 #[cfg(test)]
 mod tests {
-    use rocketcss_allocator::Allocator;
     use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
+    use rocketcss_common::Allocator;
     use rocketcss_parser::{ParserOptions, parse};
 
     use super::*;
@@ -162,11 +153,9 @@ mod tests {
             assert_eq!(pass.history_heads.len(), 1);
             let mut history_len = 0;
             let mut current = Some(pass.history_heads[0]);
-            while let Some(block) = current {
+            while let Some(entry_id) = current {
                 history_len += 1;
-                current = pass.next_in_history
-                    [usize::try_from(block).expect("declaration block index fits usize")]
-                .map(|next| next.get() - 1);
+                current = pass.entries[entry_id].next;
             }
             assert_eq!(history_len, 3);
         });

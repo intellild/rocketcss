@@ -9,9 +9,9 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::time::Duration;
 
 use divan::{Bencher, black_box, counter::BytesCount};
-use rocketcss_allocator::{Allocator, GhostToken};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
+use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_parser::prelude::Compilation;
 
 fn main() {
@@ -110,7 +110,7 @@ mod minify {
 
     #[divan::bench(args = BENCH_CASES)]
     fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
-        rocketcss_allocator::GhostToken::scope(|token| {
+        rocketcss_common::GhostToken::scope(|token| {
             let token = RefCell::new(token);
             bencher
                 .counter(BytesCount::of_str(case.source))
@@ -144,7 +144,7 @@ mod codegen {
 
     #[divan::bench(args = BENCH_CASES)]
     fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
-        rocketcss_allocator::GhostToken::scope(|token| {
+        rocketcss_common::GhostToken::scope(|token| {
             let token = RefCell::new(token);
             bencher
                 .counter(BytesCount::of_str(case.source))

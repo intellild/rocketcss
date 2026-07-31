@@ -1,7 +1,7 @@
-//! Common arena allocator types.
+//! Common compiler infrastructure.
 
 pub use crate::{
-    Allocator, Atom, StringPool,
+    Allocator, Atom, DenseId, DenseIdGenerator, DenseMap, DenseStore, StringPool,
     bit_vec::BitVec,
     boxed::Box,
     ghost_cell::{GhostBox, GhostCell, GhostToken},

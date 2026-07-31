@@ -1,5 +1,5 @@
 use crate::Visit;
-use rocketcss_allocator::boxed::Box;
+use rocketcss_common::boxed::Box;
 
 pub const DUMMY_SP: Span = Span { start: 0, end: 0 };
 

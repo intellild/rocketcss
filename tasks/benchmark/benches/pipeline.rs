@@ -2,9 +2,9 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use divan::{Bencher, black_box, counter::BytesCount};
-use rocketcss_allocator::{Allocator, GhostToken};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
+use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_parser::prelude::Compilation;
 use std::cell::RefCell;
 
@@ -72,7 +72,7 @@ fn parse(bencher: Bencher<'_, '_>, case: BenchCase) {
 
 #[divan::bench(args = BENCH_CASES)]
 fn minify(bencher: Bencher<'_, '_>, case: BenchCase) {
-    rocketcss_allocator::GhostToken::scope(|token| {
+    rocketcss_common::GhostToken::scope(|token| {
         let token = RefCell::new(token);
         bencher
             .counter(processed_bytes(case))
@@ -97,7 +97,7 @@ fn minify(bencher: Bencher<'_, '_>, case: BenchCase) {
 
 #[divan::bench(args = BENCH_CASES)]
 fn codegen(bencher: Bencher<'_, '_>, case: BenchCase) {
-    rocketcss_allocator::GhostToken::scope(|token| {
+    rocketcss_common::GhostToken::scope(|token| {
         let token = RefCell::new(token);
         bencher
             .counter(processed_bytes(case))

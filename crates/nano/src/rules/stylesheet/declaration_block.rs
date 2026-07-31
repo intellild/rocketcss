@@ -1,13 +1,13 @@
 use crate::{Minify, MinifyContext, Options, OptionsOp};
-use rocketcss_allocator::{
-    GhostToken,
-    prelude::{AdaptiveHashMap, Allocator, Vec},
-};
 use rocketcss_ast::{
     CSSWideOr, Columns, CssColor, Declaration, DeclarationBlock, DeclarationBlockId,
     DeclarationBlockStore, EqIgnoringTombstones, KnownFunction, LengthValue, Margin, Padding,
     PropertyId, Token, TokenOrValue, UnparsedProperty, UnparsedPropertyReason, VendorPrefix, Visit,
     VisitContext, Visitor, match_ignore_ascii_case,
+};
+use rocketcss_common::{
+    GhostToken,
+    prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 
 fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
@@ -1489,7 +1489,7 @@ mod tests {
         let unresolved_color = || {
             CssColor::Function(allocator.boxed(Function::new(
                 "color-mix",
-                rocketcss_allocator::vec::Vec::new_in(&allocator),
+                rocketcss_common::vec::Vec::new_in(&allocator),
             )))
         };
         let known_color = || CssColor::Known(KnownColor::Red);

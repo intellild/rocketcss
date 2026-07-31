@@ -14,7 +14,7 @@ formatting is selected separately with
 `rocketcss_codegen::PrinterOptions { minify: true }`.
 
 ```rust
-use rocketcss_allocator::Allocator;
+use rocketcss_common::Allocator;
 use rocketcss_codegen::{PrinterOptions, ToCss};
 use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};

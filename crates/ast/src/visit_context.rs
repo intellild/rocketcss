@@ -1,5 +1,5 @@
 use crate::{DeclarationBlockId, DeclarationBlockStore};
-use rocketcss_allocator::{GhostCell, GhostToken, Ref};
+use rocketcss_common::{GhostCell, GhostToken, Ref};
 use std::pin::Pin;
 
 /// Shared GhostCell access carried through immutable AST traversal.

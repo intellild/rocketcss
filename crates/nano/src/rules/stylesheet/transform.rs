@@ -117,7 +117,7 @@ fn is_empty_variable_function(value: &TokenOrValue<'_>) -> bool {
 }
 
 fn compact_arguments(
-    arguments: &mut rocketcss_allocator::vec::Vec<'_, TokenOrValue<'_>>,
+    arguments: &mut rocketcss_common::vec::Vec<'_, TokenOrValue<'_>>,
     indices: &[usize],
 ) {
     for (target, &source) in indices.iter().enumerate() {

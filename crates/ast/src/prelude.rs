@@ -12,4 +12,4 @@ pub use crate::token::*;
 pub use crate::tombstone::*;
 pub use crate::values::*;
 pub use crate::{AstType, CssKeyword, Visit, VisitMut, Visitor, VisitorMut};
-pub use rocketcss_allocator::prelude::*;
+pub use rocketcss_common::prelude::*;

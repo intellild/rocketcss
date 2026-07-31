@@ -169,6 +169,7 @@ fn s2_requires_exactly_equal_conditional_contexts() {
 
         let blocks = crate::utils::walk_declaration_blocks(&stylesheet);
         assert_eq!(blocks.len(), 2);
+        let blocks = blocks.iter().collect::<std::vec::Vec<_>>();
         assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
         assert!(
             !stylesheet

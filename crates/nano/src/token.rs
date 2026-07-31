@@ -1,7 +1,7 @@
-use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{
     FontFamily, KnownFunction, Token, TokenOrValue, Unit, match_ignore_ascii_case,
 };
+use rocketcss_common::vec::Vec;
 
 use crate::{
     Minify, MinifyContext, Options, OptionsOp,

@@ -1213,21 +1213,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
-name = "rocketcss_allocator"
-version = "0.1.0"
-dependencies = [
- "allocator-api2",
- "bumpalo",
- "hashbrown",
- "rustc-hash",
-]
-
-[[package]]
 name = "rocketcss_ast"
 version = "0.1.0"
 dependencies = [
  "bitflags",
- "rocketcss_allocator",
+ "rocketcss_common",
  "rocketcss_macros",
 ]
 
@@ -1235,8 +1225,8 @@ dependencies = [
 name = "rocketcss_ast_size"
 version = "0.0.0"
 dependencies = [
- "rocketcss_allocator",
  "rocketcss_ast",
+ "rocketcss_common",
 ]
 
 [[package]]
@@ -1259,8 +1249,8 @@ dependencies = [
  "hashbrown",
  "lightningcss",
  "mimalloc",
- "rocketcss_allocator",
  "rocketcss_codegen",
+ "rocketcss_common",
  "rocketcss_nano",
  "rocketcss_parser",
  "rustc-hash",
@@ -1275,11 +1265,21 @@ dependencies = [
  "cssparser",
  "itoa",
  "lightningcss",
- "rocketcss_allocator",
  "rocketcss_ast",
+ "rocketcss_common",
  "rocketcss_parser",
  "serde_json",
  "zmij",
+]
+
+[[package]]
+name = "rocketcss_common"
+version = "0.1.0"
+dependencies = [
+ "allocator-api2",
+ "bumpalo",
+ "hashbrown",
+ "rustc-hash",
 ]
 
 [[package]]
@@ -1297,9 +1297,9 @@ name = "rocketcss_nano"
 version = "0.1.0"
 dependencies = [
  "bitflags",
- "rocketcss_allocator",
  "rocketcss_ast",
  "rocketcss_codegen",
+ "rocketcss_common",
  "rocketcss_parser",
  "rocketcss_visitor",
  "rustc-hash",
@@ -1311,8 +1311,8 @@ dependencies = [
 name = "rocketcss_parser"
 version = "0.1.0"
 dependencies = [
- "rocketcss_allocator",
  "rocketcss_ast",
+ "rocketcss_common",
  "serde_json",
 ]
 
@@ -1320,9 +1320,9 @@ dependencies = [
 name = "rocketcss_tests"
 version = "0.0.0"
 dependencies = [
- "rocketcss_allocator",
  "rocketcss_ast",
  "rocketcss_codegen",
+ "rocketcss_common",
  "rocketcss_nano",
  "rocketcss_parser",
  "rocketcss_visitor",
@@ -1333,8 +1333,8 @@ dependencies = [
 name = "rocketcss_visitor"
 version = "0.1.0"
 dependencies = [
- "rocketcss_allocator",
  "rocketcss_ast",
+ "rocketcss_common",
  "rocketcss_parser",
 ]
 

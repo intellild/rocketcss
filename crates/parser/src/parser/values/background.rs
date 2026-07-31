@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 fn zero_position<'i, S>(
     allocator: &'i Allocator,
-) -> rocketcss_allocator::boxed::Box<'i, PositionComponent<'i, S>> {
+) -> rocketcss_common::boxed::Box<'i, PositionComponent<'i, S>> {
     allocator.boxed(PositionComponent::Length(
         allocator.boxed(DimensionPercentage::Percentage(0.0)),
     ))

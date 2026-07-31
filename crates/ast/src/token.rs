@@ -1,6 +1,6 @@
 use super::*;
 
-use rocketcss_allocator::boxed::Box;
+use rocketcss_common::boxed::Box;
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, PartialEq, Visit)]

@@ -383,7 +383,7 @@ pub(super) fn validate_moz_document_prelude<'i>(
 
 type ContainerPrelude<'i> = (
     Option<&'i str>,
-    Option<rocketcss_allocator::boxed::Box<'i, rocketcss_ast::ContainerCondition<'i>>>,
+    Option<rocketcss_common::boxed::Box<'i, rocketcss_ast::ContainerCondition<'i>>>,
 );
 
 pub(super) fn parse_container_prelude<'i>(
@@ -410,8 +410,8 @@ pub(super) fn parse_container_prelude<'i>(
 }
 
 type ScopePrelude<'i> = (
-    Option<rocketcss_allocator::boxed::Box<'i, SelectorList<'i>>>,
-    Option<rocketcss_allocator::boxed::Box<'i, SelectorList<'i>>>,
+    Option<rocketcss_common::boxed::Box<'i, SelectorList<'i>>>,
+    Option<rocketcss_common::boxed::Box<'i, SelectorList<'i>>>,
 );
 
 pub(super) fn parse_scope_prelude<'i>(

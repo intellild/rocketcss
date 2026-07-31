@@ -12,8 +12,8 @@ mod values;
 
 pub mod prelude;
 
-use rocketcss_allocator::{Allocator, GhostToken};
 use rocketcss_ast::*;
+use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut};
 
 pub use context::{MinifyContext, MinifyStats};

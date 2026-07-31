@@ -956,22 +956,6 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_declaration_block_id(
-        &mut self,
-        node: &DeclarationBlockId,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_declaration_block_store(
-        &mut self,
-        node: &DeclarationBlockStore<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_media_rule(&mut self, node: &MediaRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
@@ -2342,6 +2326,24 @@ pub trait Visitor<'a, 'ghost> {
         visitor.leave_node(AstType::ScrollStateFeature);
     }
     #[inline]
+    fn visit_declaration_block_store(
+        &mut self,
+        node: &DeclarationBlockStore<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        self.visit_declaration_block_store_children(node, cx);
+    }
+    ///Continues traversal of [`DeclarationBlockStore`] without redispatching its visitor callback.
+    fn visit_declaration_block_store_children(
+        &mut self,
+        node: &DeclarationBlockStore<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        let visitor = self;
+        visitor.enter_node(AstType::DeclarationBlockStore);
+        visitor.leave_node(AstType::DeclarationBlockStore);
+    }
+    #[inline]
     fn visit_selector_list(&mut self, node: &SelectorList<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         self.visit_selector_list_children(node, cx);
     }
@@ -2473,7 +2475,7 @@ macro_rules! impl_leaf_visit {
 }
 impl_leaf_visit!(bool, char, f32, i32, u8, u16, u32, usize);
 impl<'a, 'ghost, T: ?Sized + Visit<'a, 'ghost>> Visit<'a, 'ghost>
-    for rocketcss_allocator::boxed::Box<'a, T>
+    for rocketcss_common::boxed::Box<'a, T>
 {
     fn visit<VisitorT: ?Sized + Visitor<'a, 'ghost>>(
         &self,
@@ -2484,7 +2486,7 @@ impl<'a, 'ghost, T: ?Sized + Visit<'a, 'ghost>> Visit<'a, 'ghost>
     }
 }
 impl<'a, 'ghost, T: Visit<'a, 'ghost> + Unpin> Visit<'a, 'ghost>
-    for rocketcss_allocator::vec::Vec<'a, T>
+    for rocketcss_common::vec::Vec<'a, T>
 {
     fn visit<VisitorT: ?Sized + Visitor<'a, 'ghost>>(
         &self,
