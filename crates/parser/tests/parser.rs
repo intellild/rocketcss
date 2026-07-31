@@ -1527,6 +1527,43 @@ fn css_wide_probe_preserves_typed_and_lossless_declaration_paths() {
 }
 
 #[test]
+fn css_wide_prescan_handles_escapes_and_an_omitted_final_semicolon() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            r#"a {
+                color: \69nitial;
+                min-width: revert-layer
+            }"#,
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let CssRule::Style(style) = &sheet.rules[0] else {
+            panic!("expected style rule")
+        };
+        let declarations = style
+            .as_ref()
+            .get_ref()
+            .declarations
+            .as_ref()
+            .borrow(&token);
+
+        assert!(matches!(
+            &declarations.declarations[0],
+            Declaration::CSSWide(property_id, CSSWideKeyword::Initial)
+                if matches!(**property_id, PropertyId::Color)
+        ));
+        assert!(matches!(
+            &declarations.declarations[1],
+            Declaration::CSSWide(property_id, CSSWideKeyword::RevertLayer)
+                if matches!(**property_id, PropertyId::MinWidth)
+        ));
+    })
+}
+
+#[test]
 #[ignore = "the overlay property does not have typed metadata yet"]
 fn recognizes_overlay_as_a_known_property() {
     let allocator = Allocator::new();

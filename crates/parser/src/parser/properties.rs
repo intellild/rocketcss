@@ -11,14 +11,42 @@ pub(super) fn parse_declaration<'i, 't>(
     name: &'i str,
     depth: usize,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
+    parse_declaration_with_css_wide_hint(input, allocator, name, depth, CssWideValueHint::Unscanned)
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum CssWideValueHint<'i> {
+    Unscanned,
+    NotCssWide,
+    Candidate(&'i str),
+}
+
+pub(super) fn parse_declaration_with_css_wide_hint<'i, 't>(
+    input: &mut Parser<'i, 't>,
+    allocator: &'i Allocator,
+    name: &'i str,
+    depth: usize,
+    css_wide_hint: CssWideValueHint<'i>,
+) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
     let property_id = PropertyId::from_name(name);
     let mut typed_grammar_supported = false;
 
     if !name.starts_with("--") {
         let start = input.state();
-        if property_id.known_id().is_some()
-            && let Ok(keyword) = input.try_parse(parse_css_wide_keyword)
-        {
+        let wide_keyword = match (property_id.known_id(), css_wide_hint) {
+            (Some(_), CssWideValueHint::Unscanned) => input.try_parse(parse_css_wide_keyword).ok(),
+            (Some(_), CssWideValueHint::Candidate(ident)) => {
+                if let Some(keyword) = css_wide_keyword(ident) {
+                    let parsed_ident = input.expect_ident()?;
+                    debug_assert_eq!(parsed_ident, ident);
+                    Some(keyword)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(keyword) = wide_keyword {
             if let Some(important) = parse_declaration_end(input)
                 && !input.saw_comments_since(&start)
             {
