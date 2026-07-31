@@ -229,12 +229,12 @@ pub(super) fn parse_keyframes_name<'i>(
     Ok(name)
 }
 
-pub(super) fn parse_keyframe_list<'i, 'ghost>(
+pub(super) fn parse_keyframe_list<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, Keyframe<'i, 'ghost>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, Keyframe<'i>>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut keyframes = allocator.vec();
     loop {
@@ -259,7 +259,7 @@ pub(super) fn parse_keyframe_list<'i, 'ghost>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         keyframes.push(Keyframe {
-            declarations: allocator.alloc_ghost(declarations),
+            declarations: input.alloc_declaration_block(declarations),
             selectors,
         });
     }
@@ -295,12 +295,12 @@ pub(super) fn parse_keyframe_selector<'i>(
     }
 }
 
-pub(super) fn parse_declaration_block<'i, 'ghost>(
+pub(super) fn parse_declaration_block<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<DeclarationBlock<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
+) -> Result<DeclarationBlock<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut declarations = DeclarationBlock::new(allocator);
 
@@ -484,18 +484,12 @@ pub(super) fn parse_page_selectors<'i>(
     Ok(selectors)
 }
 
-pub(super) fn parse_page_body<'i, 'ghost>(
+pub(super) fn parse_page_body<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<
-    (
-        DeclarationBlock<'i, 'ghost>,
-        Vec<'i, PageMarginRule<'i, 'ghost>>,
-    ),
-    ParseError<'i, ParserError<'i>>,
-> {
+) -> Result<(DeclarationBlock<'i>, Vec<'i, PageMarginRule>), ParseError<'i, ParserError<'i>>> {
     let mut declarations = DeclarationBlock::new(allocator);
     let mut rules = allocator.vec();
 
@@ -530,7 +524,7 @@ pub(super) fn parse_page_body<'i, 'ghost>(
                     parse_declaration_block(input, allocator, options, depth + 1)
                 })?;
                 Ok(Some(PageMarginRule {
-                    declarations: allocator.alloc_ghost(declarations),
+                    declarations: input.alloc_declaration_block(declarations),
                     span: span_from(&start, input.position()),
                     margin_box,
                 }))

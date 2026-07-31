@@ -1,22 +1,183 @@
 use crate::*;
 
 use bitflags::bitflags;
-use std::{marker::PhantomPinned, pin::Pin};
+use std::{marker::PhantomPinned, num::NonZeroU32, pin::Pin};
 
 #[derive(Debug, Default, PartialEq, Visit)]
 pub struct DefaultAtRule;
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct StyleSheet<'a, 'ghost> {
+pub struct StyleSheet<'a> {
     pub license_comments: Vec<'a, &'a str>,
-    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct MediaRule<'a, 'ghost> {
+pub struct Compilation<'a> {
+    stylesheet: StyleSheet<'a>,
+    #[visit(skip)]
+    declaration_blocks: DeclarationBlockStore<'a>,
+}
+
+impl<'a> Compilation<'a> {
+    #[inline]
+    pub fn new(stylesheet: StyleSheet<'a>, declaration_blocks: DeclarationBlockStore<'a>) -> Self {
+        Self {
+            stylesheet,
+            declaration_blocks,
+        }
+    }
+
+    #[inline]
+    pub fn parts(&self) -> (&StyleSheet<'a>, &DeclarationBlockStore<'a>) {
+        (&self.stylesheet, &self.declaration_blocks)
+    }
+
+    #[inline]
+    pub fn parts_mut(&mut self) -> (&mut StyleSheet<'a>, &mut DeclarationBlockStore<'a>) {
+        (&mut self.stylesheet, &mut self.declaration_blocks)
+    }
+
+    #[inline]
+    pub fn declaration_block(&self, id: DeclarationBlockId) -> &DeclarationBlock<'a> {
+        self.declaration_blocks.get(id)
+    }
+
+    #[inline]
+    pub fn declaration_block_mut(&mut self, id: DeclarationBlockId) -> &mut DeclarationBlock<'a> {
+        self.declaration_blocks.get_mut(id)
+    }
+
+    pub fn visit<'ghost, V: ?Sized + Visitor<'a, 'ghost>>(
+        &self,
+        visitor: &mut V,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        let cx = VisitContext::new_with_declaration_blocks(cx.token(), &self.declaration_blocks);
+        Visit::visit(&self.stylesheet, visitor, &cx);
+    }
+
+    pub fn visit_mut<'ghost, V: ?Sized + VisitorMut<'a, 'ghost>>(
+        &mut self,
+        visitor: &mut V,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        let (stylesheet, declaration_blocks) = self.parts_mut();
+        cx.with_declaration_blocks(declaration_blocks, |cx| {
+            <StyleSheet<'a> as VisitMut<'a, 'ghost>>::visit_mut(stylesheet, visitor, cx);
+        });
+    }
+}
+
+impl<'a> std::ops::Deref for Compilation<'a> {
+    type Target = StyleSheet<'a>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.stylesheet
+    }
+}
+
+impl std::ops::DerefMut for Compilation<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.stylesheet
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Visit)]
+pub struct DeclarationBlockId(#[visit(skip)] NonZeroU32);
+
+impl DeclarationBlockId {
+    #[inline]
+    pub const fn index(self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Visit)]
+pub struct DeclarationBlockStore<'a> {
+    #[visit(skip)]
+    blocks: std::vec::Vec<DeclarationBlock<'a>>,
+}
+
+impl<'a> DeclarationBlockStore<'a> {
+    #[inline]
+    pub fn alloc(&mut self, block: DeclarationBlock<'a>) -> DeclarationBlockId {
+        let encoded = u32::try_from(self.blocks.len())
+            .expect("declaration block count exceeds u32::MAX")
+            .checked_add(1)
+            .expect("declaration block count exceeds u32::MAX");
+        self.blocks.push(block);
+        DeclarationBlockId(NonZeroU32::new(encoded).expect("encoded block ID is non-zero"))
+    }
+
+    #[inline]
+    pub fn get(&self, id: DeclarationBlockId) -> &DeclarationBlock<'a> {
+        &self.blocks[id.index()]
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, id: DeclarationBlockId) -> &mut DeclarationBlock<'a> {
+        &mut self.blocks[id.index()]
+    }
+
+    pub fn get_two_mut(
+        &mut self,
+        left: DeclarationBlockId,
+        right: DeclarationBlockId,
+    ) -> Option<(&mut DeclarationBlock<'a>, &mut DeclarationBlock<'a>)> {
+        if left == right {
+            return None;
+        }
+        let (low, high, reversed) = if left < right {
+            (left.index(), right.index(), false)
+        } else {
+            (right.index(), left.index(), true)
+        };
+        let (before_high, high_and_after) = self.blocks.split_at_mut(high);
+        let low = before_high.get_mut(low)?;
+        let high = high_and_after.first_mut()?;
+        if reversed {
+            Some((high, low))
+        } else {
+            Some((low, high))
+        }
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.blocks.is_empty()
+    }
+}
+
+pub fn visit_declaration_block_id<'a, 'ghost, V: ?Sized + Visitor<'a, 'ghost>>(
+    id: &DeclarationBlockId,
+    visitor: &mut V,
+    cx: &VisitContext<'_, 'a, 'ghost>,
+) {
+    cx.with_declaration_block(*id, |block, cx| block.visit(visitor, cx));
+}
+
+pub fn visit_declaration_block_id_mut<'a, 'ghost, V: ?Sized + VisitorMut<'a, 'ghost>>(
+    id: &mut DeclarationBlockId,
+    visitor: &mut V,
+    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+) {
+    cx.with_declaration_block(*id, |block, cx| block.visit_mut(visitor, cx));
+}
+
+#[derive(Debug, PartialEq, Visit)]
+pub struct MediaRule<'a> {
     pub span: Span,
     pub query: MediaList<'a>,
-    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -414,17 +575,21 @@ pub struct ImportRule<'a> {
 
 #[derive(Debug, Visit)]
 #[visit(pinned)]
-pub struct StyleRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
+pub struct StyleRule<'a> {
+    #[visit(
+        with = visit_declaration_block_id,
+        with_mut = visit_declaration_block_id_mut
+    )]
+    pub declarations: DeclarationBlockId,
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
+    pub rules: Vec<'a, CssRule<'a>>,
     pub selectors: SelectorList<'a>,
     pub vendor_prefix: VendorPrefix,
     #[visit(skip)]
     _pin: PhantomPinned,
 }
 
-impl PartialEq for StyleRule<'_, '_> {
+impl PartialEq for StyleRule<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.declarations == other.declarations
             && self.span == other.span
@@ -434,12 +599,12 @@ impl PartialEq for StyleRule<'_, '_> {
     }
 }
 
-impl<'a, 'ghost> StyleRule<'a, 'ghost> {
+impl<'a> StyleRule<'a> {
     #[inline]
     pub fn new(
-        declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
+        declarations: DeclarationBlockId,
         span: Span,
-        rules: Vec<'a, CssRule<'a, 'ghost>>,
+        rules: Vec<'a, CssRule<'a>>,
         selectors: SelectorList<'a>,
         vendor_prefix: VendorPrefix,
     ) -> Self {
@@ -454,7 +619,7 @@ impl<'a, 'ghost> StyleRule<'a, 'ghost> {
     }
 
     #[inline]
-    pub fn rules_mut(self: Pin<&mut Self>) -> &mut Vec<'a, CssRule<'a, 'ghost>> {
+    pub fn rules_mut(self: Pin<&mut Self>) -> &mut Vec<'a, CssRule<'a>> {
         // SAFETY: mutating the vector does not move its pinned owner.
         &mut unsafe { self.get_unchecked_mut() }.rules
     }
@@ -467,17 +632,17 @@ impl<'a, 'ghost> StyleRule<'a, 'ghost> {
 }
 
 #[derive(Debug, Visit)]
-pub struct DeclarationBlock<'a, 'ghost> {
+pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, Declaration<'a>>,
     #[visit(skip)]
     pub declarations_importance: BitVec<'a>,
     #[visit(skip)]
-    previous_merged: Option<Ref<'a, 'ghost, DeclarationBlock<'a, 'ghost>>>,
+    previous_merged: Option<DeclarationBlockId>,
 }
 
-impl<'a, 'ghost> DeclarationBlock<'a, 'ghost> {
+impl<'a> DeclarationBlock<'a> {
     #[inline]
-    pub fn new(allocator: &'a rocketcss_allocator::Allocator) -> Self {
+    pub fn new(allocator: &'a Allocator) -> Self {
         Self {
             declarations: allocator.vec(),
             declarations_importance: BitVec::new(allocator),
@@ -486,12 +651,12 @@ impl<'a, 'ghost> DeclarationBlock<'a, 'ghost> {
     }
 
     #[inline]
-    pub fn previous_merged(&self) -> Option<Ref<'a, 'ghost, Self>> {
+    pub fn previous_merged(&self) -> Option<DeclarationBlockId> {
         self.previous_merged
     }
 
     #[inline]
-    pub fn set_previous_merged(&mut self, previous: Option<Ref<'a, 'ghost, Self>>) {
+    pub fn set_previous_merged(&mut self, previous: Option<DeclarationBlockId>) {
         self.previous_merged = previous;
     }
 
@@ -540,14 +705,14 @@ impl<'a, 'ghost> DeclarationBlock<'a, 'ghost> {
     }
 }
 
-impl PartialEq for DeclarationBlock<'_, '_> {
+impl PartialEq for DeclarationBlock<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.declarations == other.declarations
             && self.declarations_importance == other.declarations_importance
     }
 }
 
-impl EqIgnoringTombstones for DeclarationBlock<'_, '_> {
+impl EqIgnoringTombstones for DeclarationBlock<'_> {
     fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
         let mut left = self.iter_live();
         let mut right = other.iter_live();

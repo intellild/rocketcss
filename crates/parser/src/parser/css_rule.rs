@@ -24,7 +24,7 @@ pub(super) fn parse_rule_list<'i, 'ghost>(
     token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, CssRule<'i, 'ghost>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, CssRule<'i>>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut rules = allocator.vec();
     let mut top_level_state = TopLevelState::Start;
@@ -97,7 +97,7 @@ pub(super) fn parse_group_rule_body<'i, 'ghost>(
     options: &ParserOptions<'i>,
     depth: usize,
     in_style_rule: bool,
-) -> Result<Vec<'i, CssRule<'i, 'ghost>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, CssRule<'i>>, ParseError<'i, ParserError<'i>>> {
     if !in_style_rule {
         return parse_rule_list(input, allocator, token, options, depth);
     }
@@ -108,7 +108,7 @@ pub(super) fn parse_group_rule_body<'i, 'ghost>(
         rules.insert(
             0,
             CssRule::NestedDeclarations(allocator.boxed(rocketcss_ast::NestedDeclarationsRule {
-                declarations: allocator.alloc_ghost(declarations),
+                declarations: input.alloc_declaration_block(declarations),
                 span: span_from(&start, input.position()),
             })),
         );
@@ -126,7 +126,7 @@ pub(super) fn parse_at_rule<'i, 'ghost>(
     start: &ParserState,
     name: &'i str,
     in_style_rule: bool,
-) -> Result<CssRule<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
+) -> Result<CssRule<'i>, ParseError<'i, ParserError<'i>>> {
     if in_style_rule
         && matches_ignore_case(
             name,
@@ -314,7 +314,7 @@ pub(super) fn parse_at_rule<'i, 'ghost>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         CssRule::CounterStyle(allocator.boxed(rocketcss_ast::CounterStyleRule {
-            declarations: allocator.alloc_ghost(declarations),
+            declarations: input.alloc_declaration_block(declarations),
             span: span_from(start, input.position()),
             name: counter_name,
         }))
@@ -326,7 +326,7 @@ pub(super) fn parse_at_rule<'i, 'ghost>(
             parse_declaration_block(input, allocator, options, depth + 1)
         })?;
         CssRule::Viewport(allocator.boxed(rocketcss_ast::ViewportRule {
-            declarations: allocator.alloc_ghost(declarations),
+            declarations: input.alloc_declaration_block(declarations),
             span: span_from(start, input.position()),
             vendor_prefix: at_rule_vendor_prefix(name),
         }))
@@ -344,7 +344,7 @@ pub(super) fn parse_at_rule<'i, 'ghost>(
         CssRule::PositionTry(allocator.boxed(rocketcss_ast::PositionTryRule {
             span: span_from(start, input.position()),
             name: position_name,
-            declarations: allocator.alloc_ghost(declarations),
+            declarations: input.alloc_declaration_block(declarations),
         }))
     } else if name.eq_ignore_ascii_case("-moz-document") {
         if !matches!(ending, Ending::Block) {
@@ -394,7 +394,7 @@ pub(super) fn parse_at_rule<'i, 'ghost>(
         let (declarations, rules) = input
             .parse_nested_block(|input| parse_page_body(input, allocator, options, depth + 1))?;
         CssRule::Page(allocator.boxed(PageRule {
-            declarations: allocator.alloc_ghost(declarations),
+            declarations: input.alloc_declaration_block(declarations),
             span: span_from(start, input.position()),
             rules,
             selectors,
@@ -464,7 +464,7 @@ pub(super) fn parse_at_rule<'i, 'ghost>(
         CssRule::Nesting(allocator.boxed(NestingRule {
             span,
             style: allocator.pinned(StyleRule::new(
-                allocator.alloc_ghost(declarations),
+                input.alloc_declaration_block(declarations),
                 span,
                 rules,
                 selectors,
@@ -495,7 +495,7 @@ pub(super) fn parse_qualified_rule<'i, 'ghost>(
     options: &ParserOptions<'i>,
     depth: usize,
     start: &ParserState,
-) -> Result<CssRule<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
+) -> Result<CssRule<'i>, ParseError<'i, ParserError<'i>>> {
     let selectors = input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
         if options.error_recovery {
             parse_selector_list_with_recovery(input, allocator, depth + 1)
@@ -509,7 +509,7 @@ pub(super) fn parse_qualified_rule<'i, 'ghost>(
     })?;
 
     Ok(CssRule::Style(allocator.pinned(StyleRule::new(
-        allocator.alloc_ghost(declarations),
+        input.alloc_declaration_block(declarations),
         span_from(start, input.position()),
         rules,
         selectors,
@@ -517,7 +517,7 @@ pub(super) fn parse_qualified_rule<'i, 'ghost>(
     ))))
 }
 
-type StyleContents<'i, 'ghost> = (DeclarationBlock<'i, 'ghost>, Vec<'i, CssRule<'i, 'ghost>>);
+type StyleContents<'i> = (DeclarationBlock<'i>, Vec<'i, CssRule<'i>>);
 
 pub(super) fn parse_style_contents<'i, 'ghost>(
     input: &mut Compiler<'i>,
@@ -525,7 +525,7 @@ pub(super) fn parse_style_contents<'i, 'ghost>(
     token: &mut GhostToken<'ghost>,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<StyleContents<'i, 'ghost>, ParseError<'i, ParserError<'i>>> {
+) -> Result<StyleContents<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut declarations = DeclarationBlock::new(allocator);
     let mut rules = allocator.vec();
@@ -562,16 +562,15 @@ pub(super) fn parse_style_contents<'i, 'ghost>(
                         if rules.is_empty() {
                             declarations.push(declaration, important);
                         } else if let Some(CssRule::NestedDeclarations(rule)) = rules.last_mut() {
-                            rule.declarations
-                                .as_ref()
-                                .borrow_mut(token)
+                            input
+                                .declaration_block_mut(rule.declarations)
                                 .push(declaration, important);
                         } else {
                             let mut nested = DeclarationBlock::new(allocator);
                             nested.push(declaration, important);
                             rules.push(CssRule::NestedDeclarations(allocator.boxed(
                                 NestedDeclarationsRule {
-                                    declarations: allocator.alloc_ghost(nested),
+                                    declarations: input.alloc_declaration_block(nested),
                                     span: DUMMY_SP,
                                 },
                             )));

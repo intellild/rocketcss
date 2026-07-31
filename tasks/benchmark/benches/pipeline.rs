@@ -5,7 +5,7 @@ use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_allocator::{Allocator, GhostToken};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
-use rocketcss_parser::prelude::StyleSheet;
+use rocketcss_parser::prelude::Compilation;
 use std::cell::RefCell;
 
 fn main() {
@@ -15,7 +15,7 @@ fn main() {
 struct ParsedStyleSheet<'ghost> {
     // Fields are dropped in declaration order, so the stylesheet is dropped
     // before the allocator that owns its arena storage.
-    stylesheet: StyleSheet<'ghost, 'ghost>,
+    stylesheet: Compilation<'ghost>,
     _allocator: Box<Allocator>,
 }
 

@@ -87,11 +87,11 @@ fn keeps_existing_token_storage() {
             ParserOptions::default(),
         )
         .unwrap();
-        let (buffer_before, token_before) = unparsed_value_storage(&stylesheet, &token);
+        let (buffer_before, token_before) = unparsed_value_storage(&stylesheet);
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
 
-        let (buffer_after, token_after) = unparsed_value_storage(&stylesheet, &token);
+        let (buffer_after, token_after) = unparsed_value_storage(&stylesheet);
         assert_eq!(buffer_after, buffer_before);
         assert_eq!(token_after, token_before);
         assert_eq!(
@@ -145,15 +145,14 @@ fn s2_preserves_parent_declaration_positions_around_a_nested_rule() {
     );
 }
 
-fn unparsed_value_storage<'a, 'ghost>(
-    stylesheet: &StyleSheet<'a, 'ghost>,
-    token: &rocketcss_allocator::GhostToken<'ghost>,
+fn unparsed_value_storage<'a>(
+    stylesheet: &Compilation<'a>,
 ) -> (*const TokenOrValue<'a>, *const Token<'a>) {
     let CssRule::Style(rule) = &stylesheet.rules[0] else {
         panic!("expected style rule")
     };
     let rule = rule.as_ref().get_ref();
-    let declarations = rule.declarations.as_ref().borrow(token);
+    let declarations = stylesheet.declaration_block(rule.declarations);
     let Declaration::Unparsed(property) = &declarations.declarations[0] else {
         panic!("expected unparsed property")
     };

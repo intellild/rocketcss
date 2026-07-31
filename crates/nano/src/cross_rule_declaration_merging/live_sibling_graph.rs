@@ -1,6 +1,5 @@
-use rocketcss_allocator::{GhostToken, Ref};
-use rocketcss_ast::{CssRule, DeclarationBlock, Selector, StyleSheet};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rocketcss_ast::{CssRule, DeclarationBlockId, DeclarationBlockStore, Selector, StyleSheet};
+use rustc_hash::FxHashMap;
 
 use super::candidates::{Candidate, SameSelectorCandidateList};
 use crate::utils::{
@@ -26,8 +25,8 @@ impl SequenceId {
 }
 
 #[derive(Debug)]
-struct LiveRule<'ast, 'ghost> {
-    declarations: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
+struct LiveRule {
+    declarations: DeclarationBlockId,
     effective_key: EffectiveKeyId,
     previous_live: Option<RuleId>,
     next_live: Option<RuleId>,
@@ -38,54 +37,45 @@ struct LiveRule<'ast, 'ghost> {
 }
 
 #[derive(Debug)]
-struct DeclarationSequence<'ast, 'ghost> {
+struct DeclarationSequence {
     parent: SequenceId,
-    head: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
-    tail: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
+    head: DeclarationBlockId,
+    tail: DeclarationBlockId,
     non_empty_block_count: u32,
     active_owner: RuleId,
 }
 
 #[derive(Debug)]
-pub(super) struct LiveSiblingGraph<'ast, 'ghost> {
-    rules: std::vec::Vec<LiveRule<'ast, 'ghost>>,
-    sequences: std::vec::Vec<DeclarationSequence<'ast, 'ghost>>,
-    sequence_by_block: FxHashMap<*const DeclarationBlock<'ast, 'ghost>, SequenceId>,
-    non_empty_blocks: FxHashSet<*const DeclarationBlock<'ast, 'ghost>>,
+pub(super) struct LiveSiblingGraph {
+    rules: Vec<LiveRule>,
+    sequences: Vec<DeclarationSequence>,
+    sequence_by_block: Vec<Option<SequenceId>>,
+    non_empty_blocks: Vec<bool>,
     same_selector_candidates: SameSelectorCandidateList,
-    declaration_links: std::vec::Vec<(
-        Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
-        Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
-    )>,
+    declaration_links: Vec<(DeclarationBlockId, DeclarationBlockId)>,
 }
 
-impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
+impl LiveSiblingGraph {
     pub(super) fn new(
-        declaration_blocks: &[DeclarationBlockEntry<'_, 'ast, 'ghost>],
-        token: &GhostToken<'ghost>,
+        declaration_blocks: &[DeclarationBlockEntry],
+        store: &DeclarationBlockStore<'_>,
     ) -> Self {
         let style_rule_count = declaration_blocks
             .iter()
             .filter(|entry| matches!(entry.kind, DeclarationBlockKind::Style { .. }))
             .count();
         let mut graph = Self {
-            rules: std::vec::Vec::with_capacity(style_rule_count),
-            sequences: std::vec::Vec::with_capacity(style_rule_count),
-            sequence_by_block: FxHashMap::with_capacity_and_hasher(
-                declaration_blocks.len(),
-                Default::default(),
-            ),
-            non_empty_blocks: FxHashSet::with_capacity_and_hasher(
-                declaration_blocks.len(),
-                Default::default(),
-            ),
+            rules: Vec::with_capacity(style_rule_count),
+            sequences: Vec::with_capacity(style_rule_count),
+            sequence_by_block: vec![None; store.len()],
+            non_empty_blocks: vec![false; store.len()],
             same_selector_candidates: SameSelectorCandidateList::default(),
-            declaration_links: std::vec::Vec::with_capacity(style_rule_count.saturating_sub(1)),
+            declaration_links: Vec::with_capacity(style_rule_count.saturating_sub(1)),
         };
         let mut last_style_by_segment: FxHashMap<(RuleListId, RuleListSegmentId), (RuleId, usize)> =
             FxHashMap::default();
-        let mut declaration_chain = std::vec::Vec::new();
-        let mut declaration_chain_seen = FxHashSet::default();
+        let mut declaration_chain = Vec::new();
+        let mut declaration_chain_seen = vec![false; store.len()];
 
         for (entry_index, entry) in declaration_blocks.iter().enumerate() {
             let DeclarationBlockKind::Style { .. } = entry.kind else {
@@ -93,7 +83,7 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
             };
             let rule = graph.push_rule(
                 entry,
-                token,
+                store,
                 &mut declaration_chain,
                 &mut declaration_chain_seen,
             );
@@ -117,10 +107,10 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
 
     fn push_rule(
         &mut self,
-        entry: &DeclarationBlockEntry<'_, 'ast, 'ghost>,
-        token: &GhostToken<'ghost>,
-        declaration_chain: &mut std::vec::Vec<Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>>,
-        declaration_chain_seen: &mut FxHashSet<*const DeclarationBlock<'ast, 'ghost>>,
+        entry: &DeclarationBlockEntry,
+        store: &DeclarationBlockStore<'_>,
+        declaration_chain: &mut Vec<DeclarationBlockId>,
+        declaration_chain_seen: &mut [bool],
     ) -> RuleId {
         let DeclarationBlockKind::Style {
             has_children,
@@ -135,9 +125,8 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
             u32::try_from(self.sequences.len()).expect("sequence count exceeds u32::MAX"),
         );
         collect_declaration_chain(
-            entry.declaration_ref,
             entry.declarations,
-            token,
+            store,
             declaration_chain,
             declaration_chain_seen,
         );
@@ -150,14 +139,13 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
             .expect("a declaration chain contains its active block");
         let mut non_empty_block_count = 0_u32;
         for &declarations in declaration_chain.iter() {
-            let declarations_ptr = std::ptr::from_ref(declarations.get(token).get_ref());
-            let old_sequence = self.sequence_by_block.insert(declarations_ptr, sequence);
+            let old_sequence = self.sequence_by_block[declarations.index()].replace(sequence);
             debug_assert!(
                 old_sequence.is_none(),
                 "a declaration block belongs to only one sequence"
             );
-            if !declarations.get(token).is_output_empty() {
-                self.non_empty_blocks.insert(declarations_ptr);
+            if !store.get(declarations).is_output_empty() {
+                self.non_empty_blocks[declarations.index()] = true;
                 non_empty_block_count = non_empty_block_count
                     .checked_add(1)
                     .expect("declaration block count exceeds u32::MAX");
@@ -171,7 +159,7 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
             active_owner: rule,
         });
         self.rules.push(LiveRule {
-            declarations: entry.declaration_ref,
+            declarations: entry.declarations,
             effective_key: entry.effective_key,
             previous_live: None,
             next_live: None,
@@ -190,14 +178,11 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
         self.rules[right.index()].previous_live = Some(left);
     }
 
-    pub(super) fn declaration_block_became_empty(
-        &mut self,
-        declarations: *const DeclarationBlock<'ast, 'ghost>,
-    ) {
-        if !self.non_empty_blocks.remove(&declarations) {
+    pub(super) fn declaration_block_became_empty(&mut self, declarations: DeclarationBlockId) {
+        if !std::mem::take(&mut self.non_empty_blocks[declarations.index()]) {
             return;
         }
-        let Some(&sequence) = self.sequence_by_block.get(&declarations) else {
+        let Some(sequence) = self.sequence_by_block[declarations.index()] else {
             return;
         };
         let sequence = self.find_sequence(sequence);
@@ -217,29 +202,23 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
 
     pub(super) fn commit(
         &self,
-        stylesheet: &mut StyleSheet<'ast, 'ghost>,
-        token: &mut GhostToken<'ghost>,
+        stylesheet: &mut StyleSheet<'_>,
+        store: &mut DeclarationBlockStore<'_>,
     ) -> bool {
         for &(current, previous) in &self.declaration_links {
-            current
-                .get_mut(token)
-                .get_mut()
-                .set_previous_merged(Some(previous));
+            store.get_mut(current).set_previous_merged(Some(previous));
         }
 
-        let retired: FxHashSet<_> = self
-            .rules
-            .iter()
-            .filter(|rule| !rule.live)
-            .map(|rule| {
-                let declarations = rule.declarations.get(token);
-                std::ptr::from_ref(declarations.get_ref())
-            })
-            .collect();
-        if retired.is_empty() {
+        let mut retired = vec![false; store.len()];
+        let mut has_retired = false;
+        for rule in self.rules.iter().filter(|rule| !rule.live) {
+            retired[rule.declarations.index()] = true;
+            has_retired = true;
+        }
+        if !has_retired {
             return false;
         }
-        retire_style_rules(&mut stylesheet.rules, &retired, token);
+        retire_style_rules(&mut stylesheet.rules, &retired);
         true
     }
 
@@ -329,57 +308,47 @@ impl<'ast, 'ghost> LiveSiblingGraph<'ast, 'ghost> {
     }
 }
 
-fn collect_declaration_chain<'ast, 'ghost>(
-    declaration_ref: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
-    declarations: &DeclarationBlock<'ast, 'ghost>,
-    token: &GhostToken<'ghost>,
-    chain: &mut std::vec::Vec<Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>>,
-    seen: &mut FxHashSet<*const DeclarationBlock<'ast, 'ghost>>,
+fn collect_declaration_chain(
+    declarations: DeclarationBlockId,
+    store: &DeclarationBlockStore<'_>,
+    chain: &mut Vec<DeclarationBlockId>,
+    seen: &mut [bool],
 ) {
-    chain.clear();
-    seen.clear();
-    chain.push(declaration_ref);
-    seen.insert(std::ptr::from_ref(declarations));
-    let mut current = declarations.previous_merged();
+    for declarations in chain.drain(..) {
+        seen[declarations.index()] = false;
+    }
+    chain.push(declarations);
+    seen[declarations.index()] = true;
+    let mut current = store.get(declarations).previous_merged();
     while let Some(declarations) = current {
-        let block = declarations.get(token);
-        if !seen.insert(std::ptr::from_ref(block.get_ref())) {
+        if std::mem::replace(&mut seen[declarations.index()], true) {
             break;
         }
-        current = block.previous_merged();
+        current = store.get(declarations).previous_merged();
         chain.push(declarations);
     }
 }
 
-fn retire_style_rules<'ast, 'ghost>(
-    rules: &mut [CssRule<'ast, 'ghost>],
-    retired: &FxHashSet<*const DeclarationBlock<'ast, 'ghost>>,
-    token: &mut GhostToken<'ghost>,
-) {
+fn retire_style_rules<'ast>(rules: &mut [CssRule<'ast>], retired: &[bool]) {
     for rule in rules {
         match rule {
-            CssRule::Media(rule) => retire_style_rules(&mut rule.rules, retired, token),
+            CssRule::Media(rule) => retire_style_rules(&mut rule.rules, retired),
             CssRule::Style(rule) => {
-                retire_style_rules(rule.as_mut().rules_mut(), retired, token);
-                let should_retire = {
-                    let declarations = rule.as_ref().get_ref().declarations.as_ref().borrow(token);
-                    retired.contains(&std::ptr::from_ref(declarations.get_ref()))
-                };
+                retire_style_rules(rule.as_mut().rules_mut(), retired);
+                let should_retire = retired[rule.as_ref().get_ref().declarations.index()];
                 if should_retire {
                     for selector in rule.as_mut().selectors_mut() {
                         *selector = Selector::Tombstone;
                     }
                 }
             }
-            CssRule::Supports(rule) => retire_style_rules(&mut rule.rules, retired, token),
-            CssRule::MozDocument(rule) => retire_style_rules(&mut rule.rules, retired, token),
-            CssRule::Nesting(rule) => {
-                retire_style_rules(rule.style.as_mut().rules_mut(), retired, token)
-            }
-            CssRule::LayerBlock(rule) => retire_style_rules(&mut rule.rules, retired, token),
-            CssRule::Container(rule) => retire_style_rules(&mut rule.rules, retired, token),
-            CssRule::Scope(rule) => retire_style_rules(&mut rule.rules, retired, token),
-            CssRule::StartingStyle(rule) => retire_style_rules(&mut rule.rules, retired, token),
+            CssRule::Supports(rule) => retire_style_rules(&mut rule.rules, retired),
+            CssRule::MozDocument(rule) => retire_style_rules(&mut rule.rules, retired),
+            CssRule::Nesting(rule) => retire_style_rules(rule.style.as_mut().rules_mut(), retired),
+            CssRule::LayerBlock(rule) => retire_style_rules(&mut rule.rules, retired),
+            CssRule::Container(rule) => retire_style_rules(&mut rule.rules, retired),
+            CssRule::Scope(rule) => retire_style_rules(&mut rule.rules, retired),
+            CssRule::StartingStyle(rule) => retire_style_rules(&mut rule.rules, retired),
             _ => {}
         }
     }

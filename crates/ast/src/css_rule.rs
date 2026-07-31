@@ -4,39 +4,39 @@ use rocketcss_allocator::boxed::Box;
 use std::pin::Pin;
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum CssRule<'a, 'ghost> {
-    Media(Box<'a, MediaRule<'a, 'ghost>>),
+pub enum CssRule<'a> {
+    Media(Box<'a, MediaRule<'a>>),
     Import(Box<'a, ImportRule<'a>>),
-    Style(Pin<Box<'a, StyleRule<'a, 'ghost>>>),
-    Keyframes(Box<'a, KeyframesRule<'a, 'ghost>>),
+    Style(Pin<Box<'a, StyleRule<'a>>>),
+    Keyframes(Box<'a, KeyframesRule<'a>>),
     FontFace(Box<'a, FontFaceRule<'a>>),
     FontPaletteValues(Box<'a, FontPaletteValuesRule<'a>>),
     FontFeatureValues(Box<'a, FontFeatureValuesRule<'a>>),
-    Page(Box<'a, PageRule<'a, 'ghost>>),
-    Supports(Box<'a, SupportsRule<'a, 'ghost>>),
-    CounterStyle(Box<'a, CounterStyleRule<'a, 'ghost>>),
+    Page(Box<'a, PageRule<'a>>),
+    Supports(Box<'a, SupportsRule<'a>>),
+    CounterStyle(Box<'a, CounterStyleRule<'a>>),
     Charset(Box<'a, CharsetRule<'a>>),
     Namespace(Box<'a, NamespaceRule<'a>>),
-    MozDocument(Box<'a, MozDocumentRule<'a, 'ghost>>),
-    Nesting(Box<'a, NestingRule<'a, 'ghost>>),
-    NestedDeclarations(Box<'a, NestedDeclarationsRule<'a, 'ghost>>),
-    Viewport(Box<'a, ViewportRule<'a, 'ghost>>),
+    MozDocument(Box<'a, MozDocumentRule<'a>>),
+    Nesting(Box<'a, NestingRule<'a>>),
+    NestedDeclarations(Box<'a, NestedDeclarationsRule>),
+    Viewport(Box<'a, ViewportRule>),
     CustomMedia(Box<'a, CustomMediaRule<'a>>),
     LayerStatement(Box<'a, LayerStatementRule<'a>>),
-    LayerBlock(Box<'a, LayerBlockRule<'a, 'ghost>>),
+    LayerBlock(Box<'a, LayerBlockRule<'a>>),
     Property(Box<'a, PropertyRule<'a>>),
-    Container(Box<'a, ContainerRule<'a, 'ghost>>),
-    Scope(Box<'a, ScopeRule<'a, 'ghost>>),
-    StartingStyle(Box<'a, StartingStyleRule<'a, 'ghost>>),
+    Container(Box<'a, ContainerRule<'a>>),
+    Scope(Box<'a, ScopeRule<'a>>),
+    StartingStyle(Box<'a, StartingStyleRule<'a>>),
     ViewTransition(Box<'a, ViewTransitionRule<'a>>),
-    PositionTry(Box<'a, PositionTryRule<'a, 'ghost>>),
+    PositionTry(Box<'a, PositionTryRule<'a>>),
     Unknown(Box<'a, UnknownAtRule<'a>>),
     Custom(Box<'a, DefaultAtRule>),
 }
 
-impl<'ghost> CssRule<'_, 'ghost> {
+impl CssRule<'_> {
     #[inline]
-    pub fn span(&self, _token: &GhostToken<'ghost>) -> Span {
+    pub fn span<'ghost>(&self, _token: &GhostToken<'ghost>) -> Span {
         match self {
             Self::Media(rule) => rule.span(),
             Self::Import(rule) => rule.span(),

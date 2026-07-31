@@ -13,7 +13,7 @@ fn assert_branded_to_css<T: ToCss<'static>>() {}
 fn serialize_with_printer_trait<'ghost, T: ToCss<'ghost>, PrinterT: PrinterTrait>(
     value: &T,
     printer: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> std::fmt::Result {
     value.to_css(printer, cx)
 }
@@ -141,17 +141,17 @@ fn every_css_ast_node_implements_to_css() {
     }
 
     assert_ghost_types! {
-        CssRule<'static, 'static>, StyleSheet<'static, 'static>,
-        DeclarationBlock<'static, 'static>,
-        MediaRule<'static, 'static>, StyleRule<'static, 'static>,
-        KeyframesRule<'static, 'static>, Keyframe<'static, 'static>,
-        PageRule<'static, 'static>, PageMarginRule<'static, 'static>,
-        SupportsRule<'static, 'static>, CounterStyleRule<'static, 'static>,
-        MozDocumentRule<'static, 'static>, NestingRule<'static, 'static>,
-        NestedDeclarationsRule<'static, 'static>, ViewportRule<'static, 'static>,
-        LayerBlockRule<'static, 'static>, ContainerRule<'static, 'static>,
-        ScopeRule<'static, 'static>, StartingStyleRule<'static, 'static>,
-        PositionTryRule<'static, 'static>,
+        CssRule<'static>, StyleSheet<'static>,
+        DeclarationBlock<'static>,
+        MediaRule<'static>, StyleRule<'static>,
+        KeyframesRule<'static>, Keyframe<'static>,
+        PageRule<'static>, PageMarginRule,
+        SupportsRule<'static>, CounterStyleRule<'static>,
+        MozDocumentRule<'static>, NestingRule<'static>,
+        NestedDeclarationsRule, ViewportRule,
+        LayerBlockRule<'static>, ContainerRule<'static>,
+        ScopeRule<'static>, StartingStyleRule<'static>,
+        PositionTryRule<'static>,
     }
 }
 

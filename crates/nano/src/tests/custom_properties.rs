@@ -109,7 +109,7 @@ fn custom_property_token_shape(source: &str, options: MinifyOptions) -> String {
         let rocketcss_ast::CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected style rule")
         };
-        let declaration_block = rule.as_ref().get_ref().declarations.as_ref().borrow(&token);
+        let declaration_block = stylesheet.declaration_block(rule.as_ref().get_ref().declarations);
         let rocketcss_ast::Declaration::Custom(property) = &declaration_block.declarations[0]
         else {
             panic!("expected custom property")

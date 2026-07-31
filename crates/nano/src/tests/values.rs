@@ -121,7 +121,7 @@ fn keeps_comments_in_animation_values_on_the_unparsed_path() {
             panic!("expected style rule")
         };
         let rule = rule.as_ref().get_ref();
-        let declarations = rule.declarations.as_ref().borrow(&token);
+        let declarations = stylesheet.declaration_block(rule.declarations);
         assert!(matches!(
             declarations.declarations[0],
             Declaration::Unparsed(_)

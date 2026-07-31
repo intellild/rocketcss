@@ -1,28 +1,25 @@
 use std::num::NonZeroU32;
 
-use rocketcss_allocator::{GhostToken, Ref};
-use rocketcss_ast::DeclarationBlock;
+use rocketcss_ast::{DeclarationBlockId, DeclarationBlockStore};
 use rustc_hash::FxHashSet;
 
 use crate::MinifyContext;
 use crate::rules::DeclarationBlockMinifier;
 use crate::utils::DeclarationBlockEntry;
 
-pub(super) struct DeclarationOverrideCommitPass<'ast, 'ghost> {
-    blocks: std::vec::Vec<Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>>,
+pub(super) struct DeclarationOverrideCommitPass {
+    blocks: std::vec::Vec<DeclarationBlockId>,
     next_in_history: std::vec::Vec<Option<NonZeroU32>>,
     history_heads: std::vec::Vec<u32>,
 }
 
 #[derive(Debug, Default)]
-pub(super) struct DeclarationOverrideCommitResult<'ast, 'ghost> {
-    pub(super) newly_empty: FxHashSet<*const DeclarationBlock<'ast, 'ghost>>,
+pub(super) struct DeclarationOverrideCommitResult {
+    pub(super) newly_empty: FxHashSet<DeclarationBlockId>,
 }
 
-impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
-    pub(super) fn discover(
-        declaration_blocks: &[DeclarationBlockEntry<'_, 'ast, 'ghost>],
-    ) -> Option<Self> {
+impl DeclarationOverrideCommitPass {
+    pub(super) fn discover(declaration_blocks: &[DeclarationBlockEntry]) -> Option<Self> {
         let history_count = declaration_blocks
             .iter()
             .filter(|entry| entry.starts_declaration_history())
@@ -46,7 +43,7 @@ impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
             while let Some(source_index) = current {
                 let entry = &declaration_blocks[source_index];
                 let output_index = blocks.len();
-                blocks.push(entry.declaration_ref);
+                blocks.push(entry.declarations);
                 next_in_history.push(None);
                 current = entry.next_declaration_history_entry();
                 if current.is_some() {
@@ -64,12 +61,12 @@ impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
         })
     }
 
-    pub(super) fn commit<'scratch>(
+    pub(super) fn commit<'ast, 'scratch>(
         &self,
         minifier: &mut DeclarationBlockMinifier<'scratch, 'ast>,
-        token: &mut GhostToken<'ghost>,
+        store: &mut DeclarationBlockStore<'ast>,
         cx: &mut MinifyContext<'scratch>,
-    ) -> DeclarationOverrideCommitResult<'ast, 'ghost>
+    ) -> DeclarationOverrideCommitResult
     where
         'ast: 'scratch,
     {
@@ -83,11 +80,11 @@ impl<'ast, 'ghost> DeclarationOverrideCommitPass<'ast, 'ghost> {
             while let Some(block) = current {
                 let block = usize::try_from(block).expect("declaration block index fits usize");
                 let declarations = self.blocks[block];
-                append_declaration_chain(declarations, token, &mut seen, &mut expanded_history);
+                append_declaration_chain(declarations, store, &mut seen, &mut expanded_history);
                 current = self.next_in_history[block].map(|next| next.get() - 1);
             }
 
-            minifier.deduplicate_exact_sequence(&expanded_history, token, cx, |declarations| {
+            minifier.deduplicate_exact_sequence(&expanded_history, store, cx, |declarations| {
                 newly_empty.insert(declarations);
             });
         }
@@ -104,18 +101,17 @@ fn encode_history_link(index: u32) -> NonZeroU32 {
     .expect("encoded declaration history index is non-zero")
 }
 
-fn append_declaration_chain<'ast, 'ghost>(
-    declarations: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
-    token: &GhostToken<'ghost>,
-    seen: &mut FxHashSet<*const DeclarationBlock<'ast, 'ghost>>,
-    output: &mut std::vec::Vec<Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>>,
+fn append_declaration_chain(
+    declarations: DeclarationBlockId,
+    store: &DeclarationBlockStore<'_>,
+    seen: &mut FxHashSet<DeclarationBlockId>,
+    output: &mut std::vec::Vec<DeclarationBlockId>,
 ) {
-    let declarations_ptr = std::ptr::from_ref(declarations.get(token).get_ref());
-    if !seen.insert(declarations_ptr) {
+    if !seen.insert(declarations) {
         return;
     }
-    if let Some(previous) = declarations.get(token).previous_merged() {
-        append_declaration_chain(previous, token, seen, output);
+    if let Some(previous) = store.get(declarations).previous_merged() {
+        append_declaration_chain(previous, store, seen, output);
     }
     output.push(declarations);
 }
@@ -141,7 +137,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-            let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+            let declaration_blocks = walk_declaration_blocks(&stylesheet);
 
             assert!(DeclarationOverrideCommitPass::discover(&declaration_blocks).is_none());
         });
@@ -158,7 +154,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-            let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+            let declaration_blocks = walk_declaration_blocks(&stylesheet);
 
             let pass = DeclarationOverrideCommitPass::discover(&declaration_blocks)
                 .expect("the a selector has a declaration history");
@@ -180,7 +176,7 @@ mod tests {
     fn reports_newly_empty_blocks_to_the_live_graph() {
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
-            let stylesheet = parse(
+            let mut stylesheet = parse(
                 "a{width:1px}.bar{x:1}a{width:1px}",
                 &allocator,
                 &mut token,
@@ -188,7 +184,7 @@ mod tests {
             )
             .unwrap();
             let pass = {
-                let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+                let declaration_blocks = walk_declaration_blocks(&stylesheet);
                 DeclarationOverrideCommitPass::discover(&declaration_blocks)
                     .expect("the two a blocks share one exact-only S2 history")
             };
@@ -196,7 +192,7 @@ mod tests {
             let scratch = Allocator::new();
             let mut minifier = DeclarationBlockMinifier::new(&scratch);
             let mut cx = MinifyContext::new(MinifyOptions::default(), &scratch);
-            let result = pass.commit(&mut minifier, &mut token, &mut cx);
+            let result = pass.commit(&mut minifier, stylesheet.parts_mut().1, &mut cx);
             assert_eq!(cx.stats().declarations_removed, 1);
             assert_eq!(result.newly_empty.len(), 1);
             assert_eq!(
@@ -215,7 +211,7 @@ mod tests {
     fn reports_declaration_only_changes_without_an_empty_block() {
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
-            let stylesheet = parse(
+            let mut stylesheet = parse(
                 "a{width:1px;height:1px}.bar{x:1}a{width:1px}",
                 &allocator,
                 &mut token,
@@ -223,7 +219,7 @@ mod tests {
             )
             .unwrap();
             let pass = {
-                let declaration_blocks = walk_declaration_blocks(&stylesheet, &token);
+                let declaration_blocks = walk_declaration_blocks(&stylesheet);
                 DeclarationOverrideCommitPass::discover(&declaration_blocks)
                     .expect("the two a blocks share one exact-only S2 history")
             };
@@ -231,7 +227,7 @@ mod tests {
             let scratch = Allocator::new();
             let mut minifier = DeclarationBlockMinifier::new(&scratch);
             let mut cx = MinifyContext::new(MinifyOptions::default(), &scratch);
-            let result = pass.commit(&mut minifier, &mut token, &mut cx);
+            let result = pass.commit(&mut minifier, stylesheet.parts_mut().1, &mut cx);
             assert_eq!(cx.stats().declarations_removed, 1);
             assert!(result.newly_empty.is_empty());
             assert_eq!(

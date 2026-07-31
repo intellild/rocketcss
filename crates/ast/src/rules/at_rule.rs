@@ -1,15 +1,16 @@
 use crate::*;
 use std::pin::Pin;
 #[derive(Debug, PartialEq, Visit)]
-pub struct SupportsRule<'a, 'ghost> {
+pub struct SupportsRule<'a> {
     pub condition: Box<'a, SupportsCondition<'a>>,
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct CounterStyleRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
+pub struct CounterStyleRule<'a> {
+    #[visit(with = visit_declaration_block_id, with_mut = visit_declaration_block_id_mut)]
+    pub declarations: DeclarationBlockId,
     pub span: Span,
     pub name: &'a str,
 }
@@ -28,26 +29,28 @@ pub struct NamespaceRule<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct MozDocumentRule<'a, 'ghost> {
+pub struct MozDocumentRule<'a> {
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct NestingRule<'a, 'ghost> {
+pub struct NestingRule<'a> {
     pub span: Span,
-    pub style: Pin<Box<'a, StyleRule<'a, 'ghost>>>,
+    pub style: Pin<Box<'a, StyleRule<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct NestedDeclarationsRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
+pub struct NestedDeclarationsRule {
+    #[visit(with = visit_declaration_block_id, with_mut = visit_declaration_block_id_mut)]
+    pub declarations: DeclarationBlockId,
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ViewportRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
+pub struct ViewportRule {
+    #[visit(with = visit_declaration_block_id, with_mut = visit_declaration_block_id_mut)]
+    pub declarations: DeclarationBlockId,
     pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
@@ -66,31 +69,32 @@ pub struct LayerStatementRule<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct LayerBlockRule<'a, 'ghost> {
+pub struct LayerBlockRule<'a> {
     pub span: Span,
     pub name: Option<Vec<'a, &'a str>>,
-    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ScopeRule<'a, 'ghost> {
+pub struct ScopeRule<'a> {
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
+    pub rules: Vec<'a, CssRule<'a>>,
     pub scope_end: Option<Box<'a, SelectorList<'a>>>,
     pub scope_start: Option<Box<'a, SelectorList<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct StartingStyleRule<'a, 'ghost> {
+pub struct StartingStyleRule<'a> {
     pub span: Span,
-    pub rules: Vec<'a, CssRule<'a, 'ghost>>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PositionTryRule<'a, 'ghost> {
+pub struct PositionTryRule<'a> {
     pub span: Span,
     pub name: &'a str,
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
+    #[visit(with = visit_declaration_block_id, with_mut = visit_declaration_block_id_mut)]
+    pub declarations: DeclarationBlockId,
 }
 
 #[derive(Debug, PartialEq, Visit)]

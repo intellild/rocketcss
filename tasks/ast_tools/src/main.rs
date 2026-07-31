@@ -345,7 +345,7 @@ fn generate_visitor(
                 fn #method #method_generics (
                     &mut self,
                     mut node: Pin<&mut #ty>,
-                    cx: &mut VisitMutContext<'_, 'ghost>,
+                    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
                 ) #bounds {
                     #node_trait::#visit_children(&mut node, self, cx);
                 }
@@ -356,7 +356,7 @@ fn generate_visitor(
                 fn #method #method_generics (
                     &mut self,
                     node: #reference #ty,
-                    cx: #context_reference #context<'_, 'ghost>,
+                    cx: #context_reference #context<'_, 'a, 'ghost>,
                 ) #bounds {
                     #node_trait::#visit_children(node, self, cx);
                 }
@@ -389,7 +389,7 @@ fn generate_visitor(
             fn #method #method_generics (
                 &mut self,
                 node: #reference #ty,
-                cx: #context_reference #context<'_, 'ghost>,
+                cx: #context_reference #context<'_, 'a, 'ghost>,
             ) #bounds {
                 self.#visit_children(node, cx);
             }
@@ -398,7 +398,7 @@ fn generate_visitor(
             fn #visit_children #method_generics (
                 &mut self,
                 node: #reference #ty,
-                cx: #context_reference #context<'_, 'ghost>,
+                cx: #context_reference #context<'_, 'a, 'ghost>,
             ) #bounds {
                 let visitor = self;
                 visitor.enter_node(AstType::#variant);
@@ -413,7 +413,7 @@ fn generate_visitor(
             fn visit_str(
                 &mut self,
                 _value: &&'a str,
-                _cx: &VisitContext<'_, 'ghost>,
+                _cx: &VisitContext<'_, 'a, 'ghost>,
             ) {}
         }
     } else {
@@ -421,7 +421,7 @@ fn generate_visitor(
             fn visit_str(
                 &mut self,
                 _value: &mut &'a str,
-                _cx: &mut VisitMutContext<'_, 'ghost>,
+                _cx: &mut VisitMutContext<'_, 'a, 'ghost>,
             ) {}
         }
     };
@@ -430,7 +430,7 @@ fn generate_visitor(
             fn visit_atom(
                 &mut self,
                 _value: &Atom<'a>,
-                _cx: &VisitContext<'_, 'ghost>,
+                _cx: &VisitContext<'_, 'a, 'ghost>,
             ) {}
         }
     } else {
@@ -438,7 +438,7 @@ fn generate_visitor(
             fn visit_atom(
                 &mut self,
                 _value: &mut Atom<'a>,
-                _cx: &mut VisitMutContext<'_, 'ghost>,
+                _cx: &mut VisitMutContext<'_, 'a, 'ghost>,
             ) {}
         }
     };
@@ -479,7 +479,7 @@ fn generate_visitor(
             fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                 #reference self,
                 visitor: &mut VisitorT,
-                cx: #context_reference #context<'_, 'ghost>,
+                cx: #context_reference #context<'_, 'a, 'ghost>,
             );
 
             /// Continues traversal without redispatching this node's visitor callback.
@@ -487,7 +487,7 @@ fn generate_visitor(
             fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                 #reference self,
                 _visitor: &mut VisitorT,
-                _cx: #context_reference #context<'_, 'ghost>,
+                _cx: #context_reference #context<'_, 'a, 'ghost>,
             ) {}
         }
 
@@ -518,7 +518,7 @@ fn manual_methods(mode: Mode) -> TokenStream {
         fn visit_declaration(
             &mut self,
             node: #reference Declaration<'a>,
-            cx: #context_reference #context<'_, 'ghost>,
+            cx: #context_reference #context<'_, 'a, 'ghost>,
         ) {
             #node_trait::#visit_children(node, self, cx);
         }
@@ -527,7 +527,7 @@ fn manual_methods(mode: Mode) -> TokenStream {
         fn visit_property_id(
             &mut self,
             node: #reference PropertyId<'a>,
-            cx: #context_reference #context<'_, 'ghost>,
+            cx: #context_reference #context<'_, 'a, 'ghost>,
         ) {
             #node_trait::#visit_children(node, self, cx);
         }
@@ -536,7 +536,7 @@ fn manual_methods(mode: Mode) -> TokenStream {
         fn visit_vendor_prefix(
             &mut self,
             node: #reference VendorPrefix,
-            cx: #context_reference #context<'_, 'ghost>,
+            cx: #context_reference #context<'_, 'a, 'ghost>,
         ) {
             #node_trait::#visit_children(node, self, cx);
         }
@@ -567,7 +567,7 @@ fn manual_impls(mode: Mode) -> TokenStream {
             fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                 #reference self,
                 visitor: &mut VisitorT,
-                cx: #context_reference #context<'_, 'ghost>,
+                cx: #context_reference #context<'_, 'a, 'ghost>,
             ) {
                 visitor.visit_vendor_prefix(self, cx);
             }
@@ -575,7 +575,7 @@ fn manual_impls(mode: Mode) -> TokenStream {
             fn #visit_children<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                 #reference self,
                 visitor: &mut VisitorT,
-                _cx: #context_reference #context<'_, 'ghost>,
+                _cx: #context_reference #context<'_, 'a, 'ghost>,
             ) {
                 visitor.enter_node(AstType::VendorPrefix);
                 visitor.leave_node(AstType::VendorPrefix);
@@ -596,7 +596,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                         fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                             &self,
                             _visitor: &mut VisitorT,
-                            _cx: &VisitContext<'_, 'ghost>,
+                            _cx: &VisitContext<'_, 'a, 'ghost>,
                         ) {}
                     }
                 )+};
@@ -610,7 +610,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
                     visitor: &mut VisitorT,
-                    cx: &VisitContext<'_, 'ghost>,
+                    cx: &VisitContext<'_, 'a, 'ghost>,
                 ) {
                     #node_trait::#visit(self.as_ref(), visitor, cx);
                 }
@@ -622,7 +622,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
                     visitor: &mut VisitorT,
-                    cx: &VisitContext<'_, 'ghost>,
+                    cx: &VisitContext<'_, 'a, 'ghost>,
                 ) {
                     for value in self {
                         #node_trait::#visit(value, visitor, cx);
@@ -635,7 +635,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
                     visitor: &mut VisitorT,
-                    cx: &VisitContext<'_, 'ghost>,
+                    cx: &VisitContext<'_, 'a, 'ghost>,
                 ) {
                     if let Some(value) = self {
                         #node_trait::#visit(value, visitor, cx);
@@ -646,7 +646,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &self,
                     visitor: &mut VisitorT,
-                    cx: &VisitContext<'_, 'ghost>,
+                    cx: &VisitContext<'_, 'a, 'ghost>,
                 ) {
                     visitor.visit_str(self, cx);
                 }
@@ -660,7 +660,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                         fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                             &mut self,
                             _visitor: &mut VisitorT,
-                            _cx: &mut VisitMutContext<'_, 'ghost>,
+                            _cx: &mut VisitMutContext<'_, 'a, 'ghost>,
                         ) {}
                     }
                 )+};
@@ -674,7 +674,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
                     visitor: &mut VisitorT,
-                    cx: &mut VisitMutContext<'_, 'ghost>,
+                    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
                 ) {
                     #node_trait::#visit(self.as_mut(), visitor, cx);
                 }
@@ -686,7 +686,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
                     visitor: &mut VisitorT,
-                    cx: &mut VisitMutContext<'_, 'ghost>,
+                    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
                 ) {
                     for value in self {
                         #node_trait::#visit(value, visitor, cx);
@@ -699,7 +699,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
                     visitor: &mut VisitorT,
-                    cx: &mut VisitMutContext<'_, 'ghost>,
+                    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
                 ) {
                     if let Some(value) = self {
                         #node_trait::#visit(value, visitor, cx);
@@ -710,7 +710,7 @@ fn container_impls(mode: Mode) -> TokenStream {
                 fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
                     &mut self,
                     visitor: &mut VisitorT,
-                    cx: &mut VisitMutContext<'_, 'ghost>,
+                    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
                 ) {
                     visitor.visit_str(self, cx);
                 }

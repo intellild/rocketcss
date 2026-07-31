@@ -1,10 +1,10 @@
 use crate::prelude::*;
 
-impl<'ghost> ToCss<'ghost> for CssRule<'_, 'ghost> {
+impl<'ghost> ToCss<'ghost> for CssRule<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Media(value) => value.to_css(dest, _cx),

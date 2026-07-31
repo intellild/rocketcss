@@ -28,13 +28,14 @@ pub trait Minify {
 
 /// Minifies a stylesheet in place and returns transformation statistics.
 pub fn minify<'a, 'ghost>(
-    stylesheet: &mut StyleSheet<'a, 'ghost>,
+    compilation: &mut Compilation<'a>,
     token: &mut GhostToken<'ghost>,
     options: MinifyOptions,
 ) -> MinifyStats {
     let allocator = Allocator::new();
     let mut cx = MinifyContext::new(options, &allocator);
-    minify_style_sheet(stylesheet, token, &mut cx);
+    let (stylesheet, declaration_blocks) = compilation.parts_mut();
+    minify_style_sheet(stylesheet, declaration_blocks, token, &mut cx);
     cx.stats()
 }
 
@@ -63,17 +64,18 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for MinifyPlugin {
 
     fn transform(
         &mut self,
-        stylesheet: &mut StyleSheet<'a, 'ghost>,
+        compilation: &mut Compilation<'a>,
         cx: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
-        let stats = minify(stylesheet, cx.ghost_token(), self.options);
+        let stats = minify(compilation, cx.ghost_token(), self.options);
         cx.insert(stats);
         Ok(())
     }
 }
 
 pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
-    stylesheet: &mut StyleSheet<'ast, 'ghost>,
+    stylesheet: &mut StyleSheet<'ast>,
+    declaration_block_store: &mut DeclarationBlockStore<'ast>,
     token: &mut GhostToken<'ghost>,
     cx: &mut MinifyContext<'cx>,
 ) where
@@ -92,11 +94,14 @@ pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
         cx: owned_cx,
         declaration_blocks,
     };
-    let mut visit_context = VisitMutContext::new(token);
-    stylesheet.visit_mut(&mut minifier, &mut visit_context);
+    {
+        let mut visit_context =
+            VisitMutContext::new_with_declaration_blocks(token, declaration_block_store);
+        stylesheet.visit_mut(&mut minifier, &mut visit_context);
+    }
     cross_rule_declaration_merging::merge_cross_rule_declarations(
         stylesheet,
-        token,
+        declaration_block_store,
         &mut minifier.declaration_blocks,
         &mut minifier.cx,
     );
@@ -113,7 +118,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_declaration(
         &mut self,
         node: &mut Declaration<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
         let remove_declaration = if let Declaration::FontFamily(families) = node {
@@ -131,7 +136,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_font_family(
         &mut self,
         node: &mut FontFamily<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         if !matches!(node, FontFamily::Unparsed(_) | FontFamily::Tombstone) {
             node.visit_mut_children(self, cx);
@@ -140,8 +145,8 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
 
     fn visit_declaration_block(
         &mut self,
-        node: &mut DeclarationBlock<'ast, 'ghost>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        node: &mut DeclarationBlock<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
         self.declaration_blocks.minify(node, &mut self.cx);
@@ -150,7 +155,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_keyframe_selector(
         &mut self,
         node: &mut KeyframeSelector,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
@@ -159,7 +164,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_animation(
         &mut self,
         node: &mut Animation<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
@@ -168,7 +173,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_unparsed_property(
         &mut self,
         node: &mut UnparsedProperty<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         if matches!(
             node.reason,
@@ -197,7 +202,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_custom_property(
         &mut self,
         node: &mut CustomProperty<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::custom_property_context(&self.cx);
@@ -237,7 +242,11 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_function(&mut self, node: &mut Function<'ast>, cx: &mut VisitMutContext<'_, 'ghost>) {
+    fn visit_function(
+        &mut self,
+        node: &mut Function<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
         let previous = self.cx.value_context;
         let kind = node.kind();
         if matches!(kind, KnownFunction::Rgb | KnownFunction::Rgba) && !node.is_valid_rgb() {
@@ -289,7 +298,11 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         self.cx.value_context = previous;
     }
 
-    fn visit_variable(&mut self, node: &mut Variable<'ast>, cx: &mut VisitMutContext<'_, 'ghost>) {
+    fn visit_variable(
+        &mut self,
+        node: &mut Variable<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
     }
@@ -297,7 +310,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_environment_variable(
         &mut self,
         node: &mut EnvironmentVariable<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
@@ -306,7 +319,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_unknown_at_rule(
         &mut self,
         node: &mut UnknownAtRule<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         let previous = self.cx.value_context;
         self.cx.value_context = Default::default();
@@ -321,33 +334,41 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_token_or_value(
         &mut self,
         node: &mut TokenOrValue<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
     }
 
-    fn visit_length_value(&mut self, node: &mut LengthValue, cx: &mut VisitMutContext<'_, 'ghost>) {
+    fn visit_length_value(
+        &mut self,
+        node: &mut LengthValue,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
     }
 
-    fn visit_angle(&mut self, node: &mut Angle, cx: &mut VisitMutContext<'_, 'ghost>) {
+    fn visit_angle(&mut self, node: &mut Angle, cx: &mut VisitMutContext<'_, 'ast, 'ghost>) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
     }
 
-    fn visit_time(&mut self, node: &mut Time, cx: &mut VisitMutContext<'_, 'ghost>) {
+    fn visit_time(&mut self, node: &mut Time, cx: &mut VisitMutContext<'_, 'ast, 'ghost>) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
     }
 
-    fn visit_resolution(&mut self, node: &mut Resolution, cx: &mut VisitMutContext<'_, 'ghost>) {
+    fn visit_resolution(
+        &mut self,
+        node: &mut Resolution,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
     }
 
-    fn visit_ratio(&mut self, node: &mut Ratio, cx: &mut VisitMutContext<'_, 'ghost>) {
+    fn visit_ratio(&mut self, node: &mut Ratio, cx: &mut VisitMutContext<'_, 'ast, 'ghost>) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
     }
@@ -355,7 +376,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_selector_list(
         &mut self,
         node: &mut SelectorList<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         self.visit_selector_list_children(node, cx);
         let allocator = self.cx.allocator();
@@ -365,7 +386,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_media_list(
         &mut self,
         node: &mut MediaList<'ast>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);

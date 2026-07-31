@@ -1,5 +1,7 @@
 use rocketcss_allocator::{Allocator, GhostToken, StringPool};
-use rocketcss_ast::{Atom, StyleSheet};
+use rocketcss_ast::{
+    Atom, Compilation, DeclarationBlock, DeclarationBlockId, DeclarationBlockStore,
+};
 
 use crate::{
     Error, ParserOptions,
@@ -11,6 +13,7 @@ pub struct Compiler<'alloc> {
     pub(crate) allocator: &'alloc Allocator,
     pub(crate) string_pool: StringPool<'alloc>,
     pub(crate) cursor: ParserCursor<'alloc>,
+    declaration_blocks: DeclarationBlockStore<'alloc>,
     source: &'alloc str,
     source_map_url: Option<&'alloc str>,
 }
@@ -21,6 +24,7 @@ impl<'alloc> Compiler<'alloc> {
             allocator,
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(""),
+            declaration_blocks: DeclarationBlockStore::default(),
             source: "",
             source_map_url: None,
         }
@@ -32,6 +36,7 @@ impl<'alloc> Compiler<'alloc> {
             allocator,
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(source),
+            declaration_blocks: DeclarationBlockStore::default(),
             source: "",
             source_map_url: None,
         }
@@ -42,12 +47,16 @@ impl<'alloc> Compiler<'alloc> {
         source: &'alloc str,
         token: &mut GhostToken<'ghost>,
         options: ParserOptions<'alloc>,
-    ) -> Result<StyleSheet<'alloc, 'ghost>, Error<'alloc>> {
+    ) -> Result<Compilation<'alloc>, Error<'alloc>> {
         self.cursor = ParserCursor::new(source);
+        self.declaration_blocks = DeclarationBlockStore::default();
         let stylesheet = parse_stylesheet(self, token, options)?;
         self.source = options.filename;
         self.source_map_url = self.cursor.source_map_url;
-        Ok(stylesheet)
+        Ok(Compilation::new(
+            stylesheet,
+            std::mem::take(&mut self.declaration_blocks),
+        ))
     }
 
     #[inline]
@@ -68,6 +77,22 @@ impl<'alloc> Compiler<'alloc> {
     #[inline]
     pub fn intern_ascii_lowercase(&mut self, value: &str) -> Atom<'alloc> {
         self.string_pool.intern_ascii_lowercase(value)
+    }
+
+    #[inline]
+    pub(crate) fn alloc_declaration_block(
+        &mut self,
+        block: DeclarationBlock<'alloc>,
+    ) -> DeclarationBlockId {
+        self.declaration_blocks.alloc(block)
+    }
+
+    #[inline]
+    pub(crate) fn declaration_block_mut(
+        &mut self,
+        id: DeclarationBlockId,
+    ) -> &mut DeclarationBlock<'alloc> {
+        self.declaration_blocks.get_mut(id)
     }
 
     pub(crate) fn with_source<T>(

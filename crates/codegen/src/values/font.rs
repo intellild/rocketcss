@@ -4,7 +4,7 @@ impl<'ghost> ToCss<'ghost> for FontFamily<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Custom(value) => write_custom_font_family(value, dest),

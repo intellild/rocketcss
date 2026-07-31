@@ -20,32 +20,44 @@ impl<'a, 'ghost> Visitor<'a, 'ghost> for Recorder {
         assert_eq!(self.stack.pop(), Some(kind));
     }
 
-    fn visit_style_sheet(&mut self, sheet: &StyleSheet<'a, 'ghost>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_style_sheet(&mut self, sheet: &StyleSheet<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         self.style_sheets += 1;
         sheet.visit_children(self, cx);
     }
 
-    fn visit_style_rule(&mut self, rule: &StyleRule<'a, 'ghost>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_style_rule(&mut self, rule: &StyleRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         self.style_rules += 1;
         rule.visit_children(self, cx);
     }
 
-    fn visit_selector_list(&mut self, selectors: &SelectorList<'a>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_selector_list(
+        &mut self,
+        selectors: &SelectorList<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         self.selector_lists += 1;
         self.visit_selector_list_children(selectors, cx);
     }
 
-    fn visit_declaration(&mut self, declaration: &Declaration<'a>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_declaration(
+        &mut self,
+        declaration: &Declaration<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         self.declarations += 1;
         declaration.visit_children(self, cx);
     }
 
-    fn visit_css_color(&mut self, color: &CssColor<'a>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_css_color(&mut self, color: &CssColor<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         self.colors += 1;
         color.visit_children(self, cx);
     }
 
-    fn visit_unknown_at_rule(&mut self, rule: &UnknownAtRule<'a>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_unknown_at_rule(
+        &mut self,
+        rule: &UnknownAtRule<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         self.unknown_at_rules += 1;
         rule.visit_children(self, cx);
     }
@@ -104,12 +116,12 @@ struct RuleRecorder {
 }
 
 impl<'a, 'ghost> Visitor<'a, 'ghost> for RuleRecorder {
-    fn visit_css_rule(&mut self, rule: &CssRule<'a, 'ghost>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_css_rule(&mut self, rule: &CssRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         self.css_rules += 1;
         rule.visit_children(self, cx);
     }
 
-    fn visit_default_at_rule(&mut self, rule: &DefaultAtRule, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_default_at_rule(&mut self, rule: &DefaultAtRule, cx: &VisitContext<'_, 'a, 'ghost>) {
         self.default_at_rules += 1;
         rule.visit_children(self, cx);
     }
@@ -147,14 +159,14 @@ struct SelectorRecorder<'a> {
 }
 
 impl<'a, 'ghost> Visitor<'a, 'ghost> for SelectorRecorder<'a> {
-    fn visit_selector(&mut self, selector: &Selector<'a>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_selector(&mut self, selector: &Selector<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         selector.visit_children(self, cx);
     }
 
     fn visit_selector_component(
         &mut self,
         component: &SelectorComponent<'a>,
-        cx: &VisitContext<'_, 'ghost>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         match component {
             SelectorComponent::Class(name) => self.classes.push(name.as_str()),
@@ -196,7 +208,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameAndRecolor<'a> {
     fn visit_selector_component(
         &mut self,
         component: &mut SelectorComponent<'a>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         if let SelectorComponent::Class(name) = component {
             *name = self.renamed;
@@ -204,7 +216,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameAndRecolor<'a> {
         component.visit_mut_children(self, cx);
     }
 
-    fn visit_rgba(&mut self, color: &mut RGBA, cx: &mut VisitMutContext<'_, 'ghost>) {
+    fn visit_rgba(&mut self, color: &mut RGBA, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         color.red = 1;
         color.visit_mut_children(self, cx);
     }
@@ -237,7 +249,7 @@ fn mutable_visitor_can_transform_typed_nodes() {
             SelectorComponent::Class(name) if name == "renamed"
         ));
         assert!(matches!(
-            rule.declarations.as_ref().borrow(&token).declarations[0],
+            sheet.declaration_block(rule.declarations).declarations[0],
             Declaration::Color(ref color)
                 if matches!(
                     **color,
@@ -253,11 +265,15 @@ struct PanicOnNestedStyle {
     styles_seen: usize,
 }
 
+struct NoopVisitor;
+
+impl<'a, 'ghost> VisitorMut<'a, 'ghost> for NoopVisitor {}
+
 impl<'a, 'ghost> VisitorMut<'a, 'ghost> for PanicOnNestedStyle {
     fn visit_style_rule(
         &mut self,
-        mut rule: std::pin::Pin<&mut StyleRule<'a, 'ghost>>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        mut rule: std::pin::Pin<&mut StyleRule<'a>>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         self.styles_seen += 1;
         assert_ne!(self.styles_seen, 2, "nested style panic");
@@ -277,13 +293,15 @@ fn mutable_visitor_panic_keeps_nested_rules_attached() {
         )
         .unwrap();
 
+        let mut cx = VisitMutContext::new(&mut token);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sheet.visit_mut(
-                &mut PanicOnNestedStyle::default(),
-                &mut VisitMutContext::new(&mut token),
-            );
+            sheet.visit_mut(&mut PanicOnNestedStyle::default(), &mut cx);
         }));
         assert!(result.is_err());
+
+        // The declaration-block store is scoped to each traversal, including
+        // when a visitor unwinds. Reusing the context must remain valid.
+        sheet.visit_mut(&mut NoopVisitor, &mut cx);
 
         let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected outer style rule")
@@ -301,7 +319,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for FunctionOrderRecorder {
     fn visit_function(
         &mut self,
         function: &mut Function<'a>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         self.events.push(std::format!("{}-before", function.name()));
         function.visit_mut_children(self, cx);
@@ -337,8 +355,8 @@ struct RemoveUnusedClass;
 impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RemoveUnusedClass {
     fn visit_style_rule(
         &mut self,
-        mut rule: std::pin::Pin<&mut StyleRule<'a, 'ghost>>,
-        _cx: &mut VisitMutContext<'_, 'ghost>,
+        mut rule: std::pin::Pin<&mut StyleRule<'a>>,
+        _cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         for selector in rule.as_mut().selectors_mut().iter_mut() {
             let should_remove = matches!(

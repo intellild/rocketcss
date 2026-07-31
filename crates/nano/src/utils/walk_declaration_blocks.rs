@@ -1,10 +1,10 @@
 use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 
-use rocketcss_allocator::{GhostToken, Ref, vec::Vec};
+use rocketcss_allocator::vec::Vec;
 use rocketcss_ast::{
-    ContainerCondition, CssRule, DeclarationBlock, MediaList, SelectorList, StyleRule, StyleSheet,
-    SupportsCondition, VendorPrefix,
+    ContainerCondition, CssRule, DeclarationBlockId, MediaList, SelectorList, StyleRule,
+    StyleSheet, SupportsCondition, VendorPrefix,
 };
 use rustc_hash::{FxHashMap, FxHasher};
 use smallvec::SmallVec;
@@ -292,9 +292,8 @@ pub(crate) enum DeclarationBlockKind {
 }
 
 #[derive(Debug)]
-pub(crate) struct DeclarationBlockEntry<'walk, 'ast, 'ghost> {
-    pub(crate) declarations: &'walk DeclarationBlock<'ast, 'ghost>,
-    pub(crate) declaration_ref: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
+pub(crate) struct DeclarationBlockEntry {
+    pub(crate) declarations: DeclarationBlockId,
     pub(crate) effective_key: EffectiveKeyId,
     pub(crate) kind: DeclarationBlockKind,
     pub(crate) rule_list: RuleListId,
@@ -304,7 +303,7 @@ pub(crate) struct DeclarationBlockEntry<'walk, 'ast, 'ghost> {
     starts_history: bool,
 }
 
-impl DeclarationBlockEntry<'_, '_, '_> {
+impl DeclarationBlockEntry {
     pub(crate) fn is_direct_sibling_of(&self, right: &Self) -> bool {
         self.rule_list == right.rule_list
             && self.rule_list_segment == right.rule_list_segment
@@ -348,30 +347,27 @@ impl WalkState {
     }
 }
 
-pub(crate) fn walk_declaration_blocks<'walk, 'ast, 'ghost>(
-    stylesheet: &'walk StyleSheet<'ast, 'ghost>,
-    token: &'walk GhostToken<'ghost>,
-) -> std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>> {
-    let mut walker = DeclarationBlockWalker::new(token);
+pub(crate) fn walk_declaration_blocks<'walk, 'ast>(
+    stylesheet: &'walk StyleSheet<'ast>,
+) -> std::vec::Vec<DeclarationBlockEntry> {
+    let mut walker = DeclarationBlockWalker::new();
     walker.collect_rule_list(&stylesheet.rules);
     walker.declaration_blocks
 }
 
-struct DeclarationBlockWalker<'walk, 'ast, 'ghost> {
-    token: &'walk GhostToken<'ghost>,
+struct DeclarationBlockWalker<'walk, 'ast> {
     selector_path: SelectorPathId,
     selector_paths: SelectorPathStore<'walk, 'ast>,
     conditional_path: ConditionalPathId,
     conditional_paths: ConditionalPathStore<'walk, 'ast>,
     effective_keys: EffectiveKeyInterner,
-    declaration_blocks: std::vec::Vec<DeclarationBlockEntry<'walk, 'ast, 'ghost>>,
+    declaration_blocks: std::vec::Vec<DeclarationBlockEntry>,
     state: WalkState,
 }
 
-impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
-    fn new(token: &'walk GhostToken<'ghost>) -> Self {
+impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
+    fn new() -> Self {
         Self {
-            token,
             selector_path: SelectorPathId::default(),
             selector_paths: SelectorPathStore::default(),
             conditional_path: ConditionalPathId::default(),
@@ -382,7 +378,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
         }
     }
 
-    fn collect_rule_list(&mut self, rules: &'walk Vec<'ast, CssRule<'ast, 'ghost>>) {
+    fn collect_rule_list(&mut self, rules: &'walk Vec<'ast, CssRule<'ast>>) {
         let rule_list = self.state.allocate_rule_list();
         let mut rule_list_segment = self.state.allocate_rule_list_segment();
         self.declaration_blocks.reserve(rules.len());
@@ -405,7 +401,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
         }
     }
 
-    fn collect_rule(&mut self, rule: &'walk CssRule<'ast, 'ghost>, location: StructuralLocation) {
+    fn collect_rule(&mut self, rule: &'walk CssRule<'ast>, location: StructuralLocation) {
         match rule {
             CssRule::Media(rule) => {
                 self.with_condition(ConditionalFrame::Media(&rule.query), &rule.rules)
@@ -427,8 +423,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
             ),
             CssRule::NestedDeclarations(rule) => {
                 self.push_declaration_block(
-                    rule.declarations.as_ref().borrow(self.token).get_ref(),
-                    Ref::from(&rule.declarations),
+                    rule.declarations,
                     DeclarationBlockKind::NestedDeclarations,
                     location,
                 );
@@ -458,7 +453,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
 
     fn collect_style_rule(
         &mut self,
-        rule: &'walk StyleRule<'ast, 'ghost>,
+        rule: &'walk StyleRule<'ast>,
         kind: SelectorFrameKind,
         location: StructuralLocation,
     ) {
@@ -472,8 +467,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
             },
         );
         self.push_declaration_block(
-            rule.declarations.as_ref().borrow(self.token).get_ref(),
-            Ref::from(&rule.declarations),
+            rule.declarations,
             match kind {
                 SelectorFrameKind::Style => DeclarationBlockKind::Style {
                     has_children: !rule.rules.is_empty(),
@@ -493,7 +487,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
     fn with_condition(
         &mut self,
         frame: ConditionalFrame<'walk, 'ast>,
-        rules: &'walk Vec<'ast, CssRule<'ast, 'ghost>>,
+        rules: &'walk Vec<'ast, CssRule<'ast>>,
     ) {
         let parent_conditional_path = self.conditional_path;
         self.conditional_path = self.conditional_paths.push(parent_conditional_path, frame);
@@ -503,8 +497,7 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
 
     fn push_declaration_block(
         &mut self,
-        declarations: &'walk DeclarationBlock<'ast, 'ghost>,
-        declaration_ref: Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>,
+        declarations: DeclarationBlockId,
         kind: DeclarationBlockKind,
         location: StructuralLocation,
     ) {
@@ -519,7 +512,6 @@ impl<'walk, 'ast, 'ghost> DeclarationBlockWalker<'walk, 'ast, 'ghost> {
         );
         self.declaration_blocks.push(DeclarationBlockEntry {
             declarations,
-            declaration_ref,
             effective_key: occurrence.id,
             kind,
             rule_list: location.rule_list,
@@ -574,7 +566,7 @@ fn hash_conditional_frame(frame: &ConditionalFrame<'_, '_>, hasher: &mut impl Ha
     }
 }
 
-fn ends_rule_list_segment(rule: &CssRule<'_, '_>) -> bool {
+fn ends_rule_list_segment(rule: &CssRule<'_>) -> bool {
     match rule {
         CssRule::Style(rule) => !rule.as_ref().get_ref().rules.is_empty(),
         _ => true,
@@ -610,7 +602,7 @@ mod tests {
             )
             .unwrap();
 
-            let blocks = walk_declaration_blocks(&stylesheet, &token);
+            let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 5);
             assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
             assert_eq!(blocks[1].effective_key, blocks[2].effective_key);
@@ -631,7 +623,7 @@ mod tests {
             )
             .unwrap();
 
-            let blocks = walk_declaration_blocks(&stylesheet, &token);
+            let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 5);
             assert!(blocks[0].starts_declaration_history());
             assert_eq!(blocks[0].next_declaration_history_entry(), Some(2));
@@ -656,7 +648,7 @@ mod tests {
             )
             .unwrap();
 
-            let blocks = walk_declaration_blocks(&stylesheet, &token);
+            let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 6);
             assert!(blocks[0].is_direct_sibling_of(&blocks[1]));
             assert!(blocks[2].is_direct_sibling_of(&blocks[3]));
@@ -680,15 +672,12 @@ mod tests {
             )
             .unwrap();
 
-            let blocks = walk_declaration_blocks(&stylesheet, &token);
+            let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 3);
             assert_eq!(blocks[0].effective_key, blocks[2].effective_key);
             assert_ne!(blocks[0].rule_list, blocks[2].rule_list);
             assert!(blocks[1].is_direct_sibling_of(&blocks[2]));
-            assert_ne!(
-                std::ptr::from_ref(blocks[0].declarations),
-                std::ptr::from_ref(blocks[2].declarations)
-            );
+            assert_ne!(blocks[0].declarations, blocks[2].declarations);
         });
     }
 }
