@@ -6,7 +6,7 @@ use std::{
 };
 
 use rocketcss_allocator::{Allocator, GhostToken};
-use rocketcss_ast::{StyleSheet, VisitMutContext};
+use rocketcss_ast::{Compilation, VisitMutContext};
 
 use crate::{VisitMut, VisitorMut};
 
@@ -78,7 +78,7 @@ pub trait Plugin<'a, 'ghost> {
 
     fn transform(
         &mut self,
-        stylesheet: &mut StyleSheet<'a, 'ghost>,
+        compilation: &mut Compilation<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError>;
 }
@@ -128,12 +128,12 @@ impl<'plugin, 'a, 'ghost> Plugins<'plugin, 'a, 'ghost> {
 
     pub fn run(
         &mut self,
-        stylesheet: &mut StyleSheet<'a, 'ghost>,
+        compilation: &mut Compilation<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), PluginError> {
         for plugin in &mut self.plugins {
             plugin
-                .transform(stylesheet, context)
+                .transform(compilation, context)
                 .map_err(|source| PluginError {
                     plugin: plugin.name().to_owned(),
                     source,
@@ -179,10 +179,12 @@ impl<'a, 'ghost, V: VisitorMut<'a, 'ghost>> Plugin<'a, 'ghost> for VisitorPlugin
 
     fn transform(
         &mut self,
-        stylesheet: &mut StyleSheet<'a, 'ghost>,
+        compilation: &mut Compilation<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
-        let mut visit_context = VisitMutContext::new(context.ghost_token());
+        let (stylesheet, declaration_blocks) = compilation.parts_mut();
+        let mut visit_context =
+            VisitMutContext::new_with_declaration_blocks(context.ghost_token(), declaration_blocks);
         stylesheet.visit_mut(&mut self.visitor, &mut visit_context);
         Ok(())
     }

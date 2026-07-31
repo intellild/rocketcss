@@ -6,7 +6,7 @@ macro_rules! keyword_values {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl<'ghost> ToCss<'ghost> for $ty {
-                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, 'ghost>) -> fmt::Result {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
                     dest.write_str(self.as_css_str().expect("keyword enum has only static variants"))
                 }
             }
@@ -115,7 +115,7 @@ impl<'ghost> ToCss<'ghost> for Image<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -129,7 +129,7 @@ impl<'ghost> ToCss<'ghost> for Image<'_> {
 fn write_gradient_items<'ghost, PrinterT: PrinterTrait, D: ToCss<'ghost>>(
     items: &[GradientItem<'_, D>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, item) in items.iter().enumerate() {
         if index > 0 {
@@ -144,7 +144,7 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Linear {
@@ -224,7 +224,7 @@ impl<'ghost> ToCss<'ghost> for WebKitGradient<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("-webkit-gradient(")?;
         match self {
@@ -267,7 +267,7 @@ impl<'ghost> ToCss<'ghost> for LineDirection {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Angle(value) => value.to_css(dest, _cx),
@@ -296,7 +296,7 @@ impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for GradientItem<'_, D> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::ColorStop { color, position } => {
@@ -316,7 +316,7 @@ impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for DimensionPercentage<'_, D> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Dimension(value) => value.to_css(dest, _cx),
@@ -334,7 +334,7 @@ impl<'ghost, S: ToCss<'ghost>> ToCss<'ghost> for PositionComponent<'_, S> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Center => dest.write_str("center"),
@@ -355,7 +355,7 @@ impl<'ghost> ToCss<'ghost> for EndingShape<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Ellipse(value) => value.to_css(dest, _cx),
@@ -368,7 +368,7 @@ impl<'ghost> ToCss<'ghost> for Ellipse<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("ellipse")?;
         match self {
@@ -390,7 +390,7 @@ impl<'ghost> ToCss<'ghost> for Circle<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("circle")?;
         dest.write_char(' ')?;
@@ -405,7 +405,7 @@ impl<'ghost, S: ToCss<'ghost>> ToCss<'ghost> for WebKitGradientPointComponent<S>
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Center => dest.write_str("center"),
@@ -419,7 +419,7 @@ impl<'ghost> ToCss<'ghost> for NumberOrPercentage {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(value) => serialize_number(*value, dest),
@@ -435,7 +435,7 @@ impl<'ghost> ToCss<'ghost> for BackgroundSize<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Explicit { height, width } => {
@@ -453,7 +453,7 @@ impl<'ghost> ToCss<'ghost> for LengthPercentageOrAuto<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -466,7 +466,7 @@ impl<'ghost> ToCss<'ghost> for Display {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Keyword(value) => value.to_css(dest, _cx),
@@ -535,7 +535,7 @@ impl<'ghost> ToCss<'ghost> for DisplayInside {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Flow => dest.write_str("flow"),
@@ -559,7 +559,7 @@ fn write_prefixed_keyword<'ghost, PrinterT: PrinterTrait>(
     prefix: &VendorPrefix,
     value: &str,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     prefix.to_css(dest, cx)?;
     dest.write_str(value)
@@ -569,7 +569,7 @@ impl<'ghost> ToCss<'ghost> for Size<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -601,7 +601,7 @@ impl<'ghost> ToCss<'ghost> for MaxSize<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -633,7 +633,7 @@ impl<'ghost> ToCss<'ghost> for PositionProperty {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Static => dest.write_str("static"),
@@ -649,7 +649,7 @@ impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Size2D<'_, T> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         self.0.to_css(dest, _cx)?;
         if self.0 != self.1 {
@@ -664,7 +664,7 @@ impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Rect<'_, T> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         self.0.to_css(dest, _cx)?;
         if self.0 == self.1 && self.0 == self.2 && self.0 == self.3 {
@@ -689,7 +689,7 @@ impl<'ghost> ToCss<'ghost> for BorderSideWidth<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Thin => dest.write_str("thin"),
@@ -704,7 +704,7 @@ impl<'ghost> ToCss<'ghost> for LengthOrNumber<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(value) => serialize_number(*value, dest),
@@ -717,7 +717,7 @@ impl<'ghost> ToCss<'ghost> for BorderImageSideWidth<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(value) => serialize_number(*value, dest),
@@ -731,7 +731,7 @@ impl<'ghost> ToCss<'ghost> for OutlineStyle {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -743,7 +743,7 @@ impl<'ghost> ToCss<'ghost> for OutlineStyle {
 fn write_overflow_position<'ghost, PrinterT: PrinterTrait>(
     overflow: &Option<OverflowPosition>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     if let Some(overflow) = overflow {
         overflow.to_css(dest, cx)?;
@@ -756,7 +756,7 @@ impl<'ghost> ToCss<'ghost> for AlignContent {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -777,7 +777,7 @@ impl<'ghost> ToCss<'ghost> for JustifyContent {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -804,7 +804,7 @@ macro_rules! self_alignment {
             fn to_css<PrinterT: PrinterTrait>(
                 &self,
                 $dest: &mut PrinterT,
-                _cx: &ToCssContext<'_, 'ghost>,
+                _cx: &ToCssContext<'_, '_, 'ghost>,
             ) -> fmt::Result {
                 match self {
                     Self::Normal => $dest.write_str("normal"),
@@ -831,7 +831,7 @@ impl<'ghost> ToCss<'ghost> for JustifySelf {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -861,7 +861,7 @@ impl<'ghost> ToCss<'ghost> for JustifyItems {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -894,7 +894,7 @@ impl<'ghost> ToCss<'ghost> for GapValue<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -924,7 +924,7 @@ impl<'ghost> ToCss<'ghost> for TrackSizing<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -964,7 +964,7 @@ impl<'ghost> ToCss<'ghost> for TrackListItem<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::TrackSize(value) => value.to_css(dest, _cx),
@@ -977,7 +977,7 @@ impl<'ghost> ToCss<'ghost> for TrackSize<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::TrackBreadth(value) => value.to_css(dest, _cx),
@@ -1001,7 +1001,7 @@ impl<'ghost> ToCss<'ghost> for TrackBreadth<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Length(value) => value.to_css(dest, _cx),
@@ -1017,7 +1017,7 @@ impl<'ghost> ToCss<'ghost> for RepeatCount {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(value) => serialize_number(*value, dest),
@@ -1031,7 +1031,7 @@ impl<'ghost> ToCss<'ghost> for GridTemplateAreas<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1063,7 +1063,7 @@ impl<'ghost> ToCss<'ghost> for GridLine<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -1100,7 +1100,7 @@ impl<'ghost> ToCss<'ghost> for FontWeight {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Absolute(value) => value.to_css(dest, _cx),
@@ -1114,7 +1114,7 @@ impl<'ghost> ToCss<'ghost> for AbsoluteFontWeight {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Weight(value) => serialize_number(*value, dest),
@@ -1128,7 +1128,7 @@ impl<'ghost> ToCss<'ghost> for FontSize<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Length(value) => value.to_css(dest, _cx),
@@ -1142,7 +1142,7 @@ impl<'ghost> ToCss<'ghost> for FontStretch {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Keyword(value) => value.to_css(dest, _cx),
@@ -1158,7 +1158,7 @@ impl<'ghost> ToCss<'ghost> for FontStyle {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -1176,7 +1176,7 @@ impl<'ghost> ToCss<'ghost> for LineHeight<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -1190,7 +1190,7 @@ impl<'ghost> ToCss<'ghost> for VerticalAlign<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Keyword(value) => value.to_css(dest, _cx),
@@ -1203,7 +1203,7 @@ impl<'ghost> ToCss<'ghost> for EasingFunction {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Linear => dest.write_str("linear"),
@@ -1265,7 +1265,7 @@ impl<'ghost> ToCss<'ghost> for AnimationIterationCount {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(value) => serialize_number(*value, dest),
@@ -1278,7 +1278,7 @@ impl<'ghost> ToCss<'ghost> for AnimationTimeline<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -1305,7 +1305,7 @@ impl<'ghost> ToCss<'ghost> for AnimationAttachmentRange<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -1336,7 +1336,7 @@ where
 fn write_comma_values<'ghost, PrinterT: PrinterTrait, T: ToCss<'ghost>>(
     values: &[&T],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
@@ -1351,7 +1351,7 @@ impl<'ghost> ToCss<'ghost> for Transform<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Translate((x, y)) => write_function_values("translate", dest, |dest| {
@@ -1433,7 +1433,7 @@ impl<'ghost> ToCss<'ghost> for Perspective<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1446,7 +1446,7 @@ impl<'ghost> ToCss<'ghost> for Translate<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1465,7 +1465,7 @@ impl<'ghost> ToCss<'ghost> for Scale {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1484,7 +1484,7 @@ impl<'ghost> ToCss<'ghost> for Spacing<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -1497,7 +1497,7 @@ impl<'ghost> ToCss<'ghost> for TextDecorationLine<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::ExclusiveTextDecorationLine(value) => value.to_css(dest, _cx),
@@ -1518,7 +1518,7 @@ impl<'ghost> ToCss<'ghost> for TextDecorationThickness<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -1532,7 +1532,7 @@ impl<'ghost> ToCss<'ghost> for TextEmphasisStyle<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1553,7 +1553,7 @@ impl<'ghost> ToCss<'ghost> for TextSizeAdjust {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -1570,7 +1570,7 @@ impl<'ghost> ToCss<'ghost> for ColorOrAuto<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -1583,7 +1583,7 @@ impl<'ghost> ToCss<'ghost> for Appearance<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::NonStandard(value) => dest.write_str(value),
@@ -1600,7 +1600,7 @@ impl<'ghost> ToCss<'ghost> for ListStyleType<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1614,7 +1614,7 @@ impl<'ghost> ToCss<'ghost> for CounterStyle<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Predefined(value) => value.to_css(dest, _cx),
@@ -1641,7 +1641,7 @@ impl<'ghost> ToCss<'ghost> for Symbol<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::String(value) => serialize_string(value, dest),
@@ -1654,7 +1654,7 @@ impl<'ghost> ToCss<'ghost> for SVGPaint<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Url { fallback, url } => {
@@ -1677,7 +1677,7 @@ impl<'ghost> ToCss<'ghost> for SVGPaintFallback<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1690,7 +1690,7 @@ impl<'ghost> ToCss<'ghost> for StrokeDasharray<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1711,7 +1711,7 @@ impl<'ghost> ToCss<'ghost> for Marker<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1724,7 +1724,7 @@ impl<'ghost> ToCss<'ghost> for ClipPath<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1746,7 +1746,7 @@ impl<'ghost> ToCss<'ghost> for BasicShape<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Inset(value) => value.to_css(dest, _cx),
@@ -1761,7 +1761,7 @@ impl<'ghost> ToCss<'ghost> for ShapeRadius<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::LengthPercentage(value) => value.to_css(dest, _cx),
@@ -1775,7 +1775,7 @@ impl<'ghost> ToCss<'ghost> for MaskClip {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::GeometryBox(value) => value.to_css(dest, _cx),
@@ -1788,7 +1788,7 @@ impl<'ghost> ToCss<'ghost> for FilterList<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1809,7 +1809,7 @@ impl<'ghost> ToCss<'ghost> for Filter<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Blur(value) => {
@@ -1851,7 +1851,7 @@ impl<'ghost> ToCss<'ghost> for ZIndex {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -1864,7 +1864,7 @@ impl<'ghost> ToCss<'ghost> for ContainerNameList<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1887,7 +1887,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1901,7 +1901,7 @@ impl<'ghost> ToCss<'ghost> for NoneOrCustomIdentList<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1914,7 +1914,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionGroup<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -1929,7 +1929,7 @@ impl<'ghost> ToCss<'ghost> for CustomPropertyName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let value = match self {
             Self::Custom(value) | Self::Unknown(value) => value,

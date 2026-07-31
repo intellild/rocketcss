@@ -46,7 +46,7 @@ fn deduplicates_equivalent_font_families() {
             panic!("expected style rule")
         };
         let rule = rule.as_ref().get_ref();
-        let declarations = rule.declarations.as_ref().borrow(&token);
+        let declarations = stylesheet.declaration_block(rule.declarations);
         let Declaration::FontFamily(families) = &declarations.declarations[0] else {
             panic!("expected typed font-family declaration")
         };
@@ -73,7 +73,7 @@ fn removes_font_family_declarations_containing_only_tombstones() {
             panic!("expected style rule")
         };
         let rule = rule.as_ref().get_ref();
-        let declarations = rule.declarations.as_ref().borrow(&token);
+        let declarations = stylesheet.declaration_block(rule.declarations);
         assert!(
             declarations
                 .declarations

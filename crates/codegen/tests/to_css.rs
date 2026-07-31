@@ -6,7 +6,7 @@ fn parse_stylesheet<'a, 'ghost>(
     source: &'a str,
     allocator: &'a Allocator,
     token: &mut GhostToken<'ghost>,
-) -> StyleSheet<'a, 'ghost> {
+) -> Compilation<'a> {
     parse(source, allocator, token, ParserOptions::default()).unwrap()
 }
 #[test]
@@ -48,12 +48,8 @@ fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
         let CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected a style rule")
         };
-        for declaration in &rule
-            .as_ref()
-            .get_ref()
-            .declarations
-            .as_ref()
-            .borrow(&token)
+        for declaration in &stylesheet
+            .declaration_block(rule.as_ref().get_ref().declarations)
             .declarations
         {
             assert!(
@@ -71,9 +67,10 @@ fn ports_lightningcss_public_to_css_api_cases() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         let stylesheet = parse_stylesheet(".foo { color: red }", &allocator, &mut token);
+        let context = ToCssContext::new_with_declaration_blocks(&token, stylesheet.parts().1);
         let rule = &stylesheet.rules[0];
         assert_eq!(
-            rule.to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+            rule.to_css_string(PrinterOptions::default(), &context)
                 .unwrap(),
             ".foo {\n  color: red;\n}"
         );
@@ -83,8 +80,10 @@ fn ports_lightningcss_public_to_css_api_cases() {
         };
         let style = style.as_ref().get_ref();
         assert_eq!(
-            style.declarations.as_ref().borrow(&token).declarations[0]
-                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+            stylesheet
+                .declaration_block(style.declarations)
+                .declarations[0]
+                .to_css_string(PrinterOptions::default(), &context)
                 .unwrap(),
             "color: red"
         );
@@ -96,12 +95,10 @@ fn ports_lightningcss_public_to_css_api_cases() {
         let CssRule::Media(media) = &stylesheet.rules[0] else {
             panic!("expected a media rule")
         };
+        let context = ToCssContext::new_with_declaration_blocks(&token, stylesheet.parts().1);
         assert_eq!(
             media.rules[0]
-                .to_css_string(
-                    PrinterOptions { prettify: false },
-                    &ToCssContext::new(&token)
-                )
+                .to_css_string(PrinterOptions { prettify: false }, &context)
                 .unwrap(),
             ".a{color:red}"
         );
@@ -364,13 +361,15 @@ fn box_sizing_css_wide_keywords_round_trip_as_known_unparsed_values() {
         let rule = rule.as_ref().get_ref();
 
         assert_eq!(
-            rule.declarations.as_ref().borrow(&token).declarations.len(),
+            stylesheet
+                .declaration_block(rule.declarations)
+                .declarations
+                .len(),
             5
         );
         assert!(
-            rule.declarations
-                .as_ref()
-                .borrow(&token)
+            stylesheet
+                .declaration_block(rule.declarations)
                 .declarations
                 .iter()
                 .all(|declaration| matches!(
@@ -652,10 +651,8 @@ fn declaration_block_preserves_importance_bits() {
         };
         let style = style.as_ref().get_ref();
         assert_eq!(
-            style
-                .declarations
-                .as_ref()
-                .borrow(&token)
+            stylesheet
+                .declaration_block(style.declarations)
                 .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap(),
             "color: red !important;\nopacity: .5"
@@ -697,17 +694,13 @@ fn merged_declaration_blocks_serialize_from_chain_head() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         let mut stylesheet = parse_stylesheet("a{width:1px}a{height:2px}", &allocator, &mut token);
-        let [CssRule::Style(first), CssRule::Style(second)] = &mut stylesheet.rules[..] else {
+        let (sheet, declaration_blocks) = stylesheet.parts_mut();
+        let [CssRule::Style(first), CssRule::Style(second)] = &mut sheet.rules[..] else {
             panic!("expected two style rules")
         };
-        let previous = Ref::from(&first.as_ref().get_ref().declarations);
-        second
-            .as_ref()
-            .get_ref()
-            .declarations
-            .as_ref()
-            .borrow_mut(&mut token)
-            .get_mut()
+        let previous = first.as_ref().get_ref().declarations;
+        declaration_blocks
+            .get_mut(second.as_ref().get_ref().declarations)
             .set_previous_merged(Some(previous));
         for selector in first.as_mut().selectors_mut().iter_mut() {
             *selector = Selector::Tombstone;

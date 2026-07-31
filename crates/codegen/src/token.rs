@@ -4,7 +4,7 @@ impl<'ghost> ToCss<'ghost> for Unit {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Length(unit) => unit.to_css(dest, _cx),
@@ -29,7 +29,7 @@ impl<'ghost> ToCss<'ghost> for Token<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
 
@@ -150,7 +150,7 @@ fn write_minified_hash<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT)
 pub(crate) fn write_token_list<'ghost, PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 && minified_color_needs_separator(&values[index - 1], value) {
@@ -180,7 +180,7 @@ fn minified_color_needs_separator(left: &TokenOrValue<'_>, right: &TokenOrValue<
 pub(crate) fn write_token_list_trimmed<'ghost, PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     let start = values
         .iter()
@@ -199,7 +199,7 @@ impl<'ghost> ToCss<'ghost> for TokenOrValue<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Token(value) => value.to_css(dest, _cx),
@@ -228,7 +228,7 @@ impl<'ghost> ToCss<'ghost> for Url<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("url(")?;
         if !dest.prettify() && can_write_unquoted_url(self.url) {
@@ -268,7 +268,7 @@ impl<'ghost> ToCss<'ghost> for Variable<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("var(")?;
         self.name.to_css(dest, _cx)?;
@@ -293,7 +293,7 @@ impl<'ghost> ToCss<'ghost> for EnvironmentVariable<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("env(")?;
         self.name.to_css(dest, _cx)?;
@@ -322,7 +322,7 @@ impl<'ghost> ToCss<'ghost> for EnvironmentVariableName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::UA(value) => value.to_css(dest, _cx),
@@ -336,7 +336,7 @@ impl<'ghost> ToCss<'ghost> for UAEnvironmentVariable {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(
             self.as_css_str()
@@ -349,7 +349,7 @@ impl<'ghost> ToCss<'ghost> for DashedIdentReference<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         write_dashed_ident(self.ident, dest)?;
         if let Some(from) = &self.from {
@@ -364,7 +364,7 @@ impl<'ghost> ToCss<'ghost> for Specifier<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Global => dest.write_str("global"),
@@ -378,7 +378,7 @@ impl<'ghost> ToCss<'ghost> for Function<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         if let Some(replacement) = self.replacement {
             return match replacement {
@@ -494,7 +494,7 @@ impl<'ghost> ToCss<'ghost> for AnimationName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),

@@ -4,7 +4,7 @@ impl<'ghost> ToCss<'ghost> for MediaList<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         if self.media_queries.is_empty() {
             return dest.write_str("not all");
@@ -23,7 +23,7 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         if let Some(condition) = &self.condition
             && let MediaCondition::Unknown(tokens) = condition
@@ -95,7 +95,7 @@ impl<'ghost> ToCss<'ghost> for MediaCondition<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         write_media_condition(self, None, dest, _cx)
     }
@@ -105,7 +105,7 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
     condition: &MediaCondition<'_>,
     parent: Option<&Operator>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     match condition {
         MediaCondition::Feature(value) => value.to_css(dest, cx),
@@ -158,7 +158,7 @@ impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for QueryFeature<'_, Featur
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_char('(')?;
         match self {
@@ -199,7 +199,7 @@ impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for MediaFeatureName<'_, Fe
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Standard(value) => value.to_css(dest, _cx),
@@ -216,7 +216,7 @@ impl<'ghost> ToCss<'ghost> for MediaFeatureId {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(
             self.as_css_str()
@@ -229,7 +229,7 @@ impl<'ghost> ToCss<'ghost> for MediaFeatureValue<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Length(value) => value.to_css(dest, _cx),
@@ -248,7 +248,7 @@ impl<'ghost> ToCss<'ghost> for MediaFeatureComparison {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.whitespace()?;
         dest.write_str(match self {
@@ -266,7 +266,7 @@ impl<'ghost> ToCss<'ghost> for Operator {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("operators are static keywords"))
     }
@@ -276,7 +276,7 @@ impl<'ghost> ToCss<'ghost> for MediaType<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Custom(value) => serialize_identifier(value, dest),
@@ -293,7 +293,7 @@ impl<'ghost> ToCss<'ghost> for Qualifier {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("qualifiers are static keywords"))
     }
@@ -303,7 +303,7 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Not(value) => {

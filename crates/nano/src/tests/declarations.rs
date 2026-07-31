@@ -63,7 +63,7 @@ fn removes_exact_duplicate_declarations_within_one_block() {
             panic!("expected style rule")
         };
         let rule = rule.as_ref().get_ref();
-        let declarations = rule.declarations.as_ref().borrow(&token);
+        let declarations = stylesheet.declaration_block(rule.declarations);
         assert_eq!(declarations.len(), 3);
         assert_eq!(declarations.declarations_importance.len(), 3);
         assert!(matches!(
@@ -167,11 +167,21 @@ fn s2_requires_exactly_equal_conditional_contexts() {
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
 
-        let blocks = crate::utils::walk_declaration_blocks(&stylesheet, &token);
+        let blocks = crate::utils::walk_declaration_blocks(&stylesheet);
         assert_eq!(blocks.len(), 2);
         assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
-        assert!(!blocks[0].declarations.declarations[0].is_tombstone());
-        assert!(!blocks[1].declarations.declarations[0].is_tombstone());
+        assert!(
+            !stylesheet
+                .declaration_block(blocks[0].declarations)
+                .declarations[0]
+                .is_tombstone()
+        );
+        assert!(
+            !stylesheet
+                .declaration_block(blocks[1].declarations)
+                .declarations[0]
+                .is_tombstone()
+        );
     });
 }
 

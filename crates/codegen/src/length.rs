@@ -4,7 +4,7 @@ impl<'ghost> ToCss<'ghost> for LengthValue {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         if self.value == 0.0 && !dest.in_calc() {
             return dest.write_char('0');
@@ -17,7 +17,7 @@ impl<'ghost> ToCss<'ghost> for LengthUnit {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("length units are static strings"))
     }
@@ -27,7 +27,7 @@ impl<'ghost> ToCss<'ghost> for Length<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Value(value) => value.to_css(dest, _cx),
@@ -40,7 +40,7 @@ impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for Calc<'_, V> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.with_calc(|dest| match self {
             Self::Value(value) => value.to_css(dest, _cx),
@@ -77,7 +77,7 @@ where
 fn write_calc_list<'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost>>(
     values: &[Calc<'_, V>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
@@ -92,7 +92,7 @@ impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<'_, V> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Calc(value) => write_function("calc", dest, |dest| value.to_css(dest, _cx)),
@@ -141,7 +141,7 @@ impl<'ghost> ToCss<'ghost> for RoundingStrategy {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(
             self.as_css_str()
@@ -154,7 +154,7 @@ impl<'ghost> ToCss<'ghost> for Resolution {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let (value, unit) = match self {
             Self::Dpi(value) => (*value, Unit::Dpi),
@@ -169,7 +169,7 @@ impl<'ghost> ToCss<'ghost> for Ratio {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(numerator) => serialize_number(*numerator, dest),
@@ -186,7 +186,7 @@ impl<'ghost> ToCss<'ghost> for Angle {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let (value, unit) = match self {
             Self::Deg(value) => (*value, Unit::Deg),
@@ -202,7 +202,7 @@ impl<'ghost> ToCss<'ghost> for Time {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Seconds(value) => serialize_dimension(*value, &Unit::Seconds, dest, _cx),

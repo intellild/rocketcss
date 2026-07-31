@@ -1,6 +1,7 @@
 use std::fmt::{self, Write};
 
 use rocketcss_allocator::GhostToken;
+use rocketcss_ast::{DeclarationBlock, DeclarationBlockId, DeclarationBlockStore};
 
 /// Options controlling CSS serialization.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -321,19 +322,41 @@ impl<W: Write> PrinterTrait for Printer<'_, W> {
 
 /// Shared context used while serializing an AST.
 #[derive(Clone, Copy)]
-pub struct ToCssContext<'token, 'ghost> {
+pub struct ToCssContext<'token, 'ast, 'ghost> {
     token: &'token GhostToken<'ghost>,
+    declaration_blocks: Option<&'token DeclarationBlockStore<'ast>>,
 }
 
-impl<'token, 'ghost> ToCssContext<'token, 'ghost> {
+impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
     #[inline]
     pub const fn new(token: &'token GhostToken<'ghost>) -> Self {
-        Self { token }
+        Self {
+            token,
+            declaration_blocks: None,
+        }
+    }
+
+    #[inline]
+    pub const fn new_with_declaration_blocks(
+        token: &'token GhostToken<'ghost>,
+        declaration_blocks: &'token DeclarationBlockStore<'ast>,
+    ) -> Self {
+        Self {
+            token,
+            declaration_blocks: Some(declaration_blocks),
+        }
     }
 
     #[inline]
     pub const fn token(&self) -> &'token GhostToken<'ghost> {
         self.token
+    }
+
+    #[inline]
+    pub fn declaration_block(&self, id: DeclarationBlockId) -> &DeclarationBlock<'ast> {
+        self.declaration_blocks
+            .expect("declaration block store is unavailable")
+            .get(id)
     }
 }
 
@@ -342,14 +365,14 @@ pub trait ToCss<'ghost> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        cx: &ToCssContext<'_, 'ghost>,
+        cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result;
 
     #[inline]
     fn to_css_string(
         &self,
         options: PrinterOptions,
-        cx: &ToCssContext<'_, 'ghost>,
+        cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> Result<String, fmt::Error> {
         let mut output = String::new();
         self.to_css(&mut Printer::new(&mut output, options), cx)?;
@@ -362,7 +385,7 @@ impl<'ghost, T: ToCss<'ghost> + ?Sized> ToCss<'ghost> for &T {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        cx: &ToCssContext<'_, 'ghost>,
+        cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         (*self).to_css(dest, cx)
     }
@@ -373,7 +396,7 @@ impl<'ghost, T: ToCss<'ghost>> ToCss<'ghost> for Option<T> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        cx: &ToCssContext<'_, 'ghost>,
+        cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         if let Some(value) = self {
             value.to_css(dest, cx)?;
@@ -450,7 +473,7 @@ pub(crate) fn serialize_dimension<'ghost, UnitT: ToCss<'ghost>, PrinterT: Printe
     value: f32,
     unit: &UnitT,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     serialize_number(value, dest)?;
     unit.to_css(dest, cx)
@@ -461,7 +484,7 @@ impl<'a, 'ghost, T: ToCss<'ghost>> ToCss<'ghost> for rocketcss_allocator::boxed:
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         (**self).to_css(dest, _cx)
     }

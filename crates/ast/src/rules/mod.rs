@@ -54,17 +54,17 @@ macro_rules! impl_spanned {
     };
 }
 
-macro_rules! impl_spanned_ghost {
+macro_rules! impl_spanned_plain {
     ($($ty:ident),+ $(,)?) => {
         $(
-            impl GetSpan for $ty<'_, '_> {
+            impl GetSpan for $ty {
                 #[inline]
                 fn span(&self) -> Span {
                     self.span
                 }
             }
 
-            impl SetSpan for $ty<'_, '_> {
+            impl SetSpan for $ty {
                 #[inline]
                 fn set_span(&mut self, span: Span) {
                     self.span = span;
@@ -89,18 +89,12 @@ impl_spanned!(
     UnknownAtRule,
     Url,
     ImportRule,
-);
-
-impl_spanned_ghost!(
     SupportsRule,
     KeyframesRule,
     PageRule,
-    PageMarginRule,
     CounterStyleRule,
     MozDocumentRule,
     NestingRule,
-    NestedDeclarationsRule,
-    ViewportRule,
     LayerBlockRule,
     ContainerRule,
     ScopeRule,
@@ -109,3 +103,5 @@ impl_spanned_ghost!(
     MediaRule,
     StyleRule,
 );
+
+impl_spanned_plain!(PageMarginRule, NestedDeclarationsRule, ViewportRule);

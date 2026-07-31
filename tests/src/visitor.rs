@@ -14,7 +14,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameClass<'a> {
     fn visit_selector_component(
         &mut self,
         component: &mut SelectorComponent<'a>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         if let SelectorComponent::Class(name) = component
             && *name == "before"

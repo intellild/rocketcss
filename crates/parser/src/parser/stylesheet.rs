@@ -9,7 +9,7 @@ pub fn parse<'i, 'ghost>(
     allocator: &'i Allocator,
     token: &mut GhostToken<'ghost>,
     options: ParserOptions<'i>,
-) -> Result<StyleSheet<'i, 'ghost>, Error<'i>> {
+) -> Result<Compilation<'i>, Error<'i>> {
     Compiler::new(allocator).parse(source, token, options)
 }
 
@@ -17,7 +17,7 @@ pub(crate) fn parse_stylesheet<'i, 'ghost>(
     compiler: &mut Compiler<'i>,
     token: &mut GhostToken<'ghost>,
     options: ParserOptions<'i>,
-) -> Result<StyleSheet<'i, 'ghost>, Error<'i>> {
+) -> Result<StyleSheet<'i>, Error<'i>> {
     let allocator = compiler.allocator();
     let mut license_comments = allocator.vec();
 

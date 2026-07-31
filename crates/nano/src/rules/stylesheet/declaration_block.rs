@@ -1,12 +1,13 @@
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 use rocketcss_allocator::{
-    GhostToken, Ref,
+    GhostToken,
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 use rocketcss_ast::{
-    CSSWideOr, Columns, CssColor, Declaration, DeclarationBlock, EqIgnoringTombstones,
-    KnownFunction, LengthValue, Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty,
-    UnparsedPropertyReason, VendorPrefix, Visit, VisitContext, Visitor, match_ignore_ascii_case,
+    CSSWideOr, Columns, CssColor, Declaration, DeclarationBlock, DeclarationBlockId,
+    DeclarationBlockStore, EqIgnoringTombstones, KnownFunction, LengthValue, Margin, Padding,
+    PropertyId, Token, TokenOrValue, UnparsedProperty, UnparsedPropertyReason, VendorPrefix, Visit,
+    VisitContext, Visitor, match_ignore_ascii_case,
 };
 
 fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
@@ -23,7 +24,7 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
     }
 }
 
-impl<'a, 'ghost> Minify for DeclarationBlock<'a, 'ghost> {
+impl<'a> Minify for DeclarationBlock<'a> {
     fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
     where
         Self: 'cx,
@@ -235,33 +236,33 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-enum DeclarationBlocks<'sequence, 'ast, 'ghost> {
-    Direct(&'sequence mut DeclarationBlock<'ast, 'ghost>),
-    Ghost {
-        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
-        token: &'sequence mut GhostToken<'ghost>,
+enum DeclarationBlocks<'sequence, 'ast> {
+    Direct(&'sequence mut DeclarationBlock<'ast>),
+    Store {
+        blocks: &'sequence [DeclarationBlockId],
+        store: &'sequence mut DeclarationBlockStore<'ast>,
     },
 }
 
-struct DeclarationSequence<'sequence, 'ast, 'ghost> {
-    blocks: DeclarationBlocks<'sequence, 'ast, 'ghost>,
+struct DeclarationSequence<'sequence, 'ast> {
+    blocks: DeclarationBlocks<'sequence, 'ast>,
 }
 
-impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
+impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
     #[inline]
-    fn direct(block: &'sequence mut DeclarationBlock<'ast, 'ghost>) -> Self {
+    fn direct(block: &'sequence mut DeclarationBlock<'ast>) -> Self {
         Self {
             blocks: DeclarationBlocks::Direct(block),
         }
     }
 
     #[inline]
-    fn ghost(
-        blocks: &'sequence [Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
-        token: &'sequence mut GhostToken<'ghost>,
+    fn store(
+        blocks: &'sequence [DeclarationBlockId],
+        store: &'sequence mut DeclarationBlockStore<'ast>,
     ) -> Self {
         Self {
-            blocks: DeclarationBlocks::Ghost { blocks, token },
+            blocks: DeclarationBlocks::Store { blocks, store },
         }
     }
 
@@ -269,7 +270,7 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
     fn block_count(&self) -> usize {
         match &self.blocks {
             DeclarationBlocks::Direct(_) => 1,
-            DeclarationBlocks::Ghost { blocks, .. } => blocks.len(),
+            DeclarationBlocks::Store { blocks, .. } => blocks.len(),
         }
     }
 
@@ -282,24 +283,32 @@ impl<'sequence, 'ast, 'ghost> DeclarationSequence<'sequence, 'ast, 'ghost> {
     }
 
     #[inline]
-    fn block(&self, index: usize) -> &DeclarationBlock<'ast, 'ghost> {
+    fn block(&self, index: usize) -> &DeclarationBlock<'ast> {
         match &self.blocks {
             DeclarationBlocks::Direct(block) => {
                 debug_assert_eq!(index, 0);
                 block
             }
-            DeclarationBlocks::Ghost { blocks, token } => blocks[index].get(token).get_ref(),
+            DeclarationBlocks::Store { blocks, store } => store.get(blocks[index]),
         }
     }
 
     #[inline]
-    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast, 'ghost> {
+    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast> {
         match &mut self.blocks {
             DeclarationBlocks::Direct(block) => {
                 debug_assert_eq!(index, 0);
                 block
             }
-            DeclarationBlocks::Ghost { blocks, token } => blocks[index].get_mut(token).get_mut(),
+            DeclarationBlocks::Store { blocks, store } => store.get_mut(blocks[index]),
+        }
+    }
+
+    #[inline]
+    fn block_id(&self, index: usize) -> Option<DeclarationBlockId> {
+        match &self.blocks {
+            DeclarationBlocks::Direct(_) => None,
+            DeclarationBlocks::Store { blocks, .. } => Some(blocks[index]),
         }
     }
 
@@ -346,9 +355,9 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     }
 
     #[inline]
-    pub(crate) fn minify<'ghost>(
+    pub(crate) fn minify(
         &mut self,
-        block: &mut DeclarationBlock<'ast, 'ghost>,
+        block: &mut DeclarationBlock<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         if block.len() < 2 {
@@ -360,7 +369,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
 
     fn minify_non_trivial(
         &mut self,
-        sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+        sequence: &mut DeclarationSequence<'_, 'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         if !sequence.locations_fit() {
@@ -370,14 +379,14 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         deduplicate_declarations(sequence, &mut self.ir, cx);
     }
 
-    pub(crate) fn deduplicate_exact_sequence<'ghost>(
+    pub(crate) fn deduplicate_exact_sequence(
         &mut self,
-        blocks: &[Ref<'ast, 'ghost, DeclarationBlock<'ast, 'ghost>>],
-        token: &mut GhostToken<'ghost>,
+        blocks: &[DeclarationBlockId],
+        store: &mut DeclarationBlockStore<'ast>,
         cx: &mut MinifyContext<'scratch>,
-        mut on_block_emptied: impl FnMut(*const DeclarationBlock<'ast, 'ghost>),
+        mut on_block_emptied: impl FnMut(DeclarationBlockId),
     ) {
-        let sequence = DeclarationSequence::ghost(blocks, token);
+        let sequence = DeclarationSequence::store(blocks, store);
         if !sequence.locations_fit() {
             return;
         }
@@ -392,12 +401,12 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     }
 }
 
-struct ExactDeclarationHistory<'sequence, 'scratch, 'ast, 'ghost> {
+struct ExactDeclarationHistory<'sequence, 'scratch, 'ast> {
     declarations: &'sequence mut DeclarationMap<'scratch, 'ast>,
-    sequence: DeclarationSequence<'sequence, 'ast, 'ghost>,
+    sequence: DeclarationSequence<'sequence, 'ast>,
 }
 
-impl<'scratch, 'ast, 'ghost> ExactDeclarationHistory<'_, 'scratch, 'ast, 'ghost>
+impl<'scratch, 'ast> ExactDeclarationHistory<'_, 'scratch, 'ast>
 where
     'ast: 'scratch,
 {
@@ -405,7 +414,7 @@ where
         &mut self,
         block: usize,
         cx: &mut MinifyContext<'scratch>,
-        on_block_emptied: &mut impl FnMut(*const DeclarationBlock<'ast, 'ghost>),
+        on_block_emptied: &mut impl FnMut(DeclarationBlockId),
     ) {
         let declaration_count = self.sequence.block(block).len();
         for declaration in 0..declaration_count {
@@ -424,8 +433,10 @@ where
                 continue;
             };
             let removed_block = self.sequence.block(removed.block());
-            if removed_block.is_output_empty() {
-                on_block_emptied(std::ptr::from_ref(removed_block));
+            if removed_block.is_output_empty()
+                && let Some(id) = self.sequence.block_id(removed.block())
+            {
+                on_block_emptied(id);
             }
         }
     }
@@ -528,7 +539,7 @@ fn vendor_prefix_index(prefix: VendorPrefix) -> Option<usize> {
 }
 
 fn deduplicate_declarations<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     ir: &mut DeclarationIr<'scratch, 'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) where
@@ -566,7 +577,7 @@ enum ColumnsProperty {
 }
 
 fn process_columns_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     current: DeclarationLocation,
     important: bool,
     ir: &mut DeclarationIr<'scratch, 'ast>,
@@ -667,7 +678,7 @@ fn can_override_columns_longhands(declaration: &Declaration<'_>) -> bool {
 }
 
 fn fold_columns_override(
-    sequence: &mut DeclarationSequence<'_, '_, '_>,
+    sequence: &mut DeclarationSequence<'_, '_>,
     shorthand: DeclarationLocation,
     longhand: DeclarationLocation,
     prefix: VendorPrefix,
@@ -701,7 +712,7 @@ fn fold_columns_override(
 }
 
 fn merge_columns_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     width: DeclarationLocation,
     count: DeclarationLocation,
     prefix: VendorPrefix,
@@ -767,7 +778,7 @@ where
 }
 
 fn deduplicate_exact_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     current: DeclarationLocation,
     important: bool,
     declarations: &mut DeclarationMap<'scratch, 'ast>,
@@ -802,7 +813,7 @@ where
 }
 
 fn process_box_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     current: DeclarationLocation,
     important: bool,
     ir: &mut DeclarationIr<'scratch, 'ast>,
@@ -979,7 +990,7 @@ fn is_box_component(value: &TokenOrValue<'_>, family: BoxFamily) -> bool {
 }
 
 fn fold_box_side_override(
-    sequence: &mut DeclarationSequence<'_, '_, '_>,
+    sequence: &mut DeclarationSequence<'_, '_>,
     shorthand: DeclarationLocation,
     longhand: DeclarationLocation,
     family: BoxFamily,
@@ -1140,7 +1151,7 @@ fn clone_simple_token_or_value<'a>(
 }
 
 fn merge_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -1195,7 +1206,7 @@ where
 }
 
 fn css_wide_box_longhands(
-    sequence: &DeclarationSequence<'_, '_, '_>,
+    sequence: &DeclarationSequence<'_, '_>,
     locations: [DeclarationLocation; 4],
 ) -> Option<rocketcss_ast::CSSWideKeyword> {
     let Declaration::CSSWide(_, keyword) = sequence.declaration(locations[0]) else {
@@ -1213,7 +1224,7 @@ fn css_wide_box_longhands(
 }
 
 fn merge_typed_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     [top, right, bottom, left]: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -1283,7 +1294,7 @@ where
 }
 
 fn merge_unparsed_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -1367,7 +1378,7 @@ fn record_merged_longhands(
 }
 
 fn minify_unparsed_declaration<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast, '_>,
+    sequence: &mut DeclarationSequence<'_, 'ast>,
     location: DeclarationLocation,
     cx: &mut MinifyContext<'cx>,
 ) where
@@ -1414,7 +1425,7 @@ struct FunctionalColorBarrierVisitor {
 }
 
 impl<'ast, 'ghost> Visitor<'ast, 'ghost> for FunctionalColorBarrierVisitor {
-    fn visit_css_color(&mut self, node: &CssColor<'ast>, cx: &VisitContext<'_, 'ghost>) {
+    fn visit_css_color(&mut self, node: &CssColor<'ast>, cx: &VisitContext<'_, 'ast, 'ghost>) {
         if matches!(
             node,
             CssColor::Function(function) if function.replacement.is_none()

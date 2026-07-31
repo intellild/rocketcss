@@ -11,7 +11,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for Rename<'a> {
     fn visit_selector_component(
         &mut self,
         component: &mut SelectorComponent<'a>,
-        cx: &mut VisitMutContext<'_, 'ghost>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         if let SelectorComponent::Class(name) = component
             && *name == self.from
@@ -31,7 +31,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordPlugin {
 
     fn transform(
         &mut self,
-        _stylesheet: &mut StyleSheet<'a, 'ghost>,
+        _compilation: &mut Compilation<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         context
@@ -113,7 +113,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for FailingPlugin {
 
     fn transform(
         &mut self,
-        _stylesheet: &mut StyleSheet<'a, 'ghost>,
+        _compilation: &mut Compilation<'a>,
         _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         Err(std::boxed::Box::new(ExpectedFailure))

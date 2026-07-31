@@ -29,16 +29,18 @@ pub enum PagePseudoClass {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PageRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
+pub struct PageRule<'a> {
+    #[visit(with = visit_declaration_block_id, with_mut = visit_declaration_block_id_mut)]
+    pub declarations: DeclarationBlockId,
     pub span: Span,
-    pub rules: Vec<'a, PageMarginRule<'a, 'ghost>>,
+    pub rules: Vec<'a, PageMarginRule>,
     pub selectors: Vec<'a, PageSelector<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PageMarginRule<'a, 'ghost> {
-    pub declarations: GhostBox<'a, 'ghost, DeclarationBlock<'a, 'ghost>>,
+pub struct PageMarginRule {
+    #[visit(with = visit_declaration_block_id, with_mut = visit_declaration_block_id_mut)]
+    pub declarations: DeclarationBlockId,
     pub span: Span,
     pub margin_box: PageMarginBox,
 }

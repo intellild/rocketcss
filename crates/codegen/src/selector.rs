@@ -4,7 +4,7 @@ impl<'ghost> ToCss<'ghost> for SelectorList<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         write_selector_list(self, dest, _cx)
     }
@@ -14,7 +14,7 @@ impl<'ghost> ToCss<'ghost> for Selector<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Parsed(components) => {
@@ -32,7 +32,7 @@ impl<'ghost> ToCss<'ghost> for Selector<'_> {
 fn write_selector_list<'ghost, PrinterT: PrinterTrait>(
     selectors: &[Selector<'_>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     let mut wrote_selector = false;
     for selector in selectors {
@@ -52,7 +52,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Combinator(value) => value.to_css(dest, _cx),
@@ -182,7 +182,7 @@ impl<'ghost> ToCss<'ghost> for Combinator {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Child => dest.delim(Delimiter::ChildCombinator),
@@ -200,7 +200,7 @@ impl<'ghost> ToCss<'ghost> for AttrSelector<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let namespace = self.namespace.as_ref();
         match &self.operation {
@@ -225,7 +225,7 @@ fn write_attribute<'ghost, PrinterT: PrinterTrait>(
     local_name: &str,
     operation: Option<(AttrSelectorOperator, &str, ParsedCaseSensitivity)>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_char('[')?;
     if let Some(namespace) = namespace {
@@ -256,7 +256,7 @@ impl<'ghost> ToCss<'ghost> for NamespaceConstraint<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Any => dest.write_str("*|"),
@@ -272,7 +272,7 @@ impl<'ghost> ToCss<'ghost> for AttrOperation<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Exists => Ok(()),
@@ -293,7 +293,7 @@ impl<'ghost> ToCss<'ghost> for ParsedCaseSensitivity {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::ExplicitCaseSensitive => dest.write_str(" s"),
@@ -307,7 +307,7 @@ impl<'ghost> ToCss<'ghost> for AttrSelectorOperator {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(match self {
             Self::Equal => "=",
@@ -324,7 +324,7 @@ impl<'ghost> ToCss<'ghost> for NthSelectorData {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         write_nth_start(self, self.is_function, dest)?;
         if self.is_function {
@@ -339,7 +339,7 @@ impl<'ghost> ToCss<'ghost> for NthType {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("nth types are static keywords"))
     }
@@ -407,7 +407,7 @@ impl<'ghost> ToCss<'ghost> for Direction {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("directions are static keywords"))
     }
@@ -417,7 +417,7 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Lang { languages } => {
@@ -481,7 +481,7 @@ fn write_prefixed_pseudo<'ghost, PrinterT: PrinterTrait>(
     prefix: &VendorPrefix,
     name: &str,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_char(':')?;
     prefix.to_css(dest, cx)?;
@@ -542,7 +542,7 @@ impl<'ghost> ToCss<'ghost> for WebKitScrollbarPseudoClass {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(match self {
             Self::Horizontal => ":horizontal",
@@ -564,7 +564,7 @@ impl<'ghost> ToCss<'ghost> for PseudoElement<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Selection(prefix) => write_prefixed_element(prefix, "selection", dest, _cx),
@@ -614,7 +614,7 @@ fn write_prefixed_element<'ghost, PrinterT: PrinterTrait>(
     prefix: &VendorPrefix,
     name: &str,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_str("::")?;
     prefix.to_css(dest, cx)?;
@@ -637,7 +637,7 @@ fn write_selector_function<'ghost, PrinterT: PrinterTrait>(
     name: &str,
     selector: &Selector<'_>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_str("::")?;
     dest.write_str(name)?;
@@ -650,7 +650,7 @@ fn write_part_function<'ghost, PrinterT: PrinterTrait>(
     name: &str,
     part: &ViewTransitionPartSelector<'_>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, 'ghost>,
+    cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_str("::")?;
     dest.write_str(name)?;
@@ -684,7 +684,7 @@ impl<'ghost> ToCss<'ghost> for WebKitScrollbarPseudoElement {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(match self {
             Self::Scrollbar => "::-webkit-scrollbar",
@@ -702,7 +702,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionPartName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::All => dest.write_char('*'),
@@ -715,7 +715,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionPartSelector<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         if let Some(name) = &self.name {
             name.to_css(dest, _cx)?;

@@ -203,7 +203,7 @@ fn expand_visit_mode(
                 fn #visit<VisitorT: ?Sized + crate::#visitor_trait<#ast_lifetime, #ghost_lifetime>>(
                     &mut self,
                     visitor: &mut VisitorT,
-                    cx: &mut crate::VisitMutContext<'_, #ghost_lifetime>,
+                    cx: &mut crate::VisitMutContext<'_, #ast_lifetime, #ghost_lifetime>,
                 ) {
                     visitor.#callback(self.as_mut(), cx);
                 }
@@ -211,7 +211,7 @@ fn expand_visit_mode(
                 fn #visit_children<VisitorT: ?Sized + crate::#visitor_trait<#ast_lifetime, #ghost_lifetime>>(
                     &mut self,
                     visitor: &mut VisitorT,
-                    cx: &mut crate::VisitMutContext<'_, #ghost_lifetime>,
+                    cx: &mut crate::VisitMutContext<'_, #ast_lifetime, #ghost_lifetime>,
                 ) {
                     visitor.enter_node(crate::AstType::#name);
                     // SAFETY: traversal mutates fields without moving the pinned node.
@@ -232,7 +232,7 @@ fn expand_visit_mode(
                 fn #visit<VisitorT: ?Sized + crate::#visitor_trait<#ast_lifetime, #ghost_lifetime>>(
                     #reference self,
                     visitor: &mut VisitorT,
-                    cx: #context_reference crate::#context<'_, #ghost_lifetime>,
+                    cx: #context_reference crate::#context<'_, #ast_lifetime, #ghost_lifetime>,
                 ) {
                     visitor.#callback(self, cx);
                 }
@@ -240,7 +240,7 @@ fn expand_visit_mode(
                 fn #visit_children<VisitorT: ?Sized + crate::#visitor_trait<#ast_lifetime, #ghost_lifetime>>(
                     #reference self,
                     visitor: &mut VisitorT,
-                    cx: #context_reference crate::#context<'_, #ghost_lifetime>,
+                    cx: #context_reference crate::#context<'_, #ast_lifetime, #ghost_lifetime>,
                 ) {
                     visitor.enter_node(crate::AstType::#name);
                     let node = self;
@@ -840,8 +840,8 @@ mod tests {
         let expansion = expand_visit(input).unwrap().to_string();
         assert!(expansion.contains("crate :: Visit < 'a , 'ghost >"));
         assert!(expansion.contains("crate :: VisitMut < 'a , 'ghost >"));
-        assert!(expansion.contains("VisitContext < '_ , 'ghost >"));
-        assert!(expansion.contains("VisitMutContext < '_ , 'ghost >"));
+        assert!(expansion.contains("VisitContext < '_ , 'a , 'ghost >"));
+        assert!(expansion.contains("VisitMutContext < '_ , 'a , 'ghost >"));
         assert!(expansion.contains("get_unchecked_mut"));
         assert!(expansion.contains("node . child"));
         assert!(!expansion.contains("node . marker"));
