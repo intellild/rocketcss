@@ -1,13 +1,19 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, BinaryHeap, VecDeque},
+    hash::{Hash, Hasher},
+};
 
 use rocketcss_ast::{
-    CssRule, DeclarationBlockId, DeclarationBlockStore, SelectorList, Span, StyleRule, StyleSheet,
-    VendorPrefix,
+    CssRule, Declaration, DeclarationBlockId, DeclarationBlockStore, SelectorList, Span, StyleRule,
+    StyleSheet, VendorPrefix,
 };
 use rocketcss_common::{DenseId, vec::Vec};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use smallvec::SmallVec;
 
+#[cfg(test)]
+use super::partial_selector::PartialMergeRejection;
 use super::partial_selector::{
     PartialRuleRef, commit_partial_merge_declarations, discover_partial_merge_plan,
     materialize_selector_union,
@@ -65,6 +71,51 @@ impl SemanticOrderKey {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct PropertyBloom {
+    normal: u64,
+    important: u64,
+}
+
+impl PropertyBloom {
+    fn insert(&mut self, declaration: &Declaration<'_>, important: bool) {
+        if matches!(declaration, Declaration::Unparsed(_)) {
+            return;
+        }
+        let Some(property_id) = declaration.property_id() else {
+            return;
+        };
+        let mut hasher = FxHasher::default();
+        property_id.hash(&mut hasher);
+        if let Declaration::Custom(value) = declaration {
+            value.value.hash(&mut hasher);
+        }
+        let hash = hasher.finish();
+        let bits = (1 << (hash & 63)) | (1 << ((hash >> 6) & 63));
+        if important {
+            self.important |= bits;
+        } else {
+            self.normal |= bits;
+        }
+    }
+
+    fn may_share_declaration(self, other: Self) -> bool {
+        self.normal & other.normal != 0 || self.important & other.important != 0
+    }
+
+    fn union_with(&mut self, other: Self) {
+        self.normal |= other.normal;
+        self.important |= other.important;
+    }
+
+    fn intersection(self, other: Self) -> Self {
+        Self {
+            normal: self.normal & other.normal,
+            important: self.important & other.important,
+        }
+    }
+}
+
 enum SelectorSource<'walk, 'ast> {
     Authored(&'walk SelectorList<'ast>),
     Synthesized(SelectorList<'ast>),
@@ -89,6 +140,7 @@ struct LiveBlock<'walk, 'ast> {
     selectors: SelectorSource<'walk, 'ast>,
     span: Span,
     vendor_prefix: VendorPrefix,
+    property_bloom: PropertyBloom,
     flags: LiveBlockFlags,
     revision: u32,
 }
@@ -104,37 +156,30 @@ struct EdgeCandidate {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct PartialCandidateKey {
     left_order: SemanticOrderKey,
-    right_order: SemanticOrderKey,
     candidate: EdgeCandidate,
 }
 
 #[derive(Default)]
 struct PartialCandidateQueue {
-    pending: BTreeMap<PartialCandidateKey, EdgeCandidate>,
+    pending: BinaryHeap<Reverse<PartialCandidateKey>>,
     queued: FxHashSet<EdgeCandidate>,
 }
 
 impl PartialCandidateQueue {
-    fn push(
-        &mut self,
-        candidate: EdgeCandidate,
-        left_order: SemanticOrderKey,
-        right_order: SemanticOrderKey,
-    ) {
+    fn push(&mut self, candidate: EdgeCandidate, left_order: SemanticOrderKey) -> bool {
         if self.queued.insert(candidate) {
-            self.pending.insert(
-                PartialCandidateKey {
-                    left_order,
-                    right_order,
-                    candidate,
-                },
+            self.pending.push(Reverse(PartialCandidateKey {
+                left_order,
                 candidate,
-            );
+            }));
+            true
+        } else {
+            false
         }
     }
 
     fn pop(&mut self) -> Option<EdgeCandidate> {
-        let (_, candidate) = self.pending.pop_first()?;
+        let candidate = self.pending.pop()?.0.candidate;
         self.queued.remove(&candidate);
         Some(candidate)
     }
@@ -172,7 +217,14 @@ struct SchedulerStats {
     s1_queue_pops: usize,
     s2_queue_pops: usize,
     s3_queue_pops: usize,
+    s3_edges_considered: usize,
+    s3_candidates_enqueued: usize,
     s3_commits: usize,
+    s3_bloom_rejections: usize,
+    s3_ineligible_rejections: usize,
+    s3_no_common_rejections: usize,
+    s3_unsafe_movement_rejections: usize,
+    s3_selector_rejections: usize,
     stale_candidates: usize,
     edge_classifications: usize,
     history_insertions: usize,
@@ -256,6 +308,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             let mut flags = LiveBlockFlags::LIVE;
             flags.set(LiveBlockFlags::HAS_CHILDREN, has_children);
             flags.set(LiveBlockFlags::HAS_LIVE_SELECTORS, has_live_selectors);
+            let property_bloom = property_bloom(block, declaration_blocks);
             nodes[block.index()] = Some(LiveBlock {
                 effective_key: entry.effective_key,
                 previous_live: None,
@@ -266,6 +319,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
                 selectors: SelectorSource::Authored(selectors),
                 span,
                 vendor_prefix,
+                property_bloom,
                 flags,
                 revision: 0,
             });
@@ -404,6 +458,11 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         for block in declaration_chain(left, declaration_blocks) {
             self.owner_by_block[block.index()] = Some(right);
         }
+        let left_bloom = self.node(left).unwrap().property_bloom;
+        self.node_mut(right)
+            .unwrap()
+            .property_bloom
+            .union_with(left_bloom);
         self.bump_revision(right);
         let key = self.node(left).unwrap().effective_key;
         self.retire_node_without_relink(left);
@@ -491,6 +550,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             right_vendor_prefix,
             left_has_children,
             right_has_children,
+            shared_property_bloom,
             left_order,
             right_order,
             rule_list,
@@ -509,13 +569,16 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
                 right_node.vendor_prefix,
                 left_node.flags.contains(LiveBlockFlags::HAS_CHILDREN),
                 right_node.flags.contains(LiveBlockFlags::HAS_CHILDREN),
+                left_node
+                    .property_bloom
+                    .intersection(right_node.property_bloom),
                 left_node.order.clone(),
                 right_node.order.clone(),
                 left_node.rule_list,
                 left_node.rule_list_segment,
             )
         };
-        let Some(plan) = discover_partial_merge_plan(
+        let plan = discover_partial_merge_plan(
             PartialRuleRef {
                 declarations: left,
                 selectors: left_selectors,
@@ -532,8 +595,29 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             },
             declaration_blocks,
             cx,
-        ) else {
-            return;
+        );
+        let plan = match plan {
+            Ok(plan) => plan,
+            Err(rejection) => {
+                #[cfg(test)]
+                match rejection {
+                    PartialMergeRejection::Ineligible => {
+                        self.stats.s3_ineligible_rejections += 1;
+                    }
+                    PartialMergeRejection::NoCommonDeclaration => {
+                        self.stats.s3_no_common_rejections += 1;
+                    }
+                    PartialMergeRejection::UnsafeMovement => {
+                        self.stats.s3_unsafe_movement_rejections += 1;
+                    }
+                    PartialMergeRejection::IncompatibleSelectors => {
+                        self.stats.s3_selector_rejections += 1;
+                    }
+                }
+                #[cfg(not(test))]
+                let _ = rejection;
+                return;
+            }
         };
         let key_selectors = materialize_selector_union(
             left_selectors,
@@ -570,6 +654,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             selectors: SelectorSource::Synthesized(shared_selectors),
             span: shared_span,
             vendor_prefix: shared_vendor_prefix,
+            property_bloom: shared_property_bloom,
             flags: LiveBlockFlags::LIVE | LiveBlockFlags::HAS_LIVE_SELECTORS,
             revision: 0,
         }));
@@ -690,7 +775,8 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         };
         let same_selector = left_state.effective_key == right_state.effective_key;
         let left_order = left_state.order.clone();
-        let right_order = right_state.order.clone();
+        let left_property_bloom = left_state.property_bloom;
+        let right_property_bloom = right_state.property_bloom;
         #[cfg(test)]
         {
             self.stats.edge_classifications += 1;
@@ -698,8 +784,24 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         if same_selector {
             self.same_selector_candidates.push(candidate);
         } else {
-            self.partial_merge_candidates
-                .push(candidate, left_order, right_order);
+            #[cfg(test)]
+            {
+                self.stats.s3_edges_considered += 1;
+            }
+            if !left_property_bloom.may_share_declaration(right_property_bloom) {
+                #[cfg(test)]
+                {
+                    self.stats.s3_bloom_rejections += 1;
+                }
+            } else {
+                let inserted = self.partial_merge_candidates.push(candidate, left_order);
+                #[cfg(test)]
+                if inserted {
+                    self.stats.s3_candidates_enqueued += 1;
+                }
+                #[cfg(not(test))]
+                let _ = inserted;
+            }
         }
     }
 
@@ -981,6 +1083,16 @@ fn declaration_chain(
     chain
 }
 
+fn property_bloom(active: DeclarationBlockId, store: &DeclarationBlockStore<'_>) -> PropertyBloom {
+    let mut bloom = PropertyBloom::default();
+    for block in declaration_chain(active, store) {
+        for (declaration, important) in store.get(block).iter_live() {
+            bloom.insert(declaration, important);
+        }
+    }
+    bloom
+}
+
 fn oldest_declaration_block(
     active: DeclarationBlockId,
     store: &DeclarationBlockStore<'_>,
@@ -1032,10 +1144,69 @@ mod tests {
     }
 
     #[test]
+    fn partial_candidate_heap_pops_the_earliest_semantic_edge() {
+        let candidate = |index| EdgeCandidate {
+            left: DeclarationBlockId::from_index(index).unwrap(),
+            right: DeclarationBlockId::from_index(index + 1).unwrap(),
+            left_revision: 0,
+            right_revision: 0,
+        };
+        let mut queue = PartialCandidateQueue::default();
+        for index in [2, 0, 1] {
+            assert!(queue.push(candidate(index), SemanticOrderKey::initial(index),));
+        }
+        assert_eq!(queue.pop().unwrap().left.index(), 0);
+        assert_eq!(queue.pop().unwrap().left.index(), 1);
+        assert_eq!(queue.pop().unwrap().left.index(), 2);
+        assert!(queue.pop().is_none());
+    }
+
+    #[test]
+    fn property_bloom_rejects_only_impossible_s3_edges() {
+        let stats = scheduler_stats(".a{x:1}.b{y:1}.c{x:2!important}.d{x:3}");
+        assert_eq!(stats.s3_edges_considered, 3);
+        assert_eq!(stats.s3_bloom_rejections, 3);
+        assert_eq!(stats.s3_candidates_enqueued, 0);
+        assert_eq!(stats.s3_queue_pops, 0);
+
+        let stats = scheduler_stats(".a{color:red}.b{color:blue}");
+        assert_eq!(stats.s3_bloom_rejections, 0);
+        assert_eq!(stats.s3_candidates_enqueued, 1);
+        assert_eq!(stats.s3_queue_pops, 1);
+        assert_eq!(stats.s3_no_common_rejections, 1);
+        assert_eq!(stats.s3_commits, 0);
+
+        let stats = scheduler_stats(".a{opacity:.5}.b{opacity:.5}");
+        assert_eq!(stats.s3_bloom_rejections, 0);
+        assert_eq!(stats.s3_candidates_enqueued, 1);
+        assert_eq!(stats.s3_commits, 1);
+
+        let stats = scheduler_stats(".a{display:table-cell flow}.b{display:table-cell flow}");
+        assert_eq!(stats.s3_bloom_rejections, 1);
+        assert_eq!(stats.s3_candidates_enqueued, 0);
+        assert_eq!(stats.s3_commits, 0);
+    }
+
+    fn scheduler_stats(source: &str) -> SchedulerStats {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
+            let mut compilation =
+                parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
+            let scratch = Allocator::new();
+            let mut minifier = DeclarationBlockMinifier::new(&scratch);
+            let mut cx = MinifyContext::new(MinifyOptions::default(), &scratch);
+            let (stylesheet, declaration_blocks) = compilation.parts_mut();
+            let mut state = CrossRuleMergeState::discover(stylesheet, declaration_blocks);
+            state.run(declaration_blocks, &mut minifier, &mut cx);
+            state.stats
+        })
+    }
+
+    #[test]
     fn overlapping_chain_uses_one_collection_and_linear_local_work() {
         const RULE_COUNT: usize = 64;
         let source = (0..RULE_COUNT)
-            .map(|index| format!(".r{index}{{x:1}}"))
+            .map(|index| format!(".r{index}{{opacity:.5}}"))
             .collect::<String>();
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
@@ -1078,7 +1249,7 @@ mod tests {
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
             let mut compilation = parse(
-                ".root{z:1}@media print{.a{x:1}.b{x:1}}",
+                ".root{display:block}@media print{.a{opacity:.5}.b{opacity:.5}}",
                 &allocator,
                 &mut token,
                 ParserOptions::default(),
@@ -1102,7 +1273,7 @@ mod tests {
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
             let mut compilation = parse(
-                ".a{x:1}.b{y:1}",
+                ".a{color:red}.b{display:block}",
                 &allocator,
                 &mut token,
                 ParserOptions::default(),

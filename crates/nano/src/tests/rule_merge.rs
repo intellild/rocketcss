@@ -31,30 +31,48 @@ fn factors_common_declarations_between_different_selectors() {
 
 #[test]
 fn stabilizes_overlapping_partial_selector_candidates() {
-    assert_eq!(run("a{x:1}b{x:1;y:2}c{y:2}"), "a,b{x:1}b,c{y:2}");
-    assert_eq!(run("a{x:1}b{x:1}c{x:1}d{x:1}"), "a,b,c,d{x:1}");
-    assert_eq!(run("a,b{x:1}b,c{x:1}"), "a,b,c{x:1}");
-    assert_eq!(run("a{x:1}b{x:1}a,b{x:1}"), "a,b{x:1}");
+    assert_eq!(
+        run("a{color:red}b{color:red;width:1px}c{width:1px}"),
+        "a,b{color:red}b,c{width:1px}"
+    );
+    assert_eq!(
+        run("a{opacity:.5}b{opacity:.5}c{opacity:.5}d{opacity:.5}"),
+        "a,b,c,d{opacity:.5}"
+    );
+    assert_eq!(run("a,b{opacity:.5}b,c{opacity:.5}"), "a,b,c{opacity:.5}");
+    assert_eq!(
+        run("a{opacity:.5}b{opacity:.5}a,b{opacity:.5}"),
+        "a,b{opacity:.5}"
+    );
 }
 
 #[test]
 fn scheduler_propagates_work_between_s1_s2_and_s3() {
     // S3 creates a same-selector edge that must immediately return to S1.
-    assert_eq!(run("a{x:1}b{x:1}a,b{y:1}"), "a,b{x:1;y:1}");
+    assert_eq!(
+        run("a{color:red}b{color:red}a,b{width:1px}"),
+        "a,b{color:red;width:1px}"
+    );
 
     // The synthesized a,b occurrence must enter the existing non-adjacent S2
     // history without rebuilding declaration blocks from the AST.
-    assert_eq!(run("a,b{y:1}c{q:1}a{y:1}b{y:1}"), "c{q:1}a,b{y:1}");
+    assert_eq!(
+        run("a,b{width:1px}c{display:block}a{width:1px}b{width:1px}"),
+        "c{display:block}a,b{width:1px}"
+    );
 
     // S2 removes the first b rule and exposes an a/c edge for S3.
-    assert_eq!(run("a{x:1}b{z:1}c{x:1;y:1}b{z:1}"), "a,c{x:1}c{y:1}b{z:1}");
+    assert_eq!(
+        run("a{color:red}b{display:block}c{color:red;width:1px}b{display:block}"),
+        "a,c{color:red}c{width:1px}b{display:block}"
+    );
 }
 
 #[test]
 fn synthesized_history_occurrence_keeps_semantic_source_order() {
     assert_eq!(
-        run("a,b{x:1}@layer first;a{x:1}b{x:1}@layer second;a,b{x:1}"),
-        "@layer first;@layer second;a,b{x:1}"
+        run("a,b{opacity:.5}@layer first;a{opacity:.5}b{opacity:.5}@layer second;a,b{opacity:.5}"),
+        "@layer first;@layer second;a,b{opacity:.5}"
     );
 }
 
@@ -137,8 +155,8 @@ fn merges_selectors_with_the_same_compatibility_features() {
 #[test]
 fn reorders_only_proven_independent_common_effects() {
     assert_eq!(
-        run("a{color:red;font-size:2em}b{font-size:2em;color:red}"),
-        "a,b{color:red;font-size:2em}"
+        run("a{color:red;width:2px}b{width:2px;color:red}"),
+        "a,b{color:red;width:2px}"
     );
 }
 
@@ -169,20 +187,20 @@ fn factors_only_within_one_rule_list_and_preserves_nested_children() {
 #[test]
 fn factors_within_each_supported_condition_context_only() {
     assert_eq!(
-        run("@supports (display:grid){a{x:1}b{x:1}}"),
-        "@supports (display:grid){a,b{x:1}}"
+        run("@supports (display:grid){a{opacity:.5}b{opacity:.5}}"),
+        "@supports (display:grid){a,b{opacity:.5}}"
     );
     assert_eq!(
-        run("@container (width>1px){a{x:1}b{x:1}}"),
-        "@container (width>1px){a,b{x:1}}"
+        run("@container (width>1px){a{opacity:.5}b{opacity:.5}}"),
+        "@container (width>1px){a,b{opacity:.5}}"
     );
     assert_eq!(
-        run("@scope (.root){a{x:1}b{x:1}}"),
-        "@scope (.root){a,b{x:1}}"
+        run("@scope (.root){a{opacity:.5}b{opacity:.5}}"),
+        "@scope (.root){a,b{opacity:.5}}"
     );
     assert_eq!(
-        run("@starting-style{a{x:1}b{x:1}}"),
-        "@starting-style{a,b{x:1}}"
+        run("@starting-style{a{opacity:.5}b{opacity:.5}}"),
+        "@starting-style{a,b{opacity:.5}}"
     );
 
     // Structurally separate wrappers remain isolated even when their textual

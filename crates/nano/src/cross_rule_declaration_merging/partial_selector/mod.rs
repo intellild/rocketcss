@@ -43,12 +43,20 @@ pub(super) struct PartialMergePlan<'ast> {
     pub(super) retain_right: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PartialMergeRejection {
+    Ineligible,
+    NoCommonDeclaration,
+    UnsafeMovement,
+    IncompatibleSelectors,
+}
+
 pub(super) fn discover_partial_merge_plan<'ast, 'scratch>(
     left: PartialRuleRef<'_, 'ast>,
     right: PartialRuleRef<'_, 'ast>,
     declaration_blocks: &DeclarationBlockStore<'ast>,
     cx: &MinifyContext<'scratch>,
-) -> Option<PartialMergePlan<'ast>>
+) -> Result<PartialMergePlan<'ast>, PartialMergeRejection>
 where
     'ast: 'scratch,
 {
@@ -56,19 +64,22 @@ where
         || left.vendor_prefix != right.vendor_prefix
         || left.selectors == right.selectors
     {
-        return None;
+        return Err(PartialMergeRejection::Ineligible);
     }
 
     let left_declarations = live_declaration_slots(left.declarations, declaration_blocks);
     let right_declarations = live_declaration_slots(right.declarations, declaration_blocks);
     if left_declarations.is_empty() || right_declarations.is_empty() {
-        return None;
+        return Err(PartialMergeRejection::NoCommonDeclaration);
     }
 
     let mut right_matched = vec![false; right_declarations.len()];
     let mut common = std::vec::Vec::new();
     for &left_slot in &left_declarations {
         let (left_declaration, left_important) = declaration_at(left_slot, declaration_blocks);
+        if matches!(left_declaration, Declaration::Unparsed(_)) {
+            continue;
+        }
         let Some((right_order, &right_slot)) =
             right_declarations
                 .iter()
@@ -79,7 +90,8 @@ where
                     }
                     let (right_declaration, right_important) =
                         declaration_at(**right_slot, declaration_blocks);
-                    left_important == right_important
+                    !matches!(right_declaration, Declaration::Unparsed(_))
+                        && left_important == right_important
                         && left_declaration.eq_ignoring_tombstones(right_declaration)
                 })
         else {
@@ -93,7 +105,7 @@ where
         });
     }
     if common.is_empty() {
-        return None;
+        return Err(PartialMergeRejection::NoCommonDeclaration);
     }
 
     let mut left_common = FxHashSet::default();
@@ -113,15 +125,16 @@ where
         .filter(|slot| !right_common.contains(&(slot.block, slot.index)))
         .collect::<std::vec::Vec<_>>();
     if !partial_movement_is_safe(&common, &left_residual, &right_residual, declaration_blocks) {
-        return None;
+        return Err(PartialMergeRejection::UnsafeMovement);
     }
     let selectors = materialize_selector_union(
         left.selectors,
         right.selectors,
         cx.is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::Any),
-    )?;
+    )
+    .ok_or(PartialMergeRejection::IncompatibleSelectors)?;
 
-    Some(PartialMergePlan {
+    Ok(PartialMergePlan {
         selectors,
         common,
         span: Span::new(left.span.start, right.span.end),

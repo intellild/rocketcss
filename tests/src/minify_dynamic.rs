@@ -319,6 +319,21 @@ fn still_requires_unsupported_transform(
         ),
         (
             "merge-rules",
+            "merge based on declarations (2)",
+            "S3 intentionally skips declarations stored as unparsed values",
+        ),
+        (
+            "merge-rules",
+            "media queries (3)",
+            "S3 intentionally skips declarations stored as unparsed values",
+        ),
+        (
+            "merge-rules",
+            "media queries (4)",
+            "S3 intentionally skips declarations stored as unparsed values",
+        ),
+        (
+            "merge-rules",
             "should not merge across media queries",
             "pipeline converts media-query lengths",
         ),
@@ -336,6 +351,26 @@ fn still_requires_unsupported_transform(
             "merge-rules",
             "font-weight:bold",
             "pipeline normalizes font-weight keywords",
+        ),
+        (
+            "merge-rules",
+            "partial merging of selectors (2)",
+            "S3 intentionally skips declarations stored as unparsed values",
+        ),
+        (
+            "merge-rules",
+            "partial merging of selectors (4)",
+            "S3 intentionally skips declarations stored as unparsed values",
+        ),
+        (
+            "merge-rules",
+            "partial merging of selectors (6)",
+            "S3 intentionally skips declarations stored as unparsed values",
+        ),
+        (
+            "merge-rules",
+            "partial merging of selectors (7)",
+            "S3 intentionally skips declarations stored as unparsed values",
         ),
         (
             "merge-rules",
@@ -364,13 +399,8 @@ fn still_requires_unsupported_transform(
         ),
         (
             "merge-rules",
-            "text-* properties (3)",
-            "the upstream plugin reorders the common declaration sequence",
-        ),
-        (
-            "merge-rules",
-            "text-* properties (4)",
-            "the upstream plugin reorders the common declaration sequence",
+            "text-* properties",
+            "S3 intentionally skips declarations stored as unparsed values",
         ),
         (
             "merge-rules",
