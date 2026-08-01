@@ -108,16 +108,19 @@ fn leaves_value_order_untouched_when_ordering_is_disabled() {
 fn keeps_comments_in_animation_values_on_the_unparsed_path() {
     // The typed component parsers skip comments, so values containing
     // comments stay unparsed where they are retained.
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let stylesheet = parse(
             "a{animation:bounce /*!wow*/ 1s linear}",
+            &allocator,
             &mut token,
             ParserOptions::default(),
         )
         .unwrap();
-        let CssRule::Style(rule) = &stylesheet.root_rules()[0] else {
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected style rule")
         };
+        let rule = rule.as_ref().get_ref();
         let declarations = stylesheet.declaration_block(rule.declarations);
         assert!(matches!(
             declarations.declarations[0],

@@ -61,7 +61,7 @@ pub enum AnimationTimeline<'a> {
     None,
     DashedIdent(&'a str),
     Scroll(ScrollTimeline),
-    View(ViewTimeline),
+    View(ViewTimeline<'a>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -79,15 +79,15 @@ pub enum Scroller {
     Self_,
 }
 
-pub type AnimationRangeStart = AnimationAttachmentRange;
+pub type AnimationRangeStart<'a> = AnimationAttachmentRange<'a>;
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum AnimationAttachmentRange {
+pub enum AnimationAttachmentRange<'a> {
     Normal,
-    LengthPercentage(std::boxed::Box<LengthPercentage>),
+    LengthPercentage(Box<'a, LengthPercentage<'a>>),
     TimelineRange {
         name: TimelineRangeName,
-        offset: std::boxed::Box<LengthPercentage>,
+        offset: Box<'a, LengthPercentage<'a>>,
     },
 }
 
@@ -101,4 +101,4 @@ pub enum TimelineRangeName {
     ExitCrossing,
 }
 
-pub type AnimationRangeEnd = AnimationAttachmentRange;
+pub type AnimationRangeEnd<'a> = AnimationAttachmentRange<'a>;

@@ -11,24 +11,36 @@ use std::time::Duration;
 use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
-use rocketcss_common::GhostToken;
+use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_parser::prelude::Compilation;
 
 fn main() {
     divan::main();
 }
 
+/// Owns a parsed stylesheet together with the allocator that backs its arena
+/// storage, so the minify and codegen stages can be measured without parsing.
+///
 /// Stage benchmarks consume this through `bench_local_refs` so the stylesheet
-/// stays alive until Divan stops timing the sample; dropping it inside the
-/// timed section would add teardown time to the stage measurement.
+/// and its arena stay alive until Divan stops timing the sample; dropping them
+/// inside the timed section would add teardown time to the stage measurement.
 struct ParsedStyleSheet<'ghost> {
+    // Fields are dropped in declaration order, so the stylesheet is dropped
+    // before the allocator that owns its arena storage.
     stylesheet: Compilation<'ghost>,
+    _allocator: Box<Allocator>,
 }
 
 impl<'ghost> ParsedStyleSheet<'ghost> {
     fn new(source: &'static str, token: &mut GhostToken<'ghost>) -> Self {
+        let allocator = Box::new(Allocator::new());
+
+        // The allocator remains at a stable heap address and is owned by this
+        // input for at least as long as the stylesheet.
+        let allocator_ref: &'ghost Allocator = unsafe { &*std::ptr::from_ref(&*allocator) };
         let stylesheet = rocketcss_parser::parse(
             source,
+            allocator_ref,
             token,
             rocketcss_parser::ParserOptions {
                 error_recovery: true,
@@ -37,7 +49,10 @@ impl<'ghost> ParsedStyleSheet<'ghost> {
         )
         .unwrap();
 
-        Self { stylesheet }
+        Self {
+            stylesheet,
+            _allocator: allocator,
+        }
     }
 
     fn minified(source: &'static str, token: &mut GhostToken<'ghost>) -> Self {
@@ -59,9 +74,11 @@ mod parse {
         bencher
             .counter(BytesCount::of_str(case.source))
             .bench_local(|| {
-                GhostToken::scope(|mut token| {
+                let allocator = Allocator::new();
+                allocator.with_ghost(|mut token| {
                     let stylesheet = rocketcss_parser::parse(
                         black_box(case.source),
+                        &allocator,
                         &mut token,
                         rocketcss_parser::ParserOptions {
                             error_recovery: true,

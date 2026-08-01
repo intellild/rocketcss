@@ -61,7 +61,7 @@ impl Minify for Function<'_> {
         if is_gradient
             && !gradient_contains_variable
             && (minify_gradient_direction(&mut self.arguments)
-                | minify_gradient_stops(&mut self.arguments, cx))
+                | minify_gradient_stops(&mut self.arguments))
         {
             cx.record_value_normalized();
         }
@@ -90,12 +90,13 @@ impl Minify for Function<'_> {
         }
         if self.kind() == KnownFunction::Url {
             if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) {
-                self.set_name(cx.intern("url"));
+                self.set_name("url");
+                let allocator = self.arguments.bump();
                 if let [TokenOrValue::Token(token)] = self.arguments.as_mut_slice()
                     && let Token::String(value) = &mut **token
                 {
                     if let Some(normalized) = normalize_url_text(value) {
-                        *value = cx.intern(&normalized);
+                        *value = allocator.alloc_str(&normalized);
                         cx.record_value_normalized();
                     }
                     let unquoted_url = !value.get(..5).is_some_and(
@@ -115,7 +116,7 @@ impl Minify for Function<'_> {
             }
         }
         if cx.value_context.property == crate::context::PropertyContext::Transform
-            && minify_transform_function(self, cx)
+            && minify_transform_function(self)
         {
             cx.record_value_normalized();
         }
@@ -134,7 +135,7 @@ impl Minify for Function<'_> {
             _ => None,
         };
         if let Some(replacement) = replacement {
-            self.set_name(cx.intern(replacement));
+            self.set_name(replacement);
             self.arguments.clear();
             self.set_identifier(true);
             cx.record_value_normalized();

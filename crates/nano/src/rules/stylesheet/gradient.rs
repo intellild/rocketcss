@@ -1,8 +1,6 @@
 use super::*;
 
-pub(super) fn rollback_gradient_color_replacements(
-    arguments: &mut std::vec::Vec<TokenOrValue<'_>>,
-) {
+pub(super) fn rollback_gradient_color_replacements(arguments: &mut Vec<'_, TokenOrValue<'_>>) {
     for argument in arguments {
         let TokenOrValue::Function(function) = argument else {
             continue;
@@ -20,7 +18,7 @@ pub(super) fn rollback_gradient_color_replacements(
     }
 }
 
-pub(super) fn minify_gradient_direction(arguments: &mut std::vec::Vec<TokenOrValue<'_>>) -> bool {
+pub(super) fn minify_gradient_direction(arguments: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
     let end = arguments
         .iter()
         .position(
@@ -69,10 +67,7 @@ pub(super) fn minify_gradient_direction(arguments: &mut std::vec::Vec<TokenOrVal
     true
 }
 
-pub(super) fn minify_gradient_stops(
-    arguments: &mut std::vec::Vec<TokenOrValue<'_>>,
-    cx: &mut MinifyContext<'_>,
-) -> bool {
+pub(super) fn minify_gradient_stops(arguments: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
     let mut changed = false;
     if let Some((color_index, position_index)) = first_gradient_stop(arguments)
         && is_zero_gradient_position(&arguments[position_index])
@@ -83,7 +78,7 @@ pub(super) fn minify_gradient_stops(
                 Some(FunctionReplacement::Rgba { alpha: 0.0, .. })
             )
         {
-            function.set_name(cx.intern("transparent"));
+            function.set_name("transparent");
             function.arguments.clear();
             function.replacement = None;
             function.set_identifier(true);

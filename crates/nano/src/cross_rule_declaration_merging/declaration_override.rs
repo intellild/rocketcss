@@ -2,9 +2,9 @@ use rocketcss_ast::{DeclarationBlockId, DeclarationBlockStore};
 use rocketcss_common::{DenseStore, define_dense_id};
 use rustc_hash::FxHashSet;
 
-use super::discovery::DeclarationBlockEntries;
 use crate::MinifyContext;
 use crate::rules::DeclarationBlockMinifier;
+use crate::utils::DeclarationBlockEntries;
 
 define_dense_id!(struct OverrideEntryId);
 
@@ -63,7 +63,7 @@ impl DeclarationOverrideCommitPass {
 
     pub(super) fn commit<'ast, 'scratch>(
         &self,
-        minifier: &mut DeclarationBlockMinifier<'ast>,
+        minifier: &mut DeclarationBlockMinifier<'scratch, 'ast>,
         store: &mut DeclarationBlockStore<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) -> DeclarationOverrideCommitResult
@@ -80,7 +80,7 @@ impl DeclarationOverrideCommitPass {
             while let Some(entry_id) = current {
                 let entry = &self.entries[entry_id];
                 let declarations = entry.block;
-                append_declaration_block(declarations, &mut seen, &mut expanded_history);
+                append_declaration_chain(declarations, store, &mut seen, &mut expanded_history);
                 current = entry.next;
             }
 
@@ -92,13 +92,17 @@ impl DeclarationOverrideCommitPass {
     }
 }
 
-fn append_declaration_block(
+fn append_declaration_chain(
     declarations: DeclarationBlockId,
+    store: &DeclarationBlockStore<'_>,
     seen: &mut FxHashSet<DeclarationBlockId>,
     output: &mut std::vec::Vec<DeclarationBlockId>,
 ) {
     if !seen.insert(declarations) {
         return;
+    }
+    if let Some(previous) = store.get(declarations).previous_merged() {
+        append_declaration_chain(previous, store, seen, output);
     }
     output.push(declarations);
 }
@@ -106,19 +110,25 @@ fn append_declaration_block(
 #[cfg(test)]
 mod tests {
     use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
-    use rocketcss_common::GhostToken;
+    use rocketcss_common::Allocator;
     use rocketcss_parser::{ParserOptions, parse};
 
-    use super::super::discovery::discover_for_test;
     use super::*;
     use crate::MinifyOptions;
+    use crate::utils::walk_declaration_blocks;
 
     #[test]
     fn does_not_materialize_unique_histories() {
-        GhostToken::scope(|mut token| {
-            let stylesheet =
-                parse("a{x:1}b{x:2}c{x:3}", &mut token, ParserOptions::default()).unwrap();
-            let declaration_blocks = discover_for_test(stylesheet.rule_store());
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
+            let stylesheet = parse(
+                "a{x:1}b{x:2}c{x:3}",
+                &allocator,
+                &mut token,
+                ParserOptions::default(),
+            )
+            .unwrap();
+            let declaration_blocks = walk_declaration_blocks(&stylesheet);
 
             assert!(DeclarationOverrideCommitPass::discover(&declaration_blocks).is_none());
         });
@@ -126,14 +136,16 @@ mod tests {
 
     #[test]
     fn discovers_s2_history_in_source_order() {
-        GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
             let stylesheet = parse(
                 "a{x:1}.bar-1{y:1}a{x:1}.bar-2{y:1}a{x:1}",
+                &allocator,
                 &mut token,
                 ParserOptions::default(),
             )
             .unwrap();
-            let declaration_blocks = discover_for_test(stylesheet.rule_store());
+            let declaration_blocks = walk_declaration_blocks(&stylesheet);
 
             let pass = DeclarationOverrideCommitPass::discover(&declaration_blocks)
                 .expect("the a selector has a declaration history");
@@ -151,20 +163,24 @@ mod tests {
 
     #[test]
     fn reports_newly_empty_blocks_to_the_live_graph() {
-        GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
             let mut stylesheet = parse(
                 "a{width:1px}.bar{x:1}a{width:1px}",
+                &allocator,
                 &mut token,
                 ParserOptions::default(),
             )
             .unwrap();
             let pass = {
-                let declaration_blocks = discover_for_test(stylesheet.rule_store());
+                let declaration_blocks = walk_declaration_blocks(&stylesheet);
                 DeclarationOverrideCommitPass::discover(&declaration_blocks)
                     .expect("the two a blocks share one exact-only S2 history")
             };
-            let mut minifier = DeclarationBlockMinifier::new();
-            let mut cx = MinifyContext::new(MinifyOptions::default());
+
+            let scratch = Allocator::new();
+            let mut minifier = DeclarationBlockMinifier::new(&scratch);
+            let mut cx = MinifyContext::new(MinifyOptions::default(), &scratch);
             let result = pass.commit(&mut minifier, stylesheet.parts_mut().1, &mut cx);
             assert_eq!(cx.stats().declarations_removed, 1);
             assert_eq!(result.newly_empty.len(), 1);
@@ -182,20 +198,24 @@ mod tests {
 
     #[test]
     fn reports_declaration_only_changes_without_an_empty_block() {
-        GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
             let mut stylesheet = parse(
                 "a{width:1px;height:1px}.bar{x:1}a{width:1px}",
+                &allocator,
                 &mut token,
                 ParserOptions::default(),
             )
             .unwrap();
             let pass = {
-                let declaration_blocks = discover_for_test(stylesheet.rule_store());
+                let declaration_blocks = walk_declaration_blocks(&stylesheet);
                 DeclarationOverrideCommitPass::discover(&declaration_blocks)
                     .expect("the two a blocks share one exact-only S2 history")
             };
-            let mut minifier = DeclarationBlockMinifier::new();
-            let mut cx = MinifyContext::new(MinifyOptions::default());
+
+            let scratch = Allocator::new();
+            let mut minifier = DeclarationBlockMinifier::new(&scratch);
+            let mut cx = MinifyContext::new(MinifyOptions::default(), &scratch);
             let result = pass.commit(&mut minifier, stylesheet.parts_mut().1, &mut cx);
             assert_eq!(cx.stats().declarations_removed, 1);
             assert!(result.newly_empty.is_empty());

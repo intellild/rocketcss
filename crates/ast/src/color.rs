@@ -1,15 +1,17 @@
 use super::*;
 
+use rocketcss_common::{boxed::Box, vec::Vec};
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum CssColor<'a> {
     CurrentColor,
     Known(KnownColor),
     Rgba(RGBA),
-    Function(std::boxed::Box<Function<'a>>),
-    Lab(std::boxed::Box<LABColor>),
-    Predefined(std::boxed::Box<PredefinedColor>),
-    Float(std::boxed::Box<FloatColor>),
-    LightDark(std::boxed::Box<LightDark<'a>>),
+    Function(Box<'a, Function<'a>>),
+    Lab(Box<'a, LABColor>),
+    Predefined(Box<'a, PredefinedColor>),
+    Float(Box<'a, FloatColor>),
+    LightDark(Box<'a, LightDark<'a>>),
     System(SystemColor),
 }
 
@@ -235,8 +237,8 @@ pub enum FloatColor {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct LightDark<'a> {
-    pub dark: std::boxed::Box<CssColor<'a>>,
-    pub light: std::boxed::Box<CssColor<'a>>,
+    pub dark: Box<'a, CssColor<'a>>,
+    pub light: Box<'a, CssColor<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -288,19 +290,19 @@ pub enum SystemColor {
 #[derive(Debug, PartialEq, Visit)]
 pub enum UnresolvedColor<'a> {
     Rgb {
-        alpha: std::vec::Vec<TokenOrValue<'a>>,
+        alpha: Vec<'a, TokenOrValue<'a>>,
         b: f32,
         g: f32,
         r: f32,
     },
     Hsl {
-        alpha: std::vec::Vec<TokenOrValue<'a>>,
+        alpha: Vec<'a, TokenOrValue<'a>>,
         h: f32,
         l: f32,
         s: f32,
     },
     LightDark {
-        dark: std::vec::Vec<TokenOrValue<'a>>,
-        light: std::vec::Vec<TokenOrValue<'a>>,
+        dark: Vec<'a, TokenOrValue<'a>>,
+        light: Vec<'a, TokenOrValue<'a>>,
     },
 }

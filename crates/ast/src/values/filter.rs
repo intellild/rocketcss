@@ -3,12 +3,12 @@ use crate::*;
 #[derive(Debug, PartialEq, Visit)]
 pub enum FilterList<'a> {
     None,
-    Filters(std::vec::Vec<Filter<'a>>),
+    Filters(Vec<'a, Filter<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Filter<'a> {
-    Blur(std::boxed::Box<Length>),
+    Blur(Box<'a, Length<'a>>),
     Brightness(NumberOrPercentage),
     Contrast(NumberOrPercentage),
     Grayscale(NumberOrPercentage),
@@ -17,6 +17,6 @@ pub enum Filter<'a> {
     Opacity(NumberOrPercentage),
     Saturate(NumberOrPercentage),
     Sepia(NumberOrPercentage),
-    DropShadow(std::boxed::Box<DropShadow<'a>>),
-    Url(std::boxed::Box<Url<'a>>),
+    DropShadow(Box<'a, DropShadow<'a>>),
+    Url(Box<'a, Url<'a>>),
 }

@@ -373,7 +373,7 @@ fn unitless_calc_zero(value: FunctionReplacement) -> FunctionReplacement {
     }
 }
 
-pub(super) fn minify_flat_calc_operations(values: &mut std::vec::Vec<TokenOrValue<'_>>) -> bool {
+pub(super) fn minify_flat_calc_operations(values: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
     let mut changed = false;
     loop {
         let mut reduced = false;
@@ -505,9 +505,7 @@ fn set_calc_value(value: &mut TokenOrValue<'_>, result: FunctionReplacement) -> 
     }
 }
 
-pub(super) fn remove_redundant_calc_parentheses(
-    values: &mut std::vec::Vec<TokenOrValue<'_>>,
-) -> bool {
+pub(super) fn remove_redundant_calc_parentheses(values: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
     let Some(open) = values.iter().position(|value| {
         matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::ParenthesisBlock))
     }) else {

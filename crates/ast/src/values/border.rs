@@ -15,17 +15,17 @@ pub enum LineStyle {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum BorderSideWidth {
+pub enum BorderSideWidth<'a> {
     Thin,
     Medium,
     Thick,
-    Length(std::boxed::Box<Length>),
+    Length(Box<'a, Length<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum LengthOrNumber {
+pub enum LengthOrNumber<'a> {
     Number(f32),
-    Length(std::boxed::Box<Length>),
+    Length(Box<'a, Length<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -37,9 +37,9 @@ pub enum BorderImageRepeatKeyword {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum BorderImageSideWidth {
+pub enum BorderImageSideWidth<'a> {
     Number(f32),
-    LengthPercentage(std::boxed::Box<LengthPercentage>),
+    LengthPercentage(Box<'a, LengthPercentage<'a>>),
     Auto,
 }
 

@@ -13,23 +13,23 @@ pub struct Overflow {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct InsetBlock {
-    pub block_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub block_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct InsetBlock<'a> {
+    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct InsetInline {
-    pub inline_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub inline_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct InsetInline<'a> {
+    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Inset {
-    pub bottom: std::boxed::Box<LengthPercentageOrAuto>,
-    pub left: std::boxed::Box<LengthPercentageOrAuto>,
-    pub right: std::boxed::Box<LengthPercentageOrAuto>,
-    pub top: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct Inset<'a> {
+    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -39,8 +39,8 @@ pub struct FlexFlow {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Flex {
-    pub basis: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct Flex<'a> {
+    pub basis: Box<'a, LengthPercentageOrAuto<'a>>,
     pub grow: f32,
     pub shrink: f32,
 }
@@ -64,22 +64,22 @@ pub struct PlaceItems {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Gap {
-    pub column: std::boxed::Box<GapValue>,
-    pub row: std::boxed::Box<GapValue>,
+pub struct Gap<'a> {
+    pub column: Box<'a, GapValue<'a>>,
+    pub row: Box<'a, GapValue<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ColumnRule<'a> {
-    pub color: Option<std::boxed::Box<CssColor<'a>>>,
+    pub color: Option<Box<'a, CssColor<'a>>>,
     pub style: Option<LineStyle>,
-    pub width: Option<std::boxed::Box<BorderSideWidth>>,
+    pub width: Option<Box<'a, BorderSideWidth<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum ColumnWidth {
+pub enum ColumnWidth<'a> {
     Auto,
-    Length(std::boxed::Box<Length>),
+    Length(Box<'a, Length<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -89,16 +89,16 @@ pub enum ColumnCount {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Columns {
+pub struct Columns<'a> {
     pub count: ColumnCount,
-    pub width: ColumnWidth,
+    pub width: ColumnWidth<'a>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct TrackRepeat<'a> {
     pub count: RepeatCount,
-    pub line_names: std::vec::Vec<std::vec::Vec<&'a str>>,
-    pub track_sizes: std::vec::Vec<TrackSize>,
+    pub line_names: Vec<'a, Vec<'a, &'a str>>,
+    pub track_sizes: Vec<'a, TrackSize<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -109,117 +109,117 @@ pub struct GridAutoFlow {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GridTemplate<'a> {
-    pub areas: std::boxed::Box<GridTemplateAreas<'a>>,
-    pub columns: std::boxed::Box<TrackSizing<'a>>,
-    pub rows: std::boxed::Box<TrackSizing<'a>>,
+    pub areas: Box<'a, GridTemplateAreas<'a>>,
+    pub columns: Box<'a, TrackSizing<'a>>,
+    pub rows: Box<'a, TrackSizing<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Grid<'a> {
-    pub areas: std::boxed::Box<GridTemplateAreas<'a>>,
-    pub auto_columns: std::vec::Vec<TrackSize>,
+    pub areas: Box<'a, GridTemplateAreas<'a>>,
+    pub auto_columns: Vec<'a, TrackSize<'a>>,
     pub auto_flow: GridAutoFlow,
-    pub auto_rows: std::vec::Vec<TrackSize>,
-    pub columns: std::boxed::Box<TrackSizing<'a>>,
-    pub rows: std::boxed::Box<TrackSizing<'a>>,
+    pub auto_rows: Vec<'a, TrackSize<'a>>,
+    pub columns: Box<'a, TrackSizing<'a>>,
+    pub rows: Box<'a, TrackSizing<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GridRow<'a> {
-    pub end: std::boxed::Box<GridLine<'a>>,
-    pub start: std::boxed::Box<GridLine<'a>>,
+    pub end: Box<'a, GridLine<'a>>,
+    pub start: Box<'a, GridLine<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GridColumn<'a> {
-    pub end: std::boxed::Box<GridLine<'a>>,
-    pub start: std::boxed::Box<GridLine<'a>>,
+    pub end: Box<'a, GridLine<'a>>,
+    pub start: Box<'a, GridLine<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GridArea<'a> {
-    pub column_end: std::boxed::Box<GridLine<'a>>,
-    pub column_start: std::boxed::Box<GridLine<'a>>,
-    pub row_end: std::boxed::Box<GridLine<'a>>,
-    pub row_start: std::boxed::Box<GridLine<'a>>,
+    pub column_end: Box<'a, GridLine<'a>>,
+    pub column_start: Box<'a, GridLine<'a>>,
+    pub row_end: Box<'a, GridLine<'a>>,
+    pub row_start: Box<'a, GridLine<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct MarginBlock {
-    pub block_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub block_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct MarginBlock<'a> {
+    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct MarginInline {
-    pub inline_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub inline_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct MarginInline<'a> {
+    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Margin {
-    pub bottom: std::boxed::Box<LengthPercentageOrAuto>,
-    pub left: std::boxed::Box<LengthPercentageOrAuto>,
-    pub right: std::boxed::Box<LengthPercentageOrAuto>,
-    pub top: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct Margin<'a> {
+    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PaddingBlock {
-    pub block_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub block_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct PaddingBlock<'a> {
+    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PaddingInline {
-    pub inline_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub inline_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct PaddingInline<'a> {
+    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Padding {
-    pub bottom: std::boxed::Box<LengthPercentageOrAuto>,
-    pub left: std::boxed::Box<LengthPercentageOrAuto>,
-    pub right: std::boxed::Box<LengthPercentageOrAuto>,
-    pub top: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct Padding<'a> {
+    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ScrollMarginBlock {
-    pub block_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub block_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct ScrollMarginBlock<'a> {
+    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ScrollMarginInline {
-    pub inline_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub inline_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct ScrollMarginInline<'a> {
+    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ScrollMargin {
-    pub bottom: std::boxed::Box<LengthPercentageOrAuto>,
-    pub left: std::boxed::Box<LengthPercentageOrAuto>,
-    pub right: std::boxed::Box<LengthPercentageOrAuto>,
-    pub top: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct ScrollMargin<'a> {
+    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ScrollPaddingBlock {
-    pub block_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub block_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct ScrollPaddingBlock<'a> {
+    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ScrollPaddingInline {
-    pub inline_end: std::boxed::Box<LengthPercentageOrAuto>,
-    pub inline_start: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct ScrollPaddingInline<'a> {
+    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct ScrollPadding {
-    pub bottom: std::boxed::Box<LengthPercentageOrAuto>,
-    pub left: std::boxed::Box<LengthPercentageOrAuto>,
-    pub right: std::boxed::Box<LengthPercentageOrAuto>,
-    pub top: std::boxed::Box<LengthPercentageOrAuto>,
+pub struct ScrollPadding<'a> {
+    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
 }

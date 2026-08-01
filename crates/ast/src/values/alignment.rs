@@ -134,7 +134,7 @@ pub enum LegacyJustify {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum GapValue {
+pub enum GapValue<'a> {
     Normal,
-    LengthPercentage(std::boxed::Box<LengthPercentage>),
+    LengthPercentage(Box<'a, LengthPercentage<'a>>),
 }

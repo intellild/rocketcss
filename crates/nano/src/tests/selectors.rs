@@ -2,9 +2,11 @@ use super::*;
 
 #[test]
 fn removes_unparsed_selectors_from_mixed_selector_lists() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
             ".valid, (font-[family-name:var(--font-*)]), #also-valid { color: red }",
+            &allocator,
             &mut token,
             ParserOptions {
                 error_recovery: true,
@@ -13,16 +15,13 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
         )
         .unwrap();
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let CssRule::Style(rule) = &stylesheet.root_rules()[0] else {
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected style rule")
         };
-        let selectors = stylesheet.selectors(rule.selectors);
-        assert_eq!(selectors.len(), 2);
-        assert!(
-            selectors
-                .iter()
-                .all(|selector| matches!(selector, Selector::Parsed(_)))
-        );
+        let rule = rule.as_ref().get_ref();
+        assert!(matches!(rule.selectors[0], Selector::Parsed(_)));
+        assert!(matches!(rule.selectors[1], Selector::Tombstone));
+        assert!(matches!(rule.selectors[2], Selector::Parsed(_)));
         assert_eq!(stats.values_normalized, 1);
         assert_eq!(
             stylesheet
@@ -50,35 +49,6 @@ fn removes_style_rules_containing_only_unparsed_selectors() {
     assert_eq!(
         run_with_error_recovery("(font-[family-name:var(--font-*)]) { color: red }"),
         ""
-    );
-}
-
-#[test]
-fn terminal_reification_drops_declarations_from_retired_selector_subtrees() {
-    GhostToken::scope(|mut token| {
-        let mut stylesheet = parse(
-            "(font-[family-name:var(--font-*)]){color:red;& b{width:1px}}",
-            &mut token,
-            ParserOptions {
-                error_recovery: true,
-                ..ParserOptions::default()
-            },
-        )
-        .unwrap();
-
-        minify(&mut stylesheet, &mut token, MinifyOptions::default());
-
-        stylesheet.validate_flat_ir().unwrap();
-        assert!(stylesheet.rule_store().is_empty());
-        assert_eq!(stylesheet.declaration_slots().count(), 0);
-    });
-}
-
-#[test]
-fn terminal_reification_drops_an_invalid_nested_selector_subtree() {
-    assert_eq!(
-        run_with_error_recovery("a{(font-[family-name:var(--font-*)]){color:red}width:1px}",),
-        "a{width:1px}"
     );
 }
 

@@ -25,9 +25,11 @@ fn lightningcss_stylesheet_text_to_ast_corpus() {
     for case in cases {
         let source = case_string(case, "source");
         let name = case_string(case, "name");
-        let error = GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        let error = allocator.with_ghost(|mut token| {
             parse(
                 source,
+                &allocator,
                 &mut token,
                 ParserOptions {
                     error_recovery: case["error_recovery"].as_bool().unwrap_or(false),
@@ -61,7 +63,8 @@ fn stylo_selector_text_to_ast_corpus() {
     for case in cases {
         let source = case_string(case, "source");
         let name = case_string(case, "name");
-        let result = SelectorList::parse_string(source);
+        let allocator = Allocator::new();
+        let result = SelectorList::parse_string(source, &allocator);
 
         if let Err(error) = result {
             failures.push(format!("{name}: {error:?}; source: {source:?}"));

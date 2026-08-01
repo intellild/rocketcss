@@ -1,9 +1,11 @@
 use super::*;
 
+use rocketcss_common::{boxed::Box, vec::Vec};
+
 #[derive(Debug, PartialEq, Visit)]
-pub enum Length {
+pub enum Length<'a> {
     Value(LengthValue),
-    Calc(std::boxed::Box<Calc<Length>>),
+    Calc(Box<'a, Calc<'a, Length<'a>>>),
 }
 
 #[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
@@ -60,39 +62,33 @@ pub enum LengthUnit {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum Calc<V> {
-    Value(std::boxed::Box<V>),
+pub enum Calc<'a, V> {
+    Value(Box<'a, V>),
     Number(f32),
-    Sum((std::boxed::Box<Calc<V>>, std::boxed::Box<Calc<V>>)),
-    Product((f32, std::boxed::Box<Calc<V>>)),
-    Function(std::boxed::Box<MathFunction<V>>),
+    Sum((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Product((f32, Box<'a, Calc<'a, V>>)),
+    Function(Box<'a, MathFunction<'a, V>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 #[allow(clippy::type_complexity)]
-pub enum MathFunction<V> {
-    Calc(std::boxed::Box<Calc<V>>),
-    Min(std::vec::Vec<Calc<V>>),
-    Max(std::vec::Vec<Calc<V>>),
+pub enum MathFunction<'a, V> {
+    Calc(Box<'a, Calc<'a, V>>),
+    Min(Vec<'a, Calc<'a, V>>),
+    Max(Vec<'a, Calc<'a, V>>),
     Clamp(
         (
-            std::boxed::Box<Calc<V>>,
-            std::boxed::Box<Calc<V>>,
-            std::boxed::Box<Calc<V>>,
+            Box<'a, Calc<'a, V>>,
+            Box<'a, Calc<'a, V>>,
+            Box<'a, Calc<'a, V>>,
         ),
     ),
-    Round(
-        (
-            RoundingStrategy,
-            std::boxed::Box<Calc<V>>,
-            std::boxed::Box<Calc<V>>,
-        ),
-    ),
-    Rem((std::boxed::Box<Calc<V>>, std::boxed::Box<Calc<V>>)),
-    Mod((std::boxed::Box<Calc<V>>, std::boxed::Box<Calc<V>>)),
-    Abs(std::boxed::Box<Calc<V>>),
-    Sign(std::boxed::Box<Calc<V>>),
-    Hypot(std::vec::Vec<Calc<V>>),
+    Round((RoundingStrategy, Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Rem((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Mod((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Abs(Box<'a, Calc<'a, V>>),
+    Sign(Box<'a, Calc<'a, V>>),
+    Hypot(Vec<'a, Calc<'a, V>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
-use rocketcss_common::GhostToken;
+use rocketcss_common::Allocator;
 use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
@@ -104,8 +104,9 @@ fn squash(css: &str) -> String {
 }
 
 fn minify_css(source: &str) -> Result<String, String> {
-    GhostToken::scope(|mut token| {
-        let mut stylesheet = parse(source, &mut token, ParserOptions::default())
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(source, &allocator, &mut token, ParserOptions::default())
             .map_err(|error| format!("parse: {error:?}"))?;
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
         stylesheet
@@ -118,8 +119,9 @@ fn minify_css(source: &str) -> Result<String, String> {
 }
 
 fn print_css(source: &str) -> Result<String, String> {
-    GhostToken::scope(|mut token| {
-        let stylesheet = parse(source, &mut token, ParserOptions::default())
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let stylesheet = parse(source, &allocator, &mut token, ParserOptions::default())
             .map_err(|error| format!("parse: {error:?}"))?;
         stylesheet
             .to_css_string(

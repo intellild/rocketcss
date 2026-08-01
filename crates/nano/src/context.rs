@@ -1,5 +1,5 @@
 use bitflags::bitflags;
-use rocketcss_common::{Atom, StringPool};
+use rocketcss_common::Allocator;
 
 use crate::{MinifyOptions, Options, OptionsOp};
 
@@ -80,36 +80,28 @@ impl Default for ValueContext {
 
 /// Shared state for local, in-place node minification.
 pub struct MinifyContext<'cx> {
-    marker: std::marker::PhantomData<&'cx ()>,
-    string_pool: StringPool,
+    allocator: &'cx Allocator,
     options: MinifyOptions,
     stats: MinifyStats,
-    declaration_tape_dirty: bool,
-    rule_tape_dirty: bool,
     pub(crate) value_context: ValueContext,
 }
 
 impl<'cx> MinifyContext<'cx> {
-    pub fn new(options: MinifyOptions) -> Self {
+    /// Creates a minification context backed by the scratch allocator shared
+    /// for the whole minification pass.
+    pub fn new(options: MinifyOptions, allocator: &'cx Allocator) -> Self {
         Self {
-            marker: std::marker::PhantomData,
-            string_pool: StringPool::new(),
+            allocator,
             options,
             stats: MinifyStats::default(),
-            declaration_tape_dirty: false,
-            rule_tape_dirty: false,
             value_context: ValueContext::default(),
         }
     }
 
+    /// Returns the scratch allocator shared by this minification pass.
     #[inline]
-    pub(crate) fn replace_string_pool(&mut self, string_pool: StringPool) -> StringPool {
-        std::mem::replace(&mut self.string_pool, string_pool)
-    }
-
-    #[inline]
-    pub(crate) fn intern<'ast>(&mut self, value: &str) -> Atom<'ast> {
-        self.string_pool.intern(value)
+    pub fn allocator(&self) -> &'cx Allocator {
+        self.allocator
     }
 
     #[inline]
@@ -135,22 +127,5 @@ impl<'cx> MinifyContext<'cx> {
     #[inline]
     pub(crate) fn record_declaration_removed(&mut self) {
         self.stats.declarations_removed += 1;
-        self.declaration_tape_dirty = true;
-    }
-
-    #[inline]
-    pub(crate) fn record_selector_removed(&mut self) {
-        self.stats.values_normalized += 1;
-        self.rule_tape_dirty = true;
-    }
-
-    #[inline]
-    pub(crate) const fn declaration_tape_dirty(&self) -> bool {
-        self.declaration_tape_dirty
-    }
-
-    #[inline]
-    pub(crate) const fn rule_tape_dirty(&self) -> bool {
-        self.rule_tape_dirty
     }
 }

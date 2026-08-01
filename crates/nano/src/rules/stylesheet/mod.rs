@@ -11,6 +11,7 @@ use rocketcss_ast::{
     EnvironmentVariable, Function, FunctionReplacement, KnownFunction, LengthUnit, Token,
     TokenOrValue, Unit, Variable, match_ignore_ascii_case,
 };
+use rocketcss_common::vec::Vec;
 
 use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlags};
 
@@ -50,8 +51,8 @@ fn token_ident<'a>(value: &'a TokenOrValue<'a>) -> Option<&'a str> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    match &**token {
-        Token::Ident(value) => Some(value.as_str()),
+    match **token {
+        Token::Ident(value) => Some(value),
         _ => None,
     }
 }

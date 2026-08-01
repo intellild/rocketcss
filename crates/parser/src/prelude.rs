@@ -1,4 +1,4 @@
-//! Common parser, tokenizer, and AST types.
+//! Common parser, tokenizer, allocator, and AST types.
 
 pub use crate::Compiler;
 pub use crate::escape::unescape;

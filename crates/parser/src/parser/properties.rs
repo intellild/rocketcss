@@ -7,26 +7,28 @@ use crate::prelude::*;
 
 pub(super) fn parse_declaration<'i>(
     input: &mut Compiler<'i>,
-    name: Atom<'i>,
+    allocator: &'i Allocator,
+    name: &'i str,
     depth: usize,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
-    parse_declaration_with_css_wide_hint(input, name, depth, CssWideValueHint::Unscanned)
+    parse_declaration_with_css_wide_hint(input, allocator, name, depth, CssWideValueHint::Unscanned)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(super) enum CssWideValueHint<'i> {
     Unscanned,
     NotCssWide,
-    Candidate(Atom<'i>),
+    Candidate(&'i str),
 }
 
 pub(super) fn parse_declaration_with_css_wide_hint<'i>(
     input: &mut Compiler<'i>,
-    name: Atom<'i>,
+    allocator: &'i Allocator,
+    name: &'i str,
     depth: usize,
     css_wide_hint: CssWideValueHint<'i>,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
-    let property_id = PropertyId::from_name(name.clone());
+    let property_id = PropertyId::from_name(name);
     let mut typed_grammar_supported = false;
 
     if !name.starts_with("--") {
@@ -34,7 +36,7 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
         let wide_keyword = match (property_id.known_id(), css_wide_hint) {
             (Some(_), CssWideValueHint::Unscanned) => input.try_parse(parse_css_wide_keyword).ok(),
             (Some(_), CssWideValueHint::Candidate(ident)) => {
-                if let Some(keyword) = css_wide_keyword(&ident) {
+                if let Some(keyword) = css_wide_keyword(ident) {
                     let parsed_ident = input.expect_ident()?;
                     debug_assert_eq!(parsed_ident, ident);
                     Some(keyword)
@@ -60,14 +62,14 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
                     PropertyId::Columns(prefix) => {
                         Declaration::Columns(CSSWideOr::CSSWide(keyword), prefix)
                     }
-                    _ => Declaration::CSSWide(std::boxed::Box::new(property_id), keyword),
+                    _ => Declaration::CSSWide(allocator.boxed(property_id), keyword),
                 };
                 return Ok((declaration, important));
             }
             input.reset(&start);
         }
 
-        let typed = try_parse_typed_declaration(input, &property_id, depth);
+        let typed = try_parse_typed_declaration(input, &property_id, allocator, depth);
         typed_grammar_supported = typed.is_some();
         if let Some(Ok(declaration)) = typed
             && let Some(important) = parse_declaration_end(input)
@@ -81,23 +83,23 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
 
     let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
         if name.starts_with("--") {
-            collect_custom_property_tokens(input, depth + 1)
+            collect_custom_property_tokens(input, allocator, depth + 1)
         } else {
-            collect_tokens(input, depth + 1)
+            collect_tokens(input, allocator, depth + 1)
         }
     })?;
     let _ = input.try_parse(Compiler::expect_semicolon);
     let important = remove_important(&mut value);
 
     let declaration = if name.starts_with("--") {
-        Declaration::Custom(std::boxed::Box::new(CustomProperty {
-            name: std::boxed::Box::new(CustomPropertyName::Custom(name)),
+        Declaration::Custom(allocator.boxed(CustomProperty {
+            name: allocator.boxed(CustomPropertyName::Custom(name)),
             value,
         }))
     } else {
         trim_leading_whitespace(&mut value);
         let reason = unparsed_reason(&property_id, &value, typed_grammar_supported);
-        unparsed_declaration(property_id, value, reason)
+        unparsed_declaration(property_id, value, reason, allocator)
     };
 
     Ok((declaration, important))
@@ -105,11 +107,12 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
 
 pub(super) fn unparsed_declaration<'i>(
     property_id: PropertyId<'i>,
-    value: std::vec::Vec<TokenOrValue<'i>>,
+    value: Vec<'i, TokenOrValue<'i>>,
     reason: UnparsedPropertyReason,
+    allocator: &'i Allocator,
 ) -> Declaration<'i> {
-    Declaration::Unparsed(std::boxed::Box::new(UnparsedProperty {
-        property_id: std::boxed::Box::new(property_id),
+    Declaration::Unparsed(allocator.boxed(UnparsedProperty {
+        property_id: allocator.boxed(property_id),
         reason,
         value,
     }))
@@ -158,6 +161,7 @@ fn token_value_is_opaque(value: &TokenOrValue<'_>) -> bool {
 fn try_parse_typed_declaration<'i>(
     input: &mut Compiler<'i>,
     property_id: &PropertyId<'i>,
+    allocator: &'i Allocator,
     depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     let delimiters = Delimiter::Bang | Delimiter::Semicolon;
@@ -169,11 +173,10 @@ fn try_parse_typed_declaration<'i>(
 
     match property_id {
         PropertyId::Color => parse!(|input| {
-            CssColor::parse(input).map(|value| Declaration::Color(std::boxed::Box::new(value)))
+            CssColor::parse(input).map(|value| Declaration::Color(allocator.boxed(value)))
         }),
         PropertyId::BackgroundColor => parse!(|input| {
-            CssColor::parse(input)
-                .map(|value| Declaration::BackgroundColor(std::boxed::Box::new(value)))
+            CssColor::parse(input).map(|value| Declaration::BackgroundColor(allocator.boxed(value)))
         }),
         property_id @ (PropertyId::BorderTopColor
         | PropertyId::BorderBottomColor
@@ -184,7 +187,7 @@ fn try_parse_typed_declaration<'i>(
         | PropertyId::BorderInlineStartColor
         | PropertyId::BorderInlineEndColor
         | PropertyId::OutlineColor) => parse!(|input| {
-            let value = std::boxed::Box::new(CssColor::parse(input)?);
+            let value = allocator.boxed(CssColor::parse(input)?);
             Ok(match property_id {
                 PropertyId::BorderTopColor => Declaration::BorderTopColor(value),
                 PropertyId::BorderBottomColor => Declaration::BorderBottomColor(value),
@@ -200,14 +203,15 @@ fn try_parse_typed_declaration<'i>(
         }),
         PropertyId::TextDecorationColor(prefix) => parse!(|input| {
             CssColor::parse(input)
-                .map(|value| Declaration::TextDecorationColor(std::boxed::Box::new(value), *prefix))
+                .map(|value| Declaration::TextDecorationColor(allocator.boxed(value), *prefix))
         }),
         PropertyId::TextEmphasisColor(prefix) => parse!(|input| {
             CssColor::parse(input)
-                .map(|value| Declaration::TextEmphasisColor(std::boxed::Box::new(value), *prefix))
+                .map(|value| Declaration::TextEmphasisColor(allocator.boxed(value), *prefix))
         }),
         PropertyId::Background => parse!(|input| {
-            let values = std::vec![Background::parse(input)?];
+            let mut values = allocator.vec();
+            values.push(Background::parse(input)?);
             Ok(Declaration::Background(values))
         }),
         PropertyId::Opacity => {
@@ -222,7 +226,7 @@ fn try_parse_typed_declaration<'i>(
         }
         PropertyId::ColumnRule(prefix) => parse!(|input| {
             ColumnRule::parse(input)
-                .map(|value| Declaration::ColumnRule(std::boxed::Box::new(value), *prefix))
+                .map(|value| Declaration::ColumnRule(allocator.boxed(value), *prefix))
         }),
         PropertyId::ColumnWidth(prefix) => parse!(|input| {
             ColumnWidth::parse(input)
@@ -234,21 +238,20 @@ fn try_parse_typed_declaration<'i>(
         }),
         PropertyId::Columns(prefix) => parse!(|input| {
             Columns::parse(input).map(|value| {
-                Declaration::Columns(CSSWideOr::Value(std::boxed::Box::new(value)), *prefix)
+                Declaration::Columns(CSSWideOr::Value(allocator.boxed(value)), *prefix)
             })
         }),
         PropertyId::GridColumnGap => parse!(|input| {
-            GapValue::parse(input)
-                .map(|value| Declaration::GridColumnGap(std::boxed::Box::new(value)))
+            GapValue::parse(input).map(|value| Declaration::GridColumnGap(allocator.boxed(value)))
         }),
         PropertyId::GridRowGap => parse!(|input| {
-            GapValue::parse(input).map(|value| Declaration::GridRowGap(std::boxed::Box::new(value)))
+            GapValue::parse(input).map(|value| Declaration::GridRowGap(allocator.boxed(value)))
         }),
         PropertyId::RowGap => parse!(|input| {
-            GapValue::parse(input).map(|value| Declaration::RowGap(std::boxed::Box::new(value)))
+            GapValue::parse(input).map(|value| Declaration::RowGap(allocator.boxed(value)))
         }),
         PropertyId::ColumnGap => parse!(|input| {
-            GapValue::parse(input).map(|value| Declaration::ColumnGap(std::boxed::Box::new(value)))
+            GapValue::parse(input).map(|value| Declaration::ColumnGap(allocator.boxed(value)))
         }),
         property_id @ (PropertyId::BorderTopStyle
         | PropertyId::BorderBottomStyle
@@ -280,7 +283,7 @@ fn try_parse_typed_declaration<'i>(
         | PropertyId::BorderInlineStartWidth
         | PropertyId::BorderInlineEndWidth
         | PropertyId::OutlineWidth) => parse!(|input| {
-            let value = std::boxed::Box::new(BorderSideWidth::parse(input)?);
+            let value = allocator.boxed(BorderSideWidth::parse(input)?);
             Ok(match property_id {
                 PropertyId::BorderTopWidth => Declaration::BorderTopWidth(value),
                 PropertyId::BorderBottomWidth => Declaration::BorderBottomWidth(value),
@@ -307,7 +310,7 @@ fn try_parse_typed_declaration<'i>(
         | PropertyId::InlineSize
         | PropertyId::MinBlockSize
         | PropertyId::MinInlineSize) => parse!(|input| {
-            let value = std::boxed::Box::new(Size::parse(input)?);
+            let value = allocator.boxed(Size::parse(input)?);
             Ok(match property_id {
                 PropertyId::Width => Declaration::Width(value),
                 PropertyId::Height => Declaration::Height(value),
@@ -324,7 +327,7 @@ fn try_parse_typed_declaration<'i>(
         | PropertyId::MaxHeight
         | PropertyId::MaxBlockSize
         | PropertyId::MaxInlineSize) => parse!(|input| {
-            let value = std::boxed::Box::new(MaxSize::parse(input)?);
+            let value = allocator.boxed(MaxSize::parse(input)?);
             Ok(match property_id {
                 PropertyId::MaxWidth => Declaration::MaxWidth(value),
                 PropertyId::MaxHeight => Declaration::MaxHeight(value),
@@ -399,7 +402,7 @@ fn try_parse_typed_declaration<'i>(
         }
         PropertyId::All => parse!(|input| {
             let ident = input.expect_ident()?;
-            css_wide_keyword(&ident)
+            css_wide_keyword(ident)
                 .map(Declaration::All)
                 .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
         }),
@@ -411,7 +414,7 @@ fn parse_css_wide_keyword<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<CSSWideKeyword, ParseError<'i, ParserError<'i>>> {
     let ident = input.expect_ident()?;
-    css_wide_keyword(&ident).ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
+    css_wide_keyword(ident).ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
 }
 
 fn parse_declaration_end<'i>(input: &mut Compiler<'i>) -> Option<bool> {

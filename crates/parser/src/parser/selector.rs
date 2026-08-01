@@ -3,32 +3,38 @@ use crate::prelude::*;
 
 impl<'i> Parse<'i> for SelectorList<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        parse_selector_list(input, 0)
+        let allocator = input.allocator();
+        parse_selector_list(input, allocator, 0)
     }
 }
 
 pub(super) fn parse_selector_list<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
     depth: usize,
 ) -> Result<SelectorList<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let parsed = input.parse_comma_separated(|input| parse_selector(input, depth + 1))?;
-    let mut selectors = std::vec::Vec::new();
+    let parsed =
+        input.parse_comma_separated(|input| parse_selector(input, allocator, depth + 1))?;
+    let mut selectors = allocator.vec();
     selectors.extend(parsed);
     Ok(selectors)
 }
 
 pub(super) fn parse_selector_list_with_recovery<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
     depth: usize,
 ) -> Result<SelectorList<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut selectors = std::vec::Vec::new();
+    let mut selectors = allocator.vec();
 
     loop {
         input.skip_whitespace();
         let start = input.position();
-        match input.parse_until_before(Delimiter::Comma, |input| parse_selector(input, depth + 1)) {
+        match input.parse_until_before(Delimiter::Comma, |input| {
+            parse_selector(input, allocator, depth + 1)
+        }) {
             Ok(selector) => selectors.push(selector),
             Err(_) => {
                 let raw = input.slice(start..input.position()).trim();
@@ -49,10 +55,11 @@ pub(super) fn parse_selector_list_with_recovery<'i>(
 
 pub(super) fn parse_selector<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
     depth: usize,
 ) -> Result<Selector<'i>, ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut selector = std::vec::Vec::new();
+    let mut selector = allocator.vec();
     let mut pending_descendant = false;
     let mut can_have_descendant = false;
 
@@ -99,13 +106,13 @@ pub(super) fn parse_selector<'i>(
         let component = match token {
             ValueToken::Ident(name) if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
                 selector.push(SelectorComponent::Namespace {
-                    prefix: name,
+                    prefix: input.intern(name),
                     url: input.intern(""),
                 });
                 parse_type_selector(input)?
             }
-            ValueToken::Ident(name) => local_name(&name, input),
-            ValueToken::IdHash(id) => SelectorComponent::Id(id),
+            ValueToken::Ident(name) => local_name(name, input),
+            ValueToken::IdHash(id) => SelectorComponent::Id(input.intern(id)),
             ValueToken::Delim("*") if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
                 selector.push(SelectorComponent::ExplicitAnyNamespace);
                 parse_type_selector(input)?
@@ -118,10 +125,12 @@ pub(super) fn parse_selector<'i>(
             ValueToken::Delim("&") => SelectorComponent::Nesting,
             ValueToken::Delim(".") => {
                 let name = input.expect_ident()?;
-                SelectorComponent::Class(name)
+                SelectorComponent::Class(input.intern(name))
             }
-            ValueToken::Colon => parse_pseudo(input, depth + 1)?,
-            ValueToken::SquareBracketBlock => input.parse_nested_block(parse_attribute)?,
+            ValueToken::Colon => parse_pseudo(input, allocator, depth + 1)?,
+            ValueToken::SquareBracketBlock => {
+                input.parse_nested_block(|input| parse_attribute(input, allocator))?
+            }
             _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
         };
         selector.push(component);
@@ -145,7 +154,7 @@ fn parse_type_selector<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
     match input.next()?.clone() {
-        ValueToken::Ident(name) => Ok(local_name(&name, input)),
+        ValueToken::Ident(name) => Ok(local_name(name, input)),
         ValueToken::Delim("*") => Ok(SelectorComponent::ExplicitUniversalType),
         _ => Err(input.new_custom_error(ParserError::InvalidSelector)),
     }
@@ -153,6 +162,7 @@ fn parse_type_selector<'i>(
 
 pub(super) fn parse_pseudo<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
     depth: usize,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
     let is_element = input.try_parse(Compiler::expect_colon).is_ok();
@@ -160,7 +170,7 @@ pub(super) fn parse_pseudo<'i>(
 
     match token {
         ValueToken::Ident(name) if is_element => Ok(SelectorComponent::PseudoElement(
-            std::boxed::Box::new(pseudo_element(&name, input)),
+            allocator.boxed(pseudo_element(name, input)),
         )),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("root") => Ok(SelectorComponent::Root),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("empty") => {
@@ -169,71 +179,73 @@ pub(super) fn parse_pseudo<'i>(
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("scope") => {
             Ok(SelectorComponent::Scope)
         }
-        ValueToken::Ident(name) => Ok(SelectorComponent::PseudoClass(std::boxed::Box::new(
-            pseudo_class(&name, input),
-        ))),
+        ValueToken::Ident(name) => Ok(SelectorComponent::PseudoClass(
+            allocator.boxed(pseudo_class(name, input)),
+        )),
         ValueToken::Function(name) if is_element => {
-            let arguments = input.parse_nested_block(|input| collect_tokens(input, depth + 1))?;
-            Ok(SelectorComponent::PseudoElement(std::boxed::Box::new(
+            let arguments =
+                input.parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
+            Ok(SelectorComponent::PseudoElement(allocator.boxed(
                 PseudoElement::CustomFunction {
-                    name,
-                    arguments: arguments.into_iter().collect(),
+                    name: input.intern(name),
+                    arguments,
                 },
             )))
         }
         ValueToken::Function(name) => {
-            let component = if let Some(kind) = nth_type(&name) {
-                let (data, selectors) = input.parse_nested_block(|input| {
-                    let start = input.position();
-                    input.expect_no_error_token()?;
-                    let raw = input.slice_from(start).trim();
-                    let lower = raw.to_ascii_lowercase();
-                    let (affine, selector_source) = if let Some(index) = lower.find(" of") {
-                        (&raw[..index], Some(raw[index + 3..].trim()))
+            let component =
+                if let Some(kind) = nth_type(name) {
+                    let (data, selectors) = input.parse_nested_block(|input| {
+                        let start = input.position();
+                        input.expect_no_error_token()?;
+                        let raw = input.slice_from(start).trim();
+                        let lower = raw.to_ascii_lowercase();
+                        let (affine, selector_source) = if let Some(index) = lower.find(" of") {
+                            (&raw[..index], Some(raw[index + 3..].trim()))
+                        } else {
+                            (raw, None)
+                        };
+                        let data = parse_nth_affine(affine, kind)
+                            .ok_or_else(|| input.new_custom_error(ParserError::InvalidSelector))?;
+                        let selectors = selector_source
+                            .map(|source| parse_selector_string(input, source, depth + 1))
+                            .transpose()?;
+                        Ok::<_, ParseError<'i, ParserError<'i>>>((data, selectors))
+                    })?;
+                    if let Some(selectors) = selectors {
+                        SelectorComponent::NthOf { data, selectors }
                     } else {
-                        (raw, None)
-                    };
-                    let data = parse_nth_affine(affine, kind)
-                        .ok_or_else(|| input.new_custom_error(ParserError::InvalidSelector))?;
-                    let selectors = selector_source
-                        .map(|source| parse_selector_string(input, source, depth + 1))
-                        .transpose()?;
-                    Ok::<_, ParseError<'i, ParserError<'i>>>((data, selectors))
-                })?;
-                if let Some(selectors) = selectors {
-                    SelectorComponent::NthOf { data, selectors }
-                } else {
-                    SelectorComponent::Nth(data)
-                }
-            } else if name.eq_ignore_ascii_case("not") {
-                SelectorComponent::Negation(
-                    input.parse_nested_block(|input| parse_selector_list(input, depth + 1))?,
-                )
-            } else if name.eq_ignore_ascii_case("is") {
-                SelectorComponent::Is(
-                    input.parse_nested_block(|input| parse_selector_list(input, depth + 1))?,
-                )
-            } else if name.eq_ignore_ascii_case("where") {
-                SelectorComponent::Where(input.parse_nested_block(|input| {
-                    input.skip_whitespace();
-                    if input.is_exhausted() {
-                        Ok(std::vec::Vec::new())
-                    } else {
-                        parse_selector_list(input, depth + 1)
+                        SelectorComponent::Nth(data)
                     }
-                })?)
-            } else if name.eq_ignore_ascii_case("has") {
-                SelectorComponent::Has(
-                    input.parse_nested_block(|input| parse_selector_list(input, depth + 1))?,
-                )
-            } else {
-                let arguments =
-                    input.parse_nested_block(|input| collect_tokens(input, depth + 1))?;
-                SelectorComponent::PseudoClass(std::boxed::Box::new(PseudoClass::CustomFunction {
-                    name,
-                    arguments: arguments.into_iter().collect(),
-                }))
-            };
+                } else if name.eq_ignore_ascii_case("not") {
+                    SelectorComponent::Negation(input.parse_nested_block(|input| {
+                        parse_selector_list(input, allocator, depth + 1)
+                    })?)
+                } else if name.eq_ignore_ascii_case("is") {
+                    SelectorComponent::Is(input.parse_nested_block(|input| {
+                        parse_selector_list(input, allocator, depth + 1)
+                    })?)
+                } else if name.eq_ignore_ascii_case("where") {
+                    SelectorComponent::Where(input.parse_nested_block(|input| {
+                        input.skip_whitespace();
+                        if input.is_exhausted() {
+                            Ok(allocator.vec())
+                        } else {
+                            parse_selector_list(input, allocator, depth + 1)
+                        }
+                    })?)
+                } else if name.eq_ignore_ascii_case("has") {
+                    SelectorComponent::Has(input.parse_nested_block(|input| {
+                        parse_selector_list(input, allocator, depth + 1)
+                    })?)
+                } else {
+                    let arguments = input
+                        .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
+                    SelectorComponent::PseudoClass(allocator.boxed(PseudoClass::CustomFunction {
+                        name: input.intern(name),
+                        arguments,
+                    }))
+                };
             Ok(component)
         }
         _ => Err(input.new_custom_error(ParserError::InvalidSelector)),
@@ -288,6 +300,7 @@ fn parse_nth_affine(source: &str, kind: NthType) -> Option<NthSelectorData> {
 
 pub(super) fn parse_attribute<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
     let first = input.next()?.clone();
     let (namespace, name) = match first {
@@ -298,7 +311,7 @@ pub(super) fn parse_attribute<'i>(
         }
         ValueToken::Ident(prefix) if input.try_parse(|input| input.expect_delim('|')).is_ok() => (
             Some(NamespaceConstraint::Specific {
-                prefix,
+                prefix: input.intern(prefix),
                 url: input.intern(""),
             }),
             input.expect_ident()?,
@@ -306,22 +319,21 @@ pub(super) fn parse_attribute<'i>(
         ValueToken::Ident(name) => (None, name),
         _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
     };
-    let lower_name = input.intern_ascii_lowercase(&name);
+    let lower_name = input.intern_ascii_lowercase(name);
+    let name = input.intern(name);
     if input.is_exhausted() {
         return Ok(match namespace {
             None => SelectorComponent::AttributeInNoNamespaceExists {
                 local_name: name,
                 local_name_lower: lower_name,
             },
-            Some(namespace) => {
-                SelectorComponent::AttributeOther(std::boxed::Box::new(AttrSelector {
-                    namespace: Some(namespace),
-                    local_name: name,
-                    local_name_lower: lower_name,
-                    operation: AttrOperation::Exists,
-                    never_matches: false,
-                }))
-            }
+            Some(namespace) => SelectorComponent::AttributeOther(allocator.boxed(AttrSelector {
+                namespace: Some(namespace),
+                local_name: name,
+                local_name_lower: lower_name,
+                operation: AttrOperation::Exists,
+                never_matches: false,
+            })),
         });
     }
 
@@ -335,6 +347,7 @@ pub(super) fn parse_attribute<'i>(
         _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
     };
     let value = input.expect_ident_or_string()?;
+    let value = input.intern(value);
     let case_sensitivity = if let Ok(flag) = input.try_parse(Compiler::expect_ident) {
         match_ignore_ascii_case!(
             flag,
@@ -355,7 +368,7 @@ pub(super) fn parse_attribute<'i>(
             case_sensitivity,
             never_matches: false,
         },
-        Some(namespace) => SelectorComponent::AttributeOther(std::boxed::Box::new(AttrSelector {
+        Some(namespace) => SelectorComponent::AttributeOther(allocator.boxed(AttrSelector {
             namespace: Some(namespace),
             local_name: name,
             local_name_lower: lower_name,
@@ -410,7 +423,8 @@ pub(super) fn parse_selector_string<'i>(
     source: &'i str,
     depth: usize,
 ) -> Result<SelectorList<'i>, ParseError<'i, ParserError<'i>>> {
+    let allocator = input.allocator();
     input.with_source(source, |input| {
-        input.parse_entirely(|input| parse_selector_list(input, depth))
+        input.parse_entirely(|input| parse_selector_list(input, allocator, depth))
     })
 }

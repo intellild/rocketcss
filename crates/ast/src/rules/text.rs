@@ -8,24 +8,24 @@ pub struct TextTransform {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct TextIndent {
+pub struct TextIndent<'a> {
     pub each_line: bool,
     pub hanging: bool,
-    pub value: std::boxed::Box<LengthPercentage>,
+    pub value: Box<'a, LengthPercentage<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct TextDecoration<'a> {
-    pub color: std::boxed::Box<CssColor<'a>>,
-    pub line: std::boxed::Box<TextDecorationLine>,
+    pub color: Box<'a, CssColor<'a>>,
+    pub line: Box<'a, TextDecorationLine<'a>>,
     pub style: TextDecorationStyle,
-    pub thickness: std::boxed::Box<TextDecorationThickness>,
+    pub thickness: Box<'a, TextDecorationThickness<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct TextEmphasis<'a> {
-    pub color: std::boxed::Box<CssColor<'a>>,
-    pub style: std::boxed::Box<TextEmphasisStyle<'a>>,
+    pub color: Box<'a, CssColor<'a>>,
+    pub style: Box<'a, TextEmphasisStyle<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -36,9 +36,9 @@ pub struct TextEmphasisPosition {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct TextShadow<'a> {
-    pub blur: std::boxed::Box<Length>,
-    pub color: std::boxed::Box<CssColor<'a>>,
-    pub spread: std::boxed::Box<Length>,
-    pub x_offset: std::boxed::Box<Length>,
-    pub y_offset: std::boxed::Box<Length>,
+    pub blur: Box<'a, Length<'a>>,
+    pub color: Box<'a, CssColor<'a>>,
+    pub spread: Box<'a, Length<'a>>,
+    pub x_offset: Box<'a, Length<'a>>,
+    pub y_offset: Box<'a, Length<'a>>,
 }

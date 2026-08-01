@@ -1,5 +1,5 @@
 pub use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
-pub use rocketcss_common::GhostToken;
+pub use rocketcss_common::Allocator;
 pub use rocketcss_parser::{ParserOptions, parse};
 pub use rocketcss_visitor::{PluginContext, Plugins};
 
@@ -26,8 +26,10 @@ fn run(source: &str) -> String {
 }
 
 fn run_with_options(source: &str, options: MinifyOptions) -> String {
-    GhostToken::scope(|mut token| {
-        let mut stylesheet = parse(source, &mut token, ParserOptions::default()).unwrap();
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet =
+            parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
         minify(&mut stylesheet, &mut token, options);
         stylesheet
             .to_css_string(
@@ -39,9 +41,11 @@ fn run_with_options(source: &str, options: MinifyOptions) -> String {
 }
 
 fn run_with_error_recovery(source: &str) -> String {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
             source,
+            &allocator,
             &mut token,
             ParserOptions {
                 error_recovery: true,

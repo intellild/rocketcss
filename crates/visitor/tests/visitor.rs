@@ -6,7 +6,6 @@ struct Recorder {
     style_sheets: usize,
     style_rules: usize,
     selector_lists: usize,
-    declaration_blocks: usize,
     declarations: usize,
     colors: usize,
     unknown_at_rules: usize,
@@ -33,7 +32,7 @@ impl<'a, 'ghost> Visitor<'a, 'ghost> for Recorder {
 
     fn visit_selector_list(
         &mut self,
-        selectors: &[Selector<'a>],
+        selectors: &SelectorList<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         self.selector_lists += 1;
@@ -47,14 +46,6 @@ impl<'a, 'ghost> Visitor<'a, 'ghost> for Recorder {
     ) {
         self.declarations += 1;
         declaration.visit_children(self, cx);
-    }
-
-    fn visit_declaration_block_id(
-        &mut self,
-        _id: DeclarationBlockId,
-        _cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        self.declaration_blocks += 1;
     }
 
     fn visit_css_color(&mut self, color: &CssColor<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
@@ -74,9 +65,11 @@ impl<'a, 'ghost> Visitor<'a, 'ghost> for Recorder {
 
 #[test]
 fn immutable_visitor_walks_the_complete_tree_with_balanced_events() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let sheet = rocketcss_parser::parse(
             ".a { color: red; background: linear-gradient(red, blue); }",
+            &allocator,
             &mut token,
             rocketcss_parser::ParserOptions::default(),
         )
@@ -89,7 +82,6 @@ fn immutable_visitor_walks_the_complete_tree_with_balanced_events() {
         assert_eq!(recorder.style_sheets, 1);
         assert_eq!(recorder.style_rules, 1);
         assert_eq!(recorder.selector_lists, 1);
-        assert_eq!(recorder.declaration_blocks, 1);
         assert_eq!(recorder.declarations, 2);
         assert_eq!(recorder.colors, 1);
     })
@@ -98,9 +90,11 @@ fn immutable_visitor_walks_the_complete_tree_with_balanced_events() {
 #[test]
 #[ignore]
 fn unknown_at_rule_emits_balanced_events_while_preserving_raw_body() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let sheet = rocketcss_parser::parse(
             "@global { h1 { color: red } }",
+            &allocator,
             &mut token,
             rocketcss_parser::ParserOptions::default(),
         )
@@ -136,18 +130,18 @@ impl<'a, 'ghost> Visitor<'a, 'ghost> for RuleRecorder {
 #[test]
 #[ignore]
 fn css_rule_callback_is_non_generic_and_default_at_rule_is_public() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut sheet = rocketcss_parser::parse(
             "a{}@media print{b{}}",
+            &allocator,
             &mut token,
             rocketcss_parser::ParserOptions::default(),
         )
         .unwrap();
-        let root = sheet.rules;
-        let rule = sheet.rule_store_mut().reserve(root);
         sheet
-            .rule_store_mut()
-            .finish(rule, CssRule::Custom(DefaultAtRule));
+            .rules
+            .push(CssRule::Custom(allocator.boxed(DefaultAtRule)));
         let mut recorder = RuleRecorder::default();
 
         sheet.visit(&mut recorder, &VisitContext::new(&token));
@@ -158,13 +152,13 @@ fn css_rule_callback_is_non_generic_and_default_at_rule_is_public() {
 }
 
 #[derive(Default)]
-struct SelectorRecorder {
-    classes: std::vec::Vec<String>,
-    ids: std::vec::Vec<String>,
+struct SelectorRecorder<'a> {
+    classes: std::vec::Vec<&'a str>,
+    ids: std::vec::Vec<&'a str>,
     child_combinators: usize,
 }
 
-impl<'a, 'ghost> Visitor<'a, 'ghost> for SelectorRecorder {
+impl<'a, 'ghost> Visitor<'a, 'ghost> for SelectorRecorder<'a> {
     fn visit_selector(&mut self, selector: &Selector<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         selector.visit_children(self, cx);
     }
@@ -175,8 +169,8 @@ impl<'a, 'ghost> Visitor<'a, 'ghost> for SelectorRecorder {
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         match component {
-            SelectorComponent::Class(name) => self.classes.push(name.as_str().to_owned()),
-            SelectorComponent::Id(name) => self.ids.push(name.as_str().to_owned()),
+            SelectorComponent::Class(name) => self.classes.push(name.as_str()),
+            SelectorComponent::Id(name) => self.ids.push(name.as_str()),
             SelectorComponent::Combinator(Combinator::Child) => self.child_combinators += 1,
             _ => {}
         }
@@ -187,9 +181,11 @@ impl<'a, 'ghost> Visitor<'a, 'ghost> for SelectorRecorder {
 #[test]
 #[ignore]
 fn selector_visitor_recurses_into_functional_selector_lists() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let sheet = rocketcss_parser::parse(
             ".a:is(.b,#c):has(> .d):nth-child(2n of .e,.f){color:red}",
+            &allocator,
             &mut token,
             rocketcss_parser::ParserOptions::default(),
         )
@@ -215,7 +211,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameAndRecolor<'a> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         if let SelectorComponent::Class(name) = component {
-            *name = self.renamed.clone();
+            *name = self.renamed;
         }
         component.visit_mut_children(self, cx);
     }
@@ -228,8 +224,9 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameAndRecolor<'a> {
 
 #[test]
 fn mutable_visitor_can_transform_typed_nodes() {
-    GhostToken::scope(|mut token| {
-        let mut compiler = rocketcss_parser::Compiler::new();
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut compiler = rocketcss_parser::Compiler::new(&allocator);
         let mut sheet = compiler
             .parse(
                 ".before { color: red }",
@@ -238,16 +235,17 @@ fn mutable_visitor_can_transform_typed_nodes() {
             )
             .unwrap();
         let mut visitor = RenameAndRecolor {
-            renamed: sheet.intern("renamed"),
+            renamed: compiler.intern("renamed"),
         };
 
         sheet.visit_mut(&mut visitor, &mut VisitMutContext::new(&mut token));
 
-        let CssRule::Style(rule) = &sheet.root_rules()[0] else {
+        let CssRule::Style(rule) = &sheet.rules[0] else {
             panic!("expected style rule")
         };
+        let rule = rule.as_ref().get_ref();
         assert!(matches!(
-            &sheet.selectors(rule.selectors)[0][0],
+            rule.selectors[0][0],
             SelectorComponent::Class(name) if name == "renamed"
         ));
         assert!(matches!(
@@ -274,7 +272,7 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for NoopVisitor {}
 impl<'a, 'ghost> VisitorMut<'a, 'ghost> for PanicOnNestedStyle {
     fn visit_style_rule(
         &mut self,
-        rule: &mut StyleRule<'a>,
+        mut rule: std::pin::Pin<&mut StyleRule<'a>>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         self.styles_seen += 1;
@@ -285,9 +283,11 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for PanicOnNestedStyle {
 
 #[test]
 fn mutable_visitor_panic_keeps_nested_rules_attached() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut sheet = rocketcss_parser::parse(
             ".card { color: red; button:hover { color: blue } }",
+            &allocator,
             &mut token,
             rocketcss_parser::ParserOptions::default(),
         )
@@ -303,10 +303,10 @@ fn mutable_visitor_panic_keeps_nested_rules_attached() {
         // when a visitor unwinds. Reusing the context must remain valid.
         sheet.visit_mut(&mut NoopVisitor, &mut cx);
 
-        let CssRule::Style(style) = &sheet.root_rules()[0] else {
+        let CssRule::Style(style) = &sheet.rules[0] else {
             panic!("expected outer style rule")
         };
-        assert_eq!(sheet.rule_list(style.rules).len(), 1);
+        assert_eq!(style.as_ref().get_ref().rules.len(), 1);
     })
 }
 
@@ -330,9 +330,11 @@ impl<'a, 'ghost> VisitorMut<'a, 'ghost> for FunctionOrderRecorder {
 #[test]
 #[ignore]
 fn mutable_visitor_controls_nested_function_entry_and_exit_order() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut sheet = rocketcss_parser::parse(
             "a { unknown: outer(inner()) }",
+            &allocator,
             &mut token,
             rocketcss_parser::ParserOptions::default(),
         )
@@ -353,34 +355,34 @@ struct RemoveUnusedClass;
 impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RemoveUnusedClass {
     fn visit_style_rule(
         &mut self,
-        rule: &mut StyleRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+        mut rule: std::pin::Pin<&mut StyleRule<'a>>,
+        _cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
-        cx.with_selector_list(rule.selectors, |selectors| {
-            for selector in selectors {
-                let should_remove = matches!(
-                    selector,
-                    Selector::Parsed(components)
-                        if components.len() == 1
-                            && matches!(
-                                &components[0],
-                                SelectorComponent::Class(name) if name == "unused"
-                            )
-                );
-                if should_remove {
-                    *selector = Selector::Tombstone;
-                }
+        for selector in rule.as_mut().selectors_mut().iter_mut() {
+            let should_remove = matches!(
+                selector,
+                Selector::Parsed(components)
+                    if components.len() == 1
+                        && matches!(
+                            components[0],
+                            SelectorComponent::Class(name) if name == "unused"
+                        )
+            );
+            if should_remove {
+                *selector = Selector::Tombstone;
             }
-        });
+        }
     }
 }
 
 #[test]
 #[ignore]
 fn mutable_visitor_can_tombstone_direct_style_rule_selectors() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut sheet = rocketcss_parser::parse(
             ".unused,.used{color:red}.unused{color:blue}",
+            &allocator,
             &mut token,
             rocketcss_parser::ParserOptions::default(),
         )
@@ -391,26 +393,17 @@ fn mutable_visitor_can_tombstone_direct_style_rule_selectors() {
             &mut VisitMutContext::new(&mut token),
         );
 
-        let CssRule::Style(first) = &sheet.root_rules()[0] else {
+        let CssRule::Style(first) = &sheet.rules[0] else {
             panic!("expected first style rule")
         };
-        assert!(matches!(
-            sheet.selectors(first.selectors)[0],
-            Selector::Tombstone
-        ));
-        assert!(matches!(
-            sheet.selectors(first.selectors)[1],
-            Selector::Parsed(_)
-        ));
+        let first = first.as_ref().get_ref();
+        assert!(matches!(first.selectors[0], Selector::Tombstone));
+        assert!(matches!(first.selectors[1], Selector::Parsed(_)));
 
-        let CssRule::Style(second) = &sheet.root_rules()[1] else {
+        let CssRule::Style(second) = &sheet.rules[1] else {
             panic!("expected second style rule")
         };
-        assert!(
-            sheet
-                .selectors(second.selectors)
-                .iter()
-                .all(Selector::is_tombstone)
-        );
+        let second = second.as_ref().get_ref();
+        assert!(second.selectors.iter().all(Selector::is_tombstone));
     })
 }

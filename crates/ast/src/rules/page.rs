@@ -33,8 +33,8 @@ pub struct PageRule<'a> {
     #[visit(with = visit_declaration_block_id, with_mut = visit_declaration_block_id_mut)]
     pub declarations: DeclarationBlockId,
     pub span: Span,
-    pub rules: std::vec::Vec<PageMarginRule>,
-    pub selectors: std::vec::Vec<PageSelector<'a>>,
+    pub rules: Vec<'a, PageMarginRule>,
+    pub selectors: Vec<'a, PageSelector<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -47,6 +47,6 @@ pub struct PageMarginRule {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct PageSelector<'a> {
-    pub name: Option<Atom<'a>>,
-    pub pseudo_classes: std::vec::Vec<PagePseudoClass>,
+    pub name: Option<&'a str>,
+    pub pseudo_classes: Vec<'a, PagePseudoClass>,
 }

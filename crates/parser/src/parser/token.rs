@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use rocketcss_ast::{Token as ValueToken, Unit, match_ignore_ascii_case};
-use rocketcss_common::StringPool;
+use rocketcss_common::Allocator;
 
 use crate::{Span, Token};
 
@@ -11,30 +11,27 @@ pub(crate) fn decode_token<'i>(
     kind: Token,
     span: Span,
     source: &'i str,
-    string_pool: &mut StringPool,
+    allocator: &'i Allocator,
 ) -> ValueToken<'i> {
     let raw = &source[span.start as usize..span.end as usize];
     match kind {
-        Token::Ident => ValueToken::Ident(string_pool.intern(&decode_name(raw))),
-        Token::AtKeyword => ValueToken::AtKeyword(string_pool.intern(&decode_name(&raw[1..]))),
-        Token::Hash => ValueToken::Hash(string_pool.intern(&decode_name(&raw[1..]))),
-        Token::IDHash => ValueToken::IdHash(string_pool.intern(&decode_name(&raw[1..]))),
-        Token::QuotedString => ValueToken::String(string_pool.intern(&decode_string(raw))),
-        Token::UnquotedUrl => ValueToken::UnquotedUrl(string_pool.intern(&decode_url(raw))),
+        Token::Ident => ValueToken::Ident(decode_name(raw, allocator)),
+        Token::AtKeyword => ValueToken::AtKeyword(decode_name(&raw[1..], allocator)),
+        Token::Hash => ValueToken::Hash(decode_name(&raw[1..], allocator)),
+        Token::IDHash => ValueToken::IdHash(decode_name(&raw[1..], allocator)),
+        Token::QuotedString => ValueToken::String(decode_string(raw, allocator)),
+        Token::UnquotedUrl => ValueToken::UnquotedUrl(decode_url(raw, allocator)),
         Token::Delim => ValueToken::Delim(raw),
         Token::Number => ValueToken::Number(parse_number(raw)),
         Token::Percentage => ValueToken::Percentage(parse_number(&raw[..raw.len() - 1]) / 100.0),
         Token::Dimension => {
             let number_end = numeric_prefix_len(raw);
-            let unit = decode_name(&raw[number_end..]);
+            let unit = decode_name(&raw[number_end..], allocator);
             let value = parse_number(&raw[..number_end]);
-            if let Some(unit) = parse_unit(&unit) {
+            if let Some(unit) = parse_unit(unit) {
                 ValueToken::Dimension { unit, value }
             } else {
-                ValueToken::UnknownDimension {
-                    unit: string_pool.intern(&unit),
-                    value,
-                }
+                ValueToken::UnknownDimension { unit, value }
             }
         }
         Token::WhiteSpace => ValueToken::WhiteSpace(raw),
@@ -55,13 +52,13 @@ pub(crate) fn decode_token<'i>(
         Token::CDC => ValueToken::Cdc,
         Token::Function => {
             let open = function_opening(raw);
-            ValueToken::Function(string_pool.intern(&decode_name(&raw[..open])))
+            ValueToken::Function(decode_name(&raw[..open], allocator))
         }
         Token::ParenthesisBlock => ValueToken::ParenthesisBlock,
         Token::SquareBracketBlock => ValueToken::SquareBracketBlock,
         Token::CurlyBracketBlock => ValueToken::CurlyBracketBlock,
-        Token::BadUrl => ValueToken::BadUrl(string_pool.intern(&decode_url(raw))),
-        Token::BadString => ValueToken::BadString(string_pool.intern(&decode_string(raw))),
+        Token::BadUrl => ValueToken::BadUrl(decode_url(raw, allocator)),
+        Token::BadString => ValueToken::BadString(decode_string(raw, allocator)),
         Token::CloseParenthesis => ValueToken::CloseParenthesis,
         Token::CloseSquareBracket => ValueToken::CloseSquareBracket,
         Token::CloseCurlyBracket => ValueToken::CloseCurlyBracket,
@@ -92,28 +89,28 @@ fn parse_unit(unit: &str) -> Option<Unit> {
     }
 }
 
-fn decode_name(raw: &str) -> Cow<'_, str> {
-    crate::unescape(raw)
+fn decode_name<'i>(raw: &'i str, allocator: &'i Allocator) -> &'i str {
+    store(crate::unescape(raw), allocator)
 }
 
-fn decode_string(raw: &str) -> Cow<'_, str> {
+fn decode_string<'i>(raw: &'i str, allocator: &'i Allocator) -> &'i str {
     let Some(quote) = raw.as_bytes().first().copied() else {
-        return Cow::Borrowed(raw);
+        return raw;
     };
     let mut value = &raw[1..];
     if value.as_bytes().last() == Some(&quote) {
         value = &value[..value.len() - 1];
     }
-    decode_name(value)
+    decode_name(value, allocator)
 }
 
-fn decode_url(raw: &str) -> Cow<'_, str> {
+fn decode_url<'i>(raw: &'i str, allocator: &'i Allocator) -> &'i str {
     let open = function_opening(raw);
     let mut value = raw[open + 1..].trim_matches(css_whitespace);
     if let Some(without_close) = value.strip_suffix(')') {
         value = without_close.trim_end_matches(css_whitespace);
     }
-    decode_name(value)
+    decode_name(value, allocator)
 }
 
 fn function_opening(raw: &str) -> usize {
@@ -168,6 +165,13 @@ pub(crate) fn numeric_prefix_len(raw: &str) -> usize {
 fn parse_number(raw: &str) -> f32 {
     raw.parse()
         .expect("the tokenizer produced a valid CSS number")
+}
+
+fn store<'i>(value: Cow<'i, str>, allocator: &'i Allocator) -> &'i str {
+    match value {
+        Cow::Borrowed(value) => value,
+        Cow::Owned(value) => allocator.alloc_str(&value),
+    }
 }
 
 fn css_whitespace(value: char) -> bool {

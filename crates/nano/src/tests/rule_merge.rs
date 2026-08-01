@@ -45,9 +45,11 @@ fn adjacent_rule_merging_is_configurable() {
 
 #[test]
 fn adjacent_rule_merging_is_idempotent() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
             "a{width:1px}a{height:2px}a{opacity:.5}",
+            &allocator,
             &mut token,
             ParserOptions::default(),
         )
@@ -71,45 +73,6 @@ fn adjacent_rule_merging_is_idempotent() {
         assert_eq!(once, "a{width:1px;height:2px;opacity:.5}");
         assert_eq!(twice, once);
         assert_eq!(second_stats.declarations_removed, 0);
-    });
-}
-
-#[test]
-fn terminal_reification_compacts_rules_selectors_and_declarations() {
-    GhostToken::scope(|mut token| {
-        let mut stylesheet = parse(
-            "a{width:1px}a{height:2px}b{x:1}b{x:1}",
-            &mut token,
-            ParserOptions::default(),
-        )
-        .unwrap();
-
-        minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        stylesheet.validate_flat_ir().unwrap();
-        assert_eq!(stylesheet.rule_store().len(), 2);
-        assert_eq!(stylesheet.selector_slots().count(), 2);
-        assert_eq!(stylesheet.declaration_slots().count(), 3);
-
-        for rule in stylesheet.root_rules().iter() {
-            let CssRule::Style(style) = rule else {
-                panic!("expected compacted style rule")
-            };
-            let block = stylesheet.declaration_block(style.declarations);
-            assert_eq!(block.ranges().len(), 1);
-            assert!(block.effective_key().is_some());
-            assert!(
-                block
-                    .declarations
-                    .iter()
-                    .all(|declaration| !declaration.is_tombstone())
-            );
-            assert!(
-                stylesheet
-                    .selectors(style.selectors)
-                    .iter()
-                    .all(|selector| !selector.is_tombstone())
-            );
-        }
     });
 }
 

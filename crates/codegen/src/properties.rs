@@ -90,7 +90,7 @@ impl<'ghost> ToCss<'ghost> for u16 {
 macro_rules! comma_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a, 'ghost> ToCss<'ghost> for std::vec::Vec<$ty> {
+            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
@@ -107,10 +107,10 @@ macro_rules! comma_vec {
 
 comma_vec! {
     Image<'a>,
-    PositionComponent<HorizontalPositionKeyword>,
-    PositionComponent<VerticalPositionKeyword>,
-    BackgroundPosition,
-    BackgroundSize,
+    PositionComponent<'a, HorizontalPositionKeyword>,
+    PositionComponent<'a, VerticalPositionKeyword>,
+    BackgroundPosition<'a>,
+    BackgroundSize<'a>,
     BackgroundRepeat,
     BackgroundAttachment,
     BackgroundClip,
@@ -128,12 +128,12 @@ comma_vec! {
     AnimationFillMode,
     AnimationComposition,
     AnimationTimeline<'a>,
-    AnimationAttachmentRange,
-    AnimationRange,
+    AnimationAttachmentRange<'a>,
+    AnimationRange<'a>,
     Animation<'a>,
     TextShadow<'a>,
     MaskMode,
-    Position,
+    Position<'a>,
     MaskClip,
     GeometryBox,
     MaskComposite,
@@ -142,7 +142,7 @@ comma_vec! {
     WebKitMaskSourceType,
 }
 
-impl<'a, 'ghost> ToCss<'ghost> for std::vec::Vec<FontFamily<'a>> {
+impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, FontFamily<'a>> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -163,7 +163,7 @@ impl<'a, 'ghost> ToCss<'ghost> for std::vec::Vec<FontFamily<'a>> {
 macro_rules! space_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a, 'ghost> ToCss<'ghost> for std::vec::Vec<$ty> {
+            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
                     for (index, value) in self.iter().enumerate() {
                         if index > 0 {
@@ -178,7 +178,7 @@ macro_rules! space_vec {
     };
 }
 
-space_vec! { TrackSize, Transform }
+space_vec! { TrackSize<'a>, Transform<'a> }
 
 macro_rules! declaration_value_pattern {
     ($name:path, $value:ident) => {

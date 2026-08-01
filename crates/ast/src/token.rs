@@ -1,22 +1,23 @@
 use super::*;
 
+use rocketcss_common::boxed::Box;
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum TokenOrValue<'a> {
-    Token(std::boxed::Box<Token<'a>>),
-    Color(std::boxed::Box<CssColor<'a>>),
-    UnresolvedColor(std::boxed::Box<UnresolvedColor<'a>>),
-    Url(std::boxed::Box<Url<'a>>),
-    Var(std::boxed::Box<Variable<'a>>),
-    Env(std::boxed::Box<EnvironmentVariable<'a>>),
-    Function(std::boxed::Box<Function<'a>>),
+    Token(Box<'a, Token<'a>>),
+    Color(Box<'a, CssColor<'a>>),
+    UnresolvedColor(Box<'a, UnresolvedColor<'a>>),
+    Url(Box<'a, Url<'a>>),
+    Var(Box<'a, Variable<'a>>),
+    Env(Box<'a, EnvironmentVariable<'a>>),
+    Function(Box<'a, Function<'a>>),
     Length(LengthValue),
     Angle(Angle),
     Time(Time),
     Resolution(Resolution),
-    DashedIdent(Atom<'a>),
-    AnimationName(std::boxed::Box<AnimationName<'a>>),
+    DashedIdent(&'a str),
+    AnimationName(Box<'a, AnimationName<'a>>),
 }
 
 impl Eq for TokenOrValue<'_> {}
@@ -66,16 +67,16 @@ impl Unit {
 
 #[derive(Clone, Debug, PartialEq, Visit)]
 pub enum Token<'a> {
-    Ident(Atom<'a>),
-    AtKeyword(Atom<'a>),
-    Hash(Atom<'a>),
-    IdHash(Atom<'a>),
+    Ident(&'a str),
+    AtKeyword(&'a str),
+    Hash(&'a str),
+    IdHash(&'a str),
     /// A hexadecimal color hash normalized during minification.
-    MinifiedHash(Atom<'a>),
-    String(Atom<'a>),
+    MinifiedHash(&'a str),
+    String(&'a str),
     /// A quoted font family that can be serialized as identifiers in place.
-    UnquotedFont(Atom<'a>),
-    UnquotedUrl(Atom<'a>),
+    UnquotedFont(&'a str),
+    UnquotedUrl(&'a str),
     Delim(&'a str),
     Number(f32),
     Percentage(f32),
@@ -84,7 +85,7 @@ pub enum Token<'a> {
         value: f32,
     },
     UnknownDimension {
-        unit: Atom<'a>,
+        unit: &'a str,
         value: f32,
     },
     WhiteSpace(&'a str),
@@ -99,12 +100,12 @@ pub enum Token<'a> {
     SubstringMatch,
     Cdo,
     Cdc,
-    Function(Atom<'a>),
+    Function(&'a str),
     ParenthesisBlock,
     SquareBracketBlock,
     CurlyBracketBlock,
-    BadUrl(Atom<'a>),
-    BadString(Atom<'a>),
+    BadUrl(&'a str),
+    BadString(&'a str),
     CloseParenthesis,
     CloseSquareBracket,
     CloseCurlyBracket,
@@ -116,9 +117,6 @@ impl Hash for Token<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
-            Self::Delim(value) | Self::WhiteSpace(value) | Self::Comment(value) => {
-                value.hash(state)
-            }
             Self::Ident(value)
             | Self::AtKeyword(value)
             | Self::Hash(value)
@@ -127,6 +125,9 @@ impl Hash for Token<'_> {
             | Self::String(value)
             | Self::UnquotedFont(value)
             | Self::UnquotedUrl(value)
+            | Self::Delim(value)
+            | Self::WhiteSpace(value)
+            | Self::Comment(value)
             | Self::Function(value)
             | Self::BadUrl(value)
             | Self::BadString(value) => value.hash(state),
@@ -179,15 +180,15 @@ pub enum Specifier<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum AnimationName<'a> {
     None,
-    Ident(Atom<'a>),
-    String(Atom<'a>),
+    Ident(&'a str),
+    String(&'a str),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum EnvironmentVariableName<'a> {
     UA(UAEnvironmentVariable),
-    Custom(std::boxed::Box<DashedIdentReference<'a>>),
-    Unknown(Atom<'a>),
+    Custom(Box<'a, DashedIdentReference<'a>>),
+    Unknown(&'a str),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

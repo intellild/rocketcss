@@ -2,100 +2,97 @@ use super::{length::parse_length_unit, stylesheet::span_from, values::collect_to
 use crate::prelude::*;
 
 pub(super) fn parse_import<'i>(
-    input: &mut Compiler<'i>,
     prelude: &'i str,
+    allocator: &'i Allocator,
     start: &ParserState,
     end: SourcePosition,
 ) -> Result<CssRule<'i>, ParseError<'i, ParserError<'i>>> {
-    input.with_source(prelude, |parser| {
-        let url = parser.expect_url_or_string()?;
+    let mut parser = Compiler::new_with_source(prelude, allocator);
+    let url = parser.expect_url_or_string()?;
 
-        let layer = if parser
-            .try_parse(|input| input.expect_ident_matching("layer"))
-            .is_ok()
-        {
-            Some(std::vec::Vec::new())
-        } else if parser
-            .try_parse(|input| input.expect_function_matching("layer"))
-            .is_ok()
-        {
-            Some(parser.parse_nested_block(|input| {
-                let mut name = std::vec::Vec::new();
+    let layer = if parser
+        .try_parse(|input| input.expect_ident_matching("layer"))
+        .is_ok()
+    {
+        Some(allocator.vec())
+    } else if parser
+        .try_parse(|input| input.expect_function_matching("layer"))
+        .is_ok()
+    {
+        Some(parser.parse_nested_block(|input| {
+            let mut name = allocator.vec();
+            name.push(input.expect_ident()?);
+            while input.try_parse(|input| input.expect_delim('.')).is_ok() {
                 name.push(input.expect_ident()?);
-                while input.try_parse(|input| input.expect_delim('.')).is_ok() {
-                    name.push(input.expect_ident()?);
-                }
-                input.expect_exhausted()?;
-                Ok::<_, ParseError<'i, ParserError<'i>>>(name)
-            })?)
-        } else {
-            None
-        };
-
-        let supports = if parser
-            .try_parse(|input| input.expect_function_matching("supports"))
-            .is_ok()
-        {
-            Some(std::boxed::Box::new(parser.parse_nested_block(
-                |input| {
-                    let start = input.position();
-                    input.expect_no_error_token()?;
-                    let raw = input.slice_from(start).trim();
-                    if raw.is_empty() {
-                        return Err(input.new_custom_error(ParserError::InvalidValue));
-                    }
-                    Ok::<_, ParseError<'i, ParserError<'i>>>(parse_supports_condition(raw))
-                },
-            )?))
-        } else {
-            None
-        };
-
-        let media = if parser.is_exhausted() {
-            None
-        } else {
-            let rest = parser
-                .slice(parser.position()..SourcePosition(prelude.len()))
-                .trim();
-            if rest.is_empty() {
-                None
-            } else {
-                Some(std::boxed::Box::new(parse_media_list(parser, rest)?))
             }
-        };
-        Ok(CssRule::Import(ImportRule {
-            layer,
-            span: span_from(start, end),
-            media,
-            supports,
-            url,
-        }))
-    })
+            input.expect_exhausted()?;
+            Ok::<_, ParseError<'i, ParserError<'i>>>(name)
+        })?)
+    } else {
+        None
+    };
+
+    let supports = if parser
+        .try_parse(|input| input.expect_function_matching("supports"))
+        .is_ok()
+    {
+        Some(allocator.boxed(parser.parse_nested_block(|input| {
+            let start = input.position();
+            input.expect_no_error_token()?;
+            let raw = input.slice_from(start).trim();
+            if raw.is_empty() {
+                return Err(input.new_custom_error(ParserError::InvalidValue));
+            }
+            Ok::<_, ParseError<'i, ParserError<'i>>>(parse_supports_condition(raw))
+        })?))
+    } else {
+        None
+    };
+
+    let media = if parser.is_exhausted() {
+        None
+    } else {
+        let rest = parser
+            .slice(parser.position()..SourcePosition(prelude.len()))
+            .trim();
+        if rest.is_empty() {
+            None
+        } else {
+            Some(allocator.boxed(parse_media_list(rest, allocator)?))
+        }
+    };
+    Ok(CssRule::Import(allocator.boxed(ImportRule {
+        layer,
+        span: span_from(start, end),
+        media,
+        supports,
+        url,
+    })))
 }
 
 pub(super) fn parse_media_list<'i>(
-    input: &mut Compiler<'i>,
     source: &'i str,
+    allocator: &'i Allocator,
 ) -> Result<MediaList<'i>, ParseError<'i, ParserError<'i>>> {
     if source.trim().is_empty() {
         return Ok(MediaList {
-            media_queries: std::vec::Vec::new(),
+            media_queries: allocator.vec(),
         });
     }
-    input.with_source(source, |parser| {
-        let parsed = parser.parse_comma_separated(|input| {
-            input
-                .try_parse(|input| parse_media_query(input))
-                .or_else(|_| parse_unknown_media_query(input))
-        })?;
-        let mut media_queries = std::vec::Vec::new();
-        media_queries.extend(parsed.into_iter().map(std::boxed::Box::new));
-        Ok(MediaList { media_queries })
-    })
+    let mut parser = Compiler::new_with_source(source, allocator);
+    let parsed = parser.parse_comma_separated(|input| {
+        input
+            .try_parse(|input| parse_media_query(input, allocator))
+            .or_else(|_| parse_unknown_media_query(input, allocator))
+    })?;
+    let mut media_queries = allocator.vec();
+    media_queries.extend(parsed.into_iter().map(|query| allocator.boxed(query)));
+    Ok(MediaList { media_queries })
 }
 
 fn parse_media_query<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
     // As in Lightning CSS, parse the qualifier and media type together. This
     // is important for `not (color)`: `not` is part of the condition there,
@@ -113,14 +110,14 @@ fn parse_media_query<'i>(
             None
         } else {
             input.expect_ident_matching("and")?;
-            Some(parse_media_condition_or_unknown(input, false)?)
+            Some(parse_media_condition_or_unknown(input, allocator, false)?)
         };
         (qualifier, media_type, condition)
     } else {
         (
             None,
             MediaType::All,
-            Some(parse_media_condition_or_unknown(input, true)?),
+            Some(parse_media_condition_or_unknown(input, allocator, true)?),
         )
     };
 
@@ -134,9 +131,12 @@ fn parse_media_query<'i>(
 
 fn parse_unknown_media_query<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
     Ok(MediaQuery {
-        condition: Some(MediaCondition::Unknown(collect_tokens(input, 0)?)),
+        condition: Some(MediaCondition::Unknown(collect_tokens(
+            input, allocator, 0,
+        )?)),
         media_type: MediaType::All,
         qualifier: None,
     })
@@ -147,7 +147,7 @@ fn parse_qualifier<'i>(
 ) -> Result<Qualifier, ParseError<'i, ParserError<'i>>> {
     let name = input.expect_ident()?;
     match_ignore_ascii_case!(
-        &name,
+        name,
         "only" => Ok(Qualifier::Only),
         "not" => Ok(Qualifier::Not),
         _ => Err(input.new_custom_error(ParserError::InvalidValue)),
@@ -159,7 +159,7 @@ fn parse_media_type<'i>(
 ) -> Result<MediaType<'i>, ParseError<'i, ParserError<'i>>> {
     let name = input.expect_ident()?;
     match_ignore_ascii_case!(
-        &name,
+        name,
         "all" => Ok(MediaType::All),
         "print" => Ok(MediaType::Print),
         "screen" => Ok(MediaType::Screen),
@@ -172,27 +172,31 @@ fn parse_media_type<'i>(
 
 fn parse_media_condition_or_unknown<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
     allow_or: bool,
 ) -> Result<MediaCondition<'i>, ParseError<'i, ParserError<'i>>> {
     if let Ok(condition) = input.try_parse(|input| -> Result<_, ParseError<'i, ParserError<'i>>> {
-        let condition = parse_media_condition(input, allow_or)?;
+        let condition = parse_media_condition(input, allocator, allow_or)?;
         input.expect_exhausted()?;
         Ok(condition)
     }) {
         return Ok(condition);
     }
-    Ok(MediaCondition::Unknown(collect_tokens(input, 0)?))
+    Ok(MediaCondition::Unknown(collect_tokens(
+        input, allocator, 0,
+    )?))
 }
 
 fn parse_media_condition<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
     allow_or: bool,
 ) -> Result<MediaCondition<'i>, ParseError<'i, ParserError<'i>>> {
     let first = match input.next()? {
-        ValueToken::ParenthesisBlock => parse_parenthesized_condition(input)?,
+        ValueToken::ParenthesisBlock => parse_parenthesized_condition(input, allocator)?,
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("not") => {
-            let condition = parse_parenthesis(input)?;
-            return Ok(MediaCondition::Not(std::boxed::Box::new(condition)));
+            let condition = parse_parenthesis(input, allocator)?;
+            return Ok(MediaCondition::Not(allocator.boxed(condition)));
         }
         _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
     };
@@ -205,9 +209,9 @@ fn parse_media_condition<'i>(
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
 
-    let mut conditions = std::vec::Vec::new();
+    let mut conditions = allocator.vec();
     conditions.push(first);
-    conditions.push(parse_parenthesis(input)?);
+    conditions.push(parse_parenthesis(input, allocator)?);
     let delimiter = match operator {
         Operator::And => "and",
         Operator::Or => "or",
@@ -216,7 +220,7 @@ fn parse_media_condition<'i>(
         .try_parse(|input| input.expect_ident_matching(delimiter))
         .is_ok()
     {
-        conditions.push(parse_parenthesis(input)?);
+        conditions.push(parse_parenthesis(input, allocator)?);
     }
     Ok(MediaCondition::Operation {
         conditions,
@@ -238,38 +242,44 @@ fn parse_operator<'i>(
 
 fn parse_parenthesis<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<MediaCondition<'i>, ParseError<'i, ParserError<'i>>> {
     input.expect_parenthesis_block()?;
-    parse_parenthesized_condition(input)
+    parse_parenthesized_condition(input, allocator)
 }
 
 fn parse_parenthesized_condition<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<MediaCondition<'i>, ParseError<'i, ParserError<'i>>> {
     input.parse_nested_block(|input| {
         if input.is_exhausted() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        if let Ok(condition) = input.try_parse(|input| parse_media_condition(input, true)) {
+        if let Ok(condition) =
+            input.try_parse(|input| parse_media_condition(input, allocator, true))
+        {
             return Ok(condition);
         }
-        Ok(MediaCondition::Feature(std::boxed::Box::new(
-            parse_media_feature(input)?,
-        )))
+        Ok(MediaCondition::Feature(
+            allocator.boxed(parse_media_feature(input, allocator)?),
+        ))
     })
 }
 
 fn parse_media_feature<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<MediaFeature<'i>, ParseError<'i, ParserError<'i>>> {
-    match input.try_parse(|input| parse_name_first_feature(input)) {
+    match input.try_parse(|input| parse_name_first_feature(input, allocator)) {
         Ok(feature) => Ok(feature),
-        Err(_) => parse_value_first_feature(input),
+        Err(_) => parse_value_first_feature(input, allocator),
     }
 }
 
 fn parse_name_first_feature<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<MediaFeature<'i>, ParseError<'i, ParserError<'i>>> {
     let (name, legacy_operator) = parse_media_feature_name(input)?;
     let value_type = media_feature_name_type(&name);
@@ -281,7 +291,7 @@ fn parse_name_first_feature<'i>(
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
 
-    let value = parse_media_feature_value(input, value_type)?;
+    let value = parse_media_feature_value(input, allocator, value_type)?;
     if !media_feature_value_matches(&value, value_type) {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
@@ -301,6 +311,7 @@ fn parse_name_first_feature<'i>(
 
 fn parse_value_first_feature<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<MediaFeature<'i>, ParseError<'i, ParserError<'i>>> {
     let start = input.state();
     let value_type = loop {
@@ -316,7 +327,7 @@ fn parse_value_first_feature<'i>(
     };
     input.reset(&start);
 
-    let start_value = parse_media_feature_value(input, value_type)?;
+    let start_value = parse_media_feature_value(input, allocator, value_type)?;
     let start_operator = consume_comparison_or_colon(input, false)?
         .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
     let (name, legacy_operator) = parse_media_feature_name(input)?;
@@ -333,15 +344,15 @@ fn parse_value_first_feature<'i>(
         if !comparisons_form_interval(&start_operator, &end_operator) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        let end_value = parse_media_feature_value(input, value_type)?;
+        let end_value = parse_media_feature_value(input, allocator, value_type)?;
         if !media_feature_value_matches(&end_value, value_type) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
         Ok(QueryFeature::Interval {
-            end: std::boxed::Box::new(end_value),
+            end: allocator.boxed(end_value),
             end_operator,
             name,
-            start: std::boxed::Box::new(start_value),
+            start: allocator.boxed(start_value),
             start_operator,
         })
     } else {
@@ -395,10 +406,10 @@ fn parse_media_feature_name<'i>(
 
     // WebKit historically places its prefix before min/max, e.g.
     // `-webkit-min-device-pixel-ratio`.
-    let (mut name, webkit_prefixed) = if starts_with_ignore_ascii_case(&ident, "-webkit-") {
+    let (mut name, webkit_prefixed) = if starts_with_ignore_ascii_case(ident, "-webkit-") {
         (&ident[8..], true)
     } else {
-        (ident.as_str(), false)
+        (ident, false)
     };
     let legacy_operator = if starts_with_ignore_ascii_case(name, "min-") {
         name = &name[4..];
@@ -579,22 +590,25 @@ fn comparisons_form_interval(start: &MediaFeatureComparison, end: &MediaFeatureC
 
 fn parse_media_feature_value<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
     expected: MediaFeatureType,
 ) -> Result<MediaFeatureValue<'i>, ParseError<'i, ParserError<'i>>> {
     if !matches!(expected, MediaFeatureType::Unknown)
-        && let Ok(value) = input.try_parse(|input| parse_known_media_feature_value(input, expected))
+        && let Ok(value) =
+            input.try_parse(|input| parse_known_media_feature_value(input, allocator, expected))
     {
         return Ok(value);
     }
-    parse_unknown_media_feature_value(input)
+    parse_unknown_media_feature_value(input, allocator)
 }
 
 fn parse_known_media_feature_value<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
     expected: MediaFeatureType,
 ) -> Result<MediaFeatureValue<'i>, ParseError<'i, ParserError<'i>>> {
     Ok(match expected {
-        MediaFeatureType::Length => MediaFeatureValue::Length(parse_length(input)?),
+        MediaFeatureType::Length => MediaFeatureValue::Length(parse_length(input, allocator)?),
         MediaFeatureType::Number => MediaFeatureValue::Number(input.expect_number()?),
         MediaFeatureType::Integer => MediaFeatureValue::Integer(input.expect_integer()?),
         MediaFeatureType::Boolean => {
@@ -615,6 +629,7 @@ fn parse_known_media_feature_value<'i>(
 
 fn parse_unknown_media_feature_value<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<MediaFeatureValue<'i>, ParseError<'i, ParserError<'i>>> {
     if let Ok(value) = input.try_parse(|input| parse_ratio(input, true)) {
         return Ok(MediaFeatureValue::Ratio(value));
@@ -622,14 +637,14 @@ fn parse_unknown_media_feature_value<'i>(
     if let Ok(value) = input.try_parse(|input| input.expect_number()) {
         return Ok(MediaFeatureValue::Number(value));
     }
-    if let Ok(value) = input.try_parse(|input| parse_length(input)) {
+    if let Ok(value) = input.try_parse(|input| parse_length(input, allocator)) {
         return Ok(MediaFeatureValue::Length(value));
     }
     if let Ok(value) = input.try_parse(parse_resolution) {
         return Ok(MediaFeatureValue::Resolution(value));
     }
-    if let Ok(value) = input.try_parse(|input| parse_environment_variable(input)) {
-        return Ok(MediaFeatureValue::Env(std::boxed::Box::new(value)));
+    if let Ok(value) = input.try_parse(|input| parse_environment_variable(input, allocator)) {
+        return Ok(MediaFeatureValue::Env(allocator.boxed(value)));
     }
     Ok(MediaFeatureValue::Ident(input.expect_ident()?))
 }
@@ -652,7 +667,10 @@ fn media_feature_value_matches(value: &MediaFeatureValue<'_>, expected: MediaFea
         )
 }
 
-fn parse_length<'i>(input: &mut Compiler<'i>) -> Result<Length, ParseError<'i, ParserError<'i>>> {
+fn parse_length<'i>(
+    input: &mut Compiler<'i>,
+    _allocator: &'i Allocator,
+) -> Result<Length<'i>, ParseError<'i, ParserError<'i>>> {
     let (unit, value) = match input.next()? {
         ValueToken::Dimension { unit, value } => {
             let Some(unit) = parse_length_unit(unit) else {
@@ -703,26 +721,26 @@ fn parse_ratio<'i>(
 
 fn parse_environment_variable<'i>(
     input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
 ) -> Result<EnvironmentVariable<'i>, ParseError<'i, ParserError<'i>>> {
     input.expect_function_matching("env")?;
     input.parse_nested_block(|input| {
         let ident = input.expect_ident()?;
         let name = if ident.starts_with("--") {
-            EnvironmentVariableName::Custom(std::boxed::Box::new(DashedIdentReference {
-                from: None,
-                ident,
-            }))
-        } else if let Some(name) = parse_ua_environment_variable(&ident) {
+            EnvironmentVariableName::Custom(
+                allocator.boxed(DashedIdentReference { from: None, ident }),
+            )
+        } else if let Some(name) = parse_ua_environment_variable(ident) {
             EnvironmentVariableName::UA(name)
         } else {
             EnvironmentVariableName::Unknown(ident)
         };
-        let mut indices = std::vec::Vec::new();
+        let mut indices = allocator.vec();
         while let Ok(index) = input.try_parse(|input| input.expect_integer()) {
             indices.push(index);
         }
         let fallback = if input.try_parse(|input| input.expect_comma()).is_ok() {
-            Some(collect_tokens(input, 0)?)
+            Some(collect_tokens(input, allocator, 0)?)
         } else {
             None
         };
