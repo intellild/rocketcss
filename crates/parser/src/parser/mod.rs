@@ -5,7 +5,7 @@
 use std::fmt;
 use std::ops::{BitOr, Range};
 
-use rocketcss_ast::{Atom, Token as ValueToken};
+use rocketcss_ast::Token as ValueToken;
 
 use crate::tokenizer::TokenizerState;
 use crate::{Compiler, SourceLocation, SourcePosition, Span, Token, TokenAndSpan, Tokenizer};
@@ -546,7 +546,7 @@ impl<'i> Compiler<'i> {
                 lexical.token,
                 lexical.span,
                 self.cursor.source,
-                &mut self.string_pool,
+                self.allocator,
             );
             self.cursor.cached_token = Some(CachedToken {
                 lexical,
@@ -656,9 +656,9 @@ impl<'i> Compiler<'i> {
         }
     }
 
-    pub fn expect_ident(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
+    pub fn expect_ident(&mut self) -> Result<&'i str, BasicParseError<'i>> {
         let location = self.current_source_location();
-        match self.next()?.clone() {
+        match self.next()? {
             ValueToken::Ident(value) => Ok(value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
@@ -680,22 +680,9 @@ impl<'i> Compiler<'i> {
         }
     }
 
-    pub fn expect_string(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
+    pub fn expect_string(&mut self) -> Result<&'i str, BasicParseError<'i>> {
         let location = self.current_source_location();
         match self.next()? {
-            ValueToken::String(value) => Ok(value.clone()),
-            _ => Err(
-                location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
-                    self.cursor.cached_lexical(),
-                )),
-            ),
-        }
-    }
-
-    pub fn expect_ident_or_string(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
-        let location = self.current_source_location();
-        match self.next()?.clone() {
-            ValueToken::Ident(value) => Ok(value),
             ValueToken::String(value) => Ok(value),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
@@ -705,10 +692,22 @@ impl<'i> Compiler<'i> {
         }
     }
 
-    pub fn expect_url(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
+    pub fn expect_ident_or_string(&mut self) -> Result<&'i str, BasicParseError<'i>> {
         let location = self.current_source_location();
         match self.next()? {
-            ValueToken::UnquotedUrl(value) => Ok(value.clone()),
+            ValueToken::Ident(value) | ValueToken::String(value) => Ok(value),
+            _ => Err(
+                location.new_basic_error(BasicParseErrorKind::UnexpectedToken(
+                    self.cursor.cached_lexical(),
+                )),
+            ),
+        }
+    }
+
+    pub fn expect_url(&mut self) -> Result<&'i str, BasicParseError<'i>> {
+        let location = self.current_source_location();
+        match self.next()? {
+            ValueToken::UnquotedUrl(value) => Ok(value),
             ValueToken::Function(name) if name.eq_ignore_ascii_case("url") => self
                 .parse_nested_block(|input| {
                     let value = input.expect_string()?;
@@ -724,7 +723,7 @@ impl<'i> Compiler<'i> {
         }
     }
 
-    pub fn expect_url_or_string(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
+    pub fn expect_url_or_string(&mut self) -> Result<&'i str, BasicParseError<'i>> {
         let state = self.state();
         match self.expect_url() {
             Ok(value) => Ok(value),
@@ -813,9 +812,9 @@ impl<'i> Compiler<'i> {
         self.expect_token(|token| matches!(token, ValueToken::ParenthesisBlock))
     }
 
-    pub fn expect_function(&mut self) -> Result<Atom<'i>, BasicParseError<'i>> {
+    pub fn expect_function(&mut self) -> Result<&'i str, BasicParseError<'i>> {
         let location = self.current_source_location();
-        match self.next()?.clone() {
+        match self.next()? {
             ValueToken::Function(name) => Ok(name),
             _ => Err(
                 location.new_basic_error(BasicParseErrorKind::UnexpectedToken(

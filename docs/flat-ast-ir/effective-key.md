@@ -93,11 +93,3 @@ pipeline. The parser and selector-local normalization already possess all
 required context. S2 history links may be created lazily when an effective key
 is observed for the second time.
 
-RocketCSS realizes this as one preorder `RuleId` loop in nano. The rule visitor
-first completes node-local selector/declaration normalization, the typed
-`DeclarationBlockId` callback runs block-local declaration IR at that source
-position, and `DeclarationBlockDiscovery::observe` then interns the finalized
-selector/context key for the same rule. Parent contexts are appended to a dense
-state tape as rules are observed; constructing discovery does not initialize or
-scan one state entry per rule. There is therefore neither a recursive discovery
-walk nor a second declaration-block table pass.

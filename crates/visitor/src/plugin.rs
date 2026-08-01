@@ -1,33 +1,39 @@
-use rustc_hash::FxHashMap;
 use std::{
     any::{Any, TypeId},
+    collections::HashMap,
     error::Error,
     fmt,
 };
 
 use rocketcss_ast::{Compilation, VisitMutContext};
-use rocketcss_common::GhostToken;
+use rocketcss_common::{Allocator, GhostToken};
 
-use crate::VisitorMut;
+use crate::{VisitMut, VisitorMut};
 
 /// Type-erased error returned by a plugin.
 pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
 /// Shared services available to every plugin in a pipeline.
 pub struct PluginContext<'a, 'token, 'ghost> {
-    marker: std::marker::PhantomData<&'a ()>,
+    allocator: &'a Allocator,
     token: &'token mut GhostToken<'ghost>,
-    data: FxHashMap<TypeId, Box<dyn Any>>,
+    data: HashMap<TypeId, Box<dyn Any>>,
 }
 
 impl<'a, 'token, 'ghost> PluginContext<'a, 'token, 'ghost> {
     #[inline]
-    pub fn new(token: &'token mut GhostToken<'ghost>) -> Self {
+    pub fn new(allocator: &'a Allocator, token: &'token mut GhostToken<'ghost>) -> Self {
         Self {
-            marker: std::marker::PhantomData,
+            allocator,
             token,
-            data: FxHashMap::default(),
+            data: HashMap::new(),
         }
+    }
+
+    /// Returns the arena that owns the stylesheet being transformed.
+    #[inline]
+    pub fn allocator(&self) -> &'a Allocator {
+        self.allocator
     }
 
     #[inline]
@@ -176,8 +182,10 @@ impl<'a, 'ghost, V: VisitorMut<'a, 'ghost>> Plugin<'a, 'ghost> for VisitorPlugin
         compilation: &mut Compilation<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
-        let mut visit_context = VisitMutContext::new(context.ghost_token());
-        compilation.visit_mut(&mut self.visitor, &mut visit_context);
+        let (stylesheet, declaration_blocks) = compilation.parts_mut();
+        let mut visit_context =
+            VisitMutContext::new_with_declaration_blocks(context.ghost_token(), declaration_blocks);
+        stylesheet.visit_mut(&mut self.visitor, &mut visit_context);
         Ok(())
     }
 }

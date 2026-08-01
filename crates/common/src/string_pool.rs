@@ -1,36 +1,35 @@
-use std::sync::Arc;
-
-use rustc_hash::FxHashSet;
-
-use crate::atom::Atom;
+use crate::{Allocator, atom::Atom, hash_map::HashMap};
 
 /// Compilation-scoped storage that canonicalizes strings into pointer-comparable atoms.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct StringPool {
-    strings: FxHashSet<Arc<str>>,
+pub struct StringPool<'alloc> {
+    allocator: &'alloc Allocator,
+    strings: HashMap<'alloc, &'alloc str, ()>,
 }
 
-impl StringPool {
+impl<'alloc> StringPool<'alloc> {
     #[inline]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new_in(allocator: &'alloc Allocator) -> Self {
+        Self {
+            allocator,
+            strings: HashMap::new_in(allocator),
+        }
     }
 
-    pub fn intern<'a>(&mut self, value: &str) -> Atom<'a> {
+    pub fn intern(&mut self, value: &str) -> Atom<'alloc> {
         if value.is_empty() {
             return Atom::empty();
         }
 
-        if let Some(value) = self.strings.get(value) {
-            return Atom::from_owned(Arc::clone(value));
+        if let Some((&value, ())) = self.strings.get_key_value(value) {
+            return Atom::from_interned(value);
         }
 
-        let value: Arc<str> = value.into();
-        self.strings.insert(Arc::clone(&value));
-        Atom::from_owned(value)
+        let value = self.allocator.alloc_str(value);
+        self.strings.insert(value, ());
+        Atom::from_interned(value)
     }
 
-    pub fn intern_ascii_lowercase<'a>(&mut self, value: &str) -> Atom<'a> {
+    pub fn intern_ascii_lowercase(&mut self, value: &str) -> Atom<'alloc> {
         if value.bytes().all(|byte| !byte.is_ascii_uppercase()) {
             self.intern(value)
         } else {
@@ -57,6 +56,7 @@ mod tests {
     };
 
     use super::StringPool;
+    use crate::Allocator;
 
     fn hash(value: impl Hash) -> u64 {
         let mut hasher = DefaultHasher::new();
@@ -66,7 +66,8 @@ mod tests {
 
     #[test]
     fn canonicalizes_equal_strings_within_one_pool() {
-        let mut pool = StringPool::new();
+        let allocator = Allocator::new();
+        let mut pool = StringPool::new_in(&allocator);
 
         let first = pool.intern("selector");
         let owned = String::from("selector");
@@ -79,8 +80,10 @@ mod tests {
 
     #[test]
     fn atom_identity_is_scoped_to_a_pool() {
-        let mut first_pool = StringPool::new();
-        let mut second_pool = StringPool::new();
+        let first_allocator = Allocator::new();
+        let second_allocator = Allocator::new();
+        let mut first_pool = StringPool::new_in(&first_allocator);
+        let mut second_pool = StringPool::new_in(&second_allocator);
 
         let first = first_pool.intern("selector");
         let second = second_pool.intern("selector");

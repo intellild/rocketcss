@@ -4,7 +4,7 @@ use crate::*;
 pub enum ListStyleType<'a> {
     None,
     String(&'a str),
-    CounterStyle(std::boxed::Box<CounterStyle<'a>>),
+    CounterStyle(Box<'a, CounterStyle<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -12,7 +12,7 @@ pub enum CounterStyle<'a> {
     Predefined(PredefinedCounterStyle),
     Name(&'a str),
     Symbols {
-        symbols: std::vec::Vec<Symbol<'a>>,
+        symbols: Vec<'a, Symbol<'a>>,
         system: SymbolsType,
     },
 }
@@ -88,7 +88,7 @@ pub enum PredefinedCounterStyle {
 #[derive(Debug, PartialEq, Visit)]
 pub enum Symbol<'a> {
     String(&'a str),
-    Image(std::boxed::Box<Image<'a>>),
+    Image(Box<'a, Image<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

@@ -48,26 +48,28 @@ fn removes_exact_duplicate_declarations_within_one_block() {
         run("a{height:1px;width:1px;width:1px;color:red}"),
         "a{height:1px;width:1px;color:red}"
     );
-    GhostToken::scope(|mut token| {
+
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
             "a{width:1px;color:red;width:1px}",
+            &allocator,
             &mut token,
             ParserOptions::default(),
         )
         .unwrap();
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let CssRule::Style(rule) = &stylesheet.root_rules()[0] else {
+        let CssRule::Style(rule) = &stylesheet.rules[0] else {
             panic!("expected style rule")
         };
+        let rule = rule.as_ref().get_ref();
         let declarations = stylesheet.declaration_block(rule.declarations);
-        assert_eq!(declarations.len(), 2);
-        assert_eq!(declarations.declarations_importance.len(), 2);
-        assert!(
-            declarations
-                .declarations
-                .iter()
-                .all(|declaration| !matches!(declaration, Declaration::Tombstone))
-        );
+        assert_eq!(declarations.len(), 3);
+        assert_eq!(declarations.declarations_importance.len(), 3);
+        assert!(matches!(
+            declarations.declarations[0],
+            Declaration::Tombstone
+        ));
         assert_eq!(stats.declarations_removed, 1);
 
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
@@ -153,9 +155,11 @@ fn parent_declaration_segments_share_an_s2_history() {
 
 #[test]
 fn s2_requires_exactly_equal_conditional_contexts() {
-    GhostToken::scope(|mut token| {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
             "@media (width:1px){a{x:1}}@media (width:2px){a{x:1}}@media (width:1px){a{x:1}}",
+            &allocator,
             &mut token,
             ParserOptions::default(),
         )
@@ -163,9 +167,7 @@ fn s2_requires_exactly_equal_conditional_contexts() {
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
 
-        let blocks = crate::cross_rule_declaration_merging::discovery::discover_for_test(
-            stylesheet.rule_store(),
-        );
+        let blocks = crate::utils::walk_declaration_blocks(&stylesheet);
         assert_eq!(blocks.len(), 2);
         let blocks = blocks.iter().collect::<std::vec::Vec<_>>();
         assert_ne!(blocks[0].effective_key, blocks[1].effective_key);

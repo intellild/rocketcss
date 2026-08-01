@@ -7,39 +7,40 @@ impl<'i> Parse<'i> for FontFamily<'i> {
             return Ok(Self::Custom(name));
         }
 
+        let allocator = input.allocator();
         let first = input.expect_ident()?;
-        let first_atom = first.clone();
         if input.is_exhausted() {
-            return Ok(Self::from_name(first_atom));
+            return Ok(Self::from_name(first));
         }
-        if !matches!(Self::from_name(first_atom.clone()), Self::Custom(_)) {
+        if !matches!(Self::from_name(first), Self::Custom(_)) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
 
-        let mut name = std::string::String::from(first.as_str());
+        let mut name = std::string::String::from(first);
         while !input.is_exhausted() {
             let part = input.expect_ident()?;
-            if !matches!(Self::from_name(part.clone()), Self::Custom(_)) {
+            if !matches!(Self::from_name(part), Self::Custom(_)) {
                 return Err(input.new_custom_error(ParserError::InvalidValue));
             }
             name.push(' ');
-            name.push_str(&part);
+            name.push_str(part);
         }
-        Ok(Self::Custom(input.intern(&name)))
+        Ok(Self::Custom(allocator.alloc_str(&name)))
     }
 }
 
 pub(crate) fn parse_font_family_list<'i>(
     input: &mut Compiler<'i>,
     depth: usize,
-) -> Result<std::vec::Vec<FontFamily<'i>>, ParseError<'i, ParserError<'i>>> {
-    let mut families = std::vec::Vec::new();
+) -> Result<Vec<'i, FontFamily<'i>>, ParseError<'i, ParserError<'i>>> {
+    let allocator = input.allocator();
+    let mut families = allocator.vec();
     loop {
         let family = input.parse_until_before(Delimiter::Comma, |input| {
             if let Ok(family) = input.try_parse(FontFamily::parse) {
                 return Ok(family);
             }
-            super::collect_tokens(input, depth + 1).map(FontFamily::Unparsed)
+            super::collect_tokens(input, allocator, depth + 1).map(FontFamily::Unparsed)
         })?;
         families.push(family);
         if input.try_parse(Compiler::expect_comma).is_err() {

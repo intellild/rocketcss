@@ -8,7 +8,7 @@ use std::{
     hash::{Hash, Hasher},
     marker::PhantomData,
     num::NonZeroU32,
-    ops::{Index, IndexMut, Range},
+    ops::{Index, IndexMut},
 };
 
 /// The shared behavior implemented by domain-specific dense IDs.
@@ -117,86 +117,6 @@ impl fmt::Display for DenseCapacityError {
 
 impl Error for DenseCapacityError {}
 
-/// A compact half-open range in one typed dense identity domain.
-///
-/// The offset and length are stored as `u32`s so the range has the same
-/// representation regardless of the host pointer width. An empty range may
-/// point one past the last addressable ID, which is useful for recording a
-/// source-order cursor before any values are appended.
-#[repr(C)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DenseRange<I: DenseId> {
-    offset: u32,
-    len: u32,
-    marker: PhantomData<fn(I) -> I>,
-}
-
-impl<I: DenseId> DenseRange<I> {
-    #[inline]
-    pub fn from_bounds(offset: usize, len: usize) -> Result<Self, DenseCapacityError> {
-        let offset = u32::try_from(offset).map_err(|_| DenseCapacityError)?;
-        let len = u32::try_from(len).map_err(|_| DenseCapacityError)?;
-        offset.checked_add(len).ok_or(DenseCapacityError)?;
-        Ok(Self {
-            offset,
-            len,
-            marker: PhantomData,
-        })
-    }
-
-    #[inline]
-    pub fn start(self) -> Option<I> {
-        I::from_index(self.offset as usize)
-    }
-
-    #[inline]
-    pub const fn offset(self) -> usize {
-        self.offset as usize
-    }
-
-    #[inline]
-    pub const fn len(self) -> usize {
-        self.len as usize
-    }
-
-    #[inline]
-    pub const fn is_empty(self) -> bool {
-        self.len == 0
-    }
-
-    #[inline]
-    pub const fn end(self) -> usize {
-        (self.offset + self.len) as usize
-    }
-
-    #[inline]
-    pub const fn as_usize_range(self) -> Range<usize> {
-        self.offset()..self.end()
-    }
-
-    /// Extends this range when `next` begins exactly at its current end.
-    #[inline]
-    pub fn try_join_adjacent(self, next: Self) -> Option<Self> {
-        if self.end() != next.offset() {
-            return None;
-        }
-        Some(Self {
-            offset: self.offset,
-            len: self.len.checked_add(next.len)?,
-            marker: PhantomData,
-        })
-    }
-}
-
-impl<I: DenseId> fmt::Debug for DenseRange<I> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DenseRange")
-            .field("offset", &self.offset)
-            .field("len", &self.len)
-            .finish()
-    }
-}
-
 /// An append-only vector that assigns a typed ID to each inserted value.
 ///
 /// IDs from different domains cannot be mixed, even when both stores use the
@@ -259,25 +179,6 @@ impl<I: DenseId, T> DenseStore<I, T> {
         I::from_index(self.values.len()).ok_or(DenseCapacityError)
     }
 
-    /// Records the current append cursor as an empty typed range.
-    #[inline]
-    pub fn cursor(&self) -> DenseRange<I> {
-        DenseRange::from_bounds(self.values.len(), 0)
-            .expect("a DenseStore length always fits its range domain")
-    }
-
-    /// Returns the range appended since `cursor` was captured.
-    #[inline]
-    pub fn range_since(&self, cursor: DenseRange<I>) -> DenseRange<I> {
-        assert!(cursor.is_empty(), "a dense append cursor must be empty");
-        assert!(
-            cursor.offset() <= self.values.len(),
-            "cursor is ahead of store"
-        );
-        DenseRange::from_bounds(cursor.offset(), self.values.len() - cursor.offset())
-            .expect("a DenseStore range always fits its ID domain")
-    }
-
     #[inline]
     pub fn get(&self, id: I) -> &T {
         &self.values[id.index()]
@@ -296,36 +197,6 @@ impl<I: DenseId, T> DenseStore<I, T> {
     #[inline]
     pub fn try_get_mut(&mut self, id: I) -> Option<&mut T> {
         self.values.get_mut(id.index())
-    }
-
-    #[inline]
-    pub fn get_range(&self, range: DenseRange<I>) -> &[T] {
-        &self.values[range.as_usize_range()]
-    }
-
-    #[inline]
-    pub fn get_range_mut(&mut self, range: DenseRange<I>) -> &mut [T] {
-        &mut self.values[range.as_usize_range()]
-    }
-
-    /// Appends a slice and returns the exact typed range that owns the copies.
-    #[inline]
-    pub fn extend_from_slice(&mut self, values: &[T]) -> DenseRange<I>
-    where
-        T: Clone,
-    {
-        let cursor = self.cursor();
-        let final_len = self
-            .values
-            .len()
-            .checked_add(values.len())
-            .expect("DenseStore length overflow");
-        assert!(
-            final_len <= u32::MAX as usize,
-            "dense range exceeds u32::MAX"
-        );
-        self.values.extend_from_slice(values);
-        self.range_since(cursor)
     }
 
     pub fn get_two_mut(&mut self, left: I, right: I) -> Option<(&mut T, &mut T)> {
@@ -678,47 +549,6 @@ mod tests {
         assert_eq!(store[first], 10);
         assert_eq!(store[second], 20);
         assert!(store.get_two_mut(first, first).is_none());
-    }
-
-    #[test]
-    fn dense_ranges_capture_append_order_and_slice_access() {
-        let mut store = DenseStore::<TestId, _>::default();
-        let empty = store.cursor();
-        assert!(empty.is_empty());
-        assert_eq!(empty.offset(), 0);
-
-        store.push(10);
-        store.push(20);
-        let first = store.range_since(empty);
-        assert_eq!(first.as_usize_range(), 0..2);
-        assert_eq!(store.get_range(first), [10, 20]);
-
-        let cursor = store.cursor();
-        let second = store.extend_from_slice(&[30, 40]);
-        assert_eq!(second, store.range_since(cursor));
-        assert_eq!(store.get_range(second), [30, 40]);
-        store.get_range_mut(second)[0] = 3;
-        assert_eq!(store.get_range(second), [3, 40]);
-        assert_eq!(
-            first.try_join_adjacent(second).unwrap().as_usize_range(),
-            0..4
-        );
-    }
-
-    #[test]
-    fn dense_ranges_reject_non_adjacent_join_and_overflow() {
-        let left = DenseRange::<TestId>::from_bounds(1, 2).unwrap();
-        let adjacent = DenseRange::<TestId>::from_bounds(3, 1).unwrap();
-        let separated = DenseRange::<TestId>::from_bounds(4, 1).unwrap();
-        assert_eq!(
-            left.try_join_adjacent(adjacent).unwrap().as_usize_range(),
-            1..4
-        );
-        assert!(left.try_join_adjacent(separated).is_none());
-        assert_eq!(
-            DenseRange::<TestId>::from_bounds(u32::MAX as usize, 1),
-            Err(DenseCapacityError)
-        );
     }
 
     #[test]

@@ -1,11 +1,11 @@
 use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct BorderRadius {
-    pub bottom_left: std::boxed::Box<Size2D<LengthPercentage>>,
-    pub bottom_right: std::boxed::Box<Size2D<LengthPercentage>>,
-    pub top_left: std::boxed::Box<Size2D<LengthPercentage>>,
-    pub top_right: std::boxed::Box<Size2D<LengthPercentage>>,
+pub struct BorderRadius<'a> {
+    pub bottom_left: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub bottom_right: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub top_left: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub top_right: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -15,26 +15,26 @@ pub struct BorderImageRepeat {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct BorderImageSlice {
+pub struct BorderImageSlice<'a> {
     pub fill: bool,
-    pub offsets: std::boxed::Box<Rect<NumberOrPercentage>>,
+    pub offsets: Box<'a, Rect<'a, NumberOrPercentage>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderImage<'a> {
-    pub outset: std::boxed::Box<Rect<LengthOrNumber>>,
+    pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
     pub repeat: BorderImageRepeat,
-    pub slice: std::boxed::Box<BorderImageSlice>,
-    pub source: std::boxed::Box<Image<'a>>,
-    pub width: std::boxed::Box<Rect<BorderImageSideWidth>>,
+    pub slice: Box<'a, BorderImageSlice<'a>>,
+    pub source: Box<'a, Image<'a>>,
+    pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderColor<'a> {
-    pub bottom: std::boxed::Box<CssColor<'a>>,
-    pub left: std::boxed::Box<CssColor<'a>>,
-    pub right: std::boxed::Box<CssColor<'a>>,
-    pub top: std::boxed::Box<CssColor<'a>>,
+    pub bottom: Box<'a, CssColor<'a>>,
+    pub left: Box<'a, CssColor<'a>>,
+    pub right: Box<'a, CssColor<'a>>,
+    pub top: Box<'a, CssColor<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -46,17 +46,17 @@ pub struct BorderStyle {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct BorderWidth {
-    pub bottom: std::boxed::Box<BorderSideWidth>,
-    pub left: std::boxed::Box<BorderSideWidth>,
-    pub right: std::boxed::Box<BorderSideWidth>,
-    pub top: std::boxed::Box<BorderSideWidth>,
+pub struct BorderWidth<'a> {
+    pub bottom: Box<'a, BorderSideWidth<'a>>,
+    pub left: Box<'a, BorderSideWidth<'a>>,
+    pub right: Box<'a, BorderSideWidth<'a>>,
+    pub top: Box<'a, BorderSideWidth<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderBlockColor<'a> {
-    pub end: std::boxed::Box<CssColor<'a>>,
-    pub start: std::boxed::Box<CssColor<'a>>,
+    pub end: Box<'a, CssColor<'a>>,
+    pub start: Box<'a, CssColor<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -66,15 +66,15 @@ pub struct BorderBlockStyle {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct BorderBlockWidth {
-    pub end: std::boxed::Box<BorderSideWidth>,
-    pub start: std::boxed::Box<BorderSideWidth>,
+pub struct BorderBlockWidth<'a> {
+    pub end: Box<'a, BorderSideWidth<'a>>,
+    pub start: Box<'a, BorderSideWidth<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderInlineColor<'a> {
-    pub end: std::boxed::Box<CssColor<'a>>,
-    pub start: std::boxed::Box<CssColor<'a>>,
+    pub end: Box<'a, CssColor<'a>>,
+    pub start: Box<'a, CssColor<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -84,14 +84,14 @@ pub struct BorderInlineStyle {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct BorderInlineWidth {
-    pub end: std::boxed::Box<BorderSideWidth>,
-    pub start: std::boxed::Box<BorderSideWidth>,
+pub struct BorderInlineWidth<'a> {
+    pub end: Box<'a, BorderSideWidth<'a>>,
+    pub start: Box<'a, BorderSideWidth<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GenericBorder<'a, S> {
-    pub color: std::boxed::Box<CssColor<'a>>,
+    pub color: Box<'a, CssColor<'a>>,
     pub style: S,
-    pub width: std::boxed::Box<BorderSideWidth>,
+    pub width: Box<'a, BorderSideWidth<'a>>,
 }

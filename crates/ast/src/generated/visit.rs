@@ -61,23 +61,11 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_rule_topology(&mut self, node: &RuleTopology, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_syntax_node(&mut self, node: &SyntaxNode, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_rule_store(&mut self, node: &RuleStore<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_css_rule(&mut self, node: &CssRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_length(&mut self, node: &Length, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_length(&mut self, node: &Length<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -85,15 +73,18 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_calc<V>(&mut self, node: &Calc<V>, cx: &VisitContext<'_, 'a, 'ghost>)
+    fn visit_calc<V>(&mut self, node: &Calc<'a, V>, cx: &VisitContext<'_, 'a, 'ghost>)
     where
         V: Visit<'a, 'ghost>,
     {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_math_function<V>(&mut self, node: &MathFunction<V>, cx: &VisitContext<'_, 'a, 'ghost>)
-    where
+    fn visit_math_function<V>(
+        &mut self,
+        node: &MathFunction<'a, V>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) where
         V: Visit<'a, 'ghost>,
     {
         Visit::visit_children(node, self, cx);
@@ -203,11 +194,15 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_view_timeline(&mut self, node: &ViewTimeline, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_view_timeline(&mut self, node: &ViewTimeline<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_animation_range(&mut self, node: &AnimationRange, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_animation_range(
+        &mut self,
+        node: &AnimationRange<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -331,7 +326,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_position(&mut self, node: &Position, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_position(&mut self, node: &Position<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -365,7 +360,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_background_position(
         &mut self,
-        node: &BackgroundPosition,
+        node: &BackgroundPosition<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -387,7 +382,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_border_radius(&mut self, node: &BorderRadius, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_border_radius(&mut self, node: &BorderRadius<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -401,7 +396,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_border_image_slice(
         &mut self,
-        node: &BorderImageSlice,
+        node: &BorderImageSlice<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -419,7 +414,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_border_width(&mut self, node: &BorderWidth, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_border_width(&mut self, node: &BorderWidth<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -441,7 +436,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_border_block_width(
         &mut self,
-        node: &BorderBlockWidth,
+        node: &BorderBlockWidth<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -465,7 +460,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_border_inline_width(
         &mut self,
-        node: &BorderInlineWidth,
+        node: &BorderInlineWidth<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -549,7 +544,11 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_font_face_style(&mut self, node: &FontFaceStyle, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_font_face_style(
+        &mut self,
+        node: &FontFaceStyle<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -657,7 +656,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_keyframe(&mut self, node: &Keyframe, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_keyframe(&mut self, node: &Keyframe<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -677,15 +676,15 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_inset_block(&mut self, node: &InsetBlock, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_inset_block(&mut self, node: &InsetBlock<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_inset_inline(&mut self, node: &InsetInline, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_inset_inline(&mut self, node: &InsetInline<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_inset(&mut self, node: &Inset, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_inset(&mut self, node: &Inset<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -693,7 +692,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_flex(&mut self, node: &Flex, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_flex(&mut self, node: &Flex<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -709,7 +708,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_gap(&mut self, node: &Gap, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_gap(&mut self, node: &Gap<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -717,7 +716,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_column_width(&mut self, node: &ColumnWidth, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_column_width(&mut self, node: &ColumnWidth<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -725,7 +724,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_columns(&mut self, node: &Columns, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_columns(&mut self, node: &Columns<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -757,33 +756,37 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_margin_block(&mut self, node: &MarginBlock, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_margin_block(&mut self, node: &MarginBlock<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_margin_inline(&mut self, node: &MarginInline, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_margin_inline(&mut self, node: &MarginInline<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_margin(&mut self, node: &Margin, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_margin(&mut self, node: &Margin<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_padding_block(&mut self, node: &PaddingBlock, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_padding_block(&mut self, node: &PaddingBlock<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_padding_inline(&mut self, node: &PaddingInline, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_padding_inline(
+        &mut self,
+        node: &PaddingInline<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_padding(&mut self, node: &Padding, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_padding(&mut self, node: &Padding<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
     fn visit_scroll_margin_block(
         &mut self,
-        node: &ScrollMarginBlock,
+        node: &ScrollMarginBlock<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -791,19 +794,19 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_scroll_margin_inline(
         &mut self,
-        node: &ScrollMarginInline,
+        node: &ScrollMarginInline<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_scroll_margin(&mut self, node: &ScrollMargin, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_scroll_margin(&mut self, node: &ScrollMargin<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
     fn visit_scroll_padding_block(
         &mut self,
-        node: &ScrollPaddingBlock,
+        node: &ScrollPaddingBlock<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -811,13 +814,17 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_scroll_padding_inline(
         &mut self,
-        node: &ScrollPaddingInline,
+        node: &ScrollPaddingInline<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_scroll_padding(&mut self, node: &ScrollPadding, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_scroll_padding(
+        &mut self,
+        node: &ScrollPadding<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -857,13 +864,13 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_syntax_string(&mut self, node: &SyntaxString, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_syntax_string(&mut self, node: &SyntaxString<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
     fn visit_syntax_component_kind(
         &mut self,
-        node: &SyntaxComponentKind,
+        node: &SyntaxComponentKind<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -899,29 +906,29 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_syntax_component(
         &mut self,
-        node: &SyntaxComponent,
+        node: &SyntaxComponent<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_inset_rect(&mut self, node: &InsetRect, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_inset_rect(&mut self, node: &InsetRect<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_circle_shape(&mut self, node: &CircleShape, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_circle_shape(&mut self, node: &CircleShape<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_ellipse_shape(&mut self, node: &EllipseShape, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_ellipse_shape(&mut self, node: &EllipseShape<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_polygon(&mut self, node: &Polygon, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_polygon(&mut self, node: &Polygon<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_point(&mut self, node: &Point, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_point(&mut self, node: &Point<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -946,14 +953,6 @@ pub trait Visitor<'a, 'ghost> {
     }
     #[inline]
     fn visit_compilation(&mut self, node: &Compilation<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_declaration_block_store(
-        &mut self,
-        node: &DeclarationBlockStore<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1033,7 +1032,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_text_indent(&mut self, node: &TextIndent, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_text_indent(&mut self, node: &TextIndent<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1341,7 +1340,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_gap_value(&mut self, node: &GapValue, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_gap_value(&mut self, node: &GapValue<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1411,7 +1410,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_animation_attachment_range(
         &mut self,
-        node: &AnimationAttachmentRange,
+        node: &AnimationAttachmentRange<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -1431,13 +1430,17 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_border_side_width(
         &mut self,
-        node: &BorderSideWidth,
+        node: &BorderSideWidth<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_length_or_number(&mut self, node: &LengthOrNumber, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_length_or_number(
+        &mut self,
+        node: &LengthOrNumber<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1451,7 +1454,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_border_image_side_width(
         &mut self,
-        node: &BorderImageSideWidth,
+        node: &BorderImageSideWidth<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -1513,14 +1516,14 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_size_2_d<T>(&mut self, node: &Size2D<T>, cx: &VisitContext<'_, 'a, 'ghost>)
+    fn visit_size_2_d<T>(&mut self, node: &Size2D<'a, T>, cx: &VisitContext<'_, 'a, 'ghost>)
     where
         T: Visit<'a, 'ghost>,
     {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_rect<T>(&mut self, node: &Rect<T>, cx: &VisitContext<'_, 'a, 'ghost>)
+    fn visit_rect<T>(&mut self, node: &Rect<'a, T>, cx: &VisitContext<'_, 'a, 'ghost>)
     where
         T: Visit<'a, 'ghost>,
     {
@@ -1611,7 +1614,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_font_size(&mut self, node: &FontSize, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_font_size(&mut self, node: &FontSize<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1659,11 +1662,15 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_line_height(&mut self, node: &LineHeight, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_line_height(&mut self, node: &LineHeight<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_vertical_align(&mut self, node: &VerticalAlign, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_vertical_align(
+        &mut self,
+        node: &VerticalAlign<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1687,11 +1694,11 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_track_size(&mut self, node: &TrackSize, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_track_size(&mut self, node: &TrackSize<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_track_breadth(&mut self, node: &TrackBreadth, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_track_breadth(&mut self, node: &TrackBreadth<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1767,7 +1774,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_dimension_percentage<D>(
         &mut self,
-        node: &DimensionPercentage<D>,
+        node: &DimensionPercentage<'a, D>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) where
         D: Visit<'a, 'ghost>,
@@ -1777,7 +1784,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_position_component<S>(
         &mut self,
-        node: &PositionComponent<S>,
+        node: &PositionComponent<'a, S>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) where
         S: Visit<'a, 'ghost>,
@@ -1785,11 +1792,11 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_ending_shape(&mut self, node: &EndingShape, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_ending_shape(&mut self, node: &EndingShape<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_ellipse(&mut self, node: &Ellipse, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_ellipse(&mut self, node: &Ellipse<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1797,7 +1804,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_circle(&mut self, node: &Circle, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_circle(&mut self, node: &Circle<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1819,13 +1826,17 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_background_size(&mut self, node: &BackgroundSize, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_background_size(
+        &mut self,
+        node: &BackgroundSize<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
     fn visit_length_percentage_or_auto(
         &mut self,
-        node: &LengthPercentageOrAuto,
+        node: &LengthPercentageOrAuto<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -1962,11 +1973,11 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_basic_shape(&mut self, node: &BasicShape, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_basic_shape(&mut self, node: &BasicShape<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_shape_radius(&mut self, node: &ShapeRadius, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_shape_radius(&mut self, node: &ShapeRadius<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1996,7 +2007,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_stroke_dasharray(
         &mut self,
-        node: &StrokeDasharray,
+        node: &StrokeDasharray<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -2070,13 +2081,13 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_spacing(&mut self, node: &Spacing, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_spacing(&mut self, node: &Spacing<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
     fn visit_text_decoration_line(
         &mut self,
-        node: &TextDecorationLine,
+        node: &TextDecorationLine<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -2108,7 +2119,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_text_decoration_thickness(
         &mut self,
-        node: &TextDecorationThickness,
+        node: &TextDecorationThickness<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -2174,7 +2185,7 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_transform(&mut self, node: &Transform, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_transform(&mut self, node: &Transform<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -2194,11 +2205,11 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_perspective(&mut self, node: &Perspective, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_perspective(&mut self, node: &Perspective<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_translate(&mut self, node: &Translate, cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_translate(&mut self, node: &Translate<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -2315,13 +2326,31 @@ pub trait Visitor<'a, 'ghost> {
         visitor.leave_node(AstType::ScrollStateFeature);
     }
     #[inline]
-    fn visit_selector_list(&mut self, node: &[Selector<'a>], cx: &VisitContext<'_, 'a, 'ghost>) {
+    fn visit_declaration_block_store(
+        &mut self,
+        node: &DeclarationBlockStore<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        self.visit_declaration_block_store_children(node, cx);
+    }
+    ///Continues traversal of [`DeclarationBlockStore`] without redispatching its visitor callback.
+    fn visit_declaration_block_store_children(
+        &mut self,
+        node: &DeclarationBlockStore<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        let visitor = self;
+        visitor.enter_node(AstType::DeclarationBlockStore);
+        visitor.leave_node(AstType::DeclarationBlockStore);
+    }
+    #[inline]
+    fn visit_selector_list(&mut self, node: &SelectorList<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         self.visit_selector_list_children(node, cx);
     }
     ///Continues traversal of [`SelectorList`] without redispatching its visitor callback.
     fn visit_selector_list_children(
         &mut self,
-        node: &[Selector<'a>],
+        node: &SelectorList<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
@@ -2334,7 +2363,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_animation_range_start(
         &mut self,
-        node: &AnimationRangeStart,
+        node: &AnimationRangeStart<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         self.visit_animation_range_start_children(node, cx);
@@ -2342,7 +2371,7 @@ pub trait Visitor<'a, 'ghost> {
     ///Continues traversal of [`AnimationRangeStart`] without redispatching its visitor callback.
     fn visit_animation_range_start_children(
         &mut self,
-        node: &AnimationRangeStart,
+        node: &AnimationRangeStart<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
@@ -2353,7 +2382,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_animation_range_end(
         &mut self,
-        node: &AnimationRangeEnd,
+        node: &AnimationRangeEnd<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         self.visit_animation_range_end_children(node, cx);
@@ -2361,7 +2390,7 @@ pub trait Visitor<'a, 'ghost> {
     ///Continues traversal of [`AnimationRangeEnd`] without redispatching its visitor callback.
     fn visit_animation_range_end_children(
         &mut self,
-        node: &AnimationRangeEnd,
+        node: &AnimationRangeEnd<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
@@ -2372,7 +2401,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_length_percentage(
         &mut self,
-        node: &LengthPercentage,
+        node: &LengthPercentage<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         self.visit_length_percentage_children(node, cx);
@@ -2380,7 +2409,7 @@ pub trait Visitor<'a, 'ghost> {
     ///Continues traversal of [`LengthPercentage`] without redispatching its visitor callback.
     fn visit_length_percentage_children(
         &mut self,
-        node: &LengthPercentage,
+        node: &LengthPercentage<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
@@ -2391,7 +2420,7 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_angle_percentage(
         &mut self,
-        node: &AnglePercentage,
+        node: &AnglePercentage<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         self.visit_angle_percentage_children(node, cx);
@@ -2399,23 +2428,13 @@ pub trait Visitor<'a, 'ghost> {
     ///Continues traversal of [`AnglePercentage`] without redispatching its visitor callback.
     fn visit_angle_percentage_children(
         &mut self,
-        node: &AnglePercentage,
+        node: &AnglePercentage<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         let visitor = self;
         visitor.enter_node(AstType::AnglePercentage);
         Visit::visit(node, visitor, cx);
         visitor.leave_node(AstType::AnglePercentage);
-    }
-    /// Observes a declaration block through its stable compilation-local ID.
-    /// The ordinary block and declaration callbacks have completed before
-    /// this hook runs.
-    #[inline]
-    fn visit_declaration_block_id(
-        &mut self,
-        _id: DeclarationBlockId,
-        _cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
     }
     #[inline]
     fn visit_declaration(&mut self, node: &Declaration<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
@@ -2454,18 +2473,10 @@ macro_rules! impl_leaf_visit {
         VisitContext < '_, 'a, 'ghost >,) {} })+
     };
 }
-impl_leaf_visit!(
-    bool,
-    char,
-    f32,
-    i32,
-    u8,
-    u16,
-    u32,
-    usize,
-    std::string::String
-);
-impl<'a, 'ghost, T: ?Sized + Visit<'a, 'ghost>> Visit<'a, 'ghost> for std::boxed::Box<T> {
+impl_leaf_visit!(bool, char, f32, i32, u8, u16, u32, usize);
+impl<'a, 'ghost, T: ?Sized + Visit<'a, 'ghost>> Visit<'a, 'ghost>
+    for rocketcss_common::boxed::Box<'a, T>
+{
     fn visit<VisitorT: ?Sized + Visitor<'a, 'ghost>>(
         &self,
         visitor: &mut VisitorT,
@@ -2474,7 +2485,9 @@ impl<'a, 'ghost, T: ?Sized + Visit<'a, 'ghost>> Visit<'a, 'ghost> for std::boxed
         Visit::visit(self.as_ref(), visitor, cx);
     }
 }
-impl<'a, 'ghost, T: Visit<'a, 'ghost>> Visit<'a, 'ghost> for std::vec::Vec<T> {
+impl<'a, 'ghost, T: Visit<'a, 'ghost> + Unpin> Visit<'a, 'ghost>
+    for rocketcss_common::vec::Vec<'a, T>
+{
     fn visit<VisitorT: ?Sized + Visitor<'a, 'ghost>>(
         &self,
         visitor: &mut VisitorT,

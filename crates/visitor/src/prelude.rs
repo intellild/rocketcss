@@ -5,3 +5,4 @@ pub use crate::{
     VisitMutContext, Visitor, VisitorMut, VisitorPlugin,
 };
 pub use rocketcss_ast::prelude::*;
+pub use rocketcss_common::Allocator;

@@ -15,8 +15,8 @@ pub enum AbsoluteFontWeight {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum FontSize {
-    Length(std::boxed::Box<LengthPercentage>),
+pub enum FontSize<'a> {
+    Length(Box<'a, LengthPercentage<'a>>),
     Absolute(AbsoluteFontSize),
     Relative(RelativeFontSize),
 }
@@ -79,18 +79,17 @@ pub enum FontFamily<'a> {
     Default,
     Revert,
     RevertLayer,
-    Unparsed(std::vec::Vec<TokenOrValue<'a>>),
+    Unparsed(Vec<'a, TokenOrValue<'a>>),
     /// Tombstone for a family entry removed by an in-place transform.
     #[css_keyword("")]
     Tombstone,
-    Custom(Atom<'a>),
+    Custom(&'a str),
 }
 
 impl<'a> FontFamily<'a> {
-    pub fn from_name(name: Atom<'a>) -> Self {
-        let text = name.as_str();
+    pub fn from_name(name: &'a str) -> Self {
         match_ignore_ascii_case!(
-            text,
+            name,
             "serif" => Self::Serif,
             "sans-serif" => Self::SansSerif,
             "cursive" => Self::Cursive,
@@ -135,27 +134,6 @@ impl<'a> FontFamily<'a> {
     }
 
     #[inline]
-    pub fn is_generic_name(name: &str) -> bool {
-        match_ignore_ascii_case!(
-            name,
-            "serif" | "sans-serif" | "cursive" | "fantasy" | "monospace" | "system-ui"
-                | "emoji" | "math" | "fangsong" | "ui-serif" | "ui-sans-serif"
-                | "ui-monospace" | "ui-rounded" => true,
-            _ => false,
-        )
-    }
-
-    #[inline]
-    pub fn is_known_name(name: &str) -> bool {
-        Self::is_generic_name(name)
-            || match_ignore_ascii_case!(
-                name,
-                "initial" | "inherit" | "unset" | "default" | "revert" | "revert-layer" => true,
-                _ => false,
-            )
-    }
-
-    #[inline]
     pub const fn is_tombstone(&self) -> bool {
         matches!(self, Self::Tombstone)
     }
@@ -168,7 +146,7 @@ impl EqIgnoringTombstones for FontFamily<'_> {
     }
 }
 
-impl<'a> EqIgnoringTombstones for std::vec::Vec<FontFamily<'a>> {
+impl<'a> EqIgnoringTombstones for Vec<'a, FontFamily<'a>> {
     fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
         let mut left = self.iter().filter(|family| !family.is_tombstone());
         let mut right = other.iter().filter(|family| !family.is_tombstone());
@@ -201,16 +179,16 @@ pub enum FontVariantCaps {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum LineHeight {
+pub enum LineHeight<'a> {
     Normal,
     Number(f32),
-    Length(std::boxed::Box<LengthPercentage>),
+    Length(Box<'a, LengthPercentage<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum VerticalAlign {
+pub enum VerticalAlign<'a> {
     Keyword(VerticalAlignKeyword),
-    Length(std::boxed::Box<LengthPercentage>),
+    Length(Box<'a, LengthPercentage<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

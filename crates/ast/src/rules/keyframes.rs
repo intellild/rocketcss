@@ -9,23 +9,23 @@ pub enum KeyframeSelector {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum KeyframesName<'a> {
-    Ident(Atom<'a>),
-    Custom(Atom<'a>),
+    Ident(&'a str),
+    Custom(&'a str),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct KeyframesRule<'a> {
-    pub keyframes: std::vec::Vec<Keyframe>,
+    pub keyframes: Vec<'a, Keyframe<'a>>,
     pub span: Span,
-    pub name: std::boxed::Box<KeyframesName<'a>>,
+    pub name: Box<'a, KeyframesName<'a>>,
     pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Keyframe {
+pub struct Keyframe<'a> {
     #[visit(with = visit_declaration_block_id, with_mut = visit_declaration_block_id_mut)]
     pub declarations: DeclarationBlockId,
-    pub selectors: std::vec::Vec<KeyframeSelector>,
+    pub selectors: Vec<'a, KeyframeSelector>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

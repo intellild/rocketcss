@@ -1,11 +1,13 @@
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
-use rocketcss_common::GhostToken;
+use rocketcss_common::Allocator;
 use rocketcss_nano::{MinifyOptions, Options, minify};
 use rocketcss_parser::{ParserOptions, parse};
 
 fn minify_css(source: &str, flags: Options) -> String {
-    GhostToken::scope(|mut token| {
-        let mut stylesheet = parse(source, &mut token, ParserOptions::default()).unwrap();
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet =
+            parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
         minify(
             &mut stylesheet,
             &mut token,

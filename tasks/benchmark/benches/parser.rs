@@ -3,7 +3,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase};
-use rocketcss_common::GhostToken;
+use rocketcss_common::Allocator;
 
 fn main() {
     divan::main();
@@ -14,9 +14,11 @@ fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
     bencher
         .counter(BytesCount::of_str(case.source))
         .bench_local(|| {
-            GhostToken::scope(|mut token| {
+            let allocator = Allocator::new();
+            allocator.with_ghost(|mut token| {
                 let stylesheet = rocketcss_parser::parse(
                     black_box(case.source),
+                    &allocator,
                     &mut token,
                     rocketcss_parser::ParserOptions {
                         error_recovery: true,

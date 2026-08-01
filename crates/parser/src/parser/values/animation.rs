@@ -151,7 +151,7 @@ impl<'i> Parse<'i> for AnimationName<'i> {
                 return Ok(Self::None);
             }
             // Custom idents exclude CSS-wide keywords and `default`.
-            if css_wide_keyword(&ident).is_some() || ident.eq_ignore_ascii_case("default") {
+            if css_wide_keyword(ident).is_some() || ident.eq_ignore_ascii_case("default") {
                 return Err(input.new_custom_error(ParserError::InvalidValue));
             }
             return Ok(Self::Ident(ident));
@@ -162,7 +162,8 @@ impl<'i> Parse<'i> for AnimationName<'i> {
 
 impl<'i> Parse<'i> for Animation<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let mut components = std::vec::Vec::new();
+        let allocator = input.allocator();
+        let mut components = allocator.vec();
         let mut duration_claimed = false;
         let mut timing_function_claimed = false;
         let mut delay_claimed = false;
@@ -186,9 +187,7 @@ impl<'i> Parse<'i> for Animation<'i> {
             }
             if !timing_function_claimed && let Ok(value) = input.try_parse(EasingFunction::parse) {
                 timing_function_claimed = true;
-                components.push(AnimationComponent::TimingFunction(std::boxed::Box::new(
-                    value,
-                )));
+                components.push(AnimationComponent::TimingFunction(allocator.boxed(value)));
                 continue;
             }
             if !delay_claimed && let Ok(value) = input.try_parse(Time::parse) {
@@ -220,7 +219,7 @@ impl<'i> Parse<'i> for Animation<'i> {
             }
             if !name_claimed && let Ok(value) = input.try_parse(AnimationName::parse) {
                 name_claimed = true;
-                components.push(AnimationComponent::Name(std::boxed::Box::new(value)));
+                components.push(AnimationComponent::Name(allocator.boxed(value)));
                 continue;
             }
             return Err(input.new_custom_error(ParserError::InvalidValue));
@@ -235,8 +234,9 @@ impl<'i> Parse<'i> for Animation<'i> {
 
 pub(crate) fn parse_animation_list<'i>(
     input: &mut Compiler<'i>,
-) -> Result<std::vec::Vec<Animation<'i>>, ParseError<'i, ParserError<'i>>> {
-    let mut values = std::vec::Vec::new();
+) -> Result<Vec<'i, Animation<'i>>, ParseError<'i, ParserError<'i>>> {
+    let allocator = input.allocator();
+    let mut values = allocator.vec();
     loop {
         values.push(input.parse_until_before(Delimiter::Comma, Animation::parse)?);
         if input.try_parse(Compiler::expect_comma).is_err() {
@@ -249,8 +249,9 @@ pub(crate) fn parse_animation_list<'i>(
 pub(crate) fn parse_comma_separated<'i, T: Unpin>(
     input: &mut Compiler<'i>,
     parser: impl Fn(&mut Compiler<'i>) -> Result<T, ParseError<'i, ParserError<'i>>>,
-) -> Result<std::vec::Vec<T>, ParseError<'i, ParserError<'i>>> {
-    let mut values = std::vec::Vec::new();
+) -> Result<Vec<'i, T>, ParseError<'i, ParserError<'i>>> {
+    let allocator = input.allocator();
+    let mut values = allocator.vec();
     loop {
         values.push(parser(input)?);
         if input.try_parse(Compiler::expect_comma).is_err() {

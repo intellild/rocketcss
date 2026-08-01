@@ -56,12 +56,12 @@ pub enum Visibility {
 #[derive(Debug, PartialEq, Visit)]
 pub enum Size<'a> {
     Auto,
-    LengthPercentage(std::boxed::Box<LengthPercentage>),
-    MathFunction(std::boxed::Box<Function<'a>>),
+    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    MathFunction(Box<'a, Function<'a>>),
     MinContent { vendor_prefix: VendorPrefix },
     MaxContent { vendor_prefix: VendorPrefix },
     FitContent { vendor_prefix: VendorPrefix },
-    FitContentFunction(std::boxed::Box<LengthPercentage>),
+    FitContentFunction(Box<'a, LengthPercentage<'a>>),
     Stretch { vendor_prefix: VendorPrefix },
     Contain,
 }
@@ -69,12 +69,12 @@ pub enum Size<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum MaxSize<'a> {
     None,
-    LengthPercentage(std::boxed::Box<LengthPercentage>),
-    MathFunction(std::boxed::Box<Function<'a>>),
+    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    MathFunction(Box<'a, Function<'a>>),
     MinContent { vendor_prefix: VendorPrefix },
     MaxContent { vendor_prefix: VendorPrefix },
     FitContent { vendor_prefix: VendorPrefix },
-    FitContentFunction(std::boxed::Box<LengthPercentage>),
+    FitContentFunction(Box<'a, LengthPercentage<'a>>),
     Stretch { vendor_prefix: VendorPrefix },
     Contain,
 }
@@ -110,14 +110,14 @@ pub enum PositionProperty {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Size2D<T>(pub std::boxed::Box<T>, pub std::boxed::Box<T>);
+pub struct Size2D<'a, T>(pub Box<'a, T>, pub Box<'a, T>);
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct Rect<T>(
-    pub std::boxed::Box<T>,
-    pub std::boxed::Box<T>,
-    pub std::boxed::Box<T>,
-    pub std::boxed::Box<T>,
+pub struct Rect<'a, T>(
+    pub Box<'a, T>,
+    pub Box<'a, T>,
+    pub Box<'a, T>,
+    pub Box<'a, T>,
 );
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

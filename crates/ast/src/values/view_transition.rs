@@ -10,7 +10,7 @@ pub enum ViewTransitionName<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum NoneOrCustomIdentList<'a> {
     None,
-    Idents(std::vec::Vec<Atom<'a>>),
+    Idents(Vec<'a, &'a str>),
 }
 
 #[derive(Debug, PartialEq, Visit)]

@@ -1,77 +1,32 @@
 use crate::*;
 
 use bitflags::bitflags;
-use rocketcss_common::{DenseId, DenseMap, DenseRange, DenseStore, define_dense_id};
-use std::ops::{Index, Range, RangeFrom, RangeFull, RangeTo};
+use rocketcss_common::{DenseStore, define_dense_id};
+use std::{marker::PhantomPinned, pin::Pin};
 
 #[derive(Debug, Default, PartialEq, Visit)]
 pub struct DefaultAtRule;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Visit)]
-#[visit(skip)]
-pub enum CascadeOrigin {
-    UserAgent,
-    User,
-    #[default]
-    Author,
-}
-
 #[derive(Debug, PartialEq, Visit)]
 pub struct StyleSheet<'a> {
-    pub license_comments: std::vec::Vec<&'a str>,
-    #[visit(with = visit_rule_list_id, with_mut = visit_rule_list_id_mut)]
-    pub rules: RuleListId,
+    pub license_comments: Vec<'a, &'a str>,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Compilation<'a> {
     stylesheet: StyleSheet<'a>,
     #[visit(skip)]
-    string_pool: StringPool,
-    #[visit(skip)]
     declaration_blocks: DeclarationBlockStore<'a>,
-    #[visit(skip)]
-    rules: RuleStore<'a>,
-    #[visit(skip)]
-    origin: CascadeOrigin,
 }
 
 impl<'a> Compilation<'a> {
     #[inline]
-    pub fn new(
-        stylesheet: StyleSheet<'a>,
-        string_pool: StringPool,
-        declaration_blocks: DeclarationBlockStore<'a>,
-        rules: RuleStore<'a>,
-        origin: CascadeOrigin,
-    ) -> Self {
+    pub fn new(stylesheet: StyleSheet<'a>, declaration_blocks: DeclarationBlockStore<'a>) -> Self {
         Self {
             stylesheet,
-            string_pool,
             declaration_blocks,
-            rules,
-            origin,
         }
-    }
-
-    #[inline]
-    pub fn intern(&mut self, value: &str) -> Atom<'a> {
-        self.string_pool.intern(value)
-    }
-
-    #[inline]
-    pub fn intern_ascii_lowercase(&mut self, value: &str) -> Atom<'a> {
-        self.string_pool.intern_ascii_lowercase(value)
-    }
-
-    #[inline]
-    pub fn take_string_pool(&mut self) -> StringPool {
-        std::mem::take(&mut self.string_pool)
-    }
-
-    #[inline]
-    pub fn replace_string_pool(&mut self, string_pool: StringPool) -> StringPool {
-        std::mem::replace(&mut self.string_pool, string_pool)
     }
 
     #[inline]
@@ -85,106 +40,13 @@ impl<'a> Compilation<'a> {
     }
 
     #[inline]
-    pub fn all_parts_mut(
-        &mut self,
-    ) -> (
-        &mut StyleSheet<'a>,
-        &mut DeclarationBlockStore<'a>,
-        &mut RuleStore<'a>,
-    ) {
-        (
-            &mut self.stylesheet,
-            &mut self.declaration_blocks,
-            &mut self.rules,
-        )
-    }
-
-    #[inline]
-    pub fn rule_store(&self) -> &RuleStore<'a> {
-        &self.rules
-    }
-
-    #[inline]
-    pub fn origin(&self) -> CascadeOrigin {
-        self.origin
-    }
-
-    #[inline]
-    pub fn rule_store_mut(&mut self) -> &mut RuleStore<'a> {
-        &mut self.rules
-    }
-
-    #[inline]
-    pub fn rule(&self, id: RuleId) -> &CssRule<'a> {
-        self.rules.get(id)
-    }
-
-    #[inline]
-    pub fn rule_topology(&self, id: RuleId) -> RuleTopology {
-        self.rules.topology(id)
-    }
-
-    #[inline]
-    pub fn rules(&self, list: RuleListId) -> RuleChildren<'_, 'a> {
-        self.rules.children(list)
-    }
-
-    #[inline]
-    pub fn rule_list(&self, list: RuleListId) -> RuleListRef<'_, 'a> {
-        RuleListRef::new(&self.rules, list)
-    }
-
-    #[inline]
-    pub fn root_rules(&self) -> RuleListRef<'_, 'a> {
-        self.rule_list(self.stylesheet.rules)
-    }
-
-    #[inline]
-    pub fn selectors(&self, list: SelectorListId) -> &[Selector<'a>] {
-        self.rules.selectors(list)
-    }
-
-    #[inline]
-    pub fn selectors_mut(&mut self, list: SelectorListId) -> &mut [Selector<'a>] {
-        self.rules.selectors_mut(list)
-    }
-
-    #[inline]
-    pub fn selector_slots(&self) -> impl ExactSizeIterator<Item = (SelectorId, &Selector<'a>)> {
-        self.rules.selector_slots()
-    }
-
-    #[inline]
-    pub fn selector_range(&self, list: SelectorListId) -> DenseRange<SelectorId> {
-        self.rules.selector_range(list)
-    }
-
-    #[inline]
-    pub fn declaration_block(&self, id: DeclarationBlockId) -> DeclarationBlockRef<'_, 'a> {
-        self.declaration_blocks.view(id)
+    pub fn declaration_block(&self, id: DeclarationBlockId) -> &DeclarationBlock<'a> {
+        self.declaration_blocks.get(id)
     }
 
     #[inline]
     pub fn declaration_block_mut(&mut self, id: DeclarationBlockId) -> &mut DeclarationBlock<'a> {
-        self.declaration_blocks.block_mut(id)
-    }
-
-    #[inline]
-    pub fn declaration(&self, id: DeclarationId) -> &Declaration<'a> {
-        self.declaration_blocks.declaration(id)
-    }
-
-    #[inline]
-    pub fn declaration_slots(
-        &self,
-    ) -> impl ExactSizeIterator<Item = (DeclarationId, &Declaration<'a>)> {
-        self.declaration_blocks.declaration_slots()
-    }
-
-    /// Validates the physical declaration tape and block-range ownership.
-    pub fn validate_flat_ir(&self) -> Result<(), &'static str> {
-        self.declaration_blocks.validate()?;
-        self.rules.validate()
+        self.declaration_blocks.get_mut(id)
     }
 
     pub fn visit<'ghost, V: ?Sized + Visitor<'a, 'ghost>>(
@@ -192,7 +54,7 @@ impl<'a> Compilation<'a> {
         visitor: &mut V,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
-        let cx = VisitContext::new_with_stores(cx.token(), &self.declaration_blocks, &self.rules);
+        let cx = VisitContext::new_with_declaration_blocks(cx.token(), &self.declaration_blocks);
         Visit::visit(&self.stylesheet, visitor, &cx);
     }
 
@@ -201,10 +63,8 @@ impl<'a> Compilation<'a> {
         visitor: &mut V,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
-        let stylesheet = &mut self.stylesheet;
-        let declaration_blocks = &mut self.declaration_blocks;
-        let rules = &mut self.rules;
-        cx.with_stores(declaration_blocks, rules, |cx| {
+        let (stylesheet, declaration_blocks) = self.parts_mut();
+        cx.with_declaration_blocks(declaration_blocks, |cx| {
             <StyleSheet<'a> as VisitMut<'a, 'ghost>>::visit_mut(stylesheet, visitor, cx);
         });
     }
@@ -227,628 +87,15 @@ impl std::ops::DerefMut for Compilation<'_> {
 }
 
 define_dense_id!(pub struct DeclarationBlockId);
-define_dense_id!(pub struct DeclarationId);
-define_dense_id!(pub struct EffectiveKeyId);
 
-#[derive(Visit)]
-pub struct DeclarationBlockStore<'a> {
-    #[visit(skip)]
-    blocks: DenseStore<DeclarationBlockId, DeclarationBlock<'a>>,
-    #[visit(skip)]
-    declarations: DenseStore<DeclarationId, Declaration<'a>>,
-    #[visit(skip)]
-    importance: std::vec::Vec<bool>,
-}
-
-impl<'a> DeclarationBlockStore<'a> {
-    #[inline]
-    pub const fn new() -> Self {
-        Self {
-            blocks: DenseStore::new(),
-            declarations: DenseStore::new(),
-            importance: std::vec::Vec::new(),
-        }
-    }
-
-    #[inline]
-    pub fn begin_block(&mut self) -> DeclarationBlockId {
-        self.blocks
-            .push(DeclarationBlock::new(self.declarations.cursor()))
-    }
-
-    #[inline]
-    pub fn push(&mut self, block: DeclarationBlock<'a>) -> DeclarationBlockId {
-        self.blocks.push(block)
-    }
-
-    #[inline]
-    pub fn block(&self, id: DeclarationBlockId) -> &DeclarationBlock<'a> {
-        self.blocks.get(id)
-    }
-
-    #[inline]
-    pub fn block_mut(&mut self, id: DeclarationBlockId) -> &mut DeclarationBlock<'a> {
-        self.blocks.get_mut(id)
-    }
-
-    #[inline]
-    pub fn set_effective_key(&mut self, id: DeclarationBlockId, key: EffectiveKeyId) {
-        self.blocks.get_mut(id).set_effective_key(key);
-    }
-
-    #[inline]
-    pub fn view(&self, id: DeclarationBlockId) -> DeclarationBlockRef<'_, 'a> {
-        DeclarationBlockRef {
-            block: self.block(id),
-            declarations: DeclarationValues {
-                block: self.block(id),
-                declarations: &self.declarations,
-            },
-            declarations_importance: DeclarationImportance {
-                block: self.block(id),
-                importance: &self.importance,
-            },
-        }
-    }
-
-    /// Moves the declaration sequence owned by `previous` in front of
-    /// `current` without widening either sequence across foreign live slots.
-    pub fn prepend_block(&mut self, current: DeclarationBlockId, previous: DeclarationBlockId) {
-        let (current, previous) = self
-            .blocks
-            .get_two_mut(current, previous)
-            .expect("a declaration block cannot be merged with itself");
-        let previous_cursor = previous
-            .ranges
-            .first()
-            .copied()
-            .expect("a declaration block has an initial range");
-        let mut ranges = std::mem::take(&mut previous.ranges);
-        ranges.append(&mut current.ranges);
-        current.ranges = ranges;
-        previous.ranges = std::vec![
-            DenseRange::from_bounds(previous_cursor.offset(), 0)
-                .expect("an existing declaration offset fits the dense ID domain")
-        ];
-    }
-
-    /// Retires the declaration occurrence owned by a rule that will not be
-    /// copied into the committed rule tape.
-    pub(crate) fn retire_block(&mut self, id: DeclarationBlockId) {
-        self.blocks[id].ranges.clear();
-    }
-
-    #[inline]
-    pub fn get(&self, id: DeclarationBlockId) -> &DeclarationBlock<'a> {
-        self.block(id)
-    }
-
-    #[inline]
-    pub fn get_mut(&mut self, id: DeclarationBlockId) -> &mut DeclarationBlock<'a> {
-        self.block_mut(id)
-    }
-
-    pub fn get_two_mut(
-        &mut self,
-        left: DeclarationBlockId,
-        right: DeclarationBlockId,
-    ) -> Option<(&mut DeclarationBlock<'a>, &mut DeclarationBlock<'a>)> {
-        self.blocks.get_two_mut(left, right)
-    }
-
-    #[inline]
-    pub fn ids(&self) -> impl ExactSizeIterator<Item = DeclarationBlockId> + '_ {
-        self.blocks.ids()
-    }
-
-    #[inline]
-    pub fn map<T>(
-        &self,
-        init: impl FnMut(DeclarationBlockId) -> T,
-    ) -> DenseMap<DeclarationBlockId, T> {
-        DenseMap::from_store(&self.blocks, init)
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.blocks.len()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.blocks.is_empty()
-    }
-
-    #[inline]
-    pub fn declaration(&self, id: DeclarationId) -> &Declaration<'a> {
-        self.declarations.get(id)
-    }
-
-    #[inline]
-    pub fn declaration_mut(&mut self, id: DeclarationId) -> &mut Declaration<'a> {
-        self.declarations.get_mut(id)
-    }
-
-    #[inline]
-    pub fn declaration_slots(
-        &self,
-    ) -> impl ExactSizeIterator<Item = (DeclarationId, &Declaration<'a>)> {
-        self.declarations.iter_enumerated()
-    }
-
-    #[inline]
-    pub fn push_declaration(
-        &mut self,
-        block: DeclarationBlockId,
-        declaration: Declaration<'a>,
-        important: bool,
-    ) -> DeclarationId {
-        let id = self.declarations.push(declaration);
-        self.importance.push(important);
-        self.blocks
-            .get_mut(block)
-            .append_id(id)
-            .expect("declaration IDs are appended in source order");
-        id
-    }
-
-    #[inline]
-    pub fn is_important(&self, id: DeclarationId) -> bool {
-        self.importance[id.index()]
-    }
-
-    #[inline]
-    pub fn declaration_count(&self, block: DeclarationBlockId) -> usize {
-        self.block(block).len()
-    }
-
-    pub fn declaration_id_at(&self, block: DeclarationBlockId, mut index: usize) -> DeclarationId {
-        for range in self.block(block).ranges() {
-            if index < range.len() {
-                return DeclarationId::from_index(range.offset() + index)
-                    .expect("a block range contains valid declaration IDs");
-            }
-            index -= range.len();
-        }
-        panic!("declaration index is outside its block")
-    }
-
-    #[inline]
-    pub fn block_declaration(&self, block: DeclarationBlockId, index: usize) -> &Declaration<'a> {
-        self.declaration(self.declaration_id_at(block, index))
-    }
-
-    #[inline]
-    pub fn block_declaration_mut(
-        &mut self,
-        block: DeclarationBlockId,
-        index: usize,
-    ) -> &mut Declaration<'a> {
-        let id = self.declaration_id_at(block, index);
-        self.declaration_mut(id)
-    }
-
-    #[inline]
-    pub fn block_is_important(&self, block: DeclarationBlockId, index: usize) -> bool {
-        self.is_important(self.declaration_id_at(block, index))
-    }
-
-    pub fn block_iter(
-        &self,
-        block: DeclarationBlockId,
-    ) -> impl DoubleEndedIterator<Item = (&Declaration<'a>, bool)> {
-        self.block(block).ranges().iter().flat_map(|range| {
-            let values = self.declarations.get_range(*range);
-            let importance = &self.importance[range.as_usize_range()];
-            values.iter().zip(importance.iter().copied())
-        })
-    }
-
-    #[inline]
-    pub fn block_iter_live(
-        &self,
-        block: DeclarationBlockId,
-    ) -> impl DoubleEndedIterator<Item = (&Declaration<'a>, bool)> {
-        self.block_iter(block)
-            .filter(|(declaration, _)| !declaration.is_tombstone())
-    }
-
-    pub fn validate(&self) -> Result<(), &'static str> {
-        if self.declarations.len() != self.importance.len() {
-            return Err("declaration importance sidecar length mismatch");
-        }
-        let mut owners = std::vec![None; self.declarations.len()];
-        for (block_id, block) in self.blocks.iter_enumerated() {
-            let mut previous_end = None;
-            for range in block.ranges() {
-                if range.end() > self.declarations.len() {
-                    return Err("declaration block range exceeds the declaration tape");
-                }
-                if let Some(end) = previous_end
-                    && range.offset() < end
-                {
-                    return Err("declaration block ranges are not in physical order");
-                }
-                previous_end = Some(range.end());
-                for owner in &mut owners[range.as_usize_range()] {
-                    if owner.replace(block_id).is_some() {
-                        return Err("a declaration slot has multiple block owners");
-                    }
-                }
-            }
-        }
-        if owners.iter().any(Option::is_none) {
-            return Err("a declaration slot has no block owner");
-        }
-        Ok(())
-    }
-
-    /// Rebuilds the declaration tape in final semantic block order and drops
-    /// tombstones left by local and cross-rule minification.
-    pub fn compact(&mut self) {
-        let mut source = std::mem::take(&mut self.declarations);
-        let source_importance = std::mem::take(&mut self.importance);
-        let mut declarations = DenseStore::new();
-        let mut importance = std::vec::Vec::new();
-
-        for block in self.blocks.iter_mut() {
-            let cursor = declarations.cursor();
-            for range in std::mem::take(&mut block.ranges) {
-                for index in range.as_usize_range() {
-                    let id = DeclarationId::from_index(index)
-                        .expect("a declaration range contains valid dense IDs");
-                    let declaration = std::mem::replace(source.get_mut(id), Declaration::Tombstone);
-                    if declaration.is_tombstone() {
-                        continue;
-                    }
-                    declarations.push(declaration);
-                    importance.push(source_importance[index]);
-                }
-            }
-            block.ranges = std::vec![declarations.range_since(cursor)];
-        }
-
-        self.declarations = declarations;
-        self.importance = importance;
-        debug_assert!(
-            self.declarations
-                .iter()
-                .all(|declaration| !declaration.is_tombstone())
-        );
-        debug_assert!(self.validate().is_ok());
-    }
-}
-
-impl Default for DeclarationBlockStore<'_> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Debug for DeclarationBlockStore<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DeclarationBlockStore")
-            .field("blocks", &self.blocks)
-            .field("declarations", &self.declarations)
-            .field("importance", &self.importance)
-            .finish()
-    }
-}
-
-impl PartialEq for DeclarationBlockStore<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.blocks == other.blocks
-            && self.declarations == other.declarations
-            && self.importance == other.importance
-    }
-}
-
-#[derive(Clone, Copy, Visit)]
-#[visit(skip)]
-pub struct DeclarationBlockRef<'store, 'ast> {
-    #[visit(skip)]
-    block: &'store DeclarationBlock<'ast>,
-    #[visit(skip)]
-    pub declarations: DeclarationValues<'store, 'ast>,
-    #[visit(skip)]
-    pub declarations_importance: DeclarationImportance<'store, 'ast>,
-}
-
-impl<'store, 'ast> DeclarationBlockRef<'store, 'ast> {
-    #[inline]
-    pub fn effective_key(self) -> Option<EffectiveKeyId> {
-        self.block.effective_key()
-    }
-
-    #[inline]
-    pub fn ranges(self) -> &'store [DenseRange<DeclarationId>] {
-        self.block.ranges()
-    }
-
-    #[inline]
-    pub fn len(self) -> usize {
-        self.block.len()
-    }
-
-    #[inline]
-    pub fn is_empty(self) -> bool {
-        self.block.is_empty()
-    }
-
-    #[inline]
-    pub fn is_output_empty(self) -> bool {
-        self.declarations.iter().all(Declaration::is_tombstone)
-    }
-
-    #[inline]
-    pub fn is_important(self, index: usize) -> bool {
-        self.declarations_importance.is_set(index)
-    }
-
-    #[inline]
-    pub fn iter(self) -> impl DoubleEndedIterator<Item = (&'store Declaration<'ast>, bool)> {
-        self.declarations
-            .iter()
-            .zip(self.declarations_importance.iter())
-    }
-
-    #[inline]
-    pub fn iter_live(self) -> impl DoubleEndedIterator<Item = (&'store Declaration<'ast>, bool)> {
-        self.iter()
-            .filter(|(declaration, _)| !declaration.is_tombstone())
-    }
-}
-
-impl EqIgnoringTombstones for DeclarationBlockRef<'_, '_> {
-    fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
-        let mut left = self.iter_live();
-        let mut right = other.iter_live();
-        loop {
-            match (left.next(), right.next()) {
-                (None, None) => return true,
-                (Some((left, left_important)), Some((right, right_important)))
-                    if left_important == right_important && left.eq_ignoring_tombstones(right) => {}
-                _ => return false,
-            }
-        }
-    }
-}
-
-#[derive(Clone, Copy, Visit)]
-#[visit(skip)]
-pub struct DeclarationValues<'store, 'ast> {
-    #[visit(skip)]
-    block: &'store DeclarationBlock<'ast>,
-    #[visit(skip)]
-    declarations: &'store DenseStore<DeclarationId, Declaration<'ast>>,
-}
-
-impl<'store, 'ast> DeclarationValues<'store, 'ast> {
-    #[inline]
-    pub fn len(self) -> usize {
-        self.block.len()
-    }
-
-    #[inline]
-    pub fn is_empty(self) -> bool {
-        self.block.is_empty()
-    }
-
-    pub fn iter(self) -> DeclarationValueIter<'store, 'ast> {
-        DeclarationValueIter {
-            values: self,
-            front: 0,
-            back: self.len(),
-        }
-    }
-
-    pub fn get(self, mut index: usize) -> &'store Declaration<'ast> {
-        for range in self.block.ranges() {
-            if index < range.len() {
-                let id = DeclarationId::from_index(range.offset() + index)
-                    .expect("a block range contains valid declaration IDs");
-                return self.declarations.get(id);
-            }
-            index -= range.len();
-        }
-        panic!("declaration index is outside its block")
-    }
-
-    fn contiguous_slice(self, range: Range<usize>) -> &'store [Declaration<'ast>] {
-        assert!(range.start <= range.end && range.end <= self.len());
-        let mut logical_offset = 0;
-        for physical in self.block.ranges() {
-            let logical_end = logical_offset + physical.len();
-            if range.start >= logical_offset && range.end <= logical_end {
-                let start = physical.offset() + range.start - logical_offset;
-                let end = physical.offset() + range.end - logical_offset;
-                return self.declarations.get_range(
-                    DenseRange::from_bounds(start, end - start)
-                        .expect("a declaration subrange fits its ID domain"),
-                );
-            }
-            logical_offset = logical_end;
-        }
-        panic!("a slice spanning non-contiguous declaration runs is unavailable")
-    }
-}
-
-impl<'store, 'ast> IntoIterator for &DeclarationValues<'store, 'ast> {
-    type Item = &'store Declaration<'ast>;
-    type IntoIter = DeclarationValueIter<'store, 'ast>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        (*self).iter()
-    }
-}
-
-#[derive(Visit)]
-#[visit(skip)]
-pub struct DeclarationValueIter<'store, 'ast> {
-    #[visit(skip)]
-    values: DeclarationValues<'store, 'ast>,
-    #[visit(skip)]
-    front: usize,
-    #[visit(skip)]
-    back: usize,
-}
-
-impl<'store, 'ast> Iterator for DeclarationValueIter<'store, 'ast> {
-    type Item = &'store Declaration<'ast>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.front == self.back {
-            return None;
-        }
-        let index = self.front;
-        self.front += 1;
-        Some(self.values.get(index))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.back - self.front;
-        (len, Some(len))
-    }
-}
-
-impl DoubleEndedIterator for DeclarationValueIter<'_, '_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.front == self.back {
-            return None;
-        }
-        self.back -= 1;
-        Some(self.values.get(self.back))
-    }
-}
-
-impl ExactSizeIterator for DeclarationValueIter<'_, '_> {}
-
-impl<'ast> Index<usize> for DeclarationValues<'_, 'ast> {
-    type Output = Declaration<'ast>;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.contiguous_slice(index..index + 1)[0]
-    }
-}
-
-impl<'ast> Index<Range<usize>> for DeclarationValues<'_, 'ast> {
-    type Output = [Declaration<'ast>];
-
-    fn index(&self, range: Range<usize>) -> &Self::Output {
-        self.contiguous_slice(range)
-    }
-}
-
-impl<'ast> Index<RangeFrom<usize>> for DeclarationValues<'_, 'ast> {
-    type Output = [Declaration<'ast>];
-
-    fn index(&self, range: RangeFrom<usize>) -> &Self::Output {
-        self.contiguous_slice(range.start..self.len())
-    }
-}
-
-impl<'ast> Index<RangeTo<usize>> for DeclarationValues<'_, 'ast> {
-    type Output = [Declaration<'ast>];
-
-    fn index(&self, range: RangeTo<usize>) -> &Self::Output {
-        self.contiguous_slice(0..range.end)
-    }
-}
-
-impl<'ast> Index<RangeFull> for DeclarationValues<'_, 'ast> {
-    type Output = [Declaration<'ast>];
-
-    fn index(&self, _: RangeFull) -> &Self::Output {
-        self.contiguous_slice(0..self.len())
-    }
-}
-
-#[derive(Clone, Copy, Visit)]
-#[visit(skip)]
-pub struct DeclarationImportance<'store, 'ast> {
-    #[visit(skip)]
-    block: &'store DeclarationBlock<'ast>,
-    #[visit(skip)]
-    importance: &'store [bool],
-}
-
-impl<'store, 'ast> DeclarationImportance<'store, 'ast> {
-    #[inline]
-    pub fn len(self) -> usize {
-        self.block.len()
-    }
-
-    #[inline]
-    pub fn is_empty(self) -> bool {
-        self.block.is_empty()
-    }
-
-    pub fn is_set(self, mut index: usize) -> bool {
-        for range in self.block.ranges() {
-            if index < range.len() {
-                return self.importance[range.offset() + index];
-            }
-            index -= range.len();
-        }
-        panic!("declaration importance index is outside its block")
-    }
-
-    pub fn iter(self) -> DeclarationImportanceIter<'store, 'ast> {
-        DeclarationImportanceIter {
-            importance: self,
-            front: 0,
-            back: self.len(),
-        }
-    }
-}
-
-#[derive(Visit)]
-#[visit(skip)]
-pub struct DeclarationImportanceIter<'store, 'ast> {
-    #[visit(skip)]
-    importance: DeclarationImportance<'store, 'ast>,
-    #[visit(skip)]
-    front: usize,
-    #[visit(skip)]
-    back: usize,
-}
-
-impl Iterator for DeclarationImportanceIter<'_, '_> {
-    type Item = bool;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.front == self.back {
-            return None;
-        }
-        let index = self.front;
-        self.front += 1;
-        Some(self.importance.is_set(index))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.back - self.front;
-        (len, Some(len))
-    }
-}
-
-impl DoubleEndedIterator for DeclarationImportanceIter<'_, '_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        if self.front == self.back {
-            return None;
-        }
-        self.back -= 1;
-        Some(self.importance.is_set(self.back))
-    }
-}
-
-impl ExactSizeIterator for DeclarationImportanceIter<'_, '_> {}
+pub type DeclarationBlockStore<'a> = DenseStore<DeclarationBlockId, DeclarationBlock<'a>>;
 
 pub fn visit_declaration_block_id<'a, 'ghost, V: ?Sized + Visitor<'a, 'ghost>>(
     id: &DeclarationBlockId,
     visitor: &mut V,
     cx: &VisitContext<'_, 'a, 'ghost>,
 ) {
-    cx.visit_declaration_block(*id, visitor);
+    cx.with_declaration_block(*id, |block, cx| block.visit(visitor, cx));
 }
 
 pub fn visit_declaration_block_id_mut<'a, 'ghost, V: ?Sized + VisitorMut<'a, 'ghost>>(
@@ -856,52 +103,19 @@ pub fn visit_declaration_block_id_mut<'a, 'ghost, V: ?Sized + VisitorMut<'a, 'gh
     visitor: &mut V,
     cx: &mut VisitMutContext<'_, 'a, 'ghost>,
 ) {
-    cx.visit_declaration_block(*id, visitor);
-}
-
-pub fn visit_rule_list_id<'a, 'ghost, V: ?Sized + Visitor<'a, 'ghost>>(
-    id: &RuleListId,
-    visitor: &mut V,
-    cx: &VisitContext<'_, 'a, 'ghost>,
-) {
-    cx.visit_rule_list(*id, visitor);
-}
-
-pub fn visit_rule_list_id_mut<'a, 'ghost, V: ?Sized + VisitorMut<'a, 'ghost>>(
-    id: &mut RuleListId,
-    visitor: &mut V,
-    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-) {
-    cx.visit_rule_list(*id, visitor);
-}
-
-pub fn visit_selector_list_id<'a, 'ghost, V: ?Sized + Visitor<'a, 'ghost>>(
-    id: &SelectorListId,
-    visitor: &mut V,
-    cx: &VisitContext<'_, 'a, 'ghost>,
-) {
-    cx.visit_selector_list(*id, visitor);
-}
-
-pub fn visit_selector_list_id_mut<'a, 'ghost, V: ?Sized + VisitorMut<'a, 'ghost>>(
-    id: &mut SelectorListId,
-    visitor: &mut V,
-    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-) {
-    cx.visit_selector_list(*id, visitor);
+    cx.with_declaration_block(*id, |block, cx| block.visit_mut(visitor, cx));
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MediaRule<'a> {
     pub span: Span,
     pub query: MediaList<'a>,
-    #[visit(with = visit_rule_list_id, with_mut = visit_rule_list_id_mut)]
-    pub rules: RuleListId,
+    pub rules: Vec<'a, CssRule<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MediaList<'a> {
-    pub media_queries: std::vec::Vec<std::boxed::Box<MediaQuery<'a>>>,
+    pub media_queries: Vec<'a, Box<'a, MediaQuery<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -919,37 +133,37 @@ pub struct LengthValue {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct EnvironmentVariable<'a> {
-    pub fallback: Option<std::vec::Vec<TokenOrValue<'a>>>,
-    pub indices: std::vec::Vec<i32>,
+    pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
+    pub indices: Vec<'a, i32>,
     pub name: EnvironmentVariableName<'a>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Url<'a> {
     pub span: Span,
-    pub url: Atom<'a>,
+    pub url: &'a str,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Variable<'a> {
-    pub fallback: Option<std::vec::Vec<TokenOrValue<'a>>>,
-    pub name: std::boxed::Box<DashedIdentReference<'a>>,
+    pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
+    pub name: Box<'a, DashedIdentReference<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct DashedIdentReference<'a> {
     pub from: Option<Specifier<'a>>,
-    pub ident: Atom<'a>,
+    pub ident: &'a str,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Function<'a> {
-    pub arguments: std::vec::Vec<TokenOrValue<'a>>,
+    pub arguments: Vec<'a, TokenOrValue<'a>>,
     #[visit(skip)]
     flags: FunctionFlags,
     #[visit(skip)]
     kind: KnownFunction,
-    name: Atom<'a>,
+    name: &'a str,
     /// A simple value serialized from this existing function node.
     pub replacement: Option<FunctionReplacement>,
 }
@@ -1176,8 +390,8 @@ bitflags! {
 impl<'a> Function<'a> {
     /// Creates a function with no minifier serialization state.
     #[inline]
-    pub fn new(name: Atom<'a>, arguments: std::vec::Vec<TokenOrValue<'a>>) -> Self {
-        let (kind, vendor_prefixed) = KnownFunction::classify(&name);
+    pub fn new(name: &'a str, arguments: Vec<'a, TokenOrValue<'a>>) -> Self {
+        let (kind, vendor_prefixed) = KnownFunction::classify(name);
         let mut flags = FunctionFlags::empty();
         flags.set(FunctionFlags::VENDOR_PREFIXED, vendor_prefixed);
         Self {
@@ -1191,8 +405,8 @@ impl<'a> Function<'a> {
 
     /// Returns the original function name.
     #[inline]
-    pub fn name(&self) -> &str {
-        &self.name
+    pub const fn name(&self) -> &'a str {
+        self.name
     }
 
     /// Returns the shared identity for a recognized function name.
@@ -1203,8 +417,8 @@ impl<'a> Function<'a> {
 
     /// Updates the lossless function name and its recognized identity together.
     #[inline]
-    pub fn set_name(&mut self, name: Atom<'a>) {
-        let (kind, vendor_prefixed) = KnownFunction::classify(&name);
+    pub fn set_name(&mut self, name: &'a str) {
+        let (kind, vendor_prefixed) = KnownFunction::classify(name);
         self.name = name;
         self.kind = kind;
         self.flags
@@ -1285,14 +499,15 @@ pub enum FunctionReplacement {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ImportRule<'a> {
-    pub layer: Option<std::vec::Vec<Atom<'a>>>,
+    pub layer: Option<Vec<'a, &'a str>>,
     pub span: Span,
-    pub media: Option<std::boxed::Box<MediaList<'a>>>,
-    pub supports: Option<std::boxed::Box<SupportsCondition<'a>>>,
-    pub url: Atom<'a>,
+    pub media: Option<Box<'a, MediaList<'a>>>,
+    pub supports: Option<Box<'a, SupportsCondition<'a>>>,
+    pub url: &'a str,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Visit)]
+#[visit(pinned)]
 pub struct StyleRule<'a> {
     #[visit(
         with = visit_declaration_block_id,
@@ -1300,13 +515,21 @@ pub struct StyleRule<'a> {
     )]
     pub declarations: DeclarationBlockId,
     pub span: Span,
-    #[visit(with = visit_rule_list_id, with_mut = visit_rule_list_id_mut)]
-    pub rules: RuleListId,
-    #[visit(with = visit_selector_list_id, with_mut = visit_selector_list_id_mut)]
-    pub selectors: SelectorListId,
+    pub rules: Vec<'a, CssRule<'a>>,
+    pub selectors: SelectorList<'a>,
     pub vendor_prefix: VendorPrefix,
     #[visit(skip)]
-    marker: std::marker::PhantomData<&'a ()>,
+    _pin: PhantomPinned,
+}
+
+impl PartialEq for StyleRule<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.declarations == other.declarations
+            && self.span == other.span
+            && self.rules == other.rules
+            && self.selectors == other.selectors
+            && self.vendor_prefix == other.vendor_prefix
+    }
 }
 
 impl<'a> StyleRule<'a> {
@@ -1314,8 +537,8 @@ impl<'a> StyleRule<'a> {
     pub fn new(
         declarations: DeclarationBlockId,
         span: Span,
-        rules: RuleListId,
-        selectors: SelectorListId,
+        rules: Vec<'a, CssRule<'a>>,
+        selectors: SelectorList<'a>,
         vendor_prefix: VendorPrefix,
     ) -> Self {
         Self {
@@ -1324,80 +547,115 @@ impl<'a> StyleRule<'a> {
             rules,
             selectors,
             vendor_prefix,
-            marker: std::marker::PhantomData,
+            _pin: PhantomPinned,
         }
+    }
+
+    #[inline]
+    pub fn rules_mut(self: Pin<&mut Self>) -> &mut Vec<'a, CssRule<'a>> {
+        // SAFETY: mutating the vector does not move its pinned owner.
+        &mut unsafe { self.get_unchecked_mut() }.rules
+    }
+
+    #[inline]
+    pub fn selectors_mut(self: Pin<&mut Self>) -> &mut SelectorList<'a> {
+        // SAFETY: mutating the vector does not move its pinned owner.
+        &mut unsafe { self.get_unchecked_mut() }.selectors
     }
 }
 
 #[derive(Debug, Visit)]
 pub struct DeclarationBlock<'a> {
+    pub declarations: Vec<'a, Declaration<'a>>,
     #[visit(skip)]
-    ranges: std::vec::Vec<DenseRange<DeclarationId>>,
+    pub declarations_importance: BitVec<'a>,
     #[visit(skip)]
-    effective_key: Option<EffectiveKeyId>,
-    #[visit(skip)]
-    marker: std::marker::PhantomData<&'a ()>,
+    previous_merged: Option<DeclarationBlockId>,
 }
 
 impl<'a> DeclarationBlock<'a> {
     #[inline]
-    pub fn new(cursor: DenseRange<DeclarationId>) -> Self {
-        debug_assert!(cursor.is_empty());
+    pub fn new(allocator: &'a Allocator) -> Self {
         Self {
-            ranges: std::vec![cursor],
-            effective_key: None,
-            marker: std::marker::PhantomData,
+            declarations: allocator.vec(),
+            declarations_importance: BitVec::new(allocator),
+            previous_merged: None,
         }
     }
 
     #[inline]
-    pub fn ranges(&self) -> &[DenseRange<DeclarationId>] {
-        &self.ranges
+    pub fn previous_merged(&self) -> Option<DeclarationBlockId> {
+        self.previous_merged
     }
 
     #[inline]
-    pub fn effective_key(&self) -> Option<EffectiveKeyId> {
-        self.effective_key
+    pub fn set_previous_merged(&mut self, previous: Option<DeclarationBlockId>) {
+        self.previous_merged = previous;
     }
 
     #[inline]
-    pub(crate) fn set_effective_key(&mut self, key: EffectiveKeyId) {
-        self.effective_key = Some(key);
-    }
-
-    fn append_id(&mut self, id: DeclarationId) -> Result<(), ()> {
-        let one = DenseRange::from_bounds(id.index(), 1).map_err(|_| ())?;
-        let last = self
-            .ranges
-            .last_mut()
-            .expect("a block has an initial cursor");
-        if let Some(joined) = last.try_join_adjacent(one) {
-            *last = joined;
-        } else {
-            self.ranges.push(one);
-        }
-        Ok(())
+    pub fn push(&mut self, declaration: Declaration<'a>, important: bool) {
+        self.declarations.push(declaration);
+        self.declarations_importance.push(important);
     }
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.ranges.iter().map(|range| range.len()).sum()
+        debug_assert_eq!(self.declarations.len(), self.declarations_importance.len());
+        self.declarations.len()
     }
 
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// Returns whether this block has no declarations that should be emitted.
+    #[inline]
+    pub fn is_output_empty(&self) -> bool {
+        self.declarations.iter().all(Declaration::is_tombstone)
+    }
+
+    #[inline]
+    pub fn is_important(&self, index: usize) -> bool {
+        debug_assert_eq!(self.declarations.len(), self.declarations_importance.len());
+        self.declarations_importance.is_set(index)
+    }
+
+    #[inline]
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (&Declaration<'a>, bool)> {
+        debug_assert_eq!(self.declarations.len(), self.declarations_importance.len());
+        self.declarations
+            .iter()
+            .zip(self.declarations_importance.iter())
+    }
+
+    /// Iterates over declarations that have not been replaced by tombstones.
+    #[inline]
+    pub fn iter_live(&self) -> impl DoubleEndedIterator<Item = (&Declaration<'a>, bool)> {
+        self.iter()
+            .filter(|(declaration, _)| !declaration.is_tombstone())
+    }
 }
 
 impl PartialEq for DeclarationBlock<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.ranges == other.ranges && self.effective_key == other.effective_key
+        self.declarations == other.declarations
+            && self.declarations_importance == other.declarations_importance
     }
 }
 
 impl EqIgnoringTombstones for DeclarationBlock<'_> {
     fn eq_ignoring_tombstones(&self, other: &Self) -> bool {
-        self == other
+        let mut left = self.iter_live();
+        let mut right = other.iter_live();
+        loop {
+            match (left.next(), right.next()) {
+                (None, None) => return true,
+                (Some((left, left_important)), Some((right, right_important)))
+                    if left_important == right_important && left.eq_ignoring_tombstones(right) => {}
+                _ => return false,
+            }
+        }
     }
 }

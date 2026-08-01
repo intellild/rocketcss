@@ -9,7 +9,7 @@ impl<'ghost> ToCss<'ghost> for CssRule<'_> {
         match self {
             Self::Media(value) => value.to_css(dest, _cx),
             Self::Import(value) => value.to_css(dest, _cx),
-            Self::Style(value) => value.to_css(dest, _cx),
+            Self::Style(value) => value.as_ref().get_ref().to_css(dest, _cx),
             Self::Keyframes(value) => value.to_css(dest, _cx),
             Self::FontFace(value) => value.to_css(dest, _cx),
             Self::FontPaletteValues(value) => value.to_css(dest, _cx),

@@ -98,12 +98,6 @@ flat authored IR
 Only S5 changes the physical order of surviving entities. Dirty queues and
 live links describe logical order until that terminal commit.
 
-S5 is gated by explicit declaration-tape and rule-tape dirty state. Pure value
-normalization that creates no tombstone, multi-range sequence, or retired rule
-does not rebuild either tape. A structural commit rebuilds the rule tape first
-so declaration blocks owned only by retired subtrees can be retired before the
-declaration tape is compacted.
-
 ## Required invariants
 
 - Authored declaration IDs initially increase in lexical source order.
@@ -119,3 +113,4 @@ declaration tape is compacted.
 - Reification preserves source origins for diagnostics and source maps.
 - After S5, no `Box`, AST arena pointer, `previous_merged`, or merge-only
   reference is required by code generation.
+

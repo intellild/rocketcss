@@ -53,7 +53,7 @@ pub enum CursorKeyword {
 #[derive(Debug, PartialEq, Visit)]
 pub enum ColorOrAuto<'a> {
     Auto,
-    Color(std::boxed::Box<CssColor<'a>>),
+    Color(Box<'a, CssColor<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
