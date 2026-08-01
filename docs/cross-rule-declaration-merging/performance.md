@@ -321,6 +321,101 @@ Bootstrap and Tailwind workloads. Inspect code size as well as runtime because
 specializing the collector can produce a second monomorphized copy. The
 optimization is expected to be sub-millisecond on representative inputs; it
 should be accepted only if function-heavy inputs without RGB do not regress.
+
+## PR #50 CodSpeed history
+
+The PR history contains several storage and scheduling experiments, but many
+adjacent runs used different CodSpeed Simulation CPU models. Treat a reported
+change as causal only when CodSpeed says the relevant benchmarks ran in the
+same environment.
+
+The useful signals are:
+
+- storing declaration blocks behind dense IDs improved Bootstrap minify by
+  5.01% on matching runners; the other five pipeline benchmarks were
+  unchanged;
+- moving the dense store abstraction into `rocketcss_common` was unchanged in
+  all six benchmarks on matching runners;
+- building S1 indices on demand after avoiding non-structural S2 rescans was
+  unchanged in all six benchmarks on matching runners, although both minify
+  inputs moved slightly in the expected direction;
+- arena-backed and flat effective-key bucket layouts were unchanged and the
+  flat layout was reverted; and
+- the all-at-once flat source-order AST experiment appeared to regress parse by
+  24-26%, minify by 40-48%, and codegen by 11-37%, but all six comparisons
+  crossed from an AMD EPYC 7763 runner to an AMD EPYC 9V74 runner. Those
+  percentages are not a valid A/B measurement and require a same-runner
+  reproduction.
+
+This history favors isolated migrations over representation-wide rewrites.
+Keep the [flat AST design](../flat-ast-ir/README.md) as a target, but require a
+benchmark gate after each independently useful storage boundary.
+
+### Migrate the declaration tape before the complete rule tree
+
+The only confirmed storage win in this history is the narrow dense
+declaration-block change. Implement the global source-order declaration tape
+and exact block ranges independently of flat rule, selector, and value
+storage. This removes declaration-block pointer chasing and enables range-based
+S1/S5 work without forcing parse and codegen through an ID lookup for every AST
+node.
+
+The phase must preserve the source-order property allocation contract and
+measure parse, minify, codegen, output size, and peak memory. Keep it only if
+the isolated result remains positive. A generic `DenseStore` wrapper is useful
+for type safety, but its abstraction alone is not a performance optimization.
+
+### Flatten recursive token ownership separately
+
+The flat-AST Tailwind callgraphs show that declaration and rule topology is not
+the dominant remaining cost for token-heavy input:
+
+- parse spends 38.27% below `collect_tokens_impl`, while compilation teardown
+  accounts for 9.43%;
+- minify spends 25.62% below `visit_custom_property`, and recursive
+  `TokenOrValue` destruction contributes materially to the measured lifetime;
+  and
+- codegen spends 34.22% below `write_token_list`, while compilation teardown
+  accounts for 35.22%.
+
+These percentages come from the hardware-contaminated flat-AST run and are
+hotspot attribution, not a comparison against the base commit. They identify a
+separate candidate: store generic/custom-property token trees in an owned token
+tape with compact child ranges, or otherwise remove per-function `Box` ownership
+and recursive drop glue. Parser collection, nano traversal, codegen, and
+destruction must consume the same representation directly; adding a flat token
+copy beside the recursive representation would make all four phases worse.
+
+Benchmark total compilation lifetime, including destruction. A benchmark that
+uses `ManuallyDrop` may help attribute teardown cost, but must not be used to
+claim an end-to-end improvement.
+
+### Cache identifier serialization metadata with interned atoms
+
+In the Tailwind codegen callgraph,
+`cssparser::serializer::serialize_name` accounts for 14.70% total time and
+8.03% self time. Compiler-scoped atoms already canonicalize repeated selector
+identifiers. Extend the atom entry, or a codegen side cache keyed by atom ID,
+with identifier-serialization metadata:
+
+- an ASCII-safe fast-path bit for names that can be emitted unchanged; and
+- lazily cached escaped output only for names that require escaping.
+
+Do not eagerly serialize every interned name during parse. Many atoms may never
+reach output after minification, and most CSS identifiers should take the
+single-bit fast path. Benchmark this independently on selector-heavy input and
+verify escaped identifiers, non-ASCII names, custom property names, and source
+maps.
+
+### Deprioritize effective-key container tuning
+
+Changing effective-key histories among nested vectors, arena buckets, and a
+flat interner repeatedly remained within the unchanged range. Further container
+substitution is lower priority than reducing the number of effective-key
+operations or attaching a canonical ID while context is already available.
+Revisit bucket layout only with a dedicated workload that demonstrates a
+collision, allocation, or cache-locality bottleneck.
+
 ## Benchmarking method
 
 Evaluate performance changes as isolated commits on CodSpeed. Compare matching
