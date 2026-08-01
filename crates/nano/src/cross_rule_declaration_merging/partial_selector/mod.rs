@@ -1,20 +1,15 @@
-//! S3 selector partial factoring for the current nested AST.
+//! S3 selector-union and declaration-movement proofs.
 //!
-//! The design documents describe stable rule IDs plus a later S4/S5
-//! reification step. The current AST has neither, so this pass commits only
-//! the first source-ordered candidate it finds. Its caller then rebuilds S1
-//! and S2 state before another S3 candidate may commit. This keeps physical
-//! vector indices out of cached candidate state and gives higher-priority
-//! declaration-history work a chance to stabilize after every structural
-//! edit.
+//! This module only discovers and commits declaration movement. Logical
+//! adjacency, EffectiveKey interning, queue propagation, and physical AST
+//! reification are owned by the persistent scheduler.
 
 use rocketcss_ast::*;
-use rocketcss_common::vec::Vec;
 use rustc_hash::FxHashSet;
 
 mod selector;
 
-use self::selector::materialize_selector_union;
+pub(super) use self::selector::materialize_selector_union;
 
 use crate::{MinifyContext, Options, OptionsOp};
 
@@ -31,216 +26,135 @@ struct CommonDeclaration {
     right_order: usize,
 }
 
-struct PartialMergePlan<'ast> {
-    selectors: SelectorList<'ast>,
+pub(super) struct PartialRuleRef<'rule, 'ast> {
+    pub(super) declarations: DeclarationBlockId,
+    pub(super) selectors: &'rule SelectorList<'ast>,
+    pub(super) span: Span,
+    pub(super) vendor_prefix: VendorPrefix,
+    pub(super) has_children: bool,
+}
+
+pub(super) struct PartialMergePlan<'ast> {
+    pub(super) selectors: SelectorList<'ast>,
     common: std::vec::Vec<CommonDeclaration>,
-    span: Span,
-    vendor_prefix: VendorPrefix,
-    retain_left: bool,
-    retain_right: bool,
+    pub(super) span: Span,
+    pub(super) vendor_prefix: VendorPrefix,
+    pub(super) retain_left: bool,
+    pub(super) retain_right: bool,
 }
 
-pub(super) fn factor_first_partial_selector_candidate<'ast, 'scratch>(
-    rules: &mut Vec<'ast, CssRule<'ast>>,
+pub(super) fn discover_partial_merge_plan<'ast, 'scratch>(
+    left: PartialRuleRef<'_, 'ast>,
+    right: PartialRuleRef<'_, 'ast>,
+    declaration_blocks: &DeclarationBlockStore<'ast>,
+    cx: &MinifyContext<'scratch>,
+) -> Option<PartialMergePlan<'ast>>
+where
+    'ast: 'scratch,
+{
+    if left.has_children
+        || left.vendor_prefix != right.vendor_prefix
+        || left.selectors == right.selectors
+    {
+        return None;
+    }
+
+    let left_declarations = live_declaration_slots(left.declarations, declaration_blocks);
+    let right_declarations = live_declaration_slots(right.declarations, declaration_blocks);
+    if left_declarations.is_empty() || right_declarations.is_empty() {
+        return None;
+    }
+
+    let mut right_matched = vec![false; right_declarations.len()];
+    let mut common = std::vec::Vec::new();
+    for &left_slot in &left_declarations {
+        let (left_declaration, left_important) = declaration_at(left_slot, declaration_blocks);
+        let Some((right_order, &right_slot)) =
+            right_declarations
+                .iter()
+                .enumerate()
+                .find(|(right_order, right_slot)| {
+                    if right_matched[*right_order] {
+                        return false;
+                    }
+                    let (right_declaration, right_important) =
+                        declaration_at(**right_slot, declaration_blocks);
+                    left_important == right_important
+                        && left_declaration.eq_ignoring_tombstones(right_declaration)
+                })
+        else {
+            continue;
+        };
+        right_matched[right_order] = true;
+        common.push(CommonDeclaration {
+            left: left_slot,
+            right: right_slot,
+            right_order,
+        });
+    }
+    if common.is_empty() {
+        return None;
+    }
+
+    let mut left_common = FxHashSet::default();
+    let mut right_common = FxHashSet::default();
+    for common in &common {
+        left_common.insert((common.left.block, common.left.index));
+        right_common.insert((common.right.block, common.right.index));
+    }
+    let left_residual = left_declarations
+        .iter()
+        .copied()
+        .filter(|slot| !left_common.contains(&(slot.block, slot.index)))
+        .collect::<std::vec::Vec<_>>();
+    let right_residual = right_declarations
+        .iter()
+        .copied()
+        .filter(|slot| !right_common.contains(&(slot.block, slot.index)))
+        .collect::<std::vec::Vec<_>>();
+    if !partial_movement_is_safe(&common, &left_residual, &right_residual, declaration_blocks) {
+        return None;
+    }
+    let selectors = materialize_selector_union(
+        left.selectors,
+        right.selectors,
+        cx.is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::Any),
+    )?;
+
+    Some(PartialMergePlan {
+        selectors,
+        common,
+        span: Span::new(left.span.start, right.span.end),
+        vendor_prefix: left.vendor_prefix,
+        retain_left: !left_residual.is_empty(),
+        retain_right: !right_residual.is_empty() || right.has_children,
+    })
+}
+
+pub(super) fn commit_partial_merge_declarations<'ast>(
+    plan: &PartialMergePlan<'ast>,
     declaration_blocks: &mut DeclarationBlockStore<'ast>,
-    cx: &mut MinifyContext<'scratch>,
-) -> bool
-where
-    'ast: 'scratch,
-{
-    PartialSelectorFactoringPass {
-        declaration_blocks,
-        cx,
+    cx: &mut MinifyContext<'_>,
+) -> DeclarationBlockId {
+    let allocator = plan.selectors.bump();
+    let mut shared = DeclarationBlock::new(allocator);
+    for common in &plan.common {
+        let important = declaration_blocks
+            .get(common.left.block)
+            .is_important(common.left.index);
+        let declaration = std::mem::replace(
+            &mut declaration_blocks.get_mut(common.left.block).declarations[common.left.index],
+            Declaration::Tombstone,
+        );
+        let removed_right = std::mem::replace(
+            &mut declaration_blocks.get_mut(common.right.block).declarations[common.right.index],
+            Declaration::Tombstone,
+        );
+        debug_assert!(declaration.eq_ignoring_tombstones(&removed_right));
+        shared.push(declaration, important);
+        cx.record_declaration_removed();
     }
-    .factor_first(rules)
-}
-
-struct PartialSelectorFactoringPass<'pass, 'ast, 'scratch> {
-    declaration_blocks: &'pass mut DeclarationBlockStore<'ast>,
-    cx: &'pass mut MinifyContext<'scratch>,
-}
-
-impl<'ast, 'scratch> PartialSelectorFactoringPass<'_, 'ast, 'scratch>
-where
-    'ast: 'scratch,
-{
-    fn factor_first(&mut self, rules: &mut Vec<'ast, CssRule<'ast>>) -> bool {
-        for index in 0..rules.len().saturating_sub(1) {
-            let candidate = match (&rules[index], &rules[index + 1]) {
-                (CssRule::Style(left), CssRule::Style(right)) => {
-                    self.discover_candidate(left.as_ref().get_ref(), right.as_ref().get_ref())
-                }
-                _ => None,
-            };
-            if let Some(candidate) = candidate {
-                self.commit_candidate(index, rules, candidate);
-                return true;
-            }
-        }
-
-        for rule in rules.iter_mut() {
-            let nested = match rule {
-                CssRule::Media(rule) => Some(&mut rule.rules),
-                CssRule::Style(rule) => Some(rule.as_mut().rules_mut()),
-                CssRule::Supports(rule) => Some(&mut rule.rules),
-                CssRule::MozDocument(rule) => Some(&mut rule.rules),
-                CssRule::Nesting(rule) => Some(rule.style.as_mut().rules_mut()),
-                CssRule::LayerBlock(rule) => Some(&mut rule.rules),
-                CssRule::Container(rule) => Some(&mut rule.rules),
-                CssRule::Scope(rule) => Some(&mut rule.rules),
-                CssRule::StartingStyle(rule) => Some(&mut rule.rules),
-                _ => None,
-            };
-            if let Some(nested) = nested
-                && self.factor_first(nested)
-            {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn discover_candidate(
-        &self,
-        left: &StyleRule<'ast>,
-        right: &StyleRule<'ast>,
-    ) -> Option<PartialMergePlan<'ast>> {
-        if !left.rules.is_empty()
-            || left.vendor_prefix != right.vendor_prefix
-            || left.selectors == right.selectors
-        {
-            return None;
-        }
-
-        let left_declarations = live_declaration_slots(left.declarations, self.declaration_blocks);
-        let right_declarations =
-            live_declaration_slots(right.declarations, self.declaration_blocks);
-        if left_declarations.is_empty() || right_declarations.is_empty() {
-            return None;
-        }
-
-        let mut right_matched = vec![false; right_declarations.len()];
-        let mut common = std::vec::Vec::new();
-        for &left_slot in &left_declarations {
-            let (left_declaration, left_important) =
-                declaration_at(left_slot, self.declaration_blocks);
-            let Some((right_order, &right_slot)) =
-                right_declarations
-                    .iter()
-                    .enumerate()
-                    .find(|(right_order, right_slot)| {
-                        if right_matched[*right_order] {
-                            return false;
-                        }
-                        let (right_declaration, right_important) =
-                            declaration_at(**right_slot, self.declaration_blocks);
-                        left_important == right_important
-                            && left_declaration.eq_ignoring_tombstones(right_declaration)
-                    })
-            else {
-                continue;
-            };
-            right_matched[right_order] = true;
-            common.push(CommonDeclaration {
-                left: left_slot,
-                right: right_slot,
-                right_order,
-            });
-        }
-        if common.is_empty() {
-            return None;
-        }
-
-        let mut left_common = FxHashSet::default();
-        let mut right_common = FxHashSet::default();
-        for common in &common {
-            left_common.insert((common.left.block, common.left.index));
-            right_common.insert((common.right.block, common.right.index));
-        }
-        let left_residual = left_declarations
-            .iter()
-            .copied()
-            .filter(|slot| !left_common.contains(&(slot.block, slot.index)))
-            .collect::<std::vec::Vec<_>>();
-        let right_residual = right_declarations
-            .iter()
-            .copied()
-            .filter(|slot| !right_common.contains(&(slot.block, slot.index)))
-            .collect::<std::vec::Vec<_>>();
-        if !partial_movement_is_safe(
-            &common,
-            &left_residual,
-            &right_residual,
-            self.declaration_blocks,
-        ) {
-            return None;
-        }
-        let selectors = materialize_selector_union(
-            &left.selectors,
-            &right.selectors,
-            self.cx
-                .is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::Any),
-        )?;
-
-        Some(PartialMergePlan {
-            selectors,
-            common,
-            span: Span::new(left.span.start, right.span.end),
-            vendor_prefix: left.vendor_prefix,
-            retain_left: !left_residual.is_empty(),
-            retain_right: !right_residual.is_empty() || !right.rules.is_empty(),
-        })
-    }
-
-    fn commit_candidate(
-        &mut self,
-        left_index: usize,
-        rules: &mut Vec<'ast, CssRule<'ast>>,
-        plan: PartialMergePlan<'ast>,
-    ) {
-        let allocator = plan.selectors.bump();
-        let mut shared = DeclarationBlock::new(allocator);
-        for common in &plan.common {
-            let important = self
-                .declaration_blocks
-                .get(common.left.block)
-                .is_important(common.left.index);
-            let declaration = std::mem::replace(
-                &mut self
-                    .declaration_blocks
-                    .get_mut(common.left.block)
-                    .declarations[common.left.index],
-                Declaration::Tombstone,
-            );
-            let removed_right = std::mem::replace(
-                &mut self
-                    .declaration_blocks
-                    .get_mut(common.right.block)
-                    .declarations[common.right.index],
-                Declaration::Tombstone,
-            );
-            debug_assert!(declaration.eq_ignoring_tombstones(&removed_right));
-            shared.push(declaration, important);
-            self.cx.record_declaration_removed();
-        }
-        let declarations = self.declaration_blocks.push(shared);
-        let shared_rule = CssRule::Style(allocator.pinned(StyleRule::new(
-            declarations,
-            plan.span,
-            allocator.vec(),
-            plan.selectors,
-            plan.vendor_prefix,
-        )));
-
-        let right_index = left_index + 1;
-        rules.insert(right_index, shared_rule);
-        if !plan.retain_right {
-            rules.remove(right_index + 1);
-        }
-        if !plan.retain_left {
-            rules.remove(left_index);
-        }
-    }
+    declaration_blocks.push(shared)
 }
 
 fn live_declaration_slots(

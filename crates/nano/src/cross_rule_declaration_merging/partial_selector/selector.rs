@@ -3,7 +3,7 @@ use rocketcss_common::{Allocator, vec::Vec};
 use rustc_hash::FxHashSet;
 use std::mem::{Discriminant, discriminant};
 
-pub(super) fn materialize_selector_union<'ast>(
+pub(crate) fn materialize_selector_union<'ast>(
     left: &SelectorList<'ast>,
     right: &SelectorList<'ast>,
     preserve_compatibility: bool,

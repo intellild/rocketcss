@@ -562,6 +562,22 @@ impl<'a> StyleRule<'a> {
         // SAFETY: mutating the vector does not move its pinned owner.
         &mut unsafe { self.get_unchecked_mut() }.selectors
     }
+
+    /// Returns disjoint mutable access to selector and child-rule storage.
+    ///
+    /// This supports passes that finish selector-local work, retain an
+    /// immutable selector view, and then recurse through child rules without
+    /// borrowing the whole pinned style rule again.
+    #[inline]
+    pub fn selectors_and_rules_mut<'rule>(
+        self: Pin<&'rule mut Self>,
+    ) -> (&'rule mut SelectorList<'a>, &'rule mut Vec<'a, CssRule<'a>>) {
+        // SAFETY: neither field move changes the address of the pinned
+        // `StyleRule`; only the independently allocated vector contents may
+        // be mutated.
+        let rule = unsafe { self.get_unchecked_mut() };
+        (&mut rule.selectors, &mut rule.rules)
+    }
 }
 
 #[derive(Debug, Visit)]

@@ -37,14 +37,23 @@ physical AST rule. Those responsibilities belong to
 [S4](./s4-ast-reification-planning.md) and
 [S5](./s5-ast-reification-commit.md).
 
-### Current nested-AST adapter
+### Current nested-AST scheduler
 
-The current implementation predates stable flat rule IDs and the S4/S5 plan
-store. It therefore discovers and physically commits only the first
-source-ordered S3 candidate, then rebuilds S1 and S2 state before considering
-another candidate. No physical vector index survives that restart. This is a
-correctness-preserving adapter for the current nested AST, not the target
-storage or scheduling model described by the rest of this document.
+The current implementation uses `DeclarationBlockId` as the stable logical
+node identity even though the physical AST remains nested. One minify traversal
+builds the persistent EffectiveKey store, ordered histories, and live sibling
+graph. S1, S2, and S3 then enqueue local work into one priority scheduler.
+
+`PartialMergeCandidateList` is ordered by semantic source position so an
+incrementally exposed earlier edge has the same priority as a fresh
+source-ordered scan. S3 appends a shared declaration block, interns its selector
+union key, inserts the occurrence into the ordered S2 history, and atomically
+replaces the logical edge. It does not insert or remove a physical `CssRule`.
+
+After the S1-S3 fixed point, the scheduler consumes all borrowed authored
+selector views and produces an owned reification plan. S5 then walks each
+nested rule list once, retains live authored rules, and emits synthesized style
+rules at their semantic positions.
 
 ## Candidate input state
 

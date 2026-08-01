@@ -1,14 +1,18 @@
 use rocketcss_ast::{
-    ContainerCondition, CssRule, DeclarationBlockId, MediaList, SelectorList, StyleRule,
-    StyleSheet, SupportsCondition, VendorPrefix,
+    ContainerCondition, CssRule, DeclarationBlockId, MediaList, SelectorList, Span,
+    SupportsCondition, VendorPrefix,
 };
-use rocketcss_common::{DenseIdGenerator, DenseStore, define_dense_id, vec::Vec};
+#[cfg(test)]
+use rocketcss_ast::{StyleRule, StyleSheet};
+#[cfg(test)]
+use rocketcss_common::vec::Vec;
+use rocketcss_common::{DenseIdGenerator, DenseStore, define_dense_id};
 use rustc_hash::{FxHashMap, FxHasher};
 use smallvec::SmallVec;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum ConditionalFrame<'walk, 'ast> {
+pub(crate) enum ConditionalFrame<'walk, 'ast> {
     Media(&'walk MediaList<'ast>),
     Supports(&'walk SupportsCondition<'ast>),
     Container {
@@ -17,12 +21,12 @@ enum ConditionalFrame<'walk, 'ast> {
     },
     Opaque {
         kind: OpaqueConditionalKind,
-        identity: *const (),
+        identity: u32,
     },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum OpaqueConditionalKind {
+pub(crate) enum OpaqueConditionalKind {
     Layer,
     MozDocument,
     Scope,
@@ -30,7 +34,7 @@ enum OpaqueConditionalKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum SelectorFrameKind {
+pub(crate) enum SelectorFrameKind {
     Style,
     Nesting,
 }
@@ -42,7 +46,7 @@ struct SelectorFrame<'walk, 'ast> {
     vendor_prefix: VendorPrefix,
 }
 
-define_dense_id!(struct SelectorPathId);
+define_dense_id!(pub(crate) struct SelectorPathId);
 
 #[derive(Clone, Copy, Debug)]
 struct SelectorPathNode<'walk, 'ast> {
@@ -97,7 +101,7 @@ impl<'walk, 'ast> SelectorPathStore<'walk, 'ast> {
     }
 }
 
-define_dense_id!(struct ConditionalPathId);
+define_dense_id!(pub(crate) struct ConditionalPathId);
 
 #[derive(Clone, Copy, Debug)]
 struct ConditionalPathNode<'walk, 'ast> {
@@ -173,21 +177,19 @@ struct EffectiveKeyState {
     selectors: Option<SelectorPathId>,
     conditions: Option<ConditionalPathId>,
     id: EffectiveKeyId,
-    last_entry: DeclarationBlockEntryId,
-    has_history: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct EffectiveKeyOccurrence {
-    id: EffectiveKeyId,
-    previous_entry: Option<DeclarationBlockEntryId>,
-    starts_history: bool,
+pub(crate) struct EffectiveKeyRecord {
+    selectors: Option<SelectorPathId>,
+    conditions: Option<ConditionalPathId>,
 }
 
 #[derive(Debug, Default)]
 struct EffectiveKeyInterner {
     buckets: FxHashMap<u64, SmallVec<[EffectiveKeyState; 1]>>,
     ids: DenseIdGenerator<EffectiveKeyId>,
+    records: DenseStore<EffectiveKeyId, EffectiveKeyRecord>,
 }
 
 impl EffectiveKeyInterner {
@@ -197,39 +199,97 @@ impl EffectiveKeyInterner {
         conditions: Option<ConditionalPathId>,
         selector_paths: &SelectorPathStore<'_, '_>,
         conditional_paths: &ConditionalPathStore<'_, '_>,
-        current_entry: DeclarationBlockEntryId,
-    ) -> EffectiveKeyOccurrence {
+    ) -> EffectiveKeyId {
         let mut hasher = FxHasher::default();
         selector_paths.fingerprint(selectors).hash(&mut hasher);
         conditional_paths.fingerprint(conditions).hash(&mut hasher);
         let bucket = self.buckets.entry(hasher.finish()).or_default();
-        if let Some(state) = bucket.iter_mut().find(|state| {
+        if let Some(state) = bucket.iter().find(|state| {
             selector_paths.equals(state.selectors, selectors)
                 && conditional_paths.equals(state.conditions, conditions)
         }) {
-            let occurrence = EffectiveKeyOccurrence {
-                id: state.id,
-                previous_entry: Some(state.last_entry),
-                starts_history: !state.has_history,
-            };
-            state.last_entry = current_entry;
-            state.has_history = true;
-            return occurrence;
+            return state.id;
         }
 
         let id = self.ids.allocate();
+        let inserted = self.records.push(EffectiveKeyRecord {
+            selectors,
+            conditions,
+        });
+        debug_assert_eq!(inserted, id);
         bucket.push(EffectiveKeyState {
             selectors,
             conditions,
             id,
-            last_entry: current_entry,
-            has_history: false,
         });
-        EffectiveKeyOccurrence {
-            id,
-            previous_entry: None,
-            starts_history: false,
+        id
+    }
+}
+
+/// Persistent effective-context data produced by declaration-block discovery.
+///
+/// Keeping the path stores and reverse records alive lets later scheduler
+/// phases intern keys for synthesized declaration blocks without walking the
+/// stylesheet again.
+#[derive(Debug, Default)]
+pub(crate) struct EffectiveKeyStore<'walk, 'ast> {
+    selector_paths: SelectorPathStore<'walk, 'ast>,
+    conditional_paths: ConditionalPathStore<'walk, 'ast>,
+    interner: EffectiveKeyInterner,
+}
+
+impl<'walk, 'ast> EffectiveKeyStore<'walk, 'ast> {
+    pub(crate) fn record(&self, id: EffectiveKeyId) -> &EffectiveKeyRecord {
+        &self.interner.records[id]
+    }
+
+    pub(crate) fn intern_selector_union(
+        &mut self,
+        left: EffectiveKeyId,
+        right: EffectiveKeyId,
+        selectors: &'walk SelectorList<'ast>,
+        vendor_prefix: VendorPrefix,
+    ) -> Option<EffectiveKeyId> {
+        let left = *self.record(left);
+        let right = *self.record(right);
+        if !self
+            .conditional_paths
+            .equals(left.conditions, right.conditions)
+        {
+            return None;
         }
+
+        let (Some(left_selectors), Some(right_selectors)) = (left.selectors, right.selectors)
+        else {
+            return None;
+        };
+        let left_node = self.selector_paths.nodes[left_selectors];
+        let right_node = self.selector_paths.nodes[right_selectors];
+        if left_node.frame.kind != SelectorFrameKind::Style
+            || right_node.frame.kind != SelectorFrameKind::Style
+            || left_node.frame.vendor_prefix != vendor_prefix
+            || right_node.frame.vendor_prefix != vendor_prefix
+            || !self
+                .selector_paths
+                .equals(left_node.parent, right_node.parent)
+        {
+            return None;
+        }
+
+        let selector_path = self.selector_paths.push(
+            left_node.parent,
+            SelectorFrame {
+                kind: SelectorFrameKind::Style,
+                selectors,
+                vendor_prefix,
+            },
+        );
+        Some(self.interner.intern(
+            Some(selector_path),
+            left.conditions,
+            &self.selector_paths,
+            &self.conditional_paths,
+        ))
     }
 }
 
@@ -239,16 +299,25 @@ define_dense_id!(pub(crate) struct RuleListSegmentId);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct SiblingOrdinal(u32);
 
+impl SiblingOrdinal {
+    pub(crate) fn from_index(index: usize) -> Self {
+        Self(u32::try_from(index).expect("sibling ordinal exceeds u32::MAX"))
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
-struct StructuralLocation {
-    rule_list: RuleListId,
-    rule_list_segment: RuleListSegmentId,
-    sibling_ordinal: SiblingOrdinal,
+pub(crate) struct StructuralLocation {
+    pub(crate) rule_list: RuleListId,
+    pub(crate) rule_list_segment: RuleListSegmentId,
+    pub(crate) sibling_ordinal: SiblingOrdinal,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum DeclarationBlockKind {
+pub(crate) enum DeclarationBlockKind<'walk, 'ast> {
     Style {
+        selectors: &'walk SelectorList<'ast>,
+        span: Span,
+        vendor_prefix: VendorPrefix,
         has_children: bool,
         has_live_selectors: bool,
     },
@@ -257,92 +326,159 @@ pub(crate) enum DeclarationBlockKind {
 }
 
 #[derive(Debug)]
-pub(crate) struct DeclarationBlockEntry {
+pub(crate) struct DeclarationBlockEntry<'walk, 'ast> {
     pub(crate) declarations: DeclarationBlockId,
     pub(crate) effective_key: EffectiveKeyId,
-    pub(crate) kind: DeclarationBlockKind,
+    pub(crate) kind: DeclarationBlockKind<'walk, 'ast>,
     pub(crate) rule_list: RuleListId,
     pub(crate) rule_list_segment: RuleListSegmentId,
     pub(crate) sibling_ordinal: SiblingOrdinal,
-    next_in_history: Option<DeclarationBlockEntryId>,
-    starts_history: bool,
 }
 
-impl DeclarationBlockEntry {
+impl DeclarationBlockEntry<'_, '_> {
     pub(crate) fn is_direct_sibling_of(&self, right: &Self) -> bool {
         self.rule_list == right.rule_list
             && self.rule_list_segment == right.rule_list_segment
             && self.sibling_ordinal.0.checked_add(1) == Some(right.sibling_ordinal.0)
     }
-
-    pub(crate) fn starts_declaration_history(&self) -> bool {
-        self.starts_history
-    }
-
-    pub(crate) fn next_declaration_history_entry(&self) -> Option<DeclarationBlockEntryId> {
-        self.next_in_history
-    }
 }
 
 #[derive(Debug, Default)]
-struct WalkState {
+pub(crate) struct WalkState {
     rule_lists: DenseIdGenerator<RuleListId>,
     rule_list_segments: DenseIdGenerator<RuleListSegmentId>,
+    opaque_conditions: u32,
 }
 
 impl WalkState {
-    fn allocate_rule_list(&mut self) -> RuleListId {
+    pub(crate) fn allocate_rule_list(&mut self) -> RuleListId {
         self.rule_lists.allocate()
     }
 
-    fn allocate_rule_list_segment(&mut self) -> RuleListSegmentId {
+    pub(crate) fn allocate_rule_list_segment(&mut self) -> RuleListSegmentId {
         self.rule_list_segments.allocate()
+    }
+
+    fn allocate_opaque_condition(&mut self) -> u32 {
+        let identity = self.opaque_conditions;
+        self.opaque_conditions = self
+            .opaque_conditions
+            .checked_add(1)
+            .expect("opaque conditional wrapper count exceeds u32::MAX");
+        identity
     }
 }
 
-pub(crate) type DeclarationBlockEntries =
-    DenseStore<DeclarationBlockEntryId, DeclarationBlockEntry>;
+pub(crate) type DeclarationBlockEntries<'walk, 'ast> =
+    DenseStore<DeclarationBlockEntryId, DeclarationBlockEntry<'walk, 'ast>>;
 
-pub(crate) fn walk_declaration_blocks<'walk, 'ast>(
-    stylesheet: &'walk StyleSheet<'ast>,
-) -> DeclarationBlockEntries {
-    let mut walker = DeclarationBlockWalker::new();
-    walker.collect_rule_list(&stylesheet.rules);
-    walker.declaration_blocks
+#[derive(Debug)]
+pub(crate) struct DeclarationBlockDiscovery<'walk, 'ast> {
+    pub(crate) declaration_blocks: DeclarationBlockEntries<'walk, 'ast>,
+    pub(crate) effective_keys: EffectiveKeyStore<'walk, 'ast>,
 }
 
-struct DeclarationBlockWalker<'walk, 'ast> {
+#[cfg(test)]
+pub(crate) fn discover_declaration_blocks<'walk, 'ast>(
+    stylesheet: &'walk StyleSheet<'ast>,
+) -> DeclarationBlockDiscovery<'walk, 'ast> {
+    let mut walker = DeclarationBlockCollector::new();
+    walker.collect_rule_list(&stylesheet.rules);
+    walker.finish()
+}
+
+#[cfg(test)]
+pub(crate) fn walk_declaration_blocks<'walk, 'ast>(
+    stylesheet: &'walk StyleSheet<'ast>,
+) -> DeclarationBlockEntries<'walk, 'ast> {
+    discover_declaration_blocks(stylesheet).declaration_blocks
+}
+
+pub(crate) struct DeclarationBlockCollector<'walk, 'ast> {
     selector_path: Option<SelectorPathId>,
-    selector_paths: SelectorPathStore<'walk, 'ast>,
     conditional_path: Option<ConditionalPathId>,
-    conditional_paths: ConditionalPathStore<'walk, 'ast>,
-    effective_keys: EffectiveKeyInterner,
-    declaration_blocks: DeclarationBlockEntries,
+    effective_keys: EffectiveKeyStore<'walk, 'ast>,
+    declaration_blocks: DeclarationBlockEntries<'walk, 'ast>,
     state: WalkState,
 }
 
-impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
-    fn new() -> Self {
+impl<'walk, 'ast> DeclarationBlockCollector<'walk, 'ast> {
+    pub(crate) fn new() -> Self {
         Self {
             selector_path: None,
-            selector_paths: SelectorPathStore::default(),
             conditional_path: None,
-            conditional_paths: ConditionalPathStore::default(),
-            effective_keys: EffectiveKeyInterner::default(),
+            effective_keys: EffectiveKeyStore::default(),
             declaration_blocks: DenseStore::new(),
             state: WalkState::default(),
         }
     }
 
+    pub(crate) fn finish(self) -> DeclarationBlockDiscovery<'walk, 'ast> {
+        DeclarationBlockDiscovery {
+            declaration_blocks: self.declaration_blocks,
+            effective_keys: self.effective_keys,
+        }
+    }
+
+    pub(crate) fn allocate_rule_list(&mut self) -> RuleListId {
+        self.state.allocate_rule_list()
+    }
+
+    pub(crate) fn allocate_rule_list_segment(&mut self) -> RuleListSegmentId {
+        self.state.allocate_rule_list_segment()
+    }
+
+    pub(crate) fn enter_condition(
+        &mut self,
+        frame: ConditionalFrame<'walk, 'ast>,
+    ) -> Option<ConditionalPathId> {
+        let parent = self.conditional_path;
+        self.conditional_path = Some(self.effective_keys.conditional_paths.push(parent, frame));
+        parent
+    }
+
+    pub(crate) fn enter_opaque_condition(
+        &mut self,
+        kind: OpaqueConditionalKind,
+    ) -> Option<ConditionalPathId> {
+        let identity = self.state.allocate_opaque_condition();
+        self.enter_condition(ConditionalFrame::Opaque { kind, identity })
+    }
+
+    pub(crate) fn leave_condition(&mut self, parent: Option<ConditionalPathId>) {
+        self.conditional_path = parent;
+    }
+
+    pub(crate) fn enter_selector(
+        &mut self,
+        kind: SelectorFrameKind,
+        selectors: &'walk SelectorList<'ast>,
+        vendor_prefix: VendorPrefix,
+    ) -> Option<SelectorPathId> {
+        let parent = self.selector_path;
+        self.selector_path = Some(self.effective_keys.selector_paths.push(
+            parent,
+            SelectorFrame {
+                kind,
+                selectors,
+                vendor_prefix,
+            },
+        ));
+        parent
+    }
+
+    pub(crate) fn leave_selector(&mut self, parent: Option<SelectorPathId>) {
+        self.selector_path = parent;
+    }
+
+    #[cfg(test)]
     fn collect_rule_list(&mut self, rules: &'walk Vec<'ast, CssRule<'ast>>) {
         let rule_list = self.state.allocate_rule_list();
         let mut rule_list_segment = self.state.allocate_rule_list_segment();
         self.declaration_blocks.reserve(rules.len());
 
         for (sibling_ordinal, rule) in rules.iter().enumerate() {
-            let sibling_ordinal = SiblingOrdinal(
-                u32::try_from(sibling_ordinal).expect("sibling ordinal exceeds u32::MAX"),
-            );
+            let sibling_ordinal = SiblingOrdinal::from_index(sibling_ordinal);
             self.collect_rule(
                 rule,
                 StructuralLocation {
@@ -357,6 +493,7 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
         }
     }
 
+    #[cfg(test)]
     fn collect_rule(&mut self, rule: &'walk CssRule<'ast>, location: StructuralLocation) {
         match rule {
             CssRule::Media(rule) => {
@@ -368,10 +505,9 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
             CssRule::Supports(rule) => {
                 self.with_condition(ConditionalFrame::Supports(&rule.condition), &rule.rules)
             }
-            CssRule::MozDocument(rule) => self.with_condition(
-                opaque_condition(OpaqueConditionalKind::MozDocument, rule.as_ref()),
-                &rule.rules,
-            ),
+            CssRule::MozDocument(rule) => {
+                self.with_opaque_condition(OpaqueConditionalKind::MozDocument, &rule.rules)
+            }
             CssRule::Nesting(rule) => self.collect_style_rule(
                 rule.style.as_ref().get_ref(),
                 SelectorFrameKind::Nesting,
@@ -384,10 +520,9 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
                     location,
                 );
             }
-            CssRule::LayerBlock(rule) => self.with_condition(
-                opaque_condition(OpaqueConditionalKind::Layer, rule.as_ref()),
-                &rule.rules,
-            ),
+            CssRule::LayerBlock(rule) => {
+                self.with_opaque_condition(OpaqueConditionalKind::Layer, &rule.rules)
+            }
             CssRule::Container(rule) => self.with_condition(
                 ConditionalFrame::Container {
                     name: rule.name,
@@ -395,37 +530,31 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
                 },
                 &rule.rules,
             ),
-            CssRule::Scope(rule) => self.with_condition(
-                opaque_condition(OpaqueConditionalKind::Scope, rule.as_ref()),
-                &rule.rules,
-            ),
-            CssRule::StartingStyle(rule) => self.with_condition(
-                opaque_condition(OpaqueConditionalKind::StartingStyle, rule.as_ref()),
-                &rule.rules,
-            ),
+            CssRule::Scope(rule) => {
+                self.with_opaque_condition(OpaqueConditionalKind::Scope, &rule.rules)
+            }
+            CssRule::StartingStyle(rule) => {
+                self.with_opaque_condition(OpaqueConditionalKind::StartingStyle, &rule.rules)
+            }
             _ => {}
         }
     }
 
+    #[cfg(test)]
     fn collect_style_rule(
         &mut self,
         rule: &'walk StyleRule<'ast>,
         kind: SelectorFrameKind,
         location: StructuralLocation,
     ) {
-        let parent_selector_path = self.selector_path;
-        self.selector_path = Some(self.selector_paths.push(
-            parent_selector_path,
-            SelectorFrame {
-                kind,
-                selectors: &rule.selectors,
-                vendor_prefix: rule.vendor_prefix,
-            },
-        ));
+        let parent_selector_path = self.enter_selector(kind, &rule.selectors, rule.vendor_prefix);
         self.push_declaration_block(
             rule.declarations,
             match kind {
                 SelectorFrameKind::Style => DeclarationBlockKind::Style {
+                    selectors: &rule.selectors,
+                    span: rule.span,
+                    vendor_prefix: rule.vendor_prefix,
                     has_children: !rule.rules.is_empty(),
                     has_live_selectors: rule
                         .selectors
@@ -436,53 +565,59 @@ impl<'walk, 'ast> DeclarationBlockWalker<'walk, 'ast> {
             },
             location,
         );
-        self.collect_rule_list(&rule.rules);
-        self.selector_path = parent_selector_path;
+        if !rule.rules.is_empty() {
+            self.collect_rule_list(&rule.rules);
+        }
+        self.leave_selector(parent_selector_path);
     }
 
+    #[cfg(test)]
     fn with_condition(
         &mut self,
         frame: ConditionalFrame<'walk, 'ast>,
         rules: &'walk Vec<'ast, CssRule<'ast>>,
     ) {
         let parent_conditional_path = self.conditional_path;
-        self.conditional_path = Some(self.conditional_paths.push(parent_conditional_path, frame));
+        self.conditional_path = Some(
+            self.effective_keys
+                .conditional_paths
+                .push(parent_conditional_path, frame),
+        );
         self.collect_rule_list(rules);
         self.conditional_path = parent_conditional_path;
     }
 
-    fn push_declaration_block(
+    #[cfg(test)]
+    fn with_opaque_condition(
+        &mut self,
+        kind: OpaqueConditionalKind,
+        rules: &'walk Vec<'ast, CssRule<'ast>>,
+    ) {
+        let parent = self.enter_opaque_condition(kind);
+        self.collect_rule_list(rules);
+        self.leave_condition(parent);
+    }
+
+    pub(crate) fn push_declaration_block(
         &mut self,
         declarations: DeclarationBlockId,
-        kind: DeclarationBlockKind,
+        kind: DeclarationBlockKind<'walk, 'ast>,
         location: StructuralLocation,
     ) {
-        let current_entry = self.declaration_blocks.next_id();
-        let occurrence = self.effective_keys.intern(
+        let effective_key = self.effective_keys.interner.intern(
             self.selector_path,
             self.conditional_path,
-            &self.selector_paths,
-            &self.conditional_paths,
-            current_entry,
+            &self.effective_keys.selector_paths,
+            &self.effective_keys.conditional_paths,
         );
-        let inserted = self.declaration_blocks.push(DeclarationBlockEntry {
+        self.declaration_blocks.push(DeclarationBlockEntry {
             declarations,
-            effective_key: occurrence.id,
+            effective_key,
             kind,
             rule_list: location.rule_list,
             rule_list_segment: location.rule_list_segment,
             sibling_ordinal: location.sibling_ordinal,
-            next_in_history: None,
-            starts_history: false,
         });
-        debug_assert_eq!(inserted, current_entry);
-
-        if let Some(previous_entry) = occurrence.previous_entry {
-            self.declaration_blocks[previous_entry].next_in_history = Some(current_entry);
-            if occurrence.starts_history {
-                self.declaration_blocks[previous_entry].starts_history = true;
-            }
-        }
     }
 }
 
@@ -514,20 +649,10 @@ fn hash_conditional_frame(frame: &ConditionalFrame<'_, '_>, hasher: &mut impl Ha
     }
 }
 
-fn ends_rule_list_segment(rule: &CssRule<'_>) -> bool {
+pub(crate) fn ends_rule_list_segment(rule: &CssRule<'_>) -> bool {
     match rule {
         CssRule::Style(rule) => !rule.as_ref().get_ref().rules.is_empty(),
         _ => true,
-    }
-}
-
-fn opaque_condition<'walk, 'ast, T>(
-    kind: OpaqueConditionalKind,
-    rule: &'walk T,
-) -> ConditionalFrame<'walk, 'ast> {
-    ConditionalFrame::Opaque {
-        kind,
-        identity: std::ptr::from_ref(rule).cast(),
     }
 }
 
@@ -561,7 +686,7 @@ mod tests {
     }
 
     #[test]
-    fn declaration_histories_are_linked_only_after_a_key_repeats() {
+    fn repeated_effective_keys_are_stable_in_source_order() {
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
             let stylesheet = parse(
@@ -574,16 +699,11 @@ mod tests {
 
             let blocks = walk_declaration_blocks(&stylesheet);
             assert_eq!(blocks.len(), 5);
-            let ids = blocks.ids().collect::<std::vec::Vec<_>>();
             let blocks = blocks.iter().collect::<std::vec::Vec<_>>();
-            assert!(blocks[0].starts_declaration_history());
-            assert_eq!(blocks[0].next_declaration_history_entry(), Some(ids[2]));
-            assert_eq!(blocks[2].next_declaration_history_entry(), Some(ids[4]));
-            assert_eq!(blocks[4].next_declaration_history_entry(), None);
-            assert!(!blocks[1].starts_declaration_history());
-            assert_eq!(blocks[1].next_declaration_history_entry(), None);
-            assert!(!blocks[3].starts_declaration_history());
-            assert_eq!(blocks[3].next_declaration_history_entry(), None);
+            assert_eq!(blocks[0].effective_key, blocks[2].effective_key);
+            assert_eq!(blocks[2].effective_key, blocks[4].effective_key);
+            assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
+            assert_ne!(blocks[0].effective_key, blocks[3].effective_key);
         });
     }
 

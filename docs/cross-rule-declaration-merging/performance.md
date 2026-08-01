@@ -86,19 +86,34 @@ with the stylesheet. They are not stored as one-element vectors in
 
 ### Effective-key path cost
 
-The current declaration-block walker builds compact parent-linked selector and
-conditional paths with rolling fingerprints while it traverses the stylesheet,
-then interns each path pair into a dense `EffectiveKeyId`. The target flat IR
-moves this work to parse and selector-local normalization, where context is
-already available. Each uniquely owned declaration occurrence stores the ID
-directly, so cross-rule minify pays neither an owned-path allocation nor a
-full-stylesheet discovery walk.
+The ordinary minify traversal now builds compact parent-linked selector and
+conditional paths with rolling fingerprints after rule-local normalization,
+then interns each path pair into a dense `EffectiveKeyId`. Production no longer
+runs a second recursive declaration-block walk. When cross-rule merging is
+disabled, the collector and its path stores are not created.
 
-The same traversal also remembers the last declaration-block entry for each
-effective key. A key's S2 history is linked only when its second entry is
-observed: the first entry becomes the history head, and later entries extend a
-one-dimensional `u32` chain. S2 therefore does not allocate dense count,
-head, and tail arrays for keys that never repeat.
+The persistent scheduler retains the path records so an S3 selector union can
+receive an EffectiveKey incrementally. Histories are ordered by semantic source
+position, not declaration-block allocation order, because synthesized blocks
+are appended to the dense store but inserted between authored occurrences.
+
+The remaining target flat-IR opportunity is to compute these context IDs while
+parsing. That would remove the interning work from minify as well, but is not
+required to avoid another AST traversal.
+
+### Persistent S1-S3 scheduling
+
+The former nested-AST adapter committed one S3 candidate, rebuilt all
+declaration-block and S1/S2 state, and restarted source-order discovery. On the
+Tailwind fixture this performed 4,020 collections for 4,019 S3 commits and took
+about 10.39 seconds locally.
+
+The persistent scheduler keeps block liveness, ordered EffectiveKey histories,
+endpoint revisions, and candidate queues across commits. S3 updates only the
+changed edge and histories; a later single reification pass writes the logical
+result back to the nested AST. Local release samples completed Bootstrap in
+about 1.0-1.2 ms and Tailwind in about 17-21 ms. Minified output for both
+fixtures was byte-identical to the pre-refactor S3 branch.
 
 ## Deferred optimization candidates
 
@@ -196,9 +211,21 @@ Consequently, ordinary stylesheets containing many distinct conditions with
 the same shape can place every entry in one bucket:
 
 ```css
-@media (min-width: 1px) { a { x: 1 } }
-@media (min-width: 2px) { a { x: 2 } }
-@media (min-width: 3px) { a { x: 3 } }
+@media (min-width: 1px) {
+  a {
+    x: 1;
+  }
+}
+@media (min-width: 2px) {
+  a {
+    x: 2;
+  }
+}
+@media (min-width: 3px) {
+  a {
+    x: 3;
+  }
+}
 ```
 
 The collision-safe linear equality check then makes discovery quadratic in the

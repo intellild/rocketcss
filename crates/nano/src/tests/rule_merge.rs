@@ -38,6 +38,27 @@ fn stabilizes_overlapping_partial_selector_candidates() {
 }
 
 #[test]
+fn scheduler_propagates_work_between_s1_s2_and_s3() {
+    // S3 creates a same-selector edge that must immediately return to S1.
+    assert_eq!(run("a{x:1}b{x:1}a,b{y:1}"), "a,b{x:1;y:1}");
+
+    // The synthesized a,b occurrence must enter the existing non-adjacent S2
+    // history without rebuilding declaration blocks from the AST.
+    assert_eq!(run("a,b{y:1}c{q:1}a{y:1}b{y:1}"), "c{q:1}a,b{y:1}");
+
+    // S2 removes the first b rule and exposes an a/c edge for S3.
+    assert_eq!(run("a{x:1}b{z:1}c{x:1;y:1}b{z:1}"), "a,c{x:1}c{y:1}b{z:1}");
+}
+
+#[test]
+fn synthesized_history_occurrence_keeps_semantic_source_order() {
+    assert_eq!(
+        run("a,b{x:1}@layer first;a{x:1}b{x:1}@layer second;a,b{x:1}"),
+        "@layer first;@layer second;a,b{x:1}"
+    );
+}
+
+#[test]
 fn rejects_unproven_partial_selector_candidates() {
     assert_eq!(
         run("a{color:red!important}b{color:red}"),
@@ -142,6 +163,33 @@ fn factors_only_within_one_rule_list_and_preserves_nested_children() {
     assert_eq!(
         run("@layer theme{a{color:red}}@layer theme{b{color:red}}"),
         "@layer theme{a{color:red}}@layer theme{b{color:red}}"
+    );
+}
+
+#[test]
+fn factors_within_each_supported_condition_context_only() {
+    assert_eq!(
+        run("@supports (display:grid){a{x:1}b{x:1}}"),
+        "@supports (display:grid){a,b{x:1}}"
+    );
+    assert_eq!(
+        run("@container (width>1px){a{x:1}b{x:1}}"),
+        "@container (width>1px){a,b{x:1}}"
+    );
+    assert_eq!(
+        run("@scope (.root){a{x:1}b{x:1}}"),
+        "@scope (.root){a,b{x:1}}"
+    );
+    assert_eq!(
+        run("@starting-style{a{x:1}b{x:1}}"),
+        "@starting-style{a,b{x:1}}"
+    );
+
+    // Structurally separate wrappers remain isolated even when their textual
+    // prelude is identical. This branch does not model at-rule equivalence.
+    assert_eq!(
+        run("@scope (.root){a{x:1}}@scope (.root){b{x:1}}"),
+        "@scope (.root){a{x:1}}@scope (.root){b{x:1}}"
     );
 }
 
