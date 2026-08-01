@@ -37,6 +37,15 @@ physical AST rule. Those responsibilities belong to
 [S4](./s4-ast-reification-planning.md) and
 [S5](./s5-ast-reification-commit.md).
 
+### Current nested-AST adapter
+
+The current implementation predates stable flat rule IDs and the S4/S5 plan
+store. It therefore discovers and physically commits only the first
+source-ordered S3 candidate, then rebuilds S1 and S2 state before considering
+another candidate. No physical vector index survives that restart. This is a
+correctness-preserving adapter for the current nested AST, not the target
+storage or scheduling model described by the rest of this document.
+
 ## Candidate input state
 
 S3 consumes one current live edge whose endpoints have different effective
@@ -80,6 +89,20 @@ The partition has one of these states:
 
 Effect equality includes importance, prefix, target compatibility, fallback
 position, and value semantics. Property-name equality is insufficient.
+
+### Selector compatibility policy
+
+By default, `Options::PRESERVE_SELECTOR_COMPATIBILITY` requires both selector
+lists to have the same conservative syntax-feature profile before they are
+combined. The profile includes conditional pseudo syntax, pseudo elements,
+vendor prefixes, namespace and attribute syntax, and compatibility-sensitive
+combinators. This prevents one unsupported selector arm from invalidating a
+previously valid standalone rule in an older browser.
+
+Callers that know every configured target supports all selector syntax in the
+stylesheet may disable this option. Disabling it bypasses the syntax-profile
+equality check, but does not permit mixed vendor-prefix profiles, recovered
+selectors, or selector forms that cannot be losslessly materialized.
 
 ### Candidate stabilization states
 

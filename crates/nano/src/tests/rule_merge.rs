@@ -13,6 +13,139 @@ fn merges_adjacent_equal_selector_declaration_blocks() {
 }
 
 #[test]
+fn factors_common_declarations_between_different_selectors() {
+    assert_eq!(run("a{color:red}b{color:red}"), "a,b{color:red}");
+    assert_eq!(
+        run("a{color:red;margin:0}b{color:red;padding:0}"),
+        "a{margin:0}a,b{color:red}b{padding:0}"
+    );
+    assert_eq!(
+        run("a{width:1px;color:red}b{color:red}"),
+        "a{width:1px}a,b{color:red}"
+    );
+    assert_eq!(
+        run("a{color:red}b{width:1px;color:red}"),
+        "a,b{color:red}b{width:1px}"
+    );
+}
+
+#[test]
+fn stabilizes_overlapping_partial_selector_candidates() {
+    assert_eq!(run("a{x:1}b{x:1;y:2}c{y:2}"), "a,b{x:1}b,c{y:2}");
+    assert_eq!(run("a{x:1}b{x:1}c{x:1}d{x:1}"), "a,b,c,d{x:1}");
+    assert_eq!(run("a,b{x:1}b,c{x:1}"), "a,b,c{x:1}");
+    assert_eq!(run("a{x:1}b{x:1}a,b{x:1}"), "a,b{x:1}");
+}
+
+#[test]
+fn rejects_unproven_partial_selector_candidates() {
+    assert_eq!(
+        run("a{color:red!important}b{color:red}"),
+        "a{color:red !important}b{color:red}"
+    );
+    assert_eq!(
+        run("a{color:red}b{color:blue}"),
+        "a{color:red}b{color:#00f}"
+    );
+    assert_eq!(
+        run("a:has(.x){color:red}b{color:red}"),
+        "a:has(.x){color:red}b{color:red}"
+    );
+    assert_eq!(
+        run("code::-webkit-selection{color:red}code::-moz-selection{color:red}"),
+        "code::-webkit-selection{color:red}code::-moz-selection{color:red}"
+    );
+    assert_eq!(
+        run("a{display:-webkit-box;display:flex}b{display:flex;display:-webkit-box}"),
+        "a{display:-webkit-box;display:flex}b{display:flex;display:-webkit-box}"
+    );
+    assert_eq!(
+        run("a{margin:var(--m);margin-left:1px}b{margin:var(--m);color:red}"),
+        "a{margin:var(--m);margin-left:1px}b{margin:var(--m);color:red}"
+    );
+    assert_eq!(
+        run("a{font-size:1rem;font:serif}b{font-size:1rem;color:red}"),
+        "a{font-size:1rem;font:serif}b{font-size:1rem;color:red}"
+    );
+    assert_eq!(
+        run("a:hover{color:red}b:focus-visible{color:red}"),
+        "a:hover{color:red}b:focus-visible{color:red}"
+    );
+}
+
+#[test]
+fn selector_compatibility_guard_is_configurable() {
+    let mut options = MinifyOptions::default();
+    options
+        .flags
+        .remove(Options::PRESERVE_SELECTOR_COMPATIBILITY);
+
+    assert_eq!(
+        run_with_options("a:hover{color:red}b:focus-visible{color:red}", options),
+        "a:hover,b:focus-visible{color:red}"
+    );
+    assert_eq!(
+        run_with_options("div{color:red}a>b{color:red}", options),
+        "div,a>b{color:red}"
+    );
+    assert_eq!(
+        run_with_options(
+            "code::-webkit-selection{color:red}code::-moz-selection{color:red}",
+            options,
+        ),
+        "code::-webkit-selection{color:red}code::-moz-selection{color:red}"
+    );
+}
+
+#[test]
+fn merges_selectors_with_the_same_compatibility_features() {
+    assert_eq!(
+        run("a:hover{color:red}b:hover{color:red}"),
+        "a:hover,b:hover{color:red}"
+    );
+    assert_eq!(
+        run("a[href]{color:red}b[href]{color:red}"),
+        "a[href],b[href]{color:red}"
+    );
+    assert_eq!(
+        run("a:has(.x){color:red}b:has(.y){color:red}"),
+        "a:has(.x),b:has(.y){color:red}"
+    );
+}
+
+#[test]
+fn reorders_only_proven_independent_common_effects() {
+    assert_eq!(
+        run("a{color:red;font-size:2em}b{font-size:2em;color:red}"),
+        "a,b{color:red;font-size:2em}"
+    );
+}
+
+#[test]
+fn factors_only_within_one_rule_list_and_preserves_nested_children() {
+    assert_eq!(
+        run("@media print{a{color:red}b{color:red}}"),
+        "@media print{a,b{color:red}}"
+    );
+    assert_eq!(
+        run("a{color:red}b{color:red;&:hover{color:blue}}"),
+        "a,b{color:red}b{&:hover{color:#00f}}"
+    );
+    assert_eq!(
+        run("a{color:red;&:hover{color:blue}}b{color:red}"),
+        "a{color:red;&:hover{color:#00f}}b{color:red}"
+    );
+    assert_eq!(
+        run("@media print{a{color:red}}@media print{b{color:red}}"),
+        "@media print{a{color:red}}@media print{b{color:red}}"
+    );
+    assert_eq!(
+        run("@layer theme{a{color:red}}@layer theme{b{color:red}}"),
+        "@layer theme{a{color:red}}@layer theme{b{color:red}}"
+    );
+}
+
+#[test]
 fn merges_only_inside_the_current_sibling_scope() {
     assert_eq!(
         run("a{color:red}b{display:block}a{color:blue}"),
@@ -40,6 +173,10 @@ fn adjacent_rule_merging_is_configurable() {
     assert_eq!(
         run_with_options("a{width:1px}@layer barrier;a{width:1px}", options),
         "a{width:1px}@layer barrier;a{width:1px}"
+    );
+    assert_eq!(
+        run_with_options("a{color:red}b{color:red}", options),
+        "a{color:red}b{color:red}"
     );
 }
 
@@ -71,6 +208,39 @@ fn adjacent_rule_merging_is_idempotent() {
             .unwrap();
 
         assert_eq!(once, "a{width:1px;height:2px;opacity:.5}");
+        assert_eq!(twice, once);
+        assert_eq!(second_stats.declarations_removed, 0);
+    });
+}
+
+#[test]
+fn partial_factoring_imports_s1_history_and_is_idempotent() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            "a{color:red}a{margin:0}b{color:red;padding:0}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+
+        minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let once = stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap();
+        let second_stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let twice = stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap();
+
+        assert_eq!(once, "a{margin:0}a,b{color:red}b{padding:0}");
         assert_eq!(twice, once);
         assert_eq!(second_stats.declarations_removed, 0);
     });

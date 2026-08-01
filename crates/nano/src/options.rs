@@ -34,6 +34,10 @@ bitflags! {
         /// (`1/1` → `1`). Disabled by default because some browsers
         /// misinterpret the bare-number form.
         const CONVERT_RATIOS = 1 << 13;
+        /// Keep synthesized selector lists within the same conservative browser
+        /// compatibility class. Disable this only when the configured targets
+        /// are known to support every selector syntax used by the stylesheet.
+        const PRESERVE_SELECTOR_COMPATIBILITY = 1 << 14;
     }
 }
 
@@ -82,7 +86,8 @@ impl Default for MinifyOptions {
                 | Options::CONVERT_ZERO_PERCENTAGES
                 | Options::DEDUPLICATE_LISTS
                 | Options::TRANSFORM_CUSTOM_PROPERTIES
-                | Options::MERGE_ADJACENT_RULES,
+                | Options::MERGE_ADJACENT_RULES
+                | Options::PRESERVE_SELECTOR_COMPATIBILITY,
             length_precision: None,
             calc_precision: None,
         }
