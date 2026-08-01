@@ -161,6 +161,15 @@ fn reorders_only_proven_independent_common_effects() {
 }
 
 #[test]
+fn frozen_declaration_ir_uses_final_block_local_order_and_rewrites() {
+    assert_eq!(run("a{color:red;color:red}b{color:red}"), "a,b{color:red}");
+    assert_eq!(
+        run("a{display:-webkit-box;display:flex}b{display:-webkit-box;display:flex}"),
+        "a,b{display:-webkit-box;display:flex}"
+    );
+}
+
+#[test]
 fn factors_only_within_one_rule_list_and_preserves_nested_children() {
     assert_eq!(
         run("@media print{a{color:red}b{color:red}}"),

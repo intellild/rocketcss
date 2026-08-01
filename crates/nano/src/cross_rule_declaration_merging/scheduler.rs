@@ -1,17 +1,17 @@
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BinaryHeap, VecDeque},
-    hash::{Hash, Hasher},
 };
 
 use rocketcss_ast::{
-    CssRule, Declaration, DeclarationBlockId, DeclarationBlockStore, SelectorList, Span, StyleRule,
-    StyleSheet, VendorPrefix,
+    CssRule, DeclarationBlockId, DeclarationBlockStore, SelectorList, Span, StyleRule, StyleSheet,
+    VendorPrefix,
 };
 use rocketcss_common::{DenseId, vec::Vec};
-use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
+use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
+use super::declaration_ir::{DeclarationSlot, FrozenDeclarationIrStore};
 #[cfg(test)]
 use super::partial_selector::PartialMergeRejection;
 use super::partial_selector::{
@@ -71,51 +71,6 @@ impl SemanticOrderKey {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct PropertyBloom {
-    normal: u64,
-    important: u64,
-}
-
-impl PropertyBloom {
-    fn insert(&mut self, declaration: &Declaration<'_>, important: bool) {
-        if matches!(declaration, Declaration::Unparsed(_)) {
-            return;
-        }
-        let Some(property_id) = declaration.property_id() else {
-            return;
-        };
-        let mut hasher = FxHasher::default();
-        property_id.hash(&mut hasher);
-        if let Declaration::Custom(value) = declaration {
-            value.value.hash(&mut hasher);
-        }
-        let hash = hasher.finish();
-        let bits = (1 << (hash & 63)) | (1 << ((hash >> 6) & 63));
-        if important {
-            self.important |= bits;
-        } else {
-            self.normal |= bits;
-        }
-    }
-
-    fn may_share_declaration(self, other: Self) -> bool {
-        self.normal & other.normal != 0 || self.important & other.important != 0
-    }
-
-    fn union_with(&mut self, other: Self) {
-        self.normal |= other.normal;
-        self.important |= other.important;
-    }
-
-    fn intersection(self, other: Self) -> Self {
-        Self {
-            normal: self.normal & other.normal,
-            important: self.important & other.important,
-        }
-    }
-}
-
 enum SelectorSource<'walk, 'ast> {
     Authored(&'walk SelectorList<'ast>),
     Synthesized(SelectorList<'ast>),
@@ -140,7 +95,6 @@ struct LiveBlock<'walk, 'ast> {
     selectors: SelectorSource<'walk, 'ast>,
     span: Span,
     vendor_prefix: VendorPrefix,
-    property_bloom: PropertyBloom,
     flags: LiveBlockFlags,
     revision: u32,
 }
@@ -254,6 +208,7 @@ impl DirtyEffectiveKeys {
 
 pub(super) struct CrossRuleMergeState<'walk, 'ast> {
     discovery: DeclarationBlockDiscovery<'walk, 'ast>,
+    declaration_ir: FrozenDeclarationIrStore<'ast>,
     nodes: std::vec::Vec<Option<LiveBlock<'walk, 'ast>>>,
     owner_by_block: std::vec::Vec<Option<DeclarationBlockId>>,
     histories: FxHashMap<EffectiveKeyId, BTreeMap<SemanticOrderKey, DeclarationBlockId>>,
@@ -271,6 +226,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
     pub(super) fn new(
         discovery: DeclarationBlockDiscovery<'walk, 'ast>,
         declaration_blocks: &DeclarationBlockStore<'ast>,
+        mut declaration_ir: FrozenDeclarationIrStore<'ast>,
     ) -> Self {
         let mut nodes = std::vec::Vec::with_capacity(declaration_blocks.len());
         nodes.resize_with(declaration_blocks.len(), || None);
@@ -284,6 +240,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         > = FxHashMap::default();
 
         for (entry_id, entry) in discovery.declaration_blocks.iter_enumerated() {
+            declaration_ir.initialize_owner_chain(entry.declarations, declaration_blocks);
             let order = SemanticOrderKey::initial(entry_id.index());
             histories
                 .entry(entry.effective_key)
@@ -308,7 +265,6 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             let mut flags = LiveBlockFlags::LIVE;
             flags.set(LiveBlockFlags::HAS_CHILDREN, has_children);
             flags.set(LiveBlockFlags::HAS_LIVE_SELECTORS, has_live_selectors);
-            let property_bloom = property_bloom(block, declaration_blocks);
             nodes[block.index()] = Some(LiveBlock {
                 effective_key: entry.effective_key,
                 previous_live: None,
@@ -319,7 +275,6 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
                 selectors: SelectorSource::Authored(selectors),
                 span,
                 vendor_prefix,
-                property_bloom,
                 flags,
                 revision: 0,
             });
@@ -341,6 +296,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
 
         let mut state = Self {
             discovery,
+            declaration_ir,
             nodes,
             owner_by_block,
             histories,
@@ -391,10 +347,15 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         stylesheet: &'walk StyleSheet<'ast>,
         declaration_blocks: &DeclarationBlockStore<'ast>,
     ) -> Self {
-        Self::new(
-            crate::utils::discover_declaration_blocks(stylesheet),
-            declaration_blocks,
-        )
+        let discovery = crate::utils::discover_declaration_blocks(stylesheet);
+        let mut declaration_ir = FrozenDeclarationIrStore::default();
+        for entry in discovery.declaration_blocks.iter() {
+            declaration_ir.freeze_physical_block(
+                entry.declarations,
+                declaration_blocks.get(entry.declarations),
+            );
+        }
+        Self::new(discovery, declaration_blocks, declaration_ir)
     }
 
     pub(super) fn run<'scratch>(
@@ -458,11 +419,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         for block in declaration_chain(left, declaration_blocks) {
             self.owner_by_block[block.index()] = Some(right);
         }
-        let left_bloom = self.node(left).unwrap().property_bloom;
-        self.node_mut(right)
-            .unwrap()
-            .property_bloom
-            .union_with(left_bloom);
+        self.declaration_ir.compose(left, right);
         self.bump_revision(right);
         let key = self.node(left).unwrap().effective_key;
         self.retire_node_without_relink(left);
@@ -494,15 +451,20 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             return;
         }
 
-        let removed_before = cx.stats().declarations_removed;
-        minifier.deduplicate_exact_sequence(&expanded, declaration_blocks, cx, |_| {});
-        if cx.stats().declarations_removed == removed_before {
+        let mut removed = SmallVec::<[DeclarationSlot; 8]>::new();
+        minifier.deduplicate_exact_sequence(&expanded, declaration_blocks, cx, |block, index| {
+            removed.push(DeclarationSlot { block, index })
+        });
+        if removed.is_empty() {
             return;
         }
 
         let mut affected_owners = FxHashSet::default();
-        for block in expanded {
-            if let Some(owner) = self.owner_by_block[block.index()] {
+        for slot in removed {
+            if let Some(owner) = self.owner_by_block[slot.block.index()]
+                && let Some(occurrence) = self.declaration_ir.occurrence_for_slot(slot)
+            {
+                self.declaration_ir.mark_dead(owner, occurrence);
                 affected_owners.insert(owner);
             }
         }
@@ -510,7 +472,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             if self.node(owner).is_some_and(|node| {
                 node.flags.contains(LiveBlockFlags::LIVE)
                     && !node.flags.contains(LiveBlockFlags::HAS_CHILDREN)
-                    && declaration_chain_is_empty(owner, declaration_blocks)
+                    && self.declaration_ir.live_count(owner) == 0
             }) {
                 let owner_key = self.node(owner).unwrap().effective_key;
                 self.retire_node_without_relink(owner);
@@ -550,14 +512,13 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             right_vendor_prefix,
             left_has_children,
             right_has_children,
-            shared_property_bloom,
             left_order,
             right_order,
             rule_list,
             rule_list_segment,
         ) = {
-            let left_node = self.node(left).unwrap();
-            let right_node = self.node(right).unwrap();
+            let left_node = self.nodes[left.index()].as_ref().unwrap();
+            let right_node = self.nodes[right.index()].as_ref().unwrap();
             (
                 left_node.effective_key,
                 right_node.effective_key,
@@ -569,9 +530,6 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
                 right_node.vendor_prefix,
                 left_node.flags.contains(LiveBlockFlags::HAS_CHILDREN),
                 right_node.flags.contains(LiveBlockFlags::HAS_CHILDREN),
-                left_node
-                    .property_bloom
-                    .intersection(right_node.property_bloom),
                 left_node.order.clone(),
                 right_node.order.clone(),
                 left_node.rule_list,
@@ -594,6 +552,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
                 has_children: right_has_children,
             },
             declaration_blocks,
+            &mut self.declaration_ir,
             cx,
         );
         let plan = match plan {
@@ -640,7 +599,12 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         let shared_order = SemanticOrderKey::between(&left_order, &right_order);
         let shared_span = plan.span;
         let shared_vendor_prefix = plan.vendor_prefix;
-        let shared = commit_partial_merge_declarations(&plan, declaration_blocks, cx);
+        let shared = commit_partial_merge_declarations(
+            &plan,
+            declaration_blocks,
+            &mut self.declaration_ir,
+            cx,
+        );
         self.affected_rule_lists.insert(rule_list);
         let shared_selectors = plan.selectors;
         debug_assert_eq!(shared.index(), self.nodes.len());
@@ -654,7 +618,6 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             selectors: SelectorSource::Synthesized(shared_selectors),
             span: shared_span,
             vendor_prefix: shared_vendor_prefix,
-            property_bloom: shared_property_bloom,
             flags: LiveBlockFlags::LIVE | LiveBlockFlags::HAS_LIVE_SELECTORS,
             revision: 0,
         }));
@@ -775,8 +738,8 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         };
         let same_selector = left_state.effective_key == right_state.effective_key;
         let left_order = left_state.order.clone();
-        let left_property_bloom = left_state.property_bloom;
-        let right_property_bloom = right_state.property_bloom;
+        let left_property_bloom = self.declaration_ir.property_bloom(left);
+        let right_property_bloom = self.declaration_ir.property_bloom(right);
         #[cfg(test)]
         {
             self.stats.edge_classifications += 1;
@@ -1083,16 +1046,6 @@ fn declaration_chain(
     chain
 }
 
-fn property_bloom(active: DeclarationBlockId, store: &DeclarationBlockStore<'_>) -> PropertyBloom {
-    let mut bloom = PropertyBloom::default();
-    for block in declaration_chain(active, store) {
-        for (declaration, important) in store.get(block).iter_live() {
-            bloom.insert(declaration, important);
-        }
-    }
-    bloom
-}
-
 fn oldest_declaration_block(
     active: DeclarationBlockId,
     store: &DeclarationBlockStore<'_>,
@@ -1112,15 +1065,6 @@ fn append_declaration_chain(
     let mut chain = declaration_chain(active, store);
     chain.reverse();
     output.extend(chain.into_iter().filter(|block| seen.insert(*block)));
-}
-
-fn declaration_chain_is_empty(
-    active: DeclarationBlockId,
-    store: &DeclarationBlockStore<'_>,
-) -> bool {
-    declaration_chain(active, store)
-        .into_iter()
-        .all(|block| store.get(block).is_output_empty())
 }
 
 #[cfg(test)]

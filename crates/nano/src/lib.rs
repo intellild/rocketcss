@@ -91,13 +91,20 @@ pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
     let owned_cx = std::mem::replace(cx, replacement);
     let allocator = owned_cx.allocator();
     let declaration_blocks = rules::DeclarationBlockMinifier::new(allocator);
+    let collect_cross_rule_state =
+        owned_cx.is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any);
+    let cross_rule_declaration_ir = if collect_cross_rule_state {
+        cross_rule_declaration_merging::FrozenDeclarationIrStore::with_block_capacity(
+            declaration_block_store.len(),
+        )
+    } else {
+        Default::default()
+    };
     let mut minifier = Minifier {
         cx: owned_cx,
         declaration_blocks,
+        cross_rule_declaration_ir,
     };
-    let collect_cross_rule_state = minifier
-        .cx
-        .is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any);
     let discovery = {
         let mut visit_context =
             VisitMutContext::new_with_declaration_blocks(token, declaration_block_store);
@@ -109,9 +116,11 @@ pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
         }
     };
     if let Some(discovery) = discovery {
+        let declaration_ir = std::mem::take(&mut minifier.cross_rule_declaration_ir);
         let plan = cross_rule_declaration_merging::stabilize_cross_rule_declarations(
             discovery,
             declaration_block_store,
+            declaration_ir,
             &mut minifier.declaration_blocks,
             &mut minifier.cx,
         );
@@ -124,6 +133,7 @@ pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
 struct Minifier<'ast, 'cx> {
     cx: MinifyContext<'cx>,
     declaration_blocks: rules::DeclarationBlockMinifier<'cx, 'ast>,
+    cross_rule_declaration_ir: cross_rule_declaration_merging::FrozenDeclarationIrStore<'ast>,
 }
 
 impl<'ast, 'cx> Minifier<'ast, 'cx> {
@@ -216,7 +226,11 @@ impl<'ast, 'cx> Minifier<'ast, 'cx> {
                 cx,
             ),
             CssRule::NestedDeclarations(rule) => {
-                cx.with_declaration_block(rule.declarations, |block, cx| block.visit_mut(self, cx));
+                cx.with_declaration_block(rule.declarations, |block, cx| {
+                    block.visit_mut(self, cx);
+                    self.cross_rule_declaration_ir
+                        .freeze_physical_block(rule.declarations, block);
+                });
                 collector.push_declaration_block(
                     rule.declarations,
                     utils::DeclarationBlockKind::NestedDeclarations,
@@ -282,7 +296,11 @@ impl<'ast, 'cx> Minifier<'ast, 'cx> {
         };
         let (selectors, rules) = rule.selectors_and_rules_mut();
         self.visit_selector_list(selectors, cx);
-        cx.with_declaration_block(declarations, |block, cx| block.visit_mut(self, cx));
+        cx.with_declaration_block(declarations, |block, cx| {
+            block.visit_mut(self, cx);
+            self.cross_rule_declaration_ir
+                .freeze_physical_block(declarations, block);
+        });
 
         let parent = collector.enter_selector(kind, selectors, vendor_prefix);
         collector.push_declaration_block(
