@@ -1,411 +1,200 @@
-# S4: logical cleanup and AST reification planning
+# S4: lossless representation planning
 
 ## Document map
 
 - [Overall design](./overall.md)
-- [S1: same-selector coalescing](./s1-same-selector-coalescing.md)
-- [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md)
-- [S3: selector partial factoring](./s3-selector-partial-factoring.md)
-- [S4: AST reification planning](./s4-ast-reification-planning.md)
-- [S5: AST reification commit](./s5-ast-reification-commit.md)
-- [Detailed state machine](./detailed-state-machine.md)
-- [Pseudocode](./pseudo-code.md)
-- [Non-goals](./non-goal.md)
+- [S1](./s1-same-selector-coalescing.md)
+- [S2](./s2-declaration-effect-pruning.md)
+- [S3](./s3-selector-partial-factoring.md)
+- [S5](./s5-ast-reification-commit.md)
+- [Radix AST IR](../flat-ast-ir/README.md)
 
 ## Responsibility
 
-S4 converts the stable logical merge result into one complete,
-deterministic `AstReificationPlan`.
+S4 chooses a lossless CSS declaration representation for effect states already
+proven by S1-S3. It does not discover new effect liveness, selector unions,
+movement, or cascade relationships.
 
-`AstReificationPlan` is the semantic name retained during migration. Its target
-physical output is the [flat source-order AST IR](../flat-ast-ir/README.md), not
-a rebuilt tree of boxes and arena references.
+Under the Radix AST design, S4 is not a complete-AST reification planner.
+Rules/blocks already have stable IDs and final semantic positions, and S3 has
+already inserted synthesized nodes. S4 plans only representations that could
+not be committed immediately.
 
 S4 answers:
 
-- which logical nodes remain or are removed;
-- which output rule owns each retained declaration sequence;
-- which authored declaration origins can be reused;
-- which partially live effects require typed declarations;
-- where synthesized rules and selectors will be inserted; and
-- which retired storage must remain available until commit; and
-- where every retained or synthesized node appears in final semantic order.
-
-S4 does not modify the stylesheet stores. It also does not discover new semantic
-merges, new declaration pruning, or new graph edges.
-
-> Implementation status: while only S1/S2 are implemented, S1 directly links
-> declaration storage through `previous_merged`, and incremental S2 may
-> tombstone only exactly duplicated earlier occurrences and compact retired
-> leaf rules. Cross-block shorthand/longhand and columns rewrites are outside
-> this exception. Once S4/S5 are implemented, S1/S2 must record logical changes
-> only and leave all AST writes to S5.
+- which authored declaration origins can remain unchanged;
+- which fully dead origins can be omitted;
+- whether partially live shorthand effects require typed longhands;
+- how retained fallback/opaque origins interleave with replacements;
+- which output block owns the resulting declaration list; and
+- whether a block uses a source range, `Local4`, or complete overflow list.
 
 ## Input state
 
-S4 work may start when one sequence's current S1-S3 dependencies are stable.
-It participates in the global stabilization loop rather than running once
-after S1-S3. S4 is globally complete only in this state:
+S4 work may run when one block/sequence's current dependencies are stable. It
+participates in the scheduler because changing a representation cost or owner
+revision may invalidate an S3 profitability snapshot.
 
 ```text
-dirty_same_selector_edges = empty
-dirty_partial_edges       = empty
-dirty_histories           = empty
-dirty_s4_plan_items       = empty
-candidates                = empty
-every history:
-  generation == consumed_generation
-every retained sequence:
-  planned_revision == aggregate_revision
+S1/S2/S3 effect decision is committed
+all source origins remain available
+current block/sequence revisions are known
+selector/wrapper topology is already final for the local edit
 ```
-
-Every rule that became logically empty during S1-S3 has already left live
-adjacency, and every edge exposed by that removal has already been classified.
-Higher-priority semantic work preempts S4:
-
-- equal-selector edge → [S1](./s1-same-selector-coalescing.md#edge-states);
-- dirty history → [S2](./s2-declaration-effect-pruning.md#history-generation-states);
-- different-selector edge → [S3](./s3-selector-partial-factoring.md#candidate-input-state).
 
 ### Rule retention states
 
-| Input state                     | S4 plan                                                                                       |
-| ------------------------------- | --------------------------------------------------------------------------------------------- |
-| `LiveEffects`                   | Retain the rule or its selected active output owner.                                          |
-| `EmptyEffectsWithRetainedChild` | Retain the rule shell and child subtree.                                                      |
-| `LogicallyEmpty`                | Plan removal when no sequence still references its storage.                                   |
-| `RetiredOutputStorage`          | Keep storage pinned until its active sequence is planned; remove the retired shell afterward. |
-| `KnownNoMatch`                  | Plan removal of the complete subtree.                                                         |
-| `OpaqueBarrier`                 | Retain; S4 cannot infer emptiness.                                                            |
-| `SupportedConditionalEmpty`     | Plan wrapper removal after post-order child analysis.                                         |
-| `UnsupportedAtRule`             | Retain regardless of merge-state visibility.                                                  |
+| State                             | S4 action                                               |
+| --------------------------------- | ------------------------------------------------------- |
+| Live effects                      | Retain current AST owner.                               |
+| Empty effects with retained child | Retain rule shell and subtree.                          |
+| Logically empty                   | Record terminal unlink/removal if not already unlinked. |
+| Known no match                    | Record removal of the complete subtree.                 |
+| Opaque barrier                    | Retain; do not infer emptiness.                         |
+| Empty supported conditional       | Record post-order removal.                              |
+
+Topology may already exclude a logically retired endpoint from live adjacency.
+S4 must not expose edges late; the S1-S3 commit that caused emptiness performs
+the local unlink and queue insertion.
 
 ### Declaration input states
 
-| Input state                         | Available representation                                          |
-| ----------------------------------- | ----------------------------------------------------------------- |
-| All effects of an origin live       | Reuse the authored origin when order remains exact.               |
-| All effects of an origin dead       | Omit that origin.                                                 |
-| Some virtual shorthand effects live | Reuse the exact sequence or materialize its typed live effects.   |
-| Ordered fallback chain live         | Preserve origins and order unless a target proof permits removal. |
-| Opaque occurrence live              | Reuse its authored origin; never synthesize guessed components.   |
-| Synthesized exact effects           | Materialize them at the owning synthesized declaration sequence.  |
+| State                        | Available representation                                     |
+| ---------------------------- | ------------------------------------------------------------ |
+| All effects of origin live   | Reuse authored origin.                                       |
+| All effects dead             | Omit origin.                                                 |
+| Partial typed shorthand live | Reuse an exact equivalent sequence or emit proven longhands. |
+| Ordered fallback chain       | Preserve order unless a target proof permits removal.        |
+| Opaque/recovered occurrence  | Reuse authored origin.                                       |
+| Synthesized exact effects    | Materialize typed declarations.                              |
+
+If S2 returned `NoChange`, S4 cannot turn the same relationship into an
+optimization. Representation planning does not prove liveness.
 
 ### Synthesized-rule input state
 
-Every logical S3 rule supplies:
+Every committed S3 rule supplies its final `RuleId`, `DeclarationBlockId`,
+validated selector union, EffectiveKey, common effect sequence, selector-arm
+origins, declaration origins, and owning rule list/segment. S4 does not rerun
+the partition or choose an insertion position.
 
-```text
-validated local selector union
-+ resolved effective selector key
-+ common effect sequence
-+ semantic insertion position
-+ selector-arm origins
-+ declaration origins
-+ owning rule list and segment
-```
-
-S4 does not rerun the S3 partition. It only selects an AST representation that
-realizes this already committed logical state.
-
-S4 also does not discover declaration liveness. If S2 returned `NoChange` for
-a shorthand/longhand, `all`, fallback, or alias relationship, S4 must retain
-the authored occurrences. Representation planning cannot upgrade an
-incremental exact-only result into a new semantic optimization.
-
-An `EffectiveRuleHistory` is only a cross-sequence analysis index. It never
-becomes a `DeclarationSequenceId` and never chooses a shared output owner. Every
-occurrence retains its sequence owner unless S1 has already coalesced that
-sequence or S3 has committed a separately proven synthesized sequence. S4
-plans each retained sequence independently.
-
-## Sequence representation states
-
-For each retained `DeclarationSequenceId`, S4 chooses exactly one:
+## Declaration plan
 
 ```rust,ignore
 enum AstDeclarationPlan<'ast> {
-    ReuseOrigins(Vec<DeclarationOccurrenceId>),
+    ReuseOrigins(SmallVec<[DeclarationOccurrenceId; 4]>),
     Materialize(TypedDeclarationPlan<'ast>),
     Mixed {
-        retained_origins: Vec<DeclarationOccurrenceId>,
-        replacements: Vec<TypedDeclarationPlan<'ast>>,
+        retained_origins: SmallVec<[DeclarationOccurrenceId; 4]>,
+        replacements: SmallVec<[TypedDeclarationPlan<'ast>; 4]>,
     },
 }
 ```
 
-| Plan state     | Use case                                                                                      |
-| -------------- | --------------------------------------------------------------------------------------------- |
-| `ReuseOrigins` | Authored declarations already represent exactly the live effects.                             |
-| `Materialize`  | The final effects require fully typed synthesized declarations.                               |
-| `Mixed`        | Some authored fallbacks or opaque origins remain, while partial effects require replacements. |
+The plan also names its current `DeclarationBlockId`, owner revision, effect-IR
+revision, and required declaration-list representation. It does not contain a
+semantic insertion position: the block ID already encodes that position.
 
-Representation choice may consider size only among proven equivalent choices.
-It never changes semantic liveness.
+## Sequence representation states
 
-## Output state
+Choose the smallest lossless option:
 
-S4 produces:
+1. retain/coalesce an exact consecutive authored `Range`;
+2. use `Local4` for at most four small local/synthesized declarations whose
+   sub-IDs fit the low two property bits; or
+3. allocate a complete ordered `Overflow` list.
 
-```rust,ignore
-struct AstReificationPlan<'ast> {
-    sequences: Map<DeclarationSequenceId, SequenceAstPlan<'ast>>,
-    synthesized_rules: Vec<SynthesizedRulePlan<'ast>>,
-    removals: Set<RetainedNodeId>,
-    complete: bool,
-}
-```
+A range must never include a live declaration owned by a nested or neighboring
+block. `Overflow` contains the complete sequence, not only the nonconsecutive
+suffix.
 
-The flat implementation additionally records retained declaration ranges and
-semantic insertion positions. Reusing a range is valid only when it cannot
-include a live declaration owned by another occurrence; otherwise the plan
-keeps multiple ordered ranges or materializes a replacement during S5.
+Representation choice may consider output size only among already proven
+equivalent choices.
 
-A complete output satisfies:
+## Direct versus deferred commit
 
-| Output component        | Requirement                                                                        |
-| ----------------------- | ---------------------------------------------------------------------------------- |
-| Sequence plans          | Every non-empty retained sequence has exactly one output owner and representation. |
-| Synthesized rules       | Every logical S3 rule has one insertion plan.                                      |
-| Removals                | Every removable logical node is listed post-order.                                 |
-| Retained opaque content | Never listed as removable by inference.                                            |
-| Retired storage         | Remains addressable until its sequence representation is complete.                 |
-| Physical mutations      | None.                                                                              |
-| Completeness            | `ast_plan.complete == true`.                                                       |
+When the representation is already known during S1-S3, commit it in that
+stage's atomic AST transaction and mark S4 complete for the block. Otherwise
+store one deferred plan in pass-local block state. S5 materializes it after the
+fixed point.
 
-S4 planning is infallible for committed semantic state. An inability to build a
-lossless plan indicates that S2 or S3 accepted an invalid transformation.
+This avoids a second AST graph while keeping fallible/complex representation
+work outside partially committed mutations.
 
-## Transition examples
+## Examples
 
-### Example 1: empty rule removal
-
-Input logical state:
-
-```text
-rule#1.effects = []
-rule#1.retained_child_count = 0
-rule#1.storage_referenced = false
-```
-
-S4 output:
-
-```text
-ast_plan.removals += rule#1
-AST remains unchanged
-```
-
-S5 later removes the node and compacts its owning list.
-
-### Example 2: reusing an S1 sequence
-
-S1 produced:
-
-```text
-left = RetiredOutputStorage
-right = active_output_owner
-combined = [origin#left-color, origin#right-background]
-```
-
-If both origins remain fully live, S4 emits:
-
-```text
-sequences[combined] = {
-  owner: right,
-  declarations: ReuseOrigins([
-    origin#left-color,
-    origin#right-background,
-  ]),
-}
-removals += left
-```
-
-See [S1 basic coalescing](./s1-same-selector-coalescing.md#example-1-basic-adjacent-coalescing)
-and [S5 owner commit](./s5-ast-reification-commit.md#example-2-committing-an-s1-owner).
-
-### Example 3: partially live shorthand
-
-S2 output spans one history but preserves two sequence owners:
-
-```text
-sequence#1 / origin#1 margin: 1px
-  top/right/bottom = Live
-  left             = Dead
-sequence#2 / origin#2 margin-left: 2px = Live
-```
-
-Reusing `margin:1px` is valid only when the later override remains at its exact
-semantic source position. Depending on the proven representation and size, S4
-plans the two sequences independently and may choose:
-
-```text
-sequences[sequence#1] = ReuseOrigins([origin#1])
-sequences[sequence#2] = ReuseOrigins([origin#2])
-```
-
-when the authored pair still represents the exact result, or:
-
-```text
-sequences[sequence#1] = Materialize([
-  margin-top: 1px,
-  margin-right: 1px,
-  margin-bottom: 1px,
-])
-sequences[sequence#2] = ReuseOrigins([origin#2])
-```
-
-S4 cannot combine `sequence#1` and `sequence#2` merely because one history
-analyzed both. A shorter representation is irrelevant when it changes
-semantic source position. Cross-sequence movement requires an already
-committed S1 ownership change or S3 movement proof.
-
-### Example 4: ordered fallback chain
-
-Input effects:
-
-```text
-origin#1 display:-webkit-box [Live]
-origin#2 display:flex        [Live]
-```
-
-S4 output:
-
-```text
-ReuseOrigins([origin#1, origin#2])
-```
-
-The order is part of the plan. A map-like output containing only the last value
-is invalid.
-
-### Example 5: a rule with no declarations but retained children
-
-Input:
+### Example 1: exact pruning
 
 ```css
 a {
   color: red;
-
-  &:hover {
-    color: blue;
-  }
+  color: blue;
 }
 ```
 
-Suppose S2 makes the leading `color:red` effect dead. Logical state:
+S2 marks the first occurrence dead. S4 chooses
+`ReuseOrigins([color:blue])`; the block can retain a compact range or materialize
+the one live origin.
 
-```text
-a.leading_effects = []
-a.retained_child_count = 1
+### Example 2: reusing an S1 sequence
+
+S1 selects the right rule as the live owner of the left-then-right declaration
+sequence. If both authored ranges remain exact and consecutive, S4 coalesces
+them. Otherwise it chooses one complete overflow sequence without changing
+their AST occurrence order.
+
+### Example 3: partially live shorthand
+
+```css
+a {
+  margin: 1px;
+  margin-left: 2px;
+}
 ```
 
-S4 retains the `a` rule shell and nested child. It plans no leading
-declarations but does not place `a` in `removals`.
+If the effect resolver proves only three shorthand components remain live, S4
+either retains an exactly equivalent authored sequence or materializes the
+three proven longhands plus the authored `margin-left` in exact order.
 
-### Example 6: post-order conditional cleanup
+### Example 4: ordered fallback chain
 
-Input logical ownership:
+When multiple authored values form a compatibility fallback chain, S4 retains
+their origin order unless S2 already proved an occurrence dead for the active
+target policy. Representation planning never sorts or deduplicates fallbacks.
 
-```text
-@media rule
-└── style rule [LogicallyEmpty]
+### Example 5: synthesized S3 block
+
+```css
+a {
+  color: red;
+  margin: 0;
+}
+b {
+  color: red;
+  padding: 0;
+}
 ```
 
-S4 first plans the child removal, then observes that the supported conditional
-wrapper has no retained child:
-
-```text
-removals order:
-  1. child style rule
-  2. media wrapper
-```
-
-An unsupported or opaque wrapper would remain retained.
-
-### Example 7: planning an S3 synthesized rule
-
-S3 output:
-
-```text
-left effects   = [margin: 0]
-shared effects = [color: red]
-right effects  = [padding: 0]
-shared selector plan = union(a, b)
-```
-
-S4 output contains three sequence plans and one synthesized insertion:
-
-```text
-left owner  -> Materialize/Reuse [margin: 0]
-shared rule -> Materialize [color: red], insert between left and right
-right owner -> Materialize/Reuse [padding: 0]
-```
-
-S5 consumes these plans without recomputing the common sequence.
-
-### Example 8: opaque content pins ancestors
-
-Logical input:
-
-```text
-style rule effects = []
-└── opaque retained child
-```
-
-Even though the declaration IR is empty, S4 retains the style-rule ancestor.
-The opaque child cannot be declared empty by this pass.
-
-## Effects on other stages
-
-S4 does not change effect liveness, but it may create scheduler work. Changing
-a sequence representation, final owner, removal plan, or byte-cost estimate
-increments the sequence's plan revision and invalidates every dependent
-snapshot. Invalidated work is re-enqueued before S5:
-
-- representation or cost dependency → enqueue the incident S3 edge;
-- owner or sequence dependency → enqueue the affected S4 plan item;
-- an already dirty history or equal-selector edge → yield to S2 or S1.
-
-If planning would revive a dead effect or require an unproven selector
-partition, the semantic precondition was violated:
-
-- ownership problem → revisit [S1 output state](./s1-same-selector-coalescing.md#output-state);
-- effect problem → revisit [S2 output state](./s2-declaration-effect-pruning.md#output-state);
-- synthesized-rule problem → revisit [S3 commit output state](./s3-selector-partial-factoring.md#commit-output-state).
-
-S4 transitions to [S5](./s5-ast-reification-commit.md#input-state) only after
-all feedback work has stabilized.
-
-## Invariants
-
-- S4 work runs only against current revisions of its S1-S3 dependencies.
-- Cleanup walks retained ownership post-order.
-- Logical emptiness was already reflected in adjacency before S4.
-- Every non-empty sequence receives exactly one final output owner.
-- Every live effect appears exactly once in the planned semantic sequence.
-- Dead effects are never revived.
-- Authored shorthand, opaque values, and fallback chains are reused only when
-  exact.
-- Typed replacements come from pre-proven S2/S3 reification paths.
-- Every logical synthesized rule receives one insertion plan.
-- Opaque or unsupported nodes are never removed by inference.
-- Representation profitability is subordinate to equivalence.
-- S4 does not mutate the AST or effect liveness, but may invalidate and
-  re-enqueue dependent S3/S4 work.
-- A complete plan makes S5 non-fallible and decision-free.
+S3 has already inserted the `a,b` rule/block at its Radix position. S4 chooses
+the declaration list for its `color:red` effect; it does not choose where the
+rule goes.
 
 ## Completion condition
 
-S4 is complete when:
+S4 is complete when every retained non-empty effect sequence has a current
+lossless representation and every pending removal has a current owner/topology
+revision.
 
-```text
-every retained sequence has one SequenceAstPlan
-every logical synthesized rule has one SynthesizedRulePlan
-every removable node is covered
-no retained node is accidentally covered by removal
-dirty_s4_plan_items is empty
-every plan revision matches its sequence and dependency revisions
-ast_plan.complete == true
-```
+Any plan revision change enqueues affected dependencies before terminal commit.
+An inability to produce a lossless plan means S2 or S3 accepted invalid state;
+S4 must not guess.
 
-The plan then transitions once to
-[S5 AST commit](./s5-ast-reification-commit.md).
+## Invariants
+
+- S4 never changes semantic liveness.
+- Every retained fallback and opaque origin preserves exact order.
+- Every typed replacement comes from proven effects.
+- Every plan is keyed by AST IDs and current revisions.
+- No plan contains `SemanticOrderKey` or synthesized insertion position.
+- S4 does not rebuild rules, declaration blocks, or EffectiveKeys.
+- S5 can apply a complete plan without making semantic choices.

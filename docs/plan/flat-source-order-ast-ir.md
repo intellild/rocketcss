@@ -1,429 +1,362 @@
-# Flat source-order AST IR implementation plan
+# Radix source-order AST implementation plan
 
 ## Goal
 
-Replace the recursive arena-owned CSS AST with compilation-owned dense stores
-and source-order tapes. All stable relationships use typed `u32` IDs or compact
-ranges. Parsing, minification, visitors, and code generation operate on those
-stores; S5 rebuilds them in final semantic order.
+Move RocketCSS rules and declaration blocks into compiler-owned
+`RadixIndexArena` stores. Authored nodes remain contiguous primary vectors;
+rare structural insertions use local sibling Radix trees. AST IDs provide both
+stable identity and semantic order, and each declaration block stores its
+`EffectiveKeyId` directly.
 
-The normative design is in [Flat source-order AST IR](../flat-ast-ir/README.md).
-This file is an execution plan and may change as benchmarks expose better
-physical layouts.
+The normative design is in [Radix source-order AST IR](../flat-ast-ir/README.md).
 
 ## Completion criteria
 
-- `CssRule`, every rule payload, selectors, declaration blocks, declarations,
-  and remaining aggregate child lists are owned by `Compilation` stores.
-- Authored declaration/property IDs increase in lexical source order across the
-  complete stylesheet, including before, inside, and after nested rules.
-- Direct parent, sibling, and subtree operations require no recursive discovery
-  walk.
-- `EffectiveKeyId` is computed from canonical selector/context values and is
-  attached to a uniquely owned declaration occurrence.
-- Cross-rule minify uses IDs, ranges, live links, and rewrite plans; it does not
-  use `walk_declaration_blocks` or `previous_merged`.
-- S5 produces compact rule/declaration tapes in final semantic order.
-- `rocketcss_common::boxed::Box`, `rocketcss_common::Allocator`, allocator-backed
-  AST vectors, `Pin`, `PhantomPinned`, and allocator-taking compiler/parser APIs
-  are absent from the final AST pipeline.
-- `StringPool` owns its backing storage and does not borrow an allocator.
-- Existing parser, nano, visitor, codegen, upstream, source-map, and fixture
-  behavior remains lossless.
+- Rules and declaration blocks are addressed by typed wrappers over
+  `RadixIndexId`.
+- Authored primary IDs increase in lexical source order.
+- Direct parent/list/sibling topology is stored in the AST; no recursive walk
+  is required to answer structural queries.
+- Each `DeclarationBlock` owns its current `EffectiveKeyId`.
+- Nano consumes AST IDs and keys directly; it has no production
+  `DeclarationBlockEntry` collection or separate semantic-order identity.
+- S3 inserts synthesized nodes into their final local Radix position and
+  enqueues affected work without restarting the scheduler.
+- Codegen reads the same stores; a mandatory whole-AST S5 rebuild is absent.
+- Compact-ID exhaustion has a non-panicking AST-level fallback.
+- Existing parser, Nano, visitor, codegen, source-map, and fixture behavior
+  remains lossless.
 
-## Non-negotiable property allocation contract
+## Non-negotiable order contract
 
-The global declaration store is its own order domain. If declaration
-occurrence `A` begins before declaration occurrence `B` in the source, then:
+For authored base nodes in one store:
 
 ```text
-DeclarationId(A) < DeclarationId(B)
+source position A before source position B
+  => primary_index(A) < primary_index(B)
 ```
 
-This applies across top-level rules, conditional rules, nested style rules,
-`NestedDeclarationsRule` runs, and recovered syntax that remains in the AST.
-Whitespace, comments, rule payload allocation, selector allocation, and later
-store growth do not affect declaration IDs.
+For synthesized nodes below the same primary:
 
-The parser appends a declaration immediately after parsing that declaration.
-It must not accumulate an arena `DeclarationBlock` and allocate/copy the block
-after recursively parsing child rules. A block captures `(offset, len)` for
-each contiguous declaration run at the moment the run is parsed.
+```text
+sibling_key(A) < sibling_key(B)
+  => A is emitted before B
+```
 
-## Phase 0: freeze behavior and expose test inspection
+Property bits do not participate in base-node ordering. Direct CSS adjacency is
+still checked through rule topology rather than numeric proximity.
+
+## Phase 0: freeze behavior and benchmarks
 
 ### Work
 
-1. Record baseline type sizes, parse/minify/codegen CodSpeed results, output
-   sizes, peak memory, and representative allocation counts.
-2. Add test-only read APIs on `Compilation`:
+1. Record parse/minify/codegen CodSpeed results, peak memory, type sizes, and
+   allocation counts.
+2. Keep the current `RadixIndexArena` microbenchmarks for:
+   - primary build and traversal;
+   - sparse build and semantic traversal;
+   - primary, mixed, and sibling-only lookup; and
+   - repeated local insertion/removal.
+3. Add test-only AST inspection:
 
    ```rust,ignore
-   fn declaration_slots(&self) -> impl Iterator<Item = (DeclarationId, &Declaration)>;
-   fn declaration_block_header(&self, id: DeclarationBlockId) -> &DeclarationBlockHeader;
-   fn rule_topology(&self, id: RuleId) -> RuleTopology;
+   compilation.validate_radix_ast();
+   compilation.rule_store_ids();
+   compilation.declaration_block_store_ids();
    ```
 
-3. Add invariant validation callable by parser/nano tests:
+4. Validate SoA sibling index/tree lengths, ID masks, topology, owner links,
+   source order, and EffectiveKey presence.
+
+### Exit gate
+
+- A deliberate primary-order or topology error fails tests.
+- Baseline benchmark output is recorded independently from AST migration.
+
+## Phase 1: finish the common Radix primitive
+
+### Work
+
+1. Add typed-ID adapters so AST stores do not expose raw `RadixIndexId`.
+2. Add ID-aware primary and semantic iterators yielding `(Id, &T)`.
+3. Add an insertion-key allocator that leaves gaps and supports insertion
+   between local sibling IDs.
+4. Define local relabel as an explicit transaction returning exact ID remaps.
+5. Add AST-wrapper hooks for repairing persistent references after a rare
+   relabel.
+6. Define the non-panicking fallback for:
+   - more than `2^20` authored nodes;
+   - more than 1023 siblings below one primary; and
+   - declaration lists larger than `Local4`.
+7. Preserve the current SoA layout:
 
    ```rust,ignore
-   compilation.validate_flat_ir()
+   sibling_primary_indices: Vec<u32>
+   sibling_trees: Vec<RadixTree<T>>
    ```
 
-   It checks dense ID bounds, nonoverlapping live ranges, unique block
-   ownership, complete topology, source-order declaration allocation, and
-   tombstone/range consistency.
-4. Keep inspection APIs crate-private or behind `cfg(test)` so physical storage
-   is not accidentally frozen as public API.
+### Tests
 
-### Property source-order test gate
+- Property tests comparing random append/insert/remove/iterate sequences with
+  a reference `Vec`.
+- Boundary tests for every ID bit field.
+- Multiple midpoint insertions and local relabel repair.
+- Overflow/fallback behavior without panic.
+- Semantic iteration after empty sibling groups and tombstones.
 
-Add a dedicated parser test module before changing parser allocation. Use
-unique custom-property names so the expected lexical order is unambiguous.
+### Exit gate
 
-#### Flat top-level order
+- Primary traversal remains within noise of `Vec`.
+- Sibling-only lookup retains the measured SoA improvement.
+- Miri/sanitizer testing covers arena pointer safety where supported.
 
-```css
-a { --p0: 0; --p1: 1 }
-b { --p2: 2 }
-```
+## Phase 2: declaration-block store migration
 
-Assert the declaration tape is exactly `--p0, --p1, --p2`; all IDs are strictly
-increasing and each block range selects exactly its authored values.
+### Work
 
-#### Parent before nested child
+1. Replace the current dense declaration-block store with:
 
-```css
-a { --p0: 0 }
-a {
-  --p1: 1;
-  & b { --p2: 2 }
-}
-```
+   ```rust,ignore
+   type DeclarationBlockStore<'ast> =
+       RadixIndexArena<'ast, DeclarationBlock<'ast>>;
+   ```
 
-Assert the tape is `--p0, --p1, --p2`. This catches the current tempting
-`--p0, --p2, --p1` post-recursion allocation order.
+2. Define `DeclarationBlockId` as a typed base ID with property bits zero.
+3. Add permanent `owner`, `effective_key`, flags, and revision fields to
+   `DeclarationBlock`.
+4. Replace direct indexing assumptions with store accessors.
+5. Preserve `previous_merged` only as a migration adapter; do not reproduce it
+   in the final store model.
 
-#### Empty leading run before child
+### Tests
 
-```css
-a { --p0: 0 }
-a {
-  & b { --p1: 1 }
-  --p2: 2
-}
-```
+- Authored block IDs follow lexical order across style rules, descriptors,
+  keyframes, and nested content.
+- Property sub-IDs resolve their owning block but cannot retire it.
+- Existing block-local minification and codegen output remains byte-identical.
 
-Assert the tape is `--p0, --p1, --p2`; the second `a` leading block is empty at
-the cursor before `--p1`; and `--p2` belongs to a later
-`NestedDeclarationsRule` block. The empty range must not later absorb `--p1`.
+### Exit gate
 
-#### Declarations on both sides of nesting
+- Every declaration-owning syntax node refers to a valid block ID.
+- No consumer treats a dense index or borrowed address as a second block ID.
+
+## Phase 3: source-order declarations
+
+### Work
+
+1. Parse declarations as streaming source-order runs rather than accumulating
+   a block after recursive child parsing.
+2. Introduce explicit declaration representations:
+
+   ```rust,ignore
+   enum DeclarationList<'ast> {
+       Range(DeclarationRange),
+       Local4(LocalPropertySet<'ast>),
+       Overflow(ArenaVec<'ast, ArenaBox<'ast, Declaration<'ast>>>),
+   }
+   ```
+
+3. Close a parent run before parsing a nested rule and begin a later
+   `NestedDeclarationsRule` run after it.
+4. Port block-local minify to range/local/overflow accessors.
+5. Keep importance, source locations, tombstones, and declaration IR aligned
+   with the selected representation.
+
+### Required source-order fixtures
 
 ```css
 a {
   --p0: 0;
-  & b { --p1: 1; --p2: 2 }
-  --p3: 3;
-  @media (width > 1px) { --p4: 4 }
-  --p5: 5
+  --p1: 1;
+}
+b {
+  --p2: 2;
 }
 ```
 
-Assert the global tape is exactly `--p0` through `--p5`. Assert every
-declaration run has a separate exact range and the enclosing rule's ranges do
-not include nested declarations.
-
-#### Conditional and non-style blocks
-
-Cover `@media`, `@supports`, `@container`, `@font-face`, keyframe declaration
-blocks, page declarations, and any other grammar that contributes a declaration
-run. Assert one global lexical order even when those blocks use different typed
-payload stores.
-
-#### Recovery, comments, and importance
-
-- Put valid declarations around a recovered invalid declaration and assert the
-  retained slots remain in source order.
-- Put comments and whitespace between every token and assert they do not create
-  or reorder declaration slots.
-- Mix normal and `!important` declarations and assert importance sidecars align
-  with the same declaration IDs.
-- Include custom-property raw tokens and typed properties to ensure parse path
-  selection cannot change allocation order.
-
-#### Global invariants for every fixture
-
-- Every live authored declaration occurs in exactly one live block range.
-- Live ranges do not overlap.
-- A range contains no live declaration owned by another rule/run.
-- Iterating ranges in semantic source order yields the same authored property
-  order as iterating the global declaration tape and filtering tombstones.
-- Parsing the same source twice assigns the same declaration order.
-- Parse then codegen then parse preserves property order.
-
-Do not accept serialization-only tests for this contract. Incorrect physical
-allocation can serialize correctly before S1 range coalescing exposes it.
-
-### Exit gate
-
-- Tests fail against any deliberate post-recursion allocation implementation.
-- Baselines and invariant helpers are committed independently.
-
-## Phase 1: owned storage kernel
-
-### Work
-
-1. Extend the common dense abstraction with all required typed operations:
-   checked `u32` capacity, `DenseRange { offset, len }`, slice access, append,
-   and ID-preserving sidecars. Do not add parallel hand-written ID wrappers.
-2. Make `Compilation` the only owner of AST stores. Introduce compact store
-   types in the owning AST modules, following the existing module layout.
-3. Change `StringPool` to owned storage. Interning remains collision-safe and
-   compiler-local; `Atom` comparison remains constant-time. Do not solve this
-   by retaining `Allocator` inside the pool.
-4. Introduce a compact syntax-node header and compare two payload layouts:
-   tagged `RulePayloadId` plus per-kind stores versus one inline rule enum.
-   Select using memory and end-to-end benchmarks, not enum aesthetics.
-5. Add generation/debug ownership assertions if stale cross-compilation IDs are
-   otherwise hard to diagnose. Do not enlarge release IDs beyond `u32` without
-   measured need.
-
-### Exit gate
-
-- Dense stores reject overflow deterministically.
-- Store/range property tests cover empty, boundary, append, tombstone, and
-  compaction cases.
-- Owned `StringPool` tests cover deduplication, exact collision handling,
-  compiler isolation, and stable serialization.
-
-## Phase 2: source-order declaration tape
-
-This phase lands before the complete rule-store migration because its order
-contract is required by every later range optimization.
-
-### Work
-
-1. Replace `DeclarationBlock { Vec<Declaration>, BitVec, previous_merged }`
-   with a block header, global `DenseStore<DeclarationId, Declaration>`, and
-   aligned importance/liveness sidecars.
-2. Rewrite `parse_style_contents` and every descriptor/declaration parser as a
-   streaming run builder:
-
-   ```text
-   begin run -> remember next DeclarationId
-   parse one property -> append slot immediately
-   encounter nested rule/end -> finish exact range
-   parse nested rule
-   begin later NestedDeclarations run at current cursor
-   ```
-
-3. Ensure error recovery either appends one lossless recovered declaration at
-   its lexical point or appends nothing. It must never defer a retained value.
-4. Convert block-local minify to mutate/tombstone global slots through IDs.
-   Preserve a narrow slice/range façade temporarily for algorithms that do not
-   yet need structural rewrites.
-5. Store source locations and importance by declaration ID. Add assertions that
-   sidecar lengths equal the declaration store length.
-
-### Exit gate
-
-- Every Phase 0 property-order fixture passes.
-- S1 regression: merging the two `a` rules in the parent/child fixtures never
-  includes `--p1`/`--p2` from the nested child.
-- Parser, declaration minifier, codegen, source-map, and upstream tests pass.
-- No `previous_merged` behavior is added to the new header.
-
-## Phase 3: flat rule topology and typed payload stores
-
-### Work
-
-1. Introduce `RuleId`, `SyntaxNode`, and per-rule-kind dense payload stores in
-   `crates/ast/src/css_rule.rs` and the corresponding `rules/*` modules.
-2. Parse rules directly into preorder slots. Maintain a small open-parent stack
-   and finalize `next_sibling` and `subtree_end` when a rule/list closes.
-3. Replace child `Vec<CssRule>` fields with topology. Preserve list identity and
-   barriers required by S1/S3; direct children must be iterable without scanning
-   descendants.
-4. Migrate rule kinds in bounded groups:
-   - style and nested-declarations;
-   - media/supports/container/layer and other grouping rules;
-   - declaration-owning non-style rules;
-   - leaf and unknown/custom rules;
-   - keyframes and nested keyframe payloads.
-5. Keep every migration commit compiling all consumers. A temporary accessor
-   façade may return IDs/views, but it must not recreate boxed tree ownership.
-
-### Tests
-
-- Topology table tests for empty lists, one child, multiple siblings, nested
-  descendants, opaque rules, and maximum supported nesting depth.
-- Preorder IDs follow rule source order.
-- `next_sibling` skips the complete preceding subtree.
-- `subtree_end` is the first rule after a subtree.
-- Recovery never creates dangling parent/sibling IDs.
-- Existing nesting and at-rule serialization fixtures remain byte-equivalent.
-
-### Exit gate
-
-- Recursive rule discovery is unnecessary for parent/sibling/subtree queries.
-- No `Pin`/`PhantomPinned` remains on style rules.
-
-## Phase 4: selector/value tapes and canonical effective keys
-
-### Work
-
-1. Replace selector-owned arena vectors with store headers and component ranges.
-   Benchmark this default against per-component IDs before committing the latter.
-2. Separate selector occurrence identity from canonical selector value identity.
-   Intern exact normalized values with `FxHashMap` buckets plus exact equality.
-3. Build parent-linked conditional/layer paths while parsing rules. Unsupported
-   at-rules contribute their occurrence `RuleId` as opaque frames; do not add
-   at-rule semantics in this branch.
-4. Finalize `EffectiveKeyId` after rule-local selector normalization. Replacing
-   an immutable selector value must immediately recompute the owner key.
-5. Attach the key to a uniquely owned declaration occurrence/header. Split
-   normal and important history phases as required; do not hide mixed phases in
-   one block-level scalar.
-6. Migrate remaining arena-backed aggregate value lists to owned dense ranges or
-   ordinary owned values, module by module. The end state cannot retain an
-   allocator merely for value children.
-
-### Tests
-
-- Equal separately authored selectors have different occurrence IDs and equal
-  canonical value IDs.
-- Different conditional stack order/multiplicity produces different key IDs.
-- Equal typed media/supports/container paths produce equal IDs only after exact
-  structural equality.
-- Layer, origin, and phase mismatches never share a history.
-- Opaque at-rule occurrences remain distinct even with identical text.
-- Selector minification replacement invalidates/recomputes the effective key.
-- Hash collision tests still perform exact comparison.
-
-### Exit gate
-
-- Cross-rule equality hot paths compare compact IDs.
-- No complete-path vector is allocated per declaration occurrence.
-
-## Phase 5: consumers and mutation API
-
-### Work
-
-1. Change visitor callbacks to receive typed IDs and compilation/store views.
-   Remove transparent callbacks below the useful property/selector granularity
-   as already planned; do not reproduce the old node explosion with ID APIs.
-2. Separate payload mutation from structural mutation:
-   - fixed-size replacement updates a store slot or replacement ID;
-   - removal/insertion/reparenting emits a `RewriteOp`;
-   - callers cannot hold a mutable payload reference while growing its store.
-3. Port nano modules along AST module boundaries. Use shared range and matching
-   abstractions instead of local store-index arithmetic.
-4. Port codegen to scan syntax topology and declaration ranges directly.
-5. Port clone/equality/debug/test helpers. Replace `CloneIn`, `FromIn`, and
-   `IntoIn` with ordinary owned cloning or compilation-aware ID reification.
-
-### Exit gate
-
-- Visitor, nano, and codegen suites pass without tree reconstruction.
-- No public API exposes store element addresses as stable identity.
-- No consumer requires an arena lifetime merely to traverse the AST.
-
-## Phase 6: cross-rule minify and terminal reification
-
-### Work
-
-1. Replace `walk_declaration_blocks` with direct source-order syntax/declaration
-   scanning. Build lazy S2 history links when an `EffectiveKeyId` repeats.
-2. Port live-sibling state to `RuleId` topology. S1/S3 candidates remain compact
-   `(u32, u32)` edge identities and revalidate current liveness before commit.
-3. Implement S1 range behavior:
-   - exactly adjacent ranges: coalesce header;
-   - gap containing tombstones only: coalesce after proof;
-   - gap containing a live foreign slot: retain ordered ranges until S5.
-4. Port S2 exact-declaration pruning to declaration IDs and tombstone sidecars.
-5. Make S3/S4 append synthesized payloads plus semantic insertion positions;
-   allocation order must never become output order.
-6. Implement S5 as one fresh-store rebuild that copies retained origins,
-   materializes replacements, writes topology, compacts declaration ranges, and
-   drops tombstones/retired state.
-7. Delete `previous_merged` and its codegen traversal only after S5 output is
-   covered by equivalence tests.
-
-### Tests
-
-- All S1-S5 fixtures and enabled cssnano fixtures.
-- Property-order fixtures before and after S1/S2/S5.
-- S1 cannot widen a parent range across a nested child's live declaration.
-- Synthesized S3 rule serializes at its planned position even when its payload
-  ID was allocated last.
-- S5 output has no tombstones, overlapping ranges, retired live links, or
-  dangling IDs.
-- Running minify twice is idempotent.
-- Tailwind and Bootstrap input/output comparisons detect wrong and missed
-  optimization separately.
-
-### Exit gate
-
-- `walk_declaration_blocks` and `previous_merged` are deleted.
-- Codegen consumes only committed flat stores.
-- CodSpeed compares the full pipeline and per-stage timings against every major
-  migration baseline.
-
-## Phase 7: remove legacy allocation infrastructure
-
-### Work
-
-1. Remove `allocator: &Allocator` from `Compiler`, parser entry points, parser
-   helpers, AST constructors, nano entry points, codegen helpers, and tests.
-2. Delete remaining uses of `rocketcss_common::boxed::Box`, allocator-backed
-   `vec::Vec`, arena hash collections, `CloneIn`, `FromIn`, and `IntoIn` from the
-   AST pipeline.
-3. Remove `Allocator` and arena container modules from `rocketcss_common` after
-   repository-wide `rg` proves there are no consumers. If an unrelated consumer
-   remains, separate it first; do not keep the AST API for compatibility.
-4. Replace `Allocator::with_ghost` with direct ghost-token scoping where the
-   brand is still required, then remove ghost state that existed only for arena
-   aliasing.
-5. Update examples, README/API documentation, benchmarks, size tooling, and
-   downstream integration fixtures.
-
-### Exit gate
-
-The following searches return no AST-pipeline matches:
-
-```text
-rg "rocketcss_common::boxed::Box|Allocator|CloneIn|FromIn|IntoIn" crates
-rg "Pin<|PhantomPinned|previous_merged|walk_declaration_blocks" crates
+```css
+a {
+  --p0: 0;
+  & b {
+    --p1: 1;
+  }
+  --p2: 2;
+}
 ```
 
-Any intentional remaining match must be outside AST ownership and documented
-with its own measured requirement.
+```css
+a {
+  & b {
+    --p0: 0;
+  }
+  --p1: 1;
+  @media (width > 1px) {
+    --p2: 2;
+  }
+  --p3: 3;
+}
+```
 
-## Commit and validation strategy
+Tests inspect declaration allocation and exact block ranges, not only output.
+Cover comments, recovery, custom properties, normal/important values, and
+non-style declaration owners.
 
-- Keep storage primitives, parser order changes, rule-kind migrations, consumer
-  ports, cross-rule changes, and allocator removal in independent commits.
-- Never combine a semantic minify change with a physical-layout benchmark
-  change unless the semantic behavior is already locked by tests.
-- Run `cargo fmt --all`, all Rust tests, and clippy at every phase boundary.
-- Run targeted parser/nano/codegen tests after each bounded migration commit.
-- Compare CodSpeed after Phases 2, 3, 4, 6, and 7. Retain changes only with
-  explained wins or with a necessary architectural role whose measured cost is
-  explicitly recorded.
-- Track parse, minify, and codegen separately: faster codegen must not hide a
-  parser regression, and a source-order bug must never be accepted for speed.
+### Exit gate
 
-## Primary risks and mitigations
+- Every authored declaration occurs in exactly one authored range.
+- Parent ranges never contain nested declarations.
+- `Local4` upgrades atomically on a fifth property.
 
-| Risk | Mitigation |
-| --- | --- |
-| Parser recursion allocates parent declarations late | Phase 0 physical ID-order tests fail before serialization can mask it |
-| Flat preorder is mistaken for direct-child range | Store `next_sibling` and `subtree_end`; test nested siblings explicitly |
-| S1 range union swallows nested declarations | Require adjacency/tombstone proof and run parent/child range fixtures |
-| Canonical ID hash collision changes semantics | Exact typed equality inside every interner bucket |
-| Selector mutation leaves stale effective key | Immutable selector values and replacement-triggered key recomputation |
-| Per-node IDs add excessive indirection | Benchmark inline payload, per-kind store, and range-tape alternatives |
-| S3 append order changes output order | Explicit semantic insertion positions and S5-only physical reorder |
-| Compatibility façade preserves old allocator indefinitely | Phase exit gates ban boxed/tree reconstruction and final `rg` checks |
-| S5 copy cost erases locality wins | Stage-level CodSpeed and allocation/peak-memory measurement |
+## Phase 4: flat rule topology
+
+### Work
+
+1. Move rule values into `RuleStore = RadixIndexArena<CssRule>`.
+2. Parse authored rules into the primary store in lexical preorder.
+3. Store `parent`, `parent_list`, `previous_sibling`, `next_sibling`, child-list
+   identity, flags, and revision.
+4. Migrate rule kinds in bounded groups:
+   - style and nested declarations;
+   - media/supports/container/layer and grouping rules;
+   - declaration-owning non-style rules;
+   - leaf/custom rules; and
+   - keyframes and page-related payloads.
+5. Port visitor and codegen traversal to IDs and topology.
+
+### Tests
+
+- Empty, single-child, multiple-sibling, and deeply nested lists.
+- `next_sibling` skips a complete preceding subtree.
+- Opaque wrapper occurrences retain distinct IDs.
+- Recovery creates no dangling topology.
+- Inserting a sibling changes only local topology and sparse Radix storage.
+
+### Exit gate
+
+- Parent/sibling/subtree queries need no recursive discovery.
+- Primary-only codegen retains contiguous traversal.
+
+## Phase 5: AST-owned EffectiveKeys
+
+### Work
+
+1. Keep `ContextPathInterner` and `EffectiveKeyInterner` on `Compilation`.
+2. Build parent-linked selector/wrapper/layer/origin context while parsing.
+3. Write a context seed or final key directly on each new block.
+4. Canonicalize selectors during rule-local minify and replace the owned key
+   immediately if selector identity changes.
+5. Make S3 selector-union creation return the final canonical selector and
+   EffectiveKey before AST insertion.
+6. Treat unsupported wrappers as opaque occurrence frames.
+
+### Tests
+
+- Exact selector/context equality shares a key.
+- Layer, origin, phase, wrapper path/order, and opaque occurrence mismatches do
+  not share keys.
+- Selector replacement updates all owned blocks.
+- Declaration-only changes leave keys unchanged.
+
+### Exit gate
+
+- Cross-rule equality compares compact AST-owned IDs.
+- Production code contains no full EffectiveKey reconstruction pass.
+
+## Phase 6: simplify Nano around AST IDs
+
+### Work
+
+1. Initialize scheduler sidecars by store iteration or fuse them into existing
+   block-local minify traversal.
+2. Delete production `DeclarationBlockDiscovery`,
+   `DeclarationBlockEntry`, `DeclarationBlockEntryId`, and owner reconstruction.
+3. Replace `SemanticOrderKey`/`SemanticSourceOrderKey` with fixed-width
+   `DeclarationBlockId` or `RuleId` ordering.
+4. Key S1 and S3 candidates by AST endpoint IDs and revisions.
+5. Build S2 histories lazily from `block.effective_key`, ordered by block ID.
+6. Keep declaration IR, property Bloom filters, rejection counters, and exact
+   movement proofs as sidecars.
+7. Remove global scheduler restart after S3.
+
+### Exit gate
+
+- Tailwind performs at most one initialization scan, not one scan per S3
+  commit.
+- Nano does not allocate a second flat block/effective-key table.
+- No source-order heap compares variable-length keys.
+
+## Phase 7: direct S1/S2/S3 mutation
+
+### Work
+
+1. Make S1 commit declaration representation and retire/unlink owners locally.
+2. Make S2 update declaration liveness/representation and dirty only affected
+   histories/edges.
+3. Make S3:
+   - validate endpoint topology and movement;
+   - intern selector union and EffectiveKey;
+   - allocate local sibling keys;
+   - insert rule/block values into Radix stores;
+   - update topology/history; and
+   - enqueue affected S1/S2/S3 work.
+4. Apply exact ID remaps if a rare local relabel occurs.
+5. Reject stale candidates by endpoint revisions.
+
+### Tests
+
+- S3 exposes an earlier S1 edge and it is scheduled deterministically.
+- S3 creates a non-adjacent same-key S2 history occurrence.
+- Overlapping partial merges stabilize without global restart.
+- Multiple insertions in one authored interval preserve old deterministic
+  output.
+- Nested lists and wrapper barriers remain isolated.
+
+### Exit gate
+
+- Scheduler work grows with changed edges/histories, not total blocks times
+  committed candidates.
+- Synthesized AST nodes already occupy final semantic positions.
+
+## Phase 8: reduce S4/S5 to representation and cleanup
+
+### Work
+
+1. Keep S4 only for lossless declaration-representation choices that cannot be
+   committed earlier.
+2. Attach deferred representation plans to affected block state.
+3. Make S5 finalize those plans, verify stable queues, unlink remaining retired
+   nodes, and drop merge-only sidecars.
+4. Remove fresh-store rebuilding used only to recover order.
+5. Delete `previous_merged` and its codegen traversal.
+6. Benchmark optional tombstone/overflow compaction separately.
+
+### Exit gate
+
+- Codegen consumes the live Radix AST directly.
+- S5 performs no semantic choice and creates no new S1-S4 work.
+- Compaction is optional and justified by measurement.
+
+## Validation strategy
+
+At every phase:
+
+```text
+cargo fmt --all
+cargo test -p affected-crate
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+```
+
+At AST/Nano boundaries run all Rust tests, enabled cssnano fixtures, Tailwind
+and Bootstrap byte comparisons, and full CodSpeed. Track parse, minify, codegen,
+peak memory, primary length, sibling-group count, local relabels, and overflow
+upgrades independently.
+
+## Commit strategy
+
+- Keep common-store primitives, AST migration, parser order, EffectiveKey
+  ownership, Nano simplification, and direct mutation in separate commits.
+- Do not combine semantic merge changes with physical-layout experiments.
+- Retain a layout optimization only when a focused benchmark exposes the hot
+  operation, as with the sibling-index/tree SoA split.
+- Preserve test-only structural walkers as independent oracles if useful, but
+  never call them from the production minify path.

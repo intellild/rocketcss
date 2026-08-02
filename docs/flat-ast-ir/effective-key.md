@@ -1,107 +1,147 @@
-# Effective keys in the flat IR
+# Effective keys as AST data
+
+## Purpose
+
+`EffectiveKeyId` identifies the exact selector and cascade context in which a
+declaration block participates in cross-rule history. Equality is intentionally
+strict: this branch merges only when all modeled conditions are identical and
+does not interpret at-rule equivalence.
 
 ## Identity layers
 
-Occurrence identity and semantic value identity must not be conflated:
+Occurrence identity and canonical value identity remain separate:
 
-- `SelectorId` identifies one authored or synthesized selector occurrence.
+- `RuleId` identifies one authored or synthesized rule occurrence.
 - `SelectorValueId` identifies one canonical selector value.
 - `ContextPathId` identifies one canonical parent-linked wrapper path.
-- `EffectiveKeyId` identifies the complete exact merge-history key.
+- `EffectiveKeyId` identifies the complete exact history key.
 
-Two separately authored `a` rules therefore have different occurrence IDs but
-the same selector value ID. Interners use `FxHashMap` buckets and exact typed
-equality; a fingerprint is never semantic proof.
+Two separately authored `a` rules have different `RuleId` values but may share
+the same selector value and EffectiveKey.
 
 ```rust,ignore
-struct ContextPathNode {
-    parent: ContextPathId,
-    frame: ContextFrameId,
-}
-
 struct EffectiveKeyData {
     selector_path: SelectorPathId,
     condition_path: ContextPathId,
     layer: LayerContextId,
-    origin_and_phase: u32,
+    origin: OriginId,
+    cascade_phase: CascadePhase,
     history_segment: HistorySegmentId,
 }
 ```
 
-Interning this structure yields `EffectiveKeyId(u32)`. S1/S2 equality then
-compares a compact ID, while structural equality is paid once at the interning
-boundary.
+The interner uses `FxHashMap` buckets and exact typed equality. A fingerprint is
+only a candidate lookup key.
 
-## Parser and normalization boundary
+## Construction belongs to parsing and local normalization
 
-The parser can compute context-path IDs as it enters and leaves rules. A final
-effective key depends on the selector value after rule-local selector
-normalization, so it is finalized at one of two safe points:
+The parser already has the complete parent selector, wrapper, layer, origin,
+and cascade context when it creates a declaration block. It builds
+parent-linked context IDs incrementally and writes a key seed directly to the
+AST block.
 
-1. parse stores a context seed, then selector-local minify assigns the final
-   canonical selector and `EffectiveKeyId`; or
-2. selector nodes are immutable, every replacement appends a new canonical
-   value, and the owner immediately recomputes its key.
+```text
+enter selector or wrapper
+  update parent-linked context IDs
+       ↓
+parse declaration run
+  append DeclarationBlock to RadixIndexArena
+  store context seed/final EffectiveKeyId on the block
+       ↓
+selector-local minify
+  canonicalize selector value
+  replace the block's EffectiveKeyId if selector identity changed
+```
 
-The implementation must not leave a parse-time key attached to a selector that
-was mutated in place. Immutable value nodes plus replacement IDs are the target
-model because they also make cache invalidation explicit.
+There is no later recursive walk that rediscovers block owners and rebuilds
+keys into a transient flat vector.
 
-## Context contents
+The preferred representation makes canonical selector values immutable. A
+selector transform creates or reuses another `SelectorValueId` and updates all
+owned declaration-block keys in the same operation. If in-place selector
+mutation remains temporarily, its API must invalidate/recompute keys before
+returning.
 
-An effective key contains exact layer, origin, cascade phase, conditional path,
-selector path, and history-segment identity. The first implementation compares
-conditions only when their canonical typed representations are exactly equal.
+## AST ownership
 
-This branch does not interpret at-rule semantics. A supported typed conditional
-frame may use its canonical value ID; an unsupported or opaque wrapper uses its
-occurrence `RuleId` as an opaque frame. Thus two declarations never merge merely
-because two unmodeled at-rules serialize similarly.
-
-Importance/cascade phase is carried with declaration history entries when a
-block contains both normal and important declarations. It must not be erased by
-a block-level key. Origin is supplied by compilation/parser configuration.
-
-## Ownership
-
-The target flat AST enforces one semantic syntax owner for every live
-`DeclarationBlock`, so `EffectiveKeyId` is stored directly on the block:
+Every live declaration block owns its key:
 
 ```rust,ignore
 struct DeclarationBlock<'ast> {
+    owner: DeclarationBlockOwner,
     declarations: DeclarationList<'ast>,
     effective_key: EffectiveKeyId,
-    flags: DeclarationBlockFlags,
     revision: u32,
+    flags: DeclarationBlockFlags,
 }
 ```
 
-There is no separate `DeclarationOccurrence { block, effective_key }` wrapper
-and no minify-time owner reconstruction. A rule may be redirected to a retained
-block header during S1, but two simultaneously live syntax positions must not
-share one mutable block under different selector or wrapper contexts.
+Nano consumes `block.effective_key` directly. It does not own an
+`EffectiveKeyStore` whose IDs disappear after discovery, and it does not create
+`DeclarationOccurrence { block, effective_key }` wrappers.
 
-Selector replacement, S3 selector union, or structural movement into a new
-context recomputes the owned block key immediately. Declaration-only edits do
-not invalidate it.
+The interner and canonical key records are compilation-owned because S3 must
+intern a selector union. A synthesized block receives its final key before its
+Radix insertion becomes visible to queues.
 
-## Cost model
+## Exact context contents
 
-Key construction is incremental:
+The key includes:
+
+- canonical selector path;
+- exact conditional/wrapper path;
+- layer;
+- origin;
+- cascade phase/history segment; and
+- any other modeled context required by CSS cascade equality.
+
+Importance remains declaration-local when one block mixes normal and important
+declarations. S2 histories use `(EffectiveKeyId, PropertyId, importance)` and
+must not erase the phase through one block-level scalar.
+
+Supported typed wrappers may intern canonical values. Unsupported or unmodeled
+wrappers contribute their occurrence `RuleId` as an opaque frame. Identical
+serialization does not make two opaque occurrences equal.
+
+## Invalidation rules
+
+| Mutation                                         | EffectiveKey action                      |
+| ------------------------------------------------ | ---------------------------------------- |
+| Declaration value/delete/tombstone               | unchanged                                |
+| Selector canonical replacement                   | recompute immediately                    |
+| S3 selector union                                | intern and assign before insertion       |
+| Move to another wrapper/list/layer/origin        | recompute immediately                    |
+| Local Radix ID relabel without semantic movement | unchanged                                |
+| Rule retirement                                  | key remains available until pass cleanup |
+
+Block revision increments are separate from key identity. A declaration-only
+mutation may invalidate effect summaries without changing EffectiveKey.
+
+## Nano histories
+
+Nano builds histories lazily from AST values:
 
 ```text
-enter selector/at-rule
-  intern one parent-linked frame
+iterate DeclarationBlockStore in Radix order
        ↓
-encounter declaration run
-  combine selector path + condition path + cascade fields
+read block.effective_key
        ↓
-  intern EffectiveKeyData
-       ↓
-store EffectiveKeyId on the DeclarationBlock
+first occurrence: remember endpoint
+second occurrence: create intrusive history
+later occurrence: insert by DeclarationBlockId order
 ```
 
-There is no full-stylesheet `walk_declaration_blocks` prepass in the target
-pipeline. The parser and selector-local normalization already possess all
-required context. S2 history links may be created lazily when an effective key
-is observed for the second time.
+Because `DeclarationBlockId` already encodes semantic position, histories do
+not allocate or compare `SemanticSourceOrderKey` values.
+
+## Required tests
+
+- Equal selectors and exact equal contexts intern the same key.
+- Layer, origin, cascade phase, wrapper order, or wrapper multiplicity mismatch
+  produces a different key.
+- Opaque wrapper occurrences remain distinct even with identical text.
+- Selector replacement updates every owned block key before Nano runs.
+- S3 assigns the synthesized block key before enqueueing its histories/edges.
+- Declaration-only changes do not rebuild the key.
+- Hash collisions still require exact structural equality.
+- Production Nano performs no full key-reconstruction walk.

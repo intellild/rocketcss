@@ -6,18 +6,18 @@
 - [S1: same-selector coalescing](./s1-same-selector-coalescing.md)
 - [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md)
 - [S3: selector partial factoring](./s3-selector-partial-factoring.md)
-- [S4: AST reification planning](./s4-ast-reification-planning.md)
-- [S5: AST reification commit](./s5-ast-reification-commit.md)
+- [S4: lossless representation planning](./s4-ast-reification-planning.md)
+- [S5: terminal commit and cleanup](./s5-ast-reification-commit.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
 - [Non-goals](./non-goal.md)
 
 ## Responsibility
 
-In the target [flat AST IR](../flat-ast-ir/README.md), synthesized payloads may
-be appended to dense stores, but their allocation IDs do not define output
-order. Every committed S3 result carries a semantic insertion position for S4
-and S5.
+In the target [Radix AST IR](../flat-ast-ir/README.md), a synthesized rule is
+inserted at its final local sibling-Radix position. Its `RuleId` and
+`DeclarationBlockId` define stable identity and order; S4/S5 do not carry a
+separate semantic insertion key.
 
 S3 factors a provably movable common effect sequence from two live-adjacent
 rules with different selectors:
@@ -32,28 +32,27 @@ S3 is split into speculative candidate discovery and atomic candidate commit.
 Discovery does not mutate semantic state. Commit occurs only after S1 and S2
 work capable of changing either endpoint is stable.
 
-S3 does not choose the physical AST declaration representation or insert a
-physical AST rule. Those responsibilities belong to
-[S4](./s4-ast-reification-planning.md) and
-[S5](./s5-ast-reification-commit.md).
+S3 proves the common/residual effects and atomically inserts the physical AST
+rule after all fallible selector work succeeds. [S4](./s4-ast-reification-planning.md)
+still chooses deferred lossless declaration representations when required;
+[S5](./s5-ast-reification-commit.md) performs terminal cleanup.
 
-### Current nested-AST scheduler
+### Target Radix scheduler
 
-The current implementation uses `DeclarationBlockId` as the stable logical
-node identity even though the physical AST remains nested. One minify traversal
-builds the persistent EffectiveKey store, ordered histories, and live sibling
-graph. S1, S2, and S3 then enqueue local work into one priority scheduler.
+The AST provides stable block IDs, direct rule topology, final semantic order,
+and block-owned EffectiveKeys. One store iteration seeds declaration summaries,
+lazy histories, and initial edges. S1, S2, and S3 then enqueue local work into
+one persistent scheduler.
 
-`PartialMergeCandidateList` is ordered by semantic source position so an
-incrementally exposed earlier edge has the same priority as a fresh
-source-ordered scan. S3 appends a shared declaration block, interns its selector
-union key, inserts the occurrence into the ordered S2 history, and atomically
-replaces the logical edge. It does not insert or remove a physical `CssRule`.
+`PartialMergeCandidateList` is ordered by fixed-width endpoint AST IDs so an
+incrementally exposed earlier edge has the same priority as a fresh store-order
+scan. S3 interns the selector union and EffectiveKey, inserts the shared rule
+and block at the final Radix position, updates S2 history/topology, and
+atomically replaces the edge.
 
-After the S1-S3 fixed point, the scheduler consumes all borrowed authored
-selector views and produces an owned reification plan. S5 then walks each
-nested rule list once, retains live authored rules, and emits synthesized style
-rules at their semantic positions.
+After the S1-S3 fixed point, S4 finishes any deferred declaration
+representation. S5 drops merge-only state and optionally compacts tombstones;
+it does not emit a second copy of synthesized rules.
 
 ## Candidate input state
 
@@ -83,7 +82,6 @@ struct PartialMergePlan<'ast> {
     common: EffectPlan<'ast>,
     right_only: EffectPlan<'ast>,
     selectors: SynthesizedSelectorPlan<'ast>,
-    insertion_order: SemanticSourceOrderKey,
 }
 ```
 
@@ -135,7 +133,7 @@ edge identity
 + common effect plan
 + immutable selector-arm origins
 + synthesized selector plan
-+ semantic insertion position
++ endpoint IDs defining the local Radix insertion interval
 + proof that all three result sequences are losslessly reifiable
 ```
 
@@ -146,9 +144,10 @@ It changes neither the effect IR nor the AST.
 A successful atomic commit:
 
 1. marks the common endpoint effects dead;
-2. creates an independent logical synthesized rule and effect sequence;
+2. creates and inserts an independent synthesized rule/block at the final
+   local Radix position;
 3. materializes and validates the selector union for semantic use;
-4. inserts the synthesized history occurrence in semantic order;
+4. inserts the synthesized history occurrence by `DeclarationBlockId`;
 5. recomputes endpoint liveness;
 6. reconnects the final live neighborhood once; and
 7. dirties every affected history and final incident edge.
@@ -163,7 +162,7 @@ Possible final neighborhood states are:
 | Both empty                                 | `previous -> shared -> next`                  |
 | Right has retained children but no effects | `previous -> shared -> right -> next`         |
 
-The synthesized rule is logical state only. It becomes an AST node in S5.
+The synthesized rule is live AST state after the atomic commit.
 
 ## Transition examples
 
@@ -196,7 +195,7 @@ Logical commit output:
 
 ```text
 a   -> effects [margin: 0]
-a,b -> effects [color: red]  (logical synthesized rule)
+a,b -> effects [color: red]  (inserted synthesized rule)
 b   -> effects [padding: 0]
 ```
 
@@ -460,15 +459,15 @@ See [S2 history generation states](./s2-declaration-effect-pruning.md#history-ge
 
 ### Effect on S4
 
-S3 supplies three logical effect plans, selector origins, insertion order, and
+S3 supplies three logical effect plans, selector origins, inserted AST IDs, and
 final owners. S4 must plan a lossless AST representation for every retained
 residual and the shared sequence. See
 [S4 synthesized-rule input](./s4-ast-reification-planning.md#synthesized-rule-input-state).
 
 ### Effect on S5
 
-S5 inserts the validated synthesized selector and rule at the exact planned
-AST position. It cannot recalculate the union or change the partition. See
+S5 verifies the validated synthesized selector/rule is already in its committed
+Radix position. It cannot recalculate the union or change the partition. See
 [S5 synthesized-rule commit](./s5-ast-reification-commit.md#synthesized-rule-commit).
 
 ## Invariants
@@ -486,8 +485,8 @@ AST position. It cannot recalculate the union or change the partition. See
   immediately.
 - Existing endpoint and ancestor selector ASTs remain immutable.
 - Commit is one atomic live-graph transition.
-- Synthesized histories use semantic insertion order.
-- Physical AST insertion is deferred to S5.
+- Synthesized histories use `DeclarationBlockId` order.
+- Physical AST insertion is part of the atomic S3 commit.
 
 ## Completion condition
 

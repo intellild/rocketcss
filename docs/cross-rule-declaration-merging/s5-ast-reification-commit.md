@@ -1,154 +1,103 @@
-# S5: AST reification commit
+# S5: terminal commit and cleanup
 
 ## Document map
 
 - [Overall design](./overall.md)
-- [S1: same-selector coalescing](./s1-same-selector-coalescing.md)
-- [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md)
-- [S3: selector partial factoring](./s3-selector-partial-factoring.md)
-- [S4: AST reification planning](./s4-ast-reification-planning.md)
-- [S5: AST reification commit](./s5-ast-reification-commit.md)
-- [Detailed state machine](./detailed-state-machine.md)
-- [Pseudocode](./pseudo-code.md)
-- [Non-goals](./non-goal.md)
+- [S1](./s1-same-selector-coalescing.md)
+- [S2](./s2-declaration-effect-pruning.md)
+- [S3](./s3-selector-partial-factoring.md)
+- [S4](./s4-ast-reification-planning.md)
+- [Radix AST IR](../flat-ast-ir/README.md)
 
 ## Responsibility
 
-In the complete S1-S5 design, S5 is the only stage that writes the stable
-cross-rule merge result into the final stylesheet representation. The target
-representation is the [flat source-order AST IR](../flat-ast-ir/README.md).
+S5 is the one-way terminal boundary after the S1-S4 fixed point. In the target
+Radix AST it is not a mandatory fresh-store rebuild and does not restore
+semantic order. Authored primary nodes and synthesized sibling nodes already
+occupy their final positions.
 
-The current S1/S2 implementation has transitional commit passes. S1 writes
-`previous_merged` links and selector tombstones. Incremental S2 may tombstone
-only exactly duplicated earlier declaration occurrences and compact retired
-leaf rules. This exception exists only until the S4 plan and S5 commit are
-implemented; it must not include cross-block shorthand/longhand or columns
-rewrites and must not be extended to S3.
+S5:
 
-It consumes the complete S4 plan and performs a one-way compacting commit:
+- materializes any declaration representation deferred by S4;
+- finishes planned unlink/removal not already committed locally;
+- verifies topology, owners, EffectiveKeys, and Radix order;
+- clears histories, summaries, queue membership, revisions, and retired
+  pass-local relationships; and
+- optionally compacts tombstones/overflow lists when measurement justifies it.
 
-- write declarations and importance bits;
-- materialize typed replacement declarations;
-- insert synthesized rules and selector lists;
-- remove planned nodes, compact rule/declaration tapes, and rebuild topology;
-  and
-- release merge-only storage and revision state.
-
-S5 makes no semantic, candidate, selector-union, or profitability decision.
-Code generation is outside this minify pipeline and later consumes only the
-ordinary committed flat IR.
+S5 makes no semantic, selector-union, movement, compatibility, or profitability
+decision.
 
 ## Input state
 
-S5 requires:
-
 ```text
-S1-S4 stabilization fixed point = true
-S4 ast_plan.complete             = true
-all plan dependency revisions    = current
-state.reified                    = false
+S1-S4 scheduler fixed point       = true
+all history generations consumed = true
+all S4 plans complete/current     = true
+all synthesized AST IDs final     = true
+state.committed                   = false
 ```
 
-If the plan is incomplete, S5 does not partially commit. The missing decision
-belongs to [S4](./s4-ast-reification-planning.md#completion-condition).
+If a plan is incomplete or stale, S5 does not partially finalize. The affected
+S4 item or semantic dependency is re-enqueued.
 
-### Plan input states
+## Visibility before S5
 
-| Plan item         | Required state                                                                 |
-| ----------------- | ------------------------------------------------------------------------------ |
-| Sequence          | One final output owner and one declaration representation.                     |
-| Reused origin     | Points to retained authored storage and has exact planned order.               |
-| Typed replacement | Fully materializable without semantic analysis.                                |
-| Synthesized rule  | Has validated selectors, declaration plan, owner list, and insertion position. |
-| Removal           | Refers to a logically dead node and respects post-order ownership.             |
-| Retired storage   | Remains pinned until all consumers are written.                                |
+The live Radix AST already contains committed S1-S3 structural changes:
 
-### Pre-commit visibility states
+- synthesized S3 rules/blocks are addressable at final IDs;
+- locally retired endpoints are absent from live topology;
+- block-owned EffectiveKeys are current; and
+- affected histories/edges have reached a fixed point.
 
-Before commit, the AST may still contain:
-
-| State                      | Meaning                                                         |
-| -------------------------- | --------------------------------------------------------------- |
-| Authored stale declaration | Its effect may be dead in IR, but the AST node still exists.    |
-| Retired S1 rule shell      | It is absent from live adjacency but still owns pinned storage. |
-| Missing S3 shared rule     | The logical synthesized rule is not yet in the AST.             |
-| Logically dead node        | S4 plans removal, but the AST still owns it.                    |
-
-S5 resolves all of these differences. Synthesized store allocation order is
-never used as output order; the plan's semantic insertion positions are
-authoritative.
+The AST may still contain tombstoned declarations, retired storage needed by a
+deferred plan, or a declaration block whose final representation is pending.
 
 ## Declaration commit states
 
-For each `AstDeclarationPlan`:
+For each S4 plan:
 
-| Input plan     | S5 action                                                                             | Output AST state                                                   |
-| -------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `ReuseOrigins` | Move or clone the planned authored occurrences into the final owner in planned order. | Exact authored syntax and fallback order retained.                 |
-| `Materialize`  | Build the listed typed AST declarations and importance bits.                          | Exact typed replacement sequence present.                          |
-| `Mixed`        | Interleave retained origins and replacements according to the complete order plan.    | Opaque/fallback origins and typed replacements coexist losslessly. |
-| Empty sequence | Write no leading declarations.                                                        | Owner may remain only for retained children.                       |
+| Plan           | S5 action                                                        |
+| -------------- | ---------------------------------------------------------------- |
+| `ReuseOrigins` | Point at/coalesce an exact range or copy origins in exact order. |
+| `Materialize`  | Build the listed typed declarations and importance bits.         |
+| `Mixed`        | Interleave retained origins and typed replacements exactly.      |
+| Empty          | Store an empty list; owner may remain for children.              |
 
-S5 does not ask whether a declaration is dead; that decision was made by S2
-and encoded by S4.
+The final block chooses `Range`, `Local4`, or complete `Overflow` according to
+S4. S5 never lets a compact range absorb a foreign live declaration.
 
-## Output state
+## Structural cleanup
 
-After successful commit, S5 has allocated fresh dense stores and emitted all
-surviving values in semantic order:
+Planned removals are applied post-order so child ownership remains valid. A
+retired rule ID is not reused. Sparse sibling groups may remain allocated until
+the compiler arena is dropped; removing every empty Radix page is optional and
+must not slow the common pass.
 
-| State component           | Required output                                                |
-| ------------------------- | -------------------------------------------------------------- |
-| Stylesheet flat IR        | Exactly represents the stable live effect and ownership state. |
-| Declaration owners        | Each retained sequence is written to exactly one output owner. |
-| Synthesized rules         | Present at their semantic insertion positions.                 |
-| Planned removals          | Physically absent; owning lists compacted.                     |
-| Retired storage           | No longer externally observable.                               |
-| Merge IR                  | Cleared or dropped.                                            |
-| Revisions and work queues | Cleared or dropped.                                            |
-| `state.reified`           | `true`.                                                        |
-| Codegen dependency        | Committed flat IR only.                                        |
+Local topology after cleanup must satisfy:
 
-### Ownership and storage output
+- first/last list endpoints resolve;
+- previous/next links are mutual;
+- every live child names the correct parent/list;
+- no live edge skips a retained barrier; and
+- every live rule-owned block points back to that owner.
 
-For an S1 sequence:
+## Optional compaction
 
-```text
-before S5:
-  left AST shell owns pinned authored block
-  right is logical active_output_owner
+Compaction is not required for correctness or ordering. It may:
 
-after S5:
-  right rule header owns one compact planned declaration sequence
-  left syntax node is omitted if planned
-  previous_merged/retired-storage links do not exist
-```
+- remove declaration tombstones;
+- shrink oversized overflow lists;
+- discard empty sparse sibling groups from lookup sidecars; or
+- merge other pass-local slack.
 
-No merge-only reference may be needed by code generation.
+Do not renumber primary IDs. A local sibling relabel is allowed only through the
+normal exact-remap transaction. Measure codegen, memory, and compaction cost
+before enabling any cleanup globally.
 
-## Commit ordering
+## Examples
 
-The conceptual commit order is:
-
-1. materialize declaration representations while all referenced origins remain
-   available;
-2. append declarations to the new tape and record compact ranges;
-3. emit retained and synthesized rules in semantic preorder;
-4. fill parent, direct-sibling, and subtree-end topology while omitting planned
-   removals;
-5. clear merge-only storage and revisions; and
-6. swap in the new stores and set `reified = true`.
-
-An implementation may batch these operations differently if it preserves the
-same dependency order and cannot expose a partially committed representation.
-After the flat migration, code generation requires no AST `Box`, arena-owned
-node, or address-stable reference.
-
-## Transition examples
-
-### Example 1: committing a pruned declaration
-
-Input AST before S5:
+### Pruned declaration
 
 ```css
 a {
@@ -157,246 +106,62 @@ a {
 }
 ```
 
-S4 plan:
-
-```text
-owner = a
-declarations = ReuseOrigins([color: blue])
-```
-
-S5 output AST:
+S2 proves `color:red` dead and S4 chooses the retained origin. S5 materializes
+or points at:
 
 ```css
 a {
   color: blue;
 }
 ```
-
-S5 did not calculate the override; it only applied the plan produced from
-[S2](./s2-declaration-effect-pruning.md#example-1-exact-longhand-override).
 
 ### Example 2: committing an S1 owner
 
-Input AST before S5:
+For adjacent equal-selector rules, S1 has already selected the right rule as
+live owner and unlinked the left endpoint. S5 finishes the chosen declaration
+list and drops the retired relationship. No `previous_merged` chain remains for
+codegen.
+
+### Synthesized-rule commit
+
+S3 has already inserted:
 
 ```css
-a {
-  color: red;
-}
-
-a {
-  background: white;
-}
-```
-
-S4 plan:
-
-```text
-sequence owner = second a rule
-declarations = ReuseOrigins([
-  first.color,
-  second.background,
-])
-removals = [first a rule]
-```
-
-S5 output:
-
-```css
-a {
-  color: red;
-  background: white;
-}
-```
-
-The first rule's storage is released only after its declaration origin has
-been written to the right owner.
-
-### Example 3: typed replacement for a partial shorthand
-
-S4 plan:
-
-```text
-Materialize([
-  margin-top: 1px,
-  margin-right: 1px,
-  margin-bottom: 1px,
-  margin-left: 2px,
-])
-```
-
-S5 output:
-
-```css
-a {
-  margin-top: 1px;
-  margin-right: 1px;
-  margin-bottom: 1px;
-  margin-left: 2px;
-}
-```
-
-S5 preserves planned order and importance bits. It does not attempt to
-recombine the declarations into `margin`.
-
-### Example 4: synthesized-rule commit
-
-Before S5, S3 and S4 logically describe:
-
-```text
-a   -> margin: 0
-a,b -> color: red
-b   -> padding: 0
-```
-
-S5 inserts the shared AST rule at its planned position:
-
-```css
-a {
-  margin: 0;
-}
-
 a,
 b {
   color: red;
 }
-
-b {
-  padding: 0;
-}
 ```
 
-The selector union was validated in
-[S3](./s3-selector-partial-factoring.md#example-9-invalid-selector-union-rejects-the-candidate)
-and placed in the plan by
-[S4](./s4-ast-reification-planning.md#example-7-planning-an-s3-synthesized-rule).
-S5 does not resolve it again.
+at its final sibling ID. S5 only completes its declaration representation and
+verifies topology; it neither repositions the rule nor recalculates selectors.
 
-### Example 5: retaining a child-only rule
+## Ownership and storage output
 
-S4 plan says the parent has no leading declaration sequence but has a retained
-child:
+Every retained declaration sequence has exactly one live AST owner. Retired S1
+shells and `previous_merged` adapters are absent from codegen-visible topology.
+Synthesized S3 nodes retain the IDs assigned during their atomic commit.
 
-```css
-a {
-  &:hover {
-    color: blue;
-  }
-}
-```
-
-S5 writes an empty leading declaration block if required by the AST shape and
-retains the parent shell. It does not remove `a`.
-
-### Example 6: post-order removal and compaction
-
-Input AST:
-
-```css
-@media (width >= 600px) {
-  a {
-    color: red;
-  }
-}
-
-b {
-  color: blue;
-}
-```
-
-If S4 plans removal of both `a` and the now-empty supported media wrapper, S5
-removes the child before compacting away the wrapper:
-
-```css
-b {
-  color: blue;
-}
-```
-
-### Example 7: preserving fallback order
-
-S4 plan:
+## Output state
 
 ```text
-ReuseOrigins([
-  display: -webkit-box,
-  display: flex,
-])
+live Radix AST exactly represents stable effects
+every live block has one owner and current EffectiveKey
+all pending declaration plans committed
+all work queues and histories dropped
+no merge-only relationship observable by codegen
+state.committed = true
 ```
 
-S5 output:
-
-```css
-a {
-  display: -webkit-box;
-  display: flex;
-}
-```
-
-Origin order is copied exactly. S5 never stores these declarations in an
-unordered single-value property map.
-
-## Synthesized-rule commit
-
-For each synthesized plan, S5:
-
-1. uses the already materialized and validated local selector list;
-2. builds the final style-rule AST wrapper with the planned emission identity;
-3. writes the planned declarations and importance bits;
-4. attaches source spans or combined origins;
-5. inserts the rule into its owning list at the semantic position; and
-6. preserves surrounding retained child and wrapper order.
-
-Any operation that could semantically reject the selector or declaration plan
-must have occurred before S5. Allocation failure handling is an implementation
-concern, not a new optimization choice.
-
-## Effects on other stages
-
-S5 is terminal for this minify invocation:
-
-- it does not return to [S1](./s1-same-selector-coalescing.md);
-- it does not rerun [S2](./s2-declaration-effect-pruning.md);
-- it does not recompute [S3](./s3-selector-partial-factoring.md); and
-- it does not revise [S4](./s4-ast-reification-planning.md).
-
-If S5 would need any such decision, the S4 plan is incomplete and commit must
-not begin.
-
-After S5, the next consumer is ordinary code generation:
-
-```text
-rewritten stylesheet AST -> code generation
-```
-
-Code generation has no link back to merge IR, effect indexes, candidates,
-histories, or retired storage.
+Codegen traverses ordinary rule topology and Radix store segments. It does not
+read Nano state or make declaration-effect decisions.
 
 ## Invariants
 
-- S5 starts only with a complete S4 plan.
-- S5 is the only stage that commits physical ownership for this feature.
-- Every retained sequence is written exactly once.
-- Planned declaration order, fallback order, prefixes, and importance survive.
-- Synthesized selectors and rules use their already validated plans.
-- Removals occur only for nodes listed by S4.
-- Retained child-only, opaque, and unsupported nodes remain present.
-- Referenced authored storage is consumed before retired shells are removed.
-- S5 makes no semantic or profitability decision.
-- S5 does not create new S1-S4 work.
-- Merge-only state is unobservable after commit.
-- Code generation receives only the ordinary AST.
-
-## Completion condition
-
-Minification is complete when:
-
-```text
-semantic fixed point is still true
-ast_plan.complete == true
-state.reified == true
-no merge-only storage is observable from the AST
-```
-
-A second minify invocation may rediscover state from the rewritten AST, but the
-first invocation never loops from S5 back into S1-S4.
+- S5 starts only at the complete fixed point.
+- S5 makes no new semantic or profitability choice.
+- Synthesized allocation IDs already equal final semantic positions.
+- Primary IDs remain stable.
+- Cleanup creates no new S1-S4 work.
+- Optional compaction is byte-equivalent to uncompacted output.
+- Running minify again is idempotent.

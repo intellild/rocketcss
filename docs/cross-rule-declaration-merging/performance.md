@@ -22,7 +22,7 @@ selector component. An S1 rule participates in at most two adjacent
 comparisons, which is not enough reuse to amortize a full hash.
 
 S1 should therefore use `equal_live_selectors` directly in the current nested
-AST. The [flat source-order AST IR](../flat-ast-ir/README.md) changes the cost
+AST. The [Radix source-order AST IR](../flat-ast-ir/README.md) changes the cost
 boundary: selector/context canonicalization happens once during parse and
 rule-local normalization, then S1 compares `EffectiveKeyId` values. Exact
 structural equality remains the collision-safe check inside the interner, not
@@ -36,11 +36,9 @@ enforces that rule at commit time, but costs another 1-2 ms on the current
 Bootstrap and Tailwind inputs. It also performs two declaration-block pointer
 map lookups for every adjacent style-rule pair.
 
-`DeclarationBlockEntry` now records `RuleListId`, `RuleListSegmentId`, and
-`SiblingOrdinal`, and candidate discovery rejects entries whose structural
-locations do not form a direct edge. The target flat syntax tape stores parent,
-next-sibling, and subtree-end metadata directly, eliminating both the rewalk
-and pointer map.
+The transitional `DeclarationBlockEntry` records structural location. The
+target Radix AST removes the entry entirely: rule topology stores parent/list
+and direct-sibling links, eliminating both the rewalk and pointer map.
 
 ## Allocation and indexing candidates
 
@@ -86,20 +84,15 @@ with the stylesheet. They are not stored as one-element vectors in
 
 ### Effective-key path cost
 
-The ordinary minify traversal now builds compact parent-linked selector and
-conditional paths with rolling fingerprints after rule-local normalization,
-then interns each path pair into a dense `EffectiveKeyId`. Production no longer
-runs a second recursive declaration-block walk. When cross-rule merging is
-disabled, the collector and its path stores are not created.
+The current minify traversal builds compact parent-linked selector and
+conditional paths after rule-local normalization. In the target Radix AST,
+parsing maintains those paths and writes `EffectiveKeyId` directly on every
+declaration block; selector replacement recomputes it immediately.
 
-The persistent scheduler retains the path records so an S3 selector union can
-receive an EffectiveKey incrementally. Histories are ordered by semantic source
-position, not declaration-block allocation order, because synthesized blocks
-are appended to the dense store but inserted between authored occurrences.
-
-The remaining target flat-IR opportunity is to compute these context IDs while
-parsing. That would remove the interning work from minify as well, but is not
-required to avoid another AST traversal.
+The compilation-owned interner retains canonical records so an S3 selector
+union can receive a key before insertion. Histories are ordered by
+`DeclarationBlockId`, including synthesized sibling IDs. Nano does not own a
+collector/path store and performs no key-reconstruction traversal.
 
 ### Persistent S1-S3 scheduling
 
@@ -109,9 +102,10 @@ Tailwind fixture this performed 4,020 collections for 4,019 S3 commits and took
 about 10.39 seconds locally.
 
 The persistent scheduler keeps block liveness, ordered EffectiveKey histories,
-endpoint revisions, and candidate queues across commits. S3 updates only the
-changed edge and histories; a later single reification pass writes the logical
-result back to the nested AST. Local release samples completed Bootstrap in
+endpoint revisions, and candidate queues across commits. In the target Radix
+AST, S3 updates the changed edge/histories and inserts the shared node directly
+at its final sibling ID; no later global reification pass restores order. Local
+release samples completed Bootstrap in
 about 1.0-1.2 ms and Tailwind in about 17-21 ms. Minified output for both
 fixtures was byte-identical to the pre-refactor S3 branch.
 
@@ -130,7 +124,7 @@ boundary and replace an occurrence ID when selector minification changes it.
 Do not retain mutable shared selector nodes or a compatibility layer of arena
 references.
 
-## Flat storage and allocation
+## Radix storage and allocation
 
 Current representative type sizes are `CssRule = 16`, `StyleRule = 64`,
 `DeclarationBlock = 64`, `Declaration = 32`, `Selector = 32`, and
@@ -138,18 +132,19 @@ Current representative type sizes are `CssRule = 16`, `StyleRule = 64`,
 range words, an effective-key ID, and compact flags can approach 16 bytes,
 while declaration payloads remain in a contiguous tape.
 
-The expected wins are fewer pointer loads, no recursive declaration-block
-discovery, compact ID comparisons, and sequential parse/minify/codegen scans.
-The risks are excessive per-node indirection, interner construction cost, and
-extra S5 copying. Measure parse, minify, codegen, peak memory, and output size
+The expected wins are no recursive declaration-block discovery, AST-owned
+EffectiveKeys, compact ID comparisons, contiguous authored traversal, and
+local structural insertion. The risks are semantic-iterator overhead after
+insertions, sparse-group lookup, local key exhaustion, and payload
+indirection. Measure parse, minify, codegen, peak memory, and output size
 separately.
 
-Once all AST owners use dense stores, `rocketcss_common::boxed::Box`,
-`rocketcss_common::Allocator`, and allocator-taking compiler/parser APIs are
-pure overhead and should be deleted. The compiler-scoped atom pool becomes
-self-owned. Any future pass-local scratch facility is an independent,
-benchmark-driven choice and must not keep the current allocator or
-address-based AST APIs alive.
+`RadixIndexArena` and large AST payload boxes deliberately use the
+compiler-owned allocator. Arena addresses are not semantic IDs, but arena
+allocation keeps sparse Radix pages and large payloads stable and cheap to
+discard together. Removing allocator infrastructure is no longer a goal of
+this storage design; benchmark individual payloads before changing inline
+versus boxed ownership.
 
 ### Compress initial maximal same-selector runs
 
@@ -375,7 +370,7 @@ The useful signals are:
   reproduction.
 
 This history favors isolated migrations over representation-wide rewrites.
-Keep the [flat AST design](../flat-ast-ir/README.md) as a target, but require a
+Keep the [Radix AST design](../flat-ast-ir/README.md) as a target, but require a
 benchmark gate after each independently useful storage boundary.
 
 ### Migrate the declaration tape before the complete rule tree
@@ -384,7 +379,7 @@ The only confirmed storage win in this history is the narrow dense
 declaration-block change. Implement the global source-order declaration tape
 and exact block ranges independently of flat rule, selector, and value
 storage. This removes declaration-block pointer chasing and enables range-based
-S1/S5 work without forcing parse and codegen through an ID lookup for every AST
+S1/S4 work without forcing parse and codegen through an ID lookup for every AST
 node.
 
 The phase must preserve the source-order property allocation contract and

@@ -1,101 +1,43 @@
 # Storage layout
 
-## Compilation-owned stores
+## Compiler ownership
 
-`Compiler` owns the source, source map, atom pool, arena, and the mutable stores
-for one parsed compilation. `StyleSheet` is a compact range header and metadata;
-it does not own a recursive Rust object graph.
+`Compiler` owns one compilation's source, source map, atom pool, arena, AST
+stores, and semantic interners. `StyleSheet` is a lightweight root-list handle;
+it does not own nested Rust vectors that must later be rediscovered.
 
 ```rust,ignore
 struct Compilation<'ast> {
-    arena: Allocator,
+    allocator: Allocator,
+    string_pool: StringPool<'ast>,
 
-    rules: BTreeDenseStore<RuleId, ArenaBox<'ast, CssRule<'ast>>>,
-    declaration_blocks:
-        BTreeDenseStore<DeclarationBlockId, DeclarationBlock<'ast>>,
-    declarations:
-        BTreeDenseStore<DeclarationId, ArenaBox<'ast, Declaration<'ast>>>,
+    rules: RuleStore<'ast>,
+    declaration_blocks: DeclarationBlockStore<'ast>,
+    declarations: DeclarationStore<'ast>,
 
-    selectors: DenseStore<SelectorValueId, SelectorData<'ast>>,
+    selector_values: SelectorValueStore<'ast>,
     context_paths: ContextPathInterner,
     effective_keys: EffectiveKeyInterner,
-    declaration_block_hints: DeclarationBlockHintIndex<'ast>,
 }
+
+type RuleStore<'ast> =
+    RadixIndexArena<'ast, ArenaBox<'ast, CssRule<'ast>>>;
+
+type DeclarationBlockStore<'ast> =
+    RadixIndexArena<'ast, DeclarationBlock<'ast>>;
 
 struct StyleSheet {
-    rules: RuleList,
-    source: SourceId,
+    root_rules: RuleListId,
 }
 ```
 
-Rules, declaration blocks, and declarations have one global ordered store per
-entity kind. Former `Vec<T>` owners hold compact list headers into those stores.
-The B+ pages supply mutable sequence order; dense IDs and typed accessors keep
-relationships compact.
+Large payloads may remain arena boxed so local SoA insertion moves compact
+pointers. Stable relationships use typed IDs, never arena addresses.
 
-## `BTreeDenseStore`
+## Rules and topology
 
-The common sequence abstraction combines:
-
-- fixed-capacity B+ pages allocated from compiler-owned storage;
-- compact typed IDs or keys in leaf entries;
-- order-statistic subtree lengths for indexed access;
-- linked leaves for linear iteration; and
-- values stored inline only when small, otherwise behind arena boxes.
-
-```rust,ignore
-struct BTreeDenseStore<Id, T> {
-    pages: DenseStore<PageId, SequencePage<Id, T>>,
-    root: Option<PageId>,
-    len: u32,
-}
-```
-
-The exact internal lookup strategy may differ by ID kind. `DeclarationId` is a
-special order-maintenance key described in
-[Declaration ID encoding](./declaration-id-encoding.md). Rule and block stores
-may use stable dense IDs plus a compact position sidecar if benchmarks favor
-that representation.
-
-Moving or splitting a leaf containing `ArenaBox<Declaration>` copies only a
-pointer-sized value. The declaration enum and its nested value data remain at
-their arena address. This is why a mutable global sequence does not imply
-moving every declaration payload after an insertion.
-
-## List headers replace AST vectors
-
-The common declaration list is:
-
-```rust,ignore
-struct CompactDeclarationList {
-    start: Option<DeclarationId>,
-    len: u32,
-}
-```
-
-`start` is a sequence key, not a physical array offset. `start + len` means
-locate `start` in the declaration B+ store and consume `len` successive
-entries. Insertion before an unrelated block therefore does not change this
-header.
-
-Rule lists use the equivalent concept:
-
-```rust,ignore
-struct RuleList {
-    start: Option<RuleId>,
-    subtree_len: u32,
-}
-```
-
-The rule store is global preorder. `subtree_len` counts the complete preorder
-interval owned by the list, including descendant rules. Direct siblings are
-followed through topology metadata rather than by treating every entry in the
-interval as a direct child.
-
-## Flat rule topology
-
-Preorder alone cannot answer direct-sibling queries because descendants are
-interleaved. Each rule stores explicit topology:
+Rules are allocated in lexical preorder. A rule stores the structural facts
+that cannot be inferred from global order alone:
 
 ```rust,ignore
 struct CssRule<'ast> {
@@ -103,198 +45,197 @@ struct CssRule<'ast> {
     parent_list: RuleListId,
     previous_sibling: Option<RuleId>,
     next_sibling: Option<RuleId>,
-    subtree_len: u32,
+    first_child_list: Option<RuleListId>,
     payload: CssRulePayload<'ast>,
-    flags: CssRuleFlags,
     revision: u32,
+    flags: CssRuleFlags,
 }
 ```
 
-A structural insertion updates the modified rule list, direct-sibling links,
-and ancestor subtree lengths. It does not shift every later rule payload or
-rebuild the recursive AST.
+`RuleId` determines stable identity and source order. The links determine
+direct-sibling adjacency across nested subtrees. A structural rewrite updates
+the local topology transaction together with Radix insertion or retirement.
 
-Rule relationships use IDs and store accessors. Visitors do not retain mutable
-references while a B+ store may split or grow; structural visitors submit
-local rewrite operations through the owning `Compilation`.
+Rule lists keep compact endpoints and counts as needed for validation and
+codegen, but they do not own a second vector of rule values.
 
-## Source-order allocation invariant
-
-The parser inserts authored rules, declaration blocks, and declarations when
-it encounters them in lexical source order.
-
-```css
-a {
-  x: 1;
-}
-a {
-  y: 1;
-  & b {
-    z: 1;
-  }
+```rust,ignore
+struct RuleList {
+    first: Option<RuleId>,
+    last: Option<RuleId>,
+    live_len: u32,
 }
 ```
-
-The authored declaration order is `x, y, z`. The parent declaration run must
-not wait until recursive child parsing finishes, which would incorrectly
-produce `x, z, y`.
-
-An empty leading declaration run captures its sequence cursor before a nested
-child:
-
-```css
-a {
-  & b {
-    z: 1;
-  }
-  w: 1;
-}
-```
-
-The parent has an empty leading block before `z`; `w` belongs to a later
-`NestedDeclarationsRule` block. No `start + len` extension may absorb `z` into
-either parent declaration run.
-
-Parser tests must inspect the store order, block starts, and lengths directly.
-Serialized output alone can hide an allocation-order bug.
 
 ## Declaration blocks
 
+Every live declaration syntax position owns one mutable block:
+
 ```rust,ignore
 struct DeclarationBlock<'ast> {
+    owner: DeclarationBlockOwner,
     declarations: DeclarationList<'ast>,
     effective_key: EffectiveKeyId,
-    flags: DeclarationBlockFlags,
     revision: u32,
+    flags: DeclarationBlockFlags,
 }
 
-struct DeclarationList<'ast> {
-    start: Option<DeclarationId>,
-    len: u32,
-    overflow: Option<
-        ArenaBox<
-            'ast,
-            ArenaVec<'ast, ArenaBox<'ast, Declaration<'ast>>>,
-        >,
-    >,
+enum DeclarationBlockOwner {
+    Rule(RuleId),
+    Keyframe(KeyframeId),
+    Descriptor(DescriptorOwnerId),
 }
 ```
 
-The common block has one compact range over the global declaration B+ store.
-Its overflow field is null. The arena vector is allocated only for an extreme
-block that exceeds the compact ID space, repeatedly exhausts label gaps, or
-cannot cheaply remain one contiguous B+ interval. When nonnull, it stores the
-complete semantic declaration sequence, `start` is cleared, and `len` mirrors
-the vector length. Arbitrary insertion and serialization therefore do not
-merge two ordering schemes.
+Ownership is unique. Two simultaneously live syntax positions do not share one
+mutable block under different selectors or wrapper contexts. S1 may retire one
+owner and move declarations into another block, but it updates owner/topology
+and EffectiveKey invariants in the same transaction.
 
-The exact Rust layout may replace the arena box with a compact
-`OverflowDeclarationListId` if that keeps the common block smaller. The
-semantic distinction between a null compact range and a nonnull complete
-overflow vector must remain explicit.
+The block's `EffectiveKeyId` is ordinary AST data. Nano reads it directly; it
+does not reconstruct selector and wrapper paths into
+`DeclarationBlockEntry` values.
 
-Each live block header has one semantic owning syntax position. Because
-ownership is unique, the exact selector and cascade context can be cached
-directly as `effective_key`; no `DeclarationOccurrence` wrapper or minify-time
-owner reconstruction is required.
+## Declaration storage
 
-Importance remains declaration-local when a block mixes normal and important
-declarations. A history key combines the block's `EffectiveKeyId` with the
-declaration's importance phase.
-
-## Compact range operations
-
-Two compact blocks can coalesce without copying declaration values when their
-ranges are consecutive in global B+ order and their semantic order matches the
-physical order:
+Authored declarations are appended in lexical source order to a dense primary
+tape. A declaration run captures its exact range as it is parsed:
 
 ```rust,ignore
-merged.start = left.start;
-merged.len = left.len + right.len;
+struct DeclarationRange {
+    offset: u32,
+    len: u32,
+}
+
+enum DeclarationList<'ast> {
+    Range(DeclarationRange),
+    Local4(LocalPropertySet<'ast>),
+    Overflow(ArenaVec<'ast, ArenaBox<'ast, Declaration<'ast>>>),
+}
 ```
 
-If the ranges are not consecutive, the transform must either:
+The range is a physical slice of the authored declaration tape. Nested rules
+close the current run before their declarations are parsed, so an enclosing
+block never absorbs a descendant's properties.
 
-1. splice the relevant B+ ranges into consecutive semantic order; or
-2. fill the result's complete overflow vector.
+Small synthesized blocks may use `Local4`, whose property IDs reuse the low
+two bits of their `DeclarationBlockId`. Larger or nonconsecutive transformed
+sequences use a complete overflow list. S4 may choose the smallest lossless
+representation, but Nano never needs a second global reification store solely
+to restore order.
 
-A compact `start + len` must never include a live declaration belonging to a
-nested or neighboring block.
+## Source-order allocation invariant
 
-Deletion of the first declaration advances `start` to the next live sequence
-entry and moves the block between old/new hint-index candidates when necessary.
-Middle deletion removes or tombstones the entry according to the active minify
-phase and decrements the block length when the physical sequence is committed.
+The parser appends a declaration immediately after it parses that declaration.
+For:
 
-## Declaration ID repair
-
-B+ page split and redistribution do not invalidate compact declaration IDs.
-Only exhaustion of an order-label interval triggers local ID relabeling. The
-encoded block hint narrows repair to the few block headers that could start at
-an affected ID:
-
-```text
-local DeclarationId remap
-  decode old/new BlockHint values
-       ↓
-DeclarationBlockHintIndex
-  return one common candidate or rare aliases
-       ↓
-exactly compare candidate.start with old ID
-       ↓
-update matching compact headers and remaining ID references
+```css
+a {
+  --before: 0;
+  & b {
+    --nested: 1;
+  }
+  --after: 2;
+}
 ```
 
-The complete encoding, alias, remap, and overflow rules are specified in
-[Declaration ID encoding](./declaration-id-encoding.md).
+the declaration tape is exactly `--before, --nested, --after`. The parent owns
+the first range. The post-nesting declarations belong to the distinct
+`NestedDeclarationsRule` syntax position and therefore to a second
+`DeclarationBlock` with its own range. No block range crosses the nested rule;
+a later transform that combines them must materialize a complete ordered
+replacement.
+
+Parser tests inspect IDs/ranges directly. Serialization alone is insufficient
+because an incorrect physical allocation may still print correctly before a
+merge exposes the bug.
 
 ## Effective-key ownership
 
-The parser already knows the conditional path, layer, origin, and containing
-selector when it creates a declaration block. It interns a context seed at
-that point and stores the final `EffectiveKeyId` directly on the block after
-selector-local normalization.
+While parsing, the compiler maintains parent-linked selector and wrapper
+contexts. On declaration-block creation it writes either the final key or a
+context seed directly into the block. Selector-local minification replaces the
+selector value and recomputes the block key immediately when necessary.
 
-Selector replacement, S3 selector union, or movement into a different context
-must recompute the affected key immediately. Declaration-only changes leave it
-unchanged. Unsupported at-rules contribute opaque occurrence identity; this
-design does not infer their semantics.
+Declaration-only edits leave the key unchanged. Moving a block to another
+selector, layer, origin, cascade phase, or wrapper path requires a new key.
+Unsupported wrappers use opaque occurrence identity; this design does not add
+at-rule equivalence semantics.
 
-## Selectors and values
+## Nano sidecars
 
-Selector names continue to use compiler-scoped `Atom` values. Complete
-selector values may be hash-consed to a canonical `SelectorValueId`, with exact
-equality after hash-bucket selection. Occurrence IDs and canonical value IDs
-remain distinct.
+Persistent transformation state is indexed directly by AST IDs:
 
-Flattening every selector component into an independent node may cost more
-indirection than it saves. A selector component sequence with a compact list
-header should be benchmarked against per-component IDs before fixing the
-public representation.
+```rust,ignore
+struct CrossRuleState {
+    block_state: DenseMap<DeclarationBlockId, BlockState>,
+    histories: FxHashMap<EffectiveKeyId, EffectiveHistory>,
+    s1: SameSelectorCandidateList,
+    s2: DeclarationOverrideCandidateList,
+    s3: PartialMergeCandidateList,
+}
+```
 
-## Arena ownership
+`BlockState` contains only facts that are not permanent AST structure:
+liveness during the pass, revisions, declaration-effect summaries, intrusive
+history links, and queue membership. It does not duplicate owner, EffectiveKey,
+or source-order identity.
 
-The B+ stores own sequence pages and compact headers; the compiler arena owns
-large AST payloads and the rare overflow vectors. Arena allocation provides
-stable payload addresses, while all graph relationships still use typed IDs.
+Candidate endpoints are `DeclarationBlockId` or `RuleId`. A separate entry ID
+or raw `&DeclarationBlock` is unnecessary.
 
-The arena must not become an implicit identity system. Growing, splitting, or
-relabeling a B+ sequence is expressed through store APIs, and no consumer may
-derive semantic identity from an arena pointer. `StringPool` remains a
-compiler-owned interner whose atoms follow its own documented identity rules.
+## Iteration
+
+The production traversal is store-native:
+
+```rust,ignore
+for block in compilation.declaration_blocks.semantic_iter() {
+    consume(block.effective_key, block);
+}
+```
+
+In practice callers also receive the typed ID from an ID-aware iterator. The
+important property is that iteration does not recurse through the AST to build
+a second flat vector.
+
+Direct rule edges use rule-list topology. S2 histories use
+`DeclarationBlockId` order within an EffectiveKey. Synthesized siblings are
+already placed in Radix order, so ordered history insertion needs no
+`SemanticSourceOrderKey` object.
+
+## Mutation API
+
+Payload mutation and structural mutation remain separate:
+
+- declaration value replacement mutates through `DeclarationBlockId` and a
+  declaration handle;
+- rule/block insertion calls the owning store, chooses a local sibling key,
+  and updates topology;
+- retirement marks the node and unlinks it from live topology without reusing
+  its ID; and
+- local sibling relabel repairs IDs through one exact transaction.
+
+Consumers cannot retain mutable references while a store may grow or insert.
+They submit rewrite operations to `Compilation` and then reacquire values by ID.
+
+## Code generation
+
+Codegen starts from `StyleSheet.root_rules`, follows direct topology, and reads
+values from the Radix stores. Primary-only lists use contiguous traversal;
+transformed lists merge primary segments with sibling Radix segments.
+
+Tombstones and merge-only sidecars are invisible. Terminal compaction is an
+optional performance choice, not a correctness prerequisite.
 
 ## Required invariants
 
-- Rule, block, and declaration store order initially follows lexical source
-  order.
-- Every compact declaration block owns exactly `len` successive live entries
-  beginning at `start`.
-- Every overflow block owns the complete ordered vector stored in its fallback.
-- Direct sibling traversal uses topology and never skips a nested subtree.
-- B+ page movement copies compact entries or arena pointers, not declaration
-  payloads.
-- Effective-key equality is compact ID equality backed by exact canonical
-  interning.
-- A local ID relabel repairs all persistent references atomically.
-- Valid CSS exceeding a compact encoding limit takes a fallback and does not
-  panic.
+- Authored primary order equals lexical source order.
+- `RadixIndexId` order equals semantic store order after local insertion.
+- Direct sibling links agree with rule-list ownership.
+- Every live block has one owner and one current EffectiveKey.
+- Every authored declaration belongs to exactly one authored range before
+  transforms.
+- `Local4` never contains more than four properties.
+- Overflow lists contain a complete semantic sequence, not a partial suffix.
+- Nano does not maintain a second source-order identity.
+- No arena pointer is used as semantic equality or persistent identity.
