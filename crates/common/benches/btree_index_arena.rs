@@ -362,6 +362,33 @@ mod sparse_random_get {
     }
 }
 
+mod sibling_random_get {
+    use super::*;
+
+    #[divan::bench(args = SIZES)]
+    fn radix_index_arena(bencher: Bencher<'_, '_>, len: usize) {
+        let allocator = Allocator::new();
+        let (values, ids) = sparse_radix_with_ids(&allocator, len);
+        let sibling_ids = ids
+            .into_iter()
+            .filter(|id| !id.is_primary())
+            .collect::<Vec<_>>();
+        let sampled_ids = random_indices(sibling_ids.len())
+            .into_iter()
+            .map(|index| sibling_ids[index])
+            .collect::<Vec<_>>();
+        bencher
+            .counter(ItemsCount::new(sampled_ids.len()))
+            .bench_local(|| {
+                let mut sum = 0_u64;
+                for &id in black_box(&sampled_ids) {
+                    sum = sum.wrapping_add(values.get(id).unwrap().get());
+                }
+                black_box(sum)
+            });
+    }
+}
+
 mod repeated_middle_insert_remove {
     use super::*;
 

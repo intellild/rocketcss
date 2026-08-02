@@ -2,7 +2,8 @@
 //!
 //! Parsed values live in one linear arena [`Vec`] and use the high 20 bits of
 //! [`RadixIndexId`] as their direct index. Rare values inserted after a parsed
-//! value live in a lazy two-level radix tree in a sparse sibling vector.
+//! value live in lazy two-level radix trees indexed by a separate sparse `u32`
+//! vector.
 //!
 //! ```text
 //! 31                         12 11                         2 1         0
@@ -98,11 +99,6 @@ impl RadixIndexId {
 struct RadixTree<'arena, T> {
     root: Option<NonNull<RadixRoot<T>>>,
     marker: PhantomData<&'arena RadixRoot<T>>,
-}
-
-struct SiblingRadix<'arena, T> {
-    primary_index: u32,
-    tree: RadixTree<'arena, T>,
 }
 
 impl<T> RadixTree<'_, T> {
@@ -244,7 +240,10 @@ impl<T> RadixLeaf<T> {
 pub struct RadixIndexArena<'arena, T: Unpin> {
     allocator: &'arena Allocator,
     primary: Vec<'arena, T>,
-    sibling_groups: Vec<'arena, SiblingRadix<'arena, T>>,
+    // These structure-of-arrays vectors share indices. Binary search touches
+    // only compact primary IDs; tree pointers are loaded after a match.
+    sibling_primary_indices: Vec<'arena, u32>,
+    sibling_trees: Vec<'arena, RadixTree<'arena, T>>,
     len: u32,
 }
 
@@ -254,7 +253,8 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
         Self {
             allocator,
             primary: Vec::new_in(allocator),
-            sibling_groups: Vec::new_in(allocator),
+            sibling_primary_indices: Vec::new_in(allocator),
+            sibling_trees: Vec::new_in(allocator),
             len: 0,
         }
     }
@@ -268,7 +268,8 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
         Self {
             allocator,
             primary: Vec::with_capacity_in(capacity, allocator),
-            sibling_groups: Vec::new_in(allocator),
+            sibling_primary_indices: Vec::new_in(allocator),
+            sibling_trees: Vec::new_in(allocator),
             len: 0,
         }
     }
@@ -359,19 +360,13 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
         let group_index = match self.sibling_group_index(primary_index) {
             Ok(index) => index,
             Err(index) => {
-                self.sibling_groups.insert(
-                    index,
-                    SiblingRadix {
-                        primary_index: primary_index as u32,
-                        tree: RadixTree::new(),
-                    },
-                );
+                self.sibling_primary_indices
+                    .insert(index, primary_index as u32);
+                self.sibling_trees.insert(index, RadixTree::new());
                 index
             }
         };
-        self.sibling_groups[group_index]
-            .tree
-            .insert(self.allocator, sibling_key, value);
+        self.sibling_trees[group_index].insert(self.allocator, sibling_key, value);
         self.len += 1;
         RadixIndexId::from_parts(primary_index, sibling_key, 0)
     }
@@ -383,9 +378,8 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
         }
         let group_index = self.sibling_group_index(id.primary_index()).ok()?;
         let value = self
-            .sibling_groups
+            .sibling_trees
             .get_mut(group_index)?
-            .tree
             .remove(id.sibling_key())?;
         self.len -= 1;
         Some(value)
@@ -398,10 +392,7 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
             self.primary.get(id.primary_index())
         } else {
             let group_index = self.sibling_group_index(id.primary_index()).ok()?;
-            self.sibling_groups
-                .get(group_index)?
-                .tree
-                .get(id.sibling_key())
+            self.sibling_trees.get(group_index)?.get(id.sibling_key())
         }
     }
 
@@ -412,9 +403,8 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
             self.primary.get_mut(id.primary_index())
         } else {
             let group_index = self.sibling_group_index(id.primary_index()).ok()?;
-            self.sibling_groups
+            self.sibling_trees
                 .get_mut(group_index)?
-                .tree
                 .get_mut(id.sibling_key())
         }
     }
@@ -440,13 +430,16 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
     #[inline]
     pub fn semantic_iter(&self) -> SemanticIter<'_, 'arena, T> {
         let primary_end = self
-            .sibling_groups
+            .sibling_primary_indices
             .first()
-            .map_or(self.primary.len(), |group| group.primary_index as usize + 1);
+            .map_or(self.primary.len(), |&primary_index| {
+                primary_index as usize + 1
+            });
         SemanticIter {
             primary: &self.primary,
             next_primary: primary_end,
-            sibling_groups: &self.sibling_groups,
+            sibling_primary_indices: &self.sibling_primary_indices,
+            sibling_trees: &self.sibling_trees,
             next_group: 0,
             current: SemanticSegment::Primary(self.primary[..primary_end].iter()),
         }
@@ -454,8 +447,8 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
 
     #[inline]
     fn sibling_group_index(&self, primary_index: usize) -> Result<usize, usize> {
-        self.sibling_groups
-            .binary_search_by_key(&(primary_index as u32), |group| group.primary_index)
+        self.sibling_primary_indices
+            .binary_search(&(primary_index as u32))
     }
 }
 
@@ -483,7 +476,8 @@ enum IterKind<'tree, 'arena, T: Unpin> {
 pub struct SemanticIter<'tree, 'arena, T: Unpin> {
     primary: &'tree [T],
     next_primary: usize,
-    sibling_groups: &'tree [SiblingRadix<'arena, T>],
+    sibling_primary_indices: &'tree [u32],
+    sibling_trees: &'tree [RadixTree<'arena, T>],
     next_group: usize,
     current: SemanticSegment<'tree, T>,
 }
@@ -547,13 +541,14 @@ impl<'tree, 'arena: 'tree, T: Unpin> SemanticIter<'tree, 'arena, T> {
     fn advance_segment(&mut self) {
         match self.current {
             SemanticSegment::Primary(_) => {
-                let Some(group) = self.sibling_groups.get(self.next_group) else {
+                let Some(&primary_index) = self.sibling_primary_indices.get(self.next_group) else {
                     self.current = SemanticSegment::Done;
                     return;
                 };
-                debug_assert_eq!(self.next_primary, group.primary_index as usize + 1);
+                debug_assert_eq!(self.next_primary, primary_index as usize + 1);
+                let tree = &self.sibling_trees[self.next_group];
                 self.next_group += 1;
-                if let Some(siblings) = group.tree.iter() {
+                if let Some(siblings) = tree.iter() {
                     self.current = SemanticSegment::Siblings(siblings);
                     return;
                 }
@@ -563,9 +558,11 @@ impl<'tree, 'arena: 'tree, T: Unpin> SemanticIter<'tree, 'arena, T> {
         }
 
         let primary_end = self
-            .sibling_groups
+            .sibling_primary_indices
             .get(self.next_group)
-            .map_or(self.primary.len(), |group| group.primary_index as usize + 1);
+            .map_or(self.primary.len(), |&primary_index| {
+                primary_index as usize + 1
+            });
         let primary = self.primary[self.next_primary..primary_end].iter();
         self.next_primary = primary_end;
         self.current = SemanticSegment::Primary(primary);
@@ -652,14 +649,16 @@ mod tests {
         let second = values.push_primary(4);
         values.push_primary(6);
 
-        assert!(values.sibling_groups.is_empty());
+        assert!(values.sibling_primary_indices.is_empty());
+        assert!(values.sibling_trees.is_empty());
 
         let high_branch = values.insert_sibling(first, 512, 3);
         let low_branch = values.insert_sibling(first, 1, 1);
         let next_leaf = values.insert_sibling(first, 32, 2);
         values.insert_sibling(second, 1, 5);
 
-        assert_eq!(values.sibling_groups.len(), 2);
+        assert_eq!(values.sibling_primary_indices.len(), 2);
+        assert_eq!(values.sibling_trees.len(), 2);
         assert_eq!(high_branch.sibling_key(), 512);
         assert_eq!(values[low_branch], 1);
         assert_eq!(values[next_leaf], 2);
