@@ -159,6 +159,16 @@ impl<'ast> FrozenDeclarationIrStore<'ast> {
         }
     }
 
+    #[cfg(test)]
+    pub(super) fn occurrence_count(&self) -> usize {
+        self.occurrences.len()
+    }
+
+    #[cfg(test)]
+    pub(super) fn property_index_count(&self) -> usize {
+        self.property_index.len()
+    }
+
     pub(crate) fn freeze_physical_block(
         &mut self,
         id: DeclarationBlockId,
@@ -462,6 +472,27 @@ impl<'ast> FrozenDeclarationIrStore<'ast> {
             live_count: range.len,
             property_bloom: bloom,
         });
+    }
+
+    pub(super) fn reuse_left_as_shared(
+        &mut self,
+        left_owner: DeclarationBlockId,
+        right_owner: DeclarationBlockId,
+        pairs: &[(DeclarationOccurrenceId, DeclarationOccurrenceId)],
+    ) {
+        debug_assert_eq!(
+            self.live_count(left_owner),
+            u32::try_from(pairs.len()).expect("common declaration count exceeds u32::MAX"),
+            "an exhausted left owner must transfer every live occurrence"
+        );
+        debug_assert!(
+            pairs.iter().all(|&(left, right)| {
+                self.occurrences[left].live && self.occurrences[right].live
+            })
+        );
+        for &(_, right) in pairs {
+            self.mark_dead(right_owner, right);
+        }
     }
 
     fn append_property_index(
@@ -917,6 +948,110 @@ mod tests {
             assert_eq!(
                 ir.occurrence(shared_occurrence).movement_domain,
                 Some(MovementDomain::Color)
+            );
+        });
+    }
+
+    #[test]
+    fn s3_reuses_an_exhausted_left_summary_without_appending_occurrences() {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
+            let compilation = parse(
+                "a{color:red;width:1px}b{color:red;width:1px;height:2px}",
+                &allocator,
+                &mut token,
+                ParserOptions::default(),
+            )
+            .unwrap();
+            let (_, blocks) = compilation.parts();
+            let left = DeclarationBlockId::from_index(0).unwrap();
+            let right = DeclarationBlockId::from_index(1).unwrap();
+            let mut ir = FrozenDeclarationIrStore::default();
+            ir.freeze_physical_block(left, blocks.get(left));
+            ir.freeze_physical_block(right, blocks.get(right));
+            let occurrence_count = ir.occurrences.len();
+            let property_index_count = ir.property_index.len();
+            let left_occurrences = ir.live_occurrences(left).collect::<std::vec::Vec<_>>();
+            let right_occurrences = ir.live_occurrences(right).collect::<std::vec::Vec<_>>();
+
+            ir.reuse_left_as_shared(
+                left,
+                right,
+                &[
+                    (left_occurrences[0], right_occurrences[0]),
+                    (left_occurrences[1], right_occurrences[1]),
+                ],
+            );
+
+            assert_eq!(ir.occurrences.len(), occurrence_count);
+            assert_eq!(ir.property_index.len(), property_index_count);
+            assert_eq!(ir.live_count(left), 2);
+            assert_eq!(ir.live_count(right), 1);
+            assert_eq!(
+                ir.live_occurrences(left).collect::<std::vec::Vec<_>>(),
+                left_occurrences
+            );
+            assert_eq!(
+                ir.live_occurrences(right)
+                    .map(|occurrence| ir.occurrence(occurrence).slot.index)
+                    .collect::<std::vec::Vec<_>>(),
+                [2]
+            );
+        });
+    }
+
+    #[test]
+    fn s3_reuses_an_exhausted_multi_range_s1_summary() {
+        let allocator = Allocator::new();
+        allocator.with_ghost(|mut token| {
+            let compilation = parse(
+                "a{color:red}a{width:1px}b{color:red;width:1px;height:2px}",
+                &allocator,
+                &mut token,
+                ParserOptions::default(),
+            )
+            .unwrap();
+            let (_, blocks) = compilation.parts();
+            let first = DeclarationBlockId::from_index(0).unwrap();
+            let left = DeclarationBlockId::from_index(1).unwrap();
+            let right = DeclarationBlockId::from_index(2).unwrap();
+            let mut ir = FrozenDeclarationIrStore::default();
+            for block in [first, left, right] {
+                ir.freeze_physical_block(block, blocks.get(block));
+            }
+            ir.compose(first, left);
+            let occurrence_count = ir.occurrences.len();
+            let property_index_count = ir.property_index.len();
+            let left_occurrences = ir.live_occurrences(left).collect::<std::vec::Vec<_>>();
+            let right_occurrences = ir.live_occurrences(right).collect::<std::vec::Vec<_>>();
+
+            ir.reuse_left_as_shared(
+                left,
+                right,
+                &[
+                    (left_occurrences[0], right_occurrences[0]),
+                    (left_occurrences[1], right_occurrences[1]),
+                ],
+            );
+
+            assert_eq!(ir.occurrences.len(), occurrence_count);
+            assert_eq!(ir.property_index.len(), property_index_count);
+            assert_eq!(ir.live_count(left), 2);
+            assert_eq!(ir.live_count(right), 1);
+            assert_eq!(
+                ir.live_occurrences(left)
+                    .map(|occurrence| ir.occurrence(occurrence).slot)
+                    .collect::<std::vec::Vec<_>>(),
+                [
+                    DeclarationSlot {
+                        block: first,
+                        index: 0,
+                    },
+                    DeclarationSlot {
+                        block: left,
+                        index: 0,
+                    },
+                ]
             );
         });
     }

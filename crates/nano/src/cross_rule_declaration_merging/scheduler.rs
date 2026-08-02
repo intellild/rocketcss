@@ -15,8 +15,8 @@ use super::declaration_ir::{DeclarationSlot, FrozenDeclarationIrStore};
 #[cfg(test)]
 use super::partial_selector::PartialMergeRejection;
 use super::partial_selector::{
-    PartialRuleRef, commit_partial_merge_declarations, discover_partial_merge_plan,
-    materialize_selector_union,
+    PartialMergePlacement, PartialRuleRef, commit_partial_merge_declarations,
+    discover_partial_merge_plan, materialize_selector_union,
 };
 use crate::rules::DeclarationBlockMinifier;
 use crate::utils::{
@@ -99,6 +99,19 @@ struct LiveBlock<'walk, 'ast> {
     revision: u32,
 }
 
+struct PartialMergeTransition<'ast> {
+    left: DeclarationBlockId,
+    right: DeclarationBlockId,
+    left_key: EffectiveKeyId,
+    right_key: EffectiveKeyId,
+    shared_key: EffectiveKeyId,
+    selectors: SelectorList<'ast>,
+    span: Span,
+    vendor_prefix: VendorPrefix,
+    retain_right: bool,
+    rule_list: RuleListId,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct EdgeCandidate {
     left: DeclarationBlockId,
@@ -174,6 +187,11 @@ struct SchedulerStats {
     s3_edges_considered: usize,
     s3_candidates_enqueued: usize,
     s3_commits: usize,
+    s3_reused_left_commits: usize,
+    s3_allocated_shared_commits: usize,
+    s3_declaration_blocks_appended: usize,
+    s3_occurrences_appended: usize,
+    semantic_order_between_calls: usize,
     s3_bloom_rejections: usize,
     s3_ineligible_rejections: usize,
     s3_no_common_rejections: usize,
@@ -512,10 +530,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             right_vendor_prefix,
             left_has_children,
             right_has_children,
-            left_order,
-            right_order,
             rule_list,
-            rule_list_segment,
         ) = {
             let left_node = self.nodes[left.index()].as_ref().unwrap();
             let right_node = self.nodes[right.index()].as_ref().unwrap();
@@ -530,10 +545,7 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
                 right_node.vendor_prefix,
                 left_node.flags.contains(LiveBlockFlags::HAS_CHILDREN),
                 right_node.flags.contains(LiveBlockFlags::HAS_CHILDREN),
-                left_node.order.clone(),
-                right_node.order.clone(),
                 left_node.rule_list,
-                left_node.rule_list_segment,
             )
         };
         let plan = discover_partial_merge_plan(
@@ -594,77 +606,183 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
             return;
         };
 
-        let retain_left = plan.retain_left;
         let retain_right = plan.retain_right;
-        let shared_order = SemanticOrderKey::between(&left_order, &right_order);
         let shared_span = plan.span;
         let shared_vendor_prefix = plan.vendor_prefix;
-        let shared = commit_partial_merge_declarations(
+        let commit = commit_partial_merge_declarations(
             &plan,
             declaration_blocks,
             &mut self.declaration_ir,
             cx,
         );
+        let transition = PartialMergeTransition {
+            left,
+            right,
+            left_key,
+            right_key,
+            shared_key,
+            selectors: plan.selectors,
+            span: shared_span,
+            vendor_prefix: shared_vendor_prefix,
+            retain_right,
+            rule_list,
+        };
+        #[cfg(test)]
+        {
+            self.stats.s3_commits += 1;
+            self.stats.s3_occurrences_appended += match commit.placement {
+                PartialMergePlacement::ReusedLeft => 0,
+                PartialMergePlacement::AllocatedBetween => commit.declaration_count as usize,
+            };
+        }
+        match commit.placement {
+            PartialMergePlacement::ReusedLeft => {
+                debug_assert_eq!(commit.shared, left);
+                self.commit_partial_merge_reusing_left(transition);
+            }
+            PartialMergePlacement::AllocatedBetween => {
+                self.commit_partial_merge_allocating(transition, commit.shared);
+            }
+        }
+    }
+
+    fn commit_partial_merge_reusing_left(&mut self, transition: PartialMergeTransition<'ast>) {
+        let PartialMergeTransition {
+            left,
+            right,
+            left_key,
+            right_key,
+            shared_key,
+            selectors,
+            span,
+            vendor_prefix,
+            retain_right,
+            rule_list,
+        } = transition;
+        let previous = self.node(left).unwrap().previous_live;
+        let next = self.node(right).unwrap().next_live;
+
+        if !retain_right {
+            self.retire_node_without_relink(right);
+            self.remove_history_occurrence(right_key, right);
+        }
+        if shared_key != left_key {
+            self.move_history_occurrence(left_key, shared_key, left);
+            #[cfg(test)]
+            {
+                self.stats.history_insertions += 1;
+            }
+        }
+
+        {
+            let node = self.node_mut(left).unwrap();
+            debug_assert!(!node.flags.contains(LiveBlockFlags::HAS_CHILDREN));
+            node.effective_key = shared_key;
+            node.selectors = SelectorSource::Synthesized(selectors);
+            node.span = span;
+            node.vendor_prefix = vendor_prefix;
+            node.flags = LiveBlockFlags::LIVE | LiveBlockFlags::HAS_LIVE_SELECTORS;
+            node.revision = node.revision.wrapping_add(1);
+        }
+        if retain_right {
+            self.bump_revision(right);
+        } else {
+            self.set_next(left, next);
+            if let Some(next) = next {
+                self.set_previous(next, Some(left));
+            }
+            self.set_previous(right, None);
+            self.set_next(right, None);
+        }
+
         self.affected_rule_lists.insert(rule_list);
-        let shared_selectors = plan.selectors;
+        #[cfg(test)]
+        {
+            self.stats.s3_reused_left_commits += 1;
+        }
+        self.declaration_override_candidates.push(left_key);
+        self.declaration_override_candidates.push(right_key);
+        self.declaration_override_candidates.push(shared_key);
+        for node in [previous, Some(left), retain_right.then_some(right), next]
+            .into_iter()
+            .flatten()
+        {
+            if self
+                .node(node)
+                .is_some_and(|node| node.flags.contains(LiveBlockFlags::LIVE))
+            {
+                self.enqueue_incident_edges(node);
+            }
+        }
+    }
+
+    fn commit_partial_merge_allocating(
+        &mut self,
+        transition: PartialMergeTransition<'ast>,
+        shared: DeclarationBlockId,
+    ) {
+        let PartialMergeTransition {
+            left,
+            right,
+            left_key,
+            right_key,
+            shared_key,
+            selectors,
+            span,
+            vendor_prefix,
+            retain_right,
+            rule_list,
+        } = transition;
+        let (left_order, right_order, rule_list_segment, previous, next) = {
+            let left_node = self.node(left).unwrap();
+            let right_node = self.node(right).unwrap();
+            (
+                left_node.order.clone(),
+                right_node.order.clone(),
+                left_node.rule_list_segment,
+                left_node.previous_live,
+                right_node.next_live,
+            )
+        };
+        let shared_order = SemanticOrderKey::between(&left_order, &right_order);
         debug_assert_eq!(shared.index(), self.nodes.len());
         self.nodes.push(Some(LiveBlock {
             effective_key: shared_key,
-            previous_live: None,
-            next_live: None,
+            previous_live: Some(left),
+            next_live: retain_right.then_some(right).or(next),
             rule_list,
             rule_list_segment,
             order: shared_order.clone(),
-            selectors: SelectorSource::Synthesized(shared_selectors),
-            span: shared_span,
-            vendor_prefix: shared_vendor_prefix,
+            selectors: SelectorSource::Synthesized(selectors),
+            span,
+            vendor_prefix,
             flags: LiveBlockFlags::LIVE | LiveBlockFlags::HAS_LIVE_SELECTORS,
             revision: 0,
         }));
         self.owner_by_block.push(Some(shared));
         self.occurrence_order.push(Some(shared_order.clone()));
 
-        let previous = self.node(left).unwrap().previous_live;
-        let next = self.node(right).unwrap().next_live;
-        if !retain_left {
-            self.retire_node_without_relink(left);
-            self.remove_history_occurrence(left_key, left);
-        }
         if !retain_right {
             self.retire_node_without_relink(right);
             self.remove_history_occurrence(right_key, right);
         }
-
-        let first = if retain_left { left } else { shared };
-        let last = if retain_right { right } else { shared };
-        self.set_previous(first, previous);
-        self.set_next(last, next);
-        if let Some(previous) = previous {
-            self.set_next(previous, Some(first));
-        }
-        if let Some(next) = next {
-            self.set_previous(next, Some(last));
-        }
-        if retain_left {
-            self.set_next(left, Some(shared));
-            self.set_previous(shared, Some(left));
-        } else {
-            self.set_previous(shared, previous);
-        }
+        self.set_next(left, Some(shared));
         if retain_right {
-            self.set_next(shared, Some(right));
             self.set_previous(right, Some(shared));
-        } else {
-            self.set_next(shared, next);
+        } else if let Some(next) = next {
+            self.set_previous(next, Some(shared));
         }
 
         self.histories
             .entry(shared_key)
             .or_default()
             .insert(shared_order, shared);
+        self.affected_rule_lists.insert(rule_list);
         #[cfg(test)]
         {
-            self.stats.s3_commits += 1;
+            self.stats.s3_allocated_shared_commits += 1;
+            self.stats.s3_declaration_blocks_appended += 1;
+            self.stats.semantic_order_between_calls += 1;
             self.stats.history_insertions += 1;
         }
         self.declaration_override_candidates.push(left_key);
@@ -806,6 +924,26 @@ impl<'walk, 'ast> CrossRuleMergeState<'walk, 'ast> {
         if let Some(history) = self.histories.get_mut(&key) {
             history.remove(&order);
         }
+    }
+
+    fn move_history_occurrence(
+        &mut self,
+        from: EffectiveKeyId,
+        to: EffectiveKeyId,
+        block: DeclarationBlockId,
+    ) {
+        debug_assert_ne!(from, to);
+        let order = self.occurrence_order[block.index()]
+            .as_ref()
+            .expect("a live block has a semantic occurrence order")
+            .clone();
+        let removed = self
+            .histories
+            .get_mut(&from)
+            .and_then(|history| history.remove(&order));
+        debug_assert_eq!(removed, Some(block));
+        let replaced = self.histories.entry(to).or_default().insert(order, block);
+        debug_assert!(replaced.is_none());
     }
 
     fn set_previous(&mut self, block: DeclarationBlockId, previous: Option<DeclarationBlockId>) {
@@ -1131,6 +1269,54 @@ mod tests {
         assert_eq!(stats.s3_commits, 0);
     }
 
+    #[test]
+    fn s3_reuses_only_an_exhausted_left_endpoint() {
+        let stats = scheduler_stats(".a{color:red}.b{color:red}");
+        assert_eq!(stats.s3_commits, 1);
+        assert_eq!(stats.s3_reused_left_commits, 1);
+        assert_eq!(stats.s3_allocated_shared_commits, 0);
+
+        let stats = scheduler_stats(".a{color:red}.b{color:red;width:1px}");
+        assert_eq!(stats.s3_commits, 1);
+        assert_eq!(stats.s3_reused_left_commits, 1);
+        assert_eq!(stats.s3_allocated_shared_commits, 0);
+        assert_eq!(stats.s3_declaration_blocks_appended, 0);
+        assert_eq!(stats.s3_occurrences_appended, 0);
+        assert_eq!(stats.semantic_order_between_calls, 0);
+
+        let stats = scheduler_stats(".a{color:red}.b{color:red;&:hover{x:1}}");
+        assert_eq!(stats.s3_commits, 1);
+        assert_eq!(stats.s3_reused_left_commits, 1);
+        assert_eq!(stats.s3_allocated_shared_commits, 0);
+
+        let stats = scheduler_stats(".a{color:red;width:1px}.b{color:red}");
+        assert_eq!(stats.s3_commits, 1);
+        assert_eq!(stats.s3_reused_left_commits, 0);
+        assert_eq!(stats.s3_allocated_shared_commits, 1);
+        assert_eq!(stats.s3_declaration_blocks_appended, 1);
+        assert_eq!(stats.s3_occurrences_appended, 1);
+        assert_eq!(stats.semantic_order_between_calls, 1);
+
+        let stats = scheduler_stats(".a{color:red;width:1px}.b{color:red;height:2px}");
+        assert_eq!(stats.s3_commits, 1);
+        assert_eq!(stats.s3_reused_left_commits, 0);
+        assert_eq!(stats.s3_allocated_shared_commits, 1);
+        assert_eq!(stats.s3_declaration_blocks_appended, 1);
+        assert_eq!(stats.s3_occurrences_appended, 1);
+        assert_eq!(stats.semantic_order_between_calls, 1);
+    }
+
+    #[test]
+    fn s3_reuses_an_exhausted_left_endpoint_composed_by_s1() {
+        let stats = scheduler_stats(".a{color:red}.a{width:1px}.b{color:red;width:1px}");
+        assert_eq!(stats.s3_commits, 1);
+        assert_eq!(stats.s3_reused_left_commits, 1);
+        assert_eq!(stats.s3_allocated_shared_commits, 0);
+        assert_eq!(stats.s3_declaration_blocks_appended, 0);
+        assert_eq!(stats.s3_occurrences_appended, 0);
+        assert_eq!(stats.semantic_order_between_calls, 0);
+    }
+
     fn scheduler_stats(source: &str) -> SchedulerStats {
         let allocator = Allocator::new();
         allocator.with_ghost(|mut token| {
@@ -1161,10 +1347,40 @@ mod tests {
             let mut cx = MinifyContext::new(MinifyOptions::default(), &scratch);
             let (stylesheet, declaration_blocks) = compilation.parts_mut();
             let mut state = CrossRuleMergeState::discover(stylesheet, declaration_blocks);
+            let declaration_block_count = declaration_blocks.len();
+            let occurrence_count = state.declaration_ir.occurrence_count();
+            let property_index_count = state.declaration_ir.property_index_count();
             state.run(declaration_blocks, &mut minifier, &mut cx);
 
             assert_eq!(state.stats.initial_collections, 1);
             assert_eq!(state.stats.s3_commits, RULE_COUNT - 1);
+            assert_eq!(state.stats.s3_reused_left_commits, RULE_COUNT - 1);
+            assert_eq!(state.stats.s3_allocated_shared_commits, 0);
+            assert_eq!(state.stats.s3_declaration_blocks_appended, 0);
+            assert_eq!(state.stats.s3_occurrences_appended, 0);
+            assert_eq!(state.stats.semantic_order_between_calls, 0);
+            assert_eq!(declaration_blocks.len(), declaration_block_count);
+            assert_eq!(state.declaration_ir.occurrence_count(), occurrence_count);
+            assert_eq!(
+                state.declaration_ir.property_index_count(),
+                property_index_count
+            );
+            let first = DeclarationBlockId::from_index(0).unwrap();
+            assert!(
+                state
+                    .node(first)
+                    .is_some_and(|node| node.flags.contains(LiveBlockFlags::LIVE))
+            );
+            assert_eq!(state.owner_by_block[first.index()], Some(first));
+            assert_eq!(
+                state
+                    .nodes
+                    .iter()
+                    .flatten()
+                    .filter(|node| node.flags.contains(LiveBlockFlags::LIVE))
+                    .count(),
+                1
+            );
             assert_eq!(state.stats.history_insertions, RULE_COUNT - 1);
             assert!(state.stats.stale_candidates > 0);
             assert!(state.stats.s2_queue_pops <= RULE_COUNT * 4);

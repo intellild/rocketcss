@@ -52,6 +52,10 @@ const CROSS_RULE_IR_CASES: &[CrossRuleIrCase] = &[
         source: "a{opacity:.5}b{opacity:.5}c{opacity:.5}d{opacity:.5}e{opacity:.5}f{opacity:.5}g{opacity:.5}h{opacity:.5}",
     },
     CrossRuleIrCase {
+        name: "allocated_s3_block",
+        source: "a{color:red;width:1px}b{color:red;height:2px}",
+    },
+    CrossRuleIrCase {
         name: "custom_properties",
         source: "a{--theme-color:red;--theme-size:1px;--theme-gap:2px;--theme-alpha:.5}b{--theme-color:red;--theme-size:1px;--theme-gap:2px;--theme-alpha:.5}",
     },

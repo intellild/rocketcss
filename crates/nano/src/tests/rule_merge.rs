@@ -47,6 +47,22 @@ fn stabilizes_overlapping_partial_selector_candidates() {
 }
 
 #[test]
+fn reuses_exhausted_s3_left_declaration_representations() {
+    assert_eq!(
+        run("a{color:red}a{width:1px}b{color:red;width:1px}"),
+        "a,b{color:red;width:1px}"
+    );
+    assert_eq!(
+        run("a{color:red!important}b{color:red!important;width:1px}"),
+        "a,b{color:red !important}b{width:1px}"
+    );
+    assert_eq!(
+        run("a{display:-webkit-box;display:flex}b{display:-webkit-box;display:flex}"),
+        "a,b{display:-webkit-box;display:flex}"
+    );
+}
+
+#[test]
 fn scheduler_propagates_work_between_s1_s2_and_s3() {
     // S3 creates a same-selector edge that must immediately return to S1.
     assert_eq!(

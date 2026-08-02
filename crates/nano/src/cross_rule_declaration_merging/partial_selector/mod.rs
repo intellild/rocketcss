@@ -51,6 +51,20 @@ pub(super) enum PartialMergeRejection {
     IncompatibleSelectors,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum PartialMergePlacement {
+    ReusedLeft,
+    AllocatedBetween,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) struct PartialMergeCommit {
+    pub(super) shared: DeclarationBlockId,
+    pub(super) placement: PartialMergePlacement,
+    #[cfg(test)]
+    pub(super) declaration_count: u32,
+}
+
 pub(super) fn discover_partial_merge_plan<'ast, 'scratch>(
     left: PartialRuleRef<'_, 'ast>,
     right: PartialRuleRef<'_, 'ast>,
@@ -150,7 +164,66 @@ pub(super) fn commit_partial_merge_declarations<'ast>(
     declaration_blocks: &mut DeclarationBlockStore<'ast>,
     declaration_ir: &mut FrozenDeclarationIrStore<'ast>,
     cx: &mut MinifyContext<'_>,
-) -> DeclarationBlockId {
+) -> PartialMergeCommit {
+    if !plan.retain_left {
+        return commit_partial_merge_declarations_reusing_left(
+            plan,
+            declaration_blocks,
+            declaration_ir,
+            cx,
+        );
+    }
+
+    commit_partial_merge_declarations_allocating(plan, declaration_blocks, declaration_ir, cx)
+}
+
+fn commit_partial_merge_declarations_reusing_left<'ast>(
+    plan: &PartialMergePlan<'ast>,
+    declaration_blocks: &mut DeclarationBlockStore<'ast>,
+    declaration_ir: &mut FrozenDeclarationIrStore<'ast>,
+    cx: &mut MinifyContext<'_>,
+) -> PartialMergeCommit {
+    debug_assert!(!plan.retain_left);
+    for common in &plan.common {
+        let left = declaration_ir.occurrence(common.left).slot;
+        let right = declaration_ir.occurrence(common.right).slot;
+        debug_assert_eq!(
+            declaration_blocks.get(left.block).is_important(left.index),
+            declaration_blocks
+                .get(right.block)
+                .is_important(right.index)
+        );
+        let removed_right = std::mem::replace(
+            &mut declaration_blocks.get_mut(right.block).declarations[right.index],
+            Declaration::Tombstone,
+        );
+        debug_assert!(
+            declaration_blocks.get(left.block).declarations[left.index]
+                .eq_ignoring_tombstones(&removed_right)
+        );
+        cx.record_declaration_removed();
+    }
+    let pairs = plan
+        .common
+        .iter()
+        .map(|common| (common.left, common.right))
+        .collect::<SmallVec<[_; 8]>>();
+    declaration_ir.reuse_left_as_shared(plan.left, plan.right, &pairs);
+    PartialMergeCommit {
+        shared: plan.left,
+        placement: PartialMergePlacement::ReusedLeft,
+        #[cfg(test)]
+        declaration_count: u32::try_from(plan.common.len())
+            .expect("common declaration count exceeds u32::MAX"),
+    }
+}
+
+fn commit_partial_merge_declarations_allocating<'ast>(
+    plan: &PartialMergePlan<'ast>,
+    declaration_blocks: &mut DeclarationBlockStore<'ast>,
+    declaration_ir: &mut FrozenDeclarationIrStore<'ast>,
+    cx: &mut MinifyContext<'_>,
+) -> PartialMergeCommit {
     let allocator = plan.selectors.bump();
     let mut shared = DeclarationBlock::new(allocator);
     for common in &plan.common {
@@ -176,7 +249,13 @@ pub(super) fn commit_partial_merge_declarations<'ast>(
         .map(|common| (common.left, common.right))
         .collect::<SmallVec<[_; 8]>>();
     declaration_ir.transfer_common(shared, plan.left, plan.right, &pairs);
-    shared
+    PartialMergeCommit {
+        shared,
+        placement: PartialMergePlacement::AllocatedBetween,
+        #[cfg(test)]
+        declaration_count: u32::try_from(plan.common.len())
+            .expect("common declaration count exceeds u32::MAX"),
+    }
 }
 
 fn declaration_at<'a, 'ast>(
