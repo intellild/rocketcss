@@ -3,13 +3,13 @@
 ## Status
 
 This directory defines the target physical representation for RocketCSS's CSS
-AST. It replaces the current tree of boxed and arena-allocated nodes with dense
-stores and source-order tapes addressed by compact `u32` IDs.
+AST. Rules, declaration blocks, and declarations live in global mutable B+
+dense stores instead of nested Rust vectors. Compact IDs and list headers
+recover structure without requiring Rust ownership to reproduce the CSS tree.
 
-The semantic CSS tree still exists. Parent, sibling, and subtree metadata encode
-that tree without making Rust ownership reproduce it. A formatted stylesheet
-with one property per line is a useful mental model: parsing appends syntax and
-properties in lexical order, while IDs and ranges recover structure.
+A formatted stylesheet with one property per line is a useful mental model:
+the parser writes syntax and declarations in lexical order, while B+ sequences,
+typed IDs, list headers, and topology describe the final AST.
 
 This is a storage design, not permission to change CSS semantics. Parsing,
 minification, visitors, and code generation must preserve lossless syntax,
@@ -17,64 +17,77 @@ cascade order, nesting, fallback chains, and source locations.
 
 ## Documents
 
-- [Storage layout](./storage-layout.md) specifies dense stores, source-order
-  allocation, tree topology, declaration ranges, and allocator removal.
-- [Effective keys](./effective-key.md) specifies canonical context identities
-  stored with declaration occurrences.
-- [Minification and reification](./minify-and-reification.md) maps the S1-S5
-  cross-rule merge design onto the flat representation.
+- [Storage layout](./storage-layout.md) specifies compilation ownership, global
+  B+ stores, AST list headers, rule topology, arena payloads, and block-owned
+  effective keys.
+- [B+ tree dense stores](./b-plus-tree-sequence.md) specifies mutable sequence
+  pages, list operations, scheduler aggregation, and terminal traversal.
+- [Declaration ID encoding](./declaration-id-encoding.md) specifies the compact
+  block-hint/local-label key, local relabel repair, and arena-vector overflow
+  fallback.
+- [Effective keys](./effective-key.md) specifies canonical selector and exact
+  context identities stored directly on declaration blocks.
+- [Minification over mutable B+ stores](./minify-and-reification.md) maps S1-S5
+  onto AST-owned keys, store-local scheduling, range splice, and optional
+  terminal cleanup.
 
-The cross-rule algorithm remains specified in
+The semantic cross-rule algorithm remains specified in
 [Cross-rule declaration merging](../cross-rule-declaration-merging/overall.md).
-Those documents describe semantic states; this directory defines their target
-physical storage.
+Those documents define which transformations are valid; this directory defines
+their target physical storage.
 
 ## Target pipeline
 
 ```text
 Compiler::parse
-  append source-order syntax nodes and typed payloads
+  insert rules, blocks, and declarations in lexical order
+  maintain ContextPathId while entering wrappers
+  store compact start_id + len declaration lists
        ↓
-  append every property to one declaration tape in lexical order
-       ↓
-  finalize selector/context IDs and declaration-block headers
-       ↓
-local minify
-  replace payload IDs or tombstone slots; do not move live source occurrences
+rule-local minify
+  canonicalize selector values
+  finalize DeclarationBlock.effective_key
        ↓
 S1/S2/S3/S4
-  operate on IDs, ranges, live links, effects, and rewrite plans
+  operate directly on B+ stores
+  mutate local ranges and store-owned dirty/history state
+  repair rare DeclarationId relabels through BlockHint
        ↓
-S5
-  rebuild compact tapes in final semantic order
+terminal freeze
+  drop merge-only state; optional measured compaction
        ↓
 code generation
-  scan compact syntax and declaration tapes
+  traverse linked B+ leaves and overflow vectors
 ```
+
+There is no required recursive `walk_declaration_blocks` prepass and no
+mandatory full AST copy after minification.
 
 ## Decisions
 
-1. Every stable AST entity is addressed by a typed dense ID. An ID identifies
-   a store slot, not a memory address.
-2. Authored rule and property allocation order is lexical source order.
-3. Tree relationships are explicit metadata, not Rust pointer ownership.
-4. A declaration block is a header over a range in the global declaration
-   tape. Importance and liveness use compact sidecar storage.
-5. Effective selector and conditional identities are canonical dense IDs.
-6. Structural rewrites are planned and committed by reification; appending a
-   synthesized node does not determine its semantic output position.
-7. `rocketcss_common::boxed::Box`, `rocketcss_common::Allocator`, and the
-   allocator argument to `Compiler` have no role in the target representation
-   and are removed after all owning nodes migrate.
+1. Rules, declaration blocks, and declarations have global ordered B+ stores.
+2. Former AST vectors use compact sequence headers rather than owning nested
+   allocations.
+3. A common declaration block is `start DeclarationId + length` over the global
+   declaration sequence.
+4. `DeclarationId` is a spaced order label with an encoded block lookup hint,
+   not a physical offset or `PropertyId`.
+5. Local ID relabel inspects only hinted declaration blocks and commits exact
+   remaps atomically.
+6. An extreme declaration block upgrades its complete sequence to a lazy
+   arena-allocated vector; valid CSS never panics because compact bits run out.
+7. `EffectiveKeyId` is stored directly on a uniquely owned declaration block
+   and updated when selector or context identity changes.
+8. B+ page movement copies compact IDs and arena boxes, not large declaration
+   payloads.
+9. Store-owned candidate aggregates replace separate semantic-order heaps.
+10. Final B+ order is directly serializable; terminal compaction is optional.
 
 ## Deliberate boundaries
 
 - The first version does not interpret at-rule equivalence. Unsupported or
-  unmodeled wrappers contribute an opaque occurrence ID to the context.
+  unmodeled wrappers contribute opaque occurrence identity.
 - Flattening storage does not flatten CSS nesting semantics.
-- It is not yet decided whether every selector component deserves its own ID.
-  A component tape plus ranges may have better locality than per-component
-  indirection and must be benchmarked.
-- `StringPool` becomes an owned compiler store; it must not require the old
-  allocator. A future pass may independently introduce measured scratch
-  storage, but that is not a reason to preserve the current allocator API.
+- Compact hints narrow candidate lookup but never replace exact equality.
+- Selector component storage remains a benchmark decision.
+- Arena addresses stabilize large payloads but are never semantic identities.

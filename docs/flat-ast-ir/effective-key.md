@@ -64,13 +64,26 @@ a block-level key. Origin is supplied by compilation/parser configuration.
 
 ## Ownership
 
-`EffectiveKeyId` is attached to a declaration occurrence owned by one syntax
-position. It may be stored directly in `DeclarationBlockHeader` only after the
-flat IR enforces unique block ownership. Until then, the explicit
-`DeclarationOccurrence { block, effective_key }` form is required.
+The target flat AST enforces one semantic syntax owner for every live
+`DeclarationBlock`, so `EffectiveKeyId` is stored directly on the block:
 
-This prevents copying a block ID between style rules from silently reusing the
-wrong selector or at-rule context.
+```rust,ignore
+struct DeclarationBlock<'ast> {
+    declarations: DeclarationList<'ast>,
+    effective_key: EffectiveKeyId,
+    flags: DeclarationBlockFlags,
+    revision: u32,
+}
+```
+
+There is no separate `DeclarationOccurrence { block, effective_key }` wrapper
+and no minify-time owner reconstruction. A rule may be redirected to a retained
+block header during S1, but two simultaneously live syntax positions must not
+share one mutable block under different selector or wrapper contexts.
+
+Selector replacement, S3 selector union, or structural movement into a new
+context recomputes the owned block key immediately. Declaration-only edits do
+not invalidate it.
 
 ## Cost model
 
@@ -85,7 +98,7 @@ encounter declaration run
        ↓
   intern EffectiveKeyData
        ↓
-store EffectiveKeyId on the declaration occurrence
+store EffectiveKeyId on the DeclarationBlock
 ```
 
 There is no full-stylesheet `walk_declaration_blocks` prepass in the target
