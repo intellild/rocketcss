@@ -1,8 +1,9 @@
 //! Common compiler infrastructure.
 
 pub use crate::{
-    Allocator, Atom, BTreeIndexArena, DenseId, DenseIdGenerator, DenseMap, DenseStore,
-    RadixIndexArena, RadixIndexId, StringPool,
+    Allocator, Atom, BTreeIndexArena, DenseId, DenseIdGenerator, DenseMap, DenseStore, RadixId,
+    RadixIdRemap, RadixIndexArena, RadixIndexId, RadixInsertResult, StringPool,
+    TypedRadixIndexArena,
     bit_vec::BitVec,
     boxed::Box,
     ghost_cell::{GhostBox, GhostCell, GhostToken},

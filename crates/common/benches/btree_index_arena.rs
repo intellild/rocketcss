@@ -256,6 +256,25 @@ mod sparse_sequential_iter {
     }
 }
 
+mod sparse_enumerated_iter {
+    use super::*;
+
+    #[divan::bench(args = SIZES)]
+    fn radix_index_arena(bencher: Bencher<'_, '_>, len: usize) {
+        let allocator = Allocator::new();
+        let values = sparse_radix(&allocator, len);
+        bencher
+            .counter(ItemsCount::new(values.len()))
+            .bench_local(|| {
+                let mut sum = 0_u64;
+                for (id, &value) in black_box(&values).iter_enumerated() {
+                    sum = sum.wrapping_add(u64::from(id.get()) ^ value.get());
+                }
+                black_box(sum)
+            });
+    }
+}
+
 mod random_get {
     use super::*;
 
