@@ -439,17 +439,16 @@ impl<'arena, T: Unpin> RadixIndexArena<'arena, T> {
     /// primary/semantic dispatch outside the per-value loop.
     #[inline]
     pub fn semantic_iter(&self) -> SemanticIter<'_, 'arena, T> {
-        let chunk_end = self
+        let primary_end = self
             .sibling_groups
             .first()
             .map_or(self.primary.len(), |group| group.primary_index as usize + 1);
         SemanticIter {
             primary: &self.primary,
-            next_primary: 0,
+            next_primary: primary_end,
             sibling_groups: &self.sibling_groups,
             next_group: 0,
-            chunk_end,
-            siblings: None,
+            current: SemanticSegment::Primary(self.primary[..primary_end].iter()),
         }
     }
 
@@ -486,8 +485,13 @@ pub struct SemanticIter<'tree, 'arena, T: Unpin> {
     next_primary: usize,
     sibling_groups: &'tree [SiblingRadix<'arena, T>],
     next_group: usize,
-    chunk_end: usize,
-    siblings: Option<RadixTreeIter<'tree, T>>,
+    current: SemanticSegment<'tree, T>,
+}
+
+enum SemanticSegment<'tree, T> {
+    Primary(std::slice::Iter<'tree, T>),
+    Siblings(RadixTreeIter<'tree, T>),
+    Done,
 }
 
 impl<'tree, 'arena: 'tree, T: Unpin> Iterator for Iter<'tree, 'arena, T> {
@@ -519,28 +523,52 @@ impl<'tree, 'arena: 'tree, T: Unpin> Iterator for SemanticIter<'tree, 'arena, T>
     #[inline]
     fn next(&mut self) -> Option<&'tree T> {
         loop {
-            if let Some(siblings) = &mut self.siblings
-                && let Some(value) = siblings.next()
-            {
-                return Some(value);
+            match &mut self.current {
+                SemanticSegment::Primary(primary) => {
+                    if let Some(value) = primary.next() {
+                        return Some(value);
+                    }
+                }
+                SemanticSegment::Siblings(siblings) => {
+                    if let Some(value) = siblings.next() {
+                        return Some(value);
+                    }
+                }
+                SemanticSegment::Done => return None,
             }
-            self.siblings = None;
 
-            if self.next_primary < self.chunk_end {
-                let value = &self.primary[self.next_primary];
-                self.next_primary += 1;
-                return Some(value);
-            }
-
-            let group = self.sibling_groups.get(self.next_group)?;
-            debug_assert_eq!(self.chunk_end, group.primary_index as usize + 1);
-            self.siblings = group.tree.iter();
-            self.next_group += 1;
-            self.chunk_end = self
-                .sibling_groups
-                .get(self.next_group)
-                .map_or(self.primary.len(), |group| group.primary_index as usize + 1);
+            self.advance_segment();
         }
+    }
+}
+
+impl<'tree, 'arena: 'tree, T: Unpin> SemanticIter<'tree, 'arena, T> {
+    #[inline]
+    fn advance_segment(&mut self) {
+        match self.current {
+            SemanticSegment::Primary(_) => {
+                let Some(group) = self.sibling_groups.get(self.next_group) else {
+                    self.current = SemanticSegment::Done;
+                    return;
+                };
+                debug_assert_eq!(self.next_primary, group.primary_index as usize + 1);
+                self.next_group += 1;
+                if let Some(siblings) = group.tree.iter() {
+                    self.current = SemanticSegment::Siblings(siblings);
+                    return;
+                }
+            }
+            SemanticSegment::Siblings(_) => {}
+            SemanticSegment::Done => return,
+        }
+
+        let primary_end = self
+            .sibling_groups
+            .get(self.next_group)
+            .map_or(self.primary.len(), |group| group.primary_index as usize + 1);
+        let primary = self.primary[self.next_primary..primary_end].iter();
+        self.next_primary = primary_end;
+        self.current = SemanticSegment::Primary(primary);
     }
 }
 
@@ -564,6 +592,7 @@ struct RadixTreeIter<'tree, T> {
 impl<'tree, T> Iterator for RadixTreeIter<'tree, T> {
     type Item = &'tree T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             if self.slots != 0 {
@@ -621,24 +650,26 @@ mod tests {
         let mut values = RadixIndexArena::new_in(&allocator);
         let first = values.push_primary(0);
         let second = values.push_primary(4);
+        values.push_primary(6);
 
         assert!(values.sibling_groups.is_empty());
 
         let high_branch = values.insert_sibling(first, 512, 3);
         let low_branch = values.insert_sibling(first, 1, 1);
         let next_leaf = values.insert_sibling(first, 32, 2);
+        values.insert_sibling(second, 1, 5);
 
-        assert_eq!(values.sibling_groups.len(), 1);
+        assert_eq!(values.sibling_groups.len(), 2);
         assert_eq!(high_branch.sibling_key(), 512);
         assert_eq!(values[low_branch], 1);
         assert_eq!(values[next_leaf], 2);
         assert_eq!(values[high_branch], 3);
         assert_eq!(
             values.iter().copied().collect::<std::vec::Vec<_>>(),
-            [0, 1, 2, 3, 4]
+            [0, 1, 2, 3, 4, 5, 6]
         );
-        assert_eq!(values.len(), 5);
-        assert_eq!(values.primary_len(), 2);
+        assert_eq!(values.len(), 7);
+        assert_eq!(values.primary_len(), 3);
         assert_eq!(second.primary_index(), 1);
     }
 
@@ -651,6 +682,13 @@ mod tests {
 
         assert_eq!(values.remove_sibling(sibling), Some(2));
         assert_eq!(values.get(sibling), None);
+        assert_eq!(
+            values
+                .semantic_iter()
+                .copied()
+                .collect::<std::vec::Vec<_>>(),
+            [1]
+        );
         let replacement = values.insert_sibling(primary, 17, 3);
         *values.get_mut(replacement).unwrap() = 4;
 
