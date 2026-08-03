@@ -271,11 +271,8 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         location: DeclarationLocation,
     ) -> RadixDeclarationId {
         compilation
-            .declaration_occurrences_in_block(blocks[location.block()])
-            .expect("a Radix declaration sequence owns a valid representation")
-            .nth(location.declaration())
+            .declaration_id_at_in_block(blocks[location.block()], location.declaration())
             .expect("the declaration location was validated against the block length")
-            .0
     }
 
     #[inline]

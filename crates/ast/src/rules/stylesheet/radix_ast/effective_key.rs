@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use rocketcss_common::DenseId;
+use rocketcss_common::{Allocator, DenseId};
 use rustc_hash::FxHasher;
 
 use crate::VendorPrefix;
@@ -239,6 +239,26 @@ pub(crate) struct ContextPathRecord {
     pub(super) fingerprint: u64,
 }
 
+/// The result of refreshing wrapper identities, including the remap needed by
+/// a transient consumer that published block metadata before the refresh.
+#[doc(hidden)]
+pub struct ContextIdentityRepair<'scratch> {
+    changed: bool,
+    effective_key_remaps: rocketcss_common::vec::Vec<'scratch, EffectiveKeyId>,
+}
+
+impl ContextIdentityRepair<'_> {
+    #[inline]
+    pub const fn changed(&self) -> bool {
+        self.changed
+    }
+
+    #[inline]
+    pub fn effective_key_remaps(&self) -> &[EffectiveKeyId] {
+        &self.effective_key_remaps
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LayerContextKey {
     pub(super) parent: Option<LayerContextId>,
@@ -264,15 +284,39 @@ impl<'ast> Compilation<'ast> {
         &mut self,
         mut transform: impl FnMut(SelectorValueId, &mut crate::SelectorList<'ast>),
     ) {
+        let allocator = self.allocator;
+        self.transform_selector_values_in(allocator, &mut transform);
+    }
+
+    /// Variant of [`Self::transform_selector_values`] whose repair scratch is
+    /// owned by the caller's minify arena.
+    #[doc(hidden)]
+    pub fn transform_selector_values_in(
+        &mut self,
+        allocator: &Allocator,
+        mut transform: impl FnMut(SelectorValueId, &mut crate::SelectorList<'ast>),
+    ) -> bool {
+        let mut changed = false;
         for (index, value) in self.selector_values.iter_mut().enumerate() {
             let id = SelectorValueId::from_index(index)
                 .expect("an existing selector value has a representable dense ID");
+            let previous_fingerprint = value.fingerprint;
             transform(id, &mut value.selectors);
             value.fingerprint =
                 selector_value_fingerprint(&value.selectors, value.kind, value.vendor_prefix);
+            changed |= value.fingerprint != previous_fingerprint;
         }
 
-        let mut value_remaps = std::vec::Vec::with_capacity(self.selector_values.len());
+        // The common minify path leaves the typed selector values untouched.
+        // In that case the existing canonical IDs and all dependent revisions
+        // are already authoritative, so repairing them would only recreate
+        // transient maps and invalidate every candidate for no reason.
+        if !changed {
+            return false;
+        }
+
+        let mut value_remaps =
+            rocketcss_common::vec::Vec::with_capacity_in(self.selector_values.len(), allocator);
         self.selector_value_buckets.clear();
         for (id, value) in self.selector_values.iter_enumerated() {
             debug_assert_eq!(id.index(), value_remaps.len());
@@ -297,12 +341,9 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let rule_ids = self
-            .rules
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for id in rule_ids {
+        let mut current = self.first_rule_in_source;
+        while let Some(id) = current {
+            let next = self.rules.get(id).and_then(|rule| rule.next_in_source);
             let rule = self
                 .rules
                 .get_mut(id)
@@ -316,17 +357,16 @@ impl<'ast> Compilation<'ast> {
                 *selector = value_remaps[selector.index()];
                 rule.revision = rule.revision.wrapping_add(1);
             }
+            current = next;
         }
 
-        let mut path_remaps = std::vec::Vec::with_capacity(self.selector_paths.len());
+        let mut path_remaps =
+            rocketcss_common::vec::Vec::with_capacity_in(self.selector_paths.len(), allocator);
         self.selector_path_ids.clear();
         self.root_selector_paths.fill(None);
-        let path_ids = self
-            .selector_paths
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for id in path_ids {
+        for index in 0..self.selector_paths.len() {
+            let id = SelectorPathId::from_index(index)
+                .expect("an existing selector path has a representable dense ID");
             debug_assert_eq!(id.index(), path_remaps.len());
             let record = self.selector_paths[id];
             let parent = record.parent.map(|parent| path_remaps[parent.index()]);
@@ -356,14 +396,12 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let mut key_remaps = std::vec::Vec::with_capacity(self.effective_keys.len());
+        let mut key_remaps =
+            rocketcss_common::vec::Vec::with_capacity_in(self.effective_keys.len(), allocator);
         self.effective_key_ids.clear();
-        let key_ids = self
-            .effective_keys
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for id in key_ids {
+        for index in 0..self.effective_keys.len() {
+            let id = EffectiveKeyId::from_index(index)
+                .expect("an existing effective key has a representable dense ID");
             debug_assert_eq!(id.index(), key_remaps.len());
             let key = &mut self.effective_keys[id];
             key.selector_path = key.selector_path.map(|path| path_remaps[path.index()]);
@@ -374,21 +412,26 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let block_ids = self
-            .declaration_blocks
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for id in block_ids {
-            let block = self
-                .declaration_blocks
-                .get_mut(id)
-                .expect("an enumerated declaration block remains resolvable");
-            if block.live {
-                block.effective_key = key_remaps[block.effective_key.index()];
-                block.revision = block.revision.wrapping_add(1);
+        let mut current = self.first_rule_in_source;
+        while let Some(rule_id) = current {
+            let next = self.rules.get(rule_id).and_then(|rule| rule.next_in_source);
+            let block_id = self
+                .rules
+                .get(rule_id)
+                .and_then(|rule| rule.declaration_block);
+            if let Some(block_id) = block_id {
+                let block = self
+                    .declaration_blocks
+                    .get_mut(block_id)
+                    .expect("an enumerated declaration block remains resolvable");
+                if block.live {
+                    block.effective_key = key_remaps[block.effective_key.index()];
+                    block.revision = block.revision.wrapping_add(1);
+                }
             }
+            current = next;
         }
+        true
     }
 
     /// Rebuilds typed wrapper identities after rule-local value transforms.
@@ -398,14 +441,54 @@ impl<'ast> Compilation<'ast> {
     /// interner must be canonicalized before cross-rule work observes it.
     #[doc(hidden)]
     pub fn refresh_context_value_identities(&mut self) -> Result<(), MutationError> {
-        let mut value_remaps = std::vec::Vec::with_capacity(self.context_values.len());
+        let allocator = self.allocator;
+        self.refresh_context_value_identities_in(allocator)
+            .map(|_| ())
+    }
+
+    /// Variant of [`Self::refresh_context_value_identities`] whose repair
+    /// scratch is owned by the caller's minify arena. Returns whether a
+    /// context value changed semantically.
+    #[doc(hidden)]
+    pub fn refresh_context_value_identities_in(
+        &mut self,
+        allocator: &Allocator,
+    ) -> Result<bool, MutationError> {
+        self.refresh_context_value_identities_with_remaps(allocator)
+            .map(|repair| repair.changed())
+    }
+
+    /// Variant that exposes the final EffectiveKey remap to a transient
+    /// consumer which published block metadata before wrapper repair.
+    #[doc(hidden)]
+    pub fn refresh_context_value_identities_with_remaps<'scratch>(
+        &mut self,
+        allocator: &'scratch Allocator,
+    ) -> Result<ContextIdentityRepair<'scratch>, MutationError> {
+        let mut changed = false;
+        for index in 0..self.context_values.len() {
+            let id = ContextValueId::from_index(index)
+                .expect("an existing context value has a representable dense ID");
+            let representative = self.context_values[id].representative;
+            let kind = self
+                .context_frame_kind(representative)
+                .ok_or(MutationError::InvalidRuleTopology(representative))?;
+            let fingerprint = self.hash_context_frame(representative, kind);
+            changed |= fingerprint != self.context_values[id].fingerprint;
+        }
+        if !changed {
+            return Ok(ContextIdentityRepair {
+                changed: false,
+                effective_key_remaps: rocketcss_common::vec::Vec::new_in(allocator),
+            });
+        }
+
+        let mut value_remaps =
+            rocketcss_common::vec::Vec::with_capacity_in(self.context_values.len(), allocator);
         self.context_value_buckets.clear();
-        let value_ids = self
-            .context_values
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for id in value_ids {
+        for index in 0..self.context_values.len() {
+            let id = ContextValueId::from_index(index)
+                .expect("an existing context value has a representable dense ID");
             debug_assert_eq!(id.index(), value_remaps.len());
             let representative = self.context_values[id].representative;
             let kind = self
@@ -437,14 +520,12 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let mut path_remaps = std::vec::Vec::with_capacity(self.context_paths.len());
+        let mut path_remaps =
+            rocketcss_common::vec::Vec::with_capacity_in(self.context_paths.len(), allocator);
         self.context_path_ids.clear();
-        let path_ids = self
-            .context_paths
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for id in path_ids {
+        for index in 0..self.context_paths.len() {
+            let id = ContextPathId::from_index(index)
+                .expect("an existing context path has a representable dense ID");
             debug_assert_eq!(id.index(), path_remaps.len());
             let record = self.context_paths[id];
             let parent = record.parent.map(|parent| path_remaps[parent.index()]);
@@ -466,14 +547,12 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let mut key_remaps = std::vec::Vec::with_capacity(self.effective_keys.len());
+        let mut key_remaps =
+            rocketcss_common::vec::Vec::with_capacity_in(self.effective_keys.len(), allocator);
         self.effective_key_ids.clear();
-        let key_ids = self
-            .effective_keys
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for id in key_ids {
+        for index in 0..self.effective_keys.len() {
+            let id = EffectiveKeyId::from_index(index)
+                .expect("an existing effective key has a representable dense ID");
             debug_assert_eq!(id.index(), key_remaps.len());
             let key = &mut self.effective_keys[id];
             key.context_path = key.context_path.map(|path| path_remaps[path.index()]);
@@ -484,22 +563,29 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let block_ids = self
-            .declaration_blocks
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for id in block_ids {
-            let block = self
-                .declaration_blocks
-                .get_mut(id)
-                .expect("an enumerated declaration block remains resolvable");
-            if block.live {
-                block.effective_key = key_remaps[block.effective_key.index()];
-                block.revision = block.revision.wrapping_add(1);
+        let mut current = self.first_rule_in_source;
+        while let Some(rule_id) = current {
+            let next = self.rules.get(rule_id).and_then(|rule| rule.next_in_source);
+            let block_id = self
+                .rules
+                .get(rule_id)
+                .and_then(|rule| rule.declaration_block);
+            if let Some(block_id) = block_id {
+                let block = self
+                    .declaration_blocks
+                    .get_mut(block_id)
+                    .expect("an enumerated declaration block remains resolvable");
+                if block.live {
+                    block.effective_key = key_remaps[block.effective_key.index()];
+                    block.revision = block.revision.wrapping_add(1);
+                }
             }
+            current = next;
         }
-        Ok(())
+        Ok(ContextIdentityRepair {
+            changed: true,
+            effective_key_remaps: key_remaps,
+        })
     }
 
     pub fn enter_selector_context(
@@ -633,6 +719,19 @@ impl<'ast> Compilation<'ast> {
         rule: RuleId,
         new_value: SelectorValueId,
     ) -> Result<bool, MutationError> {
+        let allocator = self.allocator;
+        self.replace_rule_selector_value_in(rule, new_value, allocator)
+    }
+
+    /// Arena-backed variant used by the minify scheduler for selector
+    /// subtree repair.
+    #[doc(hidden)]
+    pub fn replace_rule_selector_value_in(
+        &mut self,
+        rule: RuleId,
+        new_value: SelectorValueId,
+        allocator: &Allocator,
+    ) -> Result<bool, MutationError> {
         let record = self.rule(rule).ok_or(MutationError::UnknownRule(rule))?;
         if !record.is_live() {
             return Err(MutationError::RetiredRule(rule));
@@ -685,7 +784,7 @@ impl<'ast> Compilation<'ast> {
 
         let after_subtree = self.next_after_subtree(rule);
         let mut current = Some(rule);
-        let mut blocks = std::vec::Vec::new();
+        let mut blocks = rocketcss_common::vec::Vec::new_in(allocator);
         while let Some(id) = current {
             if Some(id) == after_subtree {
                 break;
@@ -701,9 +800,9 @@ impl<'ast> Compilation<'ast> {
             current = record.next_in_source();
         }
 
-        let mut path_remaps = FxHashMap::default();
+        let mut path_remaps = rocketcss_common::hash_map::HashMap::new_in(allocator);
         path_remaps.insert(old_path, new_path);
-        let mut updates = std::vec::Vec::with_capacity(blocks.len());
+        let mut updates = rocketcss_common::vec::Vec::with_capacity_in(blocks.len(), allocator);
         for block in blocks {
             let old_key_id = self
                 .declaration_block(block)
@@ -715,7 +814,7 @@ impl<'ast> Compilation<'ast> {
             let Some(path) = old_key.selector_path else {
                 continue;
             };
-            let replacement = self.replace_selector_path(path, &mut path_remaps)?;
+            let replacement = self.replace_selector_path_in(path, &mut path_remaps)?;
             if replacement == path {
                 continue;
             }
@@ -743,6 +842,36 @@ impl<'ast> Compilation<'ast> {
             block.revision = block.revision.wrapping_add(1);
         }
         Ok(true)
+    }
+
+    fn replace_selector_path_in(
+        &mut self,
+        path: SelectorPathId,
+        remaps: &mut rocketcss_common::hash_map::HashMap<'_, SelectorPathId, SelectorPathId>,
+    ) -> Result<SelectorPathId, MutationError> {
+        if let Some(&replacement) = remaps.get(&path) {
+            return Ok(replacement);
+        }
+        let record =
+            *self
+                .selector_paths
+                .try_get(path)
+                .ok_or(MutationError::InvalidRuleTopology(
+                    self.first_rule_in_source
+                        .expect("a selector path requires at least one rule"),
+                ))?;
+        let Some(parent) = record.parent else {
+            remaps.insert(path, path);
+            return Ok(path);
+        };
+        let replacement_parent = self.replace_selector_path_in(parent, remaps)?;
+        let replacement = if replacement_parent == parent {
+            path
+        } else {
+            self.intern_selector_path(Some(replacement_parent), record.value)?
+        };
+        remaps.insert(path, replacement);
+        Ok(replacement)
     }
 
     /// Interns the final selector-only union key for two S3 endpoints.
@@ -873,36 +1002,6 @@ impl<'ast> Compilation<'ast> {
         Ok(id)
     }
 
-    fn replace_selector_path(
-        &mut self,
-        path: SelectorPathId,
-        remaps: &mut FxHashMap<SelectorPathId, SelectorPathId>,
-    ) -> Result<SelectorPathId, MutationError> {
-        if let Some(&replacement) = remaps.get(&path) {
-            return Ok(replacement);
-        }
-        let record =
-            *self
-                .selector_paths
-                .try_get(path)
-                .ok_or(MutationError::InvalidRuleTopology(
-                    self.first_rule_in_source
-                        .expect("a selector path requires at least one rule"),
-                ))?;
-        let Some(parent) = record.parent else {
-            remaps.insert(path, path);
-            return Ok(path);
-        };
-        let replacement_parent = self.replace_selector_path(parent, remaps)?;
-        let replacement = if replacement_parent == parent {
-            path
-        } else {
-            self.intern_selector_path(Some(replacement_parent), record.value)?
-        };
-        remaps.insert(path, replacement);
-        Ok(replacement)
-    }
-
     fn intern_context_value(&mut self, rule: RuleId) -> Result<ContextValueId, MutationError> {
         let kind = self
             .context_frame_kind(rule)
@@ -952,22 +1051,14 @@ impl<'ast> Compilation<'ast> {
         } else {
             match self.rule(rule).expect("the context rule exists").payload() {
                 CssRulePayload::Media(payload) => {
-                    payload.query.media_queries.len().hash(&mut hasher);
-                    for query in &payload.query.media_queries {
-                        query.qualifier.is_some().hash(&mut hasher);
-                        query.condition.is_some().hash(&mut hasher);
-                        std::mem::discriminant(&query.media_type).hash(&mut hasher);
-                    }
+                    debug_hash(&mut hasher, &payload.query);
                 }
                 CssRulePayload::Supports(payload) => {
-                    std::mem::discriminant(&payload.condition).hash(&mut hasher);
+                    debug_hash(&mut hasher, &payload.condition);
                 }
                 CssRulePayload::Container(payload) => {
-                    payload.name.hash(&mut hasher);
-                    payload.condition.is_some().hash(&mut hasher);
-                    if let Some(condition) = &payload.condition {
-                        std::mem::discriminant(&**condition).hash(&mut hasher);
-                    }
+                    debug_hash(&mut hasher, &payload.name);
+                    debug_hash(&mut hasher, &payload.condition);
                 }
                 _ => unreachable!("typed context kind and payload remain aligned"),
             }
@@ -994,6 +1085,26 @@ impl<'ast> Compilation<'ast> {
             }
             _ => false,
         }
+    }
+}
+
+/// Hashes a complete semantic context value without allocating a temporary
+/// formatted string. The context payload types intentionally do not implement
+/// `Hash`, while their derived `Debug` output includes every field used by the
+/// exact equality checks above. The resulting value is still only a bucket
+/// filter; canonicalization always calls `context_frames_equal` on collisions.
+fn debug_hash<T: std::fmt::Debug>(hasher: &mut FxHasher, value: &T) {
+    let mut writer = DebugHashWriter(hasher);
+    std::fmt::write(&mut writer, format_args!("{value:?}"))
+        .expect("formatting a context value into a hasher cannot fail");
+}
+
+struct DebugHashWriter<'a>(&'a mut FxHasher);
+
+impl std::fmt::Write for DebugHashWriter<'_> {
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        self.0.write(value.as_bytes());
+        Ok(())
     }
 }
 

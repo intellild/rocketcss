@@ -1,8 +1,9 @@
 //! Incremental cross-rule scheduler over the compiler-owned Radix AST.
 //!
-//! Initialization reads declaration-block records once. Ownership, effective
-//! context, source identity, and adjacency stay authoritative in the AST
-//! rather than being reconstructed into Nano-specific records.
+//! Declaration summaries are published at the end of each local block pass.
+//! Finalization consumes that publication tape plus the final context remap;
+//! ownership, effective context, source identity, and adjacency stay
+//! authoritative in the AST rather than being reconstructed into Nano records.
 
 use rocketcss_ast::{
     Declaration, EqIgnoringTombstones, Span,
@@ -11,205 +12,49 @@ use rocketcss_ast::{
         EffectiveKeyId, MutationError, NestingRulePayload, RuleId, StyleRulePayload,
     },
 };
-use rocketcss_common::{RadixIdRemap, RadixInsertResult};
-use rustc_hash::{FxHashMap, FxHashSet};
-use smallvec::SmallVec;
-use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, VecDeque},
+use rocketcss_common::{
+    Allocator, RadixIdRemap, RadixInsertResult,
+    prelude::{HashMap, HashSet, Vec},
 };
+use std::{cmp::Reverse, collections::VecDeque};
 
-use super::declaration_ir::{
-    CompactPropertyKey, DeclarationIrClassifier, MovementDomain, PropertyBloom,
-};
+use super::declaration_ir::{CompactPropertyKey, DeclarationIrStore};
 use super::partial_selector::materialize_selector_union;
 
-pub(super) fn stabilize<'ast>(
-    compilation: &mut Compilation<'ast>,
-    preserve_selector_compatibility: bool,
-) -> Result<(), MutationError> {
-    let mut state = CrossRuleState::from_compilation(compilation)?;
-    state.run(compilation, preserve_selector_compatibility)?;
-    state.finish(compilation);
-    Ok(())
+pub(crate) struct CrossRuleBuilder<'arena, 'ast> {
+    state: CrossRuleState<'arena, 'ast>,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct DeclarationOccurrenceIr {
-    property_key: Option<CompactPropertyKey>,
-    movement_domain: Option<MovementDomain>,
-    live: bool,
-}
+impl<'arena, 'ast> CrossRuleBuilder<'arena, 'ast> {
+    pub(super) fn new(compilation: &Compilation<'ast>, allocator: &'arena Allocator) -> Self {
+        Self {
+            state: CrossRuleState::new_in(compilation, allocator),
+        }
+    }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct DeclarationBlockIr {
-    live_count: u32,
-    property_bloom: PropertyBloom,
-}
-
-#[derive(Debug, Default)]
-struct DeclarationIrStore<'ast> {
-    classifier: DeclarationIrClassifier<'ast>,
-    occurrences: std::vec::Vec<Option<DeclarationOccurrenceIr>>,
-    blocks: FxHashMap<DeclarationBlockId, DeclarationBlockIr>,
-}
-
-impl<'ast> DeclarationIrStore<'ast> {
-    fn freeze_block(
+    pub(super) fn publish_block(
         &mut self,
         compilation: &Compilation<'ast>,
         block: DeclarationBlockId,
     ) -> Result<(), MutationError> {
-        let mut summary = DeclarationBlockIr::default();
-        for (declaration, record) in compilation.declaration_occurrences_in_block(block)? {
-            let (property_key, movement_domain, live) = match record.payload() {
-                DeclarationPayload::Property(value) => {
-                    let live = !matches!(value, Declaration::Tombstone);
-                    let property_key = live
-                        .then(|| self.classifier.property_key(value, record.is_important()))
-                        .flatten();
-                    let movement_domain = live
-                        .then(|| self.classifier.movement_domain(value))
-                        .flatten();
-                    (property_key, movement_domain, live)
-                }
-                DeclarationPayload::FontFace(_)
-                | DeclarationPayload::FontPaletteValues(_)
-                | DeclarationPayload::ViewTransition(_)
-                | DeclarationPayload::FontFeature(_)
-                | DeclarationPayload::PropertyRule(_) => (None, None, true),
-            };
-            if live {
-                summary.live_count = summary
-                    .live_count
-                    .checked_add(1)
-                    .expect("declaration count exceeds u32::MAX");
-            }
-            if let Some(key) = property_key {
-                summary.property_bloom.insert(key);
-            }
-            if self.occurrences.len() <= declaration.index() {
-                self.occurrences.resize(declaration.index() + 1, None);
-            }
-            self.occurrences[declaration.index()] = Some(DeclarationOccurrenceIr {
-                property_key,
-                movement_domain,
-                live,
-            });
-        }
-        self.blocks.insert(block, summary);
-        Ok(())
+        self.state.publish_block(compilation, block)
     }
 
-    #[cfg(test)]
-    fn occurrence_count(&self) -> usize {
-        self.occurrences.iter().flatten().count()
+    pub(super) fn finalize(&mut self, key_remaps: &[EffectiveKeyId]) {
+        self.state.finalize_published_blocks(key_remaps);
     }
+}
 
-    #[cfg(test)]
-    fn matchable_count(&self) -> usize {
-        self.occurrences
-            .iter()
-            .flatten()
-            .filter(|occurrence| occurrence.property_key.is_some())
-            .count()
-    }
-
-    #[cfg(test)]
-    fn live_count(&self) -> usize {
-        self.occurrences
-            .iter()
-            .flatten()
-            .filter(|occurrence| occurrence.live)
-            .count()
-    }
-
-    #[cfg(test)]
-    fn movement_domain_count(&self) -> usize {
-        self.occurrences
-            .iter()
-            .flatten()
-            .filter(|occurrence| occurrence.movement_domain.is_some())
-            .count()
-    }
-
-    fn compose(&mut self, left: DeclarationBlockId, right: DeclarationBlockId) {
-        let left = self
-            .blocks
-            .remove(&left)
-            .expect("an S1 endpoint has initialized declaration IR");
-        let right = self
-            .blocks
-            .get_mut(&right)
-            .expect("an S1 endpoint has initialized declaration IR");
-        right.live_count = right
-            .live_count
-            .checked_add(left.live_count)
-            .expect("declaration count exceeds u32::MAX");
-        right.property_bloom.union_with(left.property_bloom);
-    }
-
-    fn occurrence(
-        &self,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
-    ) -> Option<&DeclarationOccurrenceIr> {
-        self.occurrences.get(declaration.index())?.as_ref()
-    }
-
-    fn live_declarations(
-        &self,
-        compilation: &Compilation<'_>,
-        block: DeclarationBlockId,
-    ) -> Result<SmallVec<[rocketcss_ast::radix_ast::DeclarationId; 8]>, MutationError> {
-        Ok(compilation
-            .declaration_occurrences_in_block(block)?
-            .filter_map(|(declaration, _)| {
-                self.occurrence(declaration)
-                    .is_some_and(|occurrence| occurrence.live)
-                    .then_some(declaration)
-            })
-            .collect())
-    }
-
-    fn mark_dead(
-        &mut self,
-        block: DeclarationBlockId,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
-    ) {
-        let occurrence = self.occurrences[declaration.index()]
-            .as_mut()
-            .expect("an authored declaration has initialized IR");
-        if !occurrence.live {
-            return;
-        }
-        occurrence.live = false;
-        self.blocks
-            .get_mut(&block)
-            .expect("a live block has initialized IR")
-            .live_count -= 1;
-    }
-
-    fn block_live_count(&self, block: DeclarationBlockId) -> u32 {
-        self.blocks
-            .get(&block)
-            .map_or(0, |summary| summary.live_count)
-    }
-
-    fn property_bloom(&self, block: DeclarationBlockId) -> PropertyBloom {
-        self.blocks
-            .get(&block)
-            .map_or(PropertyBloom::default(), |summary| summary.property_bloom)
-    }
-
-    fn repair_block_remaps(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId>]) {
-        if remaps.is_empty() {
-            return;
-        }
-        self.blocks = std::mem::take(&mut self.blocks)
-            .into_iter()
-            .map(|(block, summary)| (remap_block_id(block, remaps), summary))
-            .collect();
-    }
+pub(super) fn stabilize_with_builder<'arena, 'ast>(
+    mut builder: CrossRuleBuilder<'arena, 'ast>,
+    compilation: &mut Compilation<'ast>,
+    preserve_selector_compatibility: bool,
+) -> Result<(), MutationError> {
+    builder
+        .state
+        .run(compilation, preserve_selector_compatibility)?;
+    builder.state.finish(compilation);
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -222,13 +67,20 @@ struct Candidate {
     may_share_declaration: bool,
 }
 
-#[derive(Debug, Default)]
-struct SameSelectorCandidateList {
+#[derive(Debug)]
+struct SameSelectorCandidateList<'arena> {
     pending: VecDeque<Candidate>,
-    queued: FxHashSet<Candidate>,
+    queued: HashSet<'arena, Candidate>,
 }
 
-impl SameSelectorCandidateList {
+impl<'arena> SameSelectorCandidateList<'arena> {
+    fn new_in(allocator: &'arena Allocator) -> Self {
+        Self {
+            pending: VecDeque::new(),
+            queued: HashSet::new_in(allocator),
+        }
+    }
+
     fn push(&mut self, candidate: Candidate) {
         if self.queued.insert(candidate) {
             self.pending.push_back(candidate);
@@ -254,21 +106,34 @@ impl SameSelectorCandidateList {
     }
 }
 
-#[derive(Debug, Default)]
-struct PartialMergeCandidateList {
-    pending: BinaryHeap<Reverse<Candidate>>,
-    queued: FxHashSet<Candidate>,
+#[derive(Debug)]
+struct PartialMergeCandidateList<'arena> {
+    pending: Vec<'arena, Reverse<Candidate>>,
+    queued: HashSet<'arena, Candidate>,
 }
 
-impl PartialMergeCandidateList {
+impl<'arena> PartialMergeCandidateList<'arena> {
+    fn new_in(allocator: &'arena Allocator) -> Self {
+        Self {
+            pending: allocator.vec(),
+            queued: HashSet::new_in(allocator),
+        }
+    }
+
     fn push(&mut self, candidate: Candidate) {
         if self.queued.insert(candidate) {
             self.pending.push(Reverse(candidate));
+            self.sift_up(self.pending.len() - 1);
         }
     }
 
     fn pop(&mut self) -> Option<Candidate> {
-        let candidate = self.pending.pop()?.0;
+        let candidate = self.pending.first()?.0;
+        let last = self.pending.pop().expect("the heap head exists");
+        if !self.pending.is_empty() {
+            self.pending[0] = last;
+            self.sift_down(0);
+        }
         self.queued.remove(&candidate);
         Some(candidate)
     }
@@ -278,25 +143,73 @@ impl PartialMergeCandidateList {
     }
 
     fn remap_blocks(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId>]) {
-        let mut repaired = BinaryHeap::with_capacity(self.pending.len());
-        for Reverse(mut candidate) in std::mem::take(&mut self.pending).into_vec() {
+        for Reverse(candidate) in self.pending.iter_mut() {
             candidate.remap_blocks(remaps);
-            repaired.push(Reverse(candidate));
         }
-        self.pending = repaired;
+        for index in (0..self.pending.len() / 2).rev() {
+            self.sift_down(index);
+        }
         self.queued.clear();
-        self.queued
-            .extend(self.pending.iter().map(|candidate| candidate.0));
+        for candidate in &self.pending {
+            self.queued.insert(candidate.0);
+        }
+    }
+
+    fn sift_up(&mut self, mut index: usize) {
+        while index != 0 {
+            let parent = (index - 1) / 2;
+            if self.pending[parent].0 <= self.pending[index].0 {
+                break;
+            }
+            self.pending.swap(parent, index);
+            index = parent;
+        }
+    }
+
+    fn sift_down(&mut self, mut index: usize) {
+        loop {
+            let left = index * 2 + 1;
+            let Some(right) = left.checked_add(1) else {
+                break;
+            };
+            let mut smallest = index;
+            if self
+                .pending
+                .get(left)
+                .is_some_and(|candidate| candidate.0 < self.pending[smallest].0)
+            {
+                smallest = left;
+            }
+            if self
+                .pending
+                .get(right)
+                .is_some_and(|candidate| candidate.0 < self.pending[smallest].0)
+            {
+                smallest = right;
+            }
+            if smallest == index {
+                break;
+            }
+            self.pending.swap(index, smallest);
+            index = smallest;
+        }
     }
 }
 
-#[derive(Debug, Default)]
-struct DeclarationOverrideCandidateList {
+#[derive(Debug)]
+struct DeclarationOverrideCandidateList<'arena> {
     pending: VecDeque<EffectiveKeyId>,
-    queued: FxHashSet<EffectiveKeyId>,
+    queued: HashSet<'arena, EffectiveKeyId>,
 }
 
-impl DeclarationOverrideCandidateList {
+impl<'arena> DeclarationOverrideCandidateList<'arena> {
+    fn new_in(allocator: &'arena Allocator) -> Self {
+        Self {
+            pending: VecDeque::new(),
+            queued: HashSet::new_in(allocator),
+        }
+    }
+
     fn push(&mut self, key: EffectiveKeyId) {
         if self.queued.insert(key) {
             self.pending.push_back(key);
@@ -314,17 +227,190 @@ impl DeclarationOverrideCandidateList {
     }
 }
 
-#[derive(Debug, Default)]
-struct CrossRuleState<'ast> {
-    declaration_ir: DeclarationIrStore<'ast>,
+#[derive(Debug)]
+struct MinifyScratch<'arena> {
+    history: Vec<'arena, DeclarationBlockId>,
+    left_declarations: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+    right_declarations: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+    left_residual: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+    right_residual: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+    common: Vec<'arena, CommonDeclaration>,
+    matched_right: HashSet<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+    matched_left: HashSet<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+    affected_blocks: HashSet<'arena, DeclarationBlockId>,
+    previous_by_property: HashMap<
+        'arena,
+        CompactPropertyKey,
+        (DeclarationBlockId, rocketcss_ast::radix_ast::DeclarationId),
+    >,
+}
+
+impl<'arena> MinifyScratch<'arena> {
+    fn new_in(allocator: &'arena Allocator) -> Self {
+        Self {
+            history: allocator.vec(),
+            left_declarations: allocator.vec(),
+            right_declarations: allocator.vec(),
+            left_residual: allocator.vec(),
+            right_residual: allocator.vec(),
+            common: allocator.vec(),
+            matched_right: HashSet::new_in(allocator),
+            matched_left: HashSet::new_in(allocator),
+            affected_blocks: HashSet::new_in(allocator),
+            previous_by_property: HashMap::new_in(allocator),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PublishedBlock {
+    block: DeclarationBlockId,
+    effective_key: EffectiveKeyId,
+    revision: u32,
+    previous_style_block: Option<(DeclarationBlockId, EffectiveKeyId, u32)>,
+}
+
+struct CrossRuleState<'arena, 'ast> {
+    allocator: &'arena Allocator,
+    declaration_ir: DeclarationIrStore<'arena, 'ast>,
     // The authored common case is one occurrence per key. Keep that one ID
-    // inline and allocate a repeated-key history only when S2 can use it.
-    histories: FxHashMap<EffectiveKeyId, SmallVec<[DeclarationBlockId; 1]>>,
-    direct_style_edges: std::vec::Vec<Candidate>,
-    same_selector_candidates: SameSelectorCandidateList,
-    declaration_override_candidates: DeclarationOverrideCandidateList,
-    partial_merge_candidates: PartialMergeCandidateList,
-    block_scan_count: usize,
+    // inline in the arena vector and grow it only when S2 needs a history.
+    histories: HashMap<'arena, EffectiveKeyId, Vec<'arena, DeclarationBlockId>>,
+    published_blocks: Vec<'arena, PublishedBlock>,
+    direct_style_edges: Vec<'arena, Candidate>,
+    same_selector_candidates: SameSelectorCandidateList<'arena>,
+    declaration_override_candidates: DeclarationOverrideCandidateList<'arena>,
+    partial_merge_candidates: PartialMergeCandidateList<'arena>,
+    scratch: MinifyScratch<'arena>,
+    published_block_count: usize,
+}
+
+impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
+    fn new_in(compilation: &Compilation<'ast>, allocator: &'arena Allocator) -> Self {
+        let declaration_capacity = compilation.declarations_in_source_order().len();
+        let block_capacity = compilation.declaration_block_count();
+        Self {
+            allocator,
+            declaration_ir: DeclarationIrStore::new_in(
+                allocator,
+                declaration_capacity,
+                block_capacity,
+            ),
+            histories: HashMap::with_capacity_in(block_capacity, allocator),
+            published_blocks: Vec::with_capacity_in(block_capacity, allocator),
+            direct_style_edges: Vec::with_capacity_in(block_capacity, allocator),
+            same_selector_candidates: SameSelectorCandidateList::new_in(allocator),
+            declaration_override_candidates: DeclarationOverrideCandidateList::new_in(allocator),
+            partial_merge_candidates: PartialMergeCandidateList::new_in(allocator),
+            scratch: MinifyScratch::new_in(allocator),
+            published_block_count: 0,
+        }
+    }
+
+    #[cfg(test)]
+    fn publish_all_blocks(&mut self, compilation: &Compilation<'ast>) -> Result<(), MutationError> {
+        for (block_id, block) in compilation.declaration_blocks_in_source_order() {
+            if !block.is_live() {
+                continue;
+            }
+            self.publish_block(compilation, block_id)?;
+        }
+        Ok(())
+    }
+
+    fn publish_block(
+        &mut self,
+        compilation: &Compilation<'ast>,
+        block: DeclarationBlockId,
+    ) -> Result<(), MutationError> {
+        self.declaration_ir.freeze_block(compilation, block)?;
+        let block_record = compilation
+            .declaration_block(block)
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        let DeclarationBlockOwner::Rule(owner) = block_record.owner();
+        let owner_record = compilation
+            .rule(owner)
+            .ok_or(MutationError::InvalidRuleTopology(owner))?;
+        let previous_style_block = if is_style_owner(owner_record.payload())
+            && let Some(previous) = owner_record.previous_sibling()
+        {
+            let previous_record = compilation
+                .rule(previous)
+                .ok_or(MutationError::InvalidRuleTopology(previous))?;
+            if is_style_owner(previous_record.payload()) {
+                let previous_block = previous_record
+                    .declaration_block()
+                    .ok_or(MutationError::InvalidRuleTopology(previous))?;
+                let previous_block_record = compilation
+                    .declaration_block(previous_block)
+                    .ok_or(MutationError::UnknownDeclarationBlock(previous_block))?;
+                Some((
+                    previous_block,
+                    previous_block_record.effective_key(),
+                    previous_block_record.revision(),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        self.published_blocks.push(PublishedBlock {
+            block,
+            effective_key: block_record.effective_key(),
+            revision: block_record.revision(),
+            previous_style_block,
+        });
+        Ok(())
+    }
+
+    fn finalize_published_blocks(&mut self, key_remaps: &[EffectiveKeyId]) {
+        self.published_block_count = 0;
+        for index in 0..self.published_blocks.len() {
+            let mut published = self.published_blocks[index];
+            if !key_remaps.is_empty() {
+                published.effective_key = key_remaps[published.effective_key.index()];
+                if let Some((block, effective_key, revision)) = published.previous_style_block {
+                    published.previous_style_block =
+                        Some((block, key_remaps[effective_key.index()], revision));
+                }
+                self.published_blocks[index] = published;
+            }
+            self.published_block_count += 1;
+            if self.insert_history_occurrence(published.effective_key, published.block) {
+                self.declaration_override_candidates
+                    .push(published.effective_key);
+            }
+            if let Some((previous_block, previous_key, previous_revision)) =
+                published.previous_style_block
+            {
+                self.enqueue_edge_candidate(Candidate {
+                    left: previous_block,
+                    right: published.block,
+                    left_revision: previous_revision,
+                    right_revision: published.revision,
+                    same_effective_key: previous_key == published.effective_key,
+                    may_share_declaration: self
+                        .declaration_ir
+                        .property_bloom(previous_block)
+                        .may_share_declaration(self.declaration_ir.property_bloom(published.block)),
+                });
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn from_compilation<'minify>(
+        compilation: &Compilation<'ast>,
+    ) -> Result<CrossRuleState<'minify, 'ast>, MutationError>
+    where
+        'ast: 'minify,
+    {
+        let mut state = CrossRuleState::new_in(compilation, compilation.allocator());
+        state.publish_all_blocks(compilation)?;
+        state.finalize_published_blocks(&[]);
+        Ok(state)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -356,66 +442,7 @@ struct CommonDeclaration {
     right_order: usize,
 }
 
-impl<'ast> CrossRuleState<'ast> {
-    fn from_compilation(compilation: &Compilation<'ast>) -> Result<Self, MutationError> {
-        let mut state = Self::default();
-        for (block_id, block) in compilation.declaration_blocks_in_source_order() {
-            if !block.is_live() {
-                continue;
-            }
-            state.block_scan_count += 1;
-            state
-                .histories
-                .entry(block.effective_key())
-                .or_default()
-                .push(block_id);
-            state.declaration_ir.freeze_block(compilation, block_id)?;
-
-            let DeclarationBlockOwner::Rule(owner) = block.owner();
-            let owner = compilation
-                .rule(owner)
-                .ok_or(MutationError::InvalidRuleTopology(owner))?;
-            if !is_style_owner(owner.payload()) {
-                continue;
-            }
-            let Some(previous_rule_id) = owner.previous_sibling() else {
-                continue;
-            };
-            let previous_rule = compilation
-                .rule(previous_rule_id)
-                .ok_or(MutationError::InvalidRuleTopology(previous_rule_id))?;
-            if !is_style_owner(previous_rule.payload()) {
-                continue;
-            }
-            let Some(previous_block_id) = previous_rule.declaration_block() else {
-                return Err(MutationError::InvalidRuleTopology(previous_rule_id));
-            };
-            let previous_block = compilation
-                .declaration_block(previous_block_id)
-                .ok_or(MutationError::UnknownDeclarationBlock(previous_block_id))?;
-            state.enqueue_edge_candidate(Candidate {
-                left: previous_block_id,
-                right: block_id,
-                left_revision: previous_block.revision(),
-                right_revision: block.revision(),
-                same_effective_key: previous_block.effective_key() == block.effective_key(),
-                may_share_declaration: state
-                    .declaration_ir
-                    .property_bloom(previous_block_id)
-                    .may_share_declaration(state.declaration_ir.property_bloom(block_id)),
-            });
-        }
-        let dirty_keys = state
-            .histories
-            .iter()
-            .filter_map(|(&key, history)| (history.len() > 1).then_some(key))
-            .collect::<SmallVec<[_; 8]>>();
-        for key in dirty_keys {
-            state.declaration_override_candidates.push(key);
-        }
-        Ok(state)
-    }
-
+impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     fn run(
         &mut self,
         compilation: &mut Compilation<'ast>,
@@ -509,20 +536,17 @@ impl<'ast> CrossRuleState<'ast> {
     ) -> Result<S2Stats, MutationError> {
         let mut stats = S2Stats::default();
         while let Some(key) = self.declaration_override_candidates.pop() {
-            let Some(history) = self.histories.get(&key).cloned() else {
+            let Some(history) = self.histories.get(&key) else {
                 continue;
             };
-            let mut affected_blocks = FxHashSet::default();
-            let mut previous_by_property: FxHashMap<
-                CompactPropertyKey,
-                (DeclarationBlockId, rocketcss_ast::radix_ast::DeclarationId),
-            > = FxHashMap::default();
-            for block in history {
-                let declarations = compilation
-                    .declaration_occurrences_in_block(block)?
-                    .map(|(id, _)| id)
-                    .collect::<std::vec::Vec<_>>();
-                for declaration in declarations {
+            self.scratch.history.clear();
+            self.scratch.history.extend(history.iter().copied());
+            self.scratch.affected_blocks.clear();
+            self.scratch.previous_by_property.clear();
+            for &block in &self.scratch.history {
+                let declaration_count = compilation.declaration_ids_in_block(block)?.len();
+                for index in 0..declaration_count {
+                    let declaration = compilation.declaration_id_at_in_block(block, index)?;
                     let Some(property_key) = self
                         .declaration_ir
                         .occurrence(declaration)
@@ -532,7 +556,7 @@ impl<'ast> CrossRuleState<'ast> {
                         continue;
                     };
                     if let Some(&(previous_block, previous)) =
-                        previous_by_property.get(&property_key)
+                        self.scratch.previous_by_property.get(&property_key)
                         && declarations_are_exactly_equal(compilation, previous, declaration)
                     {
                         compilation.replace_declaration(
@@ -541,15 +565,21 @@ impl<'ast> CrossRuleState<'ast> {
                             DeclarationPayload::Property(Declaration::Tombstone),
                         )?;
                         self.declaration_ir.mark_dead(previous_block, previous);
-                        affected_blocks.insert(previous_block);
+                        self.scratch.affected_blocks.insert(previous_block);
                         stats.declarations_removed += 1;
                     }
-                    previous_by_property.insert(property_key, (block, declaration));
+                    self.scratch
+                        .previous_by_property
+                        .insert(property_key, (block, declaration));
                 }
             }
 
-            for block in affected_blocks {
-                self.declaration_ir.freeze_block(compilation, block)?;
+            self.scratch.history.clear();
+            for &block in &self.scratch.affected_blocks {
+                self.scratch.history.push(block);
+            }
+            for index in 0..self.scratch.history.len() {
+                let block = self.scratch.history[index];
                 let Some(block_record) = compilation.declaration_block(block) else {
                     continue;
                 };
@@ -589,65 +619,100 @@ impl<'ast> CrossRuleState<'ast> {
             let Some(endpoints) = validate_s3(compilation, candidate) else {
                 continue;
             };
-            let left_declarations = self
-                .declaration_ir
-                .live_declarations(compilation, candidate.left)?;
-            let right_declarations = self
-                .declaration_ir
-                .live_declarations(compilation, candidate.right)?;
-            if left_declarations.is_empty() || right_declarations.is_empty() {
+            self.declaration_ir.live_declarations(
+                compilation,
+                candidate.left,
+                &mut self.scratch.left_declarations,
+            )?;
+            self.declaration_ir.live_declarations(
+                compilation,
+                candidate.right,
+                &mut self.scratch.right_declarations,
+            )?;
+            if self.scratch.left_declarations.is_empty()
+                || self.scratch.right_declarations.is_empty()
+            {
                 continue;
             }
 
-            let mut matched_right = FxHashSet::default();
-            let mut common = SmallVec::<[CommonDeclaration; 8]>::new();
-            for &left in &left_declarations {
+            self.scratch.matched_right.clear();
+            self.scratch.matched_left.clear();
+            self.scratch.common.clear();
+            for &left in &self.scratch.left_declarations {
                 let Some(left_ir) = self.declaration_ir.occurrence(left) else {
                     continue;
                 };
                 let Some(property_key) = left_ir.property_key else {
                     continue;
                 };
-                if let Some((right_order, &right)) =
-                    right_declarations.iter().enumerate().find(|(_, right)| {
-                        !matched_right.contains(&**right)
-                            && self
-                                .declaration_ir
-                                .occurrence(**right)
-                                .is_some_and(|right| right.property_key == Some(property_key))
-                            && declarations_have_equal_effect(compilation, left, **right)
-                    })
+                let mut matched = false;
+                if let Some(indexed) = self
+                    .declaration_ir
+                    .property_candidates(candidate.right, property_key)
                 {
-                    matched_right.insert(right);
-                    common.push(CommonDeclaration {
-                        left,
-                        right,
-                        right_order,
-                    });
+                    for indexed in indexed {
+                        let right = indexed.declaration;
+                        let right_order = indexed.order;
+                        if self.scratch.matched_right.contains(&right)
+                            || !self.scratch.right_declarations.contains(&right)
+                            || !declarations_have_equal_effect(compilation, left, right)
+                        {
+                            continue;
+                        }
+                        self.scratch.matched_right.insert(right);
+                        self.scratch.matched_left.insert(left);
+                        self.scratch.common.push(CommonDeclaration {
+                            left,
+                            right,
+                            right_order,
+                        });
+                        matched = true;
+                        break;
+                    }
+                }
+                if !matched {
+                    for (right_order, &right) in self.scratch.right_declarations.iter().enumerate()
+                    {
+                        if self.scratch.matched_right.contains(&right)
+                            || self
+                                .declaration_ir
+                                .occurrence(right)
+                                .is_none_or(|right| right.property_key != Some(property_key))
+                            || !declarations_have_equal_effect(compilation, left, right)
+                        {
+                            continue;
+                        }
+                        self.scratch.matched_right.insert(right);
+                        self.scratch.matched_left.insert(left);
+                        self.scratch.common.push(CommonDeclaration {
+                            left,
+                            right,
+                            right_order,
+                        });
+                        break;
+                    }
                 }
             }
-            if common.is_empty() {
+            if self.scratch.common.is_empty() {
                 stats.rejected_no_common += 1;
                 continue;
             }
-            let matched_left = common
-                .iter()
-                .map(|common| common.left)
-                .collect::<FxHashSet<_>>();
-            let left_residual = left_declarations
-                .iter()
-                .copied()
-                .filter(|declaration| !matched_left.contains(declaration))
-                .collect::<SmallVec<[_; 8]>>();
-            let right_residual = right_declarations
-                .iter()
-                .copied()
-                .filter(|declaration| !matched_right.contains(declaration))
-                .collect::<SmallVec<[_; 8]>>();
+            self.scratch.left_residual.clear();
+            self.scratch.right_residual.clear();
+            for &declaration in &self.scratch.left_declarations {
+                if !self.scratch.matched_left.contains(&declaration) {
+                    self.scratch.left_residual.push(declaration);
+                }
+            }
+            for &declaration in &self.scratch.right_declarations {
+                if !self.scratch.matched_right.contains(&declaration) {
+                    self.scratch.right_residual.push(declaration);
+                }
+            }
             if !radix_partial_movement_is_safe(
-                &common,
-                &left_residual,
-                &right_residual,
+                &self.scratch.common,
+                &self.scratch.left_residual,
+                &self.scratch.right_residual,
                 &self.declaration_ir,
             ) {
                 stats.rejected_unsafe_movement += 1;
@@ -664,6 +729,7 @@ impl<'ast> CrossRuleState<'ast> {
                     .expect("a validated selector value remains resolvable")
                     .selectors(),
                 preserve_selector_compatibility,
+                self.allocator,
             ) else {
                 continue;
             };
@@ -681,8 +747,12 @@ impl<'ast> CrossRuleState<'ast> {
                 continue;
             };
 
-            if left_residual.is_empty() {
-                compilation.replace_rule_selector_value(endpoints.left_rule, selector_value)?;
+            if self.scratch.left_residual.is_empty() {
+                compilation.replace_rule_selector_value_in(
+                    endpoints.left_rule,
+                    selector_value,
+                    self.allocator,
+                )?;
                 let left_payload = compilation
                     .rule_mut(endpoints.left_rule)
                     .expect("the reused S3 endpoint remains live")
@@ -693,7 +763,7 @@ impl<'ast> CrossRuleState<'ast> {
                     _ => unreachable!("the S3 selector owner was validated"),
                 }
 
-                for declaration in &common {
+                for declaration in &self.scratch.common {
                     compilation.replace_declaration(
                         candidate.right,
                         declaration.right,
@@ -702,8 +772,6 @@ impl<'ast> CrossRuleState<'ast> {
                     self.declaration_ir
                         .mark_dead(candidate.right, declaration.right);
                 }
-                self.declaration_ir
-                    .freeze_block(compilation, candidate.right)?;
                 debug_assert_eq!(
                     compilation
                         .declaration_block(candidate.left)
@@ -744,7 +812,7 @@ impl<'ast> CrossRuleState<'ast> {
             if !compilation.can_insert_declaration_block_between(
                 candidate.left,
                 Some(before_block),
-                common.len(),
+                self.scratch.common.len(),
             ) {
                 stats.rejected_capacity += 1;
                 continue;
@@ -789,7 +857,7 @@ impl<'ast> CrossRuleState<'ast> {
             let right_block = remap_block_id(candidate.right, &block_result.remaps);
             let shared_block = block_result.id;
 
-            for declaration in &common {
+            for declaration in &self.scratch.common {
                 let important = compilation
                     .declaration(declaration.left)
                     .ok_or(MutationError::UnknownDeclaration(declaration.left))?
@@ -807,12 +875,13 @@ impl<'ast> CrossRuleState<'ast> {
                 self.declaration_ir.mark_dead(left_block, declaration.left);
                 self.declaration_ir
                     .mark_dead(right_block, declaration.right);
-                compilation.append_declaration(shared_block, moved, important)?;
+                let moved = compilation.append_declaration(shared_block, moved, important)?;
+                self.declaration_ir.publish_synthesized_declaration(
+                    compilation,
+                    shared_block,
+                    moved,
+                )?;
             }
-            self.declaration_ir.freeze_block(compilation, left_block)?;
-            self.declaration_ir.freeze_block(compilation, right_block)?;
-            self.declaration_ir
-                .freeze_block(compilation, shared_block)?;
             self.insert_history_occurrence(shared_key, shared_block);
 
             let retain_right = self.declaration_ir.block_live_count(right_block) != 0
@@ -857,12 +926,23 @@ impl<'ast> CrossRuleState<'ast> {
         }
     }
 
-    fn insert_history_occurrence(&mut self, key: EffectiveKeyId, block: DeclarationBlockId) {
-        let history = self.histories.entry(key).or_default();
+    fn insert_history_occurrence(
+        &mut self,
+        key: EffectiveKeyId,
+        block: DeclarationBlockId,
+    ) -> bool {
+        if !self.histories.contains_key(&key) {
+            self.histories.insert(key, self.allocator.vec());
+        }
+        let history = self
+            .histories
+            .get_mut(&key)
+            .expect("the history was inserted above");
         let index = history.binary_search(&block).unwrap_or_else(|index| index);
         if history.get(index) != Some(&block) {
             history.insert(index, block);
         }
+        history.len() == 2
     }
 
     fn publish_incident_edges(
@@ -927,6 +1007,13 @@ impl<'ast> CrossRuleState<'ast> {
             return;
         }
         self.declaration_ir.repair_block_remaps(&result.remaps);
+        for block in &mut self.published_blocks {
+            block.block = remap_block_id(block.block, &result.remaps);
+            if let Some((previous, key, revision)) = block.previous_style_block {
+                block.previous_style_block =
+                    Some((remap_block_id(previous, &result.remaps), key, revision));
+            }
+        }
         for history in self.histories.values_mut() {
             for block in history {
                 *block = remap_block_id(*block, &result.remaps);
@@ -1163,51 +1250,65 @@ fn radix_partial_movement_is_safe(
     common: &[CommonDeclaration],
     left_residual: &[rocketcss_ast::radix_ast::DeclarationId],
     right_residual: &[rocketcss_ast::radix_ast::DeclarationId],
-    declaration_ir: &DeclarationIrStore<'_>,
+    declaration_ir: &DeclarationIrStore<'_, '_>,
 ) -> bool {
-    let common_domains = common
-        .iter()
-        .map(|common| declaration_ir.occurrence(common.left)?.movement_domain)
-        .collect::<Option<SmallVec<[_; 8]>>>();
     if left_residual.is_empty() && right_residual.is_empty() {
-        let Some(common_domains) = common_domains else {
+        if common.iter().any(|common| {
+            declaration_ir
+                .occurrence(common.left)
+                .and_then(|occurrence| occurrence.movement_domain)
+                .is_none()
+        }) {
             return common
                 .windows(2)
                 .all(|pair| pair[0].right_order < pair[1].right_order);
+        }
+        return radix_common_effect_order_is_safe(common, declaration_ir);
+    }
+    for common in common {
+        let Some(common_domain) = declaration_ir
+            .occurrence(common.left)
+            .and_then(|occurrence| occurrence.movement_domain)
+        else {
+            return false;
         };
-        return radix_common_effect_order_is_safe(common, &common_domains);
+        for &residual in left_residual.iter().chain(right_residual) {
+            let Some(residual_domain) = declaration_ir
+                .occurrence(residual)
+                .and_then(|occurrence| occurrence.movement_domain)
+            else {
+                return false;
+            };
+            if common_domain.overlaps(&residual_domain) {
+                return false;
+            }
+        }
     }
-    let Some(common_domains) = common_domains else {
-        return false;
-    };
-    let residual_domains = left_residual
-        .iter()
-        .chain(right_residual)
-        .map(|&declaration| declaration_ir.occurrence(declaration)?.movement_domain)
-        .collect::<Option<SmallVec<[_; 8]>>>();
-    let Some(residual_domains) = residual_domains else {
-        return false;
-    };
-    if common_domains.iter().any(|common| {
-        residual_domains
-            .iter()
-            .any(|residual| common.overlaps(residual))
-    }) {
-        return false;
-    }
-    radix_common_effect_order_is_safe(common, &common_domains)
+    radix_common_effect_order_is_safe(common, declaration_ir)
 }
 
 fn radix_common_effect_order_is_safe(
     common: &[CommonDeclaration],
-    common_domains: &[MovementDomain],
+    declaration_ir: &DeclarationIrStore<'_, '_>,
 ) -> bool {
     for left in 0..common.len() {
         for right in left + 1..common.len() {
-            if common[left].right_order > common[right].right_order
-                && common_domains[left].overlaps(&common_domains[right])
-            {
-                return false;
+            if common[left].right_order > common[right].right_order {
+                let Some(left_domain) = declaration_ir
+                    .occurrence(common[left].left)
+                    .and_then(|occurrence| occurrence.movement_domain)
+                else {
+                    return false;
+                };
+                let Some(right_domain) = declaration_ir
+                    .occurrence(common[right].left)
+                    .and_then(|occurrence| occurrence.movement_domain)
+                else {
+                    return false;
+                };
+                if left_domain.overlaps(&right_domain) {
+                    return false;
+                }
             }
         }
     }
@@ -1241,7 +1342,7 @@ mod tests {
     }
 
     #[test]
-    fn initializes_histories_ir_and_direct_edges_in_one_block_scan() {
+    fn finalizes_histories_ir_and_direct_edges_from_published_metadata() {
         let allocator = Allocator::new();
         let compilation = Compiler::new(&allocator)
             .parse_test_compilation(
@@ -1251,7 +1352,7 @@ mod tests {
             .unwrap();
         let state = CrossRuleState::from_compilation(&compilation).unwrap();
 
-        assert_eq!(state.block_scan_count, 7);
+        assert_eq!(state.published_block_count, 7);
         assert_eq!(state.declaration_ir.occurrence_count(), 7);
         assert_eq!(state.declaration_ir.live_count(), 7);
         assert_eq!(state.declaration_ir.matchable_count(), 7);
@@ -1301,7 +1402,7 @@ mod tests {
             .unwrap();
         let state = CrossRuleState::from_compilation(&compilation).unwrap();
 
-        assert_eq!(state.block_scan_count, 3);
+        assert_eq!(state.published_block_count, 3);
         assert_eq!(state.declaration_ir.occurrence_count(), 3);
         assert!(state.direct_style_edges.is_empty());
         assert!(state.histories.values().any(|history| history.len() == 2));

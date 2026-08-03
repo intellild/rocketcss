@@ -44,13 +44,16 @@ pub fn try_minify<'ast, 'ghost>(
     let allocator = Allocator::new();
     let cx = MinifyContext::new(options, &allocator);
     let declaration_blocks = rules::DeclarationBlockMinifier::new(&allocator);
+    let merge_adjacent_rules = options.is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any);
+    let mut cross_rule = merge_adjacent_rules
+        .then(|| cross_rule_declaration_merging::new_cross_rule_builder(compilation, &allocator));
     let mut minifier = Minifier {
         cx,
         declaration_blocks,
     };
     let mut visit_context = VisitMutContext::new(token);
 
-    compilation.transform_selector_values(|_, selectors| {
+    compilation.transform_selector_values_in(&allocator, |_, selectors| {
         minifier.visit_selector_list(selectors, &mut visit_context);
     });
 
@@ -71,21 +74,18 @@ pub fn try_minify<'ast, 'ghost>(
         let Some(block_id) = block_id else {
             continue;
         };
-        let declarations = compilation
-            .declaration_occurrences_in_block(block_id)?
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        for declaration_id in declarations {
+        compilation.for_each_declaration_mut(block_id, |_, record| {
             if property_block {
-                let (declaration, _) =
-                    compilation.property_declaration_mut(block_id, declaration_id)?;
+                let rocketcss_ast::radix_ast::DeclarationPayload::Property(declaration) =
+                    record.payload_mut()
+                else {
+                    unreachable!("a property rule owns only property declarations")
+                };
                 declaration.visit_mut(&mut minifier, &mut visit_context);
             } else {
-                let (descriptor, _) =
-                    compilation.declaration_occurrence_mut(block_id, declaration_id)?;
-                minify_descriptor(descriptor, &mut minifier, &mut visit_context);
+                minify_descriptor(record.payload_mut(), &mut minifier, &mut visit_context);
             }
-        }
+        })?;
         if property_block {
             minifier.declaration_blocks.minify_compilation_block(
                 compilation,
@@ -93,20 +93,26 @@ pub fn try_minify<'ast, 'ghost>(
                 &mut minifier.cx,
             );
         }
+        if let Some(builder) = cross_rule.as_mut() {
+            cross_rule_declaration_merging::publish_cross_rule_block(
+                builder,
+                compilation,
+                block_id,
+            )?;
+        }
     }
 
-    compilation.refresh_context_value_identities()?;
+    let context_repair = compilation.refresh_context_value_identities_with_remaps(&allocator)?;
 
-    if minifier
-        .cx
-        .is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any)
-    {
+    if let Some(builder) = cross_rule {
         let preserve_selector_compatibility = minifier
             .cx
             .is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::Any);
-        cross_rule_declaration_merging::stabilize_cross_rule_declarations(
+        cross_rule_declaration_merging::stabilize_cross_rule_builder(
+            builder,
             compilation,
             preserve_selector_compatibility,
+            context_repair.effective_key_remaps(),
         )?;
     }
     Ok(minifier.cx.stats())

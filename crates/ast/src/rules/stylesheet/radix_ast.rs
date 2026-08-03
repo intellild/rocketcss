@@ -658,6 +658,12 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         self.declaration_blocks.get_mut(id)
     }
 
+    #[doc(hidden)]
+    #[inline]
+    pub fn declaration_block_count(&self) -> usize {
+        self.declaration_blocks.len()
+    }
+
     #[inline]
     pub fn declaration(&self, id: DeclarationId) -> Option<&DeclarationRecord<D>> {
         self.declarations.try_get(id)
@@ -804,6 +810,132 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             ),
         };
         Ok(DeclarationIdIter { kind })
+    }
+
+    /// Visits declaration records in the semantic order owned by `block`.
+    ///
+    /// The representation is resolved once and the callback receives each
+    /// typed occurrence directly. In particular, a contiguous [`Range`] is
+    /// streamed from the authored declaration store instead of first copying
+    /// its IDs into a temporary vector. The block revision is advanced once
+    /// for every visited occurrence, matching the scoped mutation helpers.
+    #[doc(hidden)]
+    pub fn for_each_declaration_mut(
+        &mut self,
+        block: DeclarationBlockId,
+        mut visit: impl FnMut(DeclarationId, &mut DeclarationRecord<D>),
+    ) -> Result<usize, MutationError> {
+        let declaration_list = self
+            .declaration_blocks
+            .get(block)
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?
+            .declarations;
+        if !self
+            .declaration_blocks
+            .get(block)
+            .is_some_and(|record| record.live)
+        {
+            return Err(MutationError::UnknownDeclarationBlock(block));
+        }
+
+        let mut visited = 0usize;
+        match declaration_list {
+            DeclarationList::Range(range) => {
+                let start = range.start as usize;
+                let end = start
+                    .checked_add(range.len as usize)
+                    .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
+                let records = self
+                    .declarations
+                    .as_mut_slice()
+                    .get_mut(start..end)
+                    .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
+                for (offset, record) in records.iter_mut().enumerate() {
+                    let declaration = DeclarationId::from_index(start + offset)
+                        .expect("the declaration store length fits its typed ID");
+                    visit(declaration, record);
+                    visited += 1;
+                }
+            }
+            DeclarationList::Local4(local) => {
+                for declaration in local.iter() {
+                    let record = self
+                        .declarations
+                        .try_get_mut(declaration)
+                        .ok_or(MutationError::UnknownDeclaration(declaration))?;
+                    visit(declaration, record);
+                    visited += 1;
+                }
+            }
+            DeclarationList::Overflow(overflow) => {
+                let ids = self
+                    .declaration_overflows
+                    .try_get(overflow)
+                    .ok_or(MutationError::UnknownDeclarationOverflow(overflow))?;
+                // The overflow ID tape and the declaration store are
+                // independent fields, so the ID slice can stay borrowed while
+                // the corresponding declaration records are mutated.
+                for &declaration in ids.iter() {
+                    let record = self
+                        .declarations
+                        .try_get_mut(declaration)
+                        .ok_or(MutationError::UnknownDeclaration(declaration))?;
+                    visit(declaration, record);
+                    visited += 1;
+                }
+            }
+        }
+
+        if visited != 0 {
+            let revision =
+                u32::try_from(visited).expect("a block cannot contain u32::MAX declarations");
+            let block = self
+                .declaration_blocks
+                .get_mut(block)
+                .expect("the live block remains resolvable");
+            block.revision = block.revision.wrapping_add(revision);
+        }
+        Ok(visited)
+    }
+
+    /// Resolves one semantic declaration position without materializing the
+    /// block's ID sequence.
+    #[doc(hidden)]
+    pub fn declaration_id_at_in_block(
+        &self,
+        block: DeclarationBlockId,
+        index: usize,
+    ) -> Result<DeclarationId, MutationError> {
+        let declaration_list = self
+            .declaration_blocks
+            .get(block)
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?
+            .declarations;
+        match declaration_list {
+            DeclarationList::Range(range) => {
+                if index >= range.len as usize {
+                    return Err(MutationError::NonContiguousDeclarationRange(block));
+                }
+                let index = u32::try_from(index)
+                    .map_err(|_| MutationError::NonContiguousDeclarationRange(block))?;
+                range
+                    .start
+                    .checked_add(index)
+                    .and_then(|index| DeclarationId::from_index(index as usize))
+                    .ok_or(MutationError::NonContiguousDeclarationRange(block))
+            }
+            DeclarationList::Local4(local) => local
+                .iter()
+                .nth(index)
+                .ok_or(MutationError::NonContiguousDeclarationRange(block)),
+            DeclarationList::Overflow(overflow) => self
+                .declaration_overflows
+                .try_get(overflow)
+                .ok_or(MutationError::UnknownDeclarationOverflow(overflow))?
+                .get(index)
+                .copied()
+                .ok_or(MutationError::NonContiguousDeclarationRange(block)),
+        }
     }
 
     /// Iterates direct siblings in one rule list without walking descendants.

@@ -236,6 +236,11 @@ impl<I: DenseId, T> DenseStore<I, T> {
     }
 
     #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.values
+    }
+
+    #[inline]
     pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, T> {
         self.values.iter_mut()
     }

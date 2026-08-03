@@ -219,11 +219,9 @@ impl<'ast> Compilation<'ast> {
                     &mut CompilationVisitMutContext { compilation: self },
                 );
             }
-            let declarations = self
-                .declaration_occurrences_in_block(block_id)?
-                .map(|(id, _)| id)
-                .collect::<std::vec::Vec<_>>();
-            for declaration_id in declarations {
+            let declaration_count = self.declaration_ids_in_block(block_id)?.len();
+            for index in 0..declaration_count {
+                let declaration_id = self.declaration_id_at_in_block(block_id, index)?;
                 if property_block {
                     visitor.visit_declaration(
                         block_id,

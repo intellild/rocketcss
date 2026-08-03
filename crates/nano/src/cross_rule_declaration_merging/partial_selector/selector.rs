@@ -1,15 +1,18 @@
 use rocketcss_ast::*;
-use rocketcss_common::{Allocator, vec::Vec};
-use rustc_hash::FxHashSet;
+use rocketcss_common::{
+    Allocator,
+    prelude::{HashSet, Vec},
+};
 use std::mem::{Discriminant, discriminant};
 
 pub(crate) fn materialize_selector_union<'ast>(
     left: &SelectorList<'ast>,
     right: &SelectorList<'ast>,
     preserve_compatibility: bool,
+    allocator: &Allocator,
 ) -> Option<SelectorList<'ast>> {
-    let left_compatibility = selector_compatibility(left)?;
-    let right_compatibility = selector_compatibility(right)?;
+    let left_compatibility = selector_compatibility(left, allocator)?;
+    let right_compatibility = selector_compatibility(right, allocator)?;
     if left_compatibility.prefixes != right_compatibility.prefixes
         || preserve_compatibility && left_compatibility != right_compatibility
     {
@@ -59,35 +62,36 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct SelectorCompatibility<'ast> {
+struct SelectorCompatibility<'arena, 'ast> {
     features: SelectorSyntaxFeatures,
-    pseudo_classes: FxHashSet<Discriminant<PseudoClass<'ast>>>,
-    pseudo_elements: FxHashSet<Discriminant<PseudoElement<'ast>>>,
+    pseudo_classes: HashSet<'arena, Discriminant<PseudoClass<'ast>>>,
+    pseudo_elements: HashSet<'arena, Discriminant<PseudoElement<'ast>>>,
     prefixes: VendorPrefix,
 }
 
-impl<'ast> Default for SelectorCompatibility<'ast> {
-    fn default() -> Self {
+impl<'arena, 'ast> SelectorCompatibility<'arena, 'ast> {
+    fn new_in(allocator: &'arena Allocator) -> Self {
         Self {
             features: SelectorSyntaxFeatures::default(),
-            pseudo_classes: FxHashSet::default(),
-            pseudo_elements: FxHashSet::default(),
+            pseudo_classes: HashSet::new_in(allocator),
+            pseudo_elements: HashSet::new_in(allocator),
             prefixes: VendorPrefix::NONE,
         }
     }
 }
 
-fn selector_compatibility<'ast>(
+fn selector_compatibility<'arena, 'ast>(
     selectors: &SelectorList<'ast>,
-) -> Option<SelectorCompatibility<'ast>> {
-    let mut compatibility = SelectorCompatibility::default();
+    allocator: &'arena Allocator,
+) -> Option<SelectorCompatibility<'arena, 'ast>> {
+    let mut compatibility = SelectorCompatibility::new_in(allocator);
     observe_selector_list_compatibility(selectors, &mut compatibility)?;
     Some(compatibility)
 }
 
-fn observe_selector_list_compatibility<'ast>(
+fn observe_selector_list_compatibility<'arena, 'ast>(
     selectors: &SelectorList<'ast>,
-    compatibility: &mut SelectorCompatibility<'ast>,
+    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
 ) -> Option<()> {
     for selector in selectors {
         match selector {
@@ -103,9 +107,9 @@ fn observe_selector_list_compatibility<'ast>(
     Some(())
 }
 
-fn observe_selector_component_compatibility<'ast>(
+fn observe_selector_component_compatibility<'arena, 'ast>(
     component: &SelectorComponent<'ast>,
-    compatibility: &mut SelectorCompatibility<'ast>,
+    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
 ) -> Option<()> {
     use SelectorComponent as Component;
     use SelectorSyntaxFeatures as Feature;
@@ -224,9 +228,9 @@ fn observe_selector_component_compatibility<'ast>(
     Some(())
 }
 
-fn observe_selector_compatibility<'ast>(
+fn observe_selector_compatibility<'arena, 'ast>(
     selector: &Selector<'ast>,
-    compatibility: &mut SelectorCompatibility<'ast>,
+    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
 ) -> Option<()> {
     let Selector::Parsed(components) = selector else {
         return matches!(selector, Selector::Tombstone).then_some(());
@@ -237,10 +241,10 @@ fn observe_selector_compatibility<'ast>(
     Some(())
 }
 
-fn observe_attribute_compatibility(
+fn observe_attribute_compatibility<'arena, 'ast>(
     operator: AttrSelectorOperator,
     case_sensitivity: ParsedCaseSensitivity,
-    compatibility: &mut SelectorCompatibility<'_>,
+    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
 ) {
     use SelectorSyntaxFeatures as Feature;
 
@@ -257,9 +261,9 @@ fn observe_attribute_compatibility(
     }
 }
 
-fn observe_pseudo_class_compatibility<'ast>(
+fn observe_pseudo_class_compatibility<'arena, 'ast>(
     value: &PseudoClass<'ast>,
-    compatibility: &mut SelectorCompatibility<'ast>,
+    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
 ) -> Option<()> {
     use PseudoClass as Pseudo;
 
@@ -281,9 +285,9 @@ fn observe_pseudo_class_compatibility<'ast>(
     Some(())
 }
 
-fn observe_pseudo_element_compatibility<'ast>(
+fn observe_pseudo_element_compatibility<'arena, 'ast>(
     value: &PseudoElement<'ast>,
-    compatibility: &mut SelectorCompatibility<'ast>,
+    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
 ) -> Option<()> {
     use PseudoElement as Pseudo;
 

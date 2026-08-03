@@ -418,6 +418,149 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
 }
 
 #[test]
+fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
+    let allocator = Allocator::new();
+
+    let mut range = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = range.stylesheet().root_rules();
+    let key = range.append_effective_key("range").unwrap();
+    let rule = range.append_rule(root, 0).unwrap();
+    let block = range
+        .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
+        .unwrap();
+    let range_ids = [
+        range.append_declaration(block, 1, false).unwrap(),
+        range.append_declaration(block, 2, false).unwrap(),
+        range.append_declaration(block, 3, false).unwrap(),
+    ];
+    let mut visited = std::vec::Vec::new();
+    range
+        .for_each_declaration_mut(block, |id, record| {
+            visited.push(id);
+            *record.payload_mut() += 10;
+        })
+        .unwrap();
+    assert_eq!(visited, range_ids);
+    assert_eq!(
+        range
+            .declarations_in_block(block)
+            .unwrap()
+            .map(|record| *record.payload())
+            .collect::<std::vec::Vec<_>>(),
+        [11, 12, 13]
+    );
+
+    let mut local4 = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = local4.stylesheet().root_rules();
+    let key = local4.append_effective_key("local4").unwrap();
+    let left = local4.append_rule(root, 0).unwrap();
+    let left_block = local4
+        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .unwrap();
+    let first = local4.append_declaration(left_block, 1, false).unwrap();
+    let following = local4.append_rule(root, 1).unwrap();
+    let following_block = local4
+        .append_declaration_block(DeclarationBlockOwner::Rule(following), key)
+        .unwrap();
+    local4
+        .append_declaration(following_block, 2, false)
+        .unwrap();
+    let inserted = local4.insert_rule_after(left, 2).unwrap().id;
+    let inserted_block = local4
+        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
+        .unwrap()
+        .id;
+    let second = local4.append_declaration(inserted_block, 3, false).unwrap();
+    local4
+        .merge_adjacent_rule_declaration_blocks(left, inserted)
+        .unwrap();
+    assert!(matches!(
+        local4
+            .declaration_block(inserted_block)
+            .unwrap()
+            .declarations(),
+        DeclarationList::Local4(_)
+    ));
+    visited.clear();
+    local4
+        .for_each_declaration_mut(inserted_block, |id, record| {
+            visited.push(id);
+            *record.payload_mut() += 10;
+        })
+        .unwrap();
+    assert_eq!(visited, [first, second]);
+    assert_eq!(
+        local4
+            .declarations_in_block(inserted_block)
+            .unwrap()
+            .map(|record| *record.payload())
+            .collect::<std::vec::Vec<_>>(),
+        [11, 13]
+    );
+
+    let mut overflow = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = overflow.stylesheet().root_rules();
+    let key = overflow.append_effective_key("overflow").unwrap();
+    let left = overflow.append_rule(root, 0).unwrap();
+    let left_block = overflow
+        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .unwrap();
+    let mut expected = std::vec::Vec::new();
+    for value in [1, 2, 3] {
+        expected.push(
+            overflow
+                .append_declaration(left_block, value, false)
+                .unwrap(),
+        );
+    }
+    let following = overflow.append_rule(root, 1).unwrap();
+    let following_block = overflow
+        .append_declaration_block(DeclarationBlockOwner::Rule(following), key)
+        .unwrap();
+    overflow
+        .append_declaration(following_block, 4, false)
+        .unwrap();
+    let inserted = overflow.insert_rule_after(left, 2).unwrap().id;
+    let inserted_block = overflow
+        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
+        .unwrap()
+        .id;
+    for value in [5, 6, 7] {
+        expected.push(
+            overflow
+                .append_declaration(inserted_block, value, false)
+                .unwrap(),
+        );
+    }
+    overflow
+        .merge_adjacent_rule_declaration_blocks(left, inserted)
+        .unwrap();
+    assert!(matches!(
+        overflow
+            .declaration_block(inserted_block)
+            .unwrap()
+            .declarations(),
+        DeclarationList::Overflow(_)
+    ));
+    visited.clear();
+    overflow
+        .for_each_declaration_mut(inserted_block, |id, record| {
+            visited.push(id);
+            *record.payload_mut() += 10;
+        })
+        .unwrap();
+    assert_eq!(visited, expected);
+    assert_eq!(
+        overflow
+            .declarations_in_block(inserted_block)
+            .unwrap()
+            .map(|record| *record.payload())
+            .collect::<std::vec::Vec<_>>(),
+        [11, 12, 13, 15, 16, 17]
+    );
+}
+
+#[test]
 fn a_rule_owns_at_most_one_declaration_block() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<(), (), ()>::new_in(&allocator);
