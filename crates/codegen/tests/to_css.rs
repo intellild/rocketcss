@@ -1,5 +1,6 @@
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::GhostToken;
+use rocketcss_parser::parse;
 use rocketcss_parser::prelude::*;
 
 fn parse_stylesheet<'a, 'ghost>(
@@ -8,6 +9,38 @@ fn parse_stylesheet<'a, 'ghost>(
     token: &mut GhostToken<'ghost>,
 ) -> Compilation<'a> {
     parse(source, allocator, token, ParserOptions::default()).unwrap()
+}
+
+fn first_rule_id(compilation: &Compilation<'_>) -> radix_ast::RuleId {
+    compilation
+        .rules_in_list(compilation.stylesheet().root_rules())
+        .unwrap()
+        .next()
+        .expect("expected a root rule")
+        .0
+}
+
+fn first_block_id(compilation: &Compilation<'_>) -> radix_ast::DeclarationBlockId {
+    compilation
+        .rule(first_rule_id(compilation))
+        .and_then(|rule| rule.declaration_block())
+        .expect("expected a declaration block")
+}
+
+fn property_declarations<'tree, 'ast>(
+    compilation: &'tree Compilation<'ast>,
+    block: radix_ast::DeclarationBlockId,
+) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
+    compilation
+        .declarations_in_block(block)
+        .unwrap()
+        .filter_map(|record| match record.payload() {
+            radix_ast::DeclarationPayload::Property(declaration) => {
+                Some((declaration, record.is_important()))
+            }
+            _ => None,
+        })
+        .collect()
 }
 #[test]
 #[ignore = "nested custom page regions are not represented in the AST yet"]
@@ -45,13 +78,7 @@ fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
             &allocator,
             &mut token,
         );
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
-            panic!("expected a style rule")
-        };
-        for declaration in &stylesheet
-            .declaration_block(rule.as_ref().get_ref().declarations)
-            .declarations
-        {
+        for (declaration, _) in property_declarations(&stylesheet, first_block_id(&stylesheet)) {
             assert!(
                 declaration
                     .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
@@ -67,23 +94,18 @@ fn ports_lightningcss_public_to_css_api_cases() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         let stylesheet = parse_stylesheet(".foo { color: red }", &allocator, &mut token);
-        let context = ToCssContext::new_with_declaration_blocks(&token, stylesheet.parts().1);
-        let rule = &stylesheet.rules[0];
-        assert_eq!(
-            rule.to_css_string(PrinterOptions::default(), &context)
-                .unwrap(),
-            ".foo {\n  color: red;\n}"
-        );
-
-        let CssRule::Style(style) = rule else {
-            panic!("expected a style rule")
-        };
-        let style = style.as_ref().get_ref();
         assert_eq!(
             stylesheet
-                .declaration_block(style.declarations)
-                .declarations[0]
-                .to_css_string(PrinterOptions::default(), &context)
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .unwrap(),
+            ".foo {\n  color: red;\n}\n"
+        );
+
+        let declarations = property_declarations(&stylesheet, first_block_id(&stylesheet));
+        assert_eq!(
+            declarations[0]
+                .0
+                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap(),
             "color: red"
         );
@@ -92,15 +114,14 @@ fn ports_lightningcss_public_to_css_api_cases() {
             &allocator,
             &mut token,
         );
-        let CssRule::Media(media) = &stylesheet.rules[0] else {
-            panic!("expected a media rule")
-        };
-        let context = ToCssContext::new_with_declaration_blocks(&token, stylesheet.parts().1);
         assert_eq!(
-            media.rules[0]
-                .to_css_string(PrinterOptions { prettify: false }, &context)
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
                 .unwrap(),
-            ".a{color:red}"
+            "@media print{.a{color:red}.b{display:block}}"
         );
     })
 }
@@ -146,12 +167,16 @@ fn supports_conditions_preserve_source_order_deterministically() {
 
         for _ in 0..32 {
             let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
-            let CssRule::Supports(rule) = &stylesheet.rules[0] else {
+            let radix_ast::CssRulePayload::Supports(rule) = stylesheet
+                .rule(first_rule_id(&stylesheet))
+                .unwrap()
+                .payload()
+            else {
                 panic!("expected a supports rule")
             };
 
             assert_eq!(
-                rule.condition.as_ref(),
+                &rule.condition,
                 &SupportsCondition::Unknown("((foo: bar) or (color: red))")
             );
             assert_eq!(
@@ -177,7 +202,11 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
             &allocator,
             &mut token,
         );
-        let CssRule::Media(rule) = &stylesheet.rules[0] else {
+        let radix_ast::CssRulePayload::Media(rule) = stylesheet
+            .rule(first_rule_id(&stylesheet))
+            .unwrap()
+            .payload()
+        else {
             panic!("expected media rule")
         };
         let query = &rule.query.media_queries[0];
@@ -232,10 +261,13 @@ fn pseudo_classes_are_debuggable_and_serializable() {
             ".foo:first-child{color:red}",
         ] {
             let stylesheet = parse_stylesheet(source, &allocator, &mut token);
-            let CssRule::Style(style) = &stylesheet.rules[0] else {
+            let radix_ast::CssRulePayload::Style(style) = stylesheet
+                .rule(first_rule_id(&stylesheet))
+                .unwrap()
+                .payload()
+            else {
                 panic!("expected style rule")
             };
-            let style = style.as_ref().get_ref();
             assert!(format!("{style:#?}").contains("StyleRule"));
             assert_eq!(
                 stylesheet
@@ -323,15 +355,33 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
             &allocator,
             &mut token,
         );
-        for rule in &stylesheet.rules {
-            let CssRule::Style(style) = rule else {
+        for (_, rule) in stylesheet
+            .rules_in_list(stylesheet.stylesheet().root_rules())
+            .unwrap()
+        {
+            let radix_ast::CssRulePayload::Style(_) = rule.payload() else {
                 panic!("expected style rule")
             };
-            let style = style.as_ref().get_ref();
-            let CssRule::LayerBlock(layer) = &style.rules[0] else {
+            let layer_list = rule.child_list().expect("expected nested layer list");
+            let (_, layer) = stylesheet
+                .rules_in_list(layer_list)
+                .unwrap()
+                .next()
+                .unwrap();
+            let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
                 panic!("expected nested layer block")
             };
-            assert!(matches!(layer.rules[0], CssRule::NestedDeclarations(_)));
+            let layer_children = layer.child_list().expect("expected layer contents");
+            assert!(matches!(
+                stylesheet
+                    .rules_in_list(layer_children)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .1
+                    .payload(),
+                radix_ast::CssRulePayload::NestedDeclarations(_)
+            ));
         }
         assert_eq!(
             stylesheet
@@ -355,32 +405,17 @@ fn box_sizing_css_wide_keywords_round_trip_as_known_unparsed_values() {
             &allocator,
             &mut token,
         );
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
-            panic!("expected a style rule")
-        };
-        let rule = rule.as_ref().get_ref();
+        let declarations = property_declarations(&stylesheet, first_block_id(&stylesheet));
 
-        assert_eq!(
-            stylesheet
-                .declaration_block(rule.declarations)
-                .declarations
-                .len(),
-            5
-        );
-        assert!(
-            stylesheet
-                .declaration_block(rule.declarations)
-                .declarations
-                .iter()
-                .all(|declaration| matches!(
-                    declaration,
-                    Declaration::Unparsed(value)
-                        if matches!(
-                            &*value.property_id,
-                            PropertyId::BoxSizing(VendorPrefix::NONE)
-                        )
-                ))
-        );
+        assert_eq!(declarations.len(), 5);
+        assert!(declarations.iter().all(|(declaration, _)| matches!(
+            declaration,
+            Declaration::Unparsed(value)
+                if matches!(
+                    &*value.property_id,
+                    PropertyId::BoxSizing(VendorPrefix::NONE)
+                )
+        )));
         assert_eq!(
             stylesheet
                 .to_css_string(
@@ -646,85 +681,16 @@ fn declaration_block_preserves_importance_bits() {
             &allocator,
             &mut token,
         );
-        let CssRule::Style(style) = &stylesheet.rules[0] else {
-            panic!("expected a style rule")
-        };
-        let style = style.as_ref().get_ref();
+        let declarations = property_declarations(&stylesheet, first_block_id(&stylesheet));
+        assert_eq!(declarations.len(), 2);
+        assert!(declarations[0].1);
+        assert!(!declarations[1].1);
         assert_eq!(
             stylesheet
-                .declaration_block(style.declarations)
                 .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
                 .unwrap(),
-            "color: red !important;\nopacity: .5"
+            ".foo {\n  color: red !important;\n  opacity: .5;\n}\n"
         );
-    })
-}
-
-#[test]
-fn declaration_block_skips_tombstones() {
-    GhostToken::scope(|token| {
-        let allocator = Allocator::new();
-        let mut declarations = DeclarationBlock::new(&allocator);
-
-        declarations.push(Declaration::Tombstone, true);
-        assert!(declarations.is_output_empty());
-        assert_eq!(
-            declarations
-                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
-                .unwrap(),
-            ""
-        );
-
-        declarations.push(Declaration::All(CSSWideKeyword::Initial), false);
-        declarations.push(Declaration::Tombstone, true);
-        declarations.push(Declaration::All(CSSWideKeyword::Inherit), true);
-        declarations.push(Declaration::Tombstone, false);
-        assert!(!declarations.is_output_empty());
-        assert_eq!(
-            declarations
-                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
-                .unwrap(),
-            "all: initial;\nall: inherit !important"
-        );
-    });
-}
-
-#[test]
-fn merged_declaration_blocks_serialize_from_chain_head() {
-    GhostToken::scope(|mut token| {
-        let allocator = Allocator::new();
-        let mut stylesheet = parse_stylesheet("a{width:1px}a{height:2px}", &allocator, &mut token);
-        let (sheet, declaration_blocks) = stylesheet.parts_mut();
-        let [CssRule::Style(first), CssRule::Style(second)] = &mut sheet.rules[..] else {
-            panic!("expected two style rules")
-        };
-        let previous = first.as_ref().get_ref().declarations;
-        declaration_blocks
-            .get_mut(second.as_ref().get_ref().declarations)
-            .set_previous_merged(Some(previous));
-        for selector in first.as_mut().selectors_mut().iter_mut() {
-            *selector = Selector::Tombstone;
-        }
-
-        assert_eq!(
-            stylesheet
-                .to_css_string(
-                    PrinterOptions { prettify: false },
-                    &ToCssContext::new(&token)
-                )
-                .unwrap(),
-            "a{width:1px;height:2px}"
-        );
-
-        let pretty = stylesheet
-            .to_css_string(
-                PrinterOptions { prettify: true },
-                &ToCssContext::new(&token),
-            )
-            .unwrap();
-        assert_eq!(pretty.matches("a {").count(), 1);
-        assert!(pretty.trim_start().starts_with("a {"));
-        assert!(!pretty.starts_with('\n'));
     })
 }
 
@@ -1221,10 +1187,20 @@ fn preserves_property_rules_inside_layer_blocks() {
         let allocator = Allocator::new();
         const SOURCE: &str = "@layer base{@property --radialprogress{syntax:\"<percentage>\";inherits:true;initial-value:0%}}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
-        let CssRule::LayerBlock(layer) = &stylesheet.rules[0] else {
+        let layer = stylesheet.rule(first_rule_id(&stylesheet)).unwrap();
+        let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
             panic!("expected layer block")
         };
-        assert!(matches!(layer.rules[0], CssRule::Property(_)));
+        assert!(matches!(
+            stylesheet
+                .rules_in_list(layer.child_list().unwrap())
+                .unwrap()
+                .next()
+                .unwrap()
+                .1
+                .payload(),
+            radix_ast::CssRulePayload::Property(_)
+        ));
         assert_eq!(
             stylesheet
                 .to_css_string(
@@ -1359,10 +1335,12 @@ fn preserves_unknown_media_calc_symbols_and_rule_bodies() {
             .unwrap();
         assert!(output.contains("baseUnit * 1"));
         assert!(output.contains(".className{color:red}"));
+        let reparsed = parse_stylesheet(&output, &allocator, &mut token);
         assert_eq!(
-            parse_stylesheet(&output, &allocator, &mut token)
-                .rules
-                .len(),
+            reparsed
+                .rules_in_list(reparsed.stylesheet().root_rules())
+                .unwrap()
+                .count(),
             1
         );
     })

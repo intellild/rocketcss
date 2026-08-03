@@ -5,18 +5,8 @@ use super::values::{
 };
 use crate::prelude::*;
 
-pub(super) fn parse_declaration<'i>(
-    input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
-    name: &'i str,
-    depth: usize,
-) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
-    parse_declaration_with_css_wide_hint(input, allocator, name, depth, CssWideValueHint::Unscanned)
-}
-
 #[derive(Clone, Copy)]
 pub(super) enum CssWideValueHint<'i> {
-    Unscanned,
     NotCssWide,
     Candidate(&'i str),
 }
@@ -34,7 +24,6 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
     if !name.starts_with("--") {
         let start = input.state();
         let wide_keyword = match (property_id.known_id(), css_wide_hint) {
-            (Some(_), CssWideValueHint::Unscanned) => input.try_parse(parse_css_wide_keyword).ok(),
             (Some(_), CssWideValueHint::Candidate(ident)) => {
                 if let Some(keyword) = css_wide_keyword(ident) {
                     let parsed_ident = input.expect_ident()?;
@@ -408,13 +397,6 @@ fn try_parse_typed_declaration<'i>(
         }),
         _ => None,
     }
-}
-
-fn parse_css_wide_keyword<'i>(
-    input: &mut Compiler<'i>,
-) -> Result<CSSWideKeyword, ParseError<'i, ParserError<'i>>> {
-    let ident = input.expect_ident()?;
-    css_wide_keyword(ident).ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
 }
 
 fn parse_declaration_end<'i>(input: &mut Compiler<'i>) -> Option<bool> {

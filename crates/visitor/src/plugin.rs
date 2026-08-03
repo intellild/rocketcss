@@ -1,14 +1,15 @@
 use std::{
     any::{Any, TypeId},
-    collections::HashMap,
     error::Error,
     fmt,
 };
 
-use rocketcss_ast::{Compilation, VisitMutContext};
+use rocketcss_ast::{
+    Compilation,
+    radix_ast::{CompilationVisitorMut, MutationError},
+};
 use rocketcss_common::{Allocator, GhostToken};
-
-use crate::{VisitMut, VisitorMut};
+use rustc_hash::FxHashMap;
 
 /// Type-erased error returned by a plugin.
 pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
@@ -17,7 +18,7 @@ pub type BoxError = Box<dyn Error + Send + Sync + 'static>;
 pub struct PluginContext<'a, 'token, 'ghost> {
     allocator: &'a Allocator,
     token: &'token mut GhostToken<'ghost>,
-    data: HashMap<TypeId, Box<dyn Any>>,
+    data: FxHashMap<TypeId, Box<dyn Any>>,
 }
 
 impl<'a, 'token, 'ghost> PluginContext<'a, 'token, 'ghost> {
@@ -26,7 +27,7 @@ impl<'a, 'token, 'ghost> PluginContext<'a, 'token, 'ghost> {
         Self {
             allocator,
             token,
-            data: HashMap::new(),
+            data: FxHashMap::default(),
         }
     }
 
@@ -68,11 +69,7 @@ impl<'a, 'token, 'ghost> PluginContext<'a, 'token, 'ghost> {
     }
 }
 
-/// A stylesheet transform that can participate in a [`Plugins`] pipeline.
-///
-/// The trait is object-safe so independently implemented plugins can be
-/// selected at runtime. Plugins that only need a typed mutable visitor can use
-/// [`VisitorPlugin`] or [`Plugins::add_visitor`].
+/// A plugin over the compiler-owned Radix [`Compilation`].
 pub trait Plugin<'a, 'ghost> {
     fn name(&self) -> &str;
 
@@ -83,7 +80,7 @@ pub trait Plugin<'a, 'ghost> {
     ) -> Result<(), BoxError>;
 }
 
-/// Runs plugins in registration order over one stylesheet.
+/// Runs plugins in registration order over one authoritative compilation.
 pub struct Plugins<'plugin, 'a, 'ghost> {
     plugins: Vec<Box<dyn Plugin<'a, 'ghost> + 'plugin>>,
 }
@@ -102,16 +99,6 @@ impl<'plugin, 'a, 'ghost> Plugins<'plugin, 'a, 'ghost> {
         }
     }
 
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.plugins.len()
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.plugins.is_empty()
-    }
-
     pub fn add<P>(&mut self, plugin: P)
     where
         P: Plugin<'a, 'ghost> + 'plugin,
@@ -121,7 +108,7 @@ impl<'plugin, 'a, 'ghost> Plugins<'plugin, 'a, 'ghost> {
 
     pub fn add_visitor<V>(&mut self, name: &'static str, visitor: V)
     where
-        V: VisitorMut<'a, 'ghost> + 'plugin,
+        V: CompilationVisitorMut<'a> + 'plugin,
     {
         self.add(VisitorPlugin::new(name, visitor));
     }
@@ -143,7 +130,7 @@ impl<'plugin, 'a, 'ghost> Plugins<'plugin, 'a, 'ghost> {
     }
 }
 
-/// Adapts an infallible [`VisitorMut`] implementation into a dynamic plugin.
+/// Adapts an ID-based mutable visitor to the plugin pipeline.
 pub struct VisitorPlugin<V> {
     name: &'static str,
     visitor: V,
@@ -171,8 +158,7 @@ impl<V> VisitorPlugin<V> {
     }
 }
 
-impl<'a, 'ghost, V: VisitorMut<'a, 'ghost>> Plugin<'a, 'ghost> for VisitorPlugin<V> {
-    #[inline]
+impl<'a, 'ghost, V: CompilationVisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlugin<V> {
     fn name(&self) -> &str {
         self.name
     }
@@ -180,15 +166,28 @@ impl<'a, 'ghost, V: VisitorMut<'a, 'ghost>> Plugin<'a, 'ghost> for VisitorPlugin
     fn transform(
         &mut self,
         compilation: &mut Compilation<'a>,
-        context: &mut PluginContext<'a, '_, 'ghost>,
+        _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
-        let (stylesheet, declaration_blocks) = compilation.parts_mut();
-        let mut visit_context =
-            VisitMutContext::new_with_declaration_blocks(context.ghost_token(), declaration_blocks);
-        stylesheet.visit_mut(&mut self.visitor, &mut visit_context);
-        Ok(())
+        compilation
+            .visit_compilation_mut(&mut self.visitor)
+            .map_err(|error| Box::new(RadixTraversalError(error)) as BoxError)
     }
 }
+
+#[derive(Debug)]
+struct RadixTraversalError(MutationError);
+
+impl fmt::Display for RadixTraversalError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "invalid Radix AST during plugin traversal: {:?}",
+            self.0
+        )
+    }
+}
+
+impl Error for RadixTraversalError {}
 
 /// Error annotated with the plugin that returned it.
 #[derive(Debug)]

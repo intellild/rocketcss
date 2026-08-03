@@ -42,12 +42,7 @@ fn deduplicates_equivalent_font_families() {
         )
         .unwrap();
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
-            panic!("expected style rule")
-        };
-        let rule = rule.as_ref().get_ref();
-        let declarations = stylesheet.declaration_block(rule.declarations);
-        let Declaration::FontFamily(families) = &declarations.declarations[0] else {
+        let Declaration::FontFamily(families) = first_property_declaration(&stylesheet) else {
             panic!("expected typed font-family declaration")
         };
         assert!(matches!(families[0], FontFamily::Custom("A")));
@@ -69,16 +64,14 @@ fn removes_font_family_declarations_containing_only_tombstones() {
         )
         .unwrap();
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
-            panic!("expected style rule")
-        };
-        let rule = rule.as_ref().get_ref();
-        let declarations = stylesheet.declaration_block(rule.declarations);
         assert!(
-            declarations
-                .declarations
-                .iter()
-                .all(Declaration::is_tombstone)
+            stylesheet
+                .declarations_in_block(first_declaration_block_id(&stylesheet))
+                .unwrap()
+                .all(|declaration| matches!(
+                    declaration.payload(),
+                    radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+                ))
         );
         assert_eq!(stats.declarations_removed, 2);
         assert_eq!(

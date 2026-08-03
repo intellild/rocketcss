@@ -117,13 +117,8 @@ fn keeps_comments_in_animation_values_on_the_unparsed_path() {
             ParserOptions::default(),
         )
         .unwrap();
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
-            panic!("expected style rule")
-        };
-        let rule = rule.as_ref().get_ref();
-        let declarations = stylesheet.declaration_block(rule.declarations);
         assert!(matches!(
-            declarations.declarations[0],
+            first_property_declaration(&stylesheet),
             Declaration::Unparsed(_)
         ));
         assert_eq!(

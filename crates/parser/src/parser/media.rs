@@ -1,12 +1,12 @@
 use super::{length::parse_length_unit, stylesheet::span_from, values::collect_tokens};
 use crate::prelude::*;
 
-pub(super) fn parse_import<'i>(
+pub(super) fn parse_import_rule<'i>(
     prelude: &'i str,
     allocator: &'i Allocator,
     start: &ParserState,
     end: SourcePosition,
-) -> Result<CssRule<'i>, ParseError<'i, ParserError<'i>>> {
+) -> Result<ImportRule<'i>, ParseError<'i, ParserError<'i>>> {
     let mut parser = Compiler::new_with_source(prelude, allocator);
     let url = parser.expect_url_or_string()?;
 
@@ -61,13 +61,13 @@ pub(super) fn parse_import<'i>(
             Some(allocator.boxed(parse_media_list(rest, allocator)?))
         }
     };
-    Ok(CssRule::Import(allocator.boxed(ImportRule {
+    Ok(ImportRule {
         layer,
         span: span_from(start, end),
         media,
         supports,
         url,
-    })))
+    })
 }
 
 pub(super) fn parse_media_list<'i>(

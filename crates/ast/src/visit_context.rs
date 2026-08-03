@@ -1,43 +1,19 @@
-use crate::{DeclarationBlockId, DeclarationBlockStore};
 use rocketcss_common::{GhostCell, GhostToken, Ref};
-use std::pin::Pin;
+use std::{marker::PhantomData, pin::Pin};
 
-/// Shared GhostCell access carried through immutable AST traversal.
+/// Shared GhostCell access carried through immutable value-AST traversal.
 pub struct VisitContext<'token, 'ast, 'ghost> {
     token: &'token GhostToken<'ghost>,
-    declaration_blocks: Option<&'token DeclarationBlockStore<'ast>>,
+    ast: PhantomData<&'ast ()>,
 }
 
 impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
     #[inline]
-    pub fn new(token: &'token GhostToken<'ghost>) -> Self {
+    pub const fn new(token: &'token GhostToken<'ghost>) -> Self {
         Self {
             token,
-            declaration_blocks: None,
+            ast: PhantomData,
         }
-    }
-
-    #[inline]
-    pub fn new_with_declaration_blocks(
-        token: &'token GhostToken<'ghost>,
-        declaration_blocks: &'token DeclarationBlockStore<'ast>,
-    ) -> Self {
-        Self {
-            token,
-            declaration_blocks: Some(declaration_blocks),
-        }
-    }
-
-    #[inline]
-    pub fn with_declaration_block<R>(
-        &self,
-        id: DeclarationBlockId,
-        f: impl FnOnce(&crate::DeclarationBlock<'ast>, &Self) -> R,
-    ) -> R {
-        let blocks = self
-            .declaration_blocks
-            .expect("declaration block traversal requires a compilation store");
-        f(blocks.get(id), self)
     }
 
     #[inline]
@@ -64,10 +40,10 @@ impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
     }
 }
 
-/// Unique GhostCell access carried through mutable AST traversal.
+/// Unique GhostCell access carried through mutable value-AST traversal.
 pub struct VisitMutContext<'token, 'ast, 'ghost> {
     state: VisitMutState<'token, 'ghost>,
-    declaration_blocks: DeclarationBlockVisitState<'ast>,
+    ast: PhantomData<&'ast mut ()>,
 }
 
 enum VisitMutState<'token, 'ghost> {
@@ -75,77 +51,13 @@ enum VisitMutState<'token, 'ghost> {
     Borrowed,
 }
 
-enum DeclarationBlockVisitState<'ast> {
-    Unavailable,
-    Available(*mut DeclarationBlockStore<'ast>),
-    Borrowed,
-}
-
-struct DeclarationBlockScopeReset<'ast>(*mut DeclarationBlockVisitState<'ast>);
-
-impl Drop for DeclarationBlockScopeReset<'_> {
-    fn drop(&mut self) {
-        // SAFETY: the guard never outlives the `VisitMutContext` field it points
-        // to, and the callback cannot move that context while it is borrowed.
-        unsafe { *self.0 = DeclarationBlockVisitState::Unavailable };
-    }
-}
-
 impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
     #[inline]
-    pub fn new(token: &'token mut GhostToken<'ghost>) -> Self {
+    pub const fn new(token: &'token mut GhostToken<'ghost>) -> Self {
         Self {
             state: VisitMutState::Available(token),
-            declaration_blocks: DeclarationBlockVisitState::Unavailable,
+            ast: PhantomData,
         }
-    }
-
-    #[inline]
-    pub fn new_with_declaration_blocks(
-        token: &'token mut GhostToken<'ghost>,
-        declaration_blocks: &'token mut DeclarationBlockStore<'ast>,
-    ) -> Self {
-        Self {
-            state: VisitMutState::Available(token),
-            declaration_blocks: DeclarationBlockVisitState::Available(declaration_blocks),
-        }
-    }
-
-    #[inline]
-    pub fn with_declaration_block<R>(
-        &mut self,
-        id: DeclarationBlockId,
-        f: impl FnOnce(&mut crate::DeclarationBlock<'ast>, &mut Self) -> R,
-    ) -> R {
-        let DeclarationBlockVisitState::Available(blocks) = std::mem::replace(
-            &mut self.declaration_blocks,
-            DeclarationBlockVisitState::Borrowed,
-        ) else {
-            panic!("declaration block traversal requires an available compilation store");
-        };
-        // SAFETY: `Available` is installed only from a live exclusive borrow.
-        // Replacing it with `Borrowed` prevents nested access while `f` runs.
-        let blocks = unsafe { &mut *blocks };
-        let result = f(blocks.get_mut(id), self);
-        self.declaration_blocks = DeclarationBlockVisitState::Available(blocks);
-        result
-    }
-
-    pub fn with_declaration_blocks<R>(
-        &mut self,
-        declaration_blocks: &mut DeclarationBlockStore<'ast>,
-        callback: impl FnOnce(&mut Self) -> R,
-    ) -> R {
-        assert!(
-            matches!(
-                self.declaration_blocks,
-                DeclarationBlockVisitState::Unavailable
-            ),
-            "declaration block store is already available"
-        );
-        self.declaration_blocks = DeclarationBlockVisitState::Available(declaration_blocks);
-        let _reset = DeclarationBlockScopeReset(&mut self.declaration_blocks);
-        callback(self)
     }
 
     #[inline]

@@ -87,11 +87,6 @@ pub struct Font<'a> {
     pub variant_caps: FontVariantCaps,
     pub weight: Box<'a, FontWeight>,
 }
-#[derive(Debug, PartialEq, Visit)]
-pub struct FontFaceRule<'a> {
-    pub span: Span,
-    pub properties: Vec<'a, FontFaceProperty<'a>>,
-}
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct UrlSource<'a> {
@@ -107,30 +102,9 @@ pub struct UnicodeRange {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct FontPaletteValuesRule<'a> {
-    pub span: Span,
-    pub name: &'a str,
-    pub properties: Vec<'a, FontPaletteValuesProperty<'a>>,
-}
-
-#[derive(Debug, PartialEq, Visit)]
 pub struct OverrideColors<'a> {
     pub color: Box<'a, CssColor<'a>>,
     pub index: u16,
-}
-
-#[derive(Debug, PartialEq, Visit)]
-pub struct FontFeatureValuesRule<'a> {
-    pub span: Span,
-    pub name: Vec<'a, FamilyName<'a>>,
-    pub rules: Vec<'a, FontFeatureSubrule<'a>>,
-}
-
-#[derive(Debug, PartialEq, Visit)]
-pub struct FontFeatureSubrule<'a> {
-    pub declarations: Vec<'a, FontFeatureDeclaration<'a>>,
-    pub span: Span,
-    pub name: FontFeatureSubruleType,
 }
 
 #[derive(Debug, PartialEq, Visit)]

@@ -31,7 +31,6 @@ use rocketcss_common::prelude::*;
 pub use rocketcss_macros::{CssKeyword, Visit};
 
 mod color;
-mod css_rule;
 mod generated;
 mod length;
 mod media;
@@ -46,7 +45,6 @@ mod values;
 mod visit_context;
 
 pub use color::*;
-pub use css_rule::*;
 pub use generated::{
     kind::AstType,
     visit::{Visit, Visitor},
@@ -69,7 +67,6 @@ const _: () = {
 
     assert!(size_of::<VendorPrefix>() == 1);
     assert!(size_of::<KnownFunction>() == 1);
-    assert!(size_of::<CssRule<'_>>() == 16);
     assert!(size_of::<Declaration<'_>>() == 32);
     assert!(size_of::<TokenOrValue<'_>>() == 24);
     assert!(size_of::<Token<'_>>() == 24);
@@ -90,76 +87,14 @@ const _: () = {
 mod tests {
     use super::*;
     use rocketcss_common::Allocator;
-    use std::mem::size_of;
-
-    #[test]
-    fn position_try_rule_uses_span() {
-        let allocator = Allocator::new();
-        allocator.with_ghost(|token| {
-            let mut declaration_blocks = DeclarationBlockStore::default();
-            let rule = PositionTryRule {
-                span: Span::new(4, 42),
-                name: "--fallback",
-                declarations: declaration_blocks.push(DeclarationBlock::new(&allocator)),
-            };
-            let rule = CssRule::PositionTry(allocator.boxed(rule));
-
-            assert_eq!(rule.span(&token), Span::new(4, 42));
-        });
-    }
 
     #[test]
     fn charset_rule_uses_span() {
-        let allocator = Allocator::new();
-        allocator.with_ghost(|token| {
-            let rule = CharsetRule {
-                span: Span::new(2, 19),
-                encoding: "UTF-8",
-            };
-            let rule = CssRule::Charset(allocator.boxed(rule));
-
-            assert_eq!(rule.span(&token), Span::new(2, 19));
-        });
-    }
-
-    #[test]
-    fn declaration_block_ids_remain_stable_when_store_grows() {
-        let allocator = Allocator::new();
-        let mut store = DeclarationBlockStore::default();
-        let first = store.push(DeclarationBlock::new(&allocator));
-
-        for _ in 0..32 {
-            store.push(DeclarationBlock::new(&allocator));
-        }
-
-        assert_eq!(first.index(), 0);
-        assert_eq!(store.get(first).len(), 0);
-    }
-
-    #[test]
-    fn declaration_block_ids_keep_the_compact_optional_layout() {
-        assert_eq!(size_of::<DeclarationBlockId>(), size_of::<u32>());
-        assert_eq!(size_of::<Option<DeclarationBlockId>>(), size_of::<u32>());
-    }
-
-    #[test]
-    fn declaration_block_store_borrows_two_distinct_blocks() {
-        let allocator = Allocator::new();
-        let mut store = DeclarationBlockStore::default();
-        let first = store.push(DeclarationBlock::new(&allocator));
-        let second = store.push(DeclarationBlock::new(&allocator));
-
-        let (second_block, first_block) = store
-            .get_two_mut(second, first)
-            .expect("distinct IDs can be borrowed together");
-        second_block.push(Declaration::Tombstone, false);
-        first_block.push(Declaration::Tombstone, true);
-
-        assert_eq!(store.get(first).len(), 1);
-        assert!(store.get(first).is_important(0));
-        assert_eq!(store.get(second).len(), 1);
-        assert!(!store.get(second).is_important(0));
-        assert!(store.get_two_mut(first, first).is_none());
+        let rule = CharsetRule {
+            span: Span::new(2, 19),
+            encoding: "UTF-8",
+        };
+        assert_eq!(rule.span(), Span::new(2, 19));
     }
 
     #[test]
@@ -183,22 +118,6 @@ mod tests {
         let right_declaration = Declaration::FontFamily(right_families);
         assert_ne!(left_declaration, right_declaration);
         assert!(left_declaration.eq_ignoring_tombstones(&right_declaration));
-
-        let mut left_block = DeclarationBlock::new(&allocator);
-        left_block.push(left_declaration, false);
-        left_block.push(Declaration::Tombstone, true);
-        let mut right_block = DeclarationBlock::new(&allocator);
-        right_block.push(right_declaration, false);
-
-        assert_ne!(left_block, right_block);
-        assert!(left_block.eq_ignoring_tombstones(&right_block));
-
-        let mut important_block = DeclarationBlock::new(&allocator);
-        let mut important_families = allocator.vec();
-        important_families.push(FontFamily::Custom("A"));
-        important_families.push(FontFamily::Serif);
-        important_block.push(Declaration::FontFamily(important_families), true);
-        assert!(!left_block.eq_ignoring_tombstones(&important_block));
     }
 
     #[test]

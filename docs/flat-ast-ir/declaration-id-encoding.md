@@ -2,21 +2,35 @@
 
 ## Layout
 
-`RadixIndexId` is a non-negative `u32` with this layout:
+The common compact `RadixIndexId` is a non-negative `u32` with this layout:
 
 ```text
 31                         12 11                         2 1         0
 +----------------------------+---------------------------+-----------+
-|      primary index: 20     |    sibling key: 10        | property  |
+| 0 | primary index: 19      |    sibling key: 10        | property  |
 +----------------------------+---------------------------+-----------+
 ```
 
-- `primary index` addresses the dense parse vector and supports `2^20`
-  authored entries per store.
+- `primary index` directly addresses the first `2^19` authored entries.
 - `sibling key` addresses a local inserted node below that primary. Zero means
   the primary itself; `1..=1023` address the two-level Radix tree.
 - `property` is a two-bit declaration-property sub-index. It is zero for base
   rule/block IDs and can encode four local declaration-property identities.
+
+When that compact prefix fills, parsing keeps appending to the same physical
+arena vector and switches to a dense authored-overflow layout:
+
+```text
+31 30                                                2 1         0
++--+---------------------------------------------------+-----------+
+| 1|              dense overflow index: 29            | property  |
++--+---------------------------------------------------+-----------+
+```
+
+Overflow base IDs remain four bytes, sort after every compact ID, and preserve
+the low property bits. They intentionally have no local sibling key: optional
+structural insertion whose endpoint is in the overflow tail is rejected, while
+parsing, lookup, visitors, and codegen continue normally.
 
 Typed wrappers prevent accidental interchange of rule, block, and declaration
 IDs even though they share the physical encoding.
@@ -67,11 +81,18 @@ The chosen representation is explicit in `DeclarationList`; consumers never
 guess from ID bit patterns alone.
 
 ```rust,ignore
-enum DeclarationList<'ast> {
+enum DeclarationList {
     Range(DeclarationRange),
-    Local4(LocalPropertySet<'ast>),
-    Overflow(ArenaVec<'ast, ArenaBox<'ast, Declaration<'ast>>>),
+    Local4(LocalPropertySet),
+    Overflow(DeclarationOverflowId),
 }
+
+struct LocalPropertySet {
+    declarations: [Option<DeclarationId>; 4],
+}
+
+type DeclarationOverflowStore<'ast> =
+    DenseStore<DeclarationOverflowId, ArenaVec<'ast, DeclarationId>>;
 ```
 
 `Local4` is valid only when every live property has a unique `0..=3` index.
@@ -80,8 +101,9 @@ mutation commits.
 
 ## Ordering
 
-Compare base node IDs after masking property bits. For two values in the same
-`RadixIndexArena`:
+Compare base node IDs after masking property bits. Compact primary/sibling IDs
+sort before dense overflow IDs; within either region numeric order is semantic
+order. For compact values in the same `RadixIndexArena`:
 
 ```text
 (primary A, sibling X) < (primary B, sibling Y)
@@ -96,7 +118,8 @@ There is no separate variable-length `SemanticOrderKey`.
 
 ## Initial allocation
 
-Parsing appends authored base nodes with sibling and property bits zero:
+Parsing appends authored base nodes with property bits zero. The arena chooses
+the compact prefix or dense overflow tail internally:
 
 ```rust,ignore
 let block = declaration_blocks.push_primary(parsed_block);
@@ -137,20 +160,19 @@ insertion exhausted its gaps.
 
 ## Capacity fallback
 
-There are three independent capacity limits:
+There are three independent compact-representation limits:
 
-- at most `2^20` primary values in one store;
+- `2^19` authored primary values in the compact Radix prefix, followed by a
+  dense overflow tail of almost `2^29` base IDs;
 - at most 1023 locally encoded siblings below one primary; and
 - at most four `Local4` properties in one block.
 
-These are representation limits, not CSS validity limits. The owning compiler
-must choose a documented fallback, such as another store segment or an arena
-overflow sequence, before reaching the limit. Public parsing/minification must
-not panic on valid input.
-
-The current `RadixIndexArena` primitive enforces its compact limits. AST store
-wrappers own the non-panicking segmentation/overflow policy because only they
-know rule-list and declaration-list semantics.
+These are representation limits, not CSS validity limits. `RadixIndexArena`
+automatically uses its dense authored tail when the compact primary prefix is
+full. AST transactions treat local sibling exhaustion as an optional-transform
+rejection. Declaration blocks promote a fifth `Local4` occurrence to a complete
+arena-backed overflow list. Public parsing/minification therefore does not
+panic or reject otherwise valid CSS at the compact boundaries.
 
 ## Required tests
 

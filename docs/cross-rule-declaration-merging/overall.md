@@ -413,8 +413,9 @@ RocketCSS keeps the right rule as the active output owner. The merge IR links
 the left declaration sequence before the right sequence, and the left endpoint
 is retired from adjacency. In the target Radix AST, physically adjacent
 declaration ranges can be coalesced directly; other sequences use a lossless
-local or overflow representation selected by S4. `previous_merged` is only a
-transitional nested-AST encoding and is not part of the target representation:
+local or complete overflow representation. The current exact-only S1 commit
+chooses that representation atomically. Future partially-live effect work may
+defer a choice to S4. `previous_merged` has been deleted:
 
 ```text
 left declaration blocks

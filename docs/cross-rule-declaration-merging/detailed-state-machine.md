@@ -243,8 +243,8 @@ current global history segment.
 
 ## Declaration sequences
 
-`DeclarationSequenceId` models the semantic order currently representable by
-RocketCSS's `previous_merged` chain:
+`DeclarationSequenceId` models semantic declaration order independently from
+the physical AST representation:
 
 ```text
 blocks: ordered declaration-block references
@@ -258,18 +258,17 @@ Every declaration block remains an independent history entry with its original
 AST occurrence ID. Structural S1 coalescing does not collapse history
 membership into one synthetic occurrence.
 
-`blocks` is a logical ordered sequence, not a requirement to copy a `Vec` when
-S1 concatenates two sequences. The implementation should link existing
-sequences in source order using an intrusive list, rope, or head/tail links plus
-representative redirects. A disjoint-set alone is insufficient because it does
-not retain order.
+`blocks` is a pass-local ordered sequence, not a second AST and not a
+requirement to copy declaration payloads when S1 concatenates two sequences.
+The committed AST stores the complete ordered declaration IDs directly as a
+coalesced `Range`, `Local4`, or arena-backed `Overflow` list. There is no
+`previous_merged` field or owner chain.
 
-`previous_merged` is an incremental AST storage representation, not the
-analysis index. Once `DeclarationSequenceState` exists, semantic stages must
-not repeatedly expand `previous_merged` chains or scan every predecessor to
-determine emptiness. S1 updates the sequence aggregate when it concatenates;
-S2 updates `live_effect_count` when effect masks change. A zero aggregate plus
-no retained child content triggers the logical emptiness transition directly.
+S1 updates the sequence aggregate and commits the chosen declaration-list
+representation in one transaction. S2 updates `live_effect_count` when effect
+masks change. A zero aggregate plus no retained child content triggers the
+logical emptiness transition directly; no predecessor expansion or recursive
+AST walk is involved.
 
 The effect IR is an analysis overlay. A losslessly parsed shorthand contributes
 virtual canonical longhand effects while retaining one authored declaration

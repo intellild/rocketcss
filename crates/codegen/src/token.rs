@@ -191,6 +191,23 @@ pub(crate) fn write_token_list_trimmed<'ghost, PrinterT: PrinterTrait>(
     write_token_list(&values[start..], dest, cx)
 }
 
+pub(crate) fn write_token_list_without_outer_whitespace<'ghost, PrinterT: PrinterTrait>(
+    values: &[TokenOrValue<'_>],
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    let is_whitespace = |value: &TokenOrValue<'_>| matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)));
+    let start = values
+        .iter()
+        .position(|value| !is_whitespace(value))
+        .unwrap_or(values.len());
+    let end = values
+        .iter()
+        .rposition(|value| !is_whitespace(value))
+        .map_or(start, |index| index + 1);
+    write_token_list(&values[start..end], dest, cx)
+}
+
 fn starts_with_whitespace(values: &[TokenOrValue<'_>]) -> bool {
     matches!(values.first(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::WhiteSpace(_)))
 }

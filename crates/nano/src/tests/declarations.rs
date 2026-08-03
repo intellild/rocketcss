@@ -59,16 +59,19 @@ fn removes_exact_duplicate_declarations_within_one_block() {
         )
         .unwrap();
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
-            panic!("expected style rule")
-        };
-        let rule = rule.as_ref().get_ref();
-        let declarations = stylesheet.declaration_block(rule.declarations);
+        let declarations = stylesheet
+            .declarations_in_block(first_declaration_block_id(&stylesheet))
+            .unwrap()
+            .collect::<std::vec::Vec<_>>();
         assert_eq!(declarations.len(), 3);
-        assert_eq!(declarations.declarations_importance.len(), 3);
+        assert!(
+            declarations
+                .iter()
+                .all(|declaration| !declaration.is_important())
+        );
         assert!(matches!(
-            declarations.declarations[0],
-            Declaration::Tombstone
+            declarations[0].payload(),
+            radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
         ));
         assert_eq!(stats.declarations_removed, 1);
 
@@ -158,7 +161,7 @@ fn s2_requires_exactly_equal_conditional_contexts() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
-            "@media (width:1px){a{x:1}}@media (width:2px){a{x:1}}@media (width:1px){a{x:1}}",
+            "@media (width:1px){a{opacity:.5}}@media (width:2px){a{opacity:.5}}@media (width:1px){a{opacity:.5}}",
             &allocator,
             &mut token,
             ParserOptions::default(),
@@ -167,45 +170,56 @@ fn s2_requires_exactly_equal_conditional_contexts() {
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
 
-        let blocks = crate::utils::walk_declaration_blocks(&stylesheet);
+        let blocks = stylesheet
+            .declaration_blocks_in_source_order()
+            .filter(|(_, block)| {
+                let radix_ast::DeclarationBlockOwner::Rule(owner) = block.owner();
+                stylesheet.rule(owner).is_some_and(|rule| rule.is_live())
+            })
+            .collect::<std::vec::Vec<_>>();
         assert_eq!(blocks.len(), 2);
-        let blocks = blocks.iter().collect::<std::vec::Vec<_>>();
-        assert_ne!(blocks[0].effective_key, blocks[1].effective_key);
-        assert!(
-            !stylesheet
-                .declaration_block(blocks[0].declarations)
-                .declarations[0]
-                .is_tombstone()
-        );
-        assert!(
-            !stylesheet
-                .declaration_block(blocks[1].declarations)
-                .declarations[0]
-                .is_tombstone()
-        );
+        assert_ne!(blocks[0].1.effective_key(), blocks[1].1.effective_key());
+        assert!(!matches!(
+            stylesheet
+                .declarations_in_block(blocks[0].0)
+                .unwrap()
+                .next()
+                .unwrap()
+                .payload(),
+            radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+        ));
+        assert!(!matches!(
+            stylesheet
+                .declarations_in_block(blocks[1].0)
+                .unwrap()
+                .next()
+                .unwrap()
+                .payload(),
+            radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+        ));
     });
 }
 
 #[test]
 fn s2_emptying_a_rule_exposes_a_new_s1_edge() {
     assert_eq!(
-        run("a{x:1}b{y:1}a{z:1}b{y:1}a{w:1}"),
-        "a{x:1;z:1}b{y:1}a{w:1}"
+        run("a{color:red}b{width:1px}a{height:1px}b{width:1px}a{padding:0}"),
+        "a{color:red;height:1px}b{width:1px}a{padding:0}"
     );
 }
 
 #[test]
 fn live_graph_prepends_into_an_existing_s1_sequence() {
     assert_eq!(
-        run("a{x:1}b{q:1}a{y:1}a{z:1}b{q:1}"),
-        "a{x:1;y:1;z:1}b{q:1}"
+        run("a{color:red}b{width:1px}a{height:1px}a{padding:0}b{width:1px}"),
+        "a{color:red;height:1px;padding:0}b{width:1px}"
     );
 }
 
 #[test]
 fn live_graph_removes_multiple_s2_barriers_before_stabilizing_s1() {
     assert_eq!(
-        run("a{x:1}b{q:1}c{r:1}a{y:1}b{q:1}c{r:1}"),
-        "a{x:1;y:1}b{q:1}c{r:1}"
+        run("a{color:red}b{width:1px}c{opacity:.5}a{height:1px}b{width:1px}c{opacity:.5}"),
+        "a{color:red;height:1px}b{width:1px}c{opacity:.5}"
     );
 }

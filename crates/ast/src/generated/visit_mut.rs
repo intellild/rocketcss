@@ -6,7 +6,6 @@
     unused_variables
 )]
 use crate::*;
-use std::pin::Pin;
 /// Typed callbacks invoked while traversing CSS AST nodes.
 pub trait VisitorMut<'a, 'ghost> {
     #[inline]
@@ -79,10 +78,6 @@ pub trait VisitorMut<'a, 'ghost> {
         node: &mut UnresolvedColor<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_css_rule(&mut self, node: &mut CssRule<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -279,22 +274,6 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_supports_rule(
-        &mut self,
-        node: &mut SupportsRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_counter_style_rule(
-        &mut self,
-        node: &mut CounterStyleRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_charset_rule(
         &mut self,
         node: &mut CharsetRule<'a>,
@@ -311,89 +290,9 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_moz_document_rule(
-        &mut self,
-        node: &mut MozDocumentRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_nesting_rule(
-        &mut self,
-        node: &mut NestingRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_nested_declarations_rule(
-        &mut self,
-        node: &mut NestedDeclarationsRule,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_viewport_rule(
-        &mut self,
-        node: &mut ViewportRule,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_custom_media_rule(
         &mut self,
         node: &mut CustomMediaRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_layer_statement_rule(
-        &mut self,
-        node: &mut LayerStatementRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_layer_block_rule(
-        &mut self,
-        node: &mut LayerBlockRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_scope_rule(
-        &mut self,
-        node: &mut ScopeRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_starting_style_rule(
-        &mut self,
-        node: &mut StartingStyleRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_position_try_rule(
-        &mut self,
-        node: &mut PositionTryRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_unknown_at_rule(
-        &mut self,
-        node: &mut UnknownAtRule<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -633,14 +532,6 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_container_rule(
-        &mut self,
-        node: &mut ContainerRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_font_face_property(
         &mut self,
         node: &mut FontFaceProperty<'a>,
@@ -705,14 +596,6 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_font_face_rule(
-        &mut self,
-        node: &mut FontFaceRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_url_source(
         &mut self,
         node: &mut UrlSource<'a>,
@@ -729,33 +612,9 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_font_palette_values_rule(
-        &mut self,
-        node: &mut FontPaletteValuesRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_override_colors(
         &mut self,
         node: &mut OverrideColors<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_font_feature_values_rule(
-        &mut self,
-        node: &mut FontFeatureValuesRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_font_feature_subrule(
-        &mut self,
-        node: &mut FontFeatureSubrule<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -788,22 +647,6 @@ pub trait VisitorMut<'a, 'ghost> {
     fn visit_keyframes_name(
         &mut self,
         node: &mut KeyframesName<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_keyframes_rule(
-        &mut self,
-        node: &mut KeyframesRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_keyframe(
-        &mut self,
-        node: &mut Keyframe<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1061,22 +904,6 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_page_rule(
-        &mut self,
-        node: &mut PageRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_page_margin_rule(
-        &mut self,
-        node: &mut PageMarginRule,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_page_selector(
         &mut self,
         node: &mut PageSelector<'a>,
@@ -1141,14 +968,6 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_property_rule(
-        &mut self,
-        node: &mut PropertyRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_syntax_component(
         &mut self,
         node: &mut SyntaxComponent<'a>,
@@ -1204,38 +1023,6 @@ pub trait VisitorMut<'a, 'ghost> {
     fn visit_drop_shadow(
         &mut self,
         node: &mut DropShadow<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_default_at_rule(
-        &mut self,
-        node: &mut DefaultAtRule,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_style_sheet(
-        &mut self,
-        node: &mut StyleSheet<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_compilation(
-        &mut self,
-        node: &mut Compilation<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_media_rule(
-        &mut self,
-        node: &mut MediaRule<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1320,22 +1107,6 @@ pub trait VisitorMut<'a, 'ghost> {
     fn visit_import_rule(
         &mut self,
         node: &mut ImportRule<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_style_rule(
-        &mut self,
-        mut node: Pin<&mut StyleRule<'a>>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(&mut node, self, cx);
-    }
-    #[inline]
-    fn visit_declaration_block(
-        &mut self,
-        node: &mut DeclarationBlock<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -1468,14 +1239,6 @@ pub trait VisitorMut<'a, 'ghost> {
     fn visit_view_transition_part_selector(
         &mut self,
         node: &mut ViewTransitionPartSelector<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_view_transition_rule(
-        &mut self,
-        node: &mut ViewTransitionRule<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);
@@ -2999,24 +2762,6 @@ pub trait VisitorMut<'a, 'ghost> {
         visitor.enter_node(AstType::ScrollStateFeature);
         VisitMut::visit_mut(node, visitor, cx);
         visitor.leave_node(AstType::ScrollStateFeature);
-    }
-    #[inline]
-    fn visit_declaration_block_store(
-        &mut self,
-        node: &mut DeclarationBlockStore<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        self.visit_declaration_block_store_children(node, cx);
-    }
-    ///Continues traversal of [`DeclarationBlockStore`] without redispatching its visitor callback.
-    fn visit_declaration_block_store_children(
-        &mut self,
-        node: &mut DeclarationBlockStore<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        let visitor = self;
-        visitor.enter_node(AstType::DeclarationBlockStore);
-        visitor.leave_node(AstType::DeclarationBlockStore);
     }
     #[inline]
     fn visit_selector_list(

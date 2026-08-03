@@ -20,19 +20,31 @@ struct RadixIndexArena<'arena, T> {
 }
 ```
 
+The single `primary` vector has two ID regions but one payload allocation:
+
+```text
+primary[0 .. 2^19)       compact Radix primary IDs
+primary[2^19 .. end)     high-bit-tagged dense overflow IDs
+```
+
+Normal files never enter the second region. Very large valid inputs retain the
+same contiguous traversal and payload layout; only optional local insertion
+inside the overflow tail is unavailable.
+
 The two sibling vectors are a structure-of-arrays pair. Binary search touches
 only compact `u32` primary indices. The matching tree pointer is loaded after a
 match. Both vectors have identical length and corresponding indices.
 
 ## ID and sequence model
 
-Every primary value receives a direct ID from its vector index. An inserted
+Every compact primary receives a direct ID from its vector index. An inserted
 value receives the same primary index plus a nonzero local sibling key.
 
 ```text
 primary P, sibling key 0      authored node P
 primary P, sibling key 1..N   inserted nodes immediately after P
 primary P+1, sibling key 0    next authored node
+overflow O                    authored node after the compact prefix
 ```
 
 Within one arena, base-ID numeric order is semantic order. The low two property
@@ -129,10 +141,10 @@ When an interval has no free key, the arena may relabel only the siblings below
 that primary and return an exact old-to-new ID remap. Candidate queues and AST
 topology referencing those rare IDs are repaired in the same transaction.
 
-If one primary requires more than 1023 live inserted siblings, use an explicit
-overflow representation or split/promote the local sequence through a
-documented store operation. Valid CSS must not panic because the local label
-space is full.
+If one compact primary requires more than 1023 live inserted siblings, the AST
+transaction rejects that optional structural optimization and preserves the
+unmerged CSS. Overflow-primary endpoints likewise reject local insertion.
+Valid CSS never fails because the local label space is full.
 
 ## Mutation and stale work
 
@@ -146,6 +158,13 @@ revisions and enqueues newly exposed work. When popped, a candidate validates:
 
 Retired nodes may remain as tombstones until terminal cleanup. Their IDs are not
 reused during the compilation.
+
+The AST keeps a physical `previous_in_source`/`next_in_source` chain that
+includes those tombstones. If two live direct siblings have retired physical
+entries between them, insertion starts at the previous live rule's subtree
+tail, follows only that local tombstone run, and passes the resulting real
+neighbors to `insert_between`. The chain mirrors Radix iteration; it does not
+replace `RuleId` ordering or introduce a `SemanticOrderKey`.
 
 ## Measured trade-off
 

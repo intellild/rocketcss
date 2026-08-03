@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rocketcss_ast::CssRule;
+use rocketcss_ast::radix_ast::CssRulePayload;
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::Allocator;
 use rocketcss_nano::{MinifyOptions, minify};
@@ -110,8 +110,12 @@ fn synthesized_cross_rule_fixture_preserves_combined_source_span() {
 
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
 
-        assert_eq!(stylesheet.rules.len(), 1);
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+        let rules = stylesheet
+            .rules_in_list(stylesheet.stylesheet().root_rules())
+            .unwrap()
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 1);
+        let CssRulePayload::Style(rule) = rules[0].1.payload() else {
             panic!("expected one synthesized style rule");
         };
         assert_eq!(rule.span.start, 0);

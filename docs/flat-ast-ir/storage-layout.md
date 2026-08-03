@@ -45,6 +45,8 @@ struct CssRule<'ast> {
     parent_list: RuleListId,
     previous_sibling: Option<RuleId>,
     next_sibling: Option<RuleId>,
+    previous_in_source: Option<RuleId>,
+    next_in_source: Option<RuleId>,
     first_child_list: Option<RuleListId>,
     payload: CssRulePayload<'ast>,
     revision: u32,
@@ -55,6 +57,13 @@ struct CssRule<'ast> {
 `RuleId` determines stable identity and source order. The links determine
 direct-sibling adjacency across nested subtrees. A structural rewrite updates
 the local topology transaction together with Radix insertion or retirement.
+
+The direct-sibling links contain only live rules. The source links mirror the
+physical Radix preorder and retain tombstones. They let a local insertion walk
+from the previous live subtree tail across only the retired entries in that
+gap to find the actual `RadixIndexArena::insert_between` neighbors. They are
+not a second ordering key: `validate_ast()` requires the chain to equal the
+store's ID-aware semantic iterator exactly.
 
 Rule lists keep compact endpoints and counts as needed for validation and
 codegen, but they do not own a second vector of rule values.
@@ -107,22 +116,32 @@ struct DeclarationRange {
     len: u32,
 }
 
-enum DeclarationList<'ast> {
+enum DeclarationList {
     Range(DeclarationRange),
-    Local4(LocalPropertySet<'ast>),
-    Overflow(ArenaVec<'ast, ArenaBox<'ast, Declaration<'ast>>>),
+    Local4(LocalPropertySet),
+    Overflow(DeclarationOverflowId),
 }
+
+struct LocalPropertySet {
+    declarations: [Option<DeclarationId>; 4],
+}
+
+type DeclarationOverflowStore<'ast> =
+    DenseStore<DeclarationOverflowId, ArenaVec<'ast, DeclarationId>>;
 ```
 
 The range is a physical slice of the authored declaration tape. Nested rules
 close the current run before their declarations are parsed, so an enclosing
 block never absorbs a descendant's properties.
 
-Small synthesized blocks may use `Local4`, whose property IDs reuse the low
-two bits of their `DeclarationBlockId`. Larger or nonconsecutive transformed
-sequences use a complete overflow list. S4 may choose the smallest lossless
-representation, but Nano never needs a second global reification store solely
-to restore order.
+Small nonconsecutive transformed blocks use `Local4`; its four ordered slots
+retain the corresponding source-tape `DeclarationId`s, and the slot index is
+the compact `0..=3` local property position encoded by a block sub-ID when one
+is needed. Larger nonconsecutive sequences use an arena vector selected by
+`DeclarationOverflowId`. Both representations reference the one global
+declaration payload tape instead of copying values. S4 may choose the smallest
+lossless representation, but Nano never needs a second global reification
+store solely to restore order.
 
 ## Source-order allocation invariant
 
@@ -232,6 +251,7 @@ optional performance choice, not a correctness prerequisite.
 - Authored primary order equals lexical source order.
 - `RadixIndexId` order equals semantic store order after local insertion.
 - Direct sibling links agree with rule-list ownership.
+- Source links agree with the physical Radix sequence, including tombstones.
 - Every live block has one owner and one current EffectiveKey.
 - Every authored declaration belongs to exactly one authored range before
   transforms.

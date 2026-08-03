@@ -3,6 +3,11 @@ use std::{
     mem::{align_of, size_of},
 };
 
+use rocketcss_ast::radix_ast::{
+    CssRulePayload, DeclarationBlockRecord, DeclarationPayload, DeclarationRecord, KeyframePayload,
+    NestedDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
+    RuleRecord, ViewportRulePayload,
+};
 use rocketcss_ast::*;
 use rocketcss_common::{boxed::Box, vec::Vec};
 
@@ -46,9 +51,9 @@ fn main() {
     print_sizes!(
         rocketcss_common::boxed::Box<'static, u8>,
         rocketcss_common::vec::Vec<'static, u8>,
-        CssRule<'static>,
-        StyleRule<'static>,
-        DeclarationBlock<'static>,
+        RuleRecord<CssRulePayload<'static>>,
+        DeclarationBlockRecord,
+        DeclarationRecord<DeclarationPayload<'static>>,
         Declaration<'static>,
         PropertyId<'static>,
         TokenOrValue<'static>,
@@ -82,13 +87,12 @@ fn main() {
         BorderImage<'static>,
         EnvironmentVariable<'static>,
         DashedIdentReference<'static>,
-        CounterStyleRule<'static>,
-        NestedDeclarationsRule,
-        ViewportRule,
-        PositionTryRule<'static>,
-        PageRule<'static>,
-        PageMarginRule,
-        Keyframe<'static>,
+        NestedDeclarationsPayload,
+        ViewportRulePayload,
+        PositionTryRulePayload<'static>,
+        PageRulePayload<'static>,
+        PageMarginPayload,
+        KeyframePayload<'static>,
         PositionProperty,
         BorderStyle,
         BorderBlockStyle,

@@ -15,7 +15,6 @@ use syn::{
 
 const AST_FILES: &[&str] = &[
     "color",
-    "css_rule",
     "length",
     "media",
     "properties",

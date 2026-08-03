@@ -1,9 +1,11 @@
 //! Arena-backed sequence optimized for parse-first, insert-rare workloads.
 //!
-//! Parsed values live in one linear arena [`Vec`] and use the high 20 bits of
-//! [`RadixIndexId`] as their direct index. Rare values inserted after a parsed
-//! value live in lazy two-level radix trees indexed by a separate sparse `u32`
-//! vector.
+//! Parsed values live in one linear arena [`Vec`]. Its common prefix uses the
+//! high primary field of [`RadixIndexId`] as a direct index. If that compact
+//! prefix fills, authored values keep appending to the same vector and use a
+//! high-bit-tagged dense overflow ID. Rare transformed values inserted after a
+//! compact primary live in lazy two-level radix trees indexed by a separate
+//! sparse `u32` vector.
 //!
 //! ```text
 //! 31                         12 11                         2 1         0
@@ -11,6 +13,11 @@
 //! |      primary index: 20     |    sibling key: 10        | property  |
 //! +----------------------------+---------------------------+-----------+
 //! ```
+//!
+//! The highest primary bit is zero for compact Radix IDs. When it is one, the
+//! remaining 29 high bits encode a dense overflow index and the low two bits
+//! retain their property-sub-ID meaning. This keeps IDs four bytes and ordered
+//! while allowing valid authored input to outgrow the compact Radix prefix.
 //!
 //! A zero sibling key addresses the primary linear value. A nonzero key uses
 //! two five-bit radix levels. The low two bits encode up to four declaration
@@ -29,26 +36,50 @@ const RADIX_BITS: u32 = 5;
 const RADIX_SIZE: usize = 1 << RADIX_BITS;
 const SIBLING_MASK: u32 = (1 << SIBLING_BITS) - 1;
 const PROPERTY_MASK: u32 = (1 << PROPERTY_BITS) - 1;
-const PRIMARY_CAPACITY: usize = 1 << PRIMARY_BITS;
+// The highest encoded bit distinguishes the rare dense authored overflow
+// from compact primary/sibling IDs. Compact IDs remain byte-for-byte
+// identical below this boundary.
+const OVERFLOW_TAG: u32 = 1 << (u32::BITS - 1);
+const COMPACT_PRIMARY_CAPACITY: usize = 1 << (PRIMARY_BITS - 1);
+const OVERFLOW_INDEX_BITS: u32 = u32::BITS - PROPERTY_BITS - 1;
+const OVERFLOW_CAPACITY: usize = (1 << OVERFLOW_INDEX_BITS) - 1;
 
 /// Stable compact identity for a value in [`RadixIndexArena`].
 ///
-/// IDs whose [`sibling_key`](Self::sibling_key) is zero address the primary
-/// parse vector directly. Other IDs address a rare inserted sibling through a
-/// two-level radix tree.
+/// Compact IDs whose [`sibling_key`](Self::sibling_key) is zero address the
+/// primary parse-vector prefix directly. Other compact IDs address a rare
+/// inserted sibling through a two-level radix tree. High-bit-tagged IDs address
+/// the dense authored tail in that same parse vector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RadixIndexId(NonMaxU32);
 
 impl RadixIndexId {
     #[inline]
     fn from_parts(primary_index: usize, sibling_key: u16, property_index: u8) -> Self {
-        debug_assert!(primary_index < PRIMARY_CAPACITY);
+        debug_assert!(primary_index < COMPACT_PRIMARY_CAPACITY);
         debug_assert!(u32::from(sibling_key) <= SIBLING_MASK);
         debug_assert!(u32::from(property_index) <= PROPERTY_MASK);
         let encoded = ((primary_index as u32) << LOCAL_BITS)
             | (u32::from(sibling_key) << SIBLING_SHIFT)
             | u32::from(property_index);
         Self(NonMaxU32::new(encoded).expect("u32::MAX is reserved for an invalid radix ID"))
+    }
+
+    #[inline]
+    fn from_overflow_index(index: usize, property_index: u8) -> Self {
+        debug_assert!(index < OVERFLOW_CAPACITY);
+        debug_assert!(u32::from(property_index) <= PROPERTY_MASK);
+        let encoded = OVERFLOW_TAG | ((index as u32) << PROPERTY_BITS) | u32::from(property_index);
+        Self(NonMaxU32::new(encoded).expect("u32::MAX is reserved for an invalid radix ID"))
+    }
+
+    #[inline]
+    fn from_primary_index(index: usize) -> Self {
+        if index < COMPACT_PRIMARY_CAPACITY {
+            Self::from_parts(index, 0, 0)
+        } else {
+            Self::from_overflow_index(index - COMPACT_PRIMARY_CAPACITY, 0)
+        }
     }
 
     /// Returns the encoded ID as a `u32`.
@@ -61,6 +92,11 @@ impl RadixIndexId {
     #[inline]
     pub const fn primary_index(self) -> usize {
         (self.get() >> LOCAL_BITS) as usize
+    }
+
+    #[inline]
+    const fn overflow_index(self) -> usize {
+        ((self.get() & !OVERFLOW_TAG) >> PROPERTY_BITS) as usize
     }
 
     /// Returns the ten-bit sibling key, or zero for a primary value.
@@ -92,7 +128,13 @@ impl RadixIndexId {
     /// Returns whether this ID addresses the primary linear vector.
     #[inline]
     pub const fn is_primary(self) -> bool {
-        self.sibling_key() == 0
+        self.is_overflow() || self.sibling_key() == 0
+    }
+
+    /// Returns whether this ID addresses the dense authored overflow.
+    #[inline]
+    pub const fn is_overflow(self) -> bool {
+        self.get() & OVERFLOW_TAG != 0
     }
 }
 
@@ -163,6 +205,12 @@ macro_rules! define_radix_id {
             #[inline]
             $visibility const fn is_primary(self) -> bool {
                 self.0.is_primary()
+            }
+
+            /// Returns whether this ID addresses the dense authored overflow.
+            #[inline]
+            $visibility const fn is_overflow(self) -> bool {
+                self.0.is_overflow()
             }
 
             /// Returns the same storage location with a property sub-index.
@@ -418,8 +466,10 @@ pub struct RadixInsertResult<I> {
 /// Parsing appends primary values with [`push_primary`](Self::push_primary),
 /// which is the same amortized operation as pushing to an arena vector. Rare
 /// inserted siblings are addressed by a nonzero ten-bit key and do not move
-/// any primary value. Iteration emits each primary value followed by its
-/// siblings in ascending key order.
+/// any primary value. After the compact prefix fills, dense overflow primary
+/// values remain contiguous but reject optional local insertion. Iteration
+/// emits each compact primary and its siblings, followed by the authored
+/// overflow tail.
 pub type RadixIndexArena<'arena, T> = TypedRadixIndexArena<'arena, T, RadixIndexId>;
 
 /// A [`RadixIndexArena`] whose IDs are isolated to one domain-specific type.
@@ -462,10 +512,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
 
     /// Creates an empty store with space for `capacity` primary values.
     pub fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
-        assert!(
-            capacity <= PRIMARY_CAPACITY,
-            "RadixIndexArena primary capacity exhausted"
-        );
+        assert!(capacity <= COMPACT_PRIMARY_CAPACITY + OVERFLOW_CAPACITY);
         Self {
             allocator,
             primary: Vec::with_capacity_in(capacity, allocator),
@@ -491,8 +538,12 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     /// Returns the direct primary ID for `index` when it exists.
     #[inline]
     pub fn primary_id(&self, index: usize) -> Option<I> {
-        (index < self.primary.len())
-            .then(|| I::from_radix_index(RadixIndexId::from_parts(index, 0, 0)))
+        if index < self.primary.len() {
+            let id = RadixIndexId::from_primary_index(index);
+            Some(I::from_radix_index(id))
+        } else {
+            None
+        }
     }
 
     /// Iterates only authored primary values in their parse order.
@@ -503,13 +554,13 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
 
     /// Iterates typed IDs and authored primary values in parse order.
     #[inline]
-    pub fn primary_iter_enumerated(&self) -> impl ExactSizeIterator<Item = (I, &T)> + '_ {
-        self.primary.iter().enumerate().map(|(index, value)| {
-            (
-                I::from_radix_index(RadixIndexId::from_parts(index, 0, 0)),
-                value,
-            )
-        })
+    pub fn primary_iter_enumerated(&self) -> PrimaryIterEnumerated<'_, T, I> {
+        PrimaryIterEnumerated {
+            primary: &self.primary,
+            front: 0,
+            back: self.primary_len(),
+            id: PhantomData,
+        }
     }
 
     /// Returns whether at least one inserted sibling is live.
@@ -527,20 +578,21 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     /// Returns whether another primary value fits the compact representation.
     #[inline]
     pub fn can_push_primary(&self) -> bool {
-        self.primary.len() < PRIMARY_CAPACITY && self.len < u32::MAX
+        self.len < u32::MAX && self.primary.len() < COMPACT_PRIMARY_CAPACITY + OVERFLOW_CAPACITY
     }
 
     /// Appends a parsed value and returns its direct primary ID.
     ///
     /// # Panics
     ///
-    /// Panics after `2^20` primary values or `u32::MAX` total values.
+    /// Panics only after the compact and dense-overflow namespaces are both
+    /// exhausted, or after `u32::MAX` total values.
     pub fn push_primary(&mut self, value: T) -> I {
         assert!(
             self.can_push_primary(),
             "RadixIndexArena primary capacity exhausted"
         );
-        let id = RadixIndexId::from_parts(self.primary.len(), 0, 0);
+        let id = RadixIndexId::from_primary_index(self.primary.len());
         self.primary.push(value);
         self.len += 1;
         I::from_radix_index(id)
@@ -557,7 +609,10 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     /// primary ID, or `u32::MAX` total values.
     pub fn insert_sibling(&mut self, primary: I, sibling_key: u16, value: T) -> I {
         let primary = primary.radix_index();
-        assert!(primary.is_primary(), "sibling owner must be a primary ID");
+        assert!(
+            primary.is_primary() && !primary.is_overflow(),
+            "sibling owner must be a compact primary ID"
+        );
         assert_eq!(
             primary.property_index(),
             0,
@@ -593,6 +648,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     pub fn can_insert_sibling(&self, primary: I) -> bool {
         let primary = primary.radix_index();
         if !primary.is_primary()
+            || primary.is_overflow()
             || primary.property_index() != 0
             || self.primary.get(primary.primary_index()).is_none()
         {
@@ -714,7 +770,10 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     #[inline]
     pub fn get(&self, id: I) -> Option<&T> {
         let id = id.radix_index();
-        if id.is_primary() {
+        if id.is_overflow() {
+            self.primary
+                .get(COMPACT_PRIMARY_CAPACITY + id.overflow_index())
+        } else if id.is_primary() {
             self.primary.get(id.primary_index())
         } else {
             let group_index = self.sibling_group_index(id.primary_index()).ok()?;
@@ -726,7 +785,10 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     #[inline]
     pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
         let id = id.radix_index();
-        if id.is_primary() {
+        if id.is_overflow() {
+            self.primary
+                .get_mut(COMPACT_PRIMARY_CAPACITY + id.overflow_index())
+        } else if id.is_primary() {
             self.primary.get_mut(id.primary_index())
         } else {
             let group_index = self.sibling_group_index(id.primary_index()).ok()?;
@@ -740,7 +802,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     #[inline]
     pub fn iter(&self) -> Iter<'_, 'arena, T> {
         let kind = if !self.has_siblings() {
-            IterKind::Primary(self.primary.iter())
+            IterKind::Primary(self.primary_iter())
         } else {
             IterKind::Expanded(self.semantic_iter())
         };
@@ -815,7 +877,10 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     ) -> Option<(usize, u16, u16, std::vec::Vec<u16>)> {
         let after = after.radix_index();
         let before = before.map(RadixId::radix_index);
-        if after.property_index() != 0 || self.get(I::from_radix_index(after)).is_none() {
+        if after.is_overflow()
+            || after.property_index() != 0
+            || self.get(I::from_radix_index(after)).is_none()
+        {
             return None;
         }
         if before.is_some_and(|before| {
@@ -832,10 +897,21 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
             {
                 before.sibling_key()
             }
+            Some(before)
+                if before.is_overflow()
+                    && before.overflow_index() == 0
+                    && primary_index + 1 == COMPACT_PRIMARY_CAPACITY =>
+            {
+                (SIBLING_MASK + 1) as u16
+            }
             Some(before) if before.is_primary() && before.primary_index() == primary_index + 1 => {
                 (SIBLING_MASK + 1) as u16
             }
-            None if primary_index + 1 == self.primary.len() => (SIBLING_MASK + 1) as u16,
+            None if self.primary.len() <= COMPACT_PRIMARY_CAPACITY
+                && primary_index + 1 == self.primary.len() =>
+            {
+                (SIBLING_MASK + 1) as u16
+            }
             _ => return None,
         };
 
@@ -971,6 +1047,56 @@ enum IterKind<'tree, 'arena, T: Unpin> {
     Expanded(SemanticIter<'tree, 'arena, T>),
 }
 
+/// Iterator over authored IDs and values in parse order.
+pub struct PrimaryIterEnumerated<'tree, T, I: RadixId> {
+    primary: &'tree [T],
+    front: usize,
+    back: usize,
+    id: PhantomData<fn(I) -> I>,
+}
+
+impl<'tree, T, I: RadixId> PrimaryIterEnumerated<'tree, T, I> {
+    #[inline]
+    fn item(&self, index: usize) -> (I, &'tree T) {
+        let id = RadixIndexId::from_primary_index(index);
+        (I::from_radix_index(id), &self.primary[index])
+    }
+}
+
+impl<'tree, T, I: RadixId> Iterator for PrimaryIterEnumerated<'tree, T, I> {
+    type Item = (I, &'tree T);
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            return None;
+        }
+        let index = self.front;
+        self.front += 1;
+        Some(self.item(index))
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.back - self.front;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<T, I: RadixId> DoubleEndedIterator for PrimaryIterEnumerated<'_, T, I> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.front == self.back {
+            return None;
+        }
+        self.back -= 1;
+        Some(self.item(self.back))
+    }
+}
+
+impl<T, I: RadixId> ExactSizeIterator for PrimaryIterEnumerated<'_, T, I> {}
+impl<T, I: RadixId> std::iter::FusedIterator for PrimaryIterEnumerated<'_, T, I> {}
+
 /// Iterator that merges primary values with sparse sibling radix trees.
 pub struct SemanticIter<'tree, 'arena, T: Unpin> {
     primary: &'tree [T],
@@ -1093,7 +1219,7 @@ impl<'tree, 'arena: 'tree, T: Unpin, I: RadixId> Iterator
             match &mut self.current {
                 SemanticSegment::Primary(primary) => {
                     if let Some(value) = primary.next() {
-                        let id = RadixIndexId::from_parts(self.current_primary, 0, 0);
+                        let id = RadixIndexId::from_primary_index(self.current_primary);
                         self.current_primary += 1;
                         self.remaining -= 1;
                         return Some((I::from_radix_index(id), value));
@@ -1249,8 +1375,8 @@ fn radix_parts(key: u16) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        LOCAL_BITS, PRIMARY_CAPACITY, RadixIndexArena, RadixIndexId, SIBLING_MASK,
-        TypedRadixIndexArena,
+        COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, OVERFLOW_CAPACITY, RadixIndexArena, RadixIndexId,
+        SIBLING_MASK, TypedRadixIndexArena,
     };
     use crate::Allocator;
 
@@ -1460,8 +1586,8 @@ mod tests {
 
     #[test]
     fn property_index_uses_the_low_two_bits() {
-        let id = RadixIndexId::from_parts(0xabcde, 0x2aa, 3);
-        assert_eq!(id.primary_index(), 0xabcde);
+        let id = RadixIndexId::from_parts(0x6bcde, 0x2aa, 3);
+        assert_eq!(id.primary_index(), 0x6bcde);
         assert_eq!(id.sibling_key(), 0x2aa);
         assert_eq!(id.property_index(), 3);
         assert_eq!(id.get() & 0b11, 3);
@@ -1473,9 +1599,33 @@ mod tests {
         assert_eq!(std::mem::size_of::<RadixIndexId>(), 4);
         assert_eq!(std::mem::size_of::<Option<RadixIndexId>>(), 4);
 
-        let highest_property_sub_id =
-            RadixIndexId::from_parts(PRIMARY_CAPACITY - 1, SIBLING_MASK as u16, 2);
-        assert_eq!(highest_property_sub_id.get(), u32::MAX - 1);
+        let highest_property_sub_id = RadixIndexId::from_overflow_index(OVERFLOW_CAPACITY - 1, 2);
+        assert_eq!(highest_property_sub_id.get(), u32::MAX - 5);
+    }
+
+    #[test]
+    fn authored_primary_overflow_preserves_ids_lookup_and_iteration_order() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let mut last_compact = None;
+        for _ in 0..COMPACT_PRIMARY_CAPACITY {
+            last_compact = Some(values.push_primary(0_u8));
+        }
+
+        let overflow = values.push_primary(1_u8);
+        let last_compact = last_compact.unwrap();
+
+        assert!(!last_compact.is_overflow());
+        assert!(overflow.is_primary());
+        assert!(overflow.is_overflow());
+        assert!(last_compact < overflow);
+        assert_eq!(values.get(overflow), Some(&1));
+        assert_eq!(values.primary_id(COMPACT_PRIMARY_CAPACITY), Some(overflow));
+        assert_eq!(values.primary_len(), COMPACT_PRIMARY_CAPACITY + 1);
+        assert_eq!(values.primary_iter().next_back(), Some(&1));
+        assert_eq!(values.iter_enumerated().last(), Some((overflow, &1)));
+        assert!(!values.can_insert_sibling(overflow));
+        assert!(!values.can_insert_between(overflow, None));
     }
 
     #[test]
@@ -1503,6 +1653,7 @@ mod tests {
 
         assert_eq!(first.get(), 0);
         assert!(first.is_primary());
+        assert!(!first.is_overflow());
         assert_eq!(second.primary_index(), 1);
         assert_eq!(inserted.sibling_key(), 512);
         assert_eq!(values.get(inserted), Some(&20));

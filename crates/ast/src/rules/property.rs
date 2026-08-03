@@ -90,15 +90,6 @@ pub struct CustomProperty<'a> {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub struct PropertyRule<'a> {
-    pub inherits: bool,
-    pub initial_value: Option<Box<'a, ParsedComponent<'a>>>,
-    pub span: Span,
-    pub name: &'a str,
-    pub syntax: Box<'a, SyntaxString<'a>>,
-}
-
-#[derive(Debug, PartialEq, Visit)]
 pub struct SyntaxComponent<'a> {
     pub kind: Box<'a, SyntaxComponentKind<'a>>,
     pub multiplier: Multiplier,

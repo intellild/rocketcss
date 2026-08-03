@@ -65,10 +65,13 @@ variable-length `SemanticOrderKey`, or mandatory full-store S5 rebuild.
 
 ## Decisions
 
-1. Authored nodes use the dense primary vector in `RadixIndexArena`.
+1. Authored nodes use one dense vector in `RadixIndexArena`; the common prefix
+   has compact Radix IDs and a high-bit-tagged dense tail handles capacity
+   overflow without changing payload layout.
 2. Rare local insertions use sparse sibling Radix trees stored separately from
    primary values.
-3. The base node ID is `20-bit primary | 10-bit sibling | 2-bit property`.
+3. Compact base IDs are `0 + 19-bit primary | 10-bit sibling | 2-bit property`;
+   overflow base IDs are `1 + 29-bit dense index | 2-bit property`.
 4. Numeric base-ID order and `RadixIndexArena::semantic_iter` order are the
    authoritative source/semantic order inside one store.
 5. Direct sibling validity still comes from AST topology; numeric proximity is
@@ -81,8 +84,10 @@ variable-length `SemanticOrderKey`, or mandatory full-store S5 rebuild.
    summaries, revisions, and queue membership.
 9. The low two ID bits are reserved for declaration-property sub-IDs and are
    ignored by base-node storage lookup.
-10. Exhausting a local sibling or property encoding takes an explicit fallback;
-    valid CSS must not depend on a debug assertion or panic.
+10. Exhausting the compact primary prefix continues in the dense overflow
+    tail. Exhausting a local sibling skips the optional structural transform,
+    and a fifth local property promotes to the complete arena list; valid CSS
+    never depends on a debug assertion or panic.
 
 ## Removed target abstractions
 

@@ -121,6 +121,16 @@ fixed point.
 This avoids a second AST graph while keeping fallible/complex representation
 work outside partially committed mutations.
 
+### Current implementation boundary
+
+The implemented S2 removes only completely identical obsolete declaration
+occurrences, and S3 moves only complete equal declarations. Those cases always
+know their final `Range`, `Local4`, or complete `Overflow` representation during
+the S1-S3 transaction. Therefore the current dirty-S4 set is empty by
+construction. Partially live shorthand/effect work remains `NoChange`; it must
+introduce the deferred S4 plan described here before that broader semantic
+optimization can commit.
+
 ## Examples
 
 ### Example 1: exact pruning

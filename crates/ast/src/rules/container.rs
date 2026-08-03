@@ -61,11 +61,3 @@ pub struct Container<'a> {
     pub container_type: ContainerType,
     pub name: Box<'a, ContainerNameList<'a>>,
 }
-
-#[derive(Debug, PartialEq, Visit)]
-pub struct ContainerRule<'a> {
-    pub condition: Option<Box<'a, ContainerCondition<'a>>>,
-    pub span: Span,
-    pub name: Option<&'a str>,
-    pub rules: Vec<'a, CssRule<'a>>,
-}

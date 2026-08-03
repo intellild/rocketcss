@@ -28,6 +28,12 @@ S5:
 S5 makes no semantic, selector-union, movement, compatibility, or profitability
 decision.
 
+For the current exact-only implementation, every declaration representation is
+already committed atomically by S1-S3 and the S4 plan set is empty. S5 therefore
+consumes the scheduler state, validates the committed AST in debug builds, and
+drops all merge-only sidecars. It performs no production whole-AST walk or
+fresh-store rebuild.
+
 ## Input state
 
 ```text

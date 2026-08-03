@@ -15,6 +15,7 @@ mod css_rule;
 mod length;
 mod media;
 mod properties;
+mod radix_ast;
 mod rules;
 mod selector;
 pub(crate) mod stylesheet;

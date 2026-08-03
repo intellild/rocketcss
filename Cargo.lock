@@ -1219,6 +1219,8 @@ dependencies = [
  "bitflags",
  "rocketcss_common",
  "rocketcss_macros",
+ "rustc-hash",
+ "smallvec",
 ]
 
 [[package]]
@@ -1338,6 +1340,7 @@ dependencies = [
  "rocketcss_ast",
  "rocketcss_common",
  "rocketcss_parser",
+ "rustc-hash",
 ]
 
 [[package]]

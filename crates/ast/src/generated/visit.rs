@@ -61,10 +61,6 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_css_rule(&mut self, node: &CssRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_length(&mut self, node: &Length<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
@@ -226,18 +222,6 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_supports_rule(&mut self, node: &SupportsRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_counter_style_rule(
-        &mut self,
-        node: &CounterStyleRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_charset_rule(&mut self, node: &CharsetRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
@@ -250,77 +234,9 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_moz_document_rule(
-        &mut self,
-        node: &MozDocumentRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_nesting_rule(&mut self, node: &NestingRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_nested_declarations_rule(
-        &mut self,
-        node: &NestedDeclarationsRule,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_viewport_rule(&mut self, node: &ViewportRule, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_custom_media_rule(
         &mut self,
         node: &CustomMediaRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_layer_statement_rule(
-        &mut self,
-        node: &LayerStatementRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_layer_block_rule(
-        &mut self,
-        node: &LayerBlockRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_scope_rule(&mut self, node: &ScopeRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_starting_style_rule(
-        &mut self,
-        node: &StartingStyleRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_position_try_rule(
-        &mut self,
-        node: &PositionTryRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_unknown_at_rule(
-        &mut self,
-        node: &UnknownAtRule<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -516,14 +432,6 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_container_rule(
-        &mut self,
-        node: &ContainerRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_font_face_property(
         &mut self,
         node: &FontFaceProperty<'a>,
@@ -576,10 +484,6 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_font_face_rule(&mut self, node: &FontFaceRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_url_source(&mut self, node: &UrlSource<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
@@ -588,33 +492,9 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_font_palette_values_rule(
-        &mut self,
-        node: &FontPaletteValuesRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_override_colors(
         &mut self,
         node: &OverrideColors<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_font_feature_values_rule(
-        &mut self,
-        node: &FontFeatureValuesRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_font_feature_subrule(
-        &mut self,
-        node: &FontFeatureSubrule<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -645,18 +525,6 @@ pub trait Visitor<'a, 'ghost> {
         node: &KeyframesName<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_keyframes_rule(
-        &mut self,
-        node: &KeyframesRule<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_keyframe(&mut self, node: &Keyframe<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -840,14 +708,6 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_page_rule(&mut self, node: &PageRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_page_margin_rule(&mut self, node: &PageMarginRule, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_page_selector(&mut self, node: &PageSelector<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
@@ -900,10 +760,6 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_property_rule(&mut self, node: &PropertyRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_syntax_component(
         &mut self,
         node: &SyntaxComponent<'a>,
@@ -941,22 +797,6 @@ pub trait Visitor<'a, 'ghost> {
     }
     #[inline]
     fn visit_drop_shadow(&mut self, node: &DropShadow<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_default_at_rule(&mut self, node: &DefaultAtRule, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_style_sheet(&mut self, node: &StyleSheet<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_compilation(&mut self, node: &Compilation<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_media_rule(&mut self, node: &MediaRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1013,18 +853,6 @@ pub trait Visitor<'a, 'ghost> {
     }
     #[inline]
     fn visit_import_rule(&mut self, node: &ImportRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_style_rule(&mut self, node: &StyleRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_declaration_block(
-        &mut self,
-        node: &DeclarationBlock<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
@@ -1115,14 +943,6 @@ pub trait Visitor<'a, 'ghost> {
     fn visit_view_transition_part_selector(
         &mut self,
         node: &ViewTransitionPartSelector<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_view_transition_rule(
-        &mut self,
-        node: &ViewTransitionRule<'a>,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);
@@ -2324,24 +2144,6 @@ pub trait Visitor<'a, 'ghost> {
         visitor.enter_node(AstType::ScrollStateFeature);
         Visit::visit(node, visitor, cx);
         visitor.leave_node(AstType::ScrollStateFeature);
-    }
-    #[inline]
-    fn visit_declaration_block_store(
-        &mut self,
-        node: &DeclarationBlockStore<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        self.visit_declaration_block_store_children(node, cx);
-    }
-    ///Continues traversal of [`DeclarationBlockStore`] without redispatching its visitor callback.
-    fn visit_declaration_block_store_children(
-        &mut self,
-        node: &DeclarationBlockStore<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        let visitor = self;
-        visitor.enter_node(AstType::DeclarationBlockStore);
-        visitor.leave_node(AstType::DeclarationBlockStore);
     }
     #[inline]
     fn visit_selector_list(&mut self, node: &SelectorList<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {

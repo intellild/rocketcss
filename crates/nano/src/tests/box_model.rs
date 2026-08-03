@@ -148,12 +148,7 @@ fn s2_preserves_parent_declaration_positions_around_a_nested_rule() {
 fn unparsed_value_storage<'a>(
     stylesheet: &Compilation<'a>,
 ) -> (*const TokenOrValue<'a>, *const Token<'a>) {
-    let CssRule::Style(rule) = &stylesheet.rules[0] else {
-        panic!("expected style rule")
-    };
-    let rule = rule.as_ref().get_ref();
-    let declarations = stylesheet.declaration_block(rule.declarations);
-    let Declaration::Unparsed(property) = &declarations.declarations[0] else {
+    let Declaration::Unparsed(property) = first_property_declaration(stylesheet) else {
         panic!("expected unparsed property")
     };
     let TokenOrValue::Token(token) = &property.value[0] else {

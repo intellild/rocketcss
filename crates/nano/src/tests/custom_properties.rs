@@ -120,11 +120,7 @@ fn custom_property_token_shape(source: &str, options: MinifyOptions) -> String {
         let mut stylesheet =
             parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
         minify(&mut stylesheet, &mut token, options);
-        let rocketcss_ast::CssRule::Style(rule) = &stylesheet.rules[0] else {
-            panic!("expected style rule")
-        };
-        let declaration_block = stylesheet.declaration_block(rule.as_ref().get_ref().declarations);
-        let rocketcss_ast::Declaration::Custom(property) = &declaration_block.declarations[0]
+        let rocketcss_ast::Declaration::Custom(property) = first_property_declaration(&stylesheet)
         else {
             panic!("expected custom property")
         };

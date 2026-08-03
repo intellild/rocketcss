@@ -1,8 +1,8 @@
-use rocketcss_ast::{Atom, SelectorComponent, VisitMutContext};
+use rocketcss_ast::{Atom, Selector, SelectorComponent, radix_ast::CompilationVisitorMut};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::Allocator;
 use rocketcss_parser::{Compiler, ParserOptions};
-use rocketcss_visitor::{PluginContext, Plugins, VisitMut, VisitorMut};
+use rocketcss_visitor::{PluginContext, Plugins};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 
@@ -10,18 +10,24 @@ struct RenameClass<'a> {
     after: Atom<'a>,
 }
 
-impl<'a, 'ghost> VisitorMut<'a, 'ghost> for RenameClass<'a> {
-    fn visit_selector_component(
+impl<'a> CompilationVisitorMut<'a> for RenameClass<'a> {
+    fn visit_selector_value(
         &mut self,
-        component: &mut SelectorComponent<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+        _id: rocketcss_ast::radix_ast::SelectorValueId,
+        selectors: &mut rocketcss_ast::SelectorList<'a>,
     ) {
-        if let SelectorComponent::Class(name) = component
-            && *name == "before"
-        {
-            *name = self.after;
+        for selector in selectors {
+            let Selector::Parsed(components) = selector else {
+                continue;
+            };
+            for component in components {
+                if let SelectorComponent::Class(name) = component
+                    && *name == "before"
+                {
+                    *name = self.after;
+                }
+            }
         }
-        component.visit_mut_children(self, cx);
     }
 }
 

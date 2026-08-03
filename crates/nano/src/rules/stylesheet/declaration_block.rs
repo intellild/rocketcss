@@ -1,9 +1,12 @@
 use crate::{Minify, MinifyContext, Options, OptionsOp};
 use rocketcss_ast::{
-    CSSWideOr, Columns, CssColor, Declaration, DeclarationBlock, DeclarationBlockId,
-    DeclarationBlockStore, EqIgnoringTombstones, KnownFunction, LengthValue, Margin, Padding,
-    PropertyId, Token, TokenOrValue, UnparsedProperty, UnparsedPropertyReason, VendorPrefix, Visit,
-    VisitContext, Visitor, match_ignore_ascii_case,
+    CSSWideOr, Columns, CssColor, Declaration, EqIgnoringTombstones, KnownFunction, LengthValue,
+    Margin, Padding, PropertyId, Token, TokenOrValue, UnparsedProperty, UnparsedPropertyReason,
+    VendorPrefix, Visit, VisitContext, Visitor, match_ignore_ascii_case,
+    radix_ast::{
+        Compilation, DeclarationBlockId as RadixDeclarationBlockId,
+        DeclarationId as RadixDeclarationId, DeclarationPayload,
+    },
 };
 use rocketcss_common::{
     GhostToken,
@@ -21,17 +24,6 @@ fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
                     .any(token_or_value_contains_variable)
         }
         _ => false,
-    }
-}
-
-impl<'a> Minify for DeclarationBlock<'a> {
-    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        let allocator = cx.allocator();
-        let mut minifier = DeclarationBlockMinifier::new(allocator);
-        minifier.minify(self, cx);
     }
 }
 
@@ -236,90 +228,77 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-enum DeclarationBlocks<'sequence, 'ast> {
-    Direct(&'sequence mut DeclarationBlock<'ast>),
-    Store {
-        blocks: &'sequence [DeclarationBlockId],
-        store: &'sequence mut DeclarationBlockStore<'ast>,
-    },
-}
-
 struct DeclarationSequence<'sequence, 'ast> {
-    blocks: DeclarationBlocks<'sequence, 'ast>,
+    blocks: &'sequence [RadixDeclarationBlockId],
+    compilation: &'sequence mut Compilation<'ast>,
 }
 
 impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
     #[inline]
-    fn direct(block: &'sequence mut DeclarationBlock<'ast>) -> Self {
-        Self {
-            blocks: DeclarationBlocks::Direct(block),
-        }
-    }
-
-    #[inline]
-    fn store(
-        blocks: &'sequence [DeclarationBlockId],
-        store: &'sequence mut DeclarationBlockStore<'ast>,
+    fn radix(
+        blocks: &'sequence [RadixDeclarationBlockId],
+        compilation: &'sequence mut Compilation<'ast>,
     ) -> Self {
         Self {
-            blocks: DeclarationBlocks::Store { blocks, store },
+            blocks,
+            compilation,
         }
     }
 
     #[inline]
     fn block_count(&self) -> usize {
-        match &self.blocks {
-            DeclarationBlocks::Direct(_) => 1,
-            DeclarationBlocks::Store { blocks, .. } => blocks.len(),
-        }
+        self.blocks.len()
     }
 
     #[inline]
     fn locations_fit(&self) -> bool {
         let block_count = self.block_count();
         block_count <= DeclarationLocation::MAX_COUNT
-            && (0..block_count)
-                .all(|block| self.block(block).len() <= DeclarationLocation::MAX_COUNT)
+            && (0..block_count).all(|block| self.block_len(block) <= DeclarationLocation::MAX_COUNT)
     }
 
     #[inline]
-    fn block(&self, index: usize) -> &DeclarationBlock<'ast> {
-        match &self.blocks {
-            DeclarationBlocks::Direct(block) => {
-                debug_assert_eq!(index, 0);
-                block
-            }
-            DeclarationBlocks::Store { blocks, store } => store.get(blocks[index]),
-        }
+    fn block_len(&self, index: usize) -> usize {
+        self.compilation
+            .declaration_occurrences_in_block(self.blocks[index])
+            .map_or(0, |declarations| declarations.len())
     }
 
     #[inline]
-    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast> {
-        match &mut self.blocks {
-            DeclarationBlocks::Direct(block) => {
-                debug_assert_eq!(index, 0);
-                block
-            }
-            DeclarationBlocks::Store { blocks, store } => store.get_mut(blocks[index]),
-        }
-    }
-
-    #[inline]
-    fn block_id(&self, index: usize) -> Option<DeclarationBlockId> {
-        match &self.blocks {
-            DeclarationBlocks::Direct(_) => None,
-            DeclarationBlocks::Store { blocks, .. } => Some(blocks[index]),
-        }
+    fn radix_declaration_id(
+        blocks: &[RadixDeclarationBlockId],
+        compilation: &Compilation<'_>,
+        location: DeclarationLocation,
+    ) -> RadixDeclarationId {
+        compilation
+            .declaration_occurrences_in_block(blocks[location.block()])
+            .expect("a Radix declaration sequence owns a valid representation")
+            .nth(location.declaration())
+            .expect("the declaration location was validated against the block length")
+            .0
     }
 
     #[inline]
     fn declaration(&self, location: DeclarationLocation) -> &Declaration<'ast> {
-        &self.block(location.block()).declarations[location.declaration()]
+        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
+        let DeclarationPayload::Property(declaration) = self
+            .compilation
+            .declaration(id)
+            .expect("a Radix declaration sequence ID remains resolvable")
+            .payload()
+        else {
+            unreachable!("local declaration minification only receives property blocks")
+        };
+        declaration
     }
 
     #[inline]
     fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
-        &mut self.block_mut(location.block()).declarations[location.declaration()]
+        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
+        self.compilation
+            .property_declaration_mut(self.blocks[location.block()], id)
+            .expect("a Radix property declaration remains mutable")
+            .0
     }
 
     #[inline]
@@ -333,13 +312,16 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn is_important(&self, location: DeclarationLocation) -> bool {
-        self.block(location.block())
-            .is_important(location.declaration())
+        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
+        self.compilation
+            .declaration(id)
+            .expect("a Radix declaration sequence ID remains resolvable")
+            .is_important()
     }
 
     #[inline]
-    fn allocator(&self, location: DeclarationLocation) -> &'ast Allocator {
-        self.block(location.block()).declarations.bump()
+    fn allocator(&self, _location: DeclarationLocation) -> &'ast Allocator {
+        self.compilation.allocator()
     }
 }
 
@@ -354,16 +336,17 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         }
     }
 
-    #[inline]
-    pub(crate) fn minify(
+    pub(crate) fn minify_compilation_block(
         &mut self,
-        block: &mut DeclarationBlock<'ast>,
+        compilation: &mut Compilation<'ast>,
+        block: RadixDeclarationBlockId,
         cx: &mut MinifyContext<'scratch>,
     ) {
-        if block.len() < 2 {
+        let blocks = [block];
+        let mut sequence = DeclarationSequence::radix(&blocks, compilation);
+        if sequence.block_len(0) < 2 {
             return;
         }
-        let mut sequence = DeclarationSequence::direct(block);
         self.minify_non_trivial(&mut sequence, cx);
     }
 
@@ -377,65 +360,6 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         }
         self.ir.clear();
         deduplicate_declarations(sequence, &mut self.ir, cx);
-    }
-
-    pub(crate) fn deduplicate_exact_sequence(
-        &mut self,
-        blocks: &[DeclarationBlockId],
-        store: &mut DeclarationBlockStore<'ast>,
-        cx: &mut MinifyContext<'scratch>,
-        mut on_declaration_removed: impl FnMut(DeclarationBlockId, usize),
-    ) {
-        let sequence = DeclarationSequence::store(blocks, store);
-        if !sequence.locations_fit() {
-            return;
-        }
-        self.ir.declarations.clear();
-        let mut history = ExactDeclarationHistory {
-            declarations: &mut self.ir.declarations,
-            sequence,
-        };
-        for block in 0..history.sequence.block_count() {
-            history.observe_block(block, cx, &mut on_declaration_removed);
-        }
-    }
-}
-
-struct ExactDeclarationHistory<'sequence, 'scratch, 'ast> {
-    declarations: &'sequence mut DeclarationMap<'scratch, 'ast>,
-    sequence: DeclarationSequence<'sequence, 'ast>,
-}
-
-impl<'scratch, 'ast> ExactDeclarationHistory<'_, 'scratch, 'ast>
-where
-    'ast: 'scratch,
-{
-    fn observe_block(
-        &mut self,
-        block: usize,
-        cx: &mut MinifyContext<'scratch>,
-        on_declaration_removed: &mut impl FnMut(DeclarationBlockId, usize),
-    ) {
-        let declaration_count = self.sequence.block(block).len();
-        for declaration in 0..declaration_count {
-            let current = DeclarationLocation::new(block, declaration);
-            if self.sequence.declaration(current).is_tombstone() {
-                continue;
-            }
-            let important = self.sequence.is_important(current);
-            let Some(removed) = deduplicate_exact_declaration(
-                &mut self.sequence,
-                current,
-                important,
-                self.declarations,
-                cx,
-            ) else {
-                continue;
-            };
-            if let Some(id) = self.sequence.block_id(removed.block()) {
-                on_declaration_removed(id, removed.declaration());
-            }
-        }
     }
 }
 
@@ -543,7 +467,7 @@ fn deduplicate_declarations<'scratch, 'ast>(
     'ast: 'scratch,
 {
     for block in 0..sequence.block_count() {
-        let declaration_count = sequence.block(block).len();
+        let declaration_count = sequence.block_len(block);
         for declaration in 0..declaration_count {
             let current = DeclarationLocation::new(block, declaration);
             if sequence.declaration(current).is_tombstone() {
