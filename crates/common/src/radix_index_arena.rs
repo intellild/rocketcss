@@ -20,12 +20,13 @@
 //! while allowing valid authored input to outgrow the compact Radix prefix.
 //!
 //! A zero sibling key addresses the primary linear value. A nonzero key uses
-//! two five-bit radix levels. The low two bits encode up to four declaration
+//! a five-bit root branch and, only when its low five bits are nonzero, a
+//! second five-bit leaf slot. The low two bits encode up to four declaration
 //! properties without affecting primary or sibling lookup.
 
-use std::{fmt, hash::Hash, marker::PhantomData, ops::Index, ptr::NonNull};
+use std::{fmt, hash::Hash, marker::PhantomData, ops::Index};
 
-use crate::{Allocator, dense::NonMaxU32, vec::Vec};
+use crate::{Allocator, boxed::Box as ArenaBox, dense::NonMaxU32, vec::Vec};
 
 const PRIMARY_BITS: u32 = 20;
 const LOCAL_BITS: u32 = u32::BITS - PRIMARY_BITS;
@@ -235,119 +236,171 @@ macro_rules! define_radix_id {
 }
 
 struct RadixTree<'arena, T> {
-    root: Option<NonNull<RadixRoot<T>>>,
-    marker: PhantomData<&'arena RadixRoot<T>>,
+    root: Option<ArenaBox<'arena, RadixRoot<'arena, T>>>,
+    #[cfg(test)]
+    allocations: RadixAllocationCounts,
 }
 
-impl<T> RadixTree<'_, T> {
+impl<'arena, T> RadixTree<'arena, T> {
     #[inline]
     fn new() -> Self {
         Self {
             root: None,
-            marker: PhantomData,
+            #[cfg(test)]
+            allocations: RadixAllocationCounts::default(),
         }
     }
 
-    fn insert(&mut self, allocator: &Allocator, key: u16, value: T) {
+    fn insert(&mut self, allocator: &'arena Allocator, key: u16, value: T) {
         debug_assert!(key != 0 && u32::from(key) <= SIBLING_MASK);
         let (high, low) = radix_parts(key);
-        let root = match self.root {
-            Some(mut root) => {
-                // SAFETY: roots are allocated in `allocator`, never moved, and
-                // `&mut self` prevents another access through this tree.
-                unsafe { root.as_mut() }
+        if self.root.is_none() {
+            self.root = Some(ArenaBox::new_in(RadixRoot::new(), allocator));
+            #[cfg(test)]
+            {
+                self.allocations.roots += 1;
             }
-            None => {
-                let root = NonNull::from(allocator.alloc(RadixRoot::new()));
-                self.root = Some(root);
-                // SAFETY: the pointer was just allocated and is uniquely
-                // reachable through `&mut self`.
-                unsafe { &mut *root.as_ptr() }
+        }
+        let root = self
+            .root
+            .as_deref_mut()
+            .expect("radix tree always has a root");
+        if low == 0 {
+            let bit = 1_u32 << high;
+            assert_eq!(
+                root.direct_used & bit,
+                0,
+                "radix sibling key was already allocated"
+            );
+            root.direct[high] = Some(ArenaBox::new_in(value, allocator));
+            root.direct_occupied |= bit;
+            root.direct_used |= bit;
+            root.occupied_branches |= bit;
+            #[cfg(test)]
+            {
+                self.allocations.values += 1;
             }
-        };
-        let leaf = match root.children[high] {
-            Some(mut leaf) => {
-                // SAFETY: leaves are allocated in `allocator`, never moved, and
-                // `&mut self` prevents another access through this tree.
-                unsafe { leaf.as_mut() }
+        } else {
+            if root.leaves[high].is_none() {
+                root.leaves[high] = Some(ArenaBox::new_in(RadixLeaf::new(), allocator));
+                #[cfg(test)]
+                {
+                    self.allocations.leaves += 1;
+                }
             }
-            None => {
-                let leaf = NonNull::from(allocator.alloc(RadixLeaf::new()));
-                root.children[high] = Some(leaf);
-                // SAFETY: the pointer was just allocated and is uniquely
-                // reachable through `&mut self`.
-                unsafe { &mut *leaf.as_ptr() }
+            let leaf = root.leaves[high]
+                .as_deref_mut()
+                .expect("nonzero-low radix key always has a leaf");
+            let bit = 1_u32 << low;
+            assert_eq!(
+                leaf.used & bit,
+                0,
+                "radix sibling key was already allocated"
+            );
+            leaf.values[low] = Some(ArenaBox::new_in(value, allocator));
+            leaf.occupied |= bit;
+            leaf.used |= bit;
+            root.occupied_branches |= 1_u32 << high;
+            #[cfg(test)]
+            {
+                self.allocations.values += 1;
             }
-        };
-        assert_eq!(
-            leaf.used & (1 << low),
-            0,
-            "radix sibling key was already allocated"
-        );
-        leaf.values[low] = Some(value);
-        leaf.occupied |= 1 << low;
-        leaf.used |= 1 << low;
-        root.occupied |= 1 << high;
+        }
     }
 
-    fn restore(&mut self, key: u16, value: T) {
+    fn restore(&mut self, allocator: &'arena Allocator, key: u16, value: T) {
         let (high, low) = radix_parts(key);
-        let mut root = self
+        let root = self
             .root
+            .as_deref_mut()
             .expect("a previously allocated key must have a radix root");
-        // SAFETY: `&mut self` uniquely borrows the tree and its arena pages.
-        let root = unsafe { root.as_mut() };
-        let mut leaf =
-            root.children[high].expect("a previously allocated key must have a radix leaf");
-        // SAFETY: `&mut self` uniquely borrows the tree and its arena pages.
-        let leaf = unsafe { leaf.as_mut() };
-        let bit = 1 << low;
-        assert_ne!(leaf.used & bit, 0, "restore requires an allocated key");
-        assert_eq!(leaf.occupied & bit, 0, "restore requires a retired key");
-        assert!(leaf.values[low].is_none(), "retired key must be empty");
-        leaf.values[low] = Some(value);
-        leaf.occupied |= bit;
-        root.occupied |= 1 << high;
+        if low == 0 {
+            let bit = 1_u32 << high;
+            assert_ne!(
+                root.direct_used & bit,
+                0,
+                "restore requires an allocated key"
+            );
+            assert_eq!(
+                root.direct_occupied & bit,
+                0,
+                "restore requires a retired key"
+            );
+            assert!(root.direct[high].is_none(), "retired key must be empty");
+            root.direct[high] = Some(ArenaBox::new_in(value, allocator));
+            root.direct_occupied |= bit;
+            root.occupied_branches |= bit;
+        } else {
+            let leaf = root.leaves[high]
+                .as_deref_mut()
+                .expect("a previously allocated key must have a radix leaf");
+            let bit = 1_u32 << low;
+            assert_ne!(leaf.used & bit, 0, "restore requires an allocated key");
+            assert_eq!(leaf.occupied & bit, 0, "restore requires a retired key");
+            assert!(leaf.values[low].is_none(), "retired key must be empty");
+            leaf.values[low] = Some(ArenaBox::new_in(value, allocator));
+            leaf.occupied |= bit;
+            root.occupied_branches |= 1_u32 << high;
+        }
+        #[cfg(test)]
+        {
+            self.allocations.values += 1;
+        }
     }
 
     #[inline]
     fn get(&self, key: u16) -> Option<&T> {
         let (high, low) = radix_parts(key);
-        // SAFETY: root and leaf pointers refer to arena allocations that remain
-        // live for `'arena`; the returned reference is bounded by `&self`.
-        let root = unsafe { self.root?.as_ref() };
-        let leaf = unsafe { root.children[high]?.as_ref() };
-        leaf.values[low].as_ref()
+        let root = self.root.as_deref()?;
+        if low == 0 {
+            root.direct[high].as_deref()
+        } else {
+            root.leaves[high].as_deref()?.values[low].as_deref()
+        }
     }
 
     #[inline]
     fn get_mut(&mut self, key: u16) -> Option<&mut T> {
         let (high, low) = radix_parts(key);
-        let mut root = self.root?;
-        // SAFETY: `&mut self` exclusively borrows the tree and arena nodes do
-        // not move, so these mutable references cannot alias another access.
-        let root = unsafe { root.as_mut() };
-        let mut leaf = root.children[high]?;
-        let leaf = unsafe { leaf.as_mut() };
-        leaf.values[low].as_mut()
+        let root = self.root.as_deref_mut()?;
+        if low == 0 {
+            root.direct[high].as_deref_mut()
+        } else {
+            root.leaves[high].as_deref_mut()?.values[low].as_deref_mut()
+        }
     }
 
     #[inline]
     fn take(&mut self, key: u16, reusable: bool) -> Option<T> {
         let (high, low) = radix_parts(key);
-        let mut root = self.root?;
-        // SAFETY: `&mut self` exclusively borrows the tree and arena nodes do
-        // not move, so these mutable references cannot alias another access.
-        let root = unsafe { root.as_mut() };
-        let mut leaf = root.children[high]?;
-        let leaf = unsafe { leaf.as_mut() };
-        let value = leaf.values[low].take()?;
-        leaf.occupied &= !(1 << low);
-        if reusable {
-            leaf.used &= !(1 << low);
-        }
-        if leaf.occupied == 0 {
-            root.occupied &= !(1 << high);
+        let root = self.root.as_deref_mut()?;
+        let value = if low == 0 {
+            let bit = 1_u32 << high;
+            let value = ArenaBox::into_inner(root.direct[high].take()?);
+            root.direct_occupied &= !bit;
+            if reusable {
+                root.direct_used &= !bit;
+            }
+            value
+        } else {
+            let leaf = root.leaves[high].as_deref_mut()?;
+            let bit = 1_u32 << low;
+            let value = ArenaBox::into_inner(leaf.values[low].take()?);
+            leaf.occupied &= !bit;
+            if reusable {
+                leaf.used &= !bit;
+            }
+            value
+        };
+        let branch_bit = 1_u32 << high;
+        let branch_occupied = root.direct_occupied & branch_bit != 0
+            || root.leaves[high]
+                .as_deref()
+                .is_some_and(|leaf| leaf.occupied != 0);
+        if branch_occupied {
+            root.occupied_branches |= branch_bit;
+        } else {
+            root.occupied_branches &= !branch_bit;
         }
         Some(value)
     }
@@ -355,15 +408,16 @@ impl<T> RadixTree<'_, T> {
     #[inline]
     fn is_used(&self, key: u16) -> bool {
         let (high, low) = radix_parts(key);
-        // SAFETY: root and leaf pointers remain live for the arena lifetime and
-        // the references are bounded by `&self`.
-        let Some(root) = (unsafe { self.root.map(|root| root.as_ref()) }) else {
+        let Some(root) = self.root.as_deref() else {
             return false;
         };
-        let Some(leaf) = (unsafe { root.children[high].map(|leaf| leaf.as_ref()) }) else {
-            return false;
-        };
-        leaf.used & (1 << low) != 0
+        if low == 0 {
+            root.direct_used & (1_u32 << high) != 0
+        } else {
+            root.leaves[high]
+                .as_deref()
+                .is_some_and(|leaf| leaf.used & (1_u32 << low) != 0)
+        }
     }
 
     fn live_keys(&self) -> std::vec::Vec<u16> {
@@ -377,15 +431,16 @@ impl<T> RadixTree<'_, T> {
     }
 
     fn used_len(&self) -> usize {
-        let Some(root) = (unsafe { self.root.map(|root| root.as_ref()) }) else {
+        let Some(root) = self.root.as_deref() else {
             return 0;
         };
-        let mut len = 0;
-        for leaf in root.children.iter().flatten() {
-            // SAFETY: leaves are arena allocated and remain live for the tree.
-            len += unsafe { leaf.as_ref() }.used.count_ones() as usize;
-        }
-        len
+        root.direct_used.count_ones() as usize
+            + root
+                .leaves
+                .iter()
+                .flatten()
+                .map(|leaf| leaf.used.count_ones() as usize)
+                .sum::<usize>()
     }
 
     fn drain_live_retaining_ids(&mut self) -> std::vec::Vec<(u16, T)> {
@@ -400,44 +455,54 @@ impl<T> RadixTree<'_, T> {
             .collect()
     }
 
-    fn iter(&self) -> Option<RadixTreeIter<'_, T>> {
-        // SAFETY: the root is arena allocated and the produced reference is
-        // bounded by the borrow of this tree.
-        let root = unsafe { self.root?.as_ref() };
-        if root.occupied == 0 {
+    fn iter(&self) -> Option<RadixTreeIter<'_, 'arena, T>> {
+        let root = self.root.as_deref()?;
+        if root.occupied_branches == 0 {
             return None;
         }
         Some(RadixTreeIter {
             root,
-            branches: root.occupied,
-            leaf: None,
+            branches: root.occupied_branches,
             slots: 0,
             branch: 0,
+            direct_pending: false,
         })
+    }
+
+    #[cfg(test)]
+    fn allocation_counts(&self) -> RadixAllocationCounts {
+        self.allocations
     }
 }
 
-struct RadixRoot<T> {
-    children: [Option<NonNull<RadixLeaf<T>>>; RADIX_SIZE],
-    occupied: u32,
+struct RadixRoot<'arena, T> {
+    direct: [Option<ArenaBox<'arena, T>>; RADIX_SIZE],
+    leaves: [Option<ArenaBox<'arena, RadixLeaf<'arena, T>>>; RADIX_SIZE],
+    direct_occupied: u32,
+    direct_used: u32,
+    occupied_branches: u32,
 }
 
-impl<T> RadixRoot<T> {
+impl<'arena, T> RadixRoot<'arena, T> {
     fn new() -> Self {
         Self {
-            children: [None; RADIX_SIZE],
-            occupied: 0,
+            direct: [const { None }; RADIX_SIZE],
+            leaves: [const { None }; RADIX_SIZE],
+            direct_occupied: 0,
+            direct_used: 0,
+            occupied_branches: 0,
         }
     }
 }
 
-struct RadixLeaf<T> {
-    values: [Option<T>; RADIX_SIZE],
+struct RadixLeaf<'arena, T> {
+    // Slot zero belongs to `RadixRoot::direct` and is never used here.
+    values: [Option<ArenaBox<'arena, T>>; RADIX_SIZE],
     occupied: u32,
     used: u32,
 }
 
-impl<T> RadixLeaf<T> {
+impl<'arena, T> RadixLeaf<'arena, T> {
     fn new() -> Self {
         Self {
             values: [const { None }; RADIX_SIZE],
@@ -445,6 +510,14 @@ impl<T> RadixLeaf<T> {
             used: 0,
         }
     }
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct RadixAllocationCounts {
+    roots: usize,
+    leaves: usize,
+    values: usize,
 }
 
 /// One ID change produced by a local sibling relabel.
@@ -1005,7 +1078,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
         let mut inserted = None;
         for (index, ((old_key, value), key)) in entries.into_iter().zip(assigned_keys).enumerate() {
             if index != insertion_index && old_key == key {
-                tree.restore(key, value);
+                tree.restore(self.allocator, key, value);
             } else {
                 tree.insert(self.allocator, key, value);
             }
@@ -1104,7 +1177,7 @@ pub struct SemanticIter<'tree, 'arena, T: Unpin> {
     sibling_primary_indices: &'tree [u32],
     sibling_trees: &'tree [RadixTree<'arena, T>],
     next_group: usize,
-    current: SemanticSegment<'tree, T>,
+    current: SemanticSegment<'tree, 'arena, T>,
 }
 
 /// Iterator over typed IDs and values in semantic order.
@@ -1116,14 +1189,14 @@ pub struct SemanticIterEnumerated<'tree, 'arena, T: Unpin, I: RadixId> {
     sibling_trees: &'tree [RadixTree<'arena, T>],
     next_group: usize,
     sibling_primary: usize,
-    current: SemanticSegment<'tree, T>,
+    current: SemanticSegment<'tree, 'arena, T>,
     remaining: u32,
     id: PhantomData<fn(I) -> I>,
 }
 
-enum SemanticSegment<'tree, T> {
+enum SemanticSegment<'tree, 'arena, T> {
     Primary(std::slice::Iter<'tree, T>),
-    Siblings(RadixTreeIter<'tree, T>),
+    Siblings(RadixTreeIter<'tree, 'arena, T>),
     Done,
 }
 
@@ -1296,24 +1369,38 @@ impl<'tree, 'arena: 'tree, T: Unpin, I: RadixId> IntoIterator
     }
 }
 
-struct RadixTreeIter<'tree, T> {
-    root: &'tree RadixRoot<T>,
+struct RadixTreeIter<'tree, 'arena, T> {
+    root: &'tree RadixRoot<'arena, T>,
     branches: u32,
-    leaf: Option<&'tree RadixLeaf<T>>,
     slots: u32,
     branch: usize,
+    direct_pending: bool,
 }
 
-impl<'tree, T> RadixTreeIter<'tree, T> {
+impl<'tree, 'arena, T> RadixTreeIter<'tree, 'arena, T> {
     #[inline]
     fn next_enumerated(&mut self) -> Option<(u16, &'tree T)> {
         loop {
+            if self.direct_pending {
+                self.direct_pending = false;
+                let value = self.root.direct[self.branch]
+                    .as_deref()
+                    .expect("occupied direct branch always contains a value");
+                let key = (self.branch << RADIX_BITS) as u16;
+                return Some((key, value));
+            }
+
             if self.slots != 0 {
                 let slot = self.slots.trailing_zeros() as usize;
                 self.slots &= self.slots - 1;
-                let leaf = self.leaf?;
-                let key = ((self.current_branch() << RADIX_BITS) | slot) as u16;
-                return leaf.values[slot].as_ref().map(|value| (key, value));
+                let leaf = self.root.leaves[self.branch]
+                    .as_deref()
+                    .expect("occupied leaf branch always contains a leaf");
+                let value = leaf.values[slot]
+                    .as_deref()
+                    .expect("occupied leaf slot always contains a value");
+                let key = ((self.branch << RADIX_BITS) | slot) as u16;
+                return Some((key, value));
             }
 
             let branch = self.branches.trailing_zeros() as usize;
@@ -1321,48 +1408,22 @@ impl<'tree, T> RadixTreeIter<'tree, T> {
                 return None;
             }
             self.branches &= self.branches - 1;
-            let leaf_pointer =
-                self.root.children[branch].expect("occupied radix branch always contains a leaf");
-            // SAFETY: leaves are arena allocated and the iterator is bounded by
-            // the immutable borrow of its owning radix tree.
-            let leaf: &'tree RadixLeaf<T> = unsafe { leaf_pointer.as_ref() };
-            self.slots = leaf.occupied;
-            self.leaf = Some(leaf);
             self.branch = branch;
+            let branch_bit = 1_u32 << branch;
+            self.direct_pending = self.root.direct_occupied & branch_bit != 0;
+            self.slots = self.root.leaves[branch]
+                .as_deref()
+                .map_or(0, |leaf| leaf.occupied & !1_u32);
         }
-    }
-
-    #[inline]
-    fn current_branch(&self) -> usize {
-        self.branch
     }
 }
 
-impl<'tree, T> Iterator for RadixTreeIter<'tree, T> {
+impl<'tree, 'arena, T> Iterator for RadixTreeIter<'tree, 'arena, T> {
     type Item = &'tree T;
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if self.slots != 0 {
-                let slot = self.slots.trailing_zeros() as usize;
-                self.slots &= self.slots - 1;
-                return self.leaf?.values[slot].as_ref();
-            }
-
-            let branch = self.branches.trailing_zeros() as usize;
-            if branch == u32::BITS as usize {
-                return None;
-            }
-            self.branches &= self.branches - 1;
-            let leaf_pointer =
-                self.root.children[branch].expect("occupied radix branch always contains a leaf");
-            // SAFETY: leaves are arena allocated and the iterator is bounded by
-            // the immutable borrow of its owning radix tree.
-            let leaf: &'tree RadixLeaf<T> = unsafe { leaf_pointer.as_ref() };
-            self.slots = leaf.occupied;
-            self.leaf = Some(leaf);
-        }
+        self.next_enumerated().map(|(_, value)| value)
     }
 }
 
@@ -1375,8 +1436,8 @@ fn radix_parts(key: u16) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, OVERFLOW_CAPACITY, RadixIndexArena, RadixIndexId,
-        SIBLING_MASK, TypedRadixIndexArena,
+        COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, OVERFLOW_CAPACITY, RadixAllocationCounts,
+        RadixIndexArena, RadixIndexId, RadixLeaf, RadixRoot, SIBLING_MASK, TypedRadixIndexArena,
     };
     use crate::Allocator;
 
@@ -1399,7 +1460,7 @@ mod tests {
     }
 
     #[test]
-    fn siblings_use_two_radix_levels_and_iterate_by_key() {
+    fn siblings_use_direct_and_leaf_storage_and_iterate_by_key() {
         let allocator = Allocator::new();
         let mut values = RadixIndexArena::new_in(&allocator);
         let first = values.push_primary(0);
@@ -1427,6 +1488,213 @@ mod tests {
         assert_eq!(values.len(), 7);
         assert_eq!(values.primary_len(), 3);
         assert_eq!(second.primary_index(), 1);
+    }
+
+    #[test]
+    fn first_level_direct_value_does_not_allocate_a_leaf() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0);
+        let direct = values.insert_sibling(primary, 512, 3);
+
+        assert_eq!(values.get(direct), Some(&3));
+        assert_eq!(
+            values.sibling_trees[0].allocation_counts(),
+            RadixAllocationCounts {
+                roots: 1,
+                leaves: 0,
+                values: 1,
+            }
+        );
+        let root = values.sibling_trees[0].root.as_ref().unwrap();
+        assert!(root.direct[16].is_some());
+        assert!(root.leaves.iter().all(|leaf| leaf.is_none()));
+    }
+
+    #[test]
+    fn nonzero_low_value_allocates_only_the_matching_leaf() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0);
+        values.insert_sibling(primary, 513, 4);
+
+        assert_eq!(
+            values.sibling_trees[0].allocation_counts(),
+            RadixAllocationCounts {
+                roots: 1,
+                leaves: 1,
+                values: 1,
+            }
+        );
+        let root = values.sibling_trees[0].root.as_ref().unwrap();
+        assert!(root.direct.iter().all(|value| value.is_none()));
+        assert!(root.leaves[16].is_some());
+        assert!(root.leaves.iter().filter(|leaf| leaf.is_some()).count() == 1);
+    }
+
+    #[test]
+    fn direct_and_leaf_values_coexist_at_one_high_branch() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0);
+        let direct = values.insert_sibling(primary, 512, 2);
+        let leaf = values.insert_sibling(primary, 513, 3);
+
+        assert_eq!(values.get(direct), Some(&2));
+        assert_eq!(values.get(leaf), Some(&3));
+        assert_eq!(
+            values
+                .iter_enumerated()
+                .map(|(id, value)| (id.sibling_key(), *value))
+                .collect::<std::vec::Vec<_>>(),
+            [(0, 0), (512, 2), (513, 3)]
+        );
+        assert_eq!(
+            values.sibling_trees[0].allocation_counts(),
+            RadixAllocationCounts {
+                roots: 1,
+                leaves: 1,
+                values: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn iteration_orders_low_boundary_keys_numerically() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0);
+        values.insert_sibling(primary, 511, 511);
+        values.insert_sibling(primary, 513, 513);
+        values.insert_sibling(primary, 512, 512);
+
+        assert_eq!(
+            values
+                .iter_enumerated()
+                .map(|(id, value)| (id.sibling_key(), *value))
+                .collect::<std::vec::Vec<_>>(),
+            [(0, 0), (511, 511), (512, 512), (513, 513)]
+        );
+    }
+
+    #[test]
+    fn direct_and_leaf_mutation_paths_preserve_masks_and_reuse_rules() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0);
+        let direct = values.insert_sibling(primary, 512, 2);
+        let leaf = values.insert_sibling(primary, 513, 3);
+
+        *values.get_mut(direct).unwrap() = 20;
+        *values.get_mut(leaf).unwrap() = 30;
+        assert_eq!(values.remove_sibling(direct), Some(20));
+        let reused_direct = values.insert_sibling(primary, 512, 200);
+        assert_eq!(reused_direct, direct);
+        assert_eq!(values.get(reused_direct), Some(&200));
+
+        assert_eq!(values.retire_sibling(leaf), Some(30));
+        assert_eq!(values.get(leaf), None);
+        assert!(values.sibling_trees[0].is_used(513));
+        assert_eq!(values.get(reused_direct), Some(&200));
+    }
+
+    #[test]
+    fn an_empty_leaf_does_not_hide_a_live_direct_value() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0);
+        let leaf = values.insert_sibling(primary, 513, 3);
+        assert_eq!(values.retire_sibling(leaf), Some(3));
+        let direct = values.insert_sibling(primary, 512, 2);
+
+        let root = values.sibling_trees[0].root.as_ref().unwrap();
+        assert_eq!(root.direct_occupied, 1 << 16);
+        assert_eq!(root.leaves[16].as_deref().unwrap().occupied, 0);
+        assert_eq!(values.get(direct), Some(&2));
+        assert_eq!(values.iter().copied().collect::<std::vec::Vec<_>>(), [0, 2]);
+    }
+
+    #[test]
+    fn retired_direct_id_remains_unavailable() {
+        use std::panic::AssertUnwindSafe;
+
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0);
+        let direct = values.insert_sibling(primary, 512, 2);
+        assert_eq!(values.retire_sibling(direct), Some(2));
+        assert!(values.sibling_trees[0].is_used(512));
+
+        let duplicate =
+            std::panic::catch_unwind(AssertUnwindSafe(|| values.insert_sibling(primary, 512, 4)));
+        assert!(duplicate.is_err());
+        assert_eq!(values.get(direct), None);
+    }
+
+    #[test]
+    fn relabeling_restores_an_unchanged_direct_value() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0);
+        for key in 1..=514 {
+            values.insert_sibling(primary, key, key);
+        }
+
+        let result = values.insert_between(
+            RadixIndexId::from_parts(0, 513, 0),
+            Some(RadixIndexId::from_parts(0, 514, 0)),
+            10_000,
+        );
+
+        assert_eq!(values.get(RadixIndexId::from_parts(0, 512, 0)), Some(&512));
+        assert!(
+            result
+                .remaps
+                .iter()
+                .all(|remap| remap.old.sibling_key() != 512)
+        );
+        assert_eq!(values.get(result.id), Some(&10_000));
+    }
+
+    #[test]
+    fn relabeling_can_move_a_direct_value_into_a_leaf() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0_u16);
+        for key in 1..=512 {
+            values.insert_sibling(primary, key, key);
+        }
+        let old_direct = RadixIndexId::from_parts(0, 512, 0);
+
+        let result = values.insert_between(
+            RadixIndexId::from_parts(0, 511, 0),
+            Some(old_direct),
+            10_000,
+        );
+
+        let remap = result
+            .remaps
+            .iter()
+            .find(|remap| remap.old == old_direct)
+            .copied()
+            .expect("the direct value crosses into a leaf during relabeling");
+        assert_eq!(remap.new.sibling_key(), 514);
+        assert_eq!(values.get(old_direct), None);
+        assert_eq!(values.get(remap.new), Some(&512));
+        assert_eq!(values.get(result.id), Some(&10_000));
+        assert!(values.sibling_trees[0].root.as_ref().unwrap().direct[16].is_none());
+    }
+
+    #[test]
+    fn radix_pages_do_not_embed_payload_storage() {
+        assert_eq!(
+            std::mem::size_of::<RadixRoot<'static, u8>>(),
+            std::mem::size_of::<RadixRoot<'static, [u8; 4096]>>()
+        );
+        assert_eq!(
+            std::mem::size_of::<RadixLeaf<'static, u8>>(),
+            std::mem::size_of::<RadixLeaf<'static, [u8; 4096]>>()
+        );
     }
 
     #[test]

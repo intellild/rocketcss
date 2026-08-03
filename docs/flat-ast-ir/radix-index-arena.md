@@ -58,12 +58,35 @@ The sibling key is ten bits split into two five-bit levels:
 ```text
 sibling key
   high 5 bits -> root branch
-  low  5 bits -> leaf slot
+  low  5 bits == 0 -> root direct value
+  low  5 bits != 0 -> leaf slot
 ```
 
-Root and leaf pages use 32-bit occupancy masks. Pages are allocated lazily from
-the compiler arena. A primary that never receives an insertion has no sibling
-entry and allocates no Radix page.
+The low-zero value is stored directly in the root branch. A second-level leaf
+is allocated only for a nonzero low part, and its slot zero is unused. Root,
+leaf, and value storage are arena-owned boxes, so page size is independent of
+the payload type. Root and leaf pages use separate live and used masks: a
+retired key remains unavailable while an empty leaf may stay allocated for its
+used mask. A primary that never receives an insertion has no sibling entry and
+allocates no Radix page.
+
+The sparse branch shape is therefore:
+
+```rust,ignore
+struct RadixRoot<'arena, T> {
+    direct: [Option<ArenaBox<'arena, T>>; 32],
+    leaves: [Option<ArenaBox<'arena, RadixLeaf<'arena, T>>>; 32],
+    direct_occupied: u32,
+    direct_used: u32,
+    occupied_branches: u32,
+}
+
+struct RadixLeaf<'arena, T> {
+    values: [Option<ArenaBox<'arena, T>>; 32],
+    occupied: u32,
+    used: u32,
+}
+```
 
 The sorted `sibling_primary_indices` vector locates the Radix tree for lookup or
 mutation. This is intentionally sparse: a `Vec<Option<TreePointer>>` would add

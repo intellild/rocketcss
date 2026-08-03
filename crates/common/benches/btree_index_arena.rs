@@ -11,6 +11,7 @@ const SPARSE_INSERT_STRIDE: usize = 256;
 const SPARSE_SIBLING_KEY: u16 = 512;
 
 type Payload = NonZeroU64;
+type LargePayload = [u64; 32];
 
 fn main() {
     divan::main();
@@ -22,6 +23,14 @@ fn payload(value: usize) -> Payload {
 
 fn inserted_payload(primary: usize) -> Payload {
     NonZeroU64::new(u64::MAX - primary as u64).unwrap()
+}
+
+fn large_payload(value: usize) -> LargePayload {
+    [value as u64; 32]
+}
+
+fn large_inserted_payload(primary: usize) -> LargePayload {
+    [u64::MAX - primary as u64; 32]
 }
 
 fn tree_with_values(allocator: &Allocator, len: usize) -> BTreeIndexArena<'_, Payload> {
@@ -78,6 +87,21 @@ fn sparse_radix_with_ids(
         }
     }
     (values, ids)
+}
+
+fn large_sparse_radix(
+    allocator: &Allocator,
+    len: usize,
+    sibling_key: u16,
+) -> RadixIndexArena<'_, LargePayload> {
+    let mut values = RadixIndexArena::with_capacity_in(len, allocator);
+    for primary in 0..len {
+        let id = values.push_primary(large_payload(primary));
+        if primary.is_multiple_of(SPARSE_INSERT_STRIDE) {
+            values.insert_sibling(id, sibling_key, large_inserted_payload(primary));
+        }
+    }
+    values
 }
 
 fn random_indices(len: usize) -> Vec<usize> {
@@ -162,6 +186,32 @@ mod sparse_build {
             .bench_local(|| {
                 let allocator = Allocator::new();
                 black_box(sparse_radix(&allocator, len));
+            });
+    }
+}
+
+mod large_payload_sparse_build {
+    use super::*;
+
+    #[divan::bench(args = SIZES)]
+    fn direct_root_value(bencher: Bencher<'_, '_>, len: usize) {
+        let item_count = len + sparse_insert_count(len);
+        bencher
+            .counter(ItemsCount::new(item_count))
+            .bench_local(|| {
+                let allocator = Allocator::new();
+                black_box(large_sparse_radix(&allocator, len, 512));
+            });
+    }
+
+    #[divan::bench(args = SIZES)]
+    fn second_level_leaf_value(bencher: Bencher<'_, '_>, len: usize) {
+        let item_count = len + sparse_insert_count(len);
+        bencher
+            .counter(ItemsCount::new(item_count))
+            .bench_local(|| {
+                let allocator = Allocator::new();
+                black_box(large_sparse_radix(&allocator, len, 513));
             });
     }
 }
