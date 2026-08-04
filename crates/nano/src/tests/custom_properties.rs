@@ -50,6 +50,20 @@ fn compacts_comments_and_whitespace_in_one_pass() {
 }
 
 #[test]
+fn preserves_required_whitespace_between_custom_property_components() {
+    const SOURCE: &str = ":root{--neutral-h:0;--neutral-s:0%;\
+        --neutrals-1000:var(--neutral-h) var(--neutral-s) 100%;\
+        --bg-surface-overlay:var(--neutrals-1000)}\
+        .test{color:hsl(var(--bg-surface-overlay))}";
+    const EXPECTED: &str = ":root{--neutral-h:0;--neutral-s:0%;\
+        --neutrals-1000:var(--neutral-h) var(--neutral-s) 100%;\
+        --bg-surface-overlay:var(--neutrals-1000)}\
+        .test{color:hsl(var(--bg-surface-overlay))}";
+
+    assert_eq!(run(SOURCE), EXPECTED);
+}
+
+#[test]
 fn separator_compaction_respects_independent_options() {
     let mut discard_only = MinifyOptions::default();
     discard_only.flags.remove(Options::NORMALIZE_WHITESPACE);

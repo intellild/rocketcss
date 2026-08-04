@@ -9,6 +9,6 @@ repository.workspace  = true
 version               = "0.1.0"
 
 [dependencies]
-bitflags            = { workspace = true }
+bitflags         = { workspace = true }
 rocketcss_common = { workspace = true }
-rocketcss_macros    = { workspace = true }
+rocketcss_macros = { workspace = true }

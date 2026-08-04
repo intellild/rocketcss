@@ -113,4 +113,3 @@ live links describe logical order until that terminal commit.
 - Reification preserves source origins for diagnostics and source maps.
 - After S5, no `Box`, AST arena pointer, `previous_merged`, or merge-only
   reference is required by code generation.
-

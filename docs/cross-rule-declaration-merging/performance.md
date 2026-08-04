@@ -196,9 +196,21 @@ Consequently, ordinary stylesheets containing many distinct conditions with
 the same shape can place every entry in one bucket:
 
 ```css
-@media (min-width: 1px) { a { x: 1 } }
-@media (min-width: 2px) { a { x: 2 } }
-@media (min-width: 3px) { a { x: 3 } }
+@media (min-width: 1px) {
+  a {
+    x: 1;
+  }
+}
+@media (min-width: 2px) {
+  a {
+    x: 2;
+  }
+}
+@media (min-width: 3px) {
+  a {
+    x: 3;
+  }
+}
 ```
 
 The collision-safe linear equality check then makes discovery quadratic in the
