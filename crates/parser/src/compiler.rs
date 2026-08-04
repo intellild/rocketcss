@@ -1,13 +1,17 @@
 use rocketcss_ast::{Atom, Compilation};
 use rocketcss_common::{Allocator, GhostToken, StringPool};
 
-use crate::{Error, ParserOptions, parser::ParserCursor};
+use crate::{
+    Error, ParserOptions,
+    parser::{DeclarationTokenReplay, ParserCursor},
+};
 
 /// Shared state for parsing CSS into one arena-owned compilation.
 pub struct Compiler<'alloc> {
     pub(crate) allocator: &'alloc Allocator,
     pub(crate) string_pool: StringPool<'alloc>,
     pub(crate) cursor: ParserCursor<'alloc>,
+    pub(crate) replay: DeclarationTokenReplay<'alloc>,
     source: &'alloc str,
     source_map_url: Option<&'alloc str>,
 }
@@ -18,6 +22,7 @@ impl<'alloc> Compiler<'alloc> {
             allocator,
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(""),
+            replay: DeclarationTokenReplay::new(allocator),
             source: "",
             source_map_url: None,
         }
@@ -29,6 +34,7 @@ impl<'alloc> Compiler<'alloc> {
             allocator,
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(source),
+            replay: DeclarationTokenReplay::new(allocator),
             source: "",
             source_map_url: None,
         }
@@ -72,8 +78,13 @@ impl<'alloc> Compiler<'alloc> {
         parse: impl FnOnce(&mut Self) -> T,
     ) -> T {
         let parent = std::mem::replace(&mut self.cursor, ParserCursor::new(source));
+        let saved_replay = std::mem::replace(
+            &mut self.replay,
+            DeclarationTokenReplay::new(self.allocator),
+        );
         let result = parse(self);
         self.cursor = parent;
+        self.replay = saved_replay;
         result
     }
 

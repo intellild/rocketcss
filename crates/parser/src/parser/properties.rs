@@ -21,57 +21,93 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
     css_wide_hint: CssWideValueHint<'i>,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
     let property_id = PropertyId::from_name(name);
-    let mut typed_grammar_supported = false;
 
-    if !name.starts_with("--") {
-        let start = input.state();
-        let wide_keyword = match (property_id.known_id(), css_wide_hint) {
-            (Some(_), CssWideValueHint::Candidate(ident)) => {
-                if let Some(keyword) = css_wide_keyword(ident) {
-                    let parsed_ident = input.expect_ident()?;
-                    debug_assert_eq!(parsed_ident, ident);
-                    Some(keyword)
-                } else {
-                    None
-                }
+    let replay_enabled = !name.starts_with("--")
+        && (matches!(css_wide_hint, CssWideValueHint::Candidate(_))
+            || property_id.parser_strategy() != PropertyParserStrategy::Unsupported);
+    if !replay_enabled {
+        return parse_declaration_fallback(input, allocator, name, depth, property_id, false);
+    }
+
+    input.with_declaration_token_replay(|input| {
+        parse_known_declaration_with_fallback(input, allocator, name, depth, css_wide_hint)
+    })
+}
+
+fn parse_known_declaration_with_fallback<'i>(
+    input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
+    name: &'i str,
+    depth: usize,
+    css_wide_hint: CssWideValueHint<'i>,
+) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
+    let property_id = PropertyId::from_name(name);
+    let start = input.state();
+
+    let wide_keyword = match (property_id.known_id(), css_wide_hint) {
+        (Some(_), CssWideValueHint::Candidate(ident)) => {
+            if let Some(keyword) = css_wide_keyword(ident) {
+                let parsed_ident = input.expect_ident()?;
+                debug_assert_eq!(parsed_ident, ident);
+                Some(keyword)
+            } else {
+                None
             }
-            _ => None,
-        };
-        if let Some(keyword) = wide_keyword {
-            if let Some(important) = parse_declaration_end(input)
-                && !input.saw_comments_since(&start)
-            {
-                let _ = input.try_parse(Compiler::expect_semicolon);
-                let declaration = match property_id {
-                    PropertyId::All => Declaration::All(keyword),
-                    PropertyId::ColumnWidth(prefix) => {
-                        Declaration::ColumnWidth(CSSWideOr::CSSWide(keyword), prefix)
-                    }
-                    PropertyId::ColumnCount(prefix) => {
-                        Declaration::ColumnCount(CSSWideOr::CSSWide(keyword), prefix)
-                    }
-                    PropertyId::Columns(prefix) => {
-                        Declaration::Columns(CSSWideOr::CSSWide(keyword), prefix)
-                    }
-                    _ => Declaration::CSSWide(allocator.boxed(property_id), keyword),
-                };
-                return Ok((declaration, important));
-            }
-            input.reset(&start);
         }
-
-        let typed = try_parse_typed_declaration(input, &property_id, allocator, depth);
-        typed_grammar_supported = typed.is_some();
-        if let Some(Ok(declaration)) = typed
-            && let Some(important) = parse_declaration_end(input)
+        _ => None,
+    };
+    if let Some(keyword) = wide_keyword {
+        if let Some(important) = parse_declaration_end(input)
             && !input.saw_comments_since(&start)
         {
             let _ = input.try_parse(Compiler::expect_semicolon);
+            let declaration = match property_id {
+                PropertyId::All => Declaration::All(keyword),
+                PropertyId::ColumnWidth(prefix) => {
+                    Declaration::ColumnWidth(CSSWideOr::CSSWide(keyword), prefix)
+                }
+                PropertyId::ColumnCount(prefix) => {
+                    Declaration::ColumnCount(CSSWideOr::CSSWide(keyword), prefix)
+                }
+                PropertyId::Columns(prefix) => {
+                    Declaration::Columns(CSSWideOr::CSSWide(keyword), prefix)
+                }
+                _ => Declaration::CSSWide(allocator.boxed(property_id), keyword),
+            };
             return Ok((declaration, important));
         }
         input.reset(&start);
     }
 
+    let typed = try_parse_typed_declaration(input, &property_id, allocator, depth);
+    let typed_grammar_supported = typed.is_some();
+    if let Some(Ok(declaration)) = typed
+        && let Some(important) = parse_declaration_end(input)
+        && !input.saw_comments_since(&start)
+    {
+        let _ = input.try_parse(Compiler::expect_semicolon);
+        return Ok((declaration, important));
+    }
+    input.reset(&start);
+
+    parse_declaration_fallback(
+        input,
+        allocator,
+        name,
+        depth,
+        property_id,
+        typed_grammar_supported,
+    )
+}
+
+fn parse_declaration_fallback<'i>(
+    input: &mut Compiler<'i>,
+    allocator: &'i Allocator,
+    name: &'i str,
+    depth: usize,
+    property_id: PropertyId<'i>,
+    typed_grammar_supported: bool,
+) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
     let value_start = input.position();
     let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
         if name.starts_with("--") {
@@ -271,7 +307,7 @@ macro_rules! generate_typed_parser {
 
     (@dispatch parse : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property(value)));
@@ -279,7 +315,7 @@ macro_rules! generate_typed_parser {
     };
     (@dispatch parse : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property(value, *prefix)));
@@ -288,7 +324,7 @@ macro_rules! generate_typed_parser {
 
     (@dispatch boxed : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property($allocator.boxed(value))));
@@ -296,7 +332,7 @@ macro_rules! generate_typed_parser {
     };
     (@dispatch boxed : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
@@ -305,7 +341,7 @@ macro_rules! generate_typed_parser {
 
     (@dispatch comma_separated : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 |input| super::values::parse_comma_separated(input, <$parser as Parse>::parse),
             ).map(Declaration::$property));
@@ -313,7 +349,7 @@ macro_rules! generate_typed_parser {
     };
     (@dispatch comma_separated : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 |input| super::values::parse_comma_separated(input, <$parser as Parse>::parse),
             ).map(|value| Declaration::$property(value, *prefix)));
@@ -322,7 +358,7 @@ macro_rules! generate_typed_parser {
 
     (@dispatch whitespace_separated : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property($allocator.boxed(value))));
@@ -330,7 +366,7 @@ macro_rules! generate_typed_parser {
     };
     (@dispatch whitespace_separated : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
@@ -339,7 +375,7 @@ macro_rules! generate_typed_parser {
 
     (@dispatch rect : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property($allocator.boxed(value))));
@@ -347,7 +383,7 @@ macro_rules! generate_typed_parser {
     };
     (@dispatch rect : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
@@ -356,7 +392,7 @@ macro_rules! generate_typed_parser {
 
     (@dispatch two_value : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property($allocator.boxed(value))));
@@ -364,7 +400,7 @@ macro_rules! generate_typed_parser {
     };
     (@dispatch two_value : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
@@ -384,7 +420,7 @@ macro_rules! generate_typed_parser {
 
     (@dispatch css_wide : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property(CSSWideOr::Value(value))));
@@ -392,7 +428,7 @@ macro_rules! generate_typed_parser {
     };
     (@dispatch css_wide : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property(CSSWideOr::Value(value), *prefix)));
@@ -401,7 +437,7 @@ macro_rules! generate_typed_parser {
 
     (@dispatch css_wide_boxed : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property(CSSWideOr::Value($allocator.boxed(value)))));
@@ -409,7 +445,7 @@ macro_rules! generate_typed_parser {
     };
     (@dispatch css_wide_boxed : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before(
+            return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
             ).map(|value| Declaration::$property(CSSWideOr::Value($allocator.boxed(value)), *prefix)));
@@ -425,7 +461,7 @@ fn parse_all<'i>(
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let ident = input.expect_ident()?;
             css_wide_keyword(ident)
                 .map(Declaration::All)
@@ -440,7 +476,7 @@ fn parse_background<'i>(
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let mut values = allocator.vec();
             values.push(Background::parse(input)?);
             Ok(Declaration::Background(values))
@@ -454,7 +490,7 @@ fn parse_opacity<'i>(
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let location = input.current_source_location();
             match input.next()?.clone() {
                 ValueToken::Number(value) | ValueToken::Percentage(value) => {
@@ -472,7 +508,7 @@ fn parse_font_family<'i>(
     depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let families = parse_font_family_list(input, depth)?;
             if families
                 .iter()
@@ -501,7 +537,7 @@ fn parse_transform<'i>(
         return None;
     }
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_transform_list(input).map(|value| Declaration::Transform(value, prefix))
         }),
     )
@@ -517,7 +553,7 @@ fn parse_transition<'i>(
         return None;
     }
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_comma_separated(input, Transition::parse)
                 .map(|value| Declaration::Transition(value, prefix))
         }),
@@ -531,7 +567,7 @@ fn parse_transition_property<'i>(
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_transition_property_list(input)
                 .map(|value| Declaration::TransitionProperty(value, prefix))
         }),
@@ -548,7 +584,7 @@ fn parse_animation<'i>(
         return None;
     }
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_animation_list(input).map(|value| Declaration::Animation(value, prefix))
         }),
     )
@@ -564,7 +600,7 @@ fn parse_animation_name<'i>(
         return None;
     }
     Some(
-        input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+        input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_comma_separated(input, AnimationName::parse)
                 .map(|value| Declaration::AnimationName(value, prefix))
         }),
@@ -582,12 +618,13 @@ macro_rules! prefixed_comma_adapter {
             if value_contains_comment(input) {
                 return None;
             }
-            Some(
-                input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+            Some(input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                |input| {
                     parse_comma_separated(input, <$value as Parse>::parse)
                         .map(|value| Declaration::$variant(value, prefix))
-                }),
-            )
+                },
+            ))
         }
     };
 }
@@ -631,12 +668,13 @@ macro_rules! prefixed_number_adapter {
             prefix: VendorPrefix,
             _depth: usize,
         ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
-            Some(
-                input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+            Some(input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                |input| {
                     let value = input.expect_number()?;
                     Ok(Declaration::$variant(value, prefix))
-                }),
-            )
+                },
+            ))
         }
     };
 }
@@ -658,12 +696,13 @@ macro_rules! number_adapter {
             _allocator: &'i Allocator,
             _depth: usize,
         ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
-            Some(
-                input.parse_until_before(Delimiter::Bang | Delimiter::Semicolon, |input| {
+            Some(input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                |input| {
                     let value = input.expect_number()?;
                     Ok(Declaration::$variant(value))
-                }),
-            )
+                },
+            ))
         }
     };
 }

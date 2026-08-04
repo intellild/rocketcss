@@ -31,6 +31,8 @@ pub struct ParserState {
     tokenizer: TokenizerState,
     at_start_of: Option<BlockType>,
     comments_seen: u32,
+    replay_generation: u32,
+    replay_cursor: usize,
 }
 
 impl ParserState {
@@ -184,6 +186,133 @@ struct CachedToken<'i> {
     lexical: TokenAndSpan,
     value: ValueToken<'i>,
     end_state: TokenizerState,
+}
+
+/// One decoded token recorded during a speculative declaration parse.
+struct DecodedTokenEntry<'ast> {
+    lexical: TokenAndSpan,
+    value: ValueToken<'ast>,
+    end_state: TokenizerState,
+}
+
+/// Compiler-owned, declaration-scoped replay buffer for decoded tokens.
+///
+/// While active, `next_including_whitespace_and_comments` records every token
+/// it lexes and decodes at the frontier and replays recorded entries when the
+/// parser rewinds. The logical length is cleared at the end of each
+/// declaration scope so memory scales with the largest speculative
+/// declaration, not the stylesheet token count.
+pub(crate) struct DeclarationTokenReplay<'ast> {
+    entries: rocketcss_common::vec::Vec<'ast, DecodedTokenEntry<'ast>>,
+    cursor: usize,
+    generation: u32,
+    active: bool,
+    #[cfg(test)]
+    decodes: usize,
+    #[cfg(test)]
+    replay_hits: usize,
+    #[cfg(test)]
+    sync_misses: usize,
+}
+
+impl<'ast> DeclarationTokenReplay<'ast> {
+    pub(crate) fn new(allocator: &'ast rocketcss_common::Allocator) -> Self {
+        Self {
+            entries: rocketcss_common::vec::Vec::new_in(allocator),
+            cursor: 0,
+            generation: 0,
+            active: false,
+            #[cfg(test)]
+            decodes: 0,
+            #[cfg(test)]
+            replay_hits: 0,
+            #[cfg(test)]
+            sync_misses: 0,
+        }
+    }
+
+    fn begin_scope(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        self.cursor = 0;
+        self.entries.clear();
+        self.active = true;
+    }
+
+    fn end_scope(&mut self) {
+        self.active = false;
+        self.cursor = 0;
+        self.entries.clear();
+    }
+
+    pub(crate) fn reset_for_new_source(&mut self) {
+        self.active = false;
+        self.cursor = 0;
+        self.entries.clear();
+    }
+
+    /// Replays the recorded entry at the current source position, if any.
+    ///
+    /// Entries are source ordered. The sequential cursor is the fast path;
+    /// when raw tokenizer advancement (for example closing a nested block or
+    /// skipping whitespace) has already passed a recorded entry, that entry is
+    /// skipped until the current source position is reached.
+    fn try_replay(
+        &mut self,
+        position: SourcePosition,
+    ) -> Option<(TokenAndSpan, ValueToken<'ast>, TokenizerState)> {
+        let position = position.byte_index();
+        loop {
+            if self.cursor >= self.entries.len() {
+                return None;
+            }
+            let entry = &self.entries[self.cursor];
+            let entry_start = entry.lexical.span.start as usize;
+            if entry_start == position {
+                let (lexical, value, end_state) = {
+                    let entry = &self.entries[self.cursor];
+                    (entry.lexical, entry.value.clone(), entry.end_state.clone())
+                };
+                self.cursor += 1;
+                #[cfg(test)]
+                {
+                    self.replay_hits += 1;
+                }
+                return Some((lexical, value, end_state));
+            }
+            if entry_start < position {
+                self.cursor += 1;
+                #[cfg(test)]
+                {
+                    self.sync_misses += 1;
+                }
+                continue;
+            }
+            return None;
+        }
+    }
+
+    fn record(&mut self, entry: DecodedTokenEntry<'ast>) {
+        self.cursor += 1;
+        self.entries.push(entry);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn counters(&self) -> ReplayCounters {
+        ReplayCounters {
+            decodes: self.decodes,
+            replay_hits: self.replay_hits,
+            sync_misses: self.sync_misses,
+            recorded: self.entries.len(),
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) struct ReplayCounters {
+    pub decodes: usize,
+    pub replay_hits: usize,
+    pub sync_misses: usize,
+    pub recorded: usize,
 }
 
 /// The active tokenizer, token cache, and nested-block state for one input.
@@ -426,6 +555,8 @@ impl<'i> Compiler<'i> {
             tokenizer: self.cursor.tokenizer.state(),
             at_start_of: self.cursor.at_start_of,
             comments_seen: self.cursor.comments_seen,
+            replay_generation: self.replay.generation,
+            replay_cursor: self.replay.cursor,
         }
     }
 
@@ -434,6 +565,14 @@ impl<'i> Compiler<'i> {
         self.cursor.tokenizer.reset(&state.tokenizer);
         self.cursor.at_start_of = state.at_start_of;
         self.cursor.comments_seen = state.comments_seen;
+        if state.replay_generation == self.replay.generation {
+            self.replay.cursor = state.replay_cursor;
+        } else {
+            // A state captured before the current replay generation belongs to
+            // another declaration or another `with_source` input; never replay
+            // its tokens in the current context.
+            self.replay.cursor = 0;
+        }
     }
 
     #[inline]
@@ -528,6 +667,23 @@ impl<'i> Compiler<'i> {
         }
 
         let start = self.cursor.tokenizer.position();
+        if self.replay.active
+            && let Some((lexical, value, end_state)) = self.replay.try_replay(start)
+        {
+            self.cursor.tokenizer.reset(&end_state);
+            self.cursor.cached_token = Some(CachedToken {
+                lexical,
+                value,
+                end_state,
+            });
+            let lexical = self.cursor.cached_lexical();
+            if lexical.token == Token::Comment {
+                self.cursor.observe_comment(lexical);
+            }
+            self.cursor.at_start_of = BlockType::opening(lexical.token);
+            return Ok(self.cursor.cached_value());
+        }
+
         let use_cache = self
             .cursor
             .cached_token
@@ -554,6 +710,20 @@ impl<'i> Compiler<'i> {
                 value,
                 end_state: self.cursor.tokenizer.state(),
             });
+            if self.replay.active {
+                #[cfg(test)]
+                {
+                    self.replay.decodes += 1;
+                }
+                if self.replay.cursor == self.replay.entries.len() {
+                    let cached = self.cursor.cached_token.as_ref().unwrap();
+                    self.replay.record(DecodedTokenEntry {
+                        lexical: cached.lexical,
+                        value: cached.value.clone(),
+                        end_state: cached.end_state.clone(),
+                    });
+                }
+            }
         }
 
         let lexical = self.cursor.cached_lexical();
@@ -643,6 +813,45 @@ impl<'i> Compiler<'i> {
         F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
     {
         parse_until_after(self, delimiters, ParseUntilErrorBehavior::Consume, parse)
+    }
+
+    /// Runs a declaration parse inside a decoded-token replay scope.
+    ///
+    /// The scope records every token the speculative parsers lex and decode;
+    /// when they fail and the fallback re-reads the value, the recorded prefix
+    /// is replayed instead of being tokenized a second time. The logical tape
+    /// is cleared when the scope ends.
+    pub(crate) fn with_declaration_token_replay<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        debug_assert!(
+            !self.replay.active,
+            "nested declaration token replay scopes are not supported"
+        );
+        self.replay.begin_scope();
+        let result = parse(self);
+        self.replay.end_scope();
+        result
+    }
+
+    /// Delimited parse that stops at the failure point instead of scanning the
+    /// rejected suffix. Callers of this entry point always reset to a saved
+    /// state after a failure.
+    pub(crate) fn parse_until_before_stop_on_error<F, T, E>(
+        &mut self,
+        delimiters: Delimiters,
+        parse: F,
+    ) -> Result<T, ParseError<'i, E>>
+    where
+        F: FnOnce(&mut Compiler<'i>) -> Result<T, ParseError<'i, E>>,
+    {
+        parse_until_before(self, delimiters, ParseUntilErrorBehavior::Stop, parse)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replay_counters(&self) -> ReplayCounters {
+        self.replay.counters()
     }
 
     pub fn expect_whitespace(&mut self) -> Result<&'i str, BasicParseError<'i>> {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::parser::ReplayCounters;
 
 fn selector_representative(
     _compilation: &Compilation<'_>,
@@ -1479,4 +1480,148 @@ fn non_universal_property_still_requires_an_initial_value() {
             )
             .is_err()
     );
+}
+
+fn property_declarations<'a>(
+    compilation: &'a Compilation<'a>,
+) -> std::vec::Vec<&'a Declaration<'a>> {
+    compilation
+        .declarations_in_source_order()
+        .filter_map(|(_, declaration)| declaration.payload().as_property())
+        .collect()
+}
+
+fn parse_with_replay_counters<'a>(
+    allocator: &'a Allocator,
+    source: &'a str,
+) -> (Compilation<'a>, ReplayCounters) {
+    let mut compiler = Compiler::new(allocator);
+    let compilation = compiler
+        .parse_compilation(source, ParserOptions::default())
+        .unwrap();
+    let counters = compiler.replay_counters();
+    (compilation, counters)
+}
+
+#[test]
+fn replay_typed_success_decodes_without_replaying() {
+    let allocator = Allocator::new();
+    let (compilation, counters) =
+        parse_with_replay_counters(&allocator, "a{width:1px;height:auto}");
+    assert!(matches!(
+        property_declarations(&compilation)[0],
+        Declaration::Width(_)
+    ));
+    assert!(matches!(
+        property_declarations(&compilation)[1],
+        Declaration::Height(_)
+    ));
+    // The typed parser decodes `1px` and the trailing `;` once each; the
+    // terminating `;` is then replayed by the final semicolon expect, so no
+    // token is lexed twice.
+    assert_eq!(counters.decodes, 2);
+    assert_eq!(counters.replay_hits, 1);
+    assert_eq!(counters.sync_misses, 0);
+    assert_eq!(counters.recorded, 0);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn replay_failed_prefix_is_never_decoded_twice() {
+    let allocator = Allocator::new();
+    let (compilation, counters) = parse_with_replay_counters(&allocator, "a{width:1px,2px}");
+    let declarations = property_declarations(&compilation);
+    assert!(matches!(
+        declarations[0],
+        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::InvalidValue
+    ));
+    // `1px` and the comma are decoded once by the typed parser and replayed
+    // by the fallback; `2px` is decoded once by the fallback.
+    assert_eq!(counters.decodes, 3);
+    assert_eq!(counters.replay_hits, 2);
+    assert_eq!(counters.sync_misses, 0);
+    assert_eq!(counters.recorded, 0);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn replay_nested_failure_reuses_the_whole_typed_tape() {
+    let allocator = Allocator::new();
+    let (compilation, counters) =
+        parse_with_replay_counters(&allocator, "a{width:calc(1px + var(--x))}");
+    let declarations = property_declarations(&compilation);
+    assert!(matches!(
+        declarations[0],
+        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::OpaqueValue
+    ));
+    // calc, 1px, whitespace, +, whitespace, var, --x are all decoded by the
+    // typed parser and replayed by the fallback; the closing parenthesis is
+    // consumed by nested-block recovery without a second decode.
+    assert_eq!(counters.decodes, 7);
+    assert_eq!(counters.replay_hits, 6);
+    assert_eq!(counters.sync_misses, 0);
+    assert_eq!(counters.recorded, 0);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn replay_css_wide_candidate_fallback_reuses_the_ident() {
+    let allocator = Allocator::new();
+    let (compilation, counters) = parse_with_replay_counters(&allocator, "a{width:initial 5px}");
+    let declarations = property_declarations(&compilation);
+    assert!(matches!(
+        declarations[0],
+        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::InvalidValue
+    ));
+    // `initial` is decoded by the CSS-wide attempt and replayed by the
+    // fallback; the whitespace and `5px` are decoded only by the fallback.
+    assert_eq!(counters.decodes, 3);
+    assert_eq!(counters.replay_hits, 1);
+    assert_eq!(counters.sync_misses, 0);
+    assert_eq!(counters.recorded, 0);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn replay_css_wide_success_is_not_replayed() {
+    let allocator = Allocator::new();
+    let (compilation, counters) = parse_with_replay_counters(&allocator, "a{width:initial}");
+    assert!(matches!(
+        property_declarations(&compilation)[0],
+        Declaration::CSSWide(property_id, keyword)
+            if **property_id == PropertyId::Width && *keyword == CSSWideKeyword::Initial
+    ));
+    assert_eq!(counters.decodes, 0);
+    assert_eq!(counters.replay_hits, 0);
+    assert_eq!(counters.recorded, 0);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn custom_property_never_activates_replay() {
+    let allocator = Allocator::new();
+    let (compilation, counters) = parse_with_replay_counters(&allocator, "a{--x:red}");
+    assert!(matches!(
+        property_declarations(&compilation)[0],
+        Declaration::Custom(_)
+    ));
+    assert_eq!(counters.decodes, 0);
+    assert_eq!(counters.replay_hits, 0);
+    assert_eq!(counters.recorded, 0);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn unsupported_grammar_property_stays_on_the_inactive_fast_path() {
+    let allocator = Allocator::new();
+    let (compilation, counters) = parse_with_replay_counters(&allocator, "a{cursor:pointer}");
+    let declarations = property_declarations(&compilation);
+    assert!(matches!(
+        declarations[0],
+        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::UnsupportedGrammar
+    ));
+    assert_eq!(counters.decodes, 0);
+    assert_eq!(counters.replay_hits, 0);
+    assert_eq!(counters.recorded, 0);
+    assert_eq!(compilation.validate_ast(), Ok(()));
 }

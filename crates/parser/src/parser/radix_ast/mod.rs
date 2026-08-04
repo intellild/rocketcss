@@ -50,6 +50,7 @@ impl<'ast> Compiler<'ast> {
         options: ParserOptions<'ast>,
     ) -> Result<Compilation<'ast>, Error<'ast>> {
         self.cursor = super::ParserCursor::new(source);
+        self.replay.reset_for_new_source();
         let mut compilation =
             Compilation::with_capacity_in(self.allocator(), compilation_capacity(source.len()));
 
