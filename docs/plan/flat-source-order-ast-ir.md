@@ -10,7 +10,13 @@ arena, never a separate pointer collection. AST IDs provide both stable
 identity and semantic order, and each declaration block stores its
 `EffectiveKeyId` directly.
 
-The normative design is in [Radix source-order AST IR](../flat-ast-ir/README.md).
+The normative design is in [Radix source-order AST IR](../flat-ast-ir/README.md):
+
+- [Storage layout](../flat-ast-ir/storage-layout.md)
+- [Radix node ID encoding](../flat-ast-ir/declaration-id-encoding.md)
+- [Radix index arena](../flat-ast-ir/radix-index-arena.md)
+- [Minification and reification](../flat-ast-ir/minify-and-reification.md)
+- [Effective keys](../flat-ast-ir/effective-key.md)
 
 ## Completion criteria
 
@@ -90,7 +96,15 @@ order.
    - more than `2^19` authored nodes;
    - more than 1023 siblings below one primary; and
    - local sibling exhaustion at an overflow primary.
-7. Preserve the current SoA layout:
+7. Store zero-low sibling keys directly in the first Radix level. A sibling
+   key with `low == 0` (the gap allocator's initial key `512 = high 16,
+   low 0`) currently allocates a full 32-slot leaf; keep a per-branch direct
+   value in the root and allocate the second-level leaf only when a nonzero-low
+   key appears in that branch. The second-level leaf's slot zero stays unused.
+   This was a ~15 ms `RadixTree::insert` `memset` hotspot in the Tailwind
+   minify flame graph. Use `rocketcss_common::boxed::Box` for arena pages and
+   keep page sizes independent of `size_of::<T>()`.
+8. Preserve the current SoA layout:
 
    ```rust,ignore
    sibling_primary_indices: Vec<u32>
@@ -105,11 +119,17 @@ order.
 - Multiple midpoint insertions and local relabel repair.
 - Overflow/fallback behavior without panic.
 - Semantic iteration after empty sibling groups and tombstones.
+- Key `512` stored as `(high 16, low 0)` without allocating a leaf; key `513`
+  allocating the leaf at branch 16; both co-existing and iterating in order.
+- Relabeling across a `low == 0` boundary.
+- Test-only allocation counters proving inserting key `512` allocates one
+  root, one value, and zero leaves.
 
 ### Exit gate
 
 - Primary traversal remains within noise of `Vec`.
 - Sibling-only lookup retains the measured SoA improvement.
+- The Tailwind `RadixTree<RuleRecord>::insert` `memset` hotspot is removed.
 - Miri/sanitizer testing covers arena pointer safety where supported.
 
 ## Phase 2: declaration-block store migration
@@ -226,6 +246,17 @@ non-style declaration owners.
    - keyframes and page-related payloads.
 5. Port visitor and codegen traversal to `children` ranges.
 
+### Nano topology coupling
+
+Two Nano helpers still walk linked-list rule topology and move to this phase,
+not to declaration handling:
+
+- `retire_rule` returns `RetiredRule { previous, next }`; and
+- `first_block_after_rule_in_source` walks the `next_in_source` chain.
+
+Under the range model both become short tombstone-skipping scans of the owning
+range.
+
 ### Tests
 
 - Empty, single-child, multiple-sibling, and deeply nested lists.
@@ -281,37 +312,63 @@ non-style declaration owners.
    movement proofs as sidecars.
 7. Remove global scheduler restart after S3.
 
-### Nano coupling audit
+### Declaration IR addressing
 
-Nano has two couplings that must be re-keyed with the store migration; both are
-mechanical and do not change merge semantics:
+`DeclarationOccurrenceIr` lives in `occurrences: Vec<Option<...>>` addressed by
+`DeclarationId.index()` (declaration_ir.rs), sized by
+`declarations_in_source_order().len()`. That dense integer addressing is only
+valid while declarations are one dense primary vector. A `DeclarationId` is a
+Radix primary/sibling-split encoding, not a dense index, so the cache must be
+re-keyed by `DeclarationPropertyId`:
 
-- **Declaration IR addressing.** `DeclarationOccurrenceIr` lives in
-  `occurrences: Vec<Option<DeclarationOccurrenceIr>>` addressed by
-  `DeclarationId.index()` (declaration_ir.rs), sized by
-  `declarations_in_source_order().len()`. That dense integer addressing is only
-  valid while declarations are one dense primary vector. A `DeclarationId` is a
-  Radix primary/sibling-split encoding, not a dense index, so the cache must be
-  re-keyed by `DeclarationPropertyId`: a sparse map
-  (`FxHashMap<DeclarationPropertyId, DeclarationOccurrenceIr>`, or a
-  primary-only dense region plus a sibling/overflow map), or derived on demand
-  during S2/S3. Property identity itself is already decoupled: `CompactPropertyKey`
-  and the property Bloom filters are built from property names, not from ID bits,
-  so removing the property sub-ID and Local4 encoding requires no property-key
-  change.
-- **Rule-topology walks.** `retire_rule` returns `RetiredRule { previous, next }`
-  and `first_block_after_rule_in_source` walks the `next_in_source` chain
-  (radix_state.rs). These are the remaining linked-list rule-topology consumers
-  and belong to Phase 4's flat-topology refactor, not to declaration handling.
-  Block-ID-sorted histories (`histories.binary_search(&block)`) are already
-  range-compatible and work unchanged.
+- a sparse map (`FxHashMap<DeclarationPropertyId, DeclarationOccurrenceIr>`), or
+- a primary-only dense region plus a sibling/overflow map, or
+- derivation on demand during S2/S3.
 
-### Exit gate
+Property identity itself is already decoupled: `CompactPropertyKey` and the
+property Bloom filters are built from property names, not from ID bits, so
+removing the property sub-ID and Local4 encoding requires no property-key
+change. Block-ID-sorted histories (`histories.binary_search(&block)`) are
+already range-compatible and work unchanged.
+
+### Minify hot-path consolidation
+
+The common minify path is dominated by selector/context canonicalization,
+declaration scanning, IR construction, and rejected S3 candidates, not by
+reallocations. Fold these performance phases in with the AST-ID work; each
+lands as its own commit with a same-runner benchmark gate:
+
+1. Migrate transient scheduler state (tapes, histories, indexes, ordered
+   heaps, scratch) to the one minify-scope arena; FIFO candidate lists retain
+   `std::collections::VecDeque`. Do not use `SmallVec` or system-heap
+   collections for minify-only state.
+2. Add no-change fast paths: detect unchanged selector/context identities and
+   skip the global interner/key/block-revision rebuild entirely.
+3. Publish declaration IR once during block-local minify instead of a second
+   `CrossRuleState::from_compilation` declaration scan.
+4. Remove the final block-scan by repairing EffectiveKey references from exact
+   selector/wrapper remaps and appending finalized blocks to histories in
+   source order.
+5. Index S3 declarations by property above a measured block-size threshold;
+   reject disjoint-PropertyBloom candidates before matching; keep output order
+   from the source-ordered occurrence metadata.
+
+### Tests and gate
 
 - Tailwind performs at most one initialization scan, not one scan per S3
   commit.
 - Nano does not allocate a second flat block/effective-key table.
 - No source-order heap compares variable-length keys.
+- A no-op minify changes no selector/context ID or revision.
+- Published IR matches a test-only summary rebuilt from the final AST.
+- Bootstrap and Tailwind output remains byte-identical.
+
+### Exit gate
+
+- No temporary declaration-ID `Vec` is allocated for ordinary blocks.
+- All minify-only allocations have one explicit arena owner.
+- S3 matching no longer searches every left declaration against every right
+  declaration.
 
 ## Phase 7: direct S1/S2/S3 mutation
 
