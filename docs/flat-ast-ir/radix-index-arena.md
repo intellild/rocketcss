@@ -47,8 +47,8 @@ primary P+1, sibling key 0    next authored node
 overflow O                    authored node after the compact prefix
 ```
 
-Within one arena, base-ID numeric order is semantic order. The low two property
-bits are masked for base-node lookup and are specified separately in
+Within one arena, base-ID numeric order is semantic order. The low two bits are
+reserved and always zero for AST node IDs; see
 [ID encoding](./declaration-id-encoding.md).
 
 ## Sparse two-level Radix
@@ -138,20 +138,20 @@ when the current segment is exhausted.
 Codegen and passes that know no siblings exist use `primary_iter()` directly.
 Passes that need transformed semantic order use `semantic_iter()`.
 
-## AST topology
+## AST sequences and ranges
 
-Sequence order is not enough to prove direct CSS sibling relationships because
-nested descendants may lie between two rules in global lexical order. Each
-rule stores parent/list/previous/next topology. The Radix ID supplies stable
-identity and ordering; topology supplies structural adjacency.
+Rules allocate in per-list order, level by level, so each rule's direct
+children form one contiguous primary range; declaration blocks and declaration
+properties are single-range sequences by construction. See
+[Storage layout](./storage-layout.md) for the allocation invariants. The Radix
+ID supplies stable identity and ordering; the range supplies the sequence.
 
 When Nano inserts a synthesized direct sibling:
 
 1. choose a sibling key between its local semantic neighbors;
 2. insert the value into the owning primary's Radix tree;
-3. update the affected rule-list and direct-sibling links;
-4. bind any owned declaration block and EffectiveKey immediately; and
-5. enqueue only the edges incident to the inserted or retired nodes.
+3. update the affected rule or declaration range (`len += 1`); and
+4. bind any owned declaration block and EffectiveKey immediately.
 
 No global AST walk or renumbering of later primary nodes is required.
 
@@ -161,8 +161,8 @@ Sibling key zero is reserved for the primary. Keys `1..=1023` are assigned with
 gaps so insertion between existing siblings normally chooses a midpoint.
 
 When an interval has no free key, the arena may relabel only the siblings below
-that primary and return an exact old-to-new ID remap. Candidate queues and AST
-topology referencing those rare IDs are repaired in the same transaction.
+that primary and return an exact old-to-new ID remap. Candidate queues and the
+few ranges/references to those rare IDs are repaired in the same transaction.
 
 If one compact primary requires more than 1023 live inserted siblings, the AST
 transaction rejects that optional structural optimization and preserves the
@@ -182,12 +182,11 @@ revisions and enqueues newly exposed work. When popped, a candidate validates:
 Retired nodes may remain as tombstones until terminal cleanup. Their IDs are not
 reused during the compilation.
 
-The AST keeps a physical `previous_in_source`/`next_in_source` chain that
-includes those tombstones. If two live direct siblings have retired physical
-entries between them, insertion starts at the previous live rule's subtree
-tail, follows only that local tombstone run, and passes the resulting real
-neighbors to `insert_between`. The chain mirrors Radix iteration; it does not
-replace `RuleId` ordering or introduce a `SemanticOrderKey`.
+Direct siblings are arena-adjacent inside one range, so finding the real
+neighbors for an insertion is a short tombstone-skipping scan of that range;
+there is no `previous_in_source`/`next_in_source` chain to walk. The range is
+unaffected by tombstones in sibling regions and does not record an insertion
+position beyond its window.
 
 ## Measured trade-off
 
@@ -212,11 +211,10 @@ or primary-only traversal.
 ## Required invariants
 
 - Primary IDs are stable for the lifetime of the compilation.
-- Base node IDs always have property bits zero.
+- Base node IDs always have the reserved bits zero.
 - Sibling groups are sorted by primary index and the SoA lengths match.
 - Sibling key order equals semantic insertion order below one primary.
-- Topology, not numeric adjacency, proves direct CSS siblings.
+- A rule's direct children are one contiguous semantic window (level-order
+  allocation); a block's declarations are one contiguous semantic window.
 - A local relabel repairs all persistent references atomically.
-- Storage lookup masks property bits but destructive node mutation rejects a
-  property sub-ID.
 - Valid input has a non-panicking overflow path.

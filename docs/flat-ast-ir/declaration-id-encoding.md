@@ -1,4 +1,4 @@
-# Radix node and declaration-property ID encoding
+# Radix node ID encoding
 
 ## Layout
 
@@ -7,15 +7,14 @@ The common compact `RadixIndexId` is a non-negative `u32` with this layout:
 ```text
 31                         12 11                         2 1         0
 +----------------------------+---------------------------+-----------+
-| 0 | primary index: 19      |    sibling key: 10        | property  |
+| 0 | primary index: 19      |    sibling key: 10        | reserved  |
 +----------------------------+---------------------------+-----------+
 ```
 
 - `primary index` directly addresses the first `2^19` authored entries.
 - `sibling key` addresses a local inserted node below that primary. Zero means
   the primary itself; `1..=1023` address the two-level Radix tree.
-- `property` is a two-bit declaration-property sub-index. It is zero for base
-  rule/block IDs and can encode four local declaration-property identities.
+- the two low bits are reserved and always zero for AST node IDs.
 
 When that compact prefix fills, parsing keeps appending to the same physical
 arena vector and switches to a dense authored-overflow layout:
@@ -23,106 +22,67 @@ arena vector and switches to a dense authored-overflow layout:
 ```text
 31 30                                                2 1         0
 +--+---------------------------------------------------+-----------+
-| 1|              dense overflow index: 29            | property  |
+| 1|              dense overflow index: 29            | reserved  |
 +--+---------------------------------------------------+-----------+
 ```
 
-Overflow base IDs remain four bytes, sort after every compact ID, and preserve
-the low property bits. They intentionally have no local sibling key: optional
+Overflow base IDs remain four bytes, sort after every compact ID, and keep the
+reserved low bits zero. They intentionally have no local sibling key: optional
 structural insertion whose endpoint is in the overflow tail is rejected, while
 parsing, lookup, visitors, and codegen continue normally.
 
-Typed wrappers prevent accidental interchange of rule, block, and declaration
-IDs even though they share the physical encoding.
+## Three typed arenas
 
-## Base IDs and sub-IDs
-
-A base AST node ID has property bits zero:
+There is exactly one arena per node kind. Typed wrappers prevent accidental
+interchange of rule, block, and declaration IDs even though they share the
+physical encoding:
 
 ```rust,ignore
 struct RuleId(RadixIndexId);
 struct DeclarationBlockId(RadixIndexId);
+struct DeclarationPropertyId(RadixIndexId);
 
-assert_eq!(rule_id.property_index(), 0);
-assert_eq!(block_id.property_index(), 0);
+let rules: RadixIndexArena<CssRule>;
+let declaration_blocks: RadixIndexArena<DeclarationBlock>;
+let declarations: RadixIndexArena<DeclarationProperty>;
 ```
 
-`with_property_index(0..=3)` creates a sub-ID with the same base storage
-location. Base lookup masks the low two bits, so these all identify the same
-owning block while retaining a compact property identity:
-
-```text
-block ID       P | S | 00
-property #0    P | S | 00
-property #1    P | S | 01
-property #2    P | S | 10
-property #3    P | S | 11
-```
-
-Destructive base-node operations must reject a nonzero property index. A
-property sub-ID must never remove or retire its whole declaration block.
-
-## The low two bits are not the general declaration-list limit
-
-RocketCSS must represent declaration blocks larger than four properties. The
-two property bits are a compact identity for small synthesized/local cases and
-an emergency local representation when a block is already using the rare
-sibling address space. They do not impose a four-property CSS limit.
-
-The common authored declaration run remains a compact range in the global
-source-order declaration tape. A transformed block may use:
-
-1. a consecutive range in that tape;
-2. a small local set addressable by the two property bits; or
-3. a lazy arena overflow list containing the complete ordered declaration
-   sequence.
-
-The chosen representation is explicit in `DeclarationList`; consumers never
-guess from ID bit patterns alone.
+A list is a two-word range reference into its arena:
 
 ```rust,ignore
-enum DeclarationList {
-    Range(DeclarationRange),
-    Local4(LocalPropertySet),
-    Overflow(DeclarationOverflowId),
-}
-
-struct LocalPropertySet {
-    declarations: [Option<DeclarationId>; 4],
-}
-
-type DeclarationOverflowStore<'ast> =
-    DenseStore<DeclarationOverflowId, ArenaVec<'ast, DeclarationId>>;
+struct RuleRange { start: RuleId, len: u32 }
+struct DeclarationRange { start: DeclarationPropertyId, len: u32 }
 ```
 
-`Local4` is valid only when every live property has a unique `0..=3` index.
-Adding a fifth upgrades the complete list to `Range` or `Overflow` before the
-mutation commits.
+The `RuleRange` lives on the owning rule (`children`); the `DeclarationRange`
+lives on the block. Neither is a separate collection of pointers.
 
 ## Ordering
 
-Compare base node IDs after masking property bits. Compact primary/sibling IDs
-sort before dense overflow IDs; within either region numeric order is semantic
-order. For compact values in the same `RadixIndexArena`:
+Compare base node IDs directly; reserved bits are always zero. Compact
+primary/sibling IDs sort before dense overflow IDs; within either region
+numeric order is semantic order. For compact values in the same
+`RadixIndexArena`:
 
 ```text
 (primary A, sibling X) < (primary B, sibling Y)
 ```
 
 exactly when the first node appears earlier in the arena's semantic sequence.
-Property indices order properties only inside a `Local4` block; they do not
-reorder declaration ranges or fallback chains stored elsewhere.
 
-This makes `DeclarationBlockId` sufficient as Nano's stable source-order key.
-There is no separate variable-length `SemanticOrderKey`.
+A range is a window in that semantic order: iterate from `start` forward,
+taking `len` live nodes. This makes `DeclarationBlockId` sufficient as Nano's
+stable source-order key. There is no separate variable-length
+`SemanticOrderKey`.
 
 ## Initial allocation
 
-Parsing appends authored base nodes with property bits zero. The arena chooses
-the compact prefix or dense overflow tail internally:
+Parsing appends authored base nodes with the reserved bits zero:
 
 ```rust,ignore
+let rule = rules.push_primary(parsed_rule);
 let block = declaration_blocks.push_primary(parsed_block);
+let property = declarations.push_primary(parsed_property);
 ```
 
 Structural insertion chooses a nonzero sibling key below a primary anchor:
@@ -146,42 +106,31 @@ struct RadixIdRemap {
 }
 ```
 
-The transaction repairs:
-
-- rule parent/list/previous/next topology;
-- declaration-block owner IDs;
-- candidate endpoints and queue-membership indices;
-- S2 history links;
-- source-map or diagnostic references that persist past mutation; and
-- any small property sub-ID by preserving its low two bits.
-
-Primary IDs never relabel. No later authored node moves because a local
-insertion exhausted its gaps.
+The transaction repairs every persistent reference to the relabeled IDs:
+declaration-block owners, rule parents, candidate endpoints, history links, and
+source-map or diagnostic references. Primary IDs never relabel. No later
+authored node moves because a local insertion exhausted its gaps.
 
 ## Capacity fallback
 
-There are three independent compact-representation limits:
+There are two independent compact-representation limits:
 
 - `2^19` authored primary values in the compact Radix prefix, followed by a
-  dense overflow tail of almost `2^29` base IDs;
-- at most 1023 locally encoded siblings below one primary; and
-- at most four `Local4` properties in one block.
+  dense overflow tail of almost `2^29` base IDs; and
+- at most 1023 locally encoded siblings below one primary.
 
 These are representation limits, not CSS validity limits. `RadixIndexArena`
 automatically uses its dense authored tail when the compact primary prefix is
-full. AST transactions treat local sibling exhaustion as an optional-transform
-rejection. Declaration blocks promote a fifth `Local4` occurrence to a complete
-arena-backed overflow list. Public parsing/minification therefore does not
-panic or reject otherwise valid CSS at the compact boundaries.
+full, and AST transactions treat local sibling exhaustion as an optional
+transform rejection. Public parsing/minification therefore does not panic or
+reject otherwise valid CSS at the compact boundaries.
 
 ## Required tests
 
-- Primary, sibling, and property fields round-trip at minimum and maximum
-  values.
+- Primary and sibling fields round-trip at minimum and maximum values.
 - Numeric base-ID ordering matches semantic iteration.
-- Property sub-IDs resolve the owning storage value.
-- Destructive base mutation rejects a property sub-ID.
 - Multiple insertions between the same neighbors preserve order.
-- Local relabel preserves property bits and repairs every persistent reference.
-- A fifth local property upgrades without changing output order.
-- Primary, sibling, and property capacity overflow take the explicit fallback.
+- Local relabel repairs every persistent reference.
+- Sibling insertion sorts into its owning range without moving primaries.
+- Retirement leaves a tombstone and decrements its range's `len`.
+- Primary and sibling capacity overflow take the explicit fallback.

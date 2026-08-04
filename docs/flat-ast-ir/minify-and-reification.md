@@ -7,32 +7,34 @@ selector transforms are valid. The Radix AST removes several physical adapter
 layers previously needed by the recursive AST:
 
 ```text
-RuleStore: RadixIndexArena<CssRule> + direct topology
-  stable RuleId, semantic order, direct sibling edges
+RuleStore: RadixIndexArena<CssRule> + range refs
+  stable RuleId, semantic order, direct children ranges
 
 DeclarationBlockStore: RadixIndexArena<DeclarationBlock>
   stable DeclarationBlockId + AST-owned EffectiveKeyId
 
-Declaration storage
-  authored source-order ranges + Local4/overflow transformed lists
+DeclarationPropertyStore: RadixIndexArena<DeclarationProperty>
+  blocks reference one declaration range (start + len)
 
 Nano sidecars
   only liveness, summaries, histories, revisions, and queue membership
 ```
 
 Nano does not build a `Vec<DeclarationBlockEntry>`, reconstruct EffectiveKeys,
-or assign a separate semantic-order key.
+or assign a separate semantic-order key. Direct rule edges are simply arena
+adjacency inside a rule's children range.
 
 ## Initialization
 
 ```text
 Parser/local minify
-  AST stores already contain final owner, topology, and EffectiveKey fields
+  AST stores already contain final owner, children ranges, declaration
+  ranges, and EffectiveKey fields
        ↓
 CrossRuleState::initialize
   iterate DeclarationBlockStore once in Radix order
   lazily create summaries and repeated-key histories
-  classify direct rule edges from topology
+  classify direct rule edges from children ranges
        ↓
 unified scheduler
 ```
@@ -64,8 +66,9 @@ Candidate queues may still use a compact ordered data structure when multiple
 ready tasks exist, but its key is the fixed-width AST ID. It is queue policy,
 not another semantic identity.
 
-Direct adjacency always revalidates rule topology. Numeric closeness alone is
-not proof across nested subtrees or rule-list barriers.
+Direct adjacency is arena adjacency inside one rule's children range or one
+block's declaration range; it is always revalidated against the live range
+window. Numeric closeness outside a range is never proof of adjacency.
 
 ## Unified scheduler
 
@@ -88,8 +91,8 @@ while state.has_work() {
 ```
 
 Each candidate captures endpoint revisions. A pop rejects stale work if IDs no
-longer resolve, endpoints are retired, topology changed, revisions differ, or
-current EffectiveKey equality no longer matches the stage.
+longer resolve, endpoints are retired, the range window changed, revisions
+differ, or current EffectiveKey equality no longer matches the stage.
 
 ## S1
 
@@ -97,12 +100,12 @@ S1 reads equal selector/effective-key facts from the two AST blocks and commits
 the chosen declaration representation directly:
 
 - consecutive authored declaration ranges may coalesce;
-- small synthesized results may use `Local4`;
-- nonconsecutive or larger results use a complete overflow sequence; and
-- the retired rule/block is unlinked from live topology but retains its ID
+- larger or nonconsecutive results replace the block's declaration range or
+  use the arena insertion path;
+- the retired rule/block is unlinked from its live range but retains its ID
   until cleanup.
 
-The local topology transaction reclassifies newly exposed edges and dirties
+The local range transaction reclassifies newly exposed edges and dirties
 affected S2 histories. It does not rebuild all blocks or restart S1/S2.
 
 ## S2
@@ -117,7 +120,7 @@ choosing between equivalent declaration encodings when the choice is not yet
 known; that pending representation state is attached to the block, not stored
 in a second flat AST.
 
-An empty block causes local owner/topology updates and queue insertion. It does
+An empty block causes local owner/range updates and queue insertion. It does
 not trigger `walk_declaration_blocks`.
 
 ## S3
@@ -133,7 +136,7 @@ choose sibling key between local semantic neighbors
        ↓
 insert synthesized CssRule and DeclarationBlock into Radix stores
        ↓
-update rule topology and residual declaration lists
+extend the owning children range and update residual declaration ranges
        ↓
 insert new block into its EffectiveKey history by block ID
        ↓
@@ -145,7 +148,7 @@ identity. Therefore S3 does not need a logical-only node, a variable semantic
 position, or a later global rule-list reification pass.
 
 If local sibling labels require relabeling, the store returns an exact remap and
-the transaction repairs the few affected topology/history/queue references.
+the transaction repairs the few affected ranges, histories, and queue references.
 
 ## S4 and S5 under this storage model
 
@@ -168,7 +171,7 @@ already carry final semantic order.
 
 ## Code generation
 
-Codegen follows root rule-list topology and resolves IDs through the AST stores.
+Codegen follows root rule-list ranges and resolves IDs through the AST stores.
 The underlying store iterator processes primary slices and inserted Radix
 segments. No merge-only `previous_merged` chain or reified copy is required.
 
@@ -182,6 +185,9 @@ The target deletes:
 - `owner_by_block` reconstructed from borrowed AST references;
 - `SemanticOrderKey` and `SemanticSourceOrderKey`;
 - ordered maps keyed by variable-length semantic positions;
+- linked-list rule topology (`first`/`last`/`previous_sibling`/`next_sibling`
+  and the `previous_in_source`/`next_in_source` chains); and
+- the tri-state declaration list (`Range`/`Local4`/`Overflow`);
 - global scheduler restart after an S3 physical edit;
 - mutation plans needed only because the recursive AST lacked stable insertion
   IDs; and
@@ -200,7 +206,7 @@ Nano retains:
 
 - Every live block has one AST owner and one current EffectiveKey.
 - Candidate order uses fixed-width AST ID order and is deterministic.
-- Direct edges are validated through topology.
+- Direct edges are validated against the live range window.
 - A synthesized node has its final semantic Radix position before it is
   enqueued.
 - S2 histories are ordered by current block IDs and exact context equality.

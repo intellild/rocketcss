@@ -2,26 +2,29 @@
 
 ## Goal
 
-Move RocketCSS rules and declaration blocks into compiler-owned
-`RadixIndexArena` stores. Authored nodes remain contiguous primary vectors;
-rare structural insertions use local sibling Radix trees. AST IDs provide both
-stable identity and semantic order, and each declaration block stores its
+Move RocketCSS rules, declaration blocks, and declaration properties into
+compiler-owned `RadixIndexArena` stores: exactly three node arenas. Authored
+nodes remain contiguous primary vectors; rare structural insertions use local
+sibling Radix trees. A list is a range reference (`start` + `len`) into one
+arena, never a separate pointer collection. AST IDs provide both stable
+identity and semantic order, and each declaration block stores its
 `EffectiveKeyId` directly.
 
 The normative design is in [Radix source-order AST IR](../flat-ast-ir/README.md).
 
 ## Completion criteria
 
-- Rules and declaration blocks are addressed by typed wrappers over
-  `RadixIndexId`.
-- Authored primary IDs increase in lexical source order.
-- Direct parent/list/sibling topology is stored in the AST; no recursive walk
-  is required to answer structural queries.
+- Rules, declaration blocks, and declaration properties are addressed by
+  typed wrappers over `RadixIndexId`, one arena per kind.
+- Every list is a two-word range reference; no first/last/previous/next
+  topology exists.
+- A rule's direct children form one contiguous primary range (level-order
+  allocation); a block's declarations form one contiguous range.
 - Each `DeclarationBlock` owns its current `EffectiveKeyId`.
 - Nano consumes AST IDs and keys directly; it has no production
   `DeclarationBlockEntry` collection or separate semantic-order identity.
 - S3 inserts synthesized nodes into their final local Radix position and
-  enqueues affected work without restarting the scheduler.
+  extends the affected range without restarting the scheduler.
 - Codegen reads the same stores; a mandatory whole-AST S5 rebuild is absent.
 - Compact-ID exhaustion has a non-panicking AST-level fallback.
 - Existing parser, Nano, visitor, codegen, source-map, and fixture behavior
@@ -29,22 +32,21 @@ The normative design is in [Radix source-order AST IR](../flat-ast-ir/README.md)
 
 ## Non-negotiable order contract
 
-For authored base nodes in one store:
+Rules allocate in per-list order, level by level, so each rule's direct
+children form one contiguous primary range. Declaration blocks and their
+properties are single-range sequences. A list is a two-word range reference
+(`start` + `len`) into one arena, never a collection of pointers:
 
 ```text
-source position A before source position B
-  => primary_index(A) < primary_index(B)
-```
-
-For synthesized nodes below the same primary:
-
-```text
-sibling_key(A) < sibling_key(B)
+sibling_key(A) < sibling_key(B) below one primary
   => A is emitted before B
 ```
 
-Property bits do not participate in base-node ordering. Direct CSS adjacency is
-still checked through rule topology rather than numeric proximity.
+A range is a window in the arena's semantic ID order; iteration counts live
+nodes. Direct CSS adjacency equals arena adjacency inside one range. The global
+arena order is deterministic per-list (breadth-first) order, not lexical
+preorder; codegen and visitors follow `children` ranges to recover source
+order.
 
 ## Phase 0: freeze behavior and benchmarks
 
@@ -85,9 +87,9 @@ still checked through rule topology rather than numeric proximity.
 5. Add AST-wrapper hooks for repairing persistent references after a rare
    relabel.
 6. Define the non-panicking fallback for:
-   - more than `2^20` authored nodes;
+   - more than `2^19` authored nodes;
    - more than 1023 siblings below one primary; and
-   - declaration lists larger than `Local4`.
+   - local sibling exhaustion at an overflow primary.
 7. Preserve the current SoA layout:
 
    ```rust,ignore
@@ -121,18 +123,18 @@ still checked through rule topology rather than numeric proximity.
        RadixIndexArena<'ast, DeclarationBlock<'ast>>;
    ```
 
-2. Define `DeclarationBlockId` as a typed base ID with property bits zero.
-3. Add permanent `owner`, `effective_key`, flags, and revision fields to
-   `DeclarationBlock`.
+2. Define `DeclarationBlockId` and `DeclarationPropertyId` as typed base IDs
+   over the shared Radix encoding.
+3. Add permanent `owner`, `effective_key`, `declarations` range, and revision
+   fields to `DeclarationBlock`.
 4. Replace direct indexing assumptions with store accessors.
 5. Preserve `previous_merged` only as a migration adapter; do not reproduce it
    in the final store model.
 
 ### Tests
 
-- Authored block IDs follow lexical order across style rules, descriptors,
-  keyframes, and nested content.
-- Property sub-IDs resolve their owning block but cannot retire it.
+- Authored block IDs follow the declaration arena's per-block order.
+- A block's declaration range covers exactly its own declarations.
 - Existing block-local minification and codegen output remains byte-identical.
 
 ### Exit gate
@@ -146,21 +148,21 @@ still checked through rule topology rather than numeric proximity.
 
 1. Parse declarations as streaming source-order runs rather than accumulating
    a block after recursive child parsing.
-2. Introduce explicit declaration representations:
+2. Store each block's declarations as one range over the declaration-property
+   arena:
 
    ```rust,ignore
-   enum DeclarationList<'ast> {
-       Range(DeclarationRange),
-       Local4(LocalPropertySet<'ast>),
-       Overflow(ArenaVec<'ast, ArenaBox<'ast, Declaration<'ast>>>),
+   struct DeclarationRange {
+       start: DeclarationPropertyId,
+       len: u32,
    }
    ```
 
 3. Close a parent run before parsing a nested rule and begin a later
    `NestedDeclarationsRule` run after it.
-4. Port block-local minify to range/local/overflow accessors.
+4. Port block-local minify to range accessors.
 5. Keep importance, source locations, tombstones, and declaration IR aligned
-   with the selected representation.
+   with the range representation.
 
 ### Required source-order fixtures
 
@@ -205,31 +207,32 @@ non-style declaration owners.
 
 - Every authored declaration occurs in exactly one authored range.
 - Parent ranges never contain nested declarations.
-- `Local4` upgrades atomically on a fifth property.
+- A block range stays contiguous after any local declaration insertion.
 
 ## Phase 4: flat rule topology
 
 ### Work
 
 1. Move rule values into `RuleStore = RadixIndexArena<CssRule>`.
-2. Parse authored rules into the primary store in lexical preorder.
-3. Store `parent`, `parent_list`, `previous_sibling`, `next_sibling`, child-list
-   identity, flags, and revision.
+2. Parse authored rules in per-list order, level by level, so each rule's
+   direct children are one contiguous primary range.
+3. Store `parent`, an inline `children` range (`start` + `len`), flags, and
+   revision; no first/last/previous/next links.
 4. Migrate rule kinds in bounded groups:
    - style and nested declarations;
    - media/supports/container/layer and grouping rules;
    - declaration-owning non-style rules;
    - leaf/custom rules; and
    - keyframes and page-related payloads.
-5. Port visitor and codegen traversal to IDs and topology.
+5. Port visitor and codegen traversal to `children` ranges.
 
 ### Tests
 
 - Empty, single-child, multiple-sibling, and deeply nested lists.
-- `next_sibling` skips a complete preceding subtree.
+- A nested rule's descendants never appear in its parent's range.
 - Opaque wrapper occurrences retain distinct IDs.
-- Recovery creates no dangling topology.
-- Inserting a sibling changes only local topology and sparse Radix storage.
+- Recovery creates no dangling range.
+- Inserting a sibling extends only its owning range and sparse Radix storage.
 
 ### Exit gate
 
@@ -278,6 +281,31 @@ non-style declaration owners.
    movement proofs as sidecars.
 7. Remove global scheduler restart after S3.
 
+### Nano coupling audit
+
+Nano has two couplings that must be re-keyed with the store migration; both are
+mechanical and do not change merge semantics:
+
+- **Declaration IR addressing.** `DeclarationOccurrenceIr` lives in
+  `occurrences: Vec<Option<DeclarationOccurrenceIr>>` addressed by
+  `DeclarationId.index()` (declaration_ir.rs), sized by
+  `declarations_in_source_order().len()`. That dense integer addressing is only
+  valid while declarations are one dense primary vector. A `DeclarationId` is a
+  Radix primary/sibling-split encoding, not a dense index, so the cache must be
+  re-keyed by `DeclarationPropertyId`: a sparse map
+  (`FxHashMap<DeclarationPropertyId, DeclarationOccurrenceIr>`, or a
+  primary-only dense region plus a sibling/overflow map), or derived on demand
+  during S2/S3. Property identity itself is already decoupled: `CompactPropertyKey`
+  and the property Bloom filters are built from property names, not from ID bits,
+  so removing the property sub-ID and Local4 encoding requires no property-key
+  change.
+- **Rule-topology walks.** `retire_rule` returns `RetiredRule { previous, next }`
+  and `first_block_after_rule_in_source` walks the `next_in_source` chain
+  (radix_state.rs). These are the remaining linked-list rule-topology consumers
+  and belong to Phase 4's flat-topology refactor, not to declaration handling.
+  Block-ID-sorted histories (`histories.binary_search(&block)`) are already
+  range-compatible and work unchanged.
+
 ### Exit gate
 
 - Tailwind performs at most one initialization scan, not one scan per S3
@@ -293,11 +321,11 @@ non-style declaration owners.
 2. Make S2 update declaration liveness/representation and dirty only affected
    histories/edges.
 3. Make S3:
-   - validate endpoint topology and movement;
+   - validate endpoint ranges and movement;
    - intern selector union and EffectiveKey;
    - allocate local sibling keys;
    - insert rule/block values into Radix stores;
-   - update topology/history; and
+   - extend the affected children/declaration ranges; and
    - enqueue affected S1/S2/S3 work.
 4. Apply exact ID remaps if a rare local relabel occurs.
 5. Reject stale candidates by endpoint revisions.

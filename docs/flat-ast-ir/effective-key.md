@@ -68,15 +68,17 @@ Every live declaration block owns its key:
 
 ```rust,ignore
 struct DeclarationBlock<'ast> {
-    owner: DeclarationBlockOwner,
-    declarations: DeclarationList<'ast>,
+    owner: RuleId,
+    declarations: DeclarationRange,
     effective_key: EffectiveKeyId,
     revision: u32,
-    flags: DeclarationBlockFlags,
+    live: bool,
 }
 ```
 
-Nano consumes `block.effective_key` directly. It does not own an
+`DeclarationRange` is a two-word window over the declaration-property arena
+(`start` + `len`); see [ID encoding](./declaration-id-encoding.md). Nano
+consumes `block.effective_key` directly. It does not own an
 `EffectiveKeyStore` whose IDs disappear after discovery, and it does not create
 `DeclarationOccurrence { block, effective_key }` wrappers.
 

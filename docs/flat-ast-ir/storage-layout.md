@@ -3,259 +3,187 @@
 ## Compiler ownership
 
 `Compiler` owns one compilation's source, source map, atom pool, arena, AST
-stores, and semantic interners. `StyleSheet` is a lightweight root-list handle;
-it does not own nested Rust vectors that must later be rediscovered.
+stores, and semantic interners. There are exactly three node stores, one
+`RadixIndexArena` per node kind:
 
 ```rust,ignore
 struct Compilation<'ast> {
     allocator: Allocator,
     string_pool: StringPool<'ast>,
 
-    rules: RuleStore<'ast>,
-    declaration_blocks: DeclarationBlockStore<'ast>,
-    declarations: DeclarationStore<'ast>,
+    rules: RadixIndexArena<CssRule<'ast>>,
+    declaration_blocks: RadixIndexArena<DeclarationBlock<'ast>>,
+    declarations: RadixIndexArena<DeclarationProperty<'ast>>,
 
-    selector_values: SelectorValueStore<'ast>,
+    selector_values: SelectorValueInterner,
     context_paths: ContextPathInterner,
     effective_keys: EffectiveKeyInterner,
 }
-
-type RuleStore<'ast> =
-    RadixIndexArena<'ast, ArenaBox<'ast, CssRule<'ast>>>;
-
-type DeclarationBlockStore<'ast> =
-    RadixIndexArena<'ast, DeclarationBlock<'ast>>;
-
-struct StyleSheet {
-    root_rules: RuleListId,
-}
 ```
 
-Large payloads may remain arena boxed so local SoA insertion moves compact
-pointers. Stable relationships use typed IDs, never arena addresses.
+Every rule, declaration block, and declaration property is a node in the
+corresponding arena with a stable four-byte typed ID. A "list" is never a
+separate collection of pointers: it is a range reference into one arena. The
+arena is the sequence; the range is a two-word window descriptor.
 
-## Rules and topology
+## Lists are range references
 
-Rules are allocated in lexical preorder. A rule stores the structural facts
-that cannot be inferred from global order alone:
-
-```rust,ignore
-struct CssRule<'ast> {
-    parent: Option<RuleId>,
-    parent_list: RuleListId,
-    previous_sibling: Option<RuleId>,
-    next_sibling: Option<RuleId>,
-    previous_in_source: Option<RuleId>,
-    next_in_source: Option<RuleId>,
-    first_child_list: Option<RuleListId>,
-    payload: CssRulePayload<'ast>,
-    revision: u32,
-    flags: CssRuleFlags,
-}
-```
-
-`RuleId` determines stable identity and source order. The links determine
-direct-sibling adjacency across nested subtrees. A structural rewrite updates
-the local topology transaction together with Radix insertion or retirement.
-
-The direct-sibling links contain only live rules. The source links mirror the
-physical Radix preorder and retain tombstones. They let a local insertion walk
-from the previous live subtree tail across only the retired entries in that
-gap to find the actual `RadixIndexArena::insert_between` neighbors. They are
-not a second ordering key: `validate_ast()` requires the chain to equal the
-store's ID-aware semantic iterator exactly.
-
-Rule lists keep compact endpoints and counts as needed for validation and
-codegen, but they do not own a second vector of rule values.
+`Vec<CssRule>` and `Vec<Declaration>` do not exist as physical containers.
+Both the root rule list and every nested rule list are one range over the
+rules arena:
 
 ```rust,ignore
-struct RuleList {
-    first: Option<RuleId>,
-    last: Option<RuleId>,
-    live_len: u32,
-}
-```
-
-## Declaration blocks
-
-Every live declaration syntax position owns one mutable block:
-
-```rust,ignore
-struct DeclarationBlock<'ast> {
-    owner: DeclarationBlockOwner,
-    declarations: DeclarationList<'ast>,
-    effective_key: EffectiveKeyId,
-    revision: u32,
-    flags: DeclarationBlockFlags,
-}
-
-enum DeclarationBlockOwner {
-    Rule(RuleId),
-    Keyframe(KeyframeId),
-    Descriptor(DescriptorOwnerId),
-}
-```
-
-Ownership is unique. Two simultaneously live syntax positions do not share one
-mutable block under different selectors or wrapper contexts. S1 may retire one
-owner and move declarations into another block, but it updates owner/topology
-and EffectiveKey invariants in the same transaction.
-
-The block's `EffectiveKeyId` is ordinary AST data. Nano reads it directly; it
-does not reconstruct selector and wrapper paths into
-`DeclarationBlockEntry` values.
-
-## Declaration storage
-
-Authored declarations are appended in lexical source order to a dense primary
-tape. A declaration run captures its exact range as it is parsed:
-
-```rust,ignore
-struct DeclarationRange {
-    offset: u32,
+struct RuleRange {
+    start: RuleId,
     len: u32,
 }
 
-enum DeclarationList {
-    Range(DeclarationRange),
-    Local4(LocalPropertySet),
-    Overflow(DeclarationOverflowId),
-}
-
-struct LocalPropertySet {
-    declarations: [Option<DeclarationId>; 4],
-}
-
-type DeclarationOverflowStore<'ast> =
-    DenseStore<DeclarationOverflowId, ArenaVec<'ast, DeclarationId>>;
-```
-
-The range is a physical slice of the authored declaration tape. Nested rules
-close the current run before their declarations are parsed, so an enclosing
-block never absorbs a descendant's properties.
-
-Small nonconsecutive transformed blocks use `Local4`; its four ordered slots
-retain the corresponding source-tape `DeclarationId`s, and the slot index is
-the compact `0..=3` local property position encoded by a block sub-ID when one
-is needed. Larger nonconsecutive sequences use an arena vector selected by
-`DeclarationOverflowId`. Both representations reference the one global
-declaration payload tape instead of copying values. S4 may choose the smallest
-lossless representation, but Nano never needs a second global reification
-store solely to restore order.
-
-## Source-order allocation invariant
-
-The parser appends a declaration immediately after it parses that declaration.
-For:
-
-```css
-a {
-  --before: 0;
-  & b {
-    --nested: 1;
-  }
-  --after: 2;
+struct StyleSheet {
+    root_rules: RuleRange,
 }
 ```
 
-the declaration tape is exactly `--before, --nested, --after`. The parent owns
-the first range. The post-nesting declarations belong to the distinct
-`NestedDeclarationsRule` syntax position and therefore to a second
-`DeclarationBlock` with its own range. No block range crosses the nested rule;
-a later transform that combines them must materialize a complete ordered
-replacement.
-
-Parser tests inspect IDs/ranges directly. Serialization alone is insufficient
-because an incorrect physical allocation may still print correctly before a
-merge exposes the bug.
-
-## Effective-key ownership
-
-While parsing, the compiler maintains parent-linked selector and wrapper
-contexts. On declaration-block creation it writes either the final key or a
-context seed directly into the block. Selector-local minification replaces the
-selector value and recomputes the block key immediately when necessary.
-
-Declaration-only edits leave the key unchanged. Moving a block to another
-selector, layer, origin, cascade phase, or wrapper path requires a new key.
-Unsupported wrappers use opaque occurrence identity; this design does not add
-at-rule equivalence semantics.
-
-## Nano sidecars
-
-Persistent transformation state is indexed directly by AST IDs:
+A rule owns its direct children as an inline range; no separate rule-list
+store is required:
 
 ```rust,ignore
-struct CrossRuleState {
-    block_state: DenseMap<DeclarationBlockId, BlockState>,
-    histories: FxHashMap<EffectiveKeyId, EffectiveHistory>,
-    s1: SameSelectorCandidateList,
-    s2: DeclarationOverrideCandidateList,
-    s3: PartialMergeCandidateList,
+struct CssRule<'ast> {
+    payload: CssRulePayload<'ast>,
+    parent: Option<RuleId>,
+    children: Option<RuleRange>,
+    declaration_block: Option<DeclarationBlockId>,
+    revision: u32,
+    live: bool,
 }
 ```
 
-`BlockState` contains only facts that are not permanent AST structure:
-liveness during the pass, revisions, declaration-effect summaries, intrusive
-history links, and queue membership. It does not duplicate owner, EffectiveKey,
-or source-order identity.
+A declaration block references its ordered declarations as one range over the
+declaration-property arena:
 
-Candidate endpoints are `DeclarationBlockId` or `RuleId`. A separate entry ID
-or raw `&DeclarationBlock` is unnecessary.
+```rust,ignore
+struct DeclarationRange {
+    start: DeclarationPropertyId,
+    len: u32,
+}
+
+struct DeclarationBlock<'ast> {
+    owner: RuleId,
+    declarations: DeclarationRange,
+    effective_key: EffectiveKeyId,
+    revision: u32,
+    live: bool,
+}
+```
+
+A range is a window in the arena's semantic ID order: iterate from `start`
+forward, taking `len` live nodes. `RadixIndexId` numeric order equals semantic
+order (primary node, then its locally inserted siblings, then the next primary),
+so the window is a real slice in ID order even after rare local insertions.
+
+There is no `first`/`last`/`previous_sibling`/`next_sibling` topology, no
+`previous_in_source`/`next_in_source` chain, and no per-rule child-list
+indirection. Direct CSS sibling adjacency of a list is exactly arena adjacency
+inside that list's range. Linked lists existed only to paper over noncontiguous
+allocation; the allocation invariants below make them unnecessary.
+
+## Allocation invariants
+
+### Rules allocate level by level
+
+Depth-first parsing would interleave a nested rule's descendants between its
+parent's direct children, so no single list would be contiguous. Instead the
+rules arena is filled in per-list order:
+
+1. append every direct child of the current list contiguously; then
+2. queue each appended rule's body; and
+3. process the queue so the next level's rules (the children of the rules just
+   appended) become the next contiguous region.
+
+Equivalently, the rules arena stores the CSS rule tree in breadth-first order.
+Each rule's `children` range is a contiguous primary slice:
+
+```text
+level 0  a    media   c              root_rules = (a, 3)
+level 1  b  b1   d                   a.children = (b, 2)   media.children = (d, 1)
+level 2  e                           b1.children = (e, 1)
+```
+
+Arena order is `[a, media, c, b, b1, d, e]`; every range is a contiguous window.
+
+Code generation, visitor walks, and minify traversal read the tree by
+recursively following `children` ranges, so source order is preserved even
+though the arena is not in lexical preorder. The global arena order is
+deterministic; it is simply not a source-order scan.
+
+The parser's nested-body queue replaces immediate `parse_nested_block`
+recursion while still reading the source once.
+
+### Declaration ranges never interleave
+
+A block's declarations are appended contiguously in source order. Nested rules
+close the current declaration run before their own declarations are parsed, and
+post-nesting declarations of the parent go to a distinct
+`NestedDeclarationsRule` block. No block's range ever absorbs a descendant's
+properties, so the declaration-property arena needs no level ordering: its
+primary order is lexical source order and every block range is a contiguous
+slice.
 
 ## Iteration
 
-The production traversal is store-native:
+Range iteration is store-native:
 
 ```rust,ignore
-for block in compilation.declaration_blocks.semantic_iter() {
-    consume(block.effective_key, block);
+for rule_id in compilation.rules.window(root_rules) {
+    consume(rule_id);
 }
 ```
 
-In practice callers also receive the typed ID from an ID-aware iterator. The
-important property is that iteration does not recurse through the AST to build
-a second flat vector.
+`window(range)` walks the arena's semantic iterator from `start` and takes
+`len` live nodes, skipping tombstones. When no local insertion exists, the walk
+is a plain primary slice. There is no recursive AST walk that rebuilds a
+transient flat vector.
 
-Direct rule edges use rule-list topology. S2 histories use
-`DeclarationBlockId` order within an EffectiveKey. Synthesized siblings are
-already placed in Radix order, so ordered history insertion needs no
-`SemanticSourceOrderKey` object.
+## Mutation
 
-## Mutation API
+### Insertion
 
-Payload mutation and structural mutation remain separate:
+A synthesized rule or block is inserted at its final semantic position with the
+arena's local sibling mechanism (`insert_between`/`insert_sibling`). The new
+node's ID sorts into the owning range; the range's `len` increments. No primary
+node moves, no later ID changes, and no list bookkeeping beyond the range
+update is needed.
 
-- declaration value replacement mutates through `DeclarationBlockId` and a
-  declaration handle;
-- rule/block insertion calls the owning store, chooses a local sibling key,
-  and updates topology;
-- retirement marks the node and unlinks it from live topology without reusing
-  its ID; and
-- local sibling relabel repairs IDs through one exact transaction.
+### Retirement
 
-Consumers cannot retain mutable references while a store may grow or insert.
-They submit rewrite operations to `Compilation` and then reacquire values by ID.
+Retiring a rule or block keeps its ID as a tombstone and decrements the owning
+range's `len`. Window iteration skips tombstones. `start` need not move: it
+names the first member's stable ID, and iteration filters non-live nodes.
+
+Because direct siblings are arena-adjacent, finding the real neighbors for an
+insertion is a short tombstone-skipping scan of the range, not a walk over a
+`previous_in_source` chain.
+
+## Effective keys
+
+Effective keys are unchanged by this layout and remain AST data owned by the
+block. See [Effective keys](./effective-key.md).
 
 ## Code generation
 
-Codegen starts from `StyleSheet.root_rules`, follows direct topology, and reads
-values from the Radix stores. Primary-only lists use contiguous traversal;
-transformed lists merge primary segments with sibling Radix segments.
-
-Tombstones and merge-only sidecars are invisible. Terminal compaction is an
-optional performance choice, not a correctness prerequisite.
+Codegen starts from `StyleSheet.root_rules`, follows each `children` range
+recursively, and reads values from the Radix stores. Primary-only ranges use
+contiguous traversal; ranges that received a local insertion merge primary
+segments with sibling Radix segments.
 
 ## Required invariants
 
-- Authored primary order equals lexical source order.
-- `RadixIndexId` order equals semantic store order after local insertion.
-- Direct sibling links agree with rule-list ownership.
-- Source links agree with the physical Radix sequence, including tombstones.
-- Every live block has one owner and one current EffectiveKey.
-- Every authored declaration belongs to exactly one authored range before
-  transforms.
-- `Local4` never contains more than four properties.
-- Overflow lists contain a complete semantic sequence, not a partial suffix.
-- Nano does not maintain a second source-order identity.
+- There are exactly three node arenas; no other node collection exists.
+- Every live rule and every live declaration block belongs to exactly one range.
+- A rule's direct children are one contiguous semantic window (level-order
+  allocation).
+- A block's declarations are one contiguous semantic window (never interleaved).
+- `RuleRange.start` names a stable ID; iteration counts live nodes only.
+- Sibling insertion sorts into its range without moving primaries.
+- Retirement leaves a tombstone and decrements its range's `len`.
+- Direct sibling adjacency equals arena adjacency within one range.
 - No arena pointer is used as semantic equality or persistent identity.
