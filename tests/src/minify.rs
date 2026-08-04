@@ -48,6 +48,19 @@ fn minifies_enabled_s2_only_cross_rule_fixtures() {
     assert_eq!(fixture_count, 5);
 }
 
+#[test]
+fn minifies_enabled_s3_cross_rule_fixtures() {
+    let mut fixture_count = 0;
+    for input in fixture_paths("minify") {
+        let path = fixture_path_key(&input);
+        if is_enabled_s3_cross_rule_fixture(&path) {
+            assert_minifies_static_fixture(&input);
+            fixture_count += 1;
+        }
+    }
+    assert_eq!(fixture_count, 17);
+}
+
 fn assert_minifies_static_fixture(input: &Path) {
     let source = read_fixture(input);
     let expected = read_fixture(&expected_path(input));
@@ -85,7 +98,6 @@ fn assert_minifies_static_fixture(input: &Path) {
 }
 
 #[test]
-#[ignore = "requires S3 synthesized-rule commit"]
 fn synthesized_cross_rule_fixture_preserves_combined_source_span() {
     let input = Path::new(env!("CARGO_MANIFEST_DIR")).join(
         "fixtures/minify/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/assigns-combined-source-span-to-synthesized-rule/input.css",
@@ -128,6 +140,7 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
     if is_cross_rule_declaration_merging_fixture(input)
         && !is_enabled_s1_cross_rule_fixture(&path)
         && !is_enabled_s2_only_cross_rule_fixture(&path)
+        && !is_enabled_s3_cross_rule_fixture(&path)
     {
         return true;
     }
@@ -161,6 +174,30 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
     unsupported_cases
         .into_iter()
         .any(|pattern| path.contains(pattern))
+}
+
+fn is_enabled_s3_cross_rule_fixture(path: &str) -> bool {
+    [
+        "/rocketcss/cross-rule-declaration-merging/real-world/factors-tailwind-mask-setup-without-reordering-custom-values/",
+        "/rocketcss/cross-rule-declaration-merging/real-world/keeps-bootstrap-placeholder-vendor-groups-separate/",
+        "/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/assigns-combined-source-span-to-synthesized-rule/",
+        "/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/keeps-overlapping-candidate-rule-ids-stable-across-insertion/",
+        "/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/synthesized-rules-survive-the-minify-scratch-allocator/",
+        "/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/transfers-a-non-clone-custom-declaration-into-the-shared-rule/",
+        "/rocketcss/cross-rule-declaration-merging/review-findings/state-machine/s3-endpoint-edits-do-not-create-a-transient-bypass-edge/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/canonicalizes-synthesized-selector-unions-immediately/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/complete-factoring-reconnects-the-live-chain-through-the-shared-rule/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/factors-a-complete-equal-run-in-one-stable-transition/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/factors-single-declaration-with-left-prefix/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/factors-single-declaration-with-right-prefix/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/fingerprint-matches-still-require-exact-value-equality/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/importance-is-part-of-the-declaration-history-context/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/overlapping-partial-candidates-commit-from-left-to-right/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/rejects-zero-progress-partial-merge-plans/",
+        "/rocketcss/cross-rule-declaration-merging/state-machine/selector-materialization-failure-leaves-both-endpoints-unchanged/",
+    ]
+    .into_iter()
+    .any(|pattern| path.contains(pattern))
 }
 
 // Every fixture keeps a retained different-selector rule between equal

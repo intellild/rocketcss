@@ -37,6 +37,24 @@ physical AST rule. Those responsibilities belong to
 [S4](./s4-ast-reification-planning.md) and
 [S5](./s5-ast-reification-commit.md).
 
+### Current nested-AST scheduler
+
+The current implementation uses `DeclarationBlockId` as the stable logical
+node identity even though the physical AST remains nested. One minify traversal
+builds the persistent EffectiveKey store, ordered histories, and live sibling
+graph. S1, S2, and S3 then enqueue local work into one priority scheduler.
+
+`PartialMergeCandidateList` is ordered by semantic source position so an
+incrementally exposed earlier edge has the same priority as a fresh
+source-ordered scan. S3 appends a shared declaration block, interns its selector
+union key, inserts the occurrence into the ordered S2 history, and atomically
+replaces the logical edge. It does not insert or remove a physical `CssRule`.
+
+After the S1-S3 fixed point, the scheduler consumes all borrowed authored
+selector views and produces an owned reification plan. S5 then walks each
+nested rule list once, retains live authored rules, and emits synthesized style
+rules at their semantic positions.
+
 ## Candidate input state
 
 S3 consumes one current live edge whose endpoints have different effective
@@ -80,6 +98,20 @@ The partition has one of these states:
 
 Effect equality includes importance, prefix, target compatibility, fallback
 position, and value semantics. Property-name equality is insufficient.
+
+### Selector compatibility policy
+
+By default, `Options::PRESERVE_SELECTOR_COMPATIBILITY` requires both selector
+lists to have the same conservative syntax-feature profile before they are
+combined. The profile includes conditional pseudo syntax, pseudo elements,
+vendor prefixes, namespace and attribute syntax, and compatibility-sensitive
+combinators. This prevents one unsupported selector arm from invalidating a
+previously valid standalone rule in an older browser.
+
+Callers that know every configured target supports all selector syntax in the
+stylesheet may disable this option. Disabling it bypasses the syntax-profile
+equality check, but does not permit mixed vendor-prefix profiles, recovered
+selectors, or selector forms that cannot be losslessly materialized.
 
 ### Candidate stabilization states
 

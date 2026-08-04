@@ -174,3 +174,8 @@ layout and selector-component granularity remain benchmark decisions.
 
 These are not permission to weaken semantic identity, source ordering,
 candidate invalidation, or lossless serialization.
+
+The current implementation's `Options::PRESERVE_SELECTOR_COMPATIBILITY` is a
+conservative syntax-profile guard, not target-aware compatibility analysis.
+Disabling it is an explicit caller assertion that all selector syntax in the
+input is supported by the configured targets.

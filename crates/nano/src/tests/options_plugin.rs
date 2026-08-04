@@ -9,6 +9,7 @@ use rocketcss_common::GhostToken;
 #[test]
 fn option_operations_are_explicit() {
     let options = MinifyOptions::default();
+    assert!(options.is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::And,));
     assert!(options.is_enabled(
         Options::NORMALIZE_VALUES | Options::NORMALIZE_WHITESPACE,
         OptionsOp::And,

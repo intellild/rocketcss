@@ -18,6 +18,53 @@ fn main() {
     divan::main();
 }
 
+#[derive(Clone, Copy)]
+struct CrossRuleIrCase {
+    name: &'static str,
+    source: &'static str,
+}
+
+impl std::fmt::Display for CrossRuleIrCase {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.name)
+    }
+}
+
+const CROSS_RULE_IR_CASES: &[CrossRuleIrCase] = &[
+    CrossRuleIrCase {
+        name: "small_block",
+        source: "a{color:red;width:1px;opacity:.5}",
+    },
+    CrossRuleIrCase {
+        name: "large_common_block",
+        source: "a{--p00:0;--p01:1;--p02:2;--p03:3;--p04:4;--p05:5;--p06:6;--p07:7;--p08:8;--p09:9;--p10:10;--p11:11;--p12:12;--p13:13;--p14:14;--p15:15;--p16:16;--p17:17;--p18:18;--p19:19;--p20:20;--p21:21;--p22:22;--p23:23;--p24:24;--p25:25;--p26:26;--p27:27;--p28:28;--p29:29;--p30:30;--p31:31}b{--p00:0;--p01:1;--p02:2;--p03:3;--p04:4;--p05:5;--p06:6;--p07:7;--p08:8;--p09:9;--p10:10;--p11:11;--p12:12;--p13:13;--p14:14;--p15:15;--p16:16;--p17:17;--p18:18;--p19:19;--p20:20;--p21:21;--p22:22;--p23:23;--p24:24;--p25:25;--p26:26;--p27:27;--p28:28;--p29:29;--p30:30;--p31:31}",
+    },
+    CrossRuleIrCase {
+        name: "fallback_heavy",
+        source: "a{display:-webkit-box;display:-ms-flexbox;display:flex;color:red}b{display:-webkit-box;display:-ms-flexbox;display:flex;color:red}",
+    },
+    CrossRuleIrCase {
+        name: "bloom_rejections",
+        source: "a{color:red}b{width:1px}c{height:2px}d{opacity:.5}e{display:block}f{visibility:hidden}",
+    },
+    CrossRuleIrCase {
+        name: "shared_s3_block",
+        source: "a{opacity:.5}b{opacity:.5}c{opacity:.5}d{opacity:.5}e{opacity:.5}f{opacity:.5}g{opacity:.5}h{opacity:.5}",
+    },
+    CrossRuleIrCase {
+        name: "allocated_s3_block",
+        source: "a{color:red;width:1px}b{color:red;height:2px}",
+    },
+    CrossRuleIrCase {
+        name: "custom_properties",
+        source: "a{--theme-color:red;--theme-size:1px;--theme-gap:2px;--theme-alpha:.5}b{--theme-color:red;--theme-size:1px;--theme-gap:2px;--theme-alpha:.5}",
+    },
+    CrossRuleIrCase {
+        name: "unparsed_barriers",
+        source: "a{display:table-cell flow;color:red;width:1px}b{display:table-cell flow;color:red;height:2px}",
+    },
+];
+
 /// Owns a parsed stylesheet together with the allocator that backs its arena
 /// storage, so the minify and codegen stages can be measured without parsing.
 ///
@@ -136,6 +183,27 @@ mod minify {
                 stylesheet.minify(MinifyOptions::default()).unwrap();
                 black_box(stylesheet);
             });
+    }
+}
+
+mod cross_rule_ir {
+    use super::*;
+
+    #[divan::bench(args = CROSS_RULE_IR_CASES)]
+    fn rocketcss(bencher: Bencher<'_, '_>, case: CrossRuleIrCase) {
+        rocketcss_common::GhostToken::scope(|token| {
+            let token = RefCell::new(token);
+            bencher
+                .counter(BytesCount::of_str(case.source))
+                .with_inputs(|| ParsedStyleSheet::new(case.source, &mut token.borrow_mut()))
+                .bench_local_refs(|input| {
+                    black_box(rocketcss_nano::minify(
+                        &mut input.stylesheet,
+                        &mut token.borrow_mut(),
+                        rocketcss_nano::MinifyOptions::default(),
+                    ));
+                });
+        });
     }
 }
 

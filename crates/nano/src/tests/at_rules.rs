@@ -1,7 +1,6 @@
 use super::*;
 
 #[test]
-#[ignore = "cross-block declaration IR is not implemented yet"]
 fn preserves_rule_boundaries_while_merging_adjacent_styles() {
     assert_eq!(
         run("a{}a{color:red}a{color:red} @media print{a{}}"),

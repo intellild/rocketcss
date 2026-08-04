@@ -384,7 +384,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         blocks: &[DeclarationBlockId],
         store: &mut DeclarationBlockStore<'ast>,
         cx: &mut MinifyContext<'scratch>,
-        mut on_block_emptied: impl FnMut(DeclarationBlockId),
+        mut on_declaration_removed: impl FnMut(DeclarationBlockId, usize),
     ) {
         let sequence = DeclarationSequence::store(blocks, store);
         if !sequence.locations_fit() {
@@ -396,7 +396,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
             sequence,
         };
         for block in 0..history.sequence.block_count() {
-            history.observe_block(block, cx, &mut on_block_emptied);
+            history.observe_block(block, cx, &mut on_declaration_removed);
         }
     }
 }
@@ -414,7 +414,7 @@ where
         &mut self,
         block: usize,
         cx: &mut MinifyContext<'scratch>,
-        on_block_emptied: &mut impl FnMut(DeclarationBlockId),
+        on_declaration_removed: &mut impl FnMut(DeclarationBlockId, usize),
     ) {
         let declaration_count = self.sequence.block(block).len();
         for declaration in 0..declaration_count {
@@ -432,11 +432,8 @@ where
             ) else {
                 continue;
             };
-            let removed_block = self.sequence.block(removed.block());
-            if removed_block.is_output_empty()
-                && let Some(id) = self.sequence.block_id(removed.block())
-            {
-                on_block_emptied(id);
+            if let Some(id) = self.sequence.block_id(removed.block()) {
+                on_declaration_removed(id, removed.declaration());
             }
         }
     }
