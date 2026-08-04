@@ -82,14 +82,14 @@ Higher-priority semantic work preempts S4:
 
 ### Declaration input states
 
-| Input state                         | Available representation                                             |
-| ----------------------------------- | -------------------------------------------------------------------- |
-| All effects of an origin live       | Reuse the authored origin when order remains exact.                  |
-| All effects of an origin dead       | Omit that origin.                                                    |
-| Some virtual shorthand effects live | Reuse the exact sequence or materialize its typed live effects.      |
-| Ordered fallback chain live         | Preserve origins and order unless a target proof permits removal.    |
-| Opaque occurrence live              | Reuse its authored origin; never synthesize guessed components.      |
-| Synthesized exact effects           | Materialize them at the owning synthesized declaration sequence.     |
+| Input state                         | Available representation                                          |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| All effects of an origin live       | Reuse the authored origin when order remains exact.               |
+| All effects of an origin dead       | Omit that origin.                                                 |
+| Some virtual shorthand effects live | Reuse the exact sequence or materialize its typed live effects.   |
+| Ordered fallback chain live         | Preserve origins and order unless a target proof permits removal. |
+| Opaque occurrence live              | Reuse its authored origin; never synthesize guessed components.   |
+| Synthesized exact effects           | Materialize them at the owning synthesized declaration sequence.  |
 
 ### Synthesized-rule input state
 
@@ -163,15 +163,15 @@ keeps multiple ordered ranges or materializes a replacement during S5.
 
 A complete output satisfies:
 
-| Output component        | Requirement                                                                     |
-| ----------------------- | ------------------------------------------------------------------------------- |
+| Output component        | Requirement                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------------- |
 | Sequence plans          | Every non-empty retained sequence has exactly one output owner and representation. |
-| Synthesized rules       | Every logical S3 rule has one insertion plan.                                   |
-| Removals                | Every removable logical node is listed post-order.                              |
-| Retained opaque content | Never listed as removable by inference.                                         |
-| Retired storage         | Remains addressable until its sequence representation is complete.              |
-| Physical mutations      | None.                                                                           |
-| Completeness            | `ast_plan.complete == true`.                                                    |
+| Synthesized rules       | Every logical S3 rule has one insertion plan.                                      |
+| Removals                | Every removable logical node is listed post-order.                                 |
+| Retained opaque content | Never listed as removable by inference.                                            |
+| Retired storage         | Remains addressable until its sequence representation is complete.                 |
+| Physical mutations      | None.                                                                              |
+| Completeness            | `ast_plan.complete == true`.                                                       |
 
 S4 planning is infallible for committed semantic state. An inability to build a
 lossless plan indicates that S2 or S3 accepted an invalid transformation.

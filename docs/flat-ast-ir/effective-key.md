@@ -92,4 +92,3 @@ There is no full-stylesheet `walk_declaration_blocks` prepass in the target
 pipeline. The parser and selector-local normalization already possess all
 required context. S2 history links may be created lazily when an effective key
 is observed for the second time.
-

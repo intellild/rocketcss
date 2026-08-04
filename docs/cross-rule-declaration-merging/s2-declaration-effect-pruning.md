@@ -63,9 +63,15 @@ previous fallback. Therefore exact pruning does not search backward through a
 different-value compatibility chain:
 
 ```css
-a { width: 1px }
-a { width: 2px }
-a { width: 1px }
+a {
+  width: 1px;
+}
+a {
+  width: 2px;
+}
+a {
+  width: 1px;
+}
 ```
 
 All three occurrences remain in the incremental implementation.
@@ -193,10 +199,10 @@ enum EffectResolution {
 }
 ```
 
-| Output                   | Meaning                                                   |
-| ------------------------ | --------------------------------------------------------- |
-| `NoChange`               | Safety, compatibility, or reifiability is not proven.     |
-| `Apply(MarkEffectsDead)` | The effect mask is provably dead and remains reifiable.   |
+| Output                   | Meaning                                                 |
+| ------------------------ | ------------------------------------------------------- |
+| `NoChange`               | Safety, compatibility, or reifiability is not proven.   |
+| `Apply(MarkEffectsDead)` | The effect mask is provably dead and remains reifiable. |
 
 Applying a plan changes semantic state:
 
@@ -219,7 +225,7 @@ After S2 reaches a local fixed point:
 | ------------------ | ------------------------------------------------------------------------------------ |
 | Effect masks       | Every proven dead effect is marked dead.                                             |
 | Authored origins   | Preserved for every live or dead occurrence until S5.                                |
-| Typed effect data   | Retained with origin and owner identity so S4 can choose a representation.            |
+| Typed effect data  | Retained with origin and owner identity so S4 can choose a representation.           |
 | History generation | `generation == consumed_generation`.                                                 |
 | Sequence revisions | Incremented for every affected aggregate sequence.                                   |
 | Sequence liveness  | Aggregate live-effect counts match the remaining live masks.                         |

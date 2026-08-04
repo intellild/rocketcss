@@ -61,10 +61,14 @@ allocated when the parser reaches that entity. In particular, declaration IDs
 must increase in lexical property order across the entire stylesheet.
 
 ```css
-a { x: 1 }
+a {
+  x: 1;
+}
 a {
   y: 1;
-  & b { z: 1 }
+  & b {
+    z: 1;
+  }
 }
 ```
 
@@ -75,10 +79,14 @@ forbidden even if serialization could later hide the difference.
 An empty leading declaration run captures its cursor before a nested child:
 
 ```css
-a { x: 1 }
 a {
-  & b { z: 1 }
-  w: 1
+  x: 1;
+}
+a {
+  & b {
+    z: 1;
+  }
+  w: 1;
 }
 ```
 
