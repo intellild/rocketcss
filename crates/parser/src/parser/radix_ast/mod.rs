@@ -85,15 +85,22 @@ impl<'ast> Compiler<'ast> {
 /// time. The divisors intentionally undershoot punctuation-heavy stylesheets:
 /// one ordinary growth remains cheap, while avoiding the repeated geometric
 /// reallocations of starting every global store at zero.
-fn compilation_capacity(source_len: usize) -> CompilationCapacity {
-    let rules = source_len / 160;
+///
+/// Calibrated against the benchmark corpora (bootstrap.css, tailwind.css) so
+/// each dense store is preallocated past its final authored length without a
+/// geometric reallocation. The parser capacity guard tests any corpus whose
+/// actual count exceeds its estimate; tighten the divisor before adding more
+/// dense nodes per byte.
+#[doc(hidden)]
+pub fn compilation_capacity(source_len: usize) -> CompilationCapacity {
+    let rules = source_len / 96;
     CompilationCapacity {
         rules,
-        rule_lists: source_len / 1_024,
+        rule_lists: source_len / 512,
         declaration_blocks: rules,
-        declarations: source_len / 80,
-        selectors: source_len / 192,
-        contexts: source_len / 1_024,
+        declarations: source_len / 44,
+        selectors: source_len / 100,
+        contexts: source_len / 512,
     }
 }
 

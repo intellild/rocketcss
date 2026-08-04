@@ -1625,3 +1625,59 @@ fn unsupported_grammar_property_stays_on_the_inactive_fast_path() {
     assert_eq!(counters.recorded, 0);
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
+
+/// Guards the `compilation_capacity` divisor calibration against the
+/// benchmark corpora. Any store that outgrows its preallocated capacity forces
+/// a geometric reallocation during parse, which is exactly what the estimates
+/// exist to avoid.
+#[test]
+fn capacity_estimates_cover_benchmark_corpora() {
+    for source in [
+        include_str!("../../../../../tasks/benchmark/files/bootstrap.css"),
+        include_str!("../../../../../tasks/benchmark/files/tailwind.css"),
+    ] {
+        let allocator = Allocator::new();
+        let mut compiler = Compiler::new(&allocator);
+        let compilation = compiler
+            .parse_compilation(source, ParserOptions::default())
+            .unwrap();
+        let capacity = compilation_capacity(source.len());
+        assert!(
+            compilation.rules_in_source_order().count() <= capacity.rules,
+            "rules exceed capacity estimate ({} > {}) for {} bytes",
+            compilation.rules_in_source_order().count(),
+            capacity.rules,
+            source.len()
+        );
+        assert!(
+            compilation.rule_list_count() <= capacity.rule_lists,
+            "rule lists exceed capacity estimate ({} > {})",
+            compilation.rule_list_count(),
+            capacity.rule_lists
+        );
+        assert!(
+            compilation.declaration_block_count() <= capacity.declaration_blocks,
+            "declaration blocks exceed capacity estimate ({} > {})",
+            compilation.declaration_block_count(),
+            capacity.declaration_blocks
+        );
+        assert!(
+            compilation.declarations_in_source_order().count() <= capacity.declarations,
+            "declarations exceed capacity estimate ({} > {})",
+            compilation.declarations_in_source_order().count(),
+            capacity.declarations
+        );
+        assert!(
+            compilation.selector_value_count() <= capacity.selectors,
+            "selector values exceed capacity estimate ({} > {})",
+            compilation.selector_value_count(),
+            capacity.selectors
+        );
+        assert!(
+            compilation.context_value_count() <= capacity.contexts,
+            "context values exceed capacity estimate ({} > {})",
+            compilation.context_value_count(),
+            capacity.contexts
+        );
+    }
+}

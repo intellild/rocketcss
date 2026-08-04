@@ -664,6 +664,24 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         self.declaration_blocks.len()
     }
 
+    #[doc(hidden)]
+    #[inline]
+    pub fn rule_list_count(&self) -> usize {
+        self.rule_lists.len()
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn selector_value_count(&self) -> usize {
+        self.selector_values.len()
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn context_value_count(&self) -> usize {
+        self.context_values.len()
+    }
+
     #[inline]
     pub fn declaration(&self, id: DeclarationId) -> Option<&DeclarationRecord<D>> {
         self.declarations.try_get(id)
