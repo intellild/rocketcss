@@ -193,7 +193,8 @@ macro_rules! impl_declaration_to_css {
     (
         $(
             $(#[$meta:meta])*
-            $name:literal: $property:ident($value:ty $(, $vp:ty)?),
+            $name:literal: $property:ident($value:ty $(, $vp:ty)?)
+                $([$strategy:ident $( : $($strategy_args:tt)+)?])?,
         )+
     ) => {
         impl<'ghost> ToCss<'ghost> for Declaration<'_> {

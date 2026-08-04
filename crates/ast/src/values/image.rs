@@ -8,6 +8,15 @@ pub enum Image<'a> {
     ImageSet(Box<'a, ImageSet<'a>>),
 }
 
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
+pub enum ObjectFit {
+    Fill,
+    Contain,
+    Cover,
+    None,
+    ScaleDown,
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum Gradient<'a> {
     Linear {

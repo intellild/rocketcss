@@ -174,6 +174,21 @@ impl<'i> Parse<'i> for GapValue<'i> {
     }
 }
 
+impl<'i> Parse<'i> for Gap<'i> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let allocator = input.allocator();
+        let first_state = input.state();
+        let row = allocator.boxed(GapValue::parse(input)?);
+        let column = if input.is_exhausted() {
+            input.reset(&first_state);
+            allocator.boxed(GapValue::parse(input)?)
+        } else {
+            allocator.boxed(GapValue::parse(input)?)
+        };
+        Ok(Self { row, column })
+    }
+}
+
 fn is_non_negative_length(value: &Length<'_>) -> bool {
     match value {
         Length::Value(value) => value.value >= 0.0,

@@ -10,6 +10,65 @@ pub enum Resize {
     Inline,
 }
 
+#[derive(Debug, PartialEq, Visit)]
+pub enum ScrollbarColor<'a> {
+    Auto,
+    Colors(Box<'a, CssColor<'a>>, Box<'a, CssColor<'a>>),
+}
+
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
+pub enum PointerEvents {
+    Auto,
+    None,
+    VisiblePainted,
+    VisibleFill,
+    VisibleStroke,
+    Visible,
+    Painted,
+    Fill,
+    Stroke,
+    All,
+}
+
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
+pub enum Float {
+    None,
+    Left,
+    Right,
+    InlineStart,
+    InlineEnd,
+}
+
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
+pub enum Clear {
+    None,
+    Left,
+    Right,
+    Both,
+    InlineStart,
+    InlineEnd,
+}
+
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
+pub enum TouchAction {
+    Auto,
+    None,
+    Manipulation,
+    PanX,
+    PanY,
+    PanLeft,
+    PanRight,
+    PanUp,
+    PanDown,
+    PinchZoom,
+}
+
+#[derive(CssKeyword, Debug, PartialEq, Visit)]
+pub enum ScrollBehavior {
+    Auto,
+    Smooth,
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum CursorKeyword {
     Auto,

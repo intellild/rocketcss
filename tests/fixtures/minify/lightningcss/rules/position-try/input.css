@@ -1,0 +1,5 @@
+@position-try --outside-right-to-bottom {
+  left: anchor(left);
+  margin: 0;
+  width: auto;
+}

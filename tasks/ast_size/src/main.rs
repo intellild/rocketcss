@@ -26,7 +26,8 @@ macro_rules! print_property_sizes {
     (
         $(
             $(#[$meta:meta])*
-            $name:literal: $property:ident($value:ty $(, $vendor_prefix:ty)?),
+            $name:literal: $property:ident($value:ty $(, $vendor_prefix:ty)?)
+                $([$strategy:ident $( : $($strategy_args:tt)+)?])?,
         )+
     ) => {
         println!();

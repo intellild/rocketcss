@@ -75,8 +75,19 @@ impl<'ghost> ToCss<'ghost> for Position<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         self.x.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.y.to_css(dest, _cx)
+        if !matches!(&*self.y, PositionComponent::Center)
+            || matches!(
+                &*self.x,
+                PositionComponent::Side {
+                    offset: Some(_),
+                    ..
+                }
+            )
+        {
+            dest.write_char(' ')?;
+            self.y.to_css(dest, _cx)?;
+        }
+        Ok(())
     }
 }
 
@@ -152,8 +163,19 @@ impl<'ghost> ToCss<'ghost> for BackgroundPosition<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         self.x.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.y.to_css(dest, _cx)
+        if !matches!(&*self.y, PositionComponent::Center)
+            || matches!(
+                &*self.x,
+                PositionComponent::Side {
+                    offset: Some(_),
+                    ..
+                }
+            )
+        {
+            dest.write_char(' ')?;
+            self.y.to_css(dest, _cx)?;
+        }
+        Ok(())
     }
 }
 
@@ -163,7 +185,15 @@ impl<'ghost> ToCss<'ghost> for BackgroundRepeat {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_pair(&self.x, &self.y, dest, _cx)
+        match (&self.x, &self.y) {
+            (BackgroundRepeatKeyword::Repeat, BackgroundRepeatKeyword::NoRepeat) => {
+                dest.write_str("repeat-x")
+            }
+            (BackgroundRepeatKeyword::NoRepeat, BackgroundRepeatKeyword::Repeat) => {
+                dest.write_str("repeat-y")
+            }
+            _ => write_pair(&self.x, &self.y, dest, _cx),
+        }
     }
 }
 
@@ -221,7 +251,10 @@ impl<'ghost> ToCss<'ghost> for Background<'_> {
     }
 }
 
-fn is_zero_background_position(position: &BackgroundPosition<'_>) -> bool {
+fn is_zero_position_components<Sx, Sy>(
+    x: &PositionComponent<'_, Sx>,
+    y: &PositionComponent<'_, Sy>,
+) -> bool {
     fn is_zero(component: &PositionComponent<'_, impl Sized>) -> bool {
         matches!(
             component,
@@ -230,7 +263,15 @@ fn is_zero_background_position(position: &BackgroundPosition<'_>) -> bool {
         )
     }
 
-    is_zero(&position.x) && is_zero(&position.y)
+    is_zero(x) && is_zero(y)
+}
+
+fn is_zero_background_position(position: &BackgroundPosition<'_>) -> bool {
+    is_zero_position_components(&position.x, &position.y)
+}
+
+fn is_zero_position(position: &Position<'_>) -> bool {
+    is_zero_position_components(&position.x, &position.y)
 }
 
 impl<'ghost> ToCss<'ghost> for BoxShadow<'_> {
@@ -510,11 +551,35 @@ impl<'ghost> ToCss<'ghost> for Flex<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        if self.grow == 0.0
+            && self.shrink == 0.0
+            && matches!(&*self.basis, LengthPercentageOrAuto::Auto)
+        {
+            return dest.write_str("none");
+        }
+        if self.grow == 1.0
+            && self.shrink == 1.0
+            && matches!(&*self.basis, LengthPercentageOrAuto::Auto)
+        {
+            return dest.write_str("auto");
+        }
+
         serialize_number(self.grow, dest)?;
-        dest.write_char(' ')?;
-        serialize_number(self.shrink, dest)?;
-        dest.write_char(' ')?;
-        self.basis.to_css(dest, _cx)
+        let basis_is_zero = matches!(
+            &*self.basis,
+            LengthPercentageOrAuto::LengthPercentage(value)
+                if matches!(&**value, LengthPercentage::Zero)
+        );
+        let basis_is_auto = matches!(&*self.basis, LengthPercentageOrAuto::Auto);
+        if self.shrink != 1.0 || (!basis_is_zero && !basis_is_auto) {
+            dest.write_char(' ')?;
+            serialize_number(self.shrink, dest)?;
+        }
+        if !basis_is_zero {
+            dest.write_char(' ')?;
+            self.basis.to_css(dest, _cx)?;
+        }
+        Ok(())
     }
 }
 
@@ -789,10 +854,15 @@ impl<'ghost> ToCss<'ghost> for Transition<'_> {
         self.property.to_css(dest, _cx)?;
         dest.write_char(' ')?;
         self.duration.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.timing_function.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.delay.to_css(dest, _cx)
+        if !matches!(&*self.timing_function, EasingFunction::Ease) {
+            dest.write_char(' ')?;
+            self.timing_function.to_css(dest, _cx)?;
+        }
+        if !matches!(self.delay, Time::Seconds(0.0) | Time::Milliseconds(0.0)) {
+            dest.write_char(' ')?;
+            self.delay.to_css(dest, _cx)?;
+        }
+        Ok(())
     }
 }
 
@@ -929,6 +999,9 @@ impl<'ghost> ToCss<'ghost> for Rotate {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        if self.x == 0.0 && self.y == 0.0 && self.z == 1.0 {
+            return self.angle.to_css(dest, _cx);
+        }
         write_numbers(&[self.x, self.y, self.z], dest)?;
         dest.write_char(' ')?;
         self.angle.to_css(dest, _cx)
@@ -1179,21 +1252,125 @@ impl<'ghost> ToCss<'ghost> for Mask<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         self.image.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.position.to_css(dest, _cx)?;
-        dest.write_str(" / ")?;
-        self.size.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.repeat.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.origin.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.clip.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.composite.to_css(dest, _cx)?;
-        dest.write_char(' ')?;
-        self.mode.to_css(dest, _cx)
+
+        let default_size = matches!(
+            &*self.size,
+            BackgroundSize::Explicit { height, width }
+                if matches!(&**height, LengthPercentageOrAuto::Auto)
+                    && matches!(&**width, LengthPercentageOrAuto::Auto)
+        );
+        if !is_zero_position(&self.position) || !default_size {
+            dest.write_char(' ')?;
+            write_mask_position(&self.position, dest, _cx)?;
+            if !default_size {
+                if dest.prettify() {
+                    dest.write_str(" / ")?;
+                } else {
+                    dest.write_char('/')?;
+                }
+                write_mask_size(&self.size, dest, _cx)?;
+            }
+        }
+
+        if self.repeat
+            != (BackgroundRepeat {
+                x: BackgroundRepeatKeyword::Repeat,
+                y: BackgroundRepeatKeyword::Repeat,
+            })
+        {
+            dest.write_char(' ')?;
+            self.repeat.to_css(dest, _cx)?;
+        }
+
+        let clip_matches_origin = matches!(
+            (&self.clip, &self.origin),
+            (MaskClip::GeometryBox(clip), origin) if clip == origin
+        );
+        if self.origin != GeometryBox::BorderBox || !clip_matches_origin {
+            dest.write_char(' ')?;
+            self.origin.to_css(dest, _cx)?;
+            if !clip_matches_origin {
+                dest.write_char(' ')?;
+                self.clip.to_css(dest, _cx)?;
+            }
+        }
+
+        if self.composite != MaskComposite::Add {
+            dest.write_char(' ')?;
+            self.composite.to_css(dest, _cx)?;
+        }
+        if self.mode != MaskMode::MatchSource {
+            dest.write_char(' ')?;
+            self.mode.to_css(dest, _cx)?;
+        }
+        Ok(())
     }
+}
+
+fn write_mask_position<'ghost, PrinterT: PrinterTrait>(
+    value: &Position<'_>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    write_mask_horizontal_position(&value.x, dest, cx)?;
+    if !matches!(&*value.y, PositionComponent::Center)
+        || matches!(
+            &*value.x,
+            PositionComponent::Side {
+                offset: Some(_),
+                ..
+            }
+        )
+    {
+        dest.write_char(' ')?;
+        write_mask_vertical_position(&value.y, dest, cx)?;
+    }
+    Ok(())
+}
+
+fn write_mask_size<'ghost, PrinterT: PrinterTrait>(
+    value: &BackgroundSize<'_>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    if let BackgroundSize::Explicit { height, width } = value
+        && matches!(&**height, LengthPercentageOrAuto::Auto)
+    {
+        return width.to_css(dest, cx);
+    }
+    value.to_css(dest, cx)
+}
+
+fn write_mask_horizontal_position<'ghost, PrinterT: PrinterTrait>(
+    value: &PositionComponent<'_, HorizontalPositionKeyword>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    if !dest.prettify()
+        && let PositionComponent::Side { offset: None, side } = value
+    {
+        return dest.write_str(match side {
+            HorizontalPositionKeyword::Left => "0",
+            HorizontalPositionKeyword::Right => "100%",
+        });
+    }
+    value.to_css(dest, cx)
+}
+
+fn write_mask_vertical_position<'ghost, PrinterT: PrinterTrait>(
+    value: &PositionComponent<'_, VerticalPositionKeyword>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    if !dest.prettify()
+        && let PositionComponent::Side { offset: None, side } = value
+    {
+        return dest.write_str(match side {
+            VerticalPositionKeyword::Top => "0",
+            VerticalPositionKeyword::Bottom => "100%",
+        });
+    }
+    value.to_css(dest, cx)
 }
 
 impl<'ghost> ToCss<'ghost> for MaskBorder<'_> {
@@ -1264,7 +1441,11 @@ impl<'ghost> ToCss<'ghost> for UnparsedProperty<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        crate::token::write_token_list(&self.value, dest, _cx)
+        if let Some(raw_value) = self.raw_value {
+            dest.write_str(raw_value)
+        } else {
+            crate::token::write_unparsed_token_list(&self.value, dest, _cx)
+        }
     }
 }
 

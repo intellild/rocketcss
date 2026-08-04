@@ -63,6 +63,11 @@ pub struct UnparsedProperty<'a> {
     pub property_id: Box<'a, PropertyId<'a>>,
     #[visit(skip)]
     pub reason: UnparsedPropertyReason,
+    /// The authored value after removing declaration-level whitespace and
+    /// `!important`. This keeps fallback serialization independent from the
+    /// lossy numeric and function normalization used by typed tokens.
+    #[visit(skip)]
+    pub raw_value: Option<&'a str>,
     pub value: Vec<'a, TokenOrValue<'a>>,
 }
 

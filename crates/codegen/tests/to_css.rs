@@ -127,6 +127,27 @@ fn ports_lightningcss_public_to_css_api_cases() {
 }
 
 #[test]
+fn serializes_mask_shorthand_without_emitting_default_components() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        let stylesheet = parse_stylesheet(
+            "a { mask: url(one.svg) center / cover no-repeat padding-box content-box exclude alpha, linear-gradient(red, blue); }",
+            &allocator,
+            &mut token,
+        );
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            "a{mask:url(one.svg) center/cover no-repeat padding-box content-box exclude alpha,linear-gradient(red,#00f)}"
+        );
+    })
+}
+
+#[test]
 fn stylesheet_implements_to_css() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
@@ -592,7 +613,68 @@ fn function_codegen_uses_known_identity_and_preserves_original_name() {
                     &ToCssContext::new(&token)
                 )
                 .unwrap(),
-            "a{color:VAR(--x, );width:CuStOm(1)}"
+            "a{color:VAR(--x,);width:CuStOm(1)}"
+        );
+    })
+}
+
+#[test]
+fn unparsed_values_preserve_authored_spelling_for_every_reason() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        let source = concat!(
+            "a{",
+            "unknown-prop: 01.2300e+2 \"x\" /*keep*/ custom( 1 , 2 );",
+            "box-shadow: 01.2300px 0 0 \"shadow\";",
+            "-webkit-box-shadow: 01.2300px 0 0 \"vendor\";",
+            "width: calc( 100% - var(--gap) ) !important;",
+            "display: TABLE-CELL flow",
+            "}"
+        );
+        let stylesheet = parse_stylesheet(source, &allocator, &mut token);
+        let declarations = property_declarations(&stylesheet, first_block_id(&stylesheet));
+        let reasons = declarations
+            .iter()
+            .map(|(declaration, _)| match declaration {
+                Declaration::Unparsed(value) => {
+                    assert!(value.raw_value.is_some());
+                    value.reason
+                }
+                _ => panic!("expected all declarations to use the fallback AST"),
+            })
+            .collect::<std::vec::Vec<_>>();
+        assert_eq!(
+            reasons,
+            [
+                UnparsedPropertyReason::UnknownProperty,
+                UnparsedPropertyReason::UnsupportedGrammar,
+                UnparsedPropertyReason::UnsupportedGrammar,
+                UnparsedPropertyReason::OpaqueValue,
+                UnparsedPropertyReason::InvalidValue,
+            ]
+        );
+        assert!(matches!(
+            declarations[2].0,
+            Declaration::Unparsed(value)
+                if value.property_id.vendor_prefix() == VendorPrefix::WEBKIT
+        ));
+
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token)
+                )
+                .unwrap(),
+            concat!(
+                "a{",
+                "unknown-prop:01.2300e+2 \"x\" /*keep*/ custom( 1 , 2 );",
+                "box-shadow:01.2300px 0 0 \"shadow\";",
+                "-webkit-box-shadow:01.2300px 0 0 \"vendor\";",
+                "width:calc( 100% - var(--gap) ) !important;",
+                "display:TABLE-CELL flow",
+                "}"
+            )
         );
     })
 }

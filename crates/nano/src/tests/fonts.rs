@@ -21,7 +21,7 @@ fn deduplicates_equivalent_font_families() {
     );
     assert_eq!(
         run("a{font-family:A,var(--family),a,serif}"),
-        "a{font-family:A,var(--family),serif}"
+        "a{font-family:A,var(--family),a,serif}"
     );
     assert_eq!(
         run("a{font-family:A,serif,Helvetica;font-family:A,serif}"),
@@ -42,18 +42,15 @@ fn deduplicates_equivalent_font_families() {
         )
         .unwrap();
         minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let Declaration::FontFamily(families) = first_property_declaration(&stylesheet) else {
-            panic!("expected typed font-family declaration")
+        let Declaration::Unparsed(value) = first_property_declaration(&stylesheet) else {
+            panic!("expected opaque font-family declaration")
         };
-        assert!(matches!(families[0], FontFamily::Custom("A")));
-        assert!(matches!(families[1], FontFamily::Unparsed(_)));
-        assert!(matches!(families[2], FontFamily::Tombstone));
-        assert!(matches!(families[3], FontFamily::Serif));
+        assert_eq!(value.reason, UnparsedPropertyReason::OpaqueValue);
     });
 }
 
 #[test]
-fn removes_font_family_declarations_containing_only_tombstones() {
+fn preserves_opaque_font_family_declarations() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
@@ -64,16 +61,7 @@ fn removes_font_family_declarations_containing_only_tombstones() {
         )
         .unwrap();
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        assert!(
-            stylesheet
-                .declarations_in_block(first_declaration_block_id(&stylesheet))
-                .unwrap()
-                .all(|declaration| matches!(
-                    declaration.payload(),
-                    radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
-                ))
-        );
-        assert_eq!(stats.declarations_removed, 2);
+        assert_eq!(stats.declarations_removed, 0);
         assert_eq!(
             stylesheet
                 .to_css_string(
@@ -81,7 +69,7 @@ fn removes_font_family_declarations_containing_only_tombstones() {
                     &ToCssContext::new(&token)
                 )
                 .unwrap(),
-            "a{}"
+            "a{font-family:var(--family);font-family:slab inherit}"
         );
     });
 }

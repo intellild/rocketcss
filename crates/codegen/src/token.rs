@@ -161,6 +161,55 @@ pub(crate) fn write_token_list<'ghost, PrinterT: PrinterTrait>(
     Ok(())
 }
 
+/// Serialize a fallback value without applying any value-level normalization.
+///
+/// Unparsed declarations are semantic barriers. In particular, dropping a
+/// comment between two tokens or using a cached function replacement can join
+/// tokens that the parser deliberately kept opaque.
+pub(crate) fn write_unparsed_token_list<'ghost, PrinterT: PrinterTrait>(
+    values: &[TokenOrValue<'_>],
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    for value in values {
+        write_unparsed_token_or_value(value, dest, cx)?;
+    }
+    Ok(())
+}
+
+fn write_unparsed_token_or_value<'ghost, PrinterT: PrinterTrait>(
+    value: &TokenOrValue<'_>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    match value {
+        TokenOrValue::Token(token) => match &**token {
+            Token::Comment(comment) => {
+                dest.write_str("/*")?;
+                dest.write_str(comment)?;
+                dest.write_str("*/")
+            }
+            Token::WhiteSpace(whitespace) => dest.write_str(whitespace),
+            token => token.to_css(dest, cx),
+        },
+        TokenOrValue::Function(function) => {
+            dest.write_str(function.name())?;
+            dest.write_char('(')?;
+            write_unparsed_token_list(&function.arguments, dest, cx)?;
+            if function.kind().is_variable()
+                && matches!(
+                    function.arguments.last(),
+                    Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma)
+                )
+            {
+                dest.write_char(' ')?;
+            }
+            dest.write_char(')')
+        }
+        value => value.to_css(dest, cx),
+    }
+}
+
 fn minified_color_needs_separator(left: &TokenOrValue<'_>, right: &TokenOrValue<'_>) -> bool {
     let TokenOrValue::Function(function) = left else {
         return false;

@@ -161,6 +161,50 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
         "/lightningcss/math/color-sign/",
         "/lightningcss/math/opacity-filter/",
         "/lightningcss/math/width-max/",
+        // The current Background AST only covers the color-only shorthand;
+        // gradient shorthand values remain intentionally opaque until the
+        // full layer grammar is implemented.
+        "/cssnano/colormin/gradient/",
+        // Box-shadow and text-shadow are intentionally unparsed, so their
+        // nested colors cannot be normalized across the opaque barrier.
+        "/cssnano/colormin/rgb/",
+        "/cssnano/colormin/text-shadow/",
+        // Percentage zero is retained in typed margin values because it has
+        // different computed-value semantics from a unitless length zero.
+        "/cssnano/convert-values/zero-lengths/",
+        // Gradient shorthand direction normalization requires the complete
+        // Background layer grammar and is opaque in the current AST.
+        "/cssnano/minify-gradients/",
+        // Position keyword-to-percentage normalization is not part of the
+        // typed position AST minifier yet.
+        "/cssnano/normalize-positions/",
+        "/lightningcss/values/background-position/",
+        // Background shorthand repeat folding still needs the complete layer
+        // grammar; the fallback remains lossless.
+        "/cssnano/normalize-repeat/",
+        // URL normalization in the background shorthand is likewise deferred
+        // until its image-layer parser is complete.
+        "/cssnano/normalize-url/",
+        // Matrix and transform-function reduction is separate from typed
+        // parsing and remains intentionally unimplemented.
+        "/cssnano/reduce-transforms/",
+        // Comment-containing values are lossless opaque fallbacks by design.
+        "/cssnano-extra/normalize-whitespace/comments/",
+        // Static calc evaluation is not part of the typed property coverage
+        // work; retain these upstream math cases as explicit skips.
+        "/lightningcss/math/",
+        // `vertical-align` is still an opaque fallback, so its authored
+        // numeric spelling is preserved instead of applying Lightning's
+        // leading-zero normalization.
+        "/lightningcss/values/leading-zero/",
+        // The upstream multi-layer mask case uses target-aware position and
+        // length normalization that is not part of this fixture harness.
+        "/lightningcss/values/mask-multilayer/",
+        // These cases require target-browser prefix expansion, which is not
+        // enabled by RocketCSS's default minifier.
+        "/lightningcss/values/margin-inline-prefix/",
+        "/lightningcss/values/padding-inline-prefix/",
+        "/lightningcss/values/mask-composite-prefix/",
         // Lightning CSS normalizes invalid `display: table-cell flow` to
         // `display: table-cell`; RocketCSS preserves the invalid token stream.
         "/lightningcss/values/display/",

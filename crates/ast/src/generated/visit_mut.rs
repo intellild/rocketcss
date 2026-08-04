@@ -214,6 +214,22 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
+    fn visit_property_parser_strategy(
+        &mut self,
+        node: &mut PropertyParserStrategy,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_property_support(
+        &mut self,
+        node: &mut PropertySupport,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
     fn visit_blend_mode(&mut self, node: &mut BlendMode, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -2005,6 +2021,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
+    fn visit_object_fit(&mut self, node: &mut ObjectFit, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
     fn visit_gradient(
         &mut self,
         node: &mut Gradient<'a>,
@@ -2579,6 +2599,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
+    fn visit_content(&mut self, node: &mut Content<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
     fn visit_transform(
         &mut self,
         node: &mut Transform<'a>,
@@ -2632,6 +2656,46 @@ pub trait VisitorMut<'a, 'ghost> {
     }
     #[inline]
     fn visit_resize(&mut self, node: &mut Resize, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_scrollbar_color(
+        &mut self,
+        node: &mut ScrollbarColor<'a>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_pointer_events(
+        &mut self,
+        node: &mut PointerEvents,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_float(&mut self, node: &mut Float, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_clear(&mut self, node: &mut Clear, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_touch_action(
+        &mut self,
+        node: &mut TouchAction,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_scroll_behavior(
+        &mut self,
+        node: &mut ScrollBehavior,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]

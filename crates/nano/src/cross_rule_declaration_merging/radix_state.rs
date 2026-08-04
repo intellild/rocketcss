@@ -18,7 +18,7 @@ use rocketcss_common::{
 };
 use std::{cmp::Reverse, collections::VecDeque};
 
-use super::declaration_ir::{CompactPropertyKey, DeclarationIrStore};
+use super::declaration_ir::{CompactPropertyKey, DeclarationIrStore, MovementDomain};
 use super::partial_selector::materialize_selector_union;
 
 pub(crate) struct CrossRuleBuilder<'arena, 'ast> {
@@ -645,6 +645,19 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 let Some(property_key) = left_ir.property_key else {
                     continue;
                 };
+                if left_ir.movement_domain.is_some_and(|domain| {
+                    has_opaque_domain_conflict(
+                        &self.declaration_ir,
+                        domain,
+                        &self.scratch.left_declarations,
+                    ) || has_opaque_domain_conflict(
+                        &self.declaration_ir,
+                        domain,
+                        &self.scratch.right_declarations,
+                    )
+                }) {
+                    continue;
+                }
                 let mut matched = false;
                 if let Some(indexed) = self
                     .declaration_ir
@@ -1244,6 +1257,22 @@ fn declarations_have_equal_effect(
         }
         _ => false,
     }
+}
+
+fn has_opaque_domain_conflict(
+    declaration_ir: &DeclarationIrStore<'_, '_>,
+    domain: MovementDomain,
+    declarations: &[rocketcss_ast::radix_ast::DeclarationId],
+) -> bool {
+    declarations.iter().any(|declaration| {
+        let Some(occurrence) = declaration_ir.occurrence(*declaration) else {
+            return false;
+        };
+        occurrence.property_key.is_none()
+            && occurrence
+                .movement_domain
+                .is_some_and(|opaque_domain| domain.overlaps(&opaque_domain))
+    })
 }
 
 fn radix_partial_movement_is_safe(

@@ -35,7 +35,7 @@ fn removes_exact_duplicate_declarations_within_one_block() {
         run(
             ".aligncenter{clear:both;clear:both;clip:auto;clip:auto;margin-left:auto;margin-left:auto;margin-right:auto;margin-right:auto;display:block;display:block}"
         ),
-        ".aligncenter{clear:both;clear:both;clip:auto;clip:auto;margin-left:auto;margin-right:auto;display:block}"
+        ".aligncenter{clear:both;clip:auto;clip:auto;margin-left:auto;margin-right:auto;display:block}"
     );
     assert_eq!(
         run(
@@ -87,6 +87,28 @@ fn removes_exact_duplicate_declarations_within_one_block() {
             "a{color:red;width:1px}"
         );
     });
+}
+
+#[test]
+fn unparsed_reasons_are_opaque_history_barriers() {
+    assert_eq!(
+        run("a{margin:1px;width:calc( 100% - var(--gap) ) !important;margin:2px}"),
+        "a{margin:1px;width:calc( 100% - var(--gap) ) !important;margin:2px}"
+    );
+    assert_eq!(
+        run("a{margin:1px;box-shadow:01.2300px 0 0 \"shadow\";margin:2px}"),
+        "a{margin:1px;box-shadow:01.2300px 0 0 \"shadow\";margin:2px}"
+    );
+    assert_eq!(
+        run("a{margin:1px;unknown:FN( 1 , 2 );margin:2px}"),
+        "a{margin:1px;unknown:FN( 1 , 2 );margin:2px}"
+    );
+    assert_eq!(
+        run("a{margin:1px;width:01.2300e+2foo;margin:2px}"),
+        "a{margin:1px;width:01.2300e+2foo;margin:2px}"
+    );
+    assert_eq!(run("a{width:1/**/2}"), "a{width:1/**/2}");
+    assert_eq!(run("a{width:rgb(1 2 3/**/)}"), "a{width:rgb(1 2 3/**/)}");
 }
 
 #[test]

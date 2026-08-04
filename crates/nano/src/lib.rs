@@ -304,33 +304,23 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         node.minify(&mut self.cx);
     }
 
-    fn visit_unparsed_property(
+    fn visit_font_weight(
         &mut self,
-        node: &mut UnparsedProperty<'ast>,
+        node: &mut FontWeight,
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
-        if matches!(
-            node.reason,
-            UnparsedPropertyReason::UnknownProperty | UnparsedPropertyReason::InvalidValue
-        ) {
-            return;
-        }
-        let previous = self.cx.value_context;
-        self.cx.value_context = properties::value_context(
-            &node.property_id,
-            self.cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
-            self.cx
-                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
-        );
-        if matches!(node.reason, UnparsedPropertyReason::UnsupportedGrammar) {
-            node.visit_mut_children(self, cx);
-        } else {
-            self.cx
-                .value_context
-                .set_enabled(context::ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
-        }
+        node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
-        self.cx.value_context = previous;
+    }
+
+    fn visit_unparsed_property(
+        &mut self,
+        _node: &mut UnparsedProperty<'ast>,
+        _cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
+        // Every unparsed declaration is a lossless minification barrier. The
+        // parser retained it because semantic validation was not possible, so
+        // even token-level transforms could change authored behavior.
     }
 
     fn visit_custom_property(

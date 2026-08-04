@@ -1330,6 +1330,7 @@ dependencies = [
  "rocketcss_nano",
  "rocketcss_parser",
  "rocketcss_visitor",
+ "rustc-hash",
  "serde_json",
 ]
 

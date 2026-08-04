@@ -5,6 +5,7 @@ use crate::{
     context::{PropertyContext, ValueContext, ValueContextFlags},
 };
 
+#[allow(dead_code)]
 pub(crate) fn value_context(
     property_id: &PropertyId<'_>,
     order_values: bool,
@@ -61,6 +62,7 @@ pub(crate) fn value_context(
     cx
 }
 
+#[allow(dead_code)]
 fn property_context(property_id: &PropertyId<'_>) -> PropertyContext {
     match property_id {
         PropertyId::Animation(_)
@@ -88,6 +90,7 @@ fn property_context(property_id: &PropertyId<'_>) -> PropertyContext {
     }
 }
 
+#[allow(dead_code)]
 fn should_minify_colors(property_id: &PropertyId<'_>) -> bool {
     match property_id {
         PropertyId::FontWeight
@@ -113,6 +116,7 @@ fn should_minify_colors(property_id: &PropertyId<'_>) -> bool {
     }
 }
 
+#[allow(dead_code)]
 fn starts_with_ignore_ascii_case(value: &str, prefix: &str) -> bool {
     value
         .get(..prefix.len())
@@ -129,6 +133,7 @@ pub(crate) fn custom_property_context(cx: &MinifyContext) -> ValueContext {
     value_context
 }
 
+#[allow(dead_code)]
 fn zero_percentage_requires_target_support(property_id: &PropertyId<'_>) -> bool {
     matches!(
         property_id,

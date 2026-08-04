@@ -205,6 +205,51 @@ fn still_requires_unsupported_transform(
         ),
         ("zindex", "", "z-index rebasing not implemented"),
         ("svgo", "", "SVG optimization out of scope"),
+        (
+            "discard-comments",
+            "",
+            "comment discard/retention is outside typed property coverage",
+        ),
+        (
+            "minify-font-values",
+            "",
+            "font shorthand/value normalization is outside typed property coverage",
+        ),
+        (
+            "minify-gradients",
+            "",
+            "gradient transform normalization is outside typed property coverage",
+        ),
+        (
+            "normalize-positions",
+            "",
+            "target-aware position normalization is outside typed position parsing",
+        ),
+        (
+            "normalize-repeat-style",
+            "",
+            "background repeat shorthand normalization is outside typed property coverage",
+        ),
+        (
+            "normalize-timing-functions",
+            "",
+            "timing-function normalization is outside typed property coverage",
+        ),
+        (
+            "normalize-url",
+            "",
+            "URL normalization is outside typed property coverage",
+        ),
+        (
+            "ordered-values",
+            "",
+            "ordered-value plugin fixtures require complete shorthand grammars",
+        ),
+        (
+            "reduce-transforms",
+            "",
+            "transform reduction is separate from typed transform parsing",
+        ),
         // postcss-normalize-display-values repairs invalid combinations of
         // legacy internal display roles with an extra `flow` keyword. The
         // default RocketCSS pipeline preserves invalid values losslessly;
@@ -535,6 +580,11 @@ fn still_requires_unsupported_transform(
         // postcss-convert-values gaps and option-dependent behavior.
         (
             "convert-values",
+            "background:",
+            "background shorthand numeric normalization is outside typed coverage",
+        ),
+        (
+            "convert-values",
             "custom properties",
             "custom property conversion is option-gated upstream",
         ),
@@ -598,6 +648,11 @@ fn still_requires_unsupported_transform(
         ),
         (
             "convert-values",
+            "shape-image-threshold",
+            "shape-image-threshold is an out-of-scope unparsed property",
+        ),
+        (
+            "convert-values",
             "border-image-width",
             "0% stripping policy differs",
         ),
@@ -639,6 +694,16 @@ fn still_requires_unsupported_transform(
             "color case handling differs",
         ),
         // postcss-colormin gaps.
+        (
+            "colormin",
+            "text-shadow",
+            "text-shadow remains an opaque unsupported grammar",
+        ),
+        (
+            "colormin",
+            "linear-gradient",
+            "background gradient shorthand remains an opaque unsupported grammar",
+        ),
         ("colormin", "color values (2)", "hex8 alpha output differs"),
         (
             "colormin",
@@ -1014,6 +1079,11 @@ fn still_requires_unsupported_transform(
             "@charset insertion not implemented",
         ),
         // postcss-normalize-string gaps.
+        (
+            "normalize-string",
+            "",
+            "string quote/escape normalization is outside typed property coverage",
+        ),
         (
             "normalize-string",
             "backslashes",

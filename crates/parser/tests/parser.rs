@@ -441,18 +441,15 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
         ));
 
         let declarations = property_declarations(&sheet, rule);
-        let Declaration::Width(width) = declarations[0].0 else {
-            panic!("expected typed width")
+        let Declaration::Unparsed(width) = declarations[0].0 else {
+            panic!("expected opaque width")
         };
-        assert!(matches!(
-            &**width,
-            Size::MathFunction(function)
-                if function.name() == "calc"
-                    && function.arguments.iter().any(|value| matches!(
-                        value,
-                        TokenOrValue::Function(nested) if nested.name() == "var"
-                    ))
-        ));
+        assert!(matches!(&*width.property_id, PropertyId::Width));
+        assert_eq!(width.reason, UnparsedPropertyReason::OpaqueValue);
+        assert!(width.value.iter().any(|value| matches!(
+            value,
+            TokenOrValue::Function(function) if function.name() == "calc"
+        )));
     })
 }
 
@@ -1298,6 +1295,353 @@ fn parses_typed_core_property_values() {
 }
 
 #[test]
+fn parses_typed_sizing_and_overflow_values() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { box-sizing: border-box; aspect-ratio: auto 2 / 3; overflow: hidden scroll; overflow-x: clip; overflow-y: auto; }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+
+        assert!(matches!(
+            declarations[0],
+            Declaration::BoxSizing(BoxSizing::BorderBox, VendorPrefix::NONE)
+        ));
+        assert!(matches!(
+            declarations[1],
+            Declaration::AspectRatio(AspectRatio {
+                auto: true,
+                ratio: Some(Ratio::Fraction(2.0, 3.0)),
+            })
+        ));
+        assert!(matches!(
+            declarations[2],
+            Declaration::Overflow(Overflow {
+                x: OverflowKeyword::Hidden,
+                y: OverflowKeyword::Scroll,
+            })
+        ));
+        assert!(matches!(
+            declarations[3],
+            Declaration::OverflowX(OverflowKeyword::Clip)
+        ));
+        assert!(matches!(
+            declarations[4],
+            Declaration::OverflowY(OverflowKeyword::Auto)
+        ));
+    })
+}
+
+#[test]
+fn rejects_auto_for_scroll_margin_and_padding() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { scroll-margin-block: auto; scroll-padding-inline: auto; }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+
+        for declaration in declarations {
+            assert!(matches!(
+                declaration,
+                Declaration::Unparsed(value)
+                    if value.reason == UnparsedPropertyReason::InvalidValue
+            ));
+        }
+    })
+}
+
+#[test]
+fn parses_typed_box_border_and_mask_families() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { margin: 1px 2px; padding-inline: 3px 4px; inset: 5px auto; position: sticky; z-index: 2; border: 1px solid red; border-color: red blue; border-radius: 1px 2px / 3px 4px; mask-image: linear-gradient(red, blue), url(mask.svg); mask-composite: add, exclude; mask-type: alpha; }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+
+        assert!(matches!(declarations[0], Declaration::Margin(_)));
+        assert!(matches!(declarations[1], Declaration::PaddingInline(_)));
+        assert!(matches!(declarations[2], Declaration::Inset(_)));
+        assert!(matches!(declarations[3], Declaration::Position(_)));
+        assert!(matches!(declarations[4], Declaration::ZIndex(ZIndex::Integer(2))));
+        assert!(matches!(declarations[5], Declaration::Border(_)));
+        assert!(matches!(declarations[6], Declaration::BorderColor(_)));
+        assert!(matches!(declarations[7], Declaration::BorderRadius(_, _)));
+        assert!(matches!(declarations[8], Declaration::MaskImage(_, _)));
+        assert!(matches!(declarations[9], Declaration::MaskComposite(_)));
+        assert!(matches!(declarations[10], Declaration::MaskType(MaskType::Alpha)));
+    })
+}
+
+#[test]
+fn parses_mask_shorthand_layers_without_losing_defaults() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { mask: url(one.svg) center / cover no-repeat padding-box content-box exclude alpha, linear-gradient(red, blue); }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+        let Declaration::Mask(layers, VendorPrefix::NONE) = declarations[0] else {
+            panic!("expected typed mask shorthand")
+        };
+        assert_eq!(layers.len(), 2);
+        assert!(matches!(&*layers[0].image, Image::Url(_)));
+        assert!(matches!(&*layers[0].size, BackgroundSize::Cover));
+        assert!(matches!(
+            &layers[0].repeat.x,
+            BackgroundRepeatKeyword::NoRepeat
+        ));
+        assert!(matches!(&layers[0].origin, GeometryBox::PaddingBox));
+        assert!(matches!(
+            &layers[0].clip,
+            MaskClip::GeometryBox(GeometryBox::ContentBox)
+        ));
+        assert!(matches!(&layers[0].composite, MaskComposite::Exclude));
+        assert!(matches!(&layers[0].mode, MaskMode::Alpha));
+        assert!(matches!(&*layers[1].image, Image::Gradient(_)));
+        assert!(matches!(&layers[1].composite, MaskComposite::Add));
+        assert!(matches!(&layers[1].mode, MaskMode::MatchSource));
+    })
+}
+
+#[test]
+fn parses_mask_repeat_x_and_y_as_typed_layers() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { mask: url(one.svg) repeat-x, url(two.svg) repeat-y; }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let Declaration::Mask(layers, VendorPrefix::NONE) =
+            declaration_values(&sheet, root_rule(&sheet, 0).0)[0]
+        else {
+            panic!("expected typed mask shorthand")
+        };
+        assert!(matches!(
+            (&layers[0].repeat.x, &layers[0].repeat.y),
+            (
+                BackgroundRepeatKeyword::Repeat,
+                BackgroundRepeatKeyword::NoRepeat
+            )
+        ));
+        assert!(matches!(
+            (&layers[1].repeat.x, &layers[1].repeat.y),
+            (
+                BackgroundRepeatKeyword::NoRepeat,
+                BackgroundRepeatKeyword::Repeat
+            )
+        ));
+    })
+}
+
+#[test]
+fn parses_radial_mask_images_and_gradient_hints() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { mask-image: radial-gradient(circle at 25% 75%, transparent 8px, black 8px), repeating-radial-gradient(ellipse closest-side, red, blue 50%, 75%), conic-gradient(from 45deg at 25% 75%, red, blue 50%, 75%), image-set(url(one.png) 1x, \"two.png\" 2x); }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+        let Declaration::MaskImage(images, _) = declarations[0] else {
+            panic!("expected typed mask-image")
+        };
+        assert!(matches!(
+            &images[0],
+            Image::Gradient(gradient)
+                if matches!(&**gradient, Gradient::Radial { .. })
+        ));
+        assert!(matches!(
+            &images[1],
+            Image::Gradient(gradient)
+                if matches!(&**gradient, Gradient::RepeatingRadial { .. })
+                    && matches!(
+                        &**gradient,
+                        Gradient::RepeatingRadial { items, .. }
+                            if items.iter().any(|item| matches!(item, GradientItem::Hint(_)))
+                    )
+        ));
+        assert!(matches!(
+            &images[2],
+            Image::Gradient(gradient)
+                if matches!(&**gradient, Gradient::Conic { .. })
+        ));
+        assert!(matches!(&images[3], Image::ImageSet(image_set) if image_set.options.len() == 2));
+    })
+}
+
+#[test]
+fn parses_typed_flex_alignment_transform_and_font_values() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { flex-direction: column; flex-wrap: wrap; flex-flow: row wrap; flex: 1 0 10px; flex: 1 auto; flex-grow: 2; order: 3; align-items: center; justify-content: space-between; align-self: safe flex-end; transform: translateX(1px) rotateZ(.25turn); transform-style: preserve-3d; translate: 1px 2px; rotate: 90deg; scale: 2; font-weight: bold; font-size: 1rem; line-height: 1.5; }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+
+        assert!(matches!(declarations[0], Declaration::FlexDirection(FlexDirection::Column, _)));
+        assert!(matches!(declarations[1], Declaration::FlexWrap(FlexWrap::Wrap, _)));
+        assert!(matches!(declarations[2], Declaration::FlexFlow(_, _)));
+        assert!(matches!(declarations[3], Declaration::Flex(_, _)));
+        assert!(matches!(declarations[4], Declaration::Flex(_, _)));
+        assert!(matches!(declarations[5], Declaration::FlexGrow(2.0, _)));
+        assert!(matches!(declarations[6], Declaration::Order(3.0, _)));
+        assert!(matches!(declarations[7], Declaration::AlignItems(AlignItems::SelfPosition { value: SelfPosition::Center, .. }, _)));
+        assert!(matches!(declarations[8], Declaration::JustifyContent(JustifyContent::ContentDistribution(ContentDistribution::SpaceBetween), _)));
+        assert!(matches!(declarations[9], Declaration::AlignSelf(AlignSelf::SelfPosition { .. }, _)));
+        assert!(matches!(declarations[10], Declaration::Transform(values, _) if values.len() == 2));
+        assert!(matches!(declarations[11], Declaration::TransformStyle(TransformStyle::Preserve3d, _)));
+        assert!(matches!(declarations[12], Declaration::Translate(_,)));
+        assert!(matches!(declarations[13], Declaration::Rotate(Rotate { .. })));
+        assert!(matches!(declarations[14], Declaration::Scale(_,)));
+        assert!(matches!(declarations[15], Declaration::FontWeight(FontWeight::Absolute(AbsoluteFontWeight::Bold))));
+        assert!(matches!(declarations[16], Declaration::FontSize(_)));
+        assert!(matches!(declarations[17], Declaration::LineHeight(_)));
+    })
+}
+
+#[test]
+fn parses_single_and_two_value_layout_shorthands() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { place-content: center; place-self: auto; place-items: center end; gap: 1px; row-gap: normal; column-gap: 2%; border-spacing: 1px 2px; }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+
+        assert!(matches!(declarations[0], Declaration::PlaceContent(PlaceContent { .. })));
+        assert!(matches!(declarations[1], Declaration::PlaceSelf(PlaceSelf { .. })));
+        assert!(matches!(declarations[2], Declaration::PlaceItems(PlaceItems { .. })));
+        assert!(matches!(declarations[3], Declaration::Gap(_)));
+        assert!(matches!(declarations[4], Declaration::RowGap(value) if matches!(&**value, GapValue::Normal)));
+        assert!(matches!(declarations[5], Declaration::ColumnGap(_)));
+        assert!(matches!(declarations[6], Declaration::BorderSpacing(_)));
+    })
+}
+
+#[test]
+fn parses_typed_svg_paint_and_ui_values() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { fill: currentColor; stroke: url(icon.svg) red; fill-rule: evenodd; stroke-linecap: round; stroke-width: 2px; stroke-dasharray: 1px, 2px; accent-color: #0f0; object-fit: cover; scrollbar-color: auto; user-select: none; }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+
+        assert!(matches!(declarations[0], Declaration::Fill(_)));
+        assert!(matches!(declarations[1], Declaration::Stroke(_)));
+        assert!(matches!(declarations[2], Declaration::FillRule(FillRule::Evenodd)));
+        assert!(matches!(declarations[3], Declaration::StrokeLinecap(StrokeLinecap::Round)));
+        assert!(matches!(declarations[4], Declaration::StrokeWidth(_)));
+        assert!(matches!(declarations[5], Declaration::StrokeDasharray(_)));
+        assert!(matches!(declarations[6], Declaration::AccentColor(_)));
+        assert!(matches!(declarations[7], Declaration::ObjectFit(ObjectFit::Cover)));
+        assert!(matches!(declarations[8], Declaration::ScrollbarColor(ScrollbarColor::Auto)));
+        assert!(matches!(declarations[9], Declaration::UserSelect(UserSelect::None, _)));
+    })
+}
+
+#[test]
+fn stylo_derived_property_grammar_keeps_vectors_and_substitutions_typed() {
+    // Grammar sources: ../stylo/style/properties/longhands.toml and
+    // ../stylo/style/properties/shorthands.toml. This compact matrix covers
+    // object-fit/position, scrollbar-color's two-color form, mask vectors,
+    // logical identity, and the arbitrary-substitution boundary.
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { object-fit: cover; object-position: 10% 20%; scrollbar-color: red blue; mask-image: url(a.svg), url(b.svg); mask-composite: add, exclude; margin-inline: 1px 2px; width: env(--size, 01.00px); }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+
+        assert!(matches!(declarations[0], Declaration::ObjectFit(ObjectFit::Cover)));
+        assert!(matches!(declarations[1], Declaration::ObjectPosition(_)));
+        assert!(matches!(
+            declarations[2],
+            Declaration::ScrollbarColor(ScrollbarColor::Colors(_, _))
+        ));
+        assert!(matches!(declarations[3], Declaration::MaskImage(images, _) if images.len() == 2));
+        assert!(matches!(declarations[4], Declaration::MaskComposite(values) if values.len() == 2));
+        assert!(matches!(declarations[5], Declaration::MarginInline(_)));
+        assert!(matches!(
+            declarations[6],
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::OpaqueValue
+                    && matches!(&*value.property_id, PropertyId::Width)
+        ));
+    })
+}
+
+#[test]
+fn parses_typed_text_longhands() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = parse(
+            "a { text-transform: uppercase full-width; white-space: pre-wrap; text-overflow: ellipsis; text-align: justify; word-spacing: normal; letter-spacing: 1px; text-indent: 2em hanging each-line; text-decoration-line: underline line-through; text-decoration-style: wavy; text-decoration-thickness: from-font; text-size-adjust: 80%; direction: rtl; unicode-bidi: isolate; resize: both; }",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+        let declarations = declaration_values(&sheet, root_rule(&sheet, 0).0);
+
+        assert!(matches!(declarations[0], Declaration::TextTransform(TextTransform { full_width: true, .. })));
+        assert!(matches!(declarations[1], Declaration::WhiteSpace(WhiteSpace::PreWrap)));
+        assert!(matches!(declarations[2], Declaration::TextOverflow(TextOverflow::Ellipsis, _)));
+        assert!(matches!(declarations[3], Declaration::TextAlign(TextAlign::Justify)));
+        assert!(matches!(declarations[4], Declaration::WordSpacing(_)));
+        assert!(matches!(declarations[5], Declaration::LetterSpacing(_)));
+        assert!(matches!(declarations[6], Declaration::TextIndent(value) if value.hanging && value.each_line));
+        assert!(matches!(declarations[7], Declaration::TextDecorationLine(_, _)));
+        assert!(matches!(declarations[8], Declaration::TextDecorationStyle(TextDecorationStyle::Wavy, _)));
+        assert!(matches!(declarations[9], Declaration::TextDecorationThickness(_)));
+        assert!(matches!(declarations[10], Declaration::TextSizeAdjust(TextSizeAdjust::Percentage(value), _) if (value - 0.8).abs() < f32::EPSILON));
+        assert!(matches!(declarations[11], Declaration::Direction(TextDirection::Rtl)));
+        assert!(matches!(declarations[12], Declaration::UnicodeBidi(UnicodeBidi::Isolate)));
+        assert!(matches!(declarations[13], Declaration::Resize(Resize::Both)));
+    })
+}
+
+#[test]
 fn parses_font_family_into_typed_ast_nodes() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
@@ -1323,16 +1667,15 @@ fn parses_font_family_into_typed_ast_nodes() {
     ));
     assert!(matches!(
         declarations[1],
-        Declaration::FontFamily(families)
-            if matches!(families.as_slice(), [
-                FontFamily::Unparsed(_),
-                FontFamily::SansSerif,
-            ])
+        Declaration::Unparsed(value)
+            if value.reason == UnparsedPropertyReason::OpaqueValue
+                && matches!(&*value.property_id, PropertyId::FontFamily)
     ));
     assert!(matches!(
         declarations[2],
-        Declaration::FontFamily(families)
-            if matches!(families.as_slice(), [FontFamily::Unparsed(_)])
+        Declaration::Unparsed(value)
+            if value.reason == UnparsedPropertyReason::InvalidValue
+                && matches!(&*value.property_id, PropertyId::FontFamily)
     ));
     })
 }
@@ -1419,16 +1762,15 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
 
         assert!(matches!(
             declarations[1].0,
-            Declaration::Width(value)
-                if matches!(&**value, Size::MathFunction(function)
-                    if function.name().eq_ignore_ascii_case("calc"))
+            Declaration::Unparsed(value)
+                if value.reason == UnparsedPropertyReason::OpaqueValue
+                    && matches!(&*value.property_id, PropertyId::Width)
         ));
         assert!(declarations[1].1);
         assert!(matches!(
             declarations[2].0,
-            Declaration::Unparsed(value)
-                if matches!(&*value.property_id, PropertyId::Transform(prefix)
-                    if prefix.contains(VendorPrefix::WEBKIT))
+            Declaration::Transform(values, prefix)
+                if values.len() == 1 && prefix.contains(VendorPrefix::WEBKIT)
         ));
         assert!(matches!(
             declarations[3].0,
@@ -1465,7 +1807,7 @@ fn declaration_ast_distinguishes_typed_opaque_invalid_and_unsupported_values() {
                 animation-duration: 1s, 200ms;
                 opacity: calc(.5);
                 width: potato;
-                transform: translateX(1px);
+                box-shadow: 0 0 1px red;
                 future-property: fn(1);
             }"#,
             &allocator,
@@ -1508,6 +1850,7 @@ fn declaration_ast_distinguishes_typed_opaque_invalid_and_unsupported_values() {
             declarations[6],
             Declaration::Unparsed(value)
                 if value.reason == UnparsedPropertyReason::UnsupportedGrammar
+                    && matches!(&*value.property_id, PropertyId::BoxShadow(..))
         ));
         assert!(matches!(
             declarations[7],
@@ -1836,7 +2179,6 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
                     PseudoElement::CustomFunction { name, .. } if name == "picker"
                 )
         ));
-
         assert!(matches!(&selector[2], SelectorComponent::Negation(_)));
 
         assert_eq!(property_declarations(&sheet, rule).len(), 1);

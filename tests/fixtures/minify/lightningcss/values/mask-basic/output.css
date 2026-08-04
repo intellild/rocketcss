@@ -1,0 +1,1 @@
+.one{mask:url(foo.svg)}.two{mask:url(masks.svg#star) luminance}.three{mask:url(masks.svg#star) 40px 20px}.four{mask:url(masks.svg#star) 0 0/50px 50px}.five{mask:url(masks.svg#star) repeat-x}.six{mask:url(masks.svg#star) stroke-box}.seven{mask:url(masks.svg#star) stroke-box}.eight{mask:url(masks.svg#star)}

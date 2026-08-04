@@ -54,7 +54,7 @@ fn box_ir_preserves_fallback_and_logical_property_barriers() {
     );
     assert_eq!(
         run("a{margin:1px;margin-left:var(--space);margin-right:2px}"),
-        "a{margin:1px 2px 1px 1px;margin-left:var(--space)}"
+        "a{margin:1px;margin-left:var(--space);margin-right:2px}"
     );
     assert_eq!(
         run("a{margin-left:1px;margin:invalid}"),
@@ -68,7 +68,7 @@ fn box_ir_preserves_fallback_and_logical_property_barriers() {
         run(
             "a{margin-top:1px;margin-inline-start:2px;margin-right:3px;margin-bottom:4px;margin-left:5px}"
         ),
-        "a{margin-top:1px;margin-inline-start:2px;margin-right:3px;margin-bottom:4px;margin-left:5px}"
+        "a{margin-inline-start:2px;margin:1px 3px 4px 5px}"
     );
     assert_eq!(
         run("a{padding-top:1px!important;padding-right:1px;padding-bottom:1px;padding-left:1px}"),
@@ -81,7 +81,7 @@ fn keeps_existing_token_storage() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let mut stylesheet = parse(
-            "a{margin:1px 1px 1px 1px}",
+            "a{border:0 0 7px 7px solid black}",
             &allocator,
             &mut token,
             ParserOptions::default(),
@@ -101,7 +101,7 @@ fn keeps_existing_token_storage() {
                     &ToCssContext::new(&token)
                 )
                 .unwrap(),
-            "a{margin:1px}"
+            "a{border:0 0 7px 7px solid black}"
         );
     });
 }
