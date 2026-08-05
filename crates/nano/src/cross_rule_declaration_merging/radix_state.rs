@@ -92,10 +92,10 @@ struct SameSelectorCandidateList<'arena, 'ast> {
 }
 
 impl<'arena, 'ast> SameSelectorCandidateList<'arena, 'ast> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+    fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
         Self {
-            pending: VecDeque::new(),
-            queued: HashSet::new_in(allocator),
+            pending: VecDeque::with_capacity(capacity),
+            queued: HashSet::with_capacity_in(capacity, allocator),
         }
     }
 
@@ -139,10 +139,10 @@ struct PartialMergeCandidateList<'arena, 'ast> {
 }
 
 impl<'arena, 'ast> PartialMergeCandidateList<'arena, 'ast> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+    fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
         Self {
-            pending: VecDeque::new(),
-            queued: HashSet::new_in(allocator),
+            pending: VecDeque::with_capacity(capacity),
+            queued: HashSet::with_capacity_in(capacity, allocator),
         }
     }
 
@@ -190,10 +190,10 @@ struct DeclarationOverrideCandidateList<'arena> {
 }
 
 impl<'arena> DeclarationOverrideCandidateList<'arena> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+    fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
         Self {
-            pending: VecDeque::new(),
-            queued: HashSet::new_in(allocator),
+            pending: VecDeque::with_capacity(capacity),
+            queued: HashSet::with_capacity_in(capacity, allocator),
         }
     }
 
@@ -228,6 +228,8 @@ struct MinifyScratch<'arena, 'ast> {
     affected_blocks: HashSet<'arena, DeclarationBlockId<'ast>>,
     affected_rules: FxHashMap<RuleId<'ast>, AffectedRule<'ast>>,
     affected_parents: FxHashSet<Option<RuleId<'ast>>>,
+    affected_block_updates: Vec<'arena, DeclarationBlockId<'ast>>,
+    affected_parent_updates: Vec<'arena, Option<RuleId<'ast>>>,
     rule_contexts: Vec<'arena, RuleContext<'ast>>,
     mutation_deltas: Vec<'arena, RuleDelta<'ast>>,
     previous_by_property: HashMap<
@@ -238,23 +240,33 @@ struct MinifyScratch<'arena, 'ast> {
 }
 
 impl<'arena, 'ast> MinifyScratch<'arena, 'ast> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+    fn with_capacity_in(
+        rule_capacity: usize,
+        block_capacity: usize,
+        declaration_capacity: usize,
+        allocator: &'arena Allocator,
+    ) -> Self {
         Self {
-            history: allocator.vec(),
-            left_declarations: allocator.vec(),
-            right_declarations: allocator.vec(),
-            left_residual: allocator.vec(),
-            right_residual: allocator.vec(),
-            common: allocator.vec(),
-            matched_right: HashSet::new_in(allocator),
-            matched_left: HashSet::new_in(allocator),
-            declarations_to_remove: allocator.vec(),
-            affected_blocks: HashSet::new_in(allocator),
-            affected_rules: FxHashMap::default(),
-            affected_parents: FxHashSet::default(),
-            rule_contexts: allocator.vec(),
-            mutation_deltas: allocator.vec(),
-            previous_by_property: HashMap::new_in(allocator),
+            history: Vec::with_capacity_in(block_capacity, allocator),
+            left_declarations: Vec::with_capacity_in(declaration_capacity, allocator),
+            right_declarations: Vec::with_capacity_in(declaration_capacity, allocator),
+            left_residual: Vec::with_capacity_in(declaration_capacity, allocator),
+            right_residual: Vec::with_capacity_in(declaration_capacity, allocator),
+            common: Vec::with_capacity_in(declaration_capacity, allocator),
+            matched_right: HashSet::with_capacity_in(declaration_capacity, allocator),
+            matched_left: HashSet::with_capacity_in(declaration_capacity, allocator),
+            declarations_to_remove: Vec::with_capacity_in(declaration_capacity, allocator),
+            affected_blocks: HashSet::with_capacity_in(block_capacity, allocator),
+            affected_rules: FxHashMap::with_capacity_and_hasher(rule_capacity, Default::default()),
+            affected_parents: FxHashSet::with_capacity_and_hasher(
+                rule_capacity,
+                Default::default(),
+            ),
+            affected_block_updates: Vec::with_capacity_in(block_capacity, allocator),
+            affected_parent_updates: Vec::with_capacity_in(rule_capacity, allocator),
+            rule_contexts: Vec::with_capacity_in(rule_capacity, allocator),
+            mutation_deltas: Vec::with_capacity_in(rule_capacity, allocator),
+            previous_by_property: HashMap::with_capacity_in(declaration_capacity, allocator),
         }
     }
 }
@@ -286,8 +298,10 @@ struct CrossRuleState<'arena, 'ast> {
 
 impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     fn new_in(stylesheet: &StyleSheet<'ast>, allocator: &'arena Allocator) -> Self {
-        let declaration_capacity = stylesheet.declarations_in_source_order().len();
+        let rule_capacity = stylesheet.rule_count();
+        let declaration_capacity = stylesheet.declaration_count();
         let block_capacity = stylesheet.declaration_block_count();
+        let effective_key_capacity = stylesheet.effective_key_count();
         Self {
             allocator,
             declaration_ir: DeclarationIrStore::new_in(
@@ -295,16 +309,36 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 declaration_capacity,
                 block_capacity,
             ),
-            histories: HashMap::with_capacity_in(block_capacity, allocator),
+            histories: HashMap::with_capacity_in(effective_key_capacity, allocator),
             block_order: Vec::with_capacity_in(block_capacity, allocator),
-            block_order_indices: FxHashMap::default(),
-            declaration_append_contexts: FxHashMap::default(),
+            block_order_indices: FxHashMap::with_capacity_and_hasher(
+                block_capacity,
+                Default::default(),
+            ),
+            declaration_append_contexts: FxHashMap::with_capacity_and_hasher(
+                block_capacity,
+                Default::default(),
+            ),
             published_blocks: Vec::with_capacity_in(block_capacity, allocator),
-            direct_style_edges: Vec::with_capacity_in(block_capacity, allocator),
-            same_selector_candidates: SameSelectorCandidateList::new_in(allocator),
-            declaration_override_candidates: DeclarationOverrideCandidateList::new_in(allocator),
-            partial_merge_candidates: PartialMergeCandidateList::new_in(allocator),
-            scratch: MinifyScratch::new_in(allocator),
+            direct_style_edges: Vec::with_capacity_in(rule_capacity, allocator),
+            same_selector_candidates: SameSelectorCandidateList::with_capacity_in(
+                rule_capacity,
+                allocator,
+            ),
+            declaration_override_candidates: DeclarationOverrideCandidateList::with_capacity_in(
+                effective_key_capacity,
+                allocator,
+            ),
+            partial_merge_candidates: PartialMergeCandidateList::with_capacity_in(
+                rule_capacity,
+                allocator,
+            ),
+            scratch: MinifyScratch::with_capacity_in(
+                rule_capacity,
+                block_capacity,
+                declaration_capacity,
+                allocator,
+            ),
             published_block_count: 0,
         }
     }
@@ -566,13 +600,12 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 self.scratch.affected_blocks.insert(block);
                 stats.declarations_removed += 1;
             }
-            let append_context_updates = self
-                .scratch
-                .affected_blocks
-                .iter()
-                .copied()
-                .collect::<std::vec::Vec<_>>();
-            for block in append_context_updates {
+            self.scratch.affected_block_updates.clear();
+            self.scratch
+                .affected_block_updates
+                .extend(self.scratch.affected_blocks.iter().copied());
+            for update_index in 0..self.scratch.affected_block_updates.len() {
+                let block = self.scratch.affected_block_updates[update_index];
                 self.refresh_declaration_append_context(stylesheet, block)?;
             }
 
@@ -598,13 +631,12 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 self.scratch.affected_rules.insert(owner, affected);
             }
 
-            let affected_parents = self
-                .scratch
-                .affected_parents
-                .iter()
-                .copied()
-                .collect::<std::vec::Vec<_>>();
-            for parent in affected_parents {
+            self.scratch.affected_parent_updates.clear();
+            self.scratch
+                .affected_parent_updates
+                .extend(self.scratch.affected_parents.iter().copied());
+            for update_index in 0..self.scratch.affected_parent_updates.len() {
+                let parent = self.scratch.affected_parent_updates[update_index];
                 self.scratch.rule_contexts.clear();
                 if let Some(parent) = parent {
                     for context in stylesheet.nested_rule_contexts(parent)? {
@@ -1124,7 +1156,10 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         for block in &mut self.block_order {
             *block = remap_block_id(*block, &result.remaps);
         }
-        let mut remapped_append_contexts = FxHashMap::default();
+        let mut remapped_append_contexts = FxHashMap::with_capacity_and_hasher(
+            self.declaration_append_contexts.len(),
+            Default::default(),
+        );
         for (block, context) in self.declaration_append_contexts.drain() {
             remapped_append_contexts.insert(
                 remap_block_id(block, &result.remaps),

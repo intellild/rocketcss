@@ -222,15 +222,15 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         blocks: &'sequence [RadixDeclarationBlockId<'ast>],
         stylesheet: &'sequence mut StyleSheet<'ast>,
     ) -> Self {
-        let declaration_ids = blocks
-            .iter()
-            .map(|&block| {
-                stylesheet
-                    .declaration_ids_in_block(block)
-                    .expect("a declaration sequence block remains valid")
-                    .collect()
-            })
-            .collect();
+        let mut declaration_ids = std::vec::Vec::with_capacity(blocks.len());
+        for &block in blocks {
+            let ids = stylesheet
+                .declaration_ids_in_block(block)
+                .expect("a declaration sequence block remains valid");
+            let mut block_ids = std::vec::Vec::with_capacity(ids.len());
+            block_ids.extend(ids);
+            declaration_ids.push(block_ids);
+        }
         Self {
             blocks,
             declaration_ids,

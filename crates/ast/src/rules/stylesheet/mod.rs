@@ -1033,8 +1033,26 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
 
     #[doc(hidden)]
     #[inline]
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+
+    #[doc(hidden)]
+    #[inline]
     pub fn declaration_block_count(&self) -> usize {
         self.declaration_blocks.len()
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn declaration_count(&self) -> usize {
+        self.declarations.len()
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub fn effective_key_count(&self) -> usize {
+        self.effective_keys.len()
     }
 
     #[doc(hidden)]
