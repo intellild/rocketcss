@@ -2,18 +2,15 @@
 
 ## Compiler ownership
 
-`Compiler` owns one compilation's source, source map, atom pool, arena, AST
-stores, and semantic interners. There are exactly three node stores, one
-`RadixIndexArena` per node kind:
+`Compilation` owns the authoritative rule tree and declaration data. Rule
+topology is stored in one `RadixIndexArena`; it is not reconstructed by parser,
+codegen, visitor, or Nano sidecars.
 
 ```rust,ignore
 struct Compilation<'ast> {
-    allocator: Allocator,
-    string_pool: StringPool<'ast>,
-
-    rules: RadixIndexArena<CssRule<'ast>>,
-    declaration_blocks: RadixIndexArena<DeclarationBlock<'ast>>,
-    declarations: RadixIndexArena<DeclarationProperty<'ast>>,
+    rules: RadixIndexArena<RuleRecord<'ast>>,
+    declaration_blocks: RadixIndexArena<DeclarationBlockRecord<'ast>>,
+    declarations: DenseStore<DeclarationRecord<'ast>>,
 
     selector_values: SelectorValueInterner,
     context_paths: ContextPathInterner,
@@ -21,169 +18,128 @@ struct Compilation<'ast> {
 }
 ```
 
-Every rule, declaration block, and declaration property is a node in the
-corresponding arena with a stable four-byte typed ID. A "list" is never a
-separate collection of pointers: it is a range reference into one arena. The
-arena is the sequence; the range is a two-word window descriptor.
+Every persistent reference uses a typed four-byte ID. Arena addresses are an
+allocation detail and are never semantic identity.
 
-## Lists are range references
+## Rules use lexical preorder
 
-`Vec<CssRule>` and `Vec<Declaration>` do not exist as physical containers.
-Both the root rule list and every nested rule list are one range over the
-rules arena:
+The parser allocates a rule before parsing its body and immediately descends
+into nested syntax. Primary rule IDs therefore follow CSS source order:
 
-```rust,ignore
-struct RuleRange {
-    start: RuleId,
-    len: u32,
-}
+```text
+source/tree                 rules arena
 
-struct StyleSheet {
-    root_rules: RuleRange,
-}
+a                           a
+  @media                    @media
+    b                       b
+  c                         c
+d                           d
 ```
 
-A rule owns its direct children as an inline range; no separate rule-list
-store is required:
+`RuleRecord` stores only its semantic parent and one compact physical subtree
+span:
 
 ```rust,ignore
-struct CssRule<'ast> {
+struct RuleRecord<'ast> {
     payload: CssRulePayload<'ast>,
     parent: Option<RuleId>,
-    children: Option<RuleRange>,
+    nested_rule_count: u32,
     declaration_block: Option<DeclarationBlockId>,
     revision: u32,
     live: bool,
 }
 ```
 
-A declaration block references its ordered declarations as one range over the
-declaration-property arena:
+`nested_rule_count` is the number of arena records in the complete subtree,
+excluding the rule itself. It includes children, deeper descendants, and
+retained tombstones. Keeping tombstones in the span means retirement never
+changes the boundaries of later subtrees.
+
+There is no `RuleListId`, separate rule-list store, children vector, or
+first/last/previous/next link. There is also no rule `RadixRange`: preorder
+makes one count sufficient.
+
+## Tree navigation
+
+For a rule at position `R`:
+
+- the first direct child, when present, is the next semantic arena ID;
+- the first rule after its subtree is `advance(R, 1 + nested_rule_count)`;
+- after visiting a direct child `C`, the next direct child is
+  `advance(C, 1 + C.nested_rule_count)`; and
+- the root span is the whole rules arena.
+
+These calculations are private to the AST crate. Other crates use semantic
+operations such as `root_rules`, `nested_rules`, `has_nested_rules`,
+`next_sibling`, source-order iteration, and scoped source-order transforms;
+they do not read spans or drive Radix cursors themselves.
+
+```text
+Parser
+  append_rule(parent, payload)
+       ↓
+AST
+  append in lexical preorder
+  increment every ancestor's nested_rule_count
+       ↓
+Codegen / Visitor / Nano
+  root_rules / nested_rules / semantic source-order iteration
+```
+
+## Declarations
+
+Authored declarations form one lexical source tape. A declaration block starts
+as a contiguous `DeclarationRange`. Structural minification may replace that
+representation with `Local4` or arena-backed `Overflow` IDs when the final
+semantic sequence is no longer one authored slice.
+
+Nested rules close the current declaration segment. Declarations that appear
+after nested rules are represented by an explicit `NestedDeclarations` rule,
+so parent and descendant declarations never become one ambiguous block.
+
+Every declaration block permanently records its rule owner and effective key:
 
 ```rust,ignore
-struct DeclarationRange {
-    start: DeclarationPropertyId,
-    len: u32,
-}
-
-struct DeclarationBlock<'ast> {
+struct DeclarationBlockRecord {
     owner: RuleId,
-    declarations: DeclarationRange,
+    declarations: DeclarationList, // Range | Local4 | Overflow
     effective_key: EffectiveKeyId,
     revision: u32,
     live: bool,
 }
 ```
 
-A range is a window in the arena's semantic ID order: iterate from `start`
-forward, taking `len` live nodes. `RadixIndexId` numeric order equals semantic
-order (primary node, then its locally inserted siblings, then the next primary),
-so the window is a real slice in ID order even after rare local insertions.
-
-There is no `first`/`last`/`previous_sibling`/`next_sibling` topology, no
-`previous_in_source`/`next_in_source` chain, and no per-rule child-list
-indirection. Direct CSS sibling adjacency of a list is exactly arena adjacency
-inside that list's range. Linked lists existed only to paper over noncontiguous
-allocation; the allocation invariants below make them unnecessary.
-
-## Allocation invariants
-
-### Rules allocate level by level
-
-Depth-first parsing would interleave a nested rule's descendants between its
-parent's direct children, so no single list would be contiguous. Instead the
-rules arena is filled in per-list order:
-
-1. append every direct child of the current list contiguously; then
-2. queue each appended rule's body; and
-3. process the queue so the next level's rules (the children of the rules just
-   appended) become the next contiguous region.
-
-Equivalently, the rules arena stores the CSS rule tree in breadth-first order.
-Each rule's `children` range is a contiguous primary slice:
-
-```text
-level 0  a    media   c              root_rules = (a, 3)
-level 1  b  b1   d                   a.children = (b, 2)   media.children = (d, 1)
-level 2  e                           b1.children = (e, 1)
-```
-
-Arena order is `[a, media, c, b, b1, d, e]`; every range is a contiguous window.
-
-Code generation, visitor walks, and minify traversal read the tree by
-recursively following `children` ranges, so source order is preserved even
-though the arena is not in lexical preorder. The global arena order is
-deterministic; it is simply not a source-order scan.
-
-The parser's nested-body queue replaces immediate `parse_nested_block`
-recursion while still reading the source once.
-
-### Declaration ranges never interleave
-
-A block's declarations are appended contiguously in source order. Nested rules
-close the current declaration run before their own declarations are parsed, and
-post-nesting declarations of the parent go to a distinct
-`NestedDeclarationsRule` block. No block's range ever absorbs a descendant's
-properties, so the declaration-property arena needs no level ordering: its
-primary order is lexical source order and every block range is a contiguous
-slice.
-
-## Iteration
-
-Range iteration is store-native:
-
-```rust,ignore
-for rule_id in compilation.rules.window(root_rules) {
-    consume(rule_id);
-}
-```
-
-`window(range)` walks the arena's semantic iterator from `start` and takes
-`len` live nodes, skipping tombstones. When no local insertion exists, the walk
-is a plain primary slice. There is no recursive AST walk that rebuilds a
-transient flat vector.
-
 ## Mutation
 
 ### Insertion
 
-A synthesized rule or block is inserted at its final semantic position with the
-arena's local sibling mechanism (`insert_between`/`insert_sibling`). The new
-node's ID sorts into the owning range; the range's `len` increments. No primary
-node moves, no later ID changes, and no list bookkeeping beyond the range
-update is needed.
+`insert_rule_after` finds the physical tail of the left rule's complete
+subtree, inserts the synthesized rule at its final Radix position, repairs any
+rare local ID relabel, and increments `nested_rule_count` for every ancestor of
+the inserted rule. Callers receive a stable final `RuleId`; they do not repair
+tree topology themselves.
 
 ### Retirement
 
-Retiring a rule or block keeps its ID as a tombstone and decrements the owning
-range's `len`. Window iteration skips tombstones. `start` need not move: it
-names the first member's stable ID, and iteration filters non-live nodes.
+Retirement marks a rule and its declaration block dead but retains their arena
+records. Semantic iterators skip tombstones. Physical subtree counts stay
+unchanged, so the source-order placement of every later rule remains stable.
+A rule may be retired only when it has no live nested rules.
 
-Because direct siblings are arena-adjacent, finding the real neighbors for an
-insertion is a short tombstone-skipping scan of the range, not a walk over a
-`previous_in_source` chain.
+### Adjacency
 
-## Effective keys
-
-Effective keys are unchanged by this layout and remain AST data owned by the
-block. See [Effective keys](./effective-key.md).
-
-## Code generation
-
-Codegen starts from `StyleSheet.root_rules`, follows each `children` range
-recursively, and reads values from the Radix stores. Primary-only ranges use
-contiguous traversal; ranges that received a local insertion merge primary
-segments with sibling Radix segments.
+Direct sibling adjacency is derived from parent equality and preorder subtree
+spans, then revalidated by the AST mutation. Numeric ID closeness alone is
+never proof of CSS adjacency because a sibling may have descendants or a local
+Radix insertion may sit between primary IDs.
 
 ## Required invariants
 
-- There are exactly three node arenas; no other node collection exists.
-- Every live rule and every live declaration block belongs to exactly one range.
-- A rule's direct children are one contiguous semantic window (level-order
-  allocation).
-- A block's declarations are one contiguous semantic window (never interleaved).
-- `RuleRange.start` names a stable ID; iteration counts live nodes only.
-- Sibling insertion sorts into its range without moving primaries.
-- Retirement leaves a tombstone and decrements its range's `len`.
-- Direct sibling adjacency equals arena adjacency within one range.
-- No arena pointer is used as semantic equality or persistent identity.
+- Primary parser allocation is lexical preorder.
+- `nested_rule_count` exactly covers every physical descendant record.
+- A record's `parent` equals the innermost subtree span containing it.
+- Tombstones remain in physical spans but are absent from semantic traversal.
+- All span and Radix cursor maintenance stays inside the AST implementation.
+- Every live declaration block has exactly one live rule owner and one current
+  `EffectiveKeyId`.
+- Local Radix relabeling repairs every persistent ID reference atomically.

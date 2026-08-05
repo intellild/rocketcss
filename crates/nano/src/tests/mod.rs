@@ -66,8 +66,7 @@ fn run_with_error_recovery(source: &str) -> String {
 
 fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
     compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
-        .expect("the root rule list remains valid")
+        .root_rules()
         .map(|(rule, _)| rule)
         .next()
         .expect("expected at least one rule")

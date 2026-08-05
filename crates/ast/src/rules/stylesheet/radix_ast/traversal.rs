@@ -191,12 +191,12 @@ impl<'ast> Compilation<'ast> {
         self.transform_selector_values(|id, selectors| {
             visitor.visit_selector_value(id, selectors);
         });
-        let mut current = self.first_rule_in_source;
+        let mut current = self.first_rule_in_source();
         while let Some(rule_id) = current {
             let rule = self
                 .rule(rule_id)
                 .ok_or(ConcreteMutationError::UnknownRule(rule_id))?;
-            current = rule.next_in_source();
+            current = self.next_rule_in_source(rule_id);
             if !rule.is_live() {
                 continue;
             }

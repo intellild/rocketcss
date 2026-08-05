@@ -57,22 +57,17 @@ pub fn try_minify<'ast, 'ghost>(
         minifier.visit_selector_list(selectors, &mut visit_context);
     });
 
-    let mut current = compilation.first_rule_in_source();
-    while let Some(rule_id) = current {
+    compilation.try_for_each_rule_in_source_order(|rule_id, compilation| {
         let rule = compilation.rule(rule_id).ok_or(
             radix_ast::ConcreteMutationError::<'ast>::UnknownRule(rule_id),
         )?;
-        current = rule.next_in_source();
-        if !rule.is_live() {
-            continue;
-        }
         let property_block = rule.payload().owns_property_declarations();
         let block_id = rule.declaration_block();
         compilation.transform_rule_payload(rule_id, |payload| {
             minify_rule_payload(payload, &mut minifier, &mut visit_context);
         })?;
         let Some(block_id) = block_id else {
-            continue;
+            return Ok(());
         };
         compilation.for_each_declaration_mut(block_id, |_, record| {
             if property_block {
@@ -100,7 +95,8 @@ pub fn try_minify<'ast, 'ghost>(
                 block_id,
             )?;
         }
-    }
+        Ok(())
+    })?;
 
     let context_repair = compilation.refresh_context_value_identities_with_remaps(&allocator)?;
 

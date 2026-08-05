@@ -3,7 +3,7 @@ use super::{at_rule::parse_group_at_rule, *};
 pub(super) fn parse_style_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -92,21 +92,17 @@ pub(super) fn parse_mixed_style_contents<'ast>(
 
         let result = match token {
             ValueToken::Semicolon => continue,
-            ValueToken::AtKeyword(name) => {
-                let child_list = ensure_child_list(compilation, owner_rule)
-                    .map_err(|error| mutation_error(input, error))?;
-                parse_group_at_rule(
-                    input,
-                    compilation,
-                    child_list,
-                    context,
-                    options,
-                    depth,
-                    &start,
-                    name,
-                )
-                .map(|_| active_segment = None)
-            }
+            ValueToken::AtKeyword(name) => parse_group_at_rule(
+                input,
+                compilation,
+                Some(owner_rule),
+                context,
+                options,
+                depth,
+                &start,
+                name,
+            )
+            .map(|_| active_segment = None),
             ValueToken::Ident(name) => {
                 let has_colon = input.try_parse(Compiler::expect_colon).is_ok();
                 let scan = scan_rule_body(input, !name.starts_with("--"));
@@ -123,11 +119,9 @@ pub(super) fn parse_mixed_style_contents<'ast>(
                     )
                     .and_then(|(declaration, important)| {
                         if active_segment.is_none() {
-                            let child_list = ensure_child_list(compilation, owner_rule)
-                                .map_err(|error| mutation_error(input, error))?;
                             let nested_rule = compilation
                                 .append_rule(
-                                    child_list,
+                                    Some(owner_rule),
                                     CssRulePayload::NestedDeclarations(NestedDeclarationsPayload {
                                         span: span_from(&start, input.position()),
                                     }),
@@ -167,12 +161,10 @@ pub(super) fn parse_mixed_style_contents<'ast>(
                     Err(input.new_custom_error(ParserError::InvalidDeclaration))
                 } else {
                     input.reset(&start);
-                    let child_list = ensure_child_list(compilation, owner_rule)
-                        .map_err(|error| mutation_error(input, error))?;
                     parse_style_rule(
                         input,
                         compilation,
-                        child_list,
+                        Some(owner_rule),
                         context,
                         options,
                         depth,
@@ -183,12 +175,10 @@ pub(super) fn parse_mixed_style_contents<'ast>(
             }
             _ => {
                 input.reset(&start);
-                let child_list = ensure_child_list(compilation, owner_rule)
-                    .map_err(|error| mutation_error(input, error))?;
                 parse_style_rule(
                     input,
                     compilation,
-                    child_list,
+                    Some(owner_rule),
                     context,
                     options,
                     depth,
@@ -208,19 +198,4 @@ pub(super) fn parse_mixed_style_contents<'ast>(
         }
     }
     Ok(())
-}
-
-pub(super) fn ensure_child_list<'ast>(
-    compilation: &mut Compilation<'ast>,
-    owner: ConcreteRuleId<'ast>,
-) -> Result<RuleListId, rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
-    if let Some(list) = compilation
-        .rule(owner)
-        .expect("the current style rule remains live")
-        .child_list()
-    {
-        Ok(list)
-    } else {
-        compilation.create_child_list(owner)
-    }
 }

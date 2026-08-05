@@ -13,8 +13,7 @@ fn parse_stylesheet<'a, 'ghost>(
 
 fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
     compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
-        .unwrap()
+        .root_rules()
         .next()
         .expect("expected a root rule")
         .0
@@ -378,26 +377,25 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
             &allocator,
             &mut token,
         );
-        for (_, rule) in stylesheet
-            .rules_in_list(stylesheet.stylesheet().root_rules())
-            .unwrap()
-        {
+        for (rule_id, rule) in stylesheet.root_rules() {
             let radix_ast::CssRulePayload::Style(_) = rule.payload() else {
                 panic!("expected style rule")
             };
-            let layer_list = rule.child_list().expect("expected nested layer list");
-            let (_, layer) = stylesheet
-                .rules_in_list(layer_list)
-                .unwrap()
-                .next()
-                .unwrap();
+            assert!(
+                stylesheet.has_nested_rules(rule_id).unwrap(),
+                "expected nested layer rules"
+            );
+            let (layer_id, layer) = stylesheet.nested_rules(rule_id).unwrap().next().unwrap();
             let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
                 panic!("expected nested layer block")
             };
-            let layer_children = layer.child_list().expect("expected layer contents");
+            assert!(
+                stylesheet.has_nested_rules(layer_id).unwrap(),
+                "expected layer contents"
+            );
             assert!(matches!(
                 stylesheet
-                    .rules_in_list(layer_children)
+                    .nested_rules(layer_id)
                     .unwrap()
                     .next()
                     .unwrap()
@@ -1271,13 +1269,14 @@ fn preserves_property_rules_inside_layer_blocks() {
         let allocator = Allocator::new();
         const SOURCE: &str = "@layer base{@property --radialprogress{syntax:\"<percentage>\";inherits:true;initial-value:0%}}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
-        let layer = stylesheet.rule(first_rule_id(&stylesheet)).unwrap();
+        let layer_id = first_rule_id(&stylesheet);
+        let layer = stylesheet.rule(layer_id).unwrap();
         let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
             panic!("expected layer block")
         };
         assert!(matches!(
             stylesheet
-                .rules_in_list(layer.child_list().unwrap())
+                .nested_rules(layer_id)
                 .unwrap()
                 .next()
                 .unwrap()
@@ -1420,13 +1419,7 @@ fn preserves_unknown_media_calc_symbols_and_rule_bodies() {
         assert!(output.contains("baseUnit * 1"));
         assert!(output.contains(".className{color:red}"));
         let reparsed = parse_stylesheet(&output, &allocator, &mut token);
-        assert_eq!(
-            reparsed
-                .rules_in_list(reparsed.stylesheet().root_rules())
-                .unwrap()
-                .count(),
-            1
-        );
+        assert_eq!(reparsed.root_rules().count(), 1);
     })
 }
 

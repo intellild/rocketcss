@@ -1,13 +1,10 @@
-use super::{
-    style::{ensure_child_list, parse_mixed_style_contents},
-    *,
-};
+use super::{style::parse_mixed_style_contents, *};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn parse_group_at_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -193,7 +190,7 @@ enum AtRuleEnding {
 fn parse_media_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -229,7 +226,7 @@ fn parse_media_rule<'ast>(
 fn parse_layer_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -282,7 +279,7 @@ fn parse_layer_rule<'ast>(
 fn parse_container_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -318,7 +315,7 @@ fn parse_container_rule<'ast>(
 fn parse_scope_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -354,7 +351,7 @@ fn parse_scope_rule<'ast>(
 fn parse_moz_document_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -387,7 +384,7 @@ fn parse_moz_document_rule<'ast>(
 fn parse_unknown_at_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
@@ -422,7 +419,7 @@ fn parse_unknown_at_rule<'ast>(
 fn parse_top_level_statement_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
@@ -464,7 +461,7 @@ fn parse_top_level_statement_rule<'ast>(
 fn parse_keyframes_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -482,9 +479,7 @@ fn parse_keyframes_rule<'ast>(
             }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    let frames = compilation
-        .create_child_list(rule)
-        .map_err(|error| mutation_error(input, error))?;
+    let frames = Some(rule);
     input.parse_nested_block(|input| {
         parse_keyframe_list_into(input, compilation, frames, options, depth + 1)
     })?;
@@ -503,7 +498,7 @@ fn parse_keyframes_rule<'ast>(
 fn parse_keyframe_list_into<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -541,7 +536,7 @@ fn parse_keyframe_list_into<'ast>(
 fn parse_font_feature_values_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -558,9 +553,7 @@ fn parse_font_feature_values_rule<'ast>(
             }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    let subrules = compilation
-        .create_child_list(rule)
-        .map_err(|error| mutation_error(input, error))?;
+    let subrules = Some(rule);
     input.parse_nested_block(|input| {
         parse_font_feature_subrules_into(input, compilation, subrules, options, depth + 1)
     })?;
@@ -579,7 +572,7 @@ fn parse_font_feature_values_rule<'ast>(
 fn parse_font_feature_subrules_into<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -651,7 +644,7 @@ fn parse_font_feature_subrules_into<'ast>(
 fn parse_page_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -731,8 +724,7 @@ fn parse_page_contents<'ast>(
                 )
                 .and_then(|(declaration, important)| {
                     if active_segment.is_none() {
-                        let children = ensure_child_list(compilation, page)
-                            .map_err(|error| mutation_error(input, error))?;
+                        let children = Some(page);
                         let declarations = compilation
                             .append_rule(
                                 children,
@@ -778,8 +770,7 @@ fn parse_page_contents<'ast>(
                 if !parse_group_rule_prelude(input, depth, name)?.is_empty() {
                     return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
                 }
-                let children = ensure_child_list(compilation, page)
-                    .map_err(|error| mutation_error(input, error))?;
+                let children = Some(page);
                 let margin = append_declaration_owner(
                     input,
                     compilation,
@@ -820,7 +811,7 @@ fn parse_page_contents<'ast>(
 fn parse_nesting_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -877,7 +868,7 @@ fn parse_nesting_rule<'ast>(
 fn parse_property_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -956,7 +947,7 @@ fn parse_property_rule<'ast>(
 fn parse_font_face_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -1011,7 +1002,7 @@ fn parse_font_face_rule<'ast>(
 fn parse_font_palette_values_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -1069,7 +1060,7 @@ fn parse_font_palette_values_rule<'ast>(
 fn parse_view_transition_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -1124,7 +1115,7 @@ fn parse_view_transition_rule<'ast>(
 fn parse_counter_style_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -1157,7 +1148,7 @@ fn parse_counter_style_rule<'ast>(
 fn parse_viewport_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -1191,7 +1182,7 @@ fn parse_viewport_rule<'ast>(
 fn parse_position_try_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
@@ -1227,7 +1218,7 @@ fn parse_position_try_rule<'ast>(
 fn append_declaration_owner<'ast>(
     input: &Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     payload: CssRulePayload<'ast>,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let rule = compilation
@@ -1317,7 +1308,7 @@ fn parse_standard_declaration_contents<'ast>(
 fn parse_supports_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -1353,7 +1344,7 @@ fn parse_supports_rule<'ast>(
 fn parse_starting_style_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -1428,9 +1419,7 @@ fn parse_group_rule_contents<'ast>(
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
-    let children = compilation
-        .create_child_list(rule)
-        .map_err(|error| mutation_error(input, error))?;
+    let children = Some(rule);
     let context = compilation
         .enter_wrapper_context(context, rule)
         .map_err(|error| mutation_error(input, error))?;

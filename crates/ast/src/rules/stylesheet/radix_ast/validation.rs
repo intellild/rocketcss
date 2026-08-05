@@ -1,165 +1,49 @@
-use rustc_hash::FxHashSet;
-
 use super::*;
 
 impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
-    /// Checks typed store IDs, list endpoints, mutual links, and block owners.
+    /// Checks preorder subtree spans, parent links, and block owners.
     pub fn validate_ast(&self) -> Result<(), ValidationError<R>> {
-        let root = self.rule_lists.try_get(self.stylesheet.root_rules).ok_or(
-            ValidationError::<R>::MissingRootRuleList(self.stylesheet.root_rules),
-        )?;
-        if let Some(parent) = root.parent {
-            return Err(ValidationError::<R>::RootRuleListHasParent(parent));
-        }
-
-        let source_ids = self
-            .rules
-            .iter_enumerated()
-            .map(|(id, _)| id)
-            .collect::<std::vec::Vec<_>>();
-        if self.first_rule_in_source != source_ids.first().copied()
-            || self.last_rule_in_source != source_ids.last().copied()
-        {
-            return Err(ValidationError::<R>::InvalidSourceEndpoints);
-        }
-        for (index, &rule_id) in source_ids.iter().enumerate() {
-            let rule = self
-                .rules
-                .get(rule_id)
-                .expect("an enumerated source ID remains resolvable");
-            let expected_previous = index.checked_sub(1).map(|index| source_ids[index]);
-            if rule.previous_in_source != expected_previous {
-                return Err(ValidationError::<R>::InvalidSourcePrevious {
+        let source_len = self.rules.len();
+        let mut ancestors = std::vec::Vec::<(RuleId<R>, usize)>::new();
+        for (index, (rule_id, rule)) in self.rules.iter_enumerated().enumerate() {
+            while ancestors.last().is_some_and(|(_, end)| index > *end) {
+                ancestors.pop();
+            }
+            let expected_parent = ancestors.last().map(|(id, _)| *id);
+            if rule.parent != expected_parent {
+                return Err(ValidationError::<R>::RuleHasWrongParent {
+                    parent: expected_parent,
                     rule: rule_id,
-                    expected: expected_previous,
-                    actual: rule.previous_in_source,
                 });
             }
-            let expected_next = source_ids.get(index + 1).copied();
-            if rule.next_in_source != expected_next {
-                return Err(ValidationError::<R>::InvalidSourceNext {
+            let end = index.checked_add(rule.nested_rule_count as usize).ok_or(
+                ValidationError::<R>::NestedRuleCountMismatch {
                     rule: rule_id,
-                    expected: expected_next,
-                    actual: rule.next_in_source,
+                    expected: (source_len - index - 1) as u32,
+                    actual: rule.nested_rule_count,
+                },
+            )?;
+            if end >= source_len && rule.nested_rule_count != 0 {
+                return Err(ValidationError::<R>::NestedRuleCountMismatch {
+                    rule: rule_id,
+                    expected: (source_len - index - 1) as u32,
+                    actual: rule.nested_rule_count,
                 });
             }
-        }
-
-        let mut visited = FxHashSet::default();
-        for (list_id, list) in self.rule_lists.iter_enumerated() {
-            if let Some(parent) = list.parent {
-                let parent_record =
-                    self.rules
-                        .get(parent)
-                        .ok_or(ValidationError::<R>::MissingListParent {
-                            list: list_id,
-                            parent,
-                        })?;
-                if !parent_record.live {
-                    return Err(ValidationError::<R>::RetiredListParent {
-                        list: list_id,
-                        parent,
-                    });
-                }
-                if parent_record.child_list != Some(list_id) {
-                    return Err(ValidationError::<R>::ParentDoesNotOwnList {
-                        list: list_id,
-                        parent,
-                    });
-                }
-            }
-            if (list.live_len == 0) != (list.first.is_none() && list.last.is_none())
-                || (list.first.is_none() != list.last.is_none())
+            if let Some((_, parent_end)) = ancestors.last()
+                && end > *parent_end
             {
-                return Err(ValidationError::<R>::InvalidListEndpoints(list_id));
-            }
-
-            let mut current = list.first;
-            let mut previous = None;
-            let mut actual_len = 0_u32;
-            while let Some(rule_id) = current {
-                let rule = self
-                    .rules
-                    .get(rule_id)
-                    .ok_or(ValidationError::<R>::MissingRule(rule_id))?;
-                if !rule.live {
-                    return Err(ValidationError::<R>::RetiredRuleInList {
-                        list: list_id,
-                        rule: rule_id,
-                    });
-                }
-                if rule.parent_list != list_id {
-                    return Err(ValidationError::<R>::RuleHasWrongParentList {
-                        list: list_id,
-                        rule: rule_id,
-                    });
-                }
-                if rule.parent != list.parent {
-                    return Err(ValidationError::<R>::RuleHasWrongParent {
-                        list: list_id,
-                        rule: rule_id,
-                    });
-                }
-                if rule.previous_sibling != previous {
-                    return Err(ValidationError::<R>::RuleHasWrongPrevious {
-                        rule: rule_id,
-                        expected: previous,
-                    });
-                }
-                if !visited.insert(rule_id) {
-                    return Err(ValidationError::<R>::LiveRuleIsNotInOneList(rule_id));
-                }
-                previous = Some(rule_id);
-                current = rule.next_sibling;
-                actual_len =
-                    actual_len
-                        .checked_add(1)
-                        .ok_or(ValidationError::<R>::ListLengthMismatch {
-                            list: list_id,
-                            expected: list.live_len,
-                            actual: u32::MAX,
-                        })?;
-                if actual_len > list.live_len {
-                    return Err(ValidationError::<R>::ListLengthMismatch {
-                        list: list_id,
-                        expected: list.live_len,
-                        actual: actual_len,
-                    });
-                }
-            }
-            if previous != list.last {
-                return Err(ValidationError::<R>::ListDoesNotEndAtLast(list_id));
-            }
-            if actual_len != list.live_len {
-                return Err(ValidationError::<R>::ListLengthMismatch {
-                    list: list_id,
-                    expected: list.live_len,
-                    actual: actual_len,
+                return Err(ValidationError::<R>::NestedRuleCountMismatch {
+                    rule: rule_id,
+                    expected: (*parent_end - index) as u32,
+                    actual: rule.nested_rule_count,
                 });
             }
-        }
-
-        for (rule_id, rule) in self.rules.iter_enumerated() {
-            if rule.live && !visited.contains(&rule_id) {
-                return Err(ValidationError::<R>::LiveRuleIsNotInOneList(rule_id));
+            if rule.nested_rule_count != 0 {
+                ancestors.push((rule_id, end));
             }
             if !rule.live {
                 continue;
-            }
-            if let Some(list_id) = rule.child_list {
-                let list = self.rule_lists.try_get(list_id).ok_or(
-                    ValidationError::<R>::MissingOwnedChildList {
-                        rule: rule_id,
-                        list: list_id,
-                    },
-                )?;
-                if list.parent != Some(rule_id) {
-                    return Err(ValidationError::<R>::ChildListHasWrongParent {
-                        rule: rule_id,
-                        list: list_id,
-                        actual: list.parent,
-                    });
-                }
             }
             if let Some(block_id) = rule.declaration_block {
                 let block = self.declaration_blocks.get(block_id).ok_or(
