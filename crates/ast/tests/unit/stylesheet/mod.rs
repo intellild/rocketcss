@@ -141,6 +141,17 @@ fn lexical_order_and_direct_topology_are_independent() {
     );
     assert_eq!(
         stylesheet
+            .rule_tree_events()
+            .map(|event| (event.rule(), event.parent(), event.has_children()))
+            .collect::<std::vec::Vec<_>>(),
+        [
+            (outer, None, true),
+            (nested, Some(outer), false),
+            (following, None, false),
+        ]
+    );
+    assert_eq!(
+        stylesheet
             .root_rule_edges()
             .map(|edge| (edge.left(), edge.right()))
             .collect::<std::vec::Vec<_>>(),
@@ -454,6 +465,13 @@ fn retired_nested_tombstones_stay_in_the_span_but_not_semantic_traversal() {
         stylesheet
             .root_rules()
             .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [following]
+    );
+    assert_eq!(
+        stylesheet
+            .rule_tree_events()
+            .map(|event| event.rule())
             .collect::<std::vec::Vec<_>>(),
         [following]
     );

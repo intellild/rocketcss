@@ -216,6 +216,80 @@ impl<P> RuleRecord<P> {
     }
 }
 
+/// One live rule yielded by the stylesheet-wide lexical tree cursor.
+///
+/// The event carries just enough topology for streaming consumers to share
+/// one preorder pass without constructing mutation positions or rewalking a
+/// direct child list.
+pub struct RuleTreeEvent<P> {
+    rule: RuleId<P>,
+    parent: Option<RuleId<P>>,
+    child_count: u32,
+}
+
+impl<P> Clone for RuleTreeEvent<P> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<P> Copy for RuleTreeEvent<P> {}
+
+impl<P> std::fmt::Debug for RuleTreeEvent<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuleTreeEvent")
+            .field("rule", &self.rule)
+            .field("parent", &self.parent)
+            .field("child_count", &self.child_count)
+            .finish()
+    }
+}
+
+impl<P> RuleTreeEvent<P> {
+    #[inline]
+    pub const fn rule(self) -> RuleId<P> {
+        self.rule
+    }
+
+    #[inline]
+    pub const fn parent(self) -> Option<RuleId<P>> {
+        self.parent
+    }
+
+    #[inline]
+    pub const fn has_children(self) -> bool {
+        self.child_count != 0
+    }
+
+    #[inline]
+    pub const fn child_count(self) -> u32 {
+        self.child_count
+    }
+}
+
+/// Stylesheet-wide preorder events for live rules.
+pub struct RuleTreeEventIter<'comp, 'ast, R: Unpin> {
+    source: SemanticIterEnumerated<'comp, 'ast, RuleRecord<R>, RuleId<R>>,
+}
+
+impl<R: Unpin> Iterator for RuleTreeEventIter<'_, '_, R> {
+    type Item = RuleTreeEvent<R>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (rule, record) in self.source.by_ref() {
+            if record.live {
+                return Some(RuleTreeEvent {
+                    rule,
+                    parent: record.parent,
+                    child_count: record.nested_rule_count,
+                });
+            }
+        }
+        None
+    }
+}
+
 /// The unique syntax owner of a declaration block.
 pub enum DeclarationBlockOwner<P> {
     Rule(RuleId<P>),
@@ -1092,6 +1166,16 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
         self.rules
             .iter_enumerated()
             .filter(|(_, record)| record.live)
+    }
+
+    /// Iterates every live rule once in lexical preorder with its direct-tree
+    /// relationship. Streaming consumers should prefer this over recursively
+    /// opening a new direct-list iterator for every rule.
+    #[inline]
+    pub fn rule_tree_events(&self) -> RuleTreeEventIter<'_, 'ast, R> {
+        RuleTreeEventIter {
+            source: self.rules.iter_enumerated(),
+        }
     }
 
     /// Runs a fallible non-structural transform over live rules in lexical

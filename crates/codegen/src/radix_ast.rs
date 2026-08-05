@@ -3,7 +3,8 @@
 use crate::{prelude::*, rules::NamedProperty};
 use rocketcss_ast::{
     CssDeclaration, CssDeclarationBlockId as DeclarationBlockId, CssRule, CssRuleId as RuleId,
-    FontFeatureSubrule, PageRule, PropertyRule, PropertyRuleDescriptor, RuleRecord, StyleSheet,
+    FontFeatureSubrule, PageRule, PropertyRule, PropertyRuleDescriptor, RuleRecord, RuleTreeEvent,
+    RuleTreeEventIter, StyleSheet,
 };
 
 #[derive(Clone, Copy)]
@@ -19,16 +20,20 @@ impl<'ghost> ToCss<'ghost> for StyleSheet<'_> {
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let writer = RadixWriter(self);
+        let mut cursor = RuleTreeCursor::new(self.rule_tree_events());
+        let first_root = writer.next_visible_rule(None, &mut cursor);
+        let has_root_rules = first_root.is_some();
         for (index, comment) in self.license_comments().iter().enumerate() {
             dest.write_str("/*")?;
             dest.write_str(comment)?;
             dest.write_str("*/")?;
-            if index + 1 < self.license_comments().len() || !writer.root_is_empty() {
+            if index + 1 < self.license_comments().len() || has_root_rules {
                 dest.new_line()?;
             }
         }
-        writer.write_rule_list(self.root_rules(), dest, cx)?;
-        if !writer.root_is_empty() {
+        writer.write_rule_list(None, first_root, &mut cursor, dest, cx)?;
+        debug_assert!(cursor.events.peek().is_none());
+        if has_root_rules {
             dest.new_line()?;
         }
         Ok(())
@@ -36,6 +41,34 @@ impl<'ghost> ToCss<'ghost> for StyleSheet<'_> {
 }
 
 struct RadixWriter<'comp, 'ast>(&'comp StyleSheet<'ast>);
+
+#[derive(Clone, Copy)]
+struct VisibleRule<'comp, 'ast> {
+    event: RuleTreeEvent<CssRule<'ast>>,
+    rule: &'comp RuleRecord<CssRule<'ast>>,
+}
+
+struct RuleTreeCursor<'comp, 'ast> {
+    events: std::iter::Peekable<RuleTreeEventIter<'comp, 'ast, CssRule<'ast>>>,
+}
+
+impl<'comp, 'ast> RuleTreeCursor<'comp, 'ast> {
+    fn new(events: RuleTreeEventIter<'comp, 'ast, CssRule<'ast>>) -> Self {
+        Self {
+            events: events.peekable(),
+        }
+    }
+
+    fn next_child(&mut self, parent: Option<RuleId<'ast>>) -> Option<RuleTreeEvent<CssRule<'ast>>> {
+        (self.events.peek()?.parent() == parent).then(|| self.events.next().unwrap())
+    }
+
+    fn skip_children(&mut self, parent: RuleId<'ast>) {
+        while let Some(child) = self.next_child(Some(parent)) {
+            self.skip_children(child.rule());
+        }
+    }
+}
 
 impl<'ast> std::ops::Deref for RadixWriter<'_, 'ast> {
     type Target = StyleSheet<'ast>;
@@ -46,69 +79,101 @@ impl<'ast> std::ops::Deref for RadixWriter<'_, 'ast> {
 }
 
 impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
-    fn root_is_empty(&self) -> bool {
-        self.root_rules().next().is_none()
-    }
-
     fn write_rule_list<'ghost, PrinterT: PrinterTrait>(
         &self,
-        mut rules: impl Iterator<Item = VisibleRule<'comp, 'ast>>,
+        parent: Option<RuleId<'ast>>,
+        first_rule: Option<VisibleRule<'comp, 'ast>>,
+        cursor: &mut RuleTreeCursor<'comp, 'ast>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let mut first = true;
         let mut last_without_block = false;
-        let mut current = next_visible_rule(self.0, &mut rules);
-        while let Some((id, rule)) = current {
-            current = next_visible_rule(self.0, &mut rules);
+        let mut current = first_rule.or_else(|| self.next_visible_rule(parent, cursor));
+        while let Some(visible) = current {
             if !first {
-                if !last_without_block || !rule_without_block(rule.payload()) {
+                if !last_without_block || !rule_without_block(visible.rule.payload()) {
                     dest.blank_line()?;
                 } else {
                     dest.new_line()?;
                 }
             }
             first = false;
-            let last_semicolon = if current.is_some() {
-                LastSemicolon::Required
-            } else {
-                LastSemicolon::Optional
-            };
-            self.write_rule(id, rule, dest, last_semicolon, cx)?;
-            last_without_block = rule_without_block(rule.payload());
+            let mut wrote_unterminated_declaration = false;
+            self.write_rule(
+                visible,
+                cursor,
+                dest,
+                LastSemicolon::Optional,
+                &mut wrote_unterminated_declaration,
+                cx,
+            )?;
+            last_without_block = rule_without_block(visible.rule.payload());
+            current = self.next_visible_rule(parent, cursor);
+            if current.is_some() && wrote_unterminated_declaration {
+                dest.write_char(';')?;
+            }
         }
         Ok(())
     }
 
+    fn next_visible_rule(
+        &self,
+        parent: Option<RuleId<'ast>>,
+        cursor: &mut RuleTreeCursor<'comp, 'ast>,
+    ) -> Option<VisibleRule<'comp, 'ast>> {
+        while let Some(event) = cursor.next_child(parent) {
+            let rule = self
+                .0
+                .rule(event.rule())
+                .expect("a tree event's live rule remains resolvable");
+            if let CssRule::Style(style) = rule.payload() {
+                let selector = self
+                    .selector_value(style.selector_value)
+                    .expect("a style selector value remains resolvable");
+                if selector.selectors().iter().all(Selector::is_tombstone) {
+                    cursor.skip_children(event.rule());
+                    continue;
+                }
+            }
+            return Some(VisibleRule { event, rule });
+        }
+        None
+    }
+
     fn write_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
-        id: RuleId<'ast>,
-        rule: &RuleRecord<CssRule<'ast>>,
+        visible: VisibleRule<'comp, 'ast>,
+        cursor: &mut RuleTreeCursor<'comp, 'ast>,
         dest: &mut PrinterT,
         last_semicolon: LastSemicolon,
+        wrote_unterminated_declaration: &mut bool,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        let event = visible.event;
+        let id = event.rule();
+        let rule = visible.rule;
         match rule.payload() {
             CssRule::Style(payload) => {
                 let selector = self
                     .selector_value(payload.selector_value)
                     .expect("a style selector value remains resolvable");
                 selector.selectors().to_css(dest, cx)?;
-                self.write_style_body(id, rule, dest, cx)
+                self.write_style_body(event, rule, cursor, dest, cx)
             }
             CssRule::Media(payload) => {
                 dest.write_str("@media ")?;
                 payload.query.to_css(dest, cx)?;
-                self.write_child_rule_block(id, dest, cx)
+                self.write_child_rule_block(event, cursor, dest, cx)
             }
             CssRule::Supports(payload) => {
                 dest.write_str("@supports ")?;
                 payload.condition.to_css(dest, cx)?;
-                self.write_child_rule_block(id, dest, cx)
+                self.write_child_rule_block(event, cursor, dest, cx)
             }
             CssRule::StartingStyle(_) => {
                 dest.write_str("@starting-style")?;
-                self.write_child_rule_block(id, dest, cx)
+                self.write_child_rule_block(event, cursor, dest, cx)
             }
             CssRule::LayerStatement(payload) => {
                 dest.write_str("@layer ")?;
@@ -126,7 +191,7 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                     dest.write_char(' ')?;
                     write_layer_name(name, dest)?;
                 }
-                self.write_child_rule_block(id, dest, cx)
+                self.write_child_rule_block(event, cursor, dest, cx)
             }
             CssRule::Container(payload) => {
                 dest.write_str("@container")?;
@@ -138,7 +203,7 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                     dest.write_char(' ')?;
                     condition.to_css(dest, cx)?;
                 }
-                self.write_child_rule_block(id, dest, cx)
+                self.write_child_rule_block(event, cursor, dest, cx)
             }
             CssRule::Scope(payload) => {
                 dest.write_str("@scope")?;
@@ -152,11 +217,11 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                     end.to_css(dest, cx)?;
                     dest.write_char(')')?;
                 }
-                self.write_child_rule_block(id, dest, cx)
+                self.write_child_rule_block(event, cursor, dest, cx)
             }
             CssRule::MozDocument(_) => {
                 dest.write_str("@-moz-document url-prefix()")?;
-                self.write_child_rule_block(id, dest, cx)
+                self.write_child_rule_block(event, cursor, dest, cx)
             }
             CssRule::Unknown(payload) => {
                 dest.write_char('@')?;
@@ -219,76 +284,81 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                 payload.vendor_prefix.to_css(dest, cx)?;
                 dest.write_str("keyframes ")?;
                 payload.name.to_css(dest, cx)?;
-                if !self
-                    .has_nested_rules(id)
-                    .expect("codegen only traverses a validated rule tree")
-                {
+                if !event.has_children() {
                     dest.whitespace()?;
                     dest.write_char('{')?;
                     dest.new_line()?;
                     dest.write_char('}')
                 } else {
-                    self.write_child_rule_block(id, dest, cx)
+                    self.write_child_rule_block(event, cursor, dest, cx)
                 }
             }
             CssRule::Keyframe(payload) => {
                 write_comma_separated(&payload.selectors, dest, cx)?;
                 self.write_property_block(rule, dest, cx)
             }
-            CssRule::Page(payload) => self.write_page_rule(id, rule, payload, dest, cx),
+            CssRule::Page(payload) => self.write_page_rule(event, rule, payload, cursor, dest, cx),
             CssRule::PageMargin(payload) => {
                 dest.write_char('@')?;
                 payload.margin_box.to_css(dest, cx)?;
                 self.write_property_block(rule, dest, cx)
             }
-            CssRule::PageDeclarations(_) => self
-                .write_property_declarations(
+            CssRule::PageDeclarations(_) => {
+                let wrote_declaration = self.write_property_declarations(
                     rule.declaration_block()
                         .expect("a page declaration segment owns a block"),
                     dest,
                     last_semicolon,
                     cx,
-                )
-                .map(|_| ()),
+                )?;
+                *wrote_unterminated_declaration = wrote_declaration
+                    && matches!(last_semicolon, LastSemicolon::Optional)
+                    && !dest.prettify();
+                Ok(())
+            }
             CssRule::Nesting(payload) => {
                 dest.write_str("@nest ")?;
                 self.selector_value(payload.selector_value)
                     .expect("a nesting selector value remains resolvable")
                     .selectors()
                     .to_css(dest, cx)?;
-                self.write_style_body(id, rule, dest, cx)
+                self.write_style_body(event, rule, cursor, dest, cx)
             }
             CssRule::FontFeatureValues(payload) => {
                 dest.write_str("@font-feature-values ")?;
                 write_comma_separated(&payload.name, dest, cx)?;
-                self.write_child_rule_block(id, dest, cx)
+                self.write_child_rule_block(event, cursor, dest, cx)
             }
             CssRule::FontFeatureSubrule(payload) => {
                 self.write_font_feature_subrule(id, payload, dest, cx)
             }
             CssRule::Property(payload) => self.write_property_rule(id, payload, dest, cx),
-            CssRule::NestedDeclarations(_) => self
-                .write_property_declarations(
+            CssRule::NestedDeclarations(_) => {
+                let wrote_declaration = self.write_property_declarations(
                     rule.declaration_block()
                         .expect("a nested declaration segment owns a block"),
                     dest,
                     last_semicolon,
                     cx,
-                )
-                .map(|_| ()),
+                )?;
+                *wrote_unterminated_declaration = wrote_declaration
+                    && matches!(last_semicolon, LastSemicolon::Optional)
+                    && !dest.prettify();
+                Ok(())
+            }
         }
     }
 
     fn write_style_body<'ghost, PrinterT: PrinterTrait>(
         &self,
-        id: RuleId<'ast>,
+        event: RuleTreeEvent<CssRule<'ast>>,
         rule: &RuleRecord<CssRule<'ast>>,
+        cursor: &mut RuleTreeCursor<'comp, 'ast>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        let has_children = self
-            .has_nested_rules(id)
-            .expect("codegen only traverses a validated rule tree");
+        let id = event.rule();
+        let has_children = event.has_children();
         let block = rule
             .declaration_block()
             .expect("a style syntax position owns a declaration block");
@@ -307,12 +377,7 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                 dest.blank_line()?;
             }
             if has_children {
-                self.write_rule_list(
-                    self.nested_rules(id)
-                        .expect("the style rule remains a valid nested-rule owner"),
-                    dest,
-                    cx,
-                )?;
+                self.write_rule_list(Some(id), None, cursor, dest, cx)?;
             }
             Ok(())
         })
@@ -320,21 +385,15 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
 
     fn write_child_rule_block<'ghost, PrinterT: PrinterTrait>(
         &self,
-        id: RuleId<'ast>,
+        event: RuleTreeEvent<CssRule<'ast>>,
+        cursor: &mut RuleTreeCursor<'comp, 'ast>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        let has_children = self
-            .has_nested_rules(id)
-            .expect("codegen only traverses a validated rule tree");
+        let id = event.rule();
         write_block(dest, |dest| {
-            if has_children {
-                self.write_rule_list(
-                    self.nested_rules(id)
-                        .expect("the rule remains a valid nested-rule owner"),
-                    dest,
-                    cx,
-                )?;
+            if event.has_children() {
+                self.write_rule_list(Some(id), None, cursor, dest, cx)?;
             }
             Ok(())
         })
@@ -462,9 +521,10 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
 
     fn write_page_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
-        id: RuleId<'ast>,
+        event: RuleTreeEvent<CssRule<'ast>>,
         rule: &RuleRecord<CssRule<'ast>>,
         payload: &PageRule<'_>,
+        cursor: &mut RuleTreeCursor<'comp, 'ast>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -477,27 +537,27 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
             .declaration_block()
             .expect("a page rule owns its initial declaration block");
         write_block(dest, |dest| {
-            let has_children = self
-                .has_nested_rules(id)
-                .expect("the page rule remains a valid nested-rule owner");
+            let mut children = std::vec::Vec::with_capacity(event.child_count() as usize);
+            while let Some(child) = self.next_visible_rule(Some(event.rule()), cursor) {
+                assert!(
+                    !child.event.has_children(),
+                    "a page child cannot own nested rules"
+                );
+                children.push(child);
+            }
             let mut declaration_segment_count = usize::from(self.block_is_non_empty(parent_block));
             let mut margin_count = 0_usize;
-            if has_children {
-                for (_, child) in self
-                    .nested_rules(id)
-                    .expect("the page rule remains a valid nested-rule owner")
-                {
-                    match child.payload() {
-                        CssRule::PageDeclarations(_) => {
-                            let block = child
-                                .declaration_block()
-                                .expect("a page declaration segment owns a block");
-                            declaration_segment_count +=
-                                usize::from(self.block_is_non_empty(block));
-                        }
-                        CssRule::PageMargin(_) => margin_count += 1,
-                        _ => panic!("a page child list contains another rule family"),
+            for child in &children {
+                match child.rule.payload() {
+                    CssRule::PageDeclarations(_) => {
+                        let block = child
+                            .rule
+                            .declaration_block()
+                            .expect("a page declaration segment owns a block");
+                        declaration_segment_count += usize::from(self.block_is_non_empty(block));
                     }
+                    CssRule::PageMargin(_) => margin_count += 1,
+                    _ => panic!("a page child list contains another rule family"),
                 }
             }
 
@@ -515,46 +575,46 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                     cx,
                 )?;
             }
-            if has_children {
-                for (_, child) in self
-                    .nested_rules(id)
-                    .expect("the page rule remains a valid nested-rule owner")
-                {
-                    if matches!(child.payload(), CssRule::PageDeclarations(_)) {
-                        let block = child
-                            .declaration_block()
-                            .expect("a page declaration segment owns a block");
-                        if self.block_is_non_empty(block) {
-                            if written_segments > 0 {
-                                dest.new_line()?;
-                            }
-                            written_segments += 1;
-                            self.write_property_declarations(
-                                block,
-                                dest,
-                                if written_segments < declaration_segment_count || margin_count > 0
-                                {
-                                    LastSemicolon::Required
-                                } else {
-                                    LastSemicolon::Optional
-                                },
-                                cx,
-                            )?;
+            for child in &children {
+                if matches!(child.rule.payload(), CssRule::PageDeclarations(_)) {
+                    let block = child
+                        .rule
+                        .declaration_block()
+                        .expect("a page declaration segment owns a block");
+                    if self.block_is_non_empty(block) {
+                        if written_segments > 0 {
+                            dest.new_line()?;
                         }
+                        written_segments += 1;
+                        self.write_property_declarations(
+                            block,
+                            dest,
+                            if written_segments < declaration_segment_count || margin_count > 0 {
+                                LastSemicolon::Required
+                            } else {
+                                LastSemicolon::Optional
+                            },
+                            cx,
+                        )?;
                     }
                 }
-                let mut written_margins = 0_usize;
-                for (child_id, child) in self
-                    .nested_rules(id)
-                    .expect("the page rule remains a valid nested-rule owner")
-                {
-                    if matches!(child.payload(), CssRule::PageMargin(_)) {
-                        if written_segments > 0 || written_margins > 0 {
-                            dest.blank_line()?;
-                        }
-                        written_margins += 1;
-                        self.write_rule(child_id, child, dest, LastSemicolon::Optional, cx)?;
+            }
+            let mut written_margins = 0_usize;
+            for &child in &children {
+                if matches!(child.rule.payload(), CssRule::PageMargin(_)) {
+                    if written_segments > 0 || written_margins > 0 {
+                        dest.blank_line()?;
                     }
+                    written_margins += 1;
+                    let mut ignored_unterminated_declaration = false;
+                    self.write_rule(
+                        child,
+                        cursor,
+                        dest,
+                        LastSemicolon::Optional,
+                        &mut ignored_unterminated_declaration,
+                        cx,
+                    )?;
                 }
             }
             Ok(())
@@ -632,26 +692,6 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                 matches!(record.payload(), CssDeclaration::Property(value) if !value.is_tombstone())
             })
     }
-}
-
-type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<CssRule<'ast>>);
-
-fn next_visible_rule<'comp, 'ast>(
-    stylesheet: &'comp StyleSheet<'ast>,
-    rules: &mut impl Iterator<Item = VisibleRule<'comp, 'ast>>,
-) -> Option<VisibleRule<'comp, 'ast>> {
-    for (id, rule) in rules {
-        if let CssRule::Style(style) = rule.payload() {
-            let selector = stylesheet
-                .selector_value(style.selector_value)
-                .expect("a style selector value remains resolvable");
-            if selector.selectors().iter().all(Selector::is_tombstone) {
-                continue;
-            }
-        }
-        return Some((id, rule));
-    }
-    None
 }
 
 #[derive(Clone, Copy)]
