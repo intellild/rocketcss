@@ -31,31 +31,32 @@ reserved low bits zero. They intentionally have no local sibling key: optional
 structural insertion whose endpoint is in the overflow tail is rejected, while
 parsing, lookup, visitors, and codegen continue normally.
 
-## Three typed arenas
+## Typed identity domains
 
-There is exactly one arena per node kind. Typed wrappers prevent accidental
-interchange of rule, block, and declaration IDs even though they share the
-physical encoding:
+Rules and declaration blocks use separate typed Radix arenas. Authored
+declarations use their own dense typed ID. The wrappers prevent accidental
+interchange even when the compact layouts match:
 
 ```rust,ignore
 struct RuleId(RadixIndexId);
 struct DeclarationBlockId(RadixIndexId);
-struct DeclarationPropertyId(RadixIndexId);
+struct DeclarationId(DenseId);
 
 let rules: RadixIndexArena<CssRule>;
 let declaration_blocks: RadixIndexArena<DeclarationBlock>;
-let declarations: RadixIndexArena<DeclarationProperty>;
+let declarations: DenseStore<DeclarationId, DeclarationRecord>;
 ```
 
-A list is a two-word range reference into its arena:
+Rules do not use a range handle. Lexical preorder plus the rule's physical
+descendant count identifies its subtree. A declaration block may reference one
+contiguous run in the authored dense tape:
 
 ```rust,ignore
-struct RuleRange { start: RuleId, len: u32 }
-struct DeclarationRange { start: DeclarationPropertyId, len: u32 }
+struct DeclarationRange { start: u32, len: u32 }
 ```
 
-The `RuleRange` lives on the owning rule (`children`); the `DeclarationRange`
-lives on the block. Neither is a separate collection of pointers.
+After structural edits, a block may instead use its inline `Local4` or
+arena-backed `Overflow` declaration-ID representation.
 
 ## Ordering
 
@@ -70,10 +71,8 @@ numeric order is semantic order. For compact values in the same
 
 exactly when the first node appears earlier in the arena's semantic sequence.
 
-A range is a window in that semantic order: iterate from `start` forward,
-taking `len` live nodes. This makes `DeclarationBlockId` sufficient as Nano's
-stable source-order key. There is no separate variable-length
-`SemanticOrderKey`.
+This makes `DeclarationBlockId` sufficient as Nano's stable block identity and
+ordering key. There is no separate variable-length `SemanticOrderKey`.
 
 ## Initial allocation
 
@@ -82,7 +81,7 @@ Parsing appends authored base nodes with the reserved bits zero:
 ```rust,ignore
 let rule = rules.push_primary(parsed_rule);
 let block = declaration_blocks.push_primary(parsed_block);
-let property = declarations.push_primary(parsed_property);
+let property = declarations.push(parsed_property);
 ```
 
 Structural insertion chooses a nonzero sibling key below a primary anchor:
@@ -131,6 +130,6 @@ reject otherwise valid CSS at the compact boundaries.
 - Numeric base-ID ordering matches semantic iteration.
 - Multiple insertions between the same neighbors preserve order.
 - Local relabel repairs every persistent reference.
-- Sibling insertion sorts into its owning range without moving primaries.
-- Retirement leaves a tombstone and decrements its range's `len`.
+- Sibling insertion preserves semantic order without moving primaries.
+- Rule retirement leaves a tombstone and preserves ancestor subtree counts.
 - Primary and sibling capacity overflow take the explicit fallback.

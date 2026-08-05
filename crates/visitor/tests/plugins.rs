@@ -88,11 +88,7 @@ fn plugins_run_in_registration_order_and_share_context() {
             context.get::<std::vec::Vec<&str>>().unwrap(),
             &["one", "two"]
         );
-        let (_, rule) = sheet
-            .rules_in_list(sheet.stylesheet().root_rules())
-            .unwrap()
-            .next()
-            .unwrap();
+        let (_, rule) = sheet.root_rules().next().unwrap();
         let rocketcss_ast::radix_ast::CssRulePayload::Style(rule) = rule.payload() else {
             panic!("expected style rule")
         };
@@ -218,8 +214,7 @@ fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
             &["one", "two"]
         );
         let block = compilation
-            .rules_in_list(compilation.stylesheet().root_rules())
-            .unwrap()
+            .root_rules()
             .next()
             .unwrap()
             .1

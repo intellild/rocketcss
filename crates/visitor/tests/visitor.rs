@@ -139,8 +139,7 @@ fn radix_mutable_traversal_uses_selector_and_declaration_transactions() {
     let allocator = Allocator::new();
     let mut compilation = parse_test_compilation(&allocator, ".before{color:red}.after{width:1px}");
     let rules = compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
-        .unwrap()
+        .root_rules()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
     let [first_rule, second_rule] = rules.as_slice() else {
@@ -224,12 +223,7 @@ fn mutable_visitor_panic_keeps_nested_rules_attached() {
     let allocator = Allocator::new();
     let mut compilation =
         parse_test_compilation(&allocator, ".card{color:red;button:hover{color:blue}}");
-    let outer = compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
-        .unwrap()
-        .next()
-        .unwrap()
-        .0;
+    let outer = compilation.root_rules().next().unwrap().0;
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compilation
@@ -239,7 +233,6 @@ fn mutable_visitor_panic_keeps_nested_rules_attached() {
     assert!(result.is_err());
 
     compilation.visit_compilation_mut(&mut NoopVisitor).unwrap();
-    let child_list = compilation.rule(outer).unwrap().child_list().unwrap();
-    assert_eq!(compilation.rules_in_list(child_list).unwrap().count(), 1);
+    assert_eq!(compilation.nested_rules(outer).unwrap().count(), 1);
     assert_eq!(compilation.validate_ast(), Ok(()));
 }

@@ -17,11 +17,10 @@ fn typed_ids_keep_compact_optional_layout() {
 fn lexical_order_and_direct_topology_are_independent() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<&str, &str, &str>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
 
     let outer = compilation.append_rule(root, "outer").unwrap();
-    let children = compilation.create_child_list(outer).unwrap();
-    let nested = compilation.append_rule(children, "nested").unwrap();
+    let nested = compilation.append_rule(Some(outer), "nested").unwrap();
     let following = compilation.append_rule(root, "following").unwrap();
     let key = compilation.append_effective_key("nested@root").unwrap();
     let block = compilation
@@ -45,20 +44,13 @@ fn lexical_order_and_direct_topology_are_independent() {
     );
     assert_eq!(
         compilation
-            .rules_in_list(root)
-            .unwrap()
+            .root_rules()
             .map(|(_, rule)| *rule.payload())
             .collect::<std::vec::Vec<_>>(),
         ["outer", "following"]
     );
-    assert_eq!(
-        compilation.rule(outer).unwrap().next_sibling(),
-        Some(following)
-    );
-    assert_eq!(
-        compilation.rule(following).unwrap().previous_sibling(),
-        Some(outer)
-    );
+    assert_eq!(compilation.next_sibling(outer), Some(following));
+    assert_eq!(compilation.previous_sibling(following), Some(outer));
     assert_eq!(compilation.rule(nested).unwrap().parent(), Some(outer));
     assert_eq!(
         compilation.declaration_block(block).unwrap().owner(),
@@ -88,56 +80,110 @@ fn lexical_order_and_direct_topology_are_independent() {
 }
 
 #[test]
-fn validation_rejects_a_broken_mutual_link() {
+fn validation_rejects_an_invalid_nested_rule_count() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let first = compilation.append_rule(root, 1).unwrap();
-    let second = compilation.append_rule(root, 2).unwrap();
+    compilation.append_rule(Some(first), 2).unwrap();
+    compilation.append_rule(root, 3).unwrap();
 
-    compilation.rule_mut(second).unwrap().previous_sibling = None;
+    compilation.rule_mut(first).unwrap().nested_rule_count = 3;
 
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::<u8>::RuleHasWrongPrevious {
-            rule: second,
-            expected: Some(first),
+        Err(ValidationError::<u8>::NestedRuleCountMismatch {
+            rule: first,
+            expected: 2,
+            actual: 3,
         })
     );
 }
 
 #[test]
-fn child_list_is_owned_once() {
+fn nested_rule_count_tracks_all_descendants() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<(), (), ()>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let parent = compilation.append_rule(root, ()).unwrap();
-    compilation.create_child_list(parent).unwrap();
+    let child = compilation.append_rule(Some(parent), ()).unwrap();
+    compilation.append_rule(Some(child), ()).unwrap();
 
-    assert_eq!(
-        compilation.create_child_list(parent),
-        Err(MutationError::<()>::ChildListAlreadyExists(parent))
-    );
+    assert_eq!(compilation.rule(parent).unwrap().nested_rule_count, 2);
+    assert_eq!(compilation.rule(child).unwrap().nested_rule_count, 1);
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
 
 #[test]
-fn validation_rejects_a_child_list_owned_by_another_rule() {
+fn insertion_after_a_nested_subtree_updates_every_ancestor_span() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<&str, (), ()>::new_in(&allocator);
+    let parent = compilation.append_rule(None, "parent").unwrap();
+    let child = compilation.append_rule(Some(parent), "child").unwrap();
+    let grandchild = compilation.append_rule(Some(child), "grandchild").unwrap();
+    let following = compilation.append_rule(None, "following").unwrap();
+
+    let inserted = compilation.insert_rule_after(child, "inserted").unwrap().id;
+
+    assert_eq!(
+        compilation
+            .nested_rules(parent)
+            .unwrap()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [child, inserted]
+    );
+    assert_eq!(
+        compilation
+            .rules_in_source_order()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [parent, child, grandchild, inserted, following]
+    );
+    assert_eq!(compilation.rule(parent).unwrap().nested_rule_count, 3);
+    assert_eq!(compilation.rule(child).unwrap().nested_rule_count, 1);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn retired_nested_tombstones_stay_in_the_span_but_not_semantic_traversal() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<&str, (), ()>::new_in(&allocator);
+    let parent = compilation.append_rule(None, "parent").unwrap();
+    let child = compilation.append_rule(Some(parent), "child").unwrap();
+    let following = compilation.append_rule(None, "following").unwrap();
+
+    compilation.retire_rule(child).unwrap();
+    assert!(!compilation.has_nested_rules(parent).unwrap());
+    compilation.retire_rule(parent).unwrap();
+
+    assert_eq!(
+        compilation
+            .root_rules()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [following]
+    );
+    assert_eq!(compilation.rule(parent).unwrap().nested_rule_count, 1);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn validation_rejects_a_wrong_preorder_parent() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<(), (), ()>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let parent = compilation.append_rule(root, ()).unwrap();
+    let child = compilation.append_rule(Some(parent), ()).unwrap();
     let other = compilation.append_rule(root, ()).unwrap();
-    let children = compilation.create_child_list(parent).unwrap();
 
-    compilation.rule_mut(other).unwrap().child_list = Some(children);
+    compilation.rule_mut(child).unwrap().parent = Some(other);
 
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::<()>::ChildListHasWrongParent {
-            rule: other,
-            list: children,
-            actual: Some(parent),
+        Err(ValidationError::<()>::RuleHasWrongParent {
+            parent: Some(parent),
+            rule: child,
         })
     );
 }
@@ -146,7 +192,7 @@ fn validation_rejects_a_child_list_owned_by_another_rule() {
 fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
@@ -193,7 +239,7 @@ fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
 fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let key = compilation.append_effective_key("shared").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
@@ -210,20 +256,18 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
         .append_declaration(right_block, 20, false)
         .unwrap();
 
-    let inserted_rule = compilation.insert_rule_after(left, 3).unwrap();
-    assert!(inserted_rule.remaps.is_empty());
-    let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(right_block), inserted_rule.id, key)
+    let inserted = compilation
+        .insert_rule_with_declaration_block_after(left, right, left_block, 3, key, 1)
         .unwrap();
-    assert!(inserted_block.remaps.is_empty());
+    assert!(inserted.rule.remaps.is_empty());
+    assert!(inserted.declaration_block.remaps.is_empty());
     compilation
-        .append_declaration(inserted_block.id, 30, false)
+        .append_declaration(inserted.declaration_block.id, 30, false)
         .unwrap();
 
     assert_eq!(
         compilation
-            .rules_in_list(root)
-            .unwrap()
+            .root_rules()
             .map(|(_, rule)| *rule.payload())
             .collect::<std::vec::Vec<_>>(),
         [1, 3, 2]
@@ -235,7 +279,7 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
             .collect::<std::vec::Vec<_>>(),
         [
             DeclarationBlockOwner::<u8>::Rule(left),
-            DeclarationBlockOwner::<u8>::Rule(inserted_rule.id),
+            DeclarationBlockOwner::<u8>::Rule(inserted.rule.id),
             DeclarationBlockOwner::<u8>::Rule(right),
         ]
     );
@@ -246,7 +290,7 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
 fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
@@ -304,7 +348,7 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
 fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
@@ -359,7 +403,7 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
 fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
@@ -425,7 +469,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     let allocator = Allocator::new();
 
     let mut range = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = range.stylesheet().root_rules();
+    let root = None;
     let key = range.append_effective_key("range").unwrap();
     let rule = range.append_rule(root, 0).unwrap();
     let block = range
@@ -454,7 +498,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     );
 
     let mut local4 = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = local4.stylesheet().root_rules();
+    let root = None;
     let key = local4.append_effective_key("local4").unwrap();
     let left = local4.append_rule(root, 0).unwrap();
     let left_block = local4
@@ -502,7 +546,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     );
 
     let mut overflow = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = overflow.stylesheet().root_rules();
+    let root = None;
     let key = overflow.append_effective_key("overflow").unwrap();
     let left = overflow.append_rule(root, 0).unwrap();
     let left_block = overflow
@@ -567,7 +611,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
 fn a_rule_owns_at_most_one_declaration_block() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<(), (), ()>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let owner = compilation.append_rule(root, ()).unwrap();
     let key = compilation.append_effective_key(()).unwrap();
     compilation
@@ -585,7 +629,7 @@ fn a_rule_owns_at_most_one_declaration_block() {
 fn a_declaration_range_cannot_cross_a_nested_allocation() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<(), &str, ()>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
+    let root = None;
     let outer = compilation.append_rule(root, ()).unwrap();
     let nested = compilation.append_rule(root, ()).unwrap();
     let key = compilation.append_effective_key(()).unwrap();

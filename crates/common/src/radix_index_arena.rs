@@ -451,6 +451,107 @@ impl<'arena, T> RadixTree<'arena, T> {
         keys
     }
 
+    fn next_key_after(&self, key: u16) -> Option<u16> {
+        let root = self.root.as_deref()?;
+        let (high, low) = radix_parts(key);
+        if low < RADIX_SIZE - 1 {
+            let occupied = root.leaves[high].as_deref().map_or(0, |leaf| leaf.occupied)
+                & (u32::MAX << (low + 1));
+            if occupied != 0 {
+                let next_low = occupied.trailing_zeros() as usize;
+                return Some((high * RADIX_SIZE + next_low) as u16);
+            }
+        }
+        let later_branches = if high < RADIX_SIZE - 1 {
+            root.occupied_branches & (u32::MAX << (high + 1))
+        } else {
+            0
+        };
+        let next_high = later_branches.trailing_zeros() as usize;
+        (next_high < RADIX_SIZE).then(|| {
+            let branch_bit = 1_u32 << next_high;
+            if root.direct_occupied & branch_bit != 0 {
+                return (next_high * RADIX_SIZE) as u16;
+            }
+            let next_low = root.leaves[next_high]
+                .as_deref()
+                .expect("an occupied non-direct branch has a leaf")
+                .occupied
+                .trailing_zeros() as usize;
+            (next_high * RADIX_SIZE + next_low) as u16
+        })
+    }
+
+    fn previous_key_before(&self, key: u16) -> Option<u16> {
+        let root = self.root.as_deref()?;
+        let (high, low) = radix_parts(key);
+        if low != 0 {
+            let occupied =
+                root.leaves[high].as_deref().map_or(0, |leaf| leaf.occupied) & ((1_u32 << low) - 1);
+            if occupied != 0 {
+                let previous_low = (u32::BITS - 1 - occupied.leading_zeros()) as usize;
+                return Some((high * RADIX_SIZE + previous_low) as u16);
+            }
+            if root.direct_occupied & (1_u32 << high) != 0 {
+                return Some((high * RADIX_SIZE) as u16);
+            }
+        }
+        let earlier_branches = if high == 0 {
+            0
+        } else {
+            root.occupied_branches & ((1_u32 << high) - 1)
+        };
+        if earlier_branches == 0 {
+            return None;
+        }
+        let previous_high = (u32::BITS - 1 - earlier_branches.leading_zeros()) as usize;
+        let leaf_occupied = root.leaves[previous_high]
+            .as_deref()
+            .map_or(0, |leaf| leaf.occupied);
+        if leaf_occupied != 0 {
+            let previous_low = (u32::BITS - 1 - leaf_occupied.leading_zeros()) as usize;
+            Some((previous_high * RADIX_SIZE + previous_low) as u16)
+        } else {
+            debug_assert_ne!(root.direct_occupied & (1_u32 << previous_high), 0);
+            Some((previous_high * RADIX_SIZE) as u16)
+        }
+    }
+
+    fn last_key(&self) -> Option<u16> {
+        let root = self.root.as_deref()?;
+        if root.occupied_branches == 0 {
+            return None;
+        }
+        let high = (u32::BITS - 1 - root.occupied_branches.leading_zeros()) as usize;
+        let leaf_occupied = root.leaves[high].as_deref().map_or(0, |leaf| leaf.occupied);
+        if leaf_occupied != 0 {
+            let low = (u32::BITS - 1 - leaf_occupied.leading_zeros()) as usize;
+            Some((high * RADIX_SIZE + low) as u16)
+        } else {
+            debug_assert_ne!(root.direct_occupied & (1_u32 << high), 0);
+            Some((high * RADIX_SIZE) as u16)
+        }
+    }
+
+    fn for_each_enumerated_mut(&mut self, mut visit: impl FnMut(u16, &mut T)) {
+        let Some(root) = self.root.as_deref_mut() else {
+            return;
+        };
+        for high in 0..RADIX_SIZE {
+            if let Some(value) = root.direct[high].as_deref_mut() {
+                visit((high * RADIX_SIZE) as u16, value);
+            }
+            let Some(leaf) = root.leaves[high].as_deref_mut() else {
+                continue;
+            };
+            for low in 1..RADIX_SIZE {
+                if let Some(value) = leaf.values[low].as_deref_mut() {
+                    visit((high * RADIX_SIZE + low) as u16, value);
+                }
+            }
+        }
+    }
+
     fn used_len(&self) -> usize {
         let Some(root) = self.root.as_deref() else {
             return 0;
@@ -639,6 +740,105 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         } else {
             None
         }
+    }
+
+    /// Returns the next value ID in semantic arena order.
+    pub fn next_id(&self, id: I) -> Option<I> {
+        self.get(id)?;
+        if id.is_overflow() {
+            let index = COMPACT_PRIMARY_CAPACITY + id.overflow_index();
+            return self.primary_id(index + 1);
+        }
+
+        let primary_index = id.primary_index();
+        if let Some(key) = self
+            .sibling_group_index(primary_index)
+            .ok()
+            .and_then(|group| self.sibling_trees[group].next_key_after(id.sibling_key()))
+        {
+            return Some(I::from_parts(primary_index, key));
+        }
+        self.primary_id(primary_index + 1)
+    }
+
+    /// Returns the previous value ID in semantic arena order.
+    pub fn previous_id(&self, id: I) -> Option<I> {
+        self.get(id)?;
+        if !id.is_overflow() && id.sibling_key() != 0 {
+            let primary_index = id.primary_index();
+            return Some(
+                self.sibling_group_index(primary_index)
+                    .ok()
+                    .and_then(|group| {
+                        self.sibling_trees[group].previous_key_before(id.sibling_key())
+                    })
+                    .map_or_else(
+                        || I::from_parts(primary_index, 0),
+                        |key| I::from_parts(primary_index, key),
+                    ),
+            );
+        }
+
+        let primary_index = if id.is_overflow() {
+            COMPACT_PRIMARY_CAPACITY + id.overflow_index()
+        } else {
+            id.primary_index()
+        };
+        let previous_primary = primary_index.checked_sub(1)?;
+        if previous_primary < COMPACT_PRIMARY_CAPACITY
+            && let Some(key) = self
+                .sibling_group_index(previous_primary)
+                .ok()
+                .and_then(|group| self.sibling_trees[group].last_key())
+        {
+            return Some(I::from_parts(previous_primary, key));
+        }
+        self.primary_id(previous_primary)
+    }
+
+    /// Advances `steps` values in semantic arena order.
+    ///
+    /// Authored primary-only arenas use direct indexing. Once a rare sibling
+    /// exists, the bounded radix cursor preserves semantic order.
+    pub fn advance_id(&self, id: I, steps: u32) -> Option<I> {
+        self.get(id)?;
+        if steps == 0 {
+            return Some(id);
+        }
+        if !self.has_siblings() && id.is_primary() {
+            let index = if id.is_overflow() {
+                COMPACT_PRIMARY_CAPACITY + id.overflow_index()
+            } else {
+                id.primary_index()
+            };
+            return self.primary_id(index.checked_add(steps as usize)?);
+        }
+        let mut current = id;
+        for _ in 0..steps {
+            current = self.next_id(current)?;
+        }
+        Some(current)
+    }
+
+    /// Mutably visits every value with its typed ID in semantic arena order.
+    ///
+    /// This is the mutation counterpart to [`iter_enumerated`](Self::iter_enumerated)
+    /// for callers that need to update arena records without first collecting
+    /// their IDs into a temporary allocation.
+    pub fn for_each_enumerated_mut(&mut self, mut visit: impl FnMut(I, &mut T)) {
+        let mut next_group = 0;
+        let sibling_primary_indices = &self.sibling_primary_indices;
+        let sibling_trees = &mut self.sibling_trees;
+        for (primary_index, value) in self.primary.iter_mut().enumerate() {
+            visit(I::from_primary_index(primary_index), value);
+            if sibling_primary_indices.get(next_group).copied() == Some(primary_index as u32) {
+                sibling_trees[next_group].for_each_enumerated_mut(|key, value| {
+                    visit(I::from_parts(primary_index, key), value);
+                });
+                next_group += 1;
+            }
+        }
+        debug_assert_eq!(next_group, sibling_primary_indices.len());
     }
 
     /// Iterates only authored primary values in their parse order.
@@ -1915,6 +2115,60 @@ mod tests {
         assert_eq!(second.primary_index(), 1);
         assert_eq!(inserted.sibling_key(), 512);
         assert_eq!(values.get(inserted), Some(&20));
+    }
+
+    #[test]
+    fn semantic_cursors_cross_primary_and_inserted_values() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::with_capacity_in(3, &allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(30);
+        let third = values.push_primary(50);
+        let after_first = values.insert_sibling(first, 512, 20);
+        let after_second = values.insert_sibling(second, 512, 40);
+
+        assert_eq!(values.next_id(first), Some(after_first));
+        assert_eq!(values.next_id(after_first), Some(second));
+        assert_eq!(values.next_id(second), Some(after_second));
+        assert_eq!(values.next_id(after_second), Some(third));
+        assert_eq!(values.next_id(third), None);
+
+        assert_eq!(values.previous_id(third), Some(after_second));
+        assert_eq!(values.previous_id(after_second), Some(second));
+        assert_eq!(values.previous_id(second), Some(after_first));
+        assert_eq!(values.previous_id(after_first), Some(first));
+        assert_eq!(values.previous_id(first), None);
+
+        assert_eq!(values.advance_id(first, 0), Some(first));
+        assert_eq!(values.advance_id(first, 2), Some(second));
+        assert_eq!(values.advance_id(first, 4), Some(third));
+        assert_eq!(values.advance_id(first, 5), None);
+
+        assert_eq!(values.retire_sibling(after_first), Some(20));
+        assert_eq!(values.next_id(first), Some(second));
+        assert_eq!(values.previous_id(second), Some(first));
+        assert_eq!(values.advance_id(first, 2), Some(after_second));
+    }
+
+    #[test]
+    fn mutable_enumerated_visit_needs_no_id_snapshot() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::with_capacity_in(2, &allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(30);
+        let inserted = values.insert_sibling(first, 512, 20);
+        let mut visited = std::vec::Vec::new();
+
+        values.for_each_enumerated_mut(|id, value| {
+            visited.push(id);
+            *value += 1;
+        });
+
+        assert_eq!(visited, [first, inserted, second]);
+        assert_eq!(
+            values.iter().copied().collect::<std::vec::Vec<_>>(),
+            [11, 21, 31]
+        );
     }
 
     #[test]

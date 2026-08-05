@@ -13,7 +13,7 @@ use rocketcss_ast::radix_ast::{
     KeyframePayload, KeyframesRulePayload, LayerBlockRulePayload, LayerStatementRulePayload,
     MediaRulePayload, MozDocumentRulePayload, NestedDeclarationsPayload, NestingRulePayload,
     PageDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
-    PropertyRuleDescriptor, PropertyRulePayload, RuleListId, ScopeRulePayload, SelectorFrameKind,
+    PropertyRuleDescriptor, PropertyRulePayload, ScopeRulePayload, SelectorFrameKind,
     StartingStyleRulePayload, StyleRulePayload, SupportsRulePayload, UnknownAtRulePayload,
     ViewTransitionRulePayload, ViewportRulePayload,
 };
@@ -68,11 +68,10 @@ impl<'ast> Compiler<'ast> {
         }
         self.reset(&state);
 
-        let root = compilation.stylesheet().root_rules();
         parse_rule_list(
             self,
             &mut compilation,
-            root,
+            None,
             ConcreteEffectiveContext::<'ast>::default(),
             &options,
             0,
@@ -97,7 +96,6 @@ pub fn compilation_capacity(source_len: usize) -> CompilationCapacity {
     let rules = source_len / 96;
     CompilationCapacity {
         rules,
-        rule_lists: source_len / 512,
         declaration_blocks: rules,
         declarations: source_len / 44,
         selectors: source_len / 100,
@@ -117,7 +115,7 @@ enum TopLevelState {
 fn parse_rule_list<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: Option<ConcreteRuleId<'ast>>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -205,7 +203,6 @@ fn mutation_error<'ast>(
     let error = match error {
         ConcreteMutationError::<'ast>::PrimaryRuleCapacityExhausted
         | ConcreteMutationError::<'ast>::PrimaryDeclarationBlockCapacityExhausted
-        | ConcreteMutationError::<'ast>::RuleListCapacityExhausted
         | ConcreteMutationError::<'ast>::EffectiveKeyCapacityExhausted
         | ConcreteMutationError::<'ast>::SelectorContextCapacityExhausted
         | ConcreteMutationError::<'ast>::DeclarationCapacityExhausted
@@ -215,10 +212,8 @@ fn mutation_error<'ast>(
             ParserError::AstCapacityExceeded
         }
         ConcreteMutationError::<'ast>::UnknownRule(_)
-        | ConcreteMutationError::<'ast>::UnknownRuleList(_)
         | ConcreteMutationError::<'ast>::UnknownEffectiveKey(_)
         | ConcreteMutationError::<'ast>::RetiredRule(_)
-        | ConcreteMutationError::<'ast>::ChildListAlreadyExists(_)
         | ConcreteMutationError::<'ast>::DeclarationBlockAlreadyExists(_)
         | ConcreteMutationError::<'ast>::UnknownDeclarationBlock(_)
         | ConcreteMutationError::<'ast>::UnknownDeclarationOverflow(_)

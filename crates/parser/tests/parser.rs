@@ -5,11 +5,7 @@ use rocketcss_parser::parse;
 use rocketcss_parser::prelude::*;
 
 fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<'ast>> {
-    compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
-        .unwrap()
-        .map(|(id, _)| id)
-        .collect()
+    compilation.root_rules().map(|(id, _)| id).collect()
 }
 
 fn root_rule<'tree, 'ast>(
@@ -24,9 +20,8 @@ fn child_rule_ids<'ast>(
     compilation: &Compilation<'ast>,
     parent: RuleId<'ast>,
 ) -> std::vec::Vec<RuleId<'ast>> {
-    let list = compilation.rule(parent).unwrap().child_list().unwrap();
     compilation
-        .rules_in_list(list)
+        .nested_rules(parent)
         .unwrap()
         .map(|(id, _)| id)
         .collect()
@@ -1252,7 +1247,7 @@ fn declaration_like_identifier_requires_explicit_error_recovery() {
         let style = root_rule(&sheet, 0).0;
         let declarations = property_declarations(&sheet, style);
         assert_eq!(declarations.len(), 3);
-        assert!(sheet.rule(style).unwrap().child_list().is_none());
+        assert!(!sheet.has_nested_rules(style).unwrap());
         assert!(matches!(declarations[0].0, Declaration::Width(_)));
         assert!(matches!(declarations[1].0, Declaration::Height(_)));
         assert!(matches!(

@@ -2,77 +2,69 @@
 
 ## Physical model
 
-The semantic S1-S5 documents still define which declaration effects and
-selector transforms are valid. The Radix AST removes several physical adapter
-layers previously needed by the recursive AST:
+Nano operates on the authoritative AST rather than rebuilding a second rule
+topology:
 
 ```text
-RuleStore: RadixIndexArena<CssRule> + range refs
-  stable RuleId, semantic order, direct children ranges
+RuleStore: RadixIndexArena<RuleRecord>
+  stable RuleId, lexical preorder, AST-private subtree spans
 
-DeclarationBlockStore: RadixIndexArena<DeclarationBlock>
-  stable DeclarationBlockId + AST-owned EffectiveKeyId
+DeclarationBlockStore: RadixIndexArena<DeclarationBlockRecord>
+  stable DeclarationBlockId + owner + AST-owned EffectiveKeyId
 
-DeclarationPropertyStore: RadixIndexArena<DeclarationProperty>
-  blocks reference one declaration range (start + len)
+DeclarationStore: authored lexical declaration tape
+  block representation is Range | Local4 | Overflow
 
 Nano sidecars
-  only liveness, summaries, histories, revisions, and queue membership
+  declaration IR, summaries, histories, revisions, and queue membership
 ```
 
-Nano does not build a `Vec<DeclarationBlockEntry>`, reconstruct EffectiveKeys,
-or assign a separate semantic-order key. Direct rule edges are simply arena
-adjacency inside a rule's children range.
+Nano may retain transform-specific graphs, but it does not own parents,
+children, sibling links, or source-order links.
+
+## AST boundary
+
+Nano asks the AST semantic questions:
+
+- iterate all rule IDs in lexical order;
+- test or iterate live nested rules;
+- resolve previous and next direct siblings;
+- insert a synthesized direct sibling; and
+- merge or retire rules through validated transactions.
+
+It does not read `nested_rule_count`, call Radix `advance_id`, or repair ID
+remaps. Those operations remain inside the AST crate.
 
 ## Initialization
 
 ```text
-Parser/local minify
-  AST stores already contain final owner, children ranges, declaration
-  ranges, and EffectiveKey fields
+Parser / local minify
+  AST already owns parents, source order, declarations, and EffectiveKeys
        ↓
-CrossRuleState::initialize
-  iterate DeclarationBlockStore once in Radix order
-  lazily create summaries and repeated-key histories
-  classify direct rule edges from children ranges
+CrossRuleState::from_compilation
+  scan declaration blocks in deterministic AST order
+  create summaries and repeated-key histories
+  query AST for live direct sibling edges
        ↓
 unified scheduler
 ```
 
-Initialization is a store scan, not an AST discovery walk. It neither allocates
-a second flat block list nor hashes selector/context structures again.
-
-If block-local minification already visits every block, it may seed summaries
-and histories incrementally. That is an optional fusion optimization; the AST
-remains authoritative either way.
+Initialization is a store scan, not topology reconstruction.
 
 ## Identity and ordering
 
-Candidate types use AST IDs directly:
+Candidates use fixed-width AST IDs directly. A candidate is valid only while
+its endpoints still resolve, remain live direct siblings under the same parent,
+retain the captured revisions, and satisfy the stage's current EffectiveKey and
+selector proofs.
 
-```rust,ignore
-struct SameSelectorCandidate(DeclarationBlockId, DeclarationBlockId);
-struct PartialMergeCandidate(DeclarationBlockId, DeclarationBlockId);
-struct DeclarationOverrideTask(EffectiveKeyId);
-```
+Numeric ID closeness is not adjacency. A rule's descendants and locally
+inserted Radix records may lie between two direct siblings in physical order;
+the AST derives and validates the relationship.
 
-Within a rule list, endpoint `RuleId`/`DeclarationBlockId` order is the
-deterministic source-order priority. Synthesized Radix siblings are inserted at
-their final local semantic position, so a separate `SemanticOrderKey`,
-`SemanticInsertionPosition`, `BTreeMap`, or source-order `BinaryHeap` is not
-required.
+## Scheduler
 
-Candidate queues may still use a compact ordered data structure when multiple
-ready tasks exist, but its key is the fixed-width AST ID. It is queue policy,
-not another semantic identity.
-
-Direct adjacency is arena adjacency inside one rule's children range or one
-block's declaration range; it is always revalidated against the live range
-window. Numeric closeness outside a range is never proof of adjacency.
-
-## Unified scheduler
-
-The scheduler keeps the existing priority:
+The scheduler keeps the semantic stage priority:
 
 ```rust,ignore
 while state.has_work() {
@@ -90,137 +82,70 @@ while state.has_work() {
 }
 ```
 
-Each candidate captures endpoint revisions. A pop rejects stale work if IDs no
-longer resolve, endpoints are retired, the range window changed, revisions
-differ, or current EffectiveKey equality no longer matches the stage.
+### S1
 
-## S1
+S1 validates two adjacent rule blocks, commits the chosen declaration
+representation into the retained block, and retires the other rule through the
+AST. Newly exposed sibling edges are queried locally; no full rule-tree rebuild
+is needed.
 
-S1 reads equal selector/effective-key facts from the two AST blocks and commits
-the chosen declaration representation directly:
+### S2
 
-- consecutive authored declaration ranges may coalesce;
-- larger or nonconsecutive results replace the block's declaration range or
-  use the arena insertion path;
-- the retired rule/block is unlinked from its live range but retains its ID
-  until cleanup.
+S2 histories are keyed by effective context, property identity, and importance
+phase. Declaration deletion and effect replacement update the owning AST block.
+When a block becomes empty, Nano asks the AST whether its rule still owns live
+nested syntax before retiring it.
 
-The local range transaction reclassifies newly exposed edges and dirties
-affected S2 histories. It does not rebuild all blocks or restart S1/S2.
+### S3
 
-## S2
-
-S2 histories are keyed by `(EffectiveKeyId, PropertyId, importance phase)` and
-ordered by `DeclarationBlockId`. History records hold intrusive predecessor and
-successor block IDs plus revisions.
-
-Declaration deletion or effect replacement updates the AST block immediately
-when the lossless representation is already proven. S4 remains responsible for
-choosing between equivalent declaration encodings when the choice is not yet
-known; that pending representation state is attached to the block, not stored
-in a second flat AST.
-
-An empty block causes local owner/range updates and queue insertion. It does
-not trigger `walk_declaration_blocks`.
-
-## S3
-
-S3 commits a shared rule at its final Radix position:
+S3 creates shared syntax through AST transactions:
 
 ```text
-validate adjacent endpoint IDs and declaration movement
+validate semantic endpoints and declaration movement
        ↓
 intern selector union and EffectiveKeyId
        ↓
-choose sibling key between local semantic neighbors
+AST insert_rule_after
+  locate preceding subtree tail
+  insert at final Radix position
+  repair local ID remaps
+  update ancestor subtree spans
        ↓
-insert synthesized CssRule and DeclarationBlock into Radix stores
+AST insert declaration block and bind owner
        ↓
-extend the owning children range and update residual declaration ranges
-       ↓
-insert new block into its EffectiveKey history by block ID
-       ↓
-enqueue affected S1/S2/S3 edges
+publish histories and affected queue edges
 ```
 
-The insertion does not move later primary values and does not invalidate AST
-identity. Therefore S3 does not need a logical-only node, a variable semantic
-position, or a later global rule-list reification pass.
+The synthesized rule has its final stable ID before it is published to queues.
 
-If local sibling labels require relabeling, the store returns an exact remap and
-the transaction repairs the few affected ranges, histories, and queue references.
+## Retirement and tombstones
 
-## S4 and S5 under this storage model
-
-S4 remains a semantic representation planner where effect-level transforms
-need to choose a lossless CSS encoding. Its result is attached to the affected
-AST node or committed immediately when complete.
-
-S5 is no longer a mandatory fresh-store rebuild. It is a terminal commit and
-cleanup boundary:
-
-1. assert S1-S4 queues and history generations are stable;
-2. finish any deferred declaration representation chosen by S4;
-3. unlink or tombstone retired nodes not already finalized;
-4. discard histories, summaries, revisions, and queue state; and
-5. optionally compact declaration overflow/tombstones when benchmarks justify
-   the copy.
-
-S5 makes no new semantic decision and does not restore order—the Radix stores
-already carry final semantic order.
+Retired rules and blocks remain as physical tombstones so IDs and subtree spans
+stay stable. AST semantic iterators skip them. A parent whose nested syntax has
+all been retired can itself retire without shrinking its physical descendant
+count.
 
 ## Code generation
 
-Codegen follows root rule-list ranges and resolves IDs through the AST stores.
-The underlying store iterator processes primary slices and inserted Radix
-segments. No merge-only `previous_merged` chain or reified copy is required.
-
-## State removed from Nano
-
-The target deletes:
-
-- `DeclarationBlockDiscovery` and production `walk_declaration_blocks`;
-- `DeclarationBlockEntry`/`DeclarationBlockEntryId` flat ownership;
-- Nano-owned EffectiveKey paths and interner reconstruction;
-- `owner_by_block` reconstructed from borrowed AST references;
-- `SemanticOrderKey` and `SemanticSourceOrderKey`;
-- ordered maps keyed by variable-length semantic positions;
-- linked-list rule topology (`first`/`last`/`previous_sibling`/`next_sibling`
-  and the `previous_in_source`/`next_in_source` chains); and
-- the tri-state declaration list (`Range`/`Local4`/`Overflow`);
-- global scheduler restart after an S3 physical edit;
-- mutation plans needed only because the recursive AST lacked stable insertion
-  IDs; and
-- mandatory S5 allocation/copy of complete rule and declaration stores.
-
-Nano retains:
-
-- declaration IR/effect summaries;
-- lazy EffectiveKey histories and property Bloom filters;
-- liveness and endpoint revisions;
-- S1/S2/S3 queues and rejection counters;
-- exact movement and selector compatibility proofs; and
-- S4 lossless representation decisions.
+Codegen starts with `root_rules` and recursively asks for `nested_rules`.
+It never observes tombstones, raw subtree spans, or Radix cursor mechanics. No
+merge-only source chain or reified rule copy is required.
 
 ## Correctness invariants
 
 - Every live block has one AST owner and one current EffectiveKey.
-- Candidate order uses fixed-width AST ID order and is deterministic.
-- Direct edges are validated against the live range window.
-- A synthesized node has its final semantic Radix position before it is
-  enqueued.
-- S2 histories are ordered by current block IDs and exact context equality.
+- Direct edges are validated through AST topology operations.
+- A synthesized node has its final semantic position before queue publication.
+- Tombstones preserve physical spans but do not appear in semantic traversal.
 - Declaration effects and fallback order remain losslessly representable.
 - Unsupported at-rule semantics remain opaque and unequal across occurrences.
 - Terminal cleanup does not create new S1-S4 work.
 
 ## Performance gates
 
-- No production recursive block discovery or EffectiveKey reconstruction.
-- One initialization store scan at most; fusion with local minify is optional.
-- S3 work grows with changed local edges, not stylesheet size times commit
-  count.
-- Stylesheets with no structural transforms retain primary-Vec parse and
-  traversal performance.
+- No production recursive block-discovery copy or EffectiveKey reconstruction.
+- Structural work scales with changed local edges rather than stylesheet size
+  times commit count.
+- Primary-only stylesheets retain vector-like parse and traversal behavior.
 - Track parse, minify, codegen, peak memory, sibling-group count, local relabel
   count, and semantic-iterator time separately.

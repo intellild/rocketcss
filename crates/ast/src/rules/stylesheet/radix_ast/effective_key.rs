@@ -501,13 +501,7 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let mut current = self.first_rule_in_source;
-        while let Some(id) = current {
-            let next = self.rules.get(id).and_then(|rule| rule.next_in_source);
-            let rule = self
-                .rules
-                .get_mut(id)
-                .expect("an enumerated selector owner remains resolvable");
+        self.rules.for_each_enumerated_mut(|_, rule| {
             let selector = match rule.payload_mut() {
                 CssRulePayload::Style(payload) => Some(&mut payload.selector_value),
                 CssRulePayload::Nesting(payload) => Some(&mut payload.selector_value),
@@ -517,8 +511,7 @@ impl<'ast> Compilation<'ast> {
                 *selector = value_remaps[selector.index()];
                 rule.revision = rule.revision.wrapping_add(1);
             }
-            current = next;
-        }
+        });
 
         let mut path_remaps =
             rocketcss_common::vec::Vec::with_capacity_in(self.selector_paths.len(), allocator);
@@ -572,16 +565,12 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let mut current = self.first_rule_in_source;
-        while let Some(rule_id) = current {
-            let next = self.rules.get(rule_id).and_then(|rule| rule.next_in_source);
-            let block_id = self
-                .rules
-                .get(rule_id)
-                .and_then(|rule| rule.declaration_block);
+        let rules = &self.rules;
+        let declaration_blocks = &mut self.declaration_blocks;
+        for (_, rule) in rules.iter_enumerated() {
+            let block_id = rule.declaration_block;
             if let Some(block_id) = block_id {
-                let block = self
-                    .declaration_blocks
+                let block = declaration_blocks
                     .get_mut(block_id)
                     .expect("an enumerated declaration block remains resolvable");
                 if block.live {
@@ -589,7 +578,6 @@ impl<'ast> Compilation<'ast> {
                     block.revision = block.revision.wrapping_add(1);
                 }
             }
-            current = next;
         }
         true
     }
@@ -723,16 +711,12 @@ impl<'ast> Compilation<'ast> {
             }
         }
 
-        let mut current = self.first_rule_in_source;
-        while let Some(rule_id) = current {
-            let next = self.rules.get(rule_id).and_then(|rule| rule.next_in_source);
-            let block_id = self
-                .rules
-                .get(rule_id)
-                .and_then(|rule| rule.declaration_block);
+        let rules = &self.rules;
+        let declaration_blocks = &mut self.declaration_blocks;
+        for (_, rule) in rules.iter_enumerated() {
+            let block_id = rule.declaration_block;
             if let Some(block_id) = block_id {
-                let block = self
-                    .declaration_blocks
+                let block = declaration_blocks
                     .get_mut(block_id)
                     .expect("an enumerated declaration block remains resolvable");
                 if block.live {
@@ -740,7 +724,6 @@ impl<'ast> Compilation<'ast> {
                     block.revision = block.revision.wrapping_add(1);
                 }
             }
-            current = next;
         }
         Ok(ContextIdentityRepair {
             changed: true,
@@ -957,7 +940,7 @@ impl<'ast> Compilation<'ast> {
             {
                 blocks.push(block);
             }
-            current = record.next_in_source();
+            current = self.next_rule_in_source(id);
         }
 
         let mut path_remaps = rocketcss_common::hash_map::HashMap::new_in(allocator);
@@ -1017,7 +1000,7 @@ impl<'ast> Compilation<'ast> {
                 .selector_paths
                 .try_get(path)
                 .ok_or(MutationError::InvalidRuleTopology(
-                    self.first_rule_in_source
+                    self.first_rule_in_source()
                         .expect("a selector path requires at least one rule"),
                 ))?;
         let Some(parent) = record.parent else {

@@ -28,7 +28,6 @@ pub type RuleId<P> = RadixId<RuleRecord<P>>;
 /// index an arena storing `DeclarationBlockRecord<P>`.
 pub type DeclarationBlockId<P> = RadixId<DeclarationBlockRecord<P>>;
 
-define_dense_id!(pub struct RuleListId);
 define_dense_id!(pub struct EffectiveKeyId);
 define_dense_id!(pub struct DeclarationId);
 define_dense_id!(pub struct DeclarationOverflowId);
@@ -58,24 +57,21 @@ macro_rules! impl_no_rule_id_references {
 impl_no_rule_id_references!((), u8, &str);
 
 /// Rules in lexical allocation order plus rare locally inserted siblings.
-pub type RuleStore<'ast, P> = TypedRadixIndexArena<'ast, RuleRecord<P>, RuleId<P>>;
+type RuleStore<'ast, P> = TypedRadixIndexArena<'ast, RuleRecord<P>, RuleId<P>>;
 
 /// Declaration blocks in lexical allocation order plus synthesized blocks.
-pub type DeclarationBlockStore<'ast, P> =
+type DeclarationBlockStore<'ast, P> =
     TypedRadixIndexArena<'ast, DeclarationBlockRecord<P>, DeclarationBlockId<P>>;
 
-/// Dense rule-list metadata. Lists own topology, not a second rule vector.
-pub type RuleListStore<P> = DenseStore<RuleListId, RuleList<P>>;
-
 /// Interned effective-key records shared by declaration blocks.
-pub type EffectiveKeyStore<P> = DenseStore<EffectiveKeyId, P>;
+type EffectiveKeyStore<P> = DenseStore<EffectiveKeyId, P>;
 
 /// Authored declarations in lexical source order.
-pub type DeclarationStore<P> = DenseStore<DeclarationId, DeclarationRecord<P>>;
+type DeclarationStore<P> = DenseStore<DeclarationId, DeclarationRecord<P>>;
 
 /// Arena-backed complete declaration sequences used when a block no longer
 /// maps to one contiguous authored range.
-pub type DeclarationOverflowStore<'ast> =
+type DeclarationOverflowStore<'ast> =
     DenseStore<DeclarationOverflowId, crate::Vec<'ast, DeclarationId>>;
 
 /// Concrete compiler-owned Radix AST.
@@ -126,7 +122,6 @@ pub type ConcreteHistorySegment<'ast> = HistorySegment<CssRulePayload<'ast>>;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CompilationCapacity {
     pub rules: usize,
-    pub rule_lists: usize,
     pub declaration_blocks: usize,
     pub declarations: usize,
     pub selectors: usize,
@@ -230,30 +225,14 @@ impl<P> DeclarationRecord<P> {
     }
 }
 
-/// The lightweight root of a Radix compilation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StyleSheet {
-    root_rules: RuleListId,
-}
-
-impl StyleSheet {
-    #[inline]
-    pub const fn root_rules(self) -> RuleListId {
-        self.root_rules
-    }
-}
-
-/// Direct topology for one authored or synthesized CSS rule.
+/// One authored or synthesized CSS rule in lexical preorder.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RuleRecord<P> {
     payload: P,
     parent: Option<RuleId<P>>,
-    parent_list: RuleListId,
-    previous_sibling: Option<RuleId<P>>,
-    next_sibling: Option<RuleId<P>>,
-    previous_in_source: Option<RuleId<P>>,
-    next_in_source: Option<RuleId<P>>,
-    child_list: Option<RuleListId>,
+    /// Number of physical rule records in this rule's complete lexical
+    /// subtree, excluding the rule itself and including retained tombstones.
+    nested_rule_count: u32,
     declaration_block: Option<DeclarationBlockId<P>>,
     revision: u32,
     live: bool,
@@ -276,36 +255,6 @@ impl<P> RuleRecord<P> {
     }
 
     #[inline]
-    pub const fn parent_list(&self) -> RuleListId {
-        self.parent_list
-    }
-
-    #[inline]
-    pub const fn previous_sibling(&self) -> Option<RuleId<P>> {
-        self.previous_sibling
-    }
-
-    #[inline]
-    pub const fn next_sibling(&self) -> Option<RuleId<P>> {
-        self.next_sibling
-    }
-
-    #[inline]
-    pub const fn previous_in_source(&self) -> Option<RuleId<P>> {
-        self.previous_in_source
-    }
-
-    #[inline]
-    pub const fn next_in_source(&self) -> Option<RuleId<P>> {
-        self.next_in_source
-    }
-
-    #[inline]
-    pub const fn child_list(&self) -> Option<RuleListId> {
-        self.child_list
-    }
-
-    #[inline]
     pub const fn declaration_block(&self) -> Option<DeclarationBlockId<P>> {
         self.declaration_block
     }
@@ -318,68 +267,6 @@ impl<P> RuleRecord<P> {
     #[inline]
     pub const fn is_live(&self) -> bool {
         self.live
-    }
-}
-
-/// Endpoints and ownership of one direct CSS rule list.
-pub struct RuleList<P> {
-    parent: Option<RuleId<P>>,
-    first: Option<RuleId<P>>,
-    last: Option<RuleId<P>>,
-    live_len: u32,
-}
-
-impl<P> Clone for RuleList<P> {
-    #[inline]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<P> Copy for RuleList<P> {}
-
-impl<P> std::fmt::Debug for RuleList<P> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RuleList")
-            .field("parent", &self.parent)
-            .field("first", &self.first)
-            .field("last", &self.last)
-            .field("live_len", &self.live_len)
-            .finish()
-    }
-}
-
-impl<P> PartialEq for RuleList<P> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.parent == other.parent
-            && self.first == other.first
-            && self.last == other.last
-            && self.live_len == other.live_len
-    }
-}
-
-impl<P> Eq for RuleList<P> {}
-
-impl<P> RuleList<P> {
-    #[inline]
-    pub const fn parent(self) -> Option<RuleId<P>> {
-        self.parent
-    }
-
-    #[inline]
-    pub const fn first(self) -> Option<RuleId<P>> {
-        self.first
-    }
-
-    #[inline]
-    pub const fn last(self) -> Option<RuleId<P>> {
-        self.last
-    }
-
-    #[inline]
-    pub const fn live_len(self) -> u32 {
-        self.live_len
     }
 }
 
@@ -458,16 +345,13 @@ impl<P> DeclarationBlockRecord<P> {
 pub enum MutationError<P> {
     PrimaryRuleCapacityExhausted,
     PrimaryDeclarationBlockCapacityExhausted,
-    RuleListCapacityExhausted,
     EffectiveKeyCapacityExhausted,
     SelectorContextCapacityExhausted,
     DeclarationCapacityExhausted,
     DeclarationOverflowCapacityExhausted,
     UnknownRule(RuleId<P>),
-    UnknownRuleList(RuleListId),
     UnknownEffectiveKey(EffectiveKeyId),
     RetiredRule(RuleId<P>),
-    ChildListAlreadyExists(RuleId<P>),
     DeclarationBlockAlreadyExists(RuleId<P>),
     UnknownDeclarationBlock(DeclarationBlockId<P>),
     UnknownDeclarationOverflow(DeclarationOverflowId),
@@ -483,7 +367,6 @@ pub enum MutationError<P> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetiredRule<P> {
     pub id: RuleId<P>,
-    pub list: RuleListId,
     pub previous: Option<RuleId<P>>,
     pub next: Option<RuleId<P>>,
     pub declaration_block: Option<DeclarationBlockId<P>>,
@@ -499,56 +382,25 @@ pub struct MergedAdjacentRuleBlocks<P> {
     pub effective_key: EffectiveKeyId,
 }
 
+/// Final AST identities allocated by one synthesized rule-and-block
+/// transaction.
+#[derive(Debug)]
+pub struct InsertedRuleWithDeclarationBlock<P> {
+    pub rule: RadixInsertResult<RuleId<P>>,
+    pub declaration_block: RadixInsertResult<DeclarationBlockId<P>>,
+}
+
 /// A violated store, ownership, or direct-topology invariant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValidationError<P> {
-    MissingRootRuleList(RuleListId),
-    RootRuleListHasParent(RuleId<P>),
-    MissingListParent {
-        list: RuleListId,
-        parent: RuleId<P>,
-    },
-    RetiredListParent {
-        list: RuleListId,
-        parent: RuleId<P>,
-    },
-    ParentDoesNotOwnList {
-        list: RuleListId,
-        parent: RuleId<P>,
-    },
-    InvalidListEndpoints(RuleListId),
-    MissingRule(RuleId<P>),
-    RetiredRuleInList {
-        list: RuleListId,
-        rule: RuleId<P>,
-    },
-    RuleHasWrongParentList {
-        list: RuleListId,
-        rule: RuleId<P>,
-    },
     RuleHasWrongParent {
-        list: RuleListId,
+        parent: Option<RuleId<P>>,
         rule: RuleId<P>,
     },
-    RuleHasWrongPrevious {
+    NestedRuleCountMismatch {
         rule: RuleId<P>,
-        expected: Option<RuleId<P>>,
-    },
-    ListDoesNotEndAtLast(RuleListId),
-    ListLengthMismatch {
-        list: RuleListId,
         expected: u32,
         actual: u32,
-    },
-    LiveRuleIsNotInOneList(RuleId<P>),
-    MissingOwnedChildList {
-        rule: RuleId<P>,
-        list: RuleListId,
-    },
-    ChildListHasWrongParent {
-        rule: RuleId<P>,
-        list: RuleListId,
-        actual: Option<RuleId<P>>,
     },
     MissingOwnedDeclarationBlock {
         rule: RuleId<P>,
@@ -602,26 +454,13 @@ pub enum ValidationError<P> {
         expected: u32,
         actual: u32,
     },
-    InvalidSourcePrevious {
-        rule: RuleId<P>,
-        expected: Option<RuleId<P>>,
-        actual: Option<RuleId<P>>,
-    },
-    InvalidSourceNext {
-        rule: RuleId<P>,
-        expected: Option<RuleId<P>>,
-        actual: Option<RuleId<P>>,
-    },
-    InvalidSourceEndpoints,
 }
 
 /// `R` and `D` keep rule and declaration payloads independent from storage.
 pub struct RadixCompilation<'ast, R: Unpin, D, K> {
     allocator: &'ast Allocator,
-    stylesheet: StyleSheet,
     license_comments: crate::Vec<'ast, &'ast str>,
     rules: RuleStore<'ast, R>,
-    rule_lists: RuleListStore<R>,
     declaration_blocks: DeclarationBlockStore<'ast, R>,
     declarations: DeclarationStore<D>,
     declaration_overflows: DeclarationOverflowStore<'ast>,
@@ -638,12 +477,10 @@ pub struct RadixCompilation<'ast, R: Unpin, D, K> {
     context_path_ids: FxHashMap<ContextPathKey, ContextPathId>,
     layer_contexts: DenseStore<LayerContextId, LayerContextRecord<R>>,
     layer_context_ids: FxHashMap<LayerContextKey<R>, LayerContextId>,
-    first_rule_in_source: Option<RuleId<R>>,
-    last_rule_in_source: Option<RuleId<R>>,
 }
 
 impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
-    /// Creates an empty compilation with one root rule list.
+    /// Creates an empty compilation.
     pub fn new_in(allocator: &'ast Allocator) -> Self {
         Self::with_capacity_in(allocator, CompilationCapacity::default())
     }
@@ -651,19 +488,10 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     /// Creates an empty compilation with capacity for the expected authored
     /// AST shape.
     pub fn with_capacity_in(allocator: &'ast Allocator, capacity: CompilationCapacity) -> Self {
-        let mut rule_lists = RuleListStore::with_capacity(capacity.rule_lists.max(1));
-        let root_rules = rule_lists.push(RuleList {
-            parent: None,
-            first: None,
-            last: None,
-            live_len: 0,
-        });
         Self {
             allocator,
-            stylesheet: StyleSheet { root_rules },
             license_comments: allocator.vec(),
             rules: RuleStore::with_capacity_in(capacity.rules, allocator),
-            rule_lists,
             declaration_blocks: DeclarationBlockStore::with_capacity_in(
                 capacity.declaration_blocks,
                 allocator,
@@ -701,14 +529,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 capacity.contexts,
                 Default::default(),
             ),
-            first_rule_in_source: None,
-            last_rule_in_source: None,
         }
-    }
-
-    #[inline]
-    pub const fn stylesheet(&self) -> StyleSheet {
-        self.stylesheet
     }
 
     #[inline]
@@ -717,8 +538,13 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     }
 
     #[inline]
-    pub const fn first_rule_in_source(&self) -> Option<RuleId<R>> {
-        self.first_rule_in_source
+    pub(crate) fn first_rule_in_source(&self) -> Option<RuleId<R>> {
+        self.rules.primary_id(0)
+    }
+
+    #[inline]
+    pub(crate) fn next_rule_in_source(&self, id: RuleId<R>) -> Option<RuleId<R>> {
+        self.rules.next_id(id)
     }
 
     #[inline]
@@ -739,11 +565,6 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     #[inline]
     pub fn rule_mut(&mut self, id: RuleId<R>) -> Option<&mut RuleRecord<R>> {
         self.rules.get_mut(id)
-    }
-
-    #[inline]
-    pub fn rule_list(&self, id: RuleListId) -> Option<&RuleList<R>> {
-        self.rule_lists.try_get(id)
     }
 
     #[inline]
@@ -770,12 +591,6 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 
     #[doc(hidden)]
     #[inline]
-    pub fn rule_list_count(&self) -> usize {
-        self.rule_lists.len()
-    }
-
-    #[doc(hidden)]
-    #[inline]
     pub fn selector_value_count(&self) -> usize {
         self.selector_values.len()
     }
@@ -796,10 +611,33 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         self.effective_keys.try_get(id)
     }
 
-    /// Iterates authored and synthesized rules in global semantic order.
+    /// Iterates live authored and synthesized rules in global lexical order.
     #[inline]
     pub fn rules_in_source_order(&self) -> impl Iterator<Item = (RuleId<R>, &RuleRecord<R>)> {
-        self.rules.iter_enumerated()
+        self.rules
+            .iter_enumerated()
+            .filter(|(_, record)| record.live)
+    }
+
+    /// Runs a fallible non-structural transform over live rules in lexical
+    /// order without materializing their IDs.
+    ///
+    /// The callback may mutate rule payloads and declarations through the
+    /// compilation, but must not insert, retire, or relabel rules while this
+    /// source-order cursor is active.
+    #[doc(hidden)]
+    pub fn try_for_each_rule_in_source_order<E>(
+        &mut self,
+        mut visit: impl FnMut(RuleId<R>, &mut Self) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut current = self.first_rule_in_source();
+        while let Some(rule) = current {
+            current = self.next_rule_in_source(rule);
+            if self.rules.get(rule).is_some_and(|record| record.live) {
+                visit(rule, self)?;
+            }
+        }
+        Ok(())
     }
 
     /// Iterates authored and synthesized blocks in global semantic order.
@@ -1060,35 +898,79 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         }
     }
 
-    /// Iterates direct siblings in one rule list without walking descendants.
-    pub fn rules_in_list(
+    fn direct_rules(
         &self,
-        list: RuleListId,
-    ) -> Result<RuleListIter<'_, 'ast, R>, MutationError<R>> {
-        let list = self
-            .rule_lists
-            .try_get(list)
-            .ok_or(MutationError::<R>::UnknownRuleList(list))?;
-        Ok(RuleListIter {
+        parent: Option<RuleId<R>>,
+    ) -> Result<DirectRuleIter<'_, 'ast, R>, MutationError<R>> {
+        let (next, remaining) = if let Some(parent) = parent {
+            let record = self
+                .rules
+                .get(parent)
+                .ok_or(MutationError::<R>::UnknownRule(parent))?;
+            (
+                (record.nested_rule_count != 0)
+                    .then(|| self.rules.next_id(parent))
+                    .flatten(),
+                record.nested_rule_count,
+            )
+        } else {
+            (self.rules.primary_id(0), self.rules.len() as u32)
+        };
+        Ok(DirectRuleIter {
             rules: &self.rules,
-            next: list.first,
-            remaining: list.live_len,
+            next,
+            remaining,
         })
     }
 
-    /// Appends one authored rule to `list` in lexical parse order.
+    /// Iterates live top-level rules without visiting their descendants.
+    #[inline]
+    pub fn root_rules(&self) -> impl Iterator<Item = (RuleId<R>, &RuleRecord<R>)> {
+        DirectRuleIter {
+            rules: &self.rules,
+            next: self.rules.primary_id(0),
+            remaining: self.rules.len() as u32,
+        }
+    }
+
+    /// Iterates live direct nested rules without visiting deeper descendants.
+    pub fn nested_rules(
+        &self,
+        parent: RuleId<R>,
+    ) -> Result<impl Iterator<Item = (RuleId<R>, &RuleRecord<R>)>, MutationError<R>> {
+        let record = self
+            .rules
+            .get(parent)
+            .ok_or(MutationError::<R>::UnknownRule(parent))?;
+        if !record.live {
+            return Err(MutationError::<R>::RetiredRule(parent));
+        }
+        self.direct_rules(Some(parent))
+    }
+
+    /// Returns whether a live rule has at least one live direct nested rule.
+    #[inline]
+    pub fn has_nested_rules(&self, parent: RuleId<R>) -> Result<bool, MutationError<R>> {
+        Ok(self.nested_rules(parent)?.next().is_some())
+    }
+
+    /// Appends one authored rule below `parent` in lexical parse order.
     ///
     /// All fallible checks happen before either the store or topology changes.
     pub fn append_rule(
         &mut self,
-        list: RuleListId,
+        parent: Option<RuleId<R>>,
         payload: R,
     ) -> Result<RuleId<R>, MutationError<R>> {
-        let (parent, previous_sibling) = self
-            .rule_lists
-            .try_get(list)
-            .map(|list| (list.parent, list.last))
-            .ok_or(MutationError::<R>::UnknownRuleList(list))?;
+        if let Some(parent_id) = parent {
+            let parent = self
+                .rules
+                .get(parent_id)
+                .ok_or(MutationError::<R>::UnknownRule(parent_id))?;
+            if !parent.live {
+                return Err(MutationError::<R>::RetiredRule(parent_id));
+            }
+        }
         if !self.rules.can_push_primary() {
             return Err(MutationError::<R>::PrimaryRuleCapacityExhausted);
         }
@@ -1096,65 +978,50 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let id = self.rules.push_primary(RuleRecord {
             payload,
             parent,
-            parent_list: list,
-            previous_sibling,
-            next_sibling: None,
-            previous_in_source: self.last_rule_in_source,
-            next_in_source: None,
-            child_list: None,
+            nested_rule_count: 0,
             declaration_block: None,
             revision: 0,
             live: true,
         });
-        if let Some(previous) = self.last_rule_in_source {
-            self.rules
-                .get_mut(previous)
-                .expect("the global source tail remains resolvable")
-                .next_in_source = Some(id);
-        } else {
-            self.first_rule_in_source = Some(id);
+        let mut ancestor = parent;
+        while let Some(ancestor_id) = ancestor {
+            let record = self
+                .rules
+                .get_mut(ancestor_id)
+                .expect("an appended rule's validated ancestor remains resolvable");
+            record.nested_rule_count += 1;
+            ancestor = record.parent;
         }
-        self.last_rule_in_source = Some(id);
-        if let Some(previous) = previous_sibling {
-            self.rules
-                .get_mut(previous)
-                .expect("the list tail was validated when it was published")
-                .next_sibling = Some(id);
-        }
-        let list_record = self.rule_lists.get_mut(list);
-        list_record.first.get_or_insert(id);
-        list_record.last = Some(id);
-        list_record.live_len += 1;
         Ok(id)
     }
 
-    /// Creates the one direct child list owned by `parent`.
-    pub fn create_child_list(&mut self, parent: RuleId<R>) -> Result<RuleListId, MutationError<R>> {
-        let parent_record = self
-            .rules
-            .get(parent)
-            .ok_or(MutationError::<R>::UnknownRule(parent))?;
-        if !parent_record.live {
-            return Err(MutationError::<R>::RetiredRule(parent));
-        }
-        if parent_record.child_list.is_some() {
-            return Err(MutationError::<R>::ChildListAlreadyExists(parent));
-        }
+    #[doc(hidden)]
+    #[inline]
+    pub fn authored_rule_count(&self) -> usize {
+        self.rules.primary_len()
+    }
 
-        let list = self
-            .rule_lists
-            .try_push(RuleList {
-                parent: Some(parent),
-                first: None,
-                last: None,
-                live_len: 0,
-            })
-            .map_err(|_| MutationError::<R>::RuleListCapacityExhausted)?;
-        self.rules
-            .get_mut(parent)
-            .expect("the parent was validated before allocating its child list")
-            .child_list = Some(list);
-        Ok(list)
+    pub fn previous_sibling(&self, id: RuleId<R>) -> Option<RuleId<R>> {
+        let parent = self.rules.get(id)?.parent;
+        let mut previous = None;
+        for (candidate, _) in self.direct_rules(parent).ok()? {
+            if candidate == id {
+                return previous;
+            }
+            previous = Some(candidate);
+        }
+        None
+    }
+
+    pub fn next_sibling(&self, id: RuleId<R>) -> Option<RuleId<R>> {
+        let parent = self.rules.get(id)?.parent;
+        let mut rules = self.direct_rules(parent).ok()?;
+        while let Some((candidate, _)) = rules.next() {
+            if candidate == id {
+                return rules.next().map(|(next, _)| next);
+            }
+        }
+        None
     }
 
     /// Appends a key record. W6 routes this operation through exact interning.
@@ -1384,34 +1251,41 @@ impl<'comp, D> Iterator for DeclarationOccurrenceIter<'comp, D> {
 
 impl<D> ExactSizeIterator for DeclarationOccurrenceIter<'_, D> {}
 
-/// Direct-sibling iterator backed only by the rule store and topology links.
-pub struct RuleListIter<'comp, 'ast, R: Unpin> {
+/// Direct-sibling iterator over lexical-preorder subtree spans.
+struct DirectRuleIter<'comp, 'ast, R: Unpin> {
     rules: &'comp RuleStore<'ast, R>,
     next: Option<RuleId<R>>,
     remaining: u32,
 }
 
-impl<'comp, 'ast, R: Unpin> Iterator for RuleListIter<'comp, 'ast, R> {
+impl<'comp, 'ast, R: Unpin> Iterator for DirectRuleIter<'comp, 'ast, R> {
     type Item = (RuleId<R>, &'comp RuleRecord<R>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 {
-            return None;
+        while self.remaining != 0 {
+            let id = self.next?;
+            let rule = self.rules.get(id)?;
+            let span = rule.nested_rule_count.checked_add(1)?;
+            if span > self.remaining {
+                self.remaining = 0;
+                self.next = None;
+                return None;
+            }
+            self.remaining -= span;
+            self.next = (self.remaining != 0)
+                .then(|| self.rules.advance_id(id, span))
+                .flatten();
+            if rule.live {
+                return Some((id, rule));
+            }
         }
-        let id = self.next?;
-        let rule = self.rules.get(id)?;
-        self.next = rule.next_sibling;
-        self.remaining -= 1;
-        Some((id, rule))
+        None
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.remaining as usize;
-        (remaining, Some(remaining))
+        (0, Some(self.remaining as usize))
     }
 }
-
-impl<R: Unpin> ExactSizeIterator for RuleListIter<'_, '_, R> {}
 
 #[cfg(test)]
 mod tests;

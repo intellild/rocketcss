@@ -340,7 +340,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             .rule(owner)
             .ok_or(MutationError::<'ast>::InvalidRuleTopology(owner))?;
         let previous_style_block = if is_style_owner(owner_record.payload())
-            && let Some(previous) = owner_record.previous_sibling()
+            && let Some(previous) = compilation.previous_sibling(owner)
         {
             let previous_record = compilation
                 .rule(previous)
@@ -518,15 +518,12 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             history.retain(|block| *block != merged.retired_block);
             commits += 1;
 
-            let retained = compilation
-                .rule(merged.retained_rule)
-                .expect("the retained S1 rule remains live");
             for (left, right) in [
-                retained
-                    .previous_sibling()
+                compilation
+                    .previous_sibling(merged.retained_rule)
                     .map(|previous| (previous, merged.retained_rule)),
-                retained
-                    .next_sibling()
+                compilation
+                    .next_sibling(merged.retained_rule)
                     .map(|next| (merged.retained_rule, next)),
             ]
             .into_iter()
@@ -597,9 +594,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 let DeclarationBlockOwner::Rule(owner) = block_record.owner();
                 let block_key = block_record.effective_key();
                 if self.declaration_ir.block_live_count(block) == 0
-                    && compilation
-                        .rule(owner)
-                        .is_some_and(|rule| rule.child_list().is_none())
+                    && !compilation.has_nested_rules(owner)?
                 {
                     let retired = compilation.retire_rule(owner)?;
                     self.remove_history_occurrence(block_key, block);
@@ -807,9 +802,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 self.insert_history_occurrence(shared_key, candidate.left);
 
                 let retain_right = self.declaration_ir.block_live_count(candidate.right) != 0
-                    || compilation
-                        .rule(endpoints.right_rule)
-                        .is_some_and(|rule| rule.child_list().is_some());
+                    || compilation.has_nested_rules(endpoints.right_rule)?;
                 if !retain_right {
                     compilation.retire_rule(endpoints.right_rule)?;
                     self.remove_history_occurrence(endpoints.right_key, candidate.right);
@@ -828,19 +821,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 break;
             }
 
-            let before_block = first_block_after_rule_in_source(
-                compilation,
-                endpoints.left_rule,
-                endpoints.right_rule,
-            )?;
-            if !compilation.can_insert_declaration_block_between(
-                candidate.left,
-                Some(before_block),
-                self.scratch.common.len(),
-            ) {
-                stats.rejected_capacity += 1;
-                continue;
-            }
             let payload = match endpoints.selector_kind {
                 rocketcss_ast::radix_ast::SelectorFrameKind::Style => {
                     CssRulePayload::Style(StyleRulePayload {
@@ -856,26 +836,31 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     })
                 }
             };
-            let rule_result = match compilation.insert_rule_after(endpoints.left_rule, payload) {
+            let insertion = match compilation.insert_rule_with_declaration_block_after(
+                endpoints.left_rule,
+                endpoints.right_rule,
+                candidate.left,
+                payload,
+                shared_key,
+                self.scratch.common.len(),
+            ) {
                 Ok(result) => result,
                 Err(
                     MutationError::<'ast>::LocalRuleCapacityExhausted(_)
-                    | MutationError::<'ast>::PrimaryRuleCapacityExhausted,
+                    | MutationError::<'ast>::PrimaryRuleCapacityExhausted
+                    | MutationError::<'ast>::LocalDeclarationBlockCapacityExhausted(_)
+                    | MutationError::<'ast>::DeclarationCapacityExhausted,
                 ) => {
                     stats.rejected_capacity += 1;
                     continue;
                 }
                 Err(error) => return Err(error),
             };
+            let rule_result = insertion.rule;
             let left_rule = remap_rule_id(endpoints.left_rule, &rule_result.remaps);
             let right_rule = remap_rule_id(endpoints.right_rule, &rule_result.remaps);
             let shared_rule = rule_result.id;
-            let block_result = compilation.insert_declaration_block_between(
-                candidate.left,
-                Some(before_block),
-                shared_rule,
-                shared_key,
-            )?;
+            let block_result = insertion.declaration_block;
             self.repair_block_remaps(&block_result);
             let left_block = remap_block_id(candidate.left, &block_result.remaps);
             let right_block = remap_block_id(candidate.right, &block_result.remaps);
@@ -909,9 +894,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             self.insert_history_occurrence(shared_key, shared_block);
 
             let retain_right = self.declaration_ir.block_live_count(right_block) != 0
-                || compilation
-                    .rule(right_rule)
-                    .is_some_and(|rule| rule.child_list().is_some());
+                || compilation.has_nested_rules(right_rule)?;
             if !retain_right {
                 compilation.retire_rule(right_rule)?;
                 self.remove_history_occurrence(endpoints.right_key, right_block);
@@ -926,12 +909,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             self.declaration_override_candidates
                 .push(endpoints.right_key);
             self.declaration_override_candidates.push(shared_key);
-            debug_assert_eq!(
-                compilation
-                    .rule(shared_rule)
-                    .and_then(|rule| rule.previous_sibling()),
-                Some(left_rule)
-            );
+            debug_assert_eq!(compilation.previous_sibling(shared_rule), Some(left_rule));
             stats.allocated_shared_commits += 1;
             break;
         }
@@ -975,19 +953,15 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         left: RuleId<'ast>,
         right: Option<RuleId<'ast>>,
     ) {
-        let previous = compilation
-            .rule(left)
-            .and_then(|rule| rule.previous_sibling());
+        let previous = compilation.previous_sibling(left);
         for edge in [
             previous.and_then(|previous| self.edge_candidate(compilation, previous, left)),
             compilation
-                .rule(left)
-                .and_then(|rule| rule.next_sibling())
+                .next_sibling(left)
                 .and_then(|next| self.edge_candidate(compilation, left, next)),
             right.and_then(|right| {
                 compilation
-                    .rule(right)
-                    .and_then(|rule| rule.next_sibling())
+                    .next_sibling(right)
                     .and_then(|next| self.edge_candidate(compilation, right, next))
             }),
         ]
@@ -999,15 +973,15 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     }
 
     fn enqueue_rule_incident_edges(&mut self, compilation: &Compilation<'ast>, rule: RuleId<'ast>) {
-        let Some(record) = compilation.rule(rule) else {
+        if compilation.rule(rule).is_none() {
             return;
-        };
+        }
         for edge in [
-            record
-                .previous_sibling()
+            compilation
+                .previous_sibling(rule)
                 .and_then(|previous| self.edge_candidate(compilation, previous, rule)),
-            record
-                .next_sibling()
+            compilation
+                .next_sibling(rule)
                 .and_then(|next| self.edge_candidate(compilation, rule, next)),
         ]
         .into_iter()
@@ -1060,8 +1034,8 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         let right_rule = compilation.rule(right)?;
         if !left_rule.is_live()
             || !right_rule.is_live()
-            || left_rule.next_sibling() != Some(right)
-            || right_rule.previous_sibling() != Some(left)
+            || compilation.next_sibling(left) != Some(right)
+            || compilation.previous_sibling(right) != Some(left)
             || !is_style_owner(left_rule.payload())
             || !is_style_owner(right_rule.payload())
         {
@@ -1099,30 +1073,6 @@ fn is_style_owner(payload: &CssRulePayload<'_>) -> bool {
     )
 }
 
-fn first_block_after_rule_in_source<'ast>(
-    compilation: &Compilation<'ast>,
-    left: RuleId<'ast>,
-    right: RuleId<'ast>,
-) -> Result<DeclarationBlockId<'ast>, MutationError<'ast>> {
-    let mut current = compilation
-        .rule(left)
-        .ok_or(MutationError::<'ast>::UnknownRule(left))?
-        .next_in_source();
-    while let Some(rule) = current {
-        let record = compilation
-            .rule(rule)
-            .ok_or(MutationError::<'ast>::InvalidRuleTopology(left))?;
-        if let Some(block) = record.declaration_block() {
-            return Ok(block);
-        }
-        if rule == right {
-            break;
-        }
-        current = record.next_in_source();
-    }
-    Err(MutationError::<'ast>::InvalidRuleTopology(left))
-}
-
 fn remap_rule_id<'ast>(id: RuleId<'ast>, remaps: &[RadixIdRemap<RuleId<'ast>>]) -> RuleId<'ast> {
     remaps
         .iter()
@@ -1158,9 +1108,9 @@ fn validate_s1<'ast>(
     let DeclarationBlockOwner::Rule(right) = right_block.owner();
     let left_rule = compilation.rule(left)?;
     let right_rule = compilation.rule(right)?;
-    if left_rule.child_list().is_some()
-        || left_rule.next_sibling() != Some(right)
-        || right_rule.previous_sibling() != Some(left)
+    if compilation.has_nested_rules(left).ok()?
+        || compilation.next_sibling(left) != Some(right)
+        || compilation.previous_sibling(right) != Some(left)
         || !is_style_owner(left_rule.payload())
         || !is_style_owner(right_rule.payload())
     {
@@ -1214,9 +1164,9 @@ fn validate_s3<'ast>(
     let DeclarationBlockOwner::Rule(right_rule_id) = right_block.owner();
     let left_rule = compilation.rule(left_rule_id)?;
     let right_rule = compilation.rule(right_rule_id)?;
-    if left_rule.child_list().is_some()
-        || left_rule.next_sibling() != Some(right_rule_id)
-        || right_rule.previous_sibling() != Some(left_rule_id)
+    if compilation.has_nested_rules(left_rule_id).ok()?
+        || compilation.next_sibling(left_rule_id) != Some(right_rule_id)
+        || compilation.previous_sibling(right_rule_id) != Some(left_rule_id)
     {
         return None;
     }
@@ -1463,10 +1413,8 @@ mod tests {
         let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
 
         assert_eq!(state.run_s1(&mut compilation).unwrap(), 2);
-        let root = compilation.stylesheet().root_rules();
         let live = compilation
-            .rules_in_list(root)
-            .unwrap()
+            .root_rules()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>();
         assert_eq!(live.len(), 2);
@@ -1541,13 +1489,7 @@ mod tests {
         let stats = state.run_s2_exact(&mut compilation).unwrap();
         assert_eq!(stats.declarations_removed, 1);
         assert_eq!(stats.empty_rules_retired, 1);
-        assert_eq!(
-            compilation
-                .rules_in_list(compilation.stylesheet().root_rules())
-                .unwrap()
-                .count(),
-            2
-        );
+        assert_eq!(compilation.root_rules().count(), 2);
         assert_eq!(compilation.validate_ast(), Ok(()));
     }
 
@@ -1567,13 +1509,7 @@ mod tests {
         assert_eq!(s2.empty_rules_retired, 1);
         assert_eq!(state.run_s1(&mut compilation).unwrap(), 1);
 
-        assert_eq!(
-            compilation
-                .rules_in_list(compilation.stylesheet().root_rules())
-                .unwrap()
-                .count(),
-            3
-        );
+        assert_eq!(compilation.root_rules().count(), 3);
         assert_eq!(compilation.validate_ast(), Ok(()));
     }
 
@@ -1661,13 +1597,7 @@ mod tests {
                     rejected_capacity: 0,
                 }
             );
-            assert_eq!(
-                compilation
-                    .rules_in_list(compilation.stylesheet().root_rules())
-                    .unwrap()
-                    .count(),
-                3
-            );
+            assert_eq!(compilation.root_rules().count(), 3);
             assert_eq!(
                 compilation.declarations_in_source_order().count(),
                 authored_declarations + 1
@@ -1721,13 +1651,7 @@ mod tests {
                     rejected_capacity: 0,
                 }
             );
-            assert_eq!(
-                compilation
-                    .rules_in_list(compilation.stylesheet().root_rules())
-                    .unwrap()
-                    .count(),
-                2
-            );
+            assert_eq!(compilation.root_rules().count(), 2);
             let actual = compilation
                 .to_css_string(
                     PrinterOptions { prettify: false },

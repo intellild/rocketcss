@@ -165,36 +165,18 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
         [0, 1, 2, 3]
     );
 
-    let root = compilation.stylesheet().root_rules();
     let root_ids = compilation
-        .rules_in_list(root)
-        .unwrap()
+        .root_rules()
         .map(|(id, _)| id.primary_index())
         .collect::<std::vec::Vec<_>>();
     assert_eq!(root_ids, [0, 3]);
-    let outer = compilation
-        .rule(compilation.rules_in_list(root).unwrap().next().unwrap().0)
-        .unwrap();
+    let outer_id = compilation.root_rules().next().unwrap().0;
     let child_ids = compilation
-        .rules_in_list(outer.child_list().unwrap())
+        .nested_rules(outer_id)
         .unwrap()
         .map(|(id, _)| id.primary_index())
         .collect::<std::vec::Vec<_>>();
     assert_eq!(child_ids, [1, 2]);
-    let outer_id = compilation.rules_in_list(root).unwrap().next().unwrap().0;
-    let child_tail = compilation
-        .rules_in_list(outer.child_list().unwrap())
-        .unwrap()
-        .last()
-        .unwrap()
-        .0;
-    assert_eq!(compilation.subtree_tail(outer_id), Some(child_tail));
-    assert_eq!(
-        compilation
-            .next_after_subtree(outer_id)
-            .map(|id| id.primary_index()),
-        Some(3)
-    );
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
 
@@ -343,12 +325,15 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
             ParserOptions::default(),
         )
         .unwrap();
-    let root = compilation.stylesheet().root_rules();
     let (outer, following) = {
-        let mut root_rules = compilation.rules_in_list(root).unwrap();
+        let mut root_rules = compilation.root_rules();
         (root_rules.next().unwrap().0, root_rules.next().unwrap().0)
     };
-    let old_tail = compilation.subtree_tail(outer).unwrap();
+    let nested = compilation
+        .nested_rules(outer)
+        .unwrap()
+        .map(|(id, _)| id)
+        .collect::<std::vec::Vec<_>>();
 
     let inserted = compilation
         .insert_rule_after(
@@ -357,12 +342,9 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
         )
         .unwrap();
 
-    assert!(inserted.id.sibling_key() > 0);
-    assert_eq!(inserted.id.primary_index(), old_tail.primary_index());
     assert_eq!(
         compilation
-            .rules_in_list(root)
-            .unwrap()
+            .root_rules()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
         [outer, inserted.id, following]
@@ -372,36 +354,16 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
             .rules_in_source_order()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
-        [
-            outer,
-            compilation
-                .rule(outer)
-                .unwrap()
-                .child_list()
-                .and_then(|list| compilation.rules_in_list(list).ok())
-                .and_then(|mut rules| rules.next().map(|(id, _)| id))
-                .unwrap(),
-            old_tail,
-            inserted.id,
-            following,
-        ]
+        [outer]
+            .into_iter()
+            .chain(nested)
+            .chain([inserted.id, following])
+            .collect::<std::vec::Vec<_>>()
     );
-    assert_eq!(
-        compilation.rule(outer).unwrap().next_sibling(),
-        Some(inserted.id)
-    );
-    assert_eq!(
-        compilation.rule(inserted.id).unwrap().previous_sibling(),
-        Some(outer)
-    );
-    assert_eq!(
-        compilation.rule(inserted.id).unwrap().next_sibling(),
-        Some(following)
-    );
-    assert_eq!(
-        compilation.rule(following).unwrap().previous_sibling(),
-        Some(inserted.id)
-    );
+    assert_eq!(compilation.next_sibling(outer), Some(inserted.id));
+    assert_eq!(compilation.previous_sibling(inserted.id), Some(outer));
+    assert_eq!(compilation.next_sibling(inserted.id), Some(following));
+    assert_eq!(compilation.previous_sibling(following), Some(inserted.id));
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
 
@@ -411,8 +373,7 @@ fn local_relabel_repairs_topology_and_effective_key_seeds() {
     let mut compilation = Compiler::new(&allocator)
         .parse_compilation("a{}b{}", ParserOptions::default())
         .unwrap();
-    let root = compilation.stylesheet().root_rules();
-    let outer = compilation.rules_in_list(root).unwrap().next().unwrap().0;
+    let outer = compilation.root_rules().next().unwrap().0;
     let first = compilation
         .insert_rule_after(
             outer,
@@ -448,7 +409,7 @@ fn local_relabel_repairs_topology_and_effective_key_seeds() {
 }
 
 #[test]
-fn insertion_skips_retired_source_tombstones() {
+fn insertion_after_retirement_preserves_live_source_order() {
     let allocator = Allocator::new();
     let mut compilation = Compiler::new(&allocator)
         .parse_compilation(
@@ -456,9 +417,8 @@ fn insertion_skips_retired_source_tombstones() {
             ParserOptions::default(),
         )
         .unwrap();
-    let root = compilation.stylesheet().root_rules();
     let (first, retired, last) = {
-        let mut rules = compilation.rules_in_list(root).unwrap();
+        let mut rules = compilation.root_rules();
         (
             rules.next().unwrap().0,
             rules.next().unwrap().0,
@@ -469,8 +429,7 @@ fn insertion_skips_retired_source_tombstones() {
     assert!(!compilation.rule(retired).unwrap().is_live());
     assert_eq!(
         compilation
-            .rules_in_list(root)
-            .unwrap()
+            .root_rules()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
         [first, last]
@@ -484,19 +443,16 @@ fn insertion_skips_retired_source_tombstones() {
         .unwrap()
         .id;
 
-    assert_eq!(inserted.primary_index(), retired.primary_index());
-    assert!(inserted.sibling_key() > 0);
     assert_eq!(
         compilation
             .rules_in_source_order()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
-        [first, retired, inserted, last]
+        [first, inserted, last]
     );
     assert_eq!(
         compilation
-            .rules_in_list(root)
-            .unwrap()
+            .root_rules()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
         [first, inserted, last]
@@ -531,18 +487,16 @@ fn top_level_media_uses_preorder_and_direct_child_topology() {
         compilation.rule(ids[1]).unwrap().payload(),
         CssRulePayload::Style(_)
     ));
-    let root = compilation.stylesheet().root_rules();
     assert_eq!(
         compilation
-            .rules_in_list(root)
-            .unwrap()
+            .root_rules()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
         [ids[0], ids[2]]
     );
     assert_eq!(
         compilation
-            .rules_in_list(compilation.rule(ids[0]).unwrap().child_list().unwrap())
+            .nested_rules(ids[0])
             .unwrap()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
@@ -762,8 +716,8 @@ fn layer_statement_and_blocks_keep_distinct_topology() {
             "declarations"
         ]
     );
-    assert!(radix.rule(rules[0].0).unwrap().child_list().is_none());
-    assert!(radix.rule(rules[1].0).unwrap().child_list().is_some());
+    assert!(!radix.has_nested_rules(rules[0].0).unwrap());
+    assert!(radix.has_nested_rules(rules[1].0).unwrap());
     assert_eq!(radix.rule(rules[2].0).unwrap().parent(), Some(rules[1].0));
     assert_eq!(radix.rule(rules[4].0).unwrap().parent(), Some(rules[3].0));
 
@@ -878,7 +832,7 @@ fn unknown_at_rules_remain_opaque_and_lossless() {
     assert_eq!(radix_top.name, "foo");
     assert!(!radix_top.prelude.is_empty());
     assert!(radix_top.block.is_none());
-    assert!(radix.rule(ids[0]).unwrap().child_list().is_none());
+    assert!(!radix.has_nested_rules(ids[0]).unwrap());
 
     let CssRulePayload::Unknown(radix_nested) = radix.rule(ids[2]).unwrap().payload() else {
         unreachable!()
@@ -891,7 +845,7 @@ fn unknown_at_rules_remain_opaque_and_lossless() {
             .as_ref()
             .is_some_and(|block| !block.is_empty())
     );
-    assert!(radix.rule(ids[2]).unwrap().child_list().is_none());
+    assert!(!radix.has_nested_rules(ids[2]).unwrap());
     assert_eq!(radix.rule(ids[2]).unwrap().parent(), Some(ids[1]));
 
     assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 1)]);
@@ -1141,7 +1095,7 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
     );
     let wrapper = rules[1].0;
     let frames = radix
-        .rules_in_list(radix.rule(wrapper).unwrap().child_list().unwrap())
+        .nested_rules(wrapper)
         .unwrap()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
@@ -1230,7 +1184,7 @@ fn page_margin_rules_split_parent_declaration_ranges() {
             if matches!(pseudo_classes.as_slice(), [PagePseudoClass::Left])
     ));
     let page_children = radix
-        .rules_in_list(radix.rule(page).unwrap().child_list().unwrap())
+        .nested_rules(page)
         .unwrap()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
@@ -1363,7 +1317,7 @@ fn font_feature_subrules_and_declarations_are_flattened() {
     let wrapper = rules[0].0;
     assert_eq!(
         radix
-            .rules_in_list(radix.rule(wrapper).unwrap().child_list().unwrap())
+            .nested_rules(wrapper)
             .unwrap()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
@@ -1661,12 +1615,6 @@ fn capacity_estimates_cover_benchmark_corpora() {
             compilation.rules_in_source_order().count(),
             capacity.rules,
             source.len()
-        );
-        assert!(
-            compilation.rule_list_count() <= capacity.rule_lists,
-            "rule lists exceed capacity estimate ({} > {})",
-            compilation.rule_list_count(),
-            capacity.rule_lists
         );
         assert!(
             compilation.declaration_block_count() <= capacity.declaration_blocks,

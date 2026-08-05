@@ -108,6 +108,7 @@ least one inserted sibling, and `S` the number of siblings below one primary.
 | Create a new sibling group              | `O(G)` compact SoA insertion               |
 | Iterate primary-only store              | `O(P)` contiguous slice traversal          |
 | Iterate semantic sequence               | `O(P + inserted)` segmented traversal      |
+| Advance a semantic cursor               | direct index without siblings; cursor walk otherwise |
 
 The `O(G)` new-group insertion is accepted because structural insertion is
 rare and `G` is normally tiny compared with `P`. If profiles show many distinct
@@ -138,20 +139,21 @@ when the current segment is exhausted.
 Codegen and passes that know no siblings exist use `primary_iter()` directly.
 Passes that need transformed semantic order use `semantic_iter()`.
 
-## AST sequences and ranges
+## AST source sequence
 
-Rules allocate in per-list order, level by level, so each rule's direct
-children form one contiguous primary range; declaration blocks and declaration
-properties are single-range sequences by construction. See
-[Storage layout](./storage-layout.md) for the allocation invariants. The Radix
-ID supplies stable identity and ordering; the range supplies the sequence.
+Rules allocate in lexical preorder. Each rule stores the number of physical
+descendant records in its complete subtree. The arena supplies source order;
+the subtree count supplies the jump to a direct sibling or to the first rule
+after a subtree. There is no separate rule range or rule-list store. See
+[Storage layout](./storage-layout.md) for the tree invariants.
 
 When Nano inserts a synthesized direct sibling:
 
-1. choose a sibling key between its local semantic neighbors;
-2. insert the value into the owning primary's Radix tree;
-3. update the affected rule or declaration range (`len += 1`); and
-4. bind any owned declaration block and EffectiveKey immediately.
+1. ask the AST to locate the tail of the preceding sibling's subtree;
+2. choose a sibling key between the physical semantic neighbors;
+3. insert the value into the owning primary's Radix tree;
+4. repair a rare local ID relabel; and
+5. increment the physical subtree count of every ancestor.
 
 No global AST walk or renumbering of later primary nodes is required.
 
@@ -161,8 +163,9 @@ Sibling key zero is reserved for the primary. Keys `1..=1023` are assigned with
 gaps so insertion between existing siblings normally chooses a midpoint.
 
 When an interval has no free key, the arena may relabel only the siblings below
-that primary and return an exact old-to-new ID remap. Candidate queues and the
-few ranges/references to those rare IDs are repaired in the same transaction.
+that primary and return an exact old-to-new ID remap. The AST repairs parents,
+payload references, block owners, effective keys, contexts, layers, and other
+persistent references in the same transaction.
 
 If one compact primary requires more than 1023 live inserted siblings, the AST
 transaction rejects that optional structural optimization and preserves the
@@ -175,18 +178,17 @@ Candidates carry endpoint IDs and revisions. A local edit increments affected
 revisions and enqueues newly exposed work. When popped, a candidate validates:
 
 - both IDs still resolve and are live;
-- they remain mutual direct siblings in the same rule list and segment;
+- they remain mutual direct siblings under the same AST parent and segment;
 - the stored revisions still match; and
 - current EffectiveKey equality still classifies the edge for S1 or S3.
 
 Retired nodes may remain as tombstones until terminal cleanup. Their IDs are not
 reused during the compilation.
 
-Direct siblings are arena-adjacent inside one range, so finding the real
-neighbors for an insertion is a short tombstone-skipping scan of that range;
-there is no `previous_in_source`/`next_in_source` chain to walk. The range is
-unaffected by tombstones in sibling regions and does not record an insertion
-position beyond its window.
+Direct siblings are not necessarily arena-adjacent: the left sibling's complete
+subtree appears between them. The AST jumps over that subtree with its physical
+descendant count, then skips any retired arena entries before choosing the
+insertion gap. There is no `previous_in_source`/`next_in_source` chain.
 
 ## Measured trade-off
 
@@ -214,7 +216,7 @@ or primary-only traversal.
 - Base node IDs always have the reserved bits zero.
 - Sibling groups are sorted by primary index and the SoA lengths match.
 - Sibling key order equals semantic insertion order below one primary.
-- A rule's direct children are one contiguous semantic window (level-order
-  allocation); a block's declarations are one contiguous semantic window.
+- Parsed rules occupy lexical preorder, and every rule's descendant count
+  exactly spans its complete physical subtree.
 - A local relabel repairs all persistent references atomically.
 - Valid input has a non-panicking overflow path.
