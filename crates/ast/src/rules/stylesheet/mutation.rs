@@ -1,6 +1,6 @@
 use super::*;
 
-impl<R, D: Unpin, K> RadixCompilation<'_, R, D, K>
+impl<R, D: Unpin, K> StyleSheet<'_, R, D, K>
 where
     R: RuleIdReferences<R> + Unpin,
     K: RuleIdReferences<R> + Copy + Eq + std::hash::Hash,
@@ -201,7 +201,7 @@ where
     }
 }
 
-impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
+impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     fn declaration_neighbors_at_block_end(
         &self,
         target: DeclarationBlockId<R>,
@@ -344,7 +344,7 @@ impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
         let result = self.declaration_blocks.insert_between(
             after,
             before,
-            DeclarationBlockRecord::<R> {
+            DeclarationBlock::<R> {
                 declarations: DeclarationList::empty(),
                 owner: DeclarationBlockOwner::<R>::Rule(owner),
                 effective_key,
@@ -367,7 +367,7 @@ impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
     }
 }
 
-impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
+impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     /// Replaces one declaration payload through its owning block and bumps the
     /// block revision used by incremental Nano candidates.
     pub fn replace_declaration(
@@ -590,20 +590,20 @@ impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
     }
 }
 
-impl<'ast> Compilation<'ast> {
+impl<'ast> StyleSheet<'ast> {
     /// Runs a scoped, non-structural transform over one live rule payload.
     #[doc(hidden)]
     pub fn transform_rule_payload(
         &mut self,
-        rule_id: ConcreteRuleId<'ast>,
-        transform: impl FnOnce(&mut CssRulePayload<'ast>),
-    ) -> Result<(), ConcreteMutationError<'ast>> {
+        rule_id: CssRuleId<'ast>,
+        transform: impl FnOnce(&mut CssRule<'ast>),
+    ) -> Result<(), StyleSheetMutationError<'ast>> {
         let rule = self
             .rules
             .get_mut(rule_id)
-            .ok_or(ConcreteMutationError::UnknownRule(rule_id))?;
+            .ok_or(StyleSheetMutationError::UnknownRule(rule_id))?;
         if !rule.live {
-            return Err(ConcreteMutationError::RetiredRule(rule_id));
+            return Err(StyleSheetMutationError::RetiredRule(rule_id));
         }
         transform(&mut rule.payload);
         rule.revision = rule.revision.wrapping_add(1);
@@ -615,27 +615,27 @@ impl<'ast> Compilation<'ast> {
     #[doc(hidden)]
     pub fn declaration_occurrence_mut(
         &mut self,
-        block: ConcreteDeclarationBlockId<'ast>,
+        block: CssDeclarationBlockId<'ast>,
         declaration_id: DeclarationId,
-    ) -> Result<(&mut DeclarationPayload<'ast>, bool), ConcreteMutationError<'ast>> {
+    ) -> Result<(&mut CssDeclaration<'ast>, bool), StyleSheetMutationError<'ast>> {
         let block_record = self
             .declaration_blocks
             .get(block)
-            .ok_or(ConcreteMutationError::UnknownDeclarationBlock(block))?;
+            .ok_or(StyleSheetMutationError::UnknownDeclarationBlock(block))?;
         if !block_record.live {
-            return Err(ConcreteMutationError::UnknownDeclarationBlock(block));
+            return Err(StyleSheetMutationError::UnknownDeclarationBlock(block));
         }
         let revision = block_record.revision.wrapping_add(1);
         if !self
             .declaration_ids_in_block(block)?
             .any(|candidate| candidate == declaration_id)
         {
-            return Err(ConcreteMutationError::UnknownDeclaration(declaration_id));
+            return Err(StyleSheetMutationError::UnknownDeclaration(declaration_id));
         }
         let declaration = self
             .declarations
             .get_mut(declaration_id)
-            .ok_or(ConcreteMutationError::UnknownDeclaration(declaration_id))?;
+            .ok_or(StyleSheetMutationError::UnknownDeclaration(declaration_id))?;
         let important = declaration.important;
         self.declaration_blocks
             .get_mut(block)
@@ -647,17 +647,17 @@ impl<'ast> Compilation<'ast> {
     /// Resolves one property declaration through its owning block for a
     /// scoped, in-place local transform.
     ///
-    /// The returned reference borrows the whole compilation, so Rust prevents
+    /// The returned reference borrows the whole stylesheet, so Rust prevents
     /// callers from inserting into any store until that local mutation ends.
     /// The block revision is bumped before the reference is exposed.
     pub fn property_declaration_mut(
         &mut self,
-        block: ConcreteDeclarationBlockId<'ast>,
+        block: CssDeclarationBlockId<'ast>,
         declaration_id: DeclarationId,
-    ) -> Result<(&mut crate::Declaration<'ast>, bool), ConcreteMutationError<'ast>> {
+    ) -> Result<(&mut crate::Declaration<'ast>, bool), StyleSheetMutationError<'ast>> {
         let (payload, important) = self.declaration_occurrence_mut(block, declaration_id)?;
-        let DeclarationPayload::Property(payload) = payload else {
-            return Err(ConcreteMutationError::UnknownDeclaration(declaration_id));
+        let CssDeclaration::Property(payload) = payload else {
+            return Err(StyleSheetMutationError::UnknownDeclaration(declaration_id));
         };
         Ok((payload, important))
     }

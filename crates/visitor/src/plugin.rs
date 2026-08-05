@@ -4,10 +4,7 @@ use std::{
     fmt,
 };
 
-use rocketcss_ast::{
-    Compilation,
-    radix_ast::{CompilationVisitorMut, ConcreteMutationError},
-};
+use rocketcss_ast::{StyleSheet, StyleSheetMutationError, StyleSheetVisitorMut};
 use rocketcss_common::{Allocator, GhostToken};
 use rustc_hash::FxHashMap;
 
@@ -69,18 +66,18 @@ impl<'a, 'token, 'ghost> PluginContext<'a, 'token, 'ghost> {
     }
 }
 
-/// A plugin over the compiler-owned Radix [`Compilation`].
+/// A plugin over a [`StyleSheet`].
 pub trait Plugin<'a, 'ghost> {
     fn name(&self) -> &str;
 
     fn transform(
         &mut self,
-        compilation: &mut Compilation<'a>,
+        stylesheet: &mut StyleSheet<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError>;
 }
 
-/// Runs plugins in registration order over one authoritative compilation.
+/// Runs plugins in registration order over one authoritative stylesheet.
 pub struct Plugins<'plugin, 'a, 'ghost> {
     plugins: Vec<Box<dyn Plugin<'a, 'ghost> + 'plugin>>,
 }
@@ -108,19 +105,19 @@ impl<'plugin, 'a, 'ghost> Plugins<'plugin, 'a, 'ghost> {
 
     pub fn add_visitor<V>(&mut self, name: &'static str, visitor: V)
     where
-        V: CompilationVisitorMut<'a> + 'plugin,
+        V: StyleSheetVisitorMut<'a> + 'plugin,
     {
         self.add(VisitorPlugin::new(name, visitor));
     }
 
     pub fn run(
         &mut self,
-        compilation: &mut Compilation<'a>,
+        stylesheet: &mut StyleSheet<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), PluginError> {
         for plugin in &mut self.plugins {
             plugin
-                .transform(compilation, context)
+                .transform(stylesheet, context)
                 .map_err(|source| PluginError {
                     plugin: plugin.name().to_owned(),
                     source,
@@ -158,18 +155,18 @@ impl<V> VisitorPlugin<V> {
     }
 }
 
-impl<'a, 'ghost, V: CompilationVisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlugin<V> {
+impl<'a, 'ghost, V: StyleSheetVisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlugin<V> {
     fn name(&self) -> &str {
         self.name
     }
 
     fn transform(
         &mut self,
-        compilation: &mut Compilation<'a>,
+        stylesheet: &mut StyleSheet<'a>,
         _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
-        compilation
-            .visit_compilation_mut(&mut self.visitor)
+        stylesheet
+            .visit_stylesheet_mut(&mut self.visitor)
             .map_err(|error| {
                 Box::new(RadixTraversalError(error.erase_arena_lifetime())) as BoxError
             })
@@ -177,7 +174,7 @@ impl<'a, 'ghost, V: CompilationVisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlu
 }
 
 #[derive(Debug)]
-struct RadixTraversalError(ConcreteMutationError<'static>);
+struct RadixTraversalError(StyleSheetMutationError<'static>);
 
 impl fmt::Display for RadixTraversalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

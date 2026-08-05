@@ -7,38 +7,34 @@ fn parse_stylesheet<'a, 'ghost>(
     source: &'a str,
     allocator: &'a Allocator,
     token: &mut GhostToken<'ghost>,
-) -> Compilation<'a> {
+) -> StyleSheet<'a> {
     parse(source, allocator, token, ParserOptions::default()).unwrap()
 }
 
-fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
-    compilation
+fn first_rule_id<'ast>(stylesheet: &StyleSheet<'ast>) -> CssRuleId<'ast> {
+    stylesheet
         .root_rules()
         .next()
         .expect("expected a root rule")
         .0
 }
 
-fn first_block_id<'ast>(
-    compilation: &Compilation<'ast>,
-) -> radix_ast::ConcreteDeclarationBlockId<'ast> {
-    compilation
-        .rule(first_rule_id(compilation))
+fn first_block_id<'ast>(stylesheet: &StyleSheet<'ast>) -> CssDeclarationBlockId<'ast> {
+    stylesheet
+        .rule(first_rule_id(stylesheet))
         .and_then(|rule| rule.declaration_block())
         .expect("expected a declaration block")
 }
 
 fn property_declarations<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
-    block: radix_ast::ConcreteDeclarationBlockId<'ast>,
+    stylesheet: &'tree StyleSheet<'ast>,
+    block: CssDeclarationBlockId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
-    compilation
+    stylesheet
         .declarations_in_block(block)
         .unwrap()
         .filter_map(|record| match record.payload() {
-            radix_ast::DeclarationPayload::Property(declaration) => {
-                Some((declaration, record.is_important()))
-            }
+            CssDeclaration::Property(declaration) => Some((declaration, record.is_important())),
             _ => None,
         })
         .collect()
@@ -189,7 +185,7 @@ fn supports_conditions_preserve_source_order_deterministically() {
 
         for _ in 0..32 {
             let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
-            let radix_ast::CssRulePayload::Supports(rule) = stylesheet
+            let CssRule::Supports(rule) = stylesheet
                 .rule(first_rule_id(&stylesheet))
                 .unwrap()
                 .payload()
@@ -224,7 +220,7 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
             &allocator,
             &mut token,
         );
-        let radix_ast::CssRulePayload::Media(rule) = stylesheet
+        let CssRule::Media(rule) = stylesheet
             .rule(first_rule_id(&stylesheet))
             .unwrap()
             .payload()
@@ -283,7 +279,7 @@ fn pseudo_classes_are_debuggable_and_serializable() {
             ".foo:first-child{color:red}",
         ] {
             let stylesheet = parse_stylesheet(source, &allocator, &mut token);
-            let radix_ast::CssRulePayload::Style(style) = stylesheet
+            let CssRule::Style(style) = stylesheet
                 .rule(first_rule_id(&stylesheet))
                 .unwrap()
                 .payload()
@@ -378,7 +374,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
             &mut token,
         );
         for (rule_id, rule) in stylesheet.root_rules() {
-            let radix_ast::CssRulePayload::Style(_) = rule.payload() else {
+            let CssRule::Style(_) = rule.payload() else {
                 panic!("expected style rule")
             };
             assert!(
@@ -386,7 +382,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
                 "expected nested layer rules"
             );
             let (layer_id, layer) = stylesheet.nested_rules(rule_id).unwrap().next().unwrap();
-            let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
+            let CssRule::LayerBlock(_) = layer.payload() else {
                 panic!("expected nested layer block")
             };
             assert!(
@@ -401,7 +397,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
                     .unwrap()
                     .1
                     .payload(),
-                radix_ast::CssRulePayload::NestedDeclarations(_)
+                CssRule::NestedDeclarations(_)
             ));
         }
         assert_eq!(
@@ -1271,7 +1267,7 @@ fn preserves_property_rules_inside_layer_blocks() {
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let layer_id = first_rule_id(&stylesheet);
         let layer = stylesheet.rule(layer_id).unwrap();
-        let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
+        let CssRule::LayerBlock(_) = layer.payload() else {
             panic!("expected layer block")
         };
         assert!(matches!(
@@ -1282,7 +1278,7 @@ fn preserves_property_rules_inside_layer_blocks() {
                 .unwrap()
                 .1
                 .payload(),
-            radix_ast::CssRulePayload::Property(_)
+            CssRule::Property(_)
         ));
         assert_eq!(
             stylesheet

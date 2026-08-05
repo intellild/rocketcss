@@ -7,7 +7,7 @@ use super::{
     },
 };
 use crate::prelude::*;
-use rocketcss_ast::radix_ast::PropertyRuleDescriptor;
+use rocketcss_ast::PropertyRuleDescriptor;
 
 pub(super) fn parse_font_face_contents_into<'i>(
     input: &mut Compiler<'i>,

@@ -64,31 +64,29 @@ fn run_with_error_recovery(source: &str) -> String {
     })
 }
 
-fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
-    compilation
+fn first_rule_id<'ast>(stylesheet: &StyleSheet<'ast>) -> CssRuleId<'ast> {
+    stylesheet
         .root_rules()
         .map(|(rule, _)| rule)
         .next()
         .expect("expected at least one rule")
 }
 
-fn first_declaration_block_id<'ast>(
-    compilation: &Compilation<'ast>,
-) -> radix_ast::ConcreteDeclarationBlockId<'ast> {
-    compilation
-        .rule(first_rule_id(compilation))
+fn first_declaration_block_id<'ast>(stylesheet: &StyleSheet<'ast>) -> CssDeclarationBlockId<'ast> {
+    stylesheet
+        .rule(first_rule_id(stylesheet))
         .and_then(|rule| rule.declaration_block())
         .expect("expected the first rule to own declarations")
 }
 
 fn first_property_declaration<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    stylesheet: &'tree StyleSheet<'ast>,
 ) -> &'tree Declaration<'ast> {
-    compilation
-        .declarations_in_block(first_declaration_block_id(compilation))
+    stylesheet
+        .declarations_in_block(first_declaration_block_id(stylesheet))
         .expect("the first declaration block remains valid")
         .find_map(|declaration| match declaration.payload() {
-            radix_ast::DeclarationPayload::Property(declaration) => Some(declaration),
+            CssDeclaration::Property(declaration) => Some(declaration),
             _ => None,
         })
         .expect("expected a property declaration")

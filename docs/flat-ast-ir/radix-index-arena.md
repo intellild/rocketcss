@@ -183,7 +183,7 @@ revisions and enqueues newly exposed work. When popped, a candidate validates:
 - current EffectiveKey equality still classifies the edge for S1 or S3.
 
 Retired nodes may remain as tombstones until terminal cleanup. Their IDs are not
-reused during the compilation.
+reused during the stylesheet's lifetime.
 
 Direct siblings are not necessarily arena-adjacent: the left sibling's complete
 subtree appears between them. The AST jumps over that subtree with its physical
@@ -212,7 +212,7 @@ or primary-only traversal.
 
 ## Required invariants
 
-- Primary IDs are stable for the lifetime of the compilation.
+- Primary IDs are stable for the lifetime of the stylesheet.
 - Base node IDs always have the reserved bits zero.
 - Sibling groups are sorted by primary index and the SoA lengths match.
 - Sibling key order equals semantic insertion order below one primary.

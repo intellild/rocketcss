@@ -1,6 +1,6 @@
 use crate::{Allocator, atom::Atom, hash_map::HashMap};
 
-/// Compilation-scoped storage that canonicalizes strings into pointer-comparable atoms.
+/// Compiler-scoped storage that canonicalizes strings into pointer-comparable atoms.
 pub struct StringPool<'alloc> {
     allocator: &'alloc Allocator,
     strings: HashMap<'alloc, &'alloc str, ()>,

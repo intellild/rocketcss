@@ -69,7 +69,7 @@ Every live declaration block owns its key:
 ```rust,ignore
 struct DeclarationBlock<'ast> {
     owner: RuleId,
-    declarations: RadixRange<DeclarationSlot>,
+    declarations: RadixRange<DeclarationRecord<()>>,
     effective_key: EffectiveKeyId,
     revision: u32,
     live: bool,
@@ -82,7 +82,7 @@ consumes `block.effective_key` directly. It does not own an
 `EffectiveKeyStore` whose IDs disappear after discovery, and it does not create
 `DeclarationOccurrence { block, effective_key }` wrappers.
 
-The interner and canonical key records are compilation-owned because S3 must
+The interner and canonical key records are stylesheet-owned because S3 must
 intern a selector union. A synthesized block receives its final key before its
 Radix insertion becomes visible to queues.
 

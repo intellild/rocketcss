@@ -184,7 +184,7 @@ struct PartialMergePlan<'ast> {
 ```
 
 These tables describe semantic sidecars. Rules and declaration blocks already
-live in compilation-owned Radix stores; ordered sequences use AST occurrence
+live in stylesheet-owned Radix stores; ordered sequences use AST occurrence
 IDs/ranges, and synthesized nodes receive final sibling IDs during S3. Authored
 declaration IDs are allocated in lexical source order, including around nested
 rules.

@@ -24,20 +24,20 @@ pass:
 
 ```rust,ignore
 fn finish_declaration_run(
-    compilation: &mut Compilation,
+    stylesheet: &mut StyleSheet,
     context: ContextPathId,
     selector: SelectorValueId,
 ) -> DeclarationBlockId {
-    let key = compilation.effective_keys.intern(EffectiveKeyData {
+    let key = stylesheet.effective_keys.intern(EffectiveKeyData {
         selector_path: selector.into(),
         condition_path: context,
-        layer: compilation.current_layer(),
-        origin_and_phase: compilation.current_origin_and_phase(),
-        history_segment: compilation.current_history_segment(),
+        layer: stylesheet.current_layer(),
+        origin_and_phase: stylesheet.current_origin_and_phase(),
+        history_segment: stylesheet.current_history_segment(),
     });
 
-    compilation.append_declaration_block(DeclarationBlock {
-        owner: compilation.current_declaration_owner(),
+    stylesheet.append_declaration_block(DeclarationBlock {
+        owner: stylesheet.current_declaration_owner(),
         declarations: RadixRange::empty(),
         effective_key: key,
         revision: 0,

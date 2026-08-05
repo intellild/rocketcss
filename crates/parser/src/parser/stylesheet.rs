@@ -8,7 +8,7 @@ pub fn parse<'i, 'ghost>(
     allocator: &'i Allocator,
     token: &mut GhostToken<'ghost>,
     options: ParserOptions<'i>,
-) -> Result<Compilation<'i>, Error<'i>> {
+) -> Result<StyleSheet<'i>, Error<'i>> {
     Compiler::new(allocator).parse(source, token, options)
 }
 
