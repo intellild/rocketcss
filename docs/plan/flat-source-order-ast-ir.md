@@ -55,8 +55,8 @@ Storage mechanics remain private to the AST crate. Other crates use:
 - `has_nested_rules(parent)` for semantic child checks;
 - `rules_in_source_order()` and scoped source-order transforms for lexical
   scans;
-- `sibling_rules(rule)` for topology queries that carry adjacency while
-  advancing one iterator; and
+- `root_rule_edges()` / `nested_rule_edges(parent)` for opaque, revisioned
+  adjacency contexts produced by one parent-list traversal; and
 - validated mutation transactions for insertion, merging, and retirement.
 
 `nested_rule_count`, subtree-tail calculation, Radix `advance_id`, tombstone

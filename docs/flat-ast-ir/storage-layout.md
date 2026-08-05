@@ -70,9 +70,10 @@ For a rule at position `R`:
 - the root span is the whole rules arena.
 
 These calculations are private to the AST crate. Other crates use semantic
-operations such as `root_rules`, `nested_rules`, `sibling_rules`,
-`has_nested_rules`, source-order iteration, and scoped source-order transforms;
-they do not read spans or drive Radix cursors themselves.
+operations such as `root_rules`, `nested_rules`, `root_rule_edges`,
+`nested_rule_edges`, `has_nested_rules`, source-order iteration, and scoped
+source-order transforms; they do not read spans or drive Radix cursors
+themselves.
 
 ```text
 Parser
@@ -83,8 +84,12 @@ AST
   increment every ancestor's nested_rule_count
        ↓
 Codegen / Visitor / Nano
-  root_rules / nested_rules / semantic source-order iteration
+  root_rules / nested_rules / direct-rule edge iteration
 ```
+
+AST stores `parent` plus the preorder subtree span. A parent-list traversal
+produces direct edges; Nano retains that edge context only for the duration of
+the transform and does not store AST sibling links.
 
 ## Declarations
 
@@ -118,25 +123,30 @@ struct DeclarationBlock {
 
 ### Insertion
 
-`insert_rule_after` finds the physical tail of the left rule's complete
-subtree, inserts the synthesized rule at its final Radix position, repairs any
-rare local ID relabel, and increments `nested_rule_count` for every ancestor of
-the inserted rule. Callers receive a stable final `RuleId`; they do not repair
-tree topology themselves.
+`insert_rule_after` consumes an iterator-produced direct-rule context, finds
+the physical tail of the left rule's complete subtree, inserts the synthesized
+rule at its final Radix position, repairs any rare local ID relabel, and
+increments `nested_rule_count` for every ancestor of the inserted rule. The
+result contains the stable final `RuleId` plus a fixed-capacity mutation delta
+of incident edges; callers do not query or repair topology themselves.
 
 ### Retirement
 
-Retirement marks a rule and its declaration block dead but retains their arena
-records. Semantic iterators skip tombstones. Physical subtree counts stay
-unchanged, so the source-order placement of every later rule remains stable.
-A rule may be retired only when it has no live nested rules.
+Retirement consumes an iterator-produced rule context, marks the rule and its
+declaration block dead, and retains their arena records. Semantic iterators
+skip tombstones. Physical subtree counts stay unchanged, so the source-order
+placement of every later rule remains stable. A rule may be retired only when
+it has no live nested rules. The mutation delta publishes only the live edge
+exposed by the retirement.
 
 ### Adjacency
 
-Direct sibling adjacency is derived from parent equality and preorder subtree
-spans, then revalidated by the AST mutation. Numeric ID closeness alone is
-never proof of CSS adjacency because a sibling may have descendants or a local
-Radix insertion may sit between primary IDs.
+Direct adjacency is produced while an AST cursor walks one parent list in
+source order. The opaque edge stores its parent, local window, and endpoint
+revisions. AST mutations revalidate those snapshots and return replacement
+edges directly. Numeric ID closeness alone is never proof of CSS adjacency
+because a rule may have descendants or a local Radix insertion may sit between
+primary IDs.
 
 ## Required invariants
 

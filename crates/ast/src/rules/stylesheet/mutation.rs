@@ -1,34 +1,139 @@
 use super::*;
 
-struct DirectRuleNeighbors<R> {
-    previous: Option<RuleId<R>>,
-    next: Option<RuleId<R>>,
-}
-
 impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
-    fn direct_rule_neighbors(
+    fn is_valid_direct_rule_context(&self, context: DirectRuleContext<R>) -> bool {
+        self.rules.get(context.rule).is_some_and(|rule| {
+            rule.live && rule.parent == context.parent && rule.revision == context.revision
+        })
+    }
+
+    /// Finds the preceding live direct rule by walking backward from a known
+    /// source position and climbing out of the previous subtree. This never
+    /// restarts at the parent list's first child.
+    fn previous_direct_rule_before(
         &self,
-        id: RuleId<R>,
-    ) -> Result<DirectRuleNeighbors<R>, MutationError<R>> {
-        let record = self
-            .rules
-            .get(id)
-            .ok_or(MutationError::<R>::UnknownRule(id))?;
-        if !record.live {
-            return Err(MutationError::<R>::RetiredRule(id));
-        }
-        let mut previous = None;
-        let mut rules = self.direct_rules(record.parent)?;
-        while let Some((candidate, _)) = rules.next() {
-            if candidate == id {
-                return Ok(DirectRuleNeighbors {
-                    previous,
-                    next: rules.next().map(|(next, _)| next),
-                });
+        parent: Option<RuleId<R>>,
+        before: RuleId<R>,
+    ) -> Option<RuleId<R>> {
+        let mut cursor = self.rules.previous_id(before);
+        while let Some(candidate) = cursor {
+            let mut direct = candidate;
+            loop {
+                if Some(direct) == parent {
+                    return None;
+                }
+                let record = self.rules.get(direct)?;
+                if record.parent == parent {
+                    break;
+                }
+                direct = record.parent?;
             }
-            previous = Some(candidate);
+            let record = self.rules.get(direct)?;
+            if record.live {
+                return Some(direct);
+            }
+            cursor = self.rules.previous_id(direct);
         }
-        Err(MutationError::<R>::InvalidRuleTopology(id))
+        None
+    }
+
+    /// Finds the following live direct rule from a known subtree boundary.
+    /// Retired direct subtrees are skipped in place, so work is proportional
+    /// to the local tombstone run rather than the width of the parent list.
+    fn next_direct_rule_after(
+        &self,
+        parent: Option<RuleId<R>>,
+        after: RuleId<R>,
+    ) -> Option<RuleId<R>> {
+        let mut cursor = self.next_after_subtree(after);
+        while let Some(candidate) = cursor {
+            let record = self.rules.get(candidate)?;
+            if record.parent != parent {
+                return None;
+            }
+            if record.live {
+                return Some(candidate);
+            }
+            cursor = record
+                .nested_rule_count
+                .checked_add(1)
+                .and_then(|span| self.rules.advance_id(candidate, span));
+        }
+        None
+    }
+
+    fn direct_rule_edge_between(
+        &self,
+        left: RuleId<R>,
+        right: RuleId<R>,
+    ) -> Option<DirectRuleEdge<R>> {
+        let left_rule = self.rules.get(left)?;
+        let right_rule = self.rules.get(right)?;
+        let parent = left_rule.parent;
+        if !left_rule.live
+            || !right_rule.live
+            || right_rule.parent != parent
+            || self.next_direct_rule_after(parent, left) != Some(right)
+        {
+            return None;
+        }
+        Some(DirectRuleEdge {
+            parent,
+            previous: self.previous_direct_rule_before(parent, left),
+            left,
+            right,
+            next: self.next_direct_rule_after(parent, right),
+            left_revision: left_rule.revision,
+            right_revision: right_rule.revision,
+        })
+    }
+
+    fn push_rule_edge(&self, delta: &mut RuleMutationDelta<R>, left: RuleId<R>, right: RuleId<R>) {
+        let Some(edge) = self.direct_rule_edge_between(left, right) else {
+            return;
+        };
+        if delta
+            .new_edges
+            .iter()
+            .flatten()
+            .any(|queued| *queued == edge)
+        {
+            return;
+        }
+        let slot = delta
+            .new_edges
+            .iter_mut()
+            .find(|slot| slot.is_none())
+            .expect("a local rule mutation publishes at most four incident edges");
+        *slot = Some(edge);
+    }
+
+    pub(super) fn incident_rule_edges(&self, rule: RuleId<R>) -> RuleMutationDelta<R> {
+        let mut delta = RuleMutationDelta::empty();
+        let Some(record) = self.rules.get(rule).filter(|record| record.live) else {
+            return delta;
+        };
+        let parent = record.parent;
+        if let Some(previous) = self.previous_direct_rule_before(parent, rule) {
+            self.push_rule_edge(&mut delta, previous, rule);
+        }
+        if let Some(next) = self.next_direct_rule_after(parent, rule) {
+            self.push_rule_edge(&mut delta, rule, next);
+        }
+        delta
+    }
+
+    /// Reclassifies the current incident edges of one iterator-produced rule
+    /// position after a non-structural declaration change.
+    #[doc(hidden)]
+    pub fn rule_incident_edges(
+        &self,
+        context: DirectRuleContext<R>,
+    ) -> Result<RuleMutationDelta<R>, MutationError<R>> {
+        if !self.is_valid_direct_rule_context(context) {
+            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
+        }
+        Ok(self.incident_rule_edges(context.rule))
     }
 }
 
@@ -44,9 +149,13 @@ where
     /// rule. This preserves global lexical preorder without reusing IDs.
     pub fn insert_rule_after(
         &mut self,
-        after: RuleId<R>,
+        context: DirectRuleContext<R>,
         payload: R,
-    ) -> Result<RadixInsertResult<RuleId<R>>, MutationError<R>> {
+    ) -> Result<InsertedRule<R>, MutationError<R>> {
+        if !self.is_valid_direct_rule_context(context) {
+            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
+        }
+        let after = context.rule;
         let after_record = self
             .rules
             .get(after)
@@ -55,7 +164,7 @@ where
             return Err(MutationError::<R>::RetiredRule(after));
         }
         let parent = after_record.parent;
-        let direct_before = self.direct_rule_neighbors(after)?.next;
+        let direct_before = self.next_direct_rule_after(parent, after);
 
         let logical_tail = self
             .subtree_tail(after)
@@ -92,7 +201,10 @@ where
         );
         self.repair_rule_id_remaps(&result.remaps);
 
-        let mut ancestor = parent.map(|id| remap_rule_id(id, &result.remaps));
+        let after = remap_rule_id(after, &result.remaps);
+        let direct_before = direct_before.map(|id| remap_rule_id(id, &result.remaps));
+        let parent = parent.map(|id| remap_rule_id(id, &result.remaps));
+        let mut ancestor = parent;
         while let Some(id) = ancestor {
             let rule = self
                 .rules
@@ -101,7 +213,46 @@ where
             rule.nested_rule_count += 1;
             ancestor = rule.parent;
         }
-        Ok(result)
+
+        let after_revision = self
+            .rules
+            .get(after)
+            .expect("the insertion anchor remains resolvable after ID repair")
+            .revision
+            .wrapping_add(1);
+        self.rules
+            .get_mut(after)
+            .expect("the insertion anchor remains resolvable after ID repair")
+            .revision = after_revision;
+        if let Some(before) = direct_before {
+            let revision = self
+                .rules
+                .get(before)
+                .expect("the following direct rule remains resolvable after ID repair")
+                .revision
+                .wrapping_add(1);
+            self.rules
+                .get_mut(before)
+                .expect("the following direct rule remains resolvable after ID repair")
+                .revision = revision;
+        }
+
+        let inserted = result.id;
+        let mut delta = RuleMutationDelta::empty();
+        if let Some(previous) = self.previous_direct_rule_before(parent, after) {
+            self.push_rule_edge(&mut delta, previous, after);
+        }
+        self.push_rule_edge(&mut delta, after, inserted);
+        if let Some(following) = self.next_direct_rule_after(parent, inserted) {
+            self.push_rule_edge(&mut delta, inserted, following);
+            if let Some(next) = self.next_direct_rule_after(parent, following) {
+                self.push_rule_edge(&mut delta, following, next);
+            }
+        }
+        Ok(InsertedRule {
+            rule: result,
+            delta,
+        })
     }
 
     fn repair_rule_id_remaps(&mut self, remaps: &[RadixIdRemap<RuleId<R>>]) {
@@ -150,13 +301,14 @@ where
 
     fn first_declaration_block_after_rule(
         &self,
-        after: RuleId<R>,
-        before_or_at: RuleId<R>,
+        edge: DirectRuleEdge<R>,
     ) -> Result<DeclarationBlockId<R>, MutationError<R>> {
+        let after = edge.left;
+        let before_or_at = edge.right;
         self.rules
             .get(before_or_at)
             .ok_or(MutationError::<R>::UnknownRule(before_or_at))?;
-        if self.direct_rule_neighbors(after)?.next != Some(before_or_at) {
+        if !self.is_valid_direct_rule_edge(edge) {
             return Err(MutationError::<R>::InvalidRuleTopology(after));
         }
         let tail = self
@@ -187,8 +339,7 @@ where
     /// tombstone placement stays private to the AST.
     pub fn insert_rule_with_declaration_block_after(
         &mut self,
-        after_rule: RuleId<R>,
-        before_or_at_rule: RuleId<R>,
+        edge: DirectRuleEdge<R>,
         after_block: DeclarationBlockId<R>,
         payload: R,
         effective_key: EffectiveKeyId,
@@ -197,8 +348,7 @@ where
         if self.effective_keys.try_get(effective_key).is_none() {
             return Err(MutationError::<R>::UnknownEffectiveKey(effective_key));
         }
-        let before_block =
-            self.first_declaration_block_after_rule(after_rule, before_or_at_rule)?;
+        let before_block = self.first_declaration_block_after_rule(edge)?;
         let additional_declarations = u32::try_from(additional_declarations)
             .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
         let (after_declaration, before_declaration) =
@@ -219,16 +369,17 @@ where
             ));
         }
 
-        let rule = self.insert_rule_after(after_rule, payload)?;
+        let inserted = self.insert_rule_after(edge.left_context(), payload)?;
         let declaration_block = self.insert_declaration_block_between(
             after_block,
             Some(before_block),
-            rule.id,
+            inserted.rule.id,
             effective_key,
         )?;
         Ok(InsertedRuleWithDeclarationBlock {
-            rule,
+            rule: inserted.rule,
             declaration_block,
+            delta: inserted.delta,
         })
     }
 }
@@ -445,9 +596,13 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     /// retiring those owners only after all of their occurrences are dead.
     pub fn merge_adjacent_rule_declaration_blocks(
         &mut self,
-        left: RuleId<R>,
-        right: RuleId<R>,
+        edge: DirectRuleEdge<R>,
     ) -> Result<MergedAdjacentRuleBlocks<R>, MutationError<R>> {
+        let left = edge.left;
+        let right = edge.right;
+        if !self.is_valid_direct_rule_edge(edge) {
+            return Err(MutationError::<R>::InvalidRuleTopology(left));
+        }
         let left_rule = self
             .rules
             .get(left)
@@ -465,9 +620,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         if self.has_nested_rules(left)? {
             return Err(MutationError::<R>::RuleHasChildren(left));
         }
-        if self.direct_rule_neighbors(left)?.next != Some(right)
-            || left_rule.parent != right_rule.parent
-        {
+        if left_rule.parent != right_rule.parent {
             return Err(MutationError::<R>::InvalidRuleTopology(left));
         }
         let mut bridge_blocks = std::vec::Vec::new();
@@ -539,7 +692,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         }
         merge_range(right_block_id, right_block.declarations)?;
 
-        self.retire_rule(left)?;
+        self.retire_rule(edge.left_context())?;
         self.declaration_blocks
             .get_mut(left_block_id)
             .expect("the retired block remains a source tombstone")
@@ -563,6 +716,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             .get_mut(right)
             .expect("the retained rule was validated before commit");
         retained_rule.revision = retained_rule.revision.wrapping_add(1);
+        let delta = self.incident_rule_edges(right);
 
         Ok(MergedAdjacentRuleBlocks::<R> {
             retired_rule: left,
@@ -570,6 +724,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             retained_rule: right,
             retained_block: right_block_id,
             effective_key,
+            delta,
         })
     }
 
@@ -579,7 +734,14 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     /// Parsed primary IDs and inserted sibling IDs are never reused. The
     /// declaration block is retired in the same transaction, while its range
     /// continues to own the corresponding arena occurrences.
-    pub fn retire_rule(&mut self, id: RuleId<R>) -> Result<RetiredRule<R>, MutationError<R>> {
+    pub fn retire_rule(
+        &mut self,
+        context: DirectRuleContext<R>,
+    ) -> Result<RetiredRule<R>, MutationError<R>> {
+        if !self.is_valid_direct_rule_context(context) {
+            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
+        }
+        let id = context.rule;
         let rule = self
             .rules
             .get(id)
@@ -590,7 +752,9 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         if self.has_nested_rules(id)? {
             return Err(MutationError::<R>::RuleHasChildren(id));
         }
-        let DirectRuleNeighbors { previous, next } = self.direct_rule_neighbors(id)?;
+        let parent = rule.parent;
+        let previous = self.previous_direct_rule_before(parent, id);
+        let next = self.next_direct_rule_after(parent, id);
         let declaration_block = rule.declaration_block;
         if declaration_block.is_some_and(|block| {
             self.declaration_blocks.get(block).is_none_or(|block| {
@@ -614,11 +778,14 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             block.live = false;
             block.revision = block.revision.wrapping_add(1);
         }
+        let mut delta = RuleMutationDelta::empty();
+        if let (Some(previous), Some(next)) = (previous, next) {
+            self.push_rule_edge(&mut delta, previous, next);
+        }
         Ok(RetiredRule {
             id,
-            previous,
-            next,
             declaration_block,
+            delta,
         })
     }
 }

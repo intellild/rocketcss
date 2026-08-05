@@ -37,8 +37,10 @@ Bootstrap and Tailwind inputs. It also performs two declaration-block pointer
 map lookups for every adjacent style-rule pair.
 
 The transitional `DeclarationBlockEntry` records structural location. The
-target Radix AST removes the entry entirely: rule topology stores parent/list
-and direct-sibling links, eliminating both the rewalk and pointer map.
+Radix AST removes the entry entirely: rules store parent plus preorder subtree
+span, and one parent-list cursor produces revision-stamped direct edges. Nano
+retains those edge contexts only during the transform and stores no AST
+sibling links, eliminating both the global rewalk and pointer map.
 
 ## Allocation and indexing candidates
 
@@ -102,9 +104,10 @@ Tailwind fixture this performed 4,020 collections for 4,019 S3 commits and took
 about 10.39 seconds locally.
 
 The persistent scheduler keeps block liveness, ordered EffectiveKey histories,
-endpoint revisions, and candidate queues across commits. In the target Radix
-AST, S3 updates the changed edge/histories and inserts the shared node directly
-at its final sibling ID; no later global reification pass restores order. Local
+AST edge contexts, endpoint revisions, and candidate queues across commits. In
+the target Radix AST, S1-S3 consume mutation deltas containing only new local
+edges, and S3 inserts the shared node directly at its final sibling ID; no
+per-`RuleId` parent-head scan or later global reification pass restores order. Local
 release samples completed Bootstrap in
 about 1.0-1.2 ms and Tailwind in about 17-21 ms. Minified output for both
 fixtures was byte-identical to the pre-refactor S3 branch.

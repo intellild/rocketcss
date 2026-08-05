@@ -23,13 +23,17 @@ Nano sidecars
 Nano may retain transform-specific graphs, but it does not own parents,
 children, sibling links, or source-order links.
 
+AST stores `parent` plus the preorder subtree span. A parent-list traversal
+produces direct edges; Nano retains that edge context only for the duration of
+the transform and does not store AST sibling links.
+
 ## AST boundary
 
 Nano asks the AST semantic questions:
 
 - iterate all rule IDs in lexical order;
 - test or iterate live nested rules;
-- resolve previous and next direct siblings;
+- iterate opaque direct-rule edges for a root or nested parent list;
 - insert a synthesized direct sibling; and
 - merge or retire rules through validated transactions.
 
@@ -45,7 +49,7 @@ Parser / local minify
 CrossRuleState::from_stylesheet
   scan declaration blocks in deterministic AST order
   create summaries and repeated-key histories
-  query AST for live direct sibling edges
+  consume AST root_rule_edges / nested_rule_edges
        ↓
 unified scheduler
 ```
@@ -85,17 +89,18 @@ while state.has_work() {
 
 ### S1
 
-S1 validates two adjacent rule blocks, commits the chosen declaration
+S1 validates the captured direct edge, commits the chosen declaration
 representation into the retained block, and retires the other rule through the
-AST. Newly exposed sibling edges are queried locally; no full rule-tree rebuild
-is needed.
+AST. The merge transaction returns `RuleMutationDelta`; Nano classifies those
+new edges without an adjacency query or a full rule-tree rebuild.
 
 ### S2
 
 S2 histories are keyed by effective context, property identity, and importance
 phase. Declaration deletion and effect replacement update the owning AST block.
-When a block becomes empty, Nano asks the AST whether its rule still owns live
-nested syntax before retiring it.
+Affected owners are grouped by parent; each direct-rule list is traversed once
+to capture rule contexts. Empty rules are retired as a batch, and Nano filters
+their mutation deltas after every retirement so only final live edges publish.
 
 ### S3
 
@@ -107,6 +112,7 @@ validate semantic endpoints and declaration movement
 intern selector union and EffectiveKeyId
        ↓
 AST insert_rule_after
+  consume DirectRuleEdge context
   locate preceding subtree tail
   insert at final Radix position
   repair local ID remaps
@@ -114,7 +120,9 @@ AST insert_rule_after
        ↓
 AST insert declaration block and bind owner
        ↓
-publish histories and affected queue edges
+consume RuleMutationDelta.new_edges
+       ↓
+publish histories and reclassified candidates
 ```
 
 The synthesized rule has its final stable ID before it is published to queues.
