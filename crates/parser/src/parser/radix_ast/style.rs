@@ -2,13 +2,13 @@ use super::{at_rule::parse_group_at_rule, *};
 
 pub(super) fn parse_style_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
-    list: Option<ConcreteRuleId<'ast>>,
-    context: ConcreteEffectiveContext<'ast>,
+    stylesheet: &mut StyleSheet<'ast>,
+    list: Option<CssRuleId<'ast>>,
+    context: CssEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
-) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<CssRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let allocator = input.allocator();
     let selectors = input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
         if options.error_recovery {
@@ -18,36 +18,36 @@ pub(super) fn parse_style_rule<'ast>(
         }
     })?;
     input.expect_curly_bracket_block()?;
-    let selector_value = compilation
+    let selector_value = stylesheet
         .intern_selector_value(selectors, SelectorFrameKind::Style, VendorPrefix::NONE)
         .map_err(|error| mutation_error(input, error))?;
 
     // Allocate the owner before descending so primary IDs follow lexical
     // preorder rather than recursive-return order.
-    let rule = compilation
+    let rule = stylesheet
         .append_rule(
             list,
-            CssRulePayload::Style(StyleRulePayload {
+            CssRule::Style(StyleRule {
                 span: span_from(start, input.position()),
                 selector_value,
                 vendor_prefix: VendorPrefix::NONE,
             }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    let context = compilation
+    let context = stylesheet
         .enter_selector_context(context, rule)
         .map_err(|error| mutation_error(input, error))?;
-    let key = compilation
+    let key = stylesheet
         .append_effective_key(context.effective_key())
         .map_err(|error| mutation_error(input, error))?;
-    let declarations = compilation
+    let declarations = stylesheet
         .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
         .map_err(|error| mutation_error(input, error))?;
 
     input.parse_nested_block(|input| {
         parse_mixed_style_contents(
             input,
-            compilation,
+            stylesheet,
             rule,
             key,
             context,
@@ -57,11 +57,11 @@ pub(super) fn parse_style_rule<'ast>(
         )
     })?;
     let end = input.position();
-    let payload = compilation
+    let payload = stylesheet
         .rule_mut(rule)
         .expect("a parsed rule remains live while its body is parsed")
         .payload_mut();
-    let CssRulePayload::Style(payload) = payload else {
+    let CssRule::Style(payload) = payload else {
         unreachable!("the allocated payload remains a style rule")
     };
     payload.span = span_from(start, end);
@@ -71,11 +71,11 @@ pub(super) fn parse_style_rule<'ast>(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn parse_mixed_style_contents<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
-    owner_rule: ConcreteRuleId<'ast>,
+    stylesheet: &mut StyleSheet<'ast>,
+    owner_rule: CssRuleId<'ast>,
     effective_key: EffectiveKeyId,
-    context: ConcreteEffectiveContext<'ast>,
-    mut active_segment: Option<(ConcreteRuleId<'ast>, ConcreteDeclarationBlockId<'ast>)>,
+    context: CssEffectiveContext<'ast>,
+    mut active_segment: Option<(CssRuleId<'ast>, CssDeclarationBlockId<'ast>)>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -94,7 +94,7 @@ pub(super) fn parse_mixed_style_contents<'ast>(
             ValueToken::Semicolon => continue,
             ValueToken::AtKeyword(name) => parse_group_at_rule(
                 input,
-                compilation,
+                stylesheet,
                 Some(owner_rule),
                 context,
                 options,
@@ -119,15 +119,15 @@ pub(super) fn parse_mixed_style_contents<'ast>(
                     )
                     .and_then(|(declaration, important)| {
                         if active_segment.is_none() {
-                            let nested_rule = compilation
+                            let nested_rule = stylesheet
                                 .append_rule(
                                     Some(owner_rule),
-                                    CssRulePayload::NestedDeclarations(NestedDeclarationsPayload {
+                                    CssRule::NestedDeclarations(NestedDeclarationsRule {
                                         span: span_from(&start, input.position()),
                                     }),
                                 )
                                 .map_err(|error| mutation_error(input, error))?;
-                            let block = compilation
+                            let block = stylesheet
                                 .append_declaration_block(
                                     DeclarationBlockOwner::Rule(nested_rule),
                                     effective_key,
@@ -137,20 +137,20 @@ pub(super) fn parse_mixed_style_contents<'ast>(
                         }
                         let (active_rule, active_block) = active_segment
                             .expect("a declaration always has an active syntax segment");
-                        compilation
+                        stylesheet
                             .append_authored_declaration(
                                 active_block,
-                                DeclarationPayload::Property(declaration),
+                                CssDeclaration::Property(declaration),
                                 important,
                             )
                             .map_err(|error| mutation_error(input, error))?;
                         if Some(active_rule) != context.style_rule() {
                             let end = input.position();
-                            let payload = compilation
+                            let payload = stylesheet
                                 .rule_mut(active_rule)
                                 .expect("the active declaration segment remains live")
                                 .payload_mut();
-                            let CssRulePayload::NestedDeclarations(payload) = payload else {
+                            let CssRule::NestedDeclarations(payload) = payload else {
                                 unreachable!("post-nesting declarations use a segment rule")
                             };
                             payload.span.end = end.byte_index() as u32;
@@ -163,7 +163,7 @@ pub(super) fn parse_mixed_style_contents<'ast>(
                     input.reset(&start);
                     parse_style_rule(
                         input,
-                        compilation,
+                        stylesheet,
                         Some(owner_rule),
                         context,
                         options,
@@ -177,7 +177,7 @@ pub(super) fn parse_mixed_style_contents<'ast>(
                 input.reset(&start);
                 parse_style_rule(
                     input,
-                    compilation,
+                    stylesheet,
                     Some(owner_rule),
                     context,
                     options,

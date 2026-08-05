@@ -9,7 +9,7 @@ topology:
 RuleStore: RadixIndexArena<RuleRecord>
   stable RuleId, lexical preorder, AST-private subtree spans
 
-DeclarationBlockStore: RadixIndexArena<DeclarationBlockRecord>
+DeclarationBlockStore: RadixIndexArena<DeclarationBlock>
   stable DeclarationBlockId + owner + AST-owned EffectiveKeyId
 
 DeclarationStore: RadixIndexArena<DeclarationRecord>
@@ -42,7 +42,7 @@ remaps. Those operations remain inside the AST crate.
 Parser / local minify
   AST already owns parents, source order, declarations, and EffectiveKeys
        ↓
-CrossRuleState::from_compilation
+CrossRuleState::from_stylesheet
   scan declaration blocks in deterministic AST order
   create summaries and repeated-key histories
   query AST for live direct sibling edges

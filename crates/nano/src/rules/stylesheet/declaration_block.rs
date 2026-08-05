@@ -1,11 +1,8 @@
 use crate::MinifyContext;
 use rocketcss_ast::{
-    CSSWideOr, Columns, CssColor, Declaration, EqIgnoringTombstones, Margin, Padding, PropertyId,
-    VendorPrefix, Visit, VisitContext, Visitor,
-    radix_ast::{
-        Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
-        DeclarationId as RadixDeclarationId, DeclarationPayload,
-    },
+    CSSWideOr, Columns, CssColor, CssDeclaration, CssDeclarationBlockId as RadixDeclarationBlockId,
+    Declaration, DeclarationId as RadixDeclarationId, EqIgnoringTombstones, Margin, Padding,
+    PropertyId, StyleSheet, VendorPrefix, Visit, VisitContext, Visitor,
 };
 use rocketcss_common::{
     GhostToken,
@@ -215,19 +212,16 @@ impl<'a> BoxFamilyIr<'a> {
 
 struct DeclarationSequence<'sequence, 'ast> {
     blocks: &'sequence [RadixDeclarationBlockId<'ast>],
-    compilation: &'sequence mut Compilation<'ast>,
+    stylesheet: &'sequence mut StyleSheet<'ast>,
 }
 
 impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
     #[inline]
     fn radix(
         blocks: &'sequence [RadixDeclarationBlockId<'ast>],
-        compilation: &'sequence mut Compilation<'ast>,
+        stylesheet: &'sequence mut StyleSheet<'ast>,
     ) -> Self {
-        Self {
-            blocks,
-            compilation,
-        }
+        Self { blocks, stylesheet }
     }
 
     #[inline]
@@ -244,7 +238,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn block_len(&self, index: usize) -> usize {
-        self.compilation
+        self.stylesheet
             .declaration_occurrences_in_block(self.blocks[index])
             .map_or(0, |declarations| declarations.len())
     }
@@ -252,19 +246,19 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
     #[inline]
     fn radix_declaration_id(
         blocks: &[RadixDeclarationBlockId<'ast>],
-        compilation: &Compilation<'ast>,
+        stylesheet: &StyleSheet<'ast>,
         location: DeclarationLocation,
     ) -> RadixDeclarationId {
-        compilation
+        stylesheet
             .declaration_id_at_in_block(blocks[location.block()], location.declaration())
             .expect("the declaration location was validated against the block length")
     }
 
     #[inline]
     fn declaration(&self, location: DeclarationLocation) -> &Declaration<'ast> {
-        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
-        let DeclarationPayload::Property(declaration) = self
-            .compilation
+        let id = Self::radix_declaration_id(self.blocks, self.stylesheet, location);
+        let CssDeclaration::Property(declaration) = self
+            .stylesheet
             .declaration(id)
             .expect("a Radix declaration sequence ID remains resolvable")
             .payload()
@@ -276,8 +270,8 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
-        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
-        self.compilation
+        let id = Self::radix_declaration_id(self.blocks, self.stylesheet, location);
+        self.stylesheet
             .property_declaration_mut(self.blocks[location.block()], id)
             .expect("a Radix property declaration remains mutable")
             .0
@@ -294,8 +288,8 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn is_important(&self, location: DeclarationLocation) -> bool {
-        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
-        self.compilation
+        let id = Self::radix_declaration_id(self.blocks, self.stylesheet, location);
+        self.stylesheet
             .declaration(id)
             .expect("a Radix declaration sequence ID remains resolvable")
             .is_important()
@@ -303,7 +297,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn allocator(&self, _location: DeclarationLocation) -> &'ast Allocator {
-        self.compilation.allocator()
+        self.stylesheet.allocator()
     }
 }
 
@@ -318,14 +312,14 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         }
     }
 
-    pub(crate) fn minify_compilation_block(
+    pub(crate) fn minify_stylesheet_block(
         &mut self,
-        compilation: &mut Compilation<'ast>,
+        stylesheet: &mut StyleSheet<'ast>,
         block: RadixDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         let blocks = [block];
-        let mut sequence = DeclarationSequence::radix(&blocks, compilation);
+        let mut sequence = DeclarationSequence::radix(&blocks, stylesheet);
         if sequence.block_len(0) < 2 {
             return;
         }

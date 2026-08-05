@@ -1,15 +1,15 @@
 # Storage layout
 
-## Compiler ownership
+## StyleSheet ownership
 
-`Compilation` owns the authoritative rule tree and declaration data. Rule
+`StyleSheet` owns the authoritative rule tree and declaration data. Rule
 topology is stored in one `RadixIndexArena`; it is not reconstructed by parser,
 codegen, visitor, or Nano sidecars.
 
 ```rust,ignore
-struct Compilation<'ast> {
+struct StyleSheet<'ast> {
     rules: RadixIndexArena<RuleRecord<'ast>>,
-    declaration_blocks: RadixIndexArena<DeclarationBlockRecord<'ast>>,
+    declaration_blocks: RadixIndexArena<DeclarationBlock<'ast>>,
     declarations: DenseStore<DeclarationRecord<'ast>>,
 
     selector_values: SelectorValueInterner,
@@ -41,7 +41,7 @@ span:
 
 ```rust,ignore
 struct RuleRecord<'ast> {
-    payload: CssRulePayload<'ast>,
+    payload: CssRule<'ast>,
     parent: Option<RuleId>,
     nested_rule_count: u32,
     declaration_block: Option<DeclarationBlockId>,
@@ -105,9 +105,9 @@ so parent and descendant declarations never become one ambiguous block.
 Every declaration block permanently records its rule owner and effective key:
 
 ```rust,ignore
-struct DeclarationBlockRecord {
+struct DeclarationBlock {
     owner: RuleId,
-    declarations: DeclarationList, // RadixRange<DeclarationSlot>
+    declarations: DeclarationList, // RadixRange<DeclarationRecord<()>>
     effective_key: EffectiveKeyId,
     revision: u32,
     live: bool,

@@ -43,7 +43,7 @@
 
 ## 4. 容量预分配：bootstrap 低估、tailwind 高估
 
-`compilation_capacity`（crates/parser/src/parser/radix_ast/mod.rs:88）按 `source.len()/160`、`/80`、`/192`、`/1024` 估计。用真实 parse 统计（临时 example 计数）：
+`stylesheet_capacity`（crates/parser/src/parser/radix_ast/mod.rs:88）按 `source.len()/160`、`/80`、`/192`、`/1024` 估计。用真实 parse 统计（临时 example 计数）：
 
 | 输入                   | rules 实际 | 估计 `/160`       | declarations 实际 | 估计 `/80`        | blocks 实际 |
 | ---------------------- | ---------- | ----------------- | ----------------- | ----------------- | ----------- |
@@ -68,8 +68,8 @@
 2. **`enter_selector_context` 每规则一次**（effective_key.rs:591）：每进一个 style rule 就 `intern_selector_path`。
 
 3. **append 路径的簿记**
-   - `append_rule`（radix_ast.rs:960）：除 push 外，还要维护 `previous_in_source/next_in_source` 双向链 + `previous_sibling/next_sibling` 双向链，每个规则 2 次 `get_mut` 指针写。
-   - `append_declaration`（radix_ast.rs:1097）：每次 `try_next_id` + range 连续性校验 + 记录 push，比 master 的 `DeclarationBlock.push` 多一次 ID 记账。
+   - `append_rule`（stylesheet/mod.rs）：除 push 外，还要维护 `previous_in_source/next_in_source` 双向链 + `previous_sibling/next_sibling` 双向链，每个规则 2 次 `get_mut` 指针写。
+   - `append_authored_declaration`（stylesheet/mod.rs）：每次 `try_next_id` + range 连续性校验 + 记录 push，比 master 的 `DeclarationBlock.push` 多一次 ID 记账。
 
 4. **容量低估**（§4）：bootstrap 触发几何扩容。
 

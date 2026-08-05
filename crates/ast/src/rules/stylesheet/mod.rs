@@ -1,4 +1,4 @@
-//! Typed storage and topology for the compiler's persistent Radix AST.
+//! Typed storage and topology for [`StyleSheet`].
 
 use rocketcss_common::{
     Allocator, DenseStore, RadixId, RadixIdRemap, RadixInsertResult, RadixRange,
@@ -8,16 +8,20 @@ use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::hash::Hash;
 
+mod declaration;
 mod effective_key;
 mod mutation;
-mod payload;
+mod rule;
 mod topology;
 mod traversal;
 mod validation;
+mod value;
 
+pub use declaration::*;
 pub use effective_key::*;
-pub use payload::*;
+pub use rule::*;
 pub use traversal::*;
+pub use value::*;
 
 /// Stable identity of one rule in the [`RuleStore`]. The type parameter is the
 /// rule payload, so `RuleId<P>` can only index an arena storing `RuleRecord<P>`.
@@ -25,8 +29,8 @@ pub type RuleId<P> = RadixId<RuleRecord<P>>;
 
 /// Stable identity of one declaration block in the [`DeclarationBlockStore`].
 /// The type parameter is the rule payload, so `DeclarationBlockId<P>` can only
-/// index an arena storing `DeclarationBlockRecord<P>`.
-pub type DeclarationBlockId<P> = RadixId<DeclarationBlockRecord<P>>;
+/// index an arena storing `DeclarationBlock<P>`.
+pub type DeclarationBlockId<P> = RadixId<DeclarationBlock<P>>;
 
 define_dense_id!(pub struct EffectiveKeyId);
 define_dense_id!(pub struct SelectorValueId);
@@ -59,17 +63,13 @@ type RuleStore<'ast, P> = TypedRadixIndexArena<'ast, RuleRecord<P>, RuleId<P>>;
 
 /// Declaration blocks in lexical allocation order plus synthesized blocks.
 type DeclarationBlockStore<'ast, P> =
-    TypedRadixIndexArena<'ast, DeclarationBlockRecord<P>, DeclarationBlockId<P>>;
-
-/// Domain marker for declaration occurrence identities and ranges.
-#[doc(hidden)]
-pub enum DeclarationSlot {}
+    TypedRadixIndexArena<'ast, DeclarationBlock<P>, DeclarationBlockId<P>>;
 
 /// Stable identity of one declaration occurrence.
-pub type DeclarationId = RadixId<DeclarationSlot>;
+pub type DeclarationId = RadixId<DeclarationRecord<()>>;
 
 /// One declaration block's contiguous semantic declaration range.
-pub type DeclarationList = RadixRange<DeclarationSlot>;
+pub type DeclarationList = RadixRange<DeclarationRecord<()>>;
 
 /// Interned effective-key records shared by declaration blocks.
 type EffectiveKeyStore<P> = DenseStore<EffectiveKeyId, P>;
@@ -77,53 +77,45 @@ type EffectiveKeyStore<P> = DenseStore<EffectiveKeyId, P>;
 /// Declarations in global semantic order, with rare synthesized siblings.
 type DeclarationStore<'ast, P> = TypedRadixIndexArena<'ast, DeclarationRecord<P>, DeclarationId>;
 
-/// Concrete compiler-owned Radix AST.
-pub type Compilation<'ast> = RadixCompilation<
-    'ast,
-    CssRulePayload<'ast>,
-    DeclarationPayload<'ast>,
-    EffectiveKeyData<CssRulePayload<'ast>>,
->;
+/// Concrete rule identity for a CSS [`StyleSheet`].
+pub type CssRuleId<'ast> = RuleId<CssRule<'ast>>;
 
-/// Concrete rule identity for the compiler-owned [`Compilation`].
-pub type ConcreteRuleId<'ast> = RuleId<CssRulePayload<'ast>>;
+/// Concrete declaration-block identity for a CSS [`StyleSheet`].
+pub type CssDeclarationBlockId<'ast> = DeclarationBlockId<CssRule<'ast>>;
 
-/// Concrete declaration-block identity for the compiler-owned [`Compilation`].
-pub type ConcreteDeclarationBlockId<'ast> = DeclarationBlockId<CssRulePayload<'ast>>;
+/// Concrete effective-key payload for a CSS [`StyleSheet`].
+pub type CssEffectiveKey<'ast> = EffectiveKeyData<CssRule<'ast>>;
 
-/// Concrete effective-key payload for the compiler-owned [`Compilation`].
-pub type ConcreteEffectiveKey<'ast> = EffectiveKeyData<CssRulePayload<'ast>>;
+/// Concrete mutation error for a CSS [`StyleSheet`].
+pub type StyleSheetMutationError<'ast> = MutationError<CssRule<'ast>>;
 
-/// Concrete mutation error for the compiler-owned [`Compilation`].
-pub type ConcreteMutationError<'ast> = MutationError<CssRulePayload<'ast>>;
-
-impl<'ast> ConcreteMutationError<'ast> {
+impl<'ast> StyleSheetMutationError<'ast> {
     /// Erases the phantom-only arena lifetime so an error can be boxed without
-    /// the compilation that produced it. The error never stores a rule payload:
+    /// the stylesheet that produced it. The error never stores a rule payload:
     /// every payload-local identity is a `u32` Radix ID with a
     /// `PhantomData<fn() -> T>` type parameter, so no borrowed data is
     /// discarded and the layout is identical across lifetimes.
     #[inline]
-    pub fn erase_arena_lifetime(self) -> ConcreteMutationError<'static> {
+    pub fn erase_arena_lifetime(self) -> StyleSheetMutationError<'static> {
         // SAFETY: `MutationError<P>` contains only plain IDs and integers; `P`
         // appears solely inside `PhantomData<fn() -> P>` type parameters.
         unsafe { std::mem::transmute(self) }
     }
 }
 
-/// Concrete parser-local semantic context for the compiler-owned [`Compilation`].
-pub type ConcreteEffectiveContext<'ast> = EffectiveContext<CssRulePayload<'ast>>;
+/// Concrete parser-local semantic context for a CSS [`StyleSheet`].
+pub type CssEffectiveContext<'ast> = EffectiveContext<CssRule<'ast>>;
 
-/// Concrete effective-key history segment for the compiler-owned [`Compilation`].
-pub type ConcreteHistorySegment<'ast> = HistorySegment<CssRulePayload<'ast>>;
+/// Concrete effective-key history segment for a CSS [`StyleSheet`].
+pub type CssHistorySegment<'ast> = HistorySegment<CssRule<'ast>>;
 
-/// Initial capacities for the compiler-owned AST stores.
+/// Initial capacities for the stylesheet's AST stores.
 ///
 /// These are allocation hints only. Every store still grows normally when an
 /// input contains more nodes than estimated.
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CompilationCapacity {
+pub struct StyleSheetCapacity {
     pub rules: usize,
     pub declaration_blocks: usize,
     pub declarations: usize,
@@ -235,7 +227,7 @@ impl<P> Eq for DeclarationBlockOwner<P> {}
 
 /// A declaration-list handle plus its persistent AST identity.
 #[derive(Debug, PartialEq, Eq)]
-pub struct DeclarationBlockRecord<P> {
+pub struct DeclarationBlock<P> {
     declarations: DeclarationList,
     owner: DeclarationBlockOwner<P>,
     effective_key: EffectiveKeyId,
@@ -243,7 +235,7 @@ pub struct DeclarationBlockRecord<P> {
     live: bool,
 }
 
-impl<P> DeclarationBlockRecord<P> {
+impl<P> DeclarationBlock<P> {
     #[inline]
     pub const fn declarations(&self) -> DeclarationList {
         self.declarations
@@ -371,8 +363,16 @@ pub enum ValidationError<P> {
     },
 }
 
-/// `R` and `D` keep rule and declaration payloads independent from storage.
-pub struct RadixCompilation<'ast, R: Unpin, D: Unpin, K> {
+/// A stylesheet backed by source-ordered Radix arenas.
+///
+/// The type parameters default to RocketCSS's CSS rule, declaration, and
+/// effective-key nodes. Alternate payloads are supported for storage tests.
+pub struct StyleSheet<
+    'ast,
+    R: Unpin = CssRule<'ast>,
+    D: Unpin = CssDeclaration<'ast>,
+    K = EffectiveKeyData<CssRule<'ast>>,
+> {
     allocator: &'ast Allocator,
     license_comments: crate::Vec<'ast, &'ast str>,
     rules: RuleStore<'ast, R>,
@@ -393,15 +393,15 @@ pub struct RadixCompilation<'ast, R: Unpin, D: Unpin, K> {
     layer_context_ids: FxHashMap<LayerContextKey<R>, LayerContextId>,
 }
 
-impl<'ast, R: Unpin, D: Unpin, K> RadixCompilation<'ast, R, D, K> {
-    /// Creates an empty compilation.
+impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
+    /// Creates an empty stylesheet.
     pub fn new_in(allocator: &'ast Allocator) -> Self {
-        Self::with_capacity_in(allocator, CompilationCapacity::default())
+        Self::with_capacity_in(allocator, StyleSheetCapacity::default())
     }
 
-    /// Creates an empty compilation with capacity for the expected authored
+    /// Creates an empty stylesheet with capacity for the expected authored
     /// AST shape.
-    pub fn with_capacity_in(allocator: &'ast Allocator, capacity: CompilationCapacity) -> Self {
+    pub fn with_capacity_in(allocator: &'ast Allocator, capacity: StyleSheetCapacity) -> Self {
         Self {
             allocator,
             license_comments: allocator.vec(),
@@ -481,10 +481,7 @@ impl<'ast, R: Unpin, D: Unpin, K> RadixCompilation<'ast, R, D, K> {
     }
 
     #[inline]
-    pub fn declaration_block(
-        &self,
-        id: DeclarationBlockId<R>,
-    ) -> Option<&DeclarationBlockRecord<R>> {
+    pub fn declaration_block(&self, id: DeclarationBlockId<R>) -> Option<&DeclarationBlock<R>> {
         self.declaration_blocks.get(id)
     }
 
@@ -492,7 +489,7 @@ impl<'ast, R: Unpin, D: Unpin, K> RadixCompilation<'ast, R, D, K> {
     pub fn declaration_block_mut(
         &mut self,
         id: DeclarationBlockId<R>,
-    ) -> Option<&mut DeclarationBlockRecord<R>> {
+    ) -> Option<&mut DeclarationBlock<R>> {
         self.declaration_blocks.get_mut(id)
     }
 
@@ -536,7 +533,7 @@ impl<'ast, R: Unpin, D: Unpin, K> RadixCompilation<'ast, R, D, K> {
     /// order without materializing their IDs.
     ///
     /// The callback may mutate rule payloads and declarations through the
-    /// compilation, but must not insert, retire, or relabel rules while this
+    /// stylesheet, but must not insert, retire, or relabel rules while this
     /// source-order cursor is active.
     #[doc(hidden)]
     pub fn try_for_each_rule_in_source_order<E>(
@@ -557,7 +554,7 @@ impl<'ast, R: Unpin, D: Unpin, K> RadixCompilation<'ast, R, D, K> {
     #[inline]
     pub fn declaration_blocks_in_source_order(
         &self,
-    ) -> impl Iterator<Item = (DeclarationBlockId<R>, &DeclarationBlockRecord<R>)> {
+    ) -> impl Iterator<Item = (DeclarationBlockId<R>, &DeclarationBlock<R>)> {
         self.declaration_blocks.iter_enumerated()
     }
 
@@ -849,15 +846,13 @@ impl<'ast, R: Unpin, D: Unpin, K> RadixCompilation<'ast, R, D, K> {
         if !self.declaration_blocks.can_push_primary() {
             return Err(MutationError::<R>::PrimaryDeclarationBlockCapacityExhausted);
         }
-        let block = self
-            .declaration_blocks
-            .push_primary(DeclarationBlockRecord::<R> {
-                declarations: DeclarationList::empty(),
-                owner,
-                effective_key,
-                revision: 0,
-                live: true,
-            });
+        let block = self.declaration_blocks.push_primary(DeclarationBlock::<R> {
+            declarations: DeclarationList::empty(),
+            owner,
+            effective_key,
+            revision: 0,
+            live: true,
+        });
         self.rules
             .get_mut(owner_rule)
             .expect("the block owner was validated before allocation")
@@ -960,4 +955,5 @@ impl<'comp, 'ast, R: Unpin> Iterator for DirectRuleIter<'comp, 'ast, R> {
 }
 
 #[cfg(test)]
+#[path = "../../../tests/unit/stylesheet/mod.rs"]
 mod tests;

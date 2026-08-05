@@ -1,4 +1,4 @@
-use rocketcss_ast::{Declaration, DeclarationPayload, UnparsedPropertyReason};
+use rocketcss_ast::{CssDeclaration, Declaration, UnparsedPropertyReason};
 use rocketcss_common::Allocator;
 use rocketcss_parser::{ParserOptions, parse};
 use rustc_hash::FxHashMap;
@@ -85,7 +85,7 @@ fn collect_coverage(source: &str) -> Coverage {
 
         let mut coverage = Coverage::default();
         for (_, declaration) in stylesheet.declarations_in_source_order() {
-            let DeclarationPayload::Property(declaration) = declaration.payload() else {
+            let CssDeclaration::Property(declaration) = declaration.payload() else {
                 continue;
             };
 

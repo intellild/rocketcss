@@ -1,6 +1,6 @@
 use super::*;
 
-impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
+impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     /// Checks preorder subtree spans, parent links, and block owners.
     pub fn validate_ast(&self) -> Result<(), ValidationError<R>> {
         let source_len = self.rules.len();

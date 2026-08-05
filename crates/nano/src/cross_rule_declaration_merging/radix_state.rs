@@ -1,4 +1,4 @@
-//! Incremental cross-rule scheduler over the compiler-owned Radix AST.
+//! Incremental cross-rule scheduler over the stylesheet AST.
 //!
 //! Declaration summaries are published at the end of each local block pass.
 //! Finalization consumes that publication tape plus the final context remap;
@@ -6,13 +6,9 @@
 //! authoritative in the AST rather than being reconstructed into Nano records.
 
 use rocketcss_ast::{
-    Declaration, EqIgnoringTombstones, Span,
-    radix_ast::{
-        Compilation, ConcreteDeclarationBlockId as DeclarationBlockId,
-        ConcreteMutationError as MutationError, ConcreteRuleId as RuleId, CssRulePayload,
-        DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, NestingRulePayload,
-        StyleRulePayload,
-    },
+    CssDeclaration, CssDeclarationBlockId as DeclarationBlockId, CssRule, CssRuleId as RuleId,
+    Declaration, DeclarationBlockOwner, EffectiveKeyId, EqIgnoringTombstones, NestingRule, Span,
+    StyleRule, StyleSheet, StyleSheetMutationError as MutationError,
 };
 use rocketcss_common::{
     Allocator, RadixIdRemap, RadixInsertResult,
@@ -28,18 +24,18 @@ pub(crate) struct CrossRuleBuilder<'arena, 'ast> {
 }
 
 impl<'arena, 'ast> CrossRuleBuilder<'arena, 'ast> {
-    pub(super) fn new(compilation: &Compilation<'ast>, allocator: &'arena Allocator) -> Self {
+    pub(super) fn new(stylesheet: &StyleSheet<'ast>, allocator: &'arena Allocator) -> Self {
         Self {
-            state: CrossRuleState::new_in(compilation, allocator),
+            state: CrossRuleState::new_in(stylesheet, allocator),
         }
     }
 
     pub(super) fn publish_block(
         &mut self,
-        compilation: &Compilation<'ast>,
+        stylesheet: &StyleSheet<'ast>,
         block: DeclarationBlockId<'ast>,
     ) -> Result<(), MutationError<'ast>> {
-        self.state.publish_block(compilation, block)
+        self.state.publish_block(stylesheet, block)
     }
 
     pub(super) fn finalize(&mut self, key_remaps: &[EffectiveKeyId]) {
@@ -49,13 +45,13 @@ impl<'arena, 'ast> CrossRuleBuilder<'arena, 'ast> {
 
 pub(super) fn stabilize_with_builder<'arena, 'ast>(
     mut builder: CrossRuleBuilder<'arena, 'ast>,
-    compilation: &mut Compilation<'ast>,
+    stylesheet: &mut StyleSheet<'ast>,
     preserve_selector_compatibility: bool,
 ) -> Result<(), MutationError<'ast>> {
     builder
         .state
-        .run(compilation, preserve_selector_compatibility)?;
-    builder.state.finish(compilation);
+        .run(stylesheet, preserve_selector_compatibility)?;
+    builder.state.finish(stylesheet);
     Ok(())
 }
 
@@ -232,21 +228,18 @@ impl<'arena> DeclarationOverrideCandidateList<'arena> {
 #[derive(Debug)]
 struct MinifyScratch<'arena, 'ast> {
     history: Vec<'arena, DeclarationBlockId<'ast>>,
-    left_declarations: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    right_declarations: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    left_residual: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    right_residual: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+    left_declarations: Vec<'arena, rocketcss_ast::DeclarationId>,
+    right_declarations: Vec<'arena, rocketcss_ast::DeclarationId>,
+    left_residual: Vec<'arena, rocketcss_ast::DeclarationId>,
+    right_residual: Vec<'arena, rocketcss_ast::DeclarationId>,
     common: Vec<'arena, CommonDeclaration>,
-    matched_right: HashSet<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    matched_left: HashSet<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+    matched_right: HashSet<'arena, rocketcss_ast::DeclarationId>,
+    matched_left: HashSet<'arena, rocketcss_ast::DeclarationId>,
     affected_blocks: HashSet<'arena, DeclarationBlockId<'ast>>,
     previous_by_property: HashMap<
         'arena,
         CompactPropertyKey,
-        (
-            DeclarationBlockId<'ast>,
-            rocketcss_ast::radix_ast::DeclarationId,
-        ),
+        (DeclarationBlockId<'ast>, rocketcss_ast::DeclarationId),
     >,
 }
 
@@ -291,9 +284,9 @@ struct CrossRuleState<'arena, 'ast> {
 }
 
 impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
-    fn new_in(compilation: &Compilation<'ast>, allocator: &'arena Allocator) -> Self {
-        let declaration_capacity = compilation.declarations_in_source_order().len();
-        let block_capacity = compilation.declaration_block_count();
+    fn new_in(stylesheet: &StyleSheet<'ast>, allocator: &'arena Allocator) -> Self {
+        let declaration_capacity = stylesheet.declarations_in_source_order().len();
+        let block_capacity = stylesheet.declaration_block_count();
         Self {
             allocator,
             declaration_ir: DeclarationIrStore::new_in(
@@ -315,41 +308,41 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     #[cfg(test)]
     fn publish_all_blocks(
         &mut self,
-        compilation: &Compilation<'ast>,
+        stylesheet: &StyleSheet<'ast>,
     ) -> Result<(), MutationError<'ast>> {
-        for (block_id, block) in compilation.declaration_blocks_in_source_order() {
+        for (block_id, block) in stylesheet.declaration_blocks_in_source_order() {
             if !block.is_live() {
                 continue;
             }
-            self.publish_block(compilation, block_id)?;
+            self.publish_block(stylesheet, block_id)?;
         }
         Ok(())
     }
 
     fn publish_block(
         &mut self,
-        compilation: &Compilation<'ast>,
+        stylesheet: &StyleSheet<'ast>,
         block: DeclarationBlockId<'ast>,
     ) -> Result<(), MutationError<'ast>> {
-        self.declaration_ir.freeze_block(compilation, block)?;
-        let block_record = compilation
+        self.declaration_ir.freeze_block(stylesheet, block)?;
+        let block_record = stylesheet
             .declaration_block(block)
             .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(block))?;
         let DeclarationBlockOwner::Rule(owner) = block_record.owner();
-        let owner_record = compilation
+        let owner_record = stylesheet
             .rule(owner)
             .ok_or(MutationError::<'ast>::InvalidRuleTopology(owner))?;
         let previous_style_block = if is_style_owner(owner_record.payload())
-            && let Some(previous) = compilation.previous_sibling(owner)
+            && let Some(previous) = stylesheet.previous_sibling(owner)
         {
-            let previous_record = compilation
+            let previous_record = stylesheet
                 .rule(previous)
                 .ok_or(MutationError::<'ast>::InvalidRuleTopology(previous))?;
             if is_style_owner(previous_record.payload()) {
                 let previous_block = previous_record
                     .declaration_block()
                     .ok_or(MutationError::<'ast>::InvalidRuleTopology(previous))?;
-                let previous_block_record = compilation.declaration_block(previous_block).ok_or(
+                let previous_block_record = stylesheet.declaration_block(previous_block).ok_or(
                     MutationError::<'ast>::UnknownDeclarationBlock(previous_block),
                 )?;
                 Some((
@@ -408,14 +401,14 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     }
 
     #[cfg(test)]
-    fn from_compilation<'minify>(
-        compilation: &Compilation<'ast>,
+    fn from_stylesheet<'minify>(
+        stylesheet: &StyleSheet<'ast>,
     ) -> Result<CrossRuleState<'minify, 'ast>, MutationError<'ast>>
     where
         'ast: 'minify,
     {
-        let mut state = CrossRuleState::new_in(compilation, compilation.allocator());
-        state.publish_all_blocks(compilation)?;
+        let mut state = CrossRuleState::new_in(stylesheet, stylesheet.allocator());
+        state.publish_all_blocks(stylesheet)?;
         state.finalize_published_blocks(&[]);
         Ok(state)
     }
@@ -445,28 +438,28 @@ struct SchedulerStats {
 
 #[derive(Clone, Copy, Debug)]
 struct CommonDeclaration {
-    left: rocketcss_ast::radix_ast::DeclarationId,
-    right: rocketcss_ast::radix_ast::DeclarationId,
+    left: rocketcss_ast::DeclarationId,
+    right: rocketcss_ast::DeclarationId,
     right_order: usize,
 }
 
 impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     fn run(
         &mut self,
-        compilation: &mut Compilation<'ast>,
+        stylesheet: &mut StyleSheet<'ast>,
         preserve_selector_compatibility: bool,
     ) -> Result<SchedulerStats, MutationError<'ast>> {
         let mut stats = SchedulerStats::default();
         loop {
-            stats.s1_commits += self.run_s1(compilation)?;
-            let s2 = self.run_s2_exact(compilation)?;
+            stats.s1_commits += self.run_s1(stylesheet)?;
+            let s2 = self.run_s2_exact(stylesheet)?;
             stats.s2.declarations_removed += s2.declarations_removed;
             stats.s2.empty_rules_retired += s2.empty_rules_retired;
             if !self.same_selector_candidates.is_empty() {
                 continue;
             }
 
-            let s3 = self.run_s3(compilation, preserve_selector_compatibility)?;
+            let s3 = self.run_s3(stylesheet, preserve_selector_compatibility)?;
             stats.s3.reused_left_commits += s3.reused_left_commits;
             stats.s3.allocated_shared_commits += s3.allocated_shared_commits;
             stats.s3.rejected_no_common += s3.rejected_no_common;
@@ -489,25 +482,22 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     /// deferred plan to materialize yet. Consuming `self` tears down every
     /// merge-only queue, history, summary, and revision sidecar. Debug builds
     /// also prove that the committed AST is structurally complete.
-    fn finish(self, _compilation: &Compilation<'ast>) {
+    fn finish(self, _stylesheet: &StyleSheet<'ast>) {
         debug_assert!(self.same_selector_candidates.is_empty());
         debug_assert!(self.declaration_override_candidates.is_empty());
         debug_assert!(self.partial_merge_candidates.is_empty());
         #[cfg(debug_assertions)]
-        debug_assert_eq!(_compilation.validate_ast(), Ok(()));
+        debug_assert_eq!(_stylesheet.validate_ast(), Ok(()));
     }
 
-    fn run_s1(
-        &mut self,
-        compilation: &mut Compilation<'ast>,
-    ) -> Result<usize, MutationError<'ast>> {
+    fn run_s1(&mut self, stylesheet: &mut StyleSheet<'ast>) -> Result<usize, MutationError<'ast>> {
         let mut commits = 0;
         while let Some(candidate) = self.same_selector_candidates.pop() {
-            let Some((left_rule, right_rule, key)) = validate_s1(compilation, candidate) else {
+            let Some((left_rule, right_rule, key)) = validate_s1(stylesheet, candidate) else {
                 continue;
             };
             let merged =
-                compilation.merge_adjacent_rule_declaration_blocks(left_rule, right_rule)?;
+                stylesheet.merge_adjacent_rule_declaration_blocks(left_rule, right_rule)?;
             debug_assert_eq!(merged.effective_key, key);
             self.declaration_ir
                 .compose(merged.retired_block, merged.retained_block);
@@ -519,17 +509,17 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             commits += 1;
 
             for (left, right) in [
-                compilation
+                stylesheet
                     .previous_sibling(merged.retained_rule)
                     .map(|previous| (previous, merged.retained_rule)),
-                compilation
+                stylesheet
                     .next_sibling(merged.retained_rule)
                     .map(|next| (merged.retained_rule, next)),
             ]
             .into_iter()
             .flatten()
             {
-                if let Some(edge) = self.edge_candidate(compilation, left, right) {
+                if let Some(edge) = self.edge_candidate(stylesheet, left, right) {
                     self.enqueue_edge_candidate(edge);
                 }
             }
@@ -540,7 +530,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     fn run_s2_exact(
         &mut self,
-        compilation: &mut Compilation<'ast>,
+        stylesheet: &mut StyleSheet<'ast>,
     ) -> Result<S2Stats, MutationError<'ast>> {
         let mut stats = S2Stats::default();
         while let Some(key) = self.declaration_override_candidates.pop() {
@@ -552,9 +542,9 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             self.scratch.affected_blocks.clear();
             self.scratch.previous_by_property.clear();
             for &block in &self.scratch.history {
-                let declaration_count = compilation.declaration_ids_in_block(block)?.len();
+                let declaration_count = stylesheet.declaration_ids_in_block(block)?.len();
                 for index in 0..declaration_count {
-                    let declaration = compilation.declaration_id_at_in_block(block, index)?;
+                    let declaration = stylesheet.declaration_id_at_in_block(block, index)?;
                     let Some(property_key) = self
                         .declaration_ir
                         .occurrence(declaration)
@@ -565,12 +555,12 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     };
                     if let Some(&(previous_block, previous)) =
                         self.scratch.previous_by_property.get(&property_key)
-                        && declarations_are_exactly_equal(compilation, previous, declaration)
+                        && declarations_are_exactly_equal(stylesheet, previous, declaration)
                     {
-                        compilation.replace_declaration(
+                        stylesheet.replace_declaration(
                             previous_block,
                             previous,
-                            DeclarationPayload::Property(Declaration::Tombstone),
+                            CssDeclaration::Property(Declaration::Tombstone),
                         )?;
                         self.declaration_ir.mark_dead(previous_block, previous);
                         self.scratch.affected_blocks.insert(previous_block);
@@ -588,24 +578,24 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             }
             for index in 0..self.scratch.history.len() {
                 let block = self.scratch.history[index];
-                let Some(block_record) = compilation.declaration_block(block) else {
+                let Some(block_record) = stylesheet.declaration_block(block) else {
                     continue;
                 };
                 let DeclarationBlockOwner::Rule(owner) = block_record.owner();
                 let block_key = block_record.effective_key();
                 if self.declaration_ir.block_live_count(block) == 0
-                    && !compilation.has_nested_rules(owner)?
+                    && !stylesheet.has_nested_rules(owner)?
                 {
-                    let retired = compilation.retire_rule(owner)?;
+                    let retired = stylesheet.retire_rule(owner)?;
                     self.remove_history_occurrence(block_key, block);
                     if let (Some(previous), Some(next)) = (retired.previous, retired.next)
-                        && let Some(edge) = self.edge_candidate(compilation, previous, next)
+                        && let Some(edge) = self.edge_candidate(stylesheet, previous, next)
                     {
                         self.enqueue_edge_candidate(edge);
                     }
                     stats.empty_rules_retired += 1;
                 } else {
-                    self.enqueue_rule_incident_edges(compilation, owner);
+                    self.enqueue_rule_incident_edges(stylesheet, owner);
                 }
             }
             if !self.same_selector_candidates.is_empty() {
@@ -617,21 +607,21 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     fn run_s3(
         &mut self,
-        compilation: &mut Compilation<'ast>,
+        stylesheet: &mut StyleSheet<'ast>,
         preserve_selector_compatibility: bool,
     ) -> Result<S3Stats, MutationError<'ast>> {
         let mut stats = S3Stats::default();
         while let Some(candidate) = self.partial_merge_candidates.pop() {
-            let Some(endpoints) = validate_s3(compilation, candidate) else {
+            let Some(endpoints) = validate_s3(stylesheet, candidate) else {
                 continue;
             };
             self.declaration_ir.live_declarations(
-                compilation,
+                stylesheet,
                 candidate.left,
                 &mut self.scratch.left_declarations,
             )?;
             self.declaration_ir.live_declarations(
-                compilation,
+                stylesheet,
                 candidate.right,
                 &mut self.scratch.right_declarations,
             )?;
@@ -674,7 +664,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                         let right_order = indexed.order;
                         if self.scratch.matched_right.contains(&right)
                             || !self.scratch.right_declarations.contains(&right)
-                            || !declarations_have_equal_effect(compilation, left, right)
+                            || !declarations_have_equal_effect(stylesheet, left, right)
                         {
                             continue;
                         }
@@ -697,7 +687,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                                 .declaration_ir
                                 .occurrence(right)
                                 .is_none_or(|right| right.property_key != Some(property_key))
-                            || !declarations_have_equal_effect(compilation, left, right)
+                            || !declarations_have_equal_effect(stylesheet, left, right)
                         {
                             continue;
                         }
@@ -739,11 +729,11 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             }
 
             let Some(selectors) = materialize_selector_union(
-                compilation
+                stylesheet
                     .selector_value(endpoints.left_selector)
                     .expect("a validated selector value remains resolvable")
                     .selectors(),
-                compilation
+                stylesheet
                     .selector_value(endpoints.right_selector)
                     .expect("a validated selector value remains resolvable")
                     .selectors(),
@@ -752,12 +742,12 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             ) else {
                 continue;
             };
-            let selector_value = compilation.intern_selector_value(
+            let selector_value = stylesheet.intern_selector_value(
                 selectors,
                 endpoints.selector_kind,
                 endpoints.vendor_prefix,
             )?;
-            let Some(shared_key) = compilation.intern_selector_union_effective_key(
+            let Some(shared_key) = stylesheet.intern_selector_union_effective_key(
                 endpoints.left_key,
                 endpoints.right_key,
                 selector_value,
@@ -767,32 +757,32 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             };
 
             if self.scratch.left_residual.is_empty() {
-                compilation.replace_rule_selector_value_in(
+                stylesheet.replace_rule_selector_value_in(
                     endpoints.left_rule,
                     selector_value,
                     self.allocator,
                 )?;
-                let left_payload = compilation
+                let left_payload = stylesheet
                     .rule_mut(endpoints.left_rule)
                     .expect("the reused S3 endpoint remains live")
                     .payload_mut();
                 match left_payload {
-                    CssRulePayload::Style(payload) => payload.span = endpoints.span,
-                    CssRulePayload::Nesting(payload) => payload.span = endpoints.span,
+                    CssRule::Style(payload) => payload.span = endpoints.span,
+                    CssRule::Nesting(payload) => payload.span = endpoints.span,
                     _ => unreachable!("the S3 selector owner was validated"),
                 }
 
                 for declaration in &self.scratch.common {
-                    compilation.replace_declaration(
+                    stylesheet.replace_declaration(
                         candidate.right,
                         declaration.right,
-                        DeclarationPayload::Property(Declaration::Tombstone),
+                        CssDeclaration::Property(Declaration::Tombstone),
                     )?;
                     self.declaration_ir
                         .mark_dead(candidate.right, declaration.right);
                 }
                 debug_assert_eq!(
-                    compilation
+                    stylesheet
                         .declaration_block(candidate.left)
                         .expect("the reused S3 block remains live")
                         .effective_key(),
@@ -802,13 +792,13 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 self.insert_history_occurrence(shared_key, candidate.left);
 
                 let retain_right = self.declaration_ir.block_live_count(candidate.right) != 0
-                    || compilation.has_nested_rules(endpoints.right_rule)?;
+                    || stylesheet.has_nested_rules(endpoints.right_rule)?;
                 if !retain_right {
-                    compilation.retire_rule(endpoints.right_rule)?;
+                    stylesheet.retire_rule(endpoints.right_rule)?;
                     self.remove_history_occurrence(endpoints.right_key, candidate.right);
                 }
                 self.publish_incident_edges(
-                    compilation,
+                    stylesheet,
                     endpoints.left_rule,
                     retain_right.then_some(endpoints.right_rule),
                 );
@@ -822,21 +812,17 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             }
 
             let payload = match endpoints.selector_kind {
-                rocketcss_ast::radix_ast::SelectorFrameKind::Style => {
-                    CssRulePayload::Style(StyleRulePayload {
-                        span: endpoints.span,
-                        selector_value,
-                        vendor_prefix: endpoints.vendor_prefix,
-                    })
-                }
-                rocketcss_ast::radix_ast::SelectorFrameKind::Nesting => {
-                    CssRulePayload::Nesting(NestingRulePayload {
-                        span: endpoints.span,
-                        selector_value,
-                    })
-                }
+                rocketcss_ast::SelectorFrameKind::Style => CssRule::Style(StyleRule {
+                    span: endpoints.span,
+                    selector_value,
+                    vendor_prefix: endpoints.vendor_prefix,
+                }),
+                rocketcss_ast::SelectorFrameKind::Nesting => CssRule::Nesting(NestingRule {
+                    span: endpoints.span,
+                    selector_value,
+                }),
             };
-            let insertion = match compilation.insert_rule_with_declaration_block_after(
+            let insertion = match stylesheet.insert_rule_with_declaration_block_after(
                 endpoints.left_rule,
                 endpoints.right_rule,
                 candidate.left,
@@ -868,39 +854,38 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
             let mut moved_declarations = std::vec::Vec::with_capacity(self.scratch.common.len());
             for declaration in &self.scratch.common {
-                let important = compilation
+                let important = stylesheet
                     .declaration(declaration.left)
                     .ok_or(MutationError::<'ast>::UnknownDeclaration(declaration.left))?
                     .is_important();
-                let moved = compilation.replace_declaration(
+                let moved = stylesheet.replace_declaration(
                     left_block,
                     declaration.left,
-                    DeclarationPayload::Property(Declaration::Tombstone),
+                    CssDeclaration::Property(Declaration::Tombstone),
                 )?;
-                compilation.replace_declaration(
+                stylesheet.replace_declaration(
                     right_block,
                     declaration.right,
-                    DeclarationPayload::Property(Declaration::Tombstone),
+                    CssDeclaration::Property(Declaration::Tombstone),
                 )?;
                 self.declaration_ir.mark_dead(left_block, declaration.left);
                 self.declaration_ir
                     .mark_dead(right_block, declaration.right);
                 moved_declarations.push((moved, important));
             }
-            compilation
+            stylesheet
                 .insert_transformed_declarations_at_block_end(shared_block, moved_declarations)?;
-            self.declaration_ir
-                .freeze_block(compilation, shared_block)?;
+            self.declaration_ir.freeze_block(stylesheet, shared_block)?;
             self.insert_history_occurrence(shared_key, shared_block);
 
             let retain_right = self.declaration_ir.block_live_count(right_block) != 0
-                || compilation.has_nested_rules(right_rule)?;
+                || stylesheet.has_nested_rules(right_rule)?;
             if !retain_right {
-                compilation.retire_rule(right_rule)?;
+                stylesheet.retire_rule(right_rule)?;
                 self.remove_history_occurrence(endpoints.right_key, right_block);
             }
             self.publish_incident_edges(
-                compilation,
+                stylesheet,
                 shared_rule,
                 retain_right.then_some(right_rule),
             );
@@ -909,7 +894,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             self.declaration_override_candidates
                 .push(endpoints.right_key);
             self.declaration_override_candidates.push(shared_key);
-            debug_assert_eq!(compilation.previous_sibling(shared_rule), Some(left_rule));
+            debug_assert_eq!(stylesheet.previous_sibling(shared_rule), Some(left_rule));
             stats.allocated_shared_commits += 1;
             break;
         }
@@ -949,20 +934,20 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     fn publish_incident_edges(
         &mut self,
-        compilation: &Compilation<'ast>,
+        stylesheet: &StyleSheet<'ast>,
         left: RuleId<'ast>,
         right: Option<RuleId<'ast>>,
     ) {
-        let previous = compilation.previous_sibling(left);
+        let previous = stylesheet.previous_sibling(left);
         for edge in [
-            previous.and_then(|previous| self.edge_candidate(compilation, previous, left)),
-            compilation
+            previous.and_then(|previous| self.edge_candidate(stylesheet, previous, left)),
+            stylesheet
                 .next_sibling(left)
-                .and_then(|next| self.edge_candidate(compilation, left, next)),
+                .and_then(|next| self.edge_candidate(stylesheet, left, next)),
             right.and_then(|right| {
-                compilation
+                stylesheet
                     .next_sibling(right)
-                    .and_then(|next| self.edge_candidate(compilation, right, next))
+                    .and_then(|next| self.edge_candidate(stylesheet, right, next))
             }),
         ]
         .into_iter()
@@ -972,17 +957,17 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         }
     }
 
-    fn enqueue_rule_incident_edges(&mut self, compilation: &Compilation<'ast>, rule: RuleId<'ast>) {
-        if compilation.rule(rule).is_none() {
+    fn enqueue_rule_incident_edges(&mut self, stylesheet: &StyleSheet<'ast>, rule: RuleId<'ast>) {
+        if stylesheet.rule(rule).is_none() {
             return;
         }
         for edge in [
-            compilation
+            stylesheet
                 .previous_sibling(rule)
-                .and_then(|previous| self.edge_candidate(compilation, previous, rule)),
-            compilation
+                .and_then(|previous| self.edge_candidate(stylesheet, previous, rule)),
+            stylesheet
                 .next_sibling(rule)
-                .and_then(|next| self.edge_candidate(compilation, rule, next)),
+                .and_then(|next| self.edge_candidate(stylesheet, rule, next)),
         ]
         .into_iter()
         .flatten()
@@ -1026,16 +1011,16 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     fn edge_candidate(
         &self,
-        compilation: &Compilation<'ast>,
+        stylesheet: &StyleSheet<'ast>,
         left: RuleId<'ast>,
         right: RuleId<'ast>,
     ) -> Option<Candidate<'ast>> {
-        let left_rule = compilation.rule(left)?;
-        let right_rule = compilation.rule(right)?;
+        let left_rule = stylesheet.rule(left)?;
+        let right_rule = stylesheet.rule(right)?;
         if !left_rule.is_live()
             || !right_rule.is_live()
-            || compilation.next_sibling(left) != Some(right)
-            || compilation.previous_sibling(right) != Some(left)
+            || stylesheet.next_sibling(left) != Some(right)
+            || stylesheet.previous_sibling(right) != Some(left)
             || !is_style_owner(left_rule.payload())
             || !is_style_owner(right_rule.payload())
         {
@@ -1043,8 +1028,8 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         }
         let left = left_rule.declaration_block()?;
         let right = right_rule.declaration_block()?;
-        let left_block = compilation.declaration_block(left)?;
-        let right_block = compilation.declaration_block(right)?;
+        let left_block = stylesheet.declaration_block(left)?;
+        let right_block = stylesheet.declaration_block(right)?;
         Some(Candidate {
             left,
             right,
@@ -1066,11 +1051,8 @@ impl<'ast> Candidate<'ast> {
     }
 }
 
-fn is_style_owner(payload: &CssRulePayload<'_>) -> bool {
-    matches!(
-        payload,
-        CssRulePayload::Style(_) | CssRulePayload::Nesting(_)
-    )
+fn is_style_owner(payload: &CssRule<'_>) -> bool {
+    matches!(payload, CssRule::Style(_) | CssRule::Nesting(_))
 }
 
 fn remap_rule_id<'ast>(id: RuleId<'ast>, remaps: &[RadixIdRemap<RuleId<'ast>>]) -> RuleId<'ast> {
@@ -1091,11 +1073,11 @@ fn remap_block_id<'ast>(
 }
 
 fn validate_s1<'ast>(
-    compilation: &Compilation<'ast>,
+    stylesheet: &StyleSheet<'ast>,
     candidate: Candidate<'ast>,
 ) -> Option<(RuleId<'ast>, RuleId<'ast>, EffectiveKeyId)> {
-    let left_block = compilation.declaration_block(candidate.left)?;
-    let right_block = compilation.declaration_block(candidate.right)?;
+    let left_block = stylesheet.declaration_block(candidate.left)?;
+    let right_block = stylesheet.declaration_block(candidate.right)?;
     if !left_block.is_live()
         || !right_block.is_live()
         || left_block.revision() != candidate.left_revision
@@ -1106,11 +1088,11 @@ fn validate_s1<'ast>(
     }
     let DeclarationBlockOwner::Rule(left) = left_block.owner();
     let DeclarationBlockOwner::Rule(right) = right_block.owner();
-    let left_rule = compilation.rule(left)?;
-    let right_rule = compilation.rule(right)?;
-    if compilation.has_nested_rules(left).ok()?
-        || compilation.next_sibling(left) != Some(right)
-        || compilation.previous_sibling(right) != Some(left)
+    let left_rule = stylesheet.rule(left)?;
+    let right_rule = stylesheet.rule(right)?;
+    if stylesheet.has_nested_rules(left).ok()?
+        || stylesheet.next_sibling(left) != Some(right)
+        || stylesheet.previous_sibling(right) != Some(left)
         || !is_style_owner(left_rule.payload())
         || !is_style_owner(right_rule.payload())
     {
@@ -1120,14 +1102,14 @@ fn validate_s1<'ast>(
 }
 
 fn declarations_are_exactly_equal(
-    compilation: &Compilation<'_>,
-    left: rocketcss_ast::radix_ast::DeclarationId,
-    right: rocketcss_ast::radix_ast::DeclarationId,
+    stylesheet: &StyleSheet<'_>,
+    left: rocketcss_ast::DeclarationId,
+    right: rocketcss_ast::DeclarationId,
 ) -> bool {
-    let Some(left) = compilation.declaration(left) else {
+    let Some(left) = stylesheet.declaration(left) else {
         return false;
     };
-    let Some(right) = compilation.declaration(right) else {
+    let Some(right) = stylesheet.declaration(right) else {
         return false;
     };
     left.is_important() == right.is_important() && left.payload() == right.payload()
@@ -1139,19 +1121,19 @@ struct RadixS3Endpoints<'ast> {
     right_rule: RuleId<'ast>,
     left_key: EffectiveKeyId,
     right_key: EffectiveKeyId,
-    left_selector: rocketcss_ast::radix_ast::SelectorValueId,
-    right_selector: rocketcss_ast::radix_ast::SelectorValueId,
-    selector_kind: rocketcss_ast::radix_ast::SelectorFrameKind,
+    left_selector: rocketcss_ast::SelectorValueId,
+    right_selector: rocketcss_ast::SelectorValueId,
+    selector_kind: rocketcss_ast::SelectorFrameKind,
     vendor_prefix: rocketcss_ast::VendorPrefix,
     span: Span,
 }
 
 fn validate_s3<'ast>(
-    compilation: &Compilation<'ast>,
+    stylesheet: &StyleSheet<'ast>,
     candidate: Candidate<'ast>,
 ) -> Option<RadixS3Endpoints<'ast>> {
-    let left_block = compilation.declaration_block(candidate.left)?;
-    let right_block = compilation.declaration_block(candidate.right)?;
+    let left_block = stylesheet.declaration_block(candidate.left)?;
+    let right_block = stylesheet.declaration_block(candidate.right)?;
     if !left_block.is_live()
         || !right_block.is_live()
         || left_block.revision() != candidate.left_revision
@@ -1162,26 +1144,26 @@ fn validate_s3<'ast>(
     }
     let DeclarationBlockOwner::Rule(left_rule_id) = left_block.owner();
     let DeclarationBlockOwner::Rule(right_rule_id) = right_block.owner();
-    let left_rule = compilation.rule(left_rule_id)?;
-    let right_rule = compilation.rule(right_rule_id)?;
-    if compilation.has_nested_rules(left_rule_id).ok()?
-        || compilation.next_sibling(left_rule_id) != Some(right_rule_id)
-        || compilation.previous_sibling(right_rule_id) != Some(left_rule_id)
+    let left_rule = stylesheet.rule(left_rule_id)?;
+    let right_rule = stylesheet.rule(right_rule_id)?;
+    if stylesheet.has_nested_rules(left_rule_id).ok()?
+        || stylesheet.next_sibling(left_rule_id) != Some(right_rule_id)
+        || stylesheet.previous_sibling(right_rule_id) != Some(left_rule_id)
     {
         return None;
     }
     let (left_selector, left_span) = match left_rule.payload() {
-        CssRulePayload::Style(payload) => (payload.selector_value, payload.span),
-        CssRulePayload::Nesting(payload) => (payload.selector_value, payload.span),
+        CssRule::Style(payload) => (payload.selector_value, payload.span),
+        CssRule::Nesting(payload) => (payload.selector_value, payload.span),
         _ => return None,
     };
     let (right_selector, right_span) = match right_rule.payload() {
-        CssRulePayload::Style(payload) => (payload.selector_value, payload.span),
-        CssRulePayload::Nesting(payload) => (payload.selector_value, payload.span),
+        CssRule::Style(payload) => (payload.selector_value, payload.span),
+        CssRule::Nesting(payload) => (payload.selector_value, payload.span),
         _ => return None,
     };
-    let left_value = compilation.selector_value(left_selector)?;
-    let right_value = compilation.selector_value(right_selector)?;
+    let left_value = stylesheet.selector_value(left_selector)?;
+    let right_value = stylesheet.selector_value(right_selector)?;
     if left_selector == right_selector
         || left_value.kind() != right_value.kind()
         || left_value.vendor_prefix() != right_value.vendor_prefix()
@@ -1202,21 +1184,21 @@ fn validate_s3<'ast>(
 }
 
 fn declarations_have_equal_effect(
-    compilation: &Compilation<'_>,
-    left: rocketcss_ast::radix_ast::DeclarationId,
-    right: rocketcss_ast::radix_ast::DeclarationId,
+    stylesheet: &StyleSheet<'_>,
+    left: rocketcss_ast::DeclarationId,
+    right: rocketcss_ast::DeclarationId,
 ) -> bool {
-    let Some(left) = compilation.declaration(left) else {
+    let Some(left) = stylesheet.declaration(left) else {
         return false;
     };
-    let Some(right) = compilation.declaration(right) else {
+    let Some(right) = stylesheet.declaration(right) else {
         return false;
     };
     if left.is_important() != right.is_important() {
         return false;
     }
     match (left.payload(), right.payload()) {
-        (DeclarationPayload::Property(left), DeclarationPayload::Property(right)) => {
+        (CssDeclaration::Property(left), CssDeclaration::Property(right)) => {
             left.eq_ignoring_tombstones(right)
         }
         _ => false,
@@ -1226,7 +1208,7 @@ fn declarations_have_equal_effect(
 fn has_opaque_domain_conflict(
     declaration_ir: &DeclarationIrStore<'_, '_>,
     domain: MovementDomain,
-    declarations: &[rocketcss_ast::radix_ast::DeclarationId],
+    declarations: &[rocketcss_ast::DeclarationId],
 ) -> bool {
     declarations.iter().any(|declaration| {
         let Some(occurrence) = declaration_ir.occurrence(*declaration) else {
@@ -1241,8 +1223,8 @@ fn has_opaque_domain_conflict(
 
 fn radix_partial_movement_is_safe(
     common: &[CommonDeclaration],
-    left_residual: &[rocketcss_ast::radix_ast::DeclarationId],
-    right_residual: &[rocketcss_ast::radix_ast::DeclarationId],
+    left_residual: &[rocketcss_ast::DeclarationId],
+    right_residual: &[rocketcss_ast::DeclarationId],
     declaration_ir: &DeclarationIrStore<'_, '_>,
 ) -> bool {
     if left_residual.is_empty() && right_residual.is_empty() {
@@ -1316,20 +1298,20 @@ mod tests {
 
     use super::*;
 
-    trait ParseTestCompilation<'ast> {
-        fn parse_test_compilation(
+    trait ParseTestStyleSheet<'ast> {
+        fn parse_test_stylesheet(
             &mut self,
             source: &'ast str,
             options: ParserOptions<'ast>,
-        ) -> Result<rocketcss_ast::Compilation<'ast>, rocketcss_parser::Error<'ast>>;
+        ) -> Result<rocketcss_ast::StyleSheet<'ast>, rocketcss_parser::Error<'ast>>;
     }
 
-    impl<'ast> ParseTestCompilation<'ast> for Compiler<'ast> {
-        fn parse_test_compilation(
+    impl<'ast> ParseTestStyleSheet<'ast> for Compiler<'ast> {
+        fn parse_test_stylesheet(
             &mut self,
             source: &'ast str,
             options: ParserOptions<'ast>,
-        ) -> Result<rocketcss_ast::Compilation<'ast>, rocketcss_parser::Error<'ast>> {
+        ) -> Result<rocketcss_ast::StyleSheet<'ast>, rocketcss_parser::Error<'ast>> {
             rocketcss_common::GhostToken::scope(|mut token| self.parse(source, &mut token, options))
         }
     }
@@ -1337,13 +1319,13 @@ mod tests {
     #[test]
     fn finalizes_histories_ir_and_direct_edges_from_published_metadata() {
         let allocator = Allocator::new();
-        let compilation = Compiler::new(&allocator)
-            .parse_test_compilation(
+        let stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
                 "a{color:red}a{color:blue}@media print{a{color:red}a{color:blue}}b{color:red}b{color:blue}a{color:green}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let state = CrossRuleState::from_compilation(&compilation).unwrap();
+        let state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
         assert_eq!(state.published_block_count, 7);
         assert_eq!(state.declaration_ir.occurrence_count(), 7);
@@ -1377,7 +1359,7 @@ mod tests {
         );
         for (&key, blocks) in &state.histories {
             assert!(blocks.iter().all(|&block| {
-                compilation
+                stylesheet
                     .declaration_block(block)
                     .is_some_and(|block| block.effective_key() == key)
             }));
@@ -1387,13 +1369,13 @@ mod tests {
     #[test]
     fn nested_declaration_segments_join_history_without_becoming_style_edges() {
         let allocator = Allocator::new();
-        let compilation = Compiler::new(&allocator)
-            .parse_test_compilation(
+        let stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
                 "a{width:1px;& b{height:2px}width:3px}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let state = CrossRuleState::from_compilation(&compilation).unwrap();
+        let state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
         assert_eq!(state.published_block_count, 3);
         assert_eq!(state.declaration_ir.occurrence_count(), 3);
@@ -1404,27 +1386,27 @@ mod tests {
     #[test]
     fn s1_commits_directly_and_enqueues_the_newly_exposed_ast_edge() {
         let allocator = Allocator::new();
-        let mut compilation = Compiler::new(&allocator)
-            .parse_test_compilation(
+        let mut stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
                 "a{color:red}a{width:1px}a{height:2px}b{color:blue}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-        assert_eq!(state.run_s1(&mut compilation).unwrap(), 2);
-        let live = compilation
+        assert_eq!(state.run_s1(&mut stylesheet).unwrap(), 2);
+        let live = stylesheet
             .root_rules()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>();
         assert_eq!(live.len(), 2);
-        let retained = compilation
+        let retained = stylesheet
             .rule(live[0])
             .unwrap()
             .declaration_block()
             .unwrap();
         assert_eq!(
-            compilation.declarations_in_block(retained).unwrap().count(),
+            stylesheet.declarations_in_block(retained).unwrap().count(),
             3
         );
         assert!(
@@ -1433,21 +1415,21 @@ mod tests {
                 .values()
                 .any(|history| history.as_slice() == [retained])
         );
-        assert_eq!(compilation.validate_ast(), Ok(()));
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
     }
 
     #[test]
     fn s2_tombstones_only_exact_old_declarations_in_the_same_ast_history() {
         let allocator = Allocator::new();
-        let mut compilation = Compiler::new(&allocator)
-            .parse_test_compilation(
+        let mut stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
                 "a{color:red;width:1px}b{color:red}a{color:red;width:2px}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-        let stats = state.run_s2_exact(&mut compilation).unwrap();
+        let stats = state.run_s2_exact(&mut stylesheet).unwrap();
         assert_eq!(
             stats,
             S2Stats {
@@ -1455,69 +1437,69 @@ mod tests {
                 empty_rules_retired: 0,
             }
         );
-        let first_block = compilation
+        let first_block = stylesheet
             .declaration_blocks_in_source_order()
             .next()
             .unwrap()
             .0;
-        let declarations = compilation
+        let declarations = stylesheet
             .declarations_in_block(first_block)
             .unwrap()
             .collect::<std::vec::Vec<_>>();
         assert!(matches!(
             declarations[0].payload(),
-            DeclarationPayload::Property(Declaration::Tombstone)
+            CssDeclaration::Property(Declaration::Tombstone)
         ));
         assert!(!matches!(
             declarations[1].payload(),
-            DeclarationPayload::Property(Declaration::Tombstone)
+            CssDeclaration::Property(Declaration::Tombstone)
         ));
-        assert_eq!(compilation.validate_ast(), Ok(()));
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
     }
 
     #[test]
     fn s2_retires_an_empty_leaf_rule_without_rebuilding_topology() {
         let allocator = Allocator::new();
-        let mut compilation = Compiler::new(&allocator)
-            .parse_test_compilation(
+        let mut stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
                 "a{color:red}b{width:1px}a{color:red}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-        let stats = state.run_s2_exact(&mut compilation).unwrap();
+        let stats = state.run_s2_exact(&mut stylesheet).unwrap();
         assert_eq!(stats.declarations_removed, 1);
         assert_eq!(stats.empty_rules_retired, 1);
-        assert_eq!(compilation.root_rules().count(), 2);
-        assert_eq!(compilation.validate_ast(), Ok(()));
+        assert_eq!(stylesheet.root_rules().count(), 2);
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
     }
 
     #[test]
     fn s2_exposes_and_queues_only_the_new_local_s1_edge() {
         let allocator = Allocator::new();
-        let mut compilation = Compiler::new(&allocator)
-            .parse_test_compilation(
+        let mut stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
                 "a{color:red}b{width:1px}a{height:2px}b{width:1px}a{padding:0}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-        assert_eq!(state.run_s1(&mut compilation).unwrap(), 0);
-        let s2 = state.run_s2_exact(&mut compilation).unwrap();
+        assert_eq!(state.run_s1(&mut stylesheet).unwrap(), 0);
+        let s2 = state.run_s2_exact(&mut stylesheet).unwrap();
         assert_eq!(s2.empty_rules_retired, 1);
-        assert_eq!(state.run_s1(&mut compilation).unwrap(), 1);
+        assert_eq!(state.run_s1(&mut stylesheet).unwrap(), 1);
 
-        assert_eq!(compilation.root_rules().count(), 3);
-        assert_eq!(compilation.validate_ast(), Ok(()));
+        assert_eq!(stylesheet.root_rules().count(), 3);
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
     }
 
     #[test]
     fn s2_keeps_importance_context_mismatches_and_unparsed_values() {
         let allocator = Allocator::new();
-        let mut compilation = Compiler::new(&allocator)
-            .parse_test_compilation(
+        let mut stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
                 "a{color:red!important;unknown:x}a{color:red;unknown:x}",
                 ParserOptions {
                     error_recovery: true,
@@ -1525,13 +1507,13 @@ mod tests {
                 },
             )
             .unwrap();
-        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
         assert_eq!(
-            state.run_s2_exact(&mut compilation).unwrap(),
+            state.run_s2_exact(&mut stylesheet).unwrap(),
             S2Stats::default()
         );
-        assert_eq!(compilation.validate_ast(), Ok(()));
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
     }
 
     #[test]
@@ -1539,16 +1521,16 @@ mod tests {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
-            let mut compilation = Compiler::new(&allocator)
-                .parse_test_compilation(
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet(
                     "a{color:red;width:1px}b{width:1px;color:red;height:2px}",
                     options,
                 )
                 .unwrap();
-            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
             assert_eq!(
-                state.run_s3(&mut compilation, true).unwrap(),
+                state.run_s3(&mut stylesheet, true).unwrap(),
                 S3Stats {
                     reused_left_commits: 1,
                     allocated_shared_commits: 0,
@@ -1557,7 +1539,7 @@ mod tests {
                     rejected_capacity: 0,
                 }
             );
-            let actual = compilation
+            let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },
                     &ToCssContext::new(&token),
@@ -1572,7 +1554,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual, expected);
-            assert_eq!(compilation.validate_ast(), Ok(()));
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
         });
     }
 
@@ -1581,14 +1563,14 @@ mod tests {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
-            let mut compilation = Compiler::new(&allocator)
-                .parse_test_compilation("a{color:red;width:1px}b{color:red;height:2px}", options)
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet("a{color:red;width:1px}b{color:red;height:2px}", options)
                 .unwrap();
-            let authored_declarations = compilation.declarations_in_source_order().count();
-            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+            let authored_declarations = stylesheet.declarations_in_source_order().count();
+            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
             assert_eq!(
-                state.run_s3(&mut compilation, true).unwrap(),
+                state.run_s3(&mut stylesheet, true).unwrap(),
                 S3Stats {
                     reused_left_commits: 0,
                     allocated_shared_commits: 1,
@@ -1597,14 +1579,14 @@ mod tests {
                     rejected_capacity: 0,
                 }
             );
-            assert_eq!(compilation.root_rules().count(), 3);
-            let shared_rule = compilation.root_rules().nth(1).unwrap().0;
-            let shared_block = compilation
+            assert_eq!(stylesheet.root_rules().count(), 3);
+            let shared_rule = stylesheet.root_rules().nth(1).unwrap().0;
+            let shared_block = stylesheet
                 .rule(shared_rule)
                 .unwrap()
                 .declaration_block()
                 .unwrap();
-            let synthesized = compilation
+            let synthesized = stylesheet
                 .declaration_ids_in_block(shared_block)
                 .unwrap()
                 .next()
@@ -1612,7 +1594,7 @@ mod tests {
             assert!(!synthesized.is_primary());
             assert!(state.declaration_ir.occurrence(synthesized).is_some());
             assert_eq!(
-                compilation.declarations_in_source_order().count(),
+                stylesheet.declarations_in_source_order().count(),
                 authored_declarations + 1
             );
             assert!(
@@ -1621,7 +1603,7 @@ mod tests {
                     .values()
                     .all(|history| { history.windows(2).all(|pair| pair[0] < pair[1]) })
             );
-            let actual = compilation
+            let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },
                     &ToCssContext::new(&token),
@@ -1640,7 +1622,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual, expected);
-            assert_eq!(compilation.validate_ast(), Ok(()));
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
         });
     }
 
@@ -1649,13 +1631,13 @@ mod tests {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
-            let mut compilation = Compiler::new(&allocator)
-                .parse_test_compilation("a{width:1px;color:red}b{color:red}", options)
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet("a{width:1px;color:red}b{color:red}", options)
                 .unwrap();
-            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
             assert_eq!(
-                state.run_s3(&mut compilation, true).unwrap(),
+                state.run_s3(&mut stylesheet, true).unwrap(),
                 S3Stats {
                     reused_left_commits: 0,
                     allocated_shared_commits: 1,
@@ -1664,8 +1646,8 @@ mod tests {
                     rejected_capacity: 0,
                 }
             );
-            assert_eq!(compilation.root_rules().count(), 2);
-            let actual = compilation
+            assert_eq!(stylesheet.root_rules().count(), 2);
+            let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },
                     &ToCssContext::new(&token),
@@ -1680,7 +1662,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual, expected);
-            assert_eq!(compilation.validate_ast(), Ok(()));
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
         });
     }
 
@@ -1689,15 +1671,15 @@ mod tests {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
-            let mut compilation = Compiler::new(&allocator)
-                .parse_test_compilation("a{color:red}b{color:red}a,b{width:1px}", options)
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet("a{color:red}b{color:red}a,b{width:1px}", options)
                 .unwrap();
-            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-            let stats = state.run(&mut compilation, true).unwrap();
+            let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.reused_left_commits, 1);
             assert_eq!(stats.s1_commits, 1);
-            let actual = compilation
+            let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },
                     &ToCssContext::new(&token),
@@ -1712,7 +1694,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual, expected);
-            assert_eq!(compilation.validate_ast(), Ok(()));
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
         });
     }
 
@@ -1721,18 +1703,18 @@ mod tests {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
-            let mut compilation = Compiler::new(&allocator)
-                .parse_test_compilation(
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet(
                     "a,b{width:1px}c{display:block}a{width:1px}b{width:1px}",
                     options,
                 )
                 .unwrap();
-            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-            let stats = state.run(&mut compilation, true).unwrap();
+            let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.reused_left_commits, 1);
             assert_eq!(stats.s2.declarations_removed, 1);
-            let actual = compilation
+            let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },
                     &ToCssContext::new(&token),
@@ -1747,7 +1729,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual, expected);
-            assert_eq!(compilation.validate_ast(), Ok(()));
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
         });
     }
 
@@ -1756,14 +1738,14 @@ mod tests {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
-            let mut compilation = Compiler::new(&allocator)
-                .parse_test_compilation("a{color:red}b{color:red;width:1px}c{width:1px}", options)
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet("a{color:red}b{color:red;width:1px}c{width:1px}", options)
                 .unwrap();
-            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-            let stats = state.run(&mut compilation, true).unwrap();
+            let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.reused_left_commits, 2);
-            let actual = compilation
+            let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },
                     &ToCssContext::new(&token),
@@ -1778,7 +1760,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual, expected);
-            assert_eq!(compilation.validate_ast(), Ok(()));
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
         });
     }
 
@@ -1787,20 +1769,20 @@ mod tests {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
-            let mut compilation = Compiler::new(&allocator)
-                .parse_test_compilation("a{width:1px;color:red}b{color:red}a,b{padding:0}", options)
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet("a{width:1px;color:red}b{color:red}a,b{padding:0}", options)
                 .unwrap();
-            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-            let stats = state.run(&mut compilation, true).unwrap();
+            let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.allocated_shared_commits, 1);
             assert_eq!(stats.s1_commits, 1);
             assert!(
-                compilation
+                stylesheet
                     .declaration_blocks_in_source_order()
                     .any(|(_, block)| block.is_live() && block.declarations().len() == 2)
             );
-            let actual = compilation
+            let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },
                     &ToCssContext::new(&token),
@@ -1815,7 +1797,7 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual, expected);
-            assert_eq!(compilation.validate_ast(), Ok(()));
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
         });
     }
 
@@ -1824,18 +1806,18 @@ mod tests {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
-            let mut compilation = Compiler::new(&allocator)
-                .parse_test_compilation(
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet(
                     "a{width:1px;color:red}b{color:red}a,b{padding:0;height:2px;opacity:.5}",
                     options,
                 )
                 .unwrap();
-            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
-            let stats = state.run(&mut compilation, true).unwrap();
+            let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.allocated_shared_commits, 1);
             assert_eq!(stats.s1_commits, 1);
-            let live_range_lengths = compilation
+            let live_range_lengths = stylesheet
                 .declaration_blocks_in_source_order()
                 .filter_map(|(_, block)| block.is_live().then_some(block.declarations().len()))
                 .collect::<std::vec::Vec<_>>();
@@ -1843,7 +1825,7 @@ mod tests {
                 live_range_lengths.contains(&5),
                 "unexpected live declaration ranges: {live_range_lengths:?}"
             );
-            let actual = compilation
+            let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },
                     &ToCssContext::new(&token),
@@ -1862,27 +1844,27 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(actual, expected);
-            assert_eq!(compilation.validate_ast(), Ok(()));
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
         });
     }
 
     #[test]
     fn s3_rejects_reordered_overlapping_effect_domains() {
         let allocator = Allocator::new();
-        let mut compilation = Compiler::new(&allocator)
-            .parse_test_compilation(
+        let mut stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
                 "a{width:1px;min-width:2px}b{min-width:2px;width:1px}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
 
         assert_eq!(state.direct_style_edges.len(), 1);
         assert!(!state.direct_style_edges[0].same_effective_key);
         assert!(state.direct_style_edges[0].may_share_declaration);
 
         assert_eq!(
-            state.run_s3(&mut compilation, true).unwrap(),
+            state.run_s3(&mut stylesheet, true).unwrap(),
             S3Stats {
                 reused_left_commits: 0,
                 allocated_shared_commits: 0,
@@ -1891,6 +1873,6 @@ mod tests {
                 rejected_capacity: 0,
             }
         );
-        assert_eq!(compilation.validate_ast(), Ok(()));
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
     }
 }

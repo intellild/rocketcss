@@ -2,7 +2,7 @@
 
 ## Status
 
-This directory describes the compiler-owned flat AST built on
+This directory describes the flat `StyleSheet` AST built on
 `rocketcss_common::RadixIndexArena`.
 
 The workload is parse-first and insert-rare. Authored rules stay in a dense

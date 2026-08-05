@@ -1,4 +1,4 @@
-use rocketcss_ast::{Atom, Compilation};
+use rocketcss_ast::{Atom, StyleSheet};
 use rocketcss_common::{Allocator, GhostToken, StringPool};
 
 use crate::{
@@ -6,7 +6,7 @@ use crate::{
     parser::{DeclarationTokenReplay, ParserCursor},
 };
 
-/// Shared state for parsing CSS into one arena-owned compilation.
+/// Shared state for parsing CSS into one arena-owned stylesheet.
 pub struct Compiler<'alloc> {
     pub(crate) allocator: &'alloc Allocator,
     pub(crate) string_pool: StringPool<'alloc>,
@@ -45,11 +45,11 @@ impl<'alloc> Compiler<'alloc> {
         source: &'alloc str,
         _token: &mut GhostToken<'ghost>,
         options: ParserOptions<'alloc>,
-    ) -> Result<Compilation<'alloc>, Error<'alloc>> {
-        let compilation = self.parse_compilation(source, options)?;
+    ) -> Result<StyleSheet<'alloc>, Error<'alloc>> {
+        let stylesheet = self.parse_stylesheet(source, options)?;
         self.source = options.filename;
         self.source_map_url = self.cursor.source_map_url;
-        Ok(compilation)
+        Ok(stylesheet)
     }
 
     #[inline]

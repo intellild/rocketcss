@@ -57,7 +57,7 @@ and direct-sibling links, eliminating both the rewalk and pointer map.
 Selector equality and hashing repeatedly compare identifiers such as type,
 class, ID, namespace, attribute, and custom pseudo names. These values are now
 stored as `Atom` rather than independent `&str` slices. `Compiler` owns one
-compilation-scoped `StringPool`, and the parser interns every selector string
+compiler-scoped `StringPool`, and the parser interns every selector string
 through that pool before constructing the AST.
 
 `StringPool` uses `rocketcss_common::HashMap`, so both its entries and hash
@@ -89,7 +89,7 @@ conditional paths after rule-local normalization. In the target Radix AST,
 parsing maintains those paths and writes `EffectiveKeyId` directly on every
 declaration block; selector replacement recomputes it immediately.
 
-The compilation-owned interner retains canonical records so an S3 selector
+The stylesheet-owned interner retains canonical records so an S3 selector
 union can receive a key before insertion. Histories are ordered by
 `DeclarationBlockId`, including synthesized sibling IDs. Nano does not own a
 collector/path store and performs no key-reconstruction traversal.
@@ -392,12 +392,12 @@ for type safety, but its abstraction alone is not a performance optimization.
 The flat-AST Tailwind callgraphs show that declaration and rule topology is not
 the dominant remaining cost for token-heavy input:
 
-- parse spends 38.27% below `collect_tokens_impl`, while compilation teardown
+- parse spends 38.27% below `collect_tokens_impl`, while stylesheet teardown
   accounts for 9.43%;
 - minify spends 25.62% below `visit_custom_property`, and recursive
   `TokenOrValue` destruction contributes materially to the measured lifetime;
   and
-- codegen spends 34.22% below `write_token_list`, while compilation teardown
+- codegen spends 34.22% below `write_token_list`, while stylesheet teardown
   accounts for 35.22%.
 
 These percentages come from the hardware-contaminated flat-AST run and are
@@ -408,7 +408,7 @@ and recursive drop glue. Parser collection, nano traversal, codegen, and
 destruction must consume the same representation directly; adding a flat token
 copy beside the recursive representation would make all four phases worse.
 
-Benchmark total compilation lifetime, including destruction. A benchmark that
+Benchmark total stylesheet lifetime, including destruction. A benchmark that
 uses `ManuallyDrop` may help attribute teardown cost, but must not be used to
 claim an end-to-end improvement.
 
