@@ -278,6 +278,7 @@ where
             RuleRecord {
                 payload,
                 parent,
+                descendant_count: 0,
                 nested_rule_count: 0,
                 subtree_last: None,
                 declaration_block: None,
@@ -292,13 +293,17 @@ where
         let direct_before = direct_before.map(|id| remap_rule_id(id, &result.remaps));
         let parent = parent.map(|id| remap_rule_id(id, &result.remaps));
         let inserted = result.id;
+        let direct_parent = parent;
         let mut ancestor = parent;
         while let Some(id) = ancestor {
             let rule = self
                 .rules
                 .get_mut(id)
                 .expect("an insertion ancestor remains resolvable after ID repair");
-            rule.nested_rule_count += 1;
+            rule.descendant_count += 1;
+            if Some(id) == direct_parent {
+                rule.nested_rule_count += 1;
+            }
             if rule.subtree_last.unwrap_or(id) == context.insertion_anchor {
                 rule.subtree_last = Some(inserted);
             }
@@ -1143,6 +1148,16 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             .expect("the retiring rule was validated");
         rule.live = false;
         rule.revision = rule.revision.wrapping_add(1);
+        if let Some(parent) = context.parent {
+            let parent = self
+                .rules
+                .get_mut(parent)
+                .expect("a retiring rule's validated parent remains resolvable");
+            parent.nested_rule_count = parent
+                .nested_rule_count
+                .checked_sub(1)
+                .expect("a live direct child contributes to its parent's count");
+        }
         if let Some(block) = declaration_block {
             let block = self
                 .declaration_blocks
