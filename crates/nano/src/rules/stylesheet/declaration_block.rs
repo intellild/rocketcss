@@ -3,7 +3,7 @@ use rocketcss_ast::{
     CSSWideOr, Columns, CssColor, Declaration, EqIgnoringTombstones, Margin, Padding, PropertyId,
     VendorPrefix, Visit, VisitContext, Visitor,
     radix_ast::{
-        Compilation, DeclarationBlockId as RadixDeclarationBlockId,
+        Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
         DeclarationId as RadixDeclarationId, DeclarationPayload,
     },
 };
@@ -214,14 +214,14 @@ impl<'a> BoxFamilyIr<'a> {
 }
 
 struct DeclarationSequence<'sequence, 'ast> {
-    blocks: &'sequence [RadixDeclarationBlockId],
+    blocks: &'sequence [RadixDeclarationBlockId<'ast>],
     compilation: &'sequence mut Compilation<'ast>,
 }
 
 impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
     #[inline]
     fn radix(
-        blocks: &'sequence [RadixDeclarationBlockId],
+        blocks: &'sequence [RadixDeclarationBlockId<'ast>],
         compilation: &'sequence mut Compilation<'ast>,
     ) -> Self {
         Self {
@@ -251,8 +251,8 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn radix_declaration_id(
-        blocks: &[RadixDeclarationBlockId],
-        compilation: &Compilation<'_>,
+        blocks: &[RadixDeclarationBlockId<'ast>],
+        compilation: &Compilation<'ast>,
         location: DeclarationLocation,
     ) -> RadixDeclarationId {
         compilation
@@ -321,7 +321,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     pub(crate) fn minify_compilation_block(
         &mut self,
         compilation: &mut Compilation<'ast>,
-        block: RadixDeclarationBlockId,
+        block: RadixDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         let blocks = [block];

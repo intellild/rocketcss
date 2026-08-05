@@ -4,10 +4,13 @@ use super::*;
 
 #[test]
 fn typed_ids_keep_compact_optional_layout() {
-    assert_eq!(size_of::<RuleId>(), size_of::<u32>());
-    assert_eq!(size_of::<Option<RuleId>>(), size_of::<u32>());
-    assert_eq!(size_of::<DeclarationBlockId>(), size_of::<u32>());
-    assert_eq!(size_of::<Option<DeclarationBlockId>>(), size_of::<u32>());
+    assert_eq!(size_of::<RuleId<&str>>(), size_of::<u32>());
+    assert_eq!(size_of::<Option<RuleId<&str>>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationBlockId<&str>>(), size_of::<u32>());
+    assert_eq!(
+        size_of::<Option<DeclarationBlockId<&str>>>(),
+        size_of::<u32>()
+    );
 }
 
 #[test]
@@ -22,7 +25,7 @@ fn lexical_order_and_direct_topology_are_independent() {
     let following = compilation.append_rule(root, "following").unwrap();
     let key = compilation.append_effective_key("nested@root").unwrap();
     let block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(nested), key)
+        .append_declaration_block(DeclarationBlockOwner::<&str>::Rule(nested), key)
         .unwrap();
     let declaration = compilation
         .append_declaration(block, "color:red", false)
@@ -59,7 +62,7 @@ fn lexical_order_and_direct_topology_are_independent() {
     assert_eq!(compilation.rule(nested).unwrap().parent(), Some(outer));
     assert_eq!(
         compilation.declaration_block(block).unwrap().owner(),
-        DeclarationBlockOwner::Rule(nested)
+        DeclarationBlockOwner::<&str>::Rule(nested)
     );
     assert_eq!(
         compilation.rule(nested).unwrap().declaration_block(),
@@ -96,7 +99,7 @@ fn validation_rejects_a_broken_mutual_link() {
 
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::RuleHasWrongPrevious {
+        Err(ValidationError::<u8>::RuleHasWrongPrevious {
             rule: second,
             expected: Some(first),
         })
@@ -113,7 +116,7 @@ fn child_list_is_owned_once() {
 
     assert_eq!(
         compilation.create_child_list(parent),
-        Err(MutationError::ChildListAlreadyExists(parent))
+        Err(MutationError::<()>::ChildListAlreadyExists(parent))
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
@@ -131,7 +134,7 @@ fn validation_rejects_a_child_list_owned_by_another_rule() {
 
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::ChildListHasWrongParent {
+        Err(ValidationError::<()>::ChildListHasWrongParent {
             rule: other,
             list: children,
             actual: Some(parent),
@@ -147,14 +150,14 @@ fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     compilation
         .append_declaration(left_block, 10, false)
         .unwrap();
     let right = compilation.append_rule(root, 2).unwrap();
     let right_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(right), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(right), key)
         .unwrap();
     compilation
         .append_declaration(right_block, 20, false)
@@ -194,14 +197,14 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
     let key = compilation.append_effective_key("shared").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     compilation
         .append_declaration(left_block, 10, false)
         .unwrap();
     let right = compilation.append_rule(root, 2).unwrap();
     let right_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(right), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(right), key)
         .unwrap();
     compilation
         .append_declaration(right_block, 20, false)
@@ -231,9 +234,9 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
             .map(|(_, block)| block.owner())
             .collect::<std::vec::Vec<_>>(),
         [
-            DeclarationBlockOwner::Rule(left),
-            DeclarationBlockOwner::Rule(inserted_rule.id),
-            DeclarationBlockOwner::Rule(right),
+            DeclarationBlockOwner::<u8>::Rule(left),
+            DeclarationBlockOwner::<u8>::Rule(inserted_rule.id),
+            DeclarationBlockOwner::<u8>::Rule(right),
         ]
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
@@ -247,14 +250,14 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     let first = compilation
         .append_declaration(left_block, 10, false)
         .unwrap();
     let following = compilation.append_rule(root, 2).unwrap();
     let following_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(following), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
     compilation
         .append_declaration(following_block, 20, false)
@@ -305,7 +308,7 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     for value in [10, 11, 12] {
         compilation
@@ -314,7 +317,7 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
     }
     let following = compilation.append_rule(root, 2).unwrap();
     let following_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(following), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
     compilation
         .append_declaration(following_block, 20, false)
@@ -360,7 +363,7 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
     let left_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     for value in [10, 11] {
         compilation
@@ -369,7 +372,7 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
     }
     let following = compilation.append_rule(root, 2).unwrap();
     let following_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(following), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
     compilation
         .append_declaration(following_block, 20, false)
@@ -426,7 +429,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     let key = range.append_effective_key("range").unwrap();
     let rule = range.append_rule(root, 0).unwrap();
     let block = range
-        .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(rule), key)
         .unwrap();
     let range_ids = [
         range.append_declaration(block, 1, false).unwrap(),
@@ -455,12 +458,12 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     let key = local4.append_effective_key("local4").unwrap();
     let left = local4.append_rule(root, 0).unwrap();
     let left_block = local4
-        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     let first = local4.append_declaration(left_block, 1, false).unwrap();
     let following = local4.append_rule(root, 1).unwrap();
     let following_block = local4
-        .append_declaration_block(DeclarationBlockOwner::Rule(following), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
     local4
         .append_declaration(following_block, 2, false)
@@ -503,7 +506,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     let key = overflow.append_effective_key("overflow").unwrap();
     let left = overflow.append_rule(root, 0).unwrap();
     let left_block = overflow
-        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     let mut expected = std::vec::Vec::new();
     for value in [1, 2, 3] {
@@ -515,7 +518,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     }
     let following = overflow.append_rule(root, 1).unwrap();
     let following_block = overflow
-        .append_declaration_block(DeclarationBlockOwner::Rule(following), key)
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
     overflow
         .append_declaration(following_block, 4, false)
@@ -568,12 +571,12 @@ fn a_rule_owns_at_most_one_declaration_block() {
     let owner = compilation.append_rule(root, ()).unwrap();
     let key = compilation.append_effective_key(()).unwrap();
     compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(owner), key)
+        .append_declaration_block(DeclarationBlockOwner::<()>::Rule(owner), key)
         .unwrap();
 
     assert_eq!(
-        compilation.append_declaration_block(DeclarationBlockOwner::Rule(owner), key),
-        Err(MutationError::DeclarationBlockAlreadyExists(owner))
+        compilation.append_declaration_block(DeclarationBlockOwner::<()>::Rule(owner), key),
+        Err(MutationError::<()>::DeclarationBlockAlreadyExists(owner))
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
@@ -587,13 +590,13 @@ fn a_declaration_range_cannot_cross_a_nested_allocation() {
     let nested = compilation.append_rule(root, ()).unwrap();
     let key = compilation.append_effective_key(()).unwrap();
     let outer_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(outer), key)
+        .append_declaration_block(DeclarationBlockOwner::<()>::Rule(outer), key)
         .unwrap();
     compilation
         .append_declaration(outer_block, "before", false)
         .unwrap();
     let nested_block = compilation
-        .append_declaration_block(DeclarationBlockOwner::Rule(nested), key)
+        .append_declaration_block(DeclarationBlockOwner::<()>::Rule(nested), key)
         .unwrap();
     compilation
         .append_declaration(nested_block, "nested", false)
@@ -601,7 +604,9 @@ fn a_declaration_range_cannot_cross_a_nested_allocation() {
 
     assert_eq!(
         compilation.append_declaration(outer_block, "after", false),
-        Err(MutationError::NonContiguousDeclarationRange(outer_block))
+        Err(MutationError::<()>::NonContiguousDeclarationRange(
+            outer_block
+        ))
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
 }

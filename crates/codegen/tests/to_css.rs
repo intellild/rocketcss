@@ -11,7 +11,7 @@ fn parse_stylesheet<'a, 'ghost>(
     parse(source, allocator, token, ParserOptions::default()).unwrap()
 }
 
-fn first_rule_id(compilation: &Compilation<'_>) -> radix_ast::RuleId {
+fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .unwrap()
@@ -20,7 +20,9 @@ fn first_rule_id(compilation: &Compilation<'_>) -> radix_ast::RuleId {
         .0
 }
 
-fn first_block_id(compilation: &Compilation<'_>) -> radix_ast::DeclarationBlockId {
+fn first_block_id<'ast>(
+    compilation: &Compilation<'ast>,
+) -> radix_ast::ConcreteDeclarationBlockId<'ast> {
     compilation
         .rule(first_rule_id(compilation))
         .and_then(|rule| rule.declaration_block())
@@ -29,7 +31,7 @@ fn first_block_id(compilation: &Compilation<'_>) -> radix_ast::DeclarationBlockI
 
 fn property_declarations<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
-    block: radix_ast::DeclarationBlockId,
+    block: radix_ast::ConcreteDeclarationBlockId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
     compilation
         .declarations_in_block(block)

@@ -1,7 +1,7 @@
 //! Arena-backed sequence optimized for parse-first, insert-rare workloads.
 //!
 //! Parsed values live in one linear arena [`Vec`]. Its common prefix uses the
-//! high primary field of [`RadixIndexId`] as a direct index. If that compact
+//! high primary field of [`RadixId`] as a direct index. If that compact
 //! prefix fills, authored values keep appending to the same vector and use a
 //! high-bit-tagged dense overflow ID. Rare transformed values inserted after a
 //! compact primary live in lazy two-level radix trees indexed by a separate
@@ -10,19 +10,20 @@
 //! ```text
 //! 31                         12 11                         2 1         0
 //! +----------------------------+---------------------------+-----------+
-//! |      primary index: 20     |    sibling key: 10        | property  |
+//! |      primary index: 20     |    sibling key: 10        | reserved  |
 //! +----------------------------+---------------------------+-----------+
 //! ```
 //!
 //! The highest primary bit is zero for compact Radix IDs. When it is one, the
 //! remaining 29 high bits encode a dense overflow index and the low two bits
-//! retain their property-sub-ID meaning. This keeps IDs four bytes and ordered
-//! while allowing valid authored input to outgrow the compact Radix prefix.
+//! are reserved and always zero for AST node IDs. This keeps IDs four bytes
+//! and ordered while allowing valid authored input to outgrow the compact
+//! Radix prefix.
 //!
 //! A zero sibling key addresses the primary linear value. A nonzero key uses
 //! a five-bit root branch and, only when its low five bits are nonzero, a
-//! second five-bit leaf slot. The low two bits encode up to four declaration
-//! properties without affecting primary or sibling lookup.
+//! second five-bit leaf slot. The two reserved low bits never affect primary
+//! or sibling lookup.
 
 use std::{fmt, hash::Hash, marker::PhantomData, ops::Index};
 
@@ -31,62 +32,116 @@ use crate::{Allocator, boxed::Box as ArenaBox, dense::NonMaxU32, vec::Vec};
 const PRIMARY_BITS: u32 = 20;
 const LOCAL_BITS: u32 = u32::BITS - PRIMARY_BITS;
 const SIBLING_BITS: u32 = 10;
-const PROPERTY_BITS: u32 = LOCAL_BITS - SIBLING_BITS;
-const SIBLING_SHIFT: u32 = PROPERTY_BITS;
+const RESERVED_BITS: u32 = LOCAL_BITS - SIBLING_BITS;
+const SIBLING_SHIFT: u32 = RESERVED_BITS;
 const RADIX_BITS: u32 = 5;
 const RADIX_SIZE: usize = 1 << RADIX_BITS;
 const SIBLING_MASK: u32 = (1 << SIBLING_BITS) - 1;
-const PROPERTY_MASK: u32 = (1 << PROPERTY_BITS) - 1;
 // The highest encoded bit distinguishes the rare dense authored overflow
 // from compact primary/sibling IDs. Compact IDs remain byte-for-byte
 // identical below this boundary.
 const OVERFLOW_TAG: u32 = 1 << (u32::BITS - 1);
 const COMPACT_PRIMARY_CAPACITY: usize = 1 << (PRIMARY_BITS - 1);
-const OVERFLOW_INDEX_BITS: u32 = u32::BITS - PROPERTY_BITS - 1;
+const OVERFLOW_INDEX_BITS: u32 = u32::BITS - RESERVED_BITS - 1;
 const OVERFLOW_CAPACITY: usize = (1 << OVERFLOW_INDEX_BITS) - 1;
 
 /// Stable compact identity for a value in [`RadixIndexArena`].
+///
+/// The `T` parameter is a domain marker: IDs for different AST stores are
+/// distinct types even though they share the physical encoding. `u32::MAX` is
+/// reserved as the `Option` niche so an optional ID stays four bytes.
 ///
 /// Compact IDs whose [`sibling_key`](Self::sibling_key) is zero address the
 /// primary parse-vector prefix directly. Other compact IDs address a rare
 /// inserted sibling through a two-level radix tree. High-bit-tagged IDs address
 /// the dense authored tail in that same parse vector.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RadixIndexId(NonMaxU32);
+pub struct RadixId<T> {
+    inner: NonMaxU32,
+    phantom_data: PhantomData<fn() -> T>,
+}
 
-impl RadixIndexId {
+impl<T> Clone for RadixId<T> {
     #[inline]
-    fn from_parts(primary_index: usize, sibling_key: u16, property_index: u8) -> Self {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for RadixId<T> {}
+
+impl<T> fmt::Debug for RadixId<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T> PartialEq for RadixId<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl<T> Eq for RadixId<T> {}
+
+impl<T> PartialOrd for RadixId<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for RadixId<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.inner.cmp(&other.inner)
+    }
+}
+
+impl<T> Hash for RadixId<T> {
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
+    }
+}
+
+impl<T> RadixId<T> {
+    #[inline]
+    fn from_parts(primary_index: usize, sibling_key: u16) -> Self {
         debug_assert!(primary_index < COMPACT_PRIMARY_CAPACITY);
         debug_assert!(u32::from(sibling_key) <= SIBLING_MASK);
-        debug_assert!(u32::from(property_index) <= PROPERTY_MASK);
-        let encoded = ((primary_index as u32) << LOCAL_BITS)
-            | (u32::from(sibling_key) << SIBLING_SHIFT)
-            | u32::from(property_index);
-        Self(NonMaxU32::new(encoded).expect("u32::MAX is reserved for an invalid radix ID"))
+        let encoded =
+            ((primary_index as u32) << LOCAL_BITS) | (u32::from(sibling_key) << SIBLING_SHIFT);
+        Self {
+            inner: NonMaxU32::new(encoded).expect("u32::MAX is reserved for an invalid radix ID"),
+            phantom_data: PhantomData,
+        }
     }
 
     #[inline]
-    fn from_overflow_index(index: usize, property_index: u8) -> Self {
+    fn from_overflow_index(index: usize) -> Self {
         debug_assert!(index < OVERFLOW_CAPACITY);
-        debug_assert!(u32::from(property_index) <= PROPERTY_MASK);
-        let encoded = OVERFLOW_TAG | ((index as u32) << PROPERTY_BITS) | u32::from(property_index);
-        Self(NonMaxU32::new(encoded).expect("u32::MAX is reserved for an invalid radix ID"))
+        let encoded = OVERFLOW_TAG | ((index as u32) << RESERVED_BITS);
+        Self {
+            inner: NonMaxU32::new(encoded).expect("u32::MAX is reserved for an invalid radix ID"),
+            phantom_data: PhantomData,
+        }
     }
 
     #[inline]
     fn from_primary_index(index: usize) -> Self {
         if index < COMPACT_PRIMARY_CAPACITY {
-            Self::from_parts(index, 0, 0)
+            Self::from_parts(index, 0)
         } else {
-            Self::from_overflow_index(index - COMPACT_PRIMARY_CAPACITY, 0)
+            Self::from_overflow_index(index - COMPACT_PRIMARY_CAPACITY)
         }
     }
 
     /// Returns the encoded ID as a `u32`.
     #[inline]
     pub const fn get(self) -> u32 {
-        self.0.get()
+        self.inner.get()
     }
 
     /// Returns the index of the owning primary value.
@@ -97,33 +152,13 @@ impl RadixIndexId {
 
     #[inline]
     const fn overflow_index(self) -> usize {
-        ((self.get() & !OVERFLOW_TAG) >> PROPERTY_BITS) as usize
+        ((self.get() & !OVERFLOW_TAG) >> RESERVED_BITS) as usize
     }
 
     /// Returns the ten-bit sibling key, or zero for a primary value.
     #[inline]
     pub const fn sibling_key(self) -> u16 {
         ((self.get() >> SIBLING_SHIFT) & SIBLING_MASK) as u16
-    }
-
-    /// Returns the two-bit declaration-property index.
-    #[inline]
-    pub const fn property_index(self) -> u8 {
-        (self.get() & PROPERTY_MASK) as u8
-    }
-
-    /// Returns the same storage location with a declaration-property index.
-    ///
-    /// Storage lookup ignores these low two bits. Mutation APIs require the
-    /// zero property index so a property sub-ID cannot remove an entire value.
-    #[inline]
-    pub fn with_property_index(self, property_index: u8) -> Self {
-        assert!(
-            u32::from(property_index) <= PROPERTY_MASK,
-            "property index must be in 0..=3"
-        );
-        let encoded = (self.get() & !PROPERTY_MASK) | u32::from(property_index);
-        Self(NonMaxU32::new(encoded).expect("u32::MAX is reserved for an invalid radix ID"))
     }
 
     /// Returns whether this ID addresses the primary linear vector.
@@ -139,100 +174,86 @@ impl RadixIndexId {
     }
 }
 
-/// A domain-specific identity backed by [`RadixIndexId`].
+/// The arena-facing ID protocol implemented by [`RadixId`].
 ///
-/// Implement IDs with [`define_radix_id!`] instead of implementing this trait
-/// manually. Its conversion methods are public only so the generated
-/// implementation can live in another crate.
+/// Typed arenas use this hidden trait to construct and decode IDs without
+/// exposing the raw encoding to other crates. Only [`RadixId<T>`] implements
+/// it.
 #[doc(hidden)]
-pub trait RadixId: Copy + Eq + Ord + Hash + fmt::Debug {
+pub trait RadixIdKey: Copy + Eq + Ord + Hash + fmt::Debug {
     #[doc(hidden)]
-    fn from_radix_index(id: RadixIndexId) -> Self;
+    fn from_parts(primary_index: usize, sibling_key: u16) -> Self;
 
     #[doc(hidden)]
-    fn radix_index(self) -> RadixIndexId;
+    fn from_overflow_index(index: usize) -> Self;
+
+    #[doc(hidden)]
+    fn from_primary_index(index: usize) -> Self;
+
+    #[doc(hidden)]
+    fn get(self) -> u32;
+
+    #[doc(hidden)]
+    fn primary_index(self) -> usize;
+
+    #[doc(hidden)]
+    fn sibling_key(self) -> u16;
+
+    #[doc(hidden)]
+    fn is_primary(self) -> bool;
+
+    #[doc(hidden)]
+    fn is_overflow(self) -> bool;
+
+    #[doc(hidden)]
+    fn overflow_index(self) -> usize;
 }
 
-impl RadixId for RadixIndexId {
+impl<T> RadixIdKey for RadixId<T> {
     #[inline]
-    fn from_radix_index(id: RadixIndexId) -> Self {
-        id
+    fn from_parts(primary_index: usize, sibling_key: u16) -> Self {
+        Self::from_parts(primary_index, sibling_key)
     }
 
     #[inline]
-    fn radix_index(self) -> RadixIndexId {
-        self
+    fn from_overflow_index(index: usize) -> Self {
+        Self::from_overflow_index(index)
     }
-}
 
-/// Declares an opaque typed ID for a [`RadixIndexArena`].
-///
-/// The generated type preserves the four-byte encoded representation while
-/// preventing IDs from different AST stores from being mixed.
-#[macro_export]
-macro_rules! define_radix_id {
-    ($(#[$attribute:meta])* $visibility:vis struct $name:ident $(;)?) => {
-        $(#[$attribute])*
-        #[repr(transparent)]
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        $visibility struct $name($crate::radix_index_arena::RadixIndexId);
+    #[inline]
+    fn from_primary_index(index: usize) -> Self {
+        Self::from_primary_index(index)
+    }
 
-        impl $name {
-            /// Returns the complete encoded ID.
-            #[inline]
-            $visibility const fn get(self) -> u32 {
-                self.0.get()
-            }
+    #[inline]
+    fn get(self) -> u32 {
+        self.get()
+    }
 
-            /// Returns the owning primary-vector index.
-            #[inline]
-            $visibility const fn primary_index(self) -> usize {
-                self.0.primary_index()
-            }
+    #[inline]
+    fn primary_index(self) -> usize {
+        self.primary_index()
+    }
 
-            /// Returns zero for a primary value or the local sibling key.
-            #[inline]
-            $visibility const fn sibling_key(self) -> u16 {
-                self.0.sibling_key()
-            }
+    #[inline]
+    fn sibling_key(self) -> u16 {
+        self.sibling_key()
+    }
 
-            /// Returns the low declaration-property sub-index.
-            #[inline]
-            $visibility const fn property_index(self) -> u8 {
-                self.0.property_index()
-            }
+    #[inline]
+    fn is_primary(self) -> bool {
+        self.is_primary()
+    }
 
-            /// Returns whether this ID addresses a primary value.
-            #[inline]
-            $visibility const fn is_primary(self) -> bool {
-                self.0.is_primary()
-            }
+    #[inline]
+    fn is_overflow(self) -> bool {
+        self.is_overflow()
+    }
 
-            /// Returns whether this ID addresses the dense authored overflow.
-            #[inline]
-            $visibility const fn is_overflow(self) -> bool {
-                self.0.is_overflow()
-            }
-
-            /// Returns the same storage location with a property sub-index.
-            #[inline]
-            $visibility fn with_property_index(self, property_index: u8) -> Self {
-                Self(self.0.with_property_index(property_index))
-            }
-        }
-
-        impl $crate::radix_index_arena::RadixId for $name {
-            #[inline]
-            fn from_radix_index(id: $crate::radix_index_arena::RadixIndexId) -> Self {
-                Self(id)
-            }
-
-            #[inline]
-            fn radix_index(self) -> $crate::radix_index_arena::RadixIndexId {
-                self.0
-            }
-        }
-    };
+    #[inline]
+    fn overflow_index(self) -> usize {
+        self.overflow_index()
+    }
 }
 
 struct RadixTree<'arena, T> {
@@ -543,15 +564,17 @@ pub struct RadixInsertResult<I> {
 /// values remain contiguous but reject optional local insertion. Iteration
 /// emits each compact primary and its siblings, followed by the authored
 /// overflow tail.
-pub type RadixIndexArena<'arena, T> = TypedRadixIndexArena<'arena, T, RadixIndexId>;
+pub type RadixIndexArena<'arena, T> = TypedRadixIndexArena<'arena, T, RadixId<T>>;
 
 /// A [`RadixIndexArena`] whose IDs are isolated to one domain-specific type.
 ///
 /// ```compile_fail
-/// use rocketcss_common::{Allocator, TypedRadixIndexArena, define_radix_id};
+/// use rocketcss_common::{Allocator, TypedRadixIndexArena, RadixId};
 ///
-/// define_radix_id!(struct RuleId);
-/// define_radix_id!(struct BlockId);
+/// struct RuleMarker;
+/// struct BlockMarker;
+/// type RuleId = RadixId<RuleMarker>;
+/// type BlockId = RadixId<BlockMarker>;
 ///
 /// let allocator = Allocator::new();
 /// let mut rules = TypedRadixIndexArena::<_, RuleId>::new_in(&allocator);
@@ -559,7 +582,7 @@ pub type RadixIndexArena<'arena, T> = TypedRadixIndexArena<'arena, T, RadixIndex
 /// let rule = rules.push_primary(1_u8);
 /// let _ = blocks.get(rule);
 /// ```
-pub struct TypedRadixIndexArena<'arena, T: Unpin, I: RadixId> {
+pub struct TypedRadixIndexArena<'arena, T: Unpin, I: RadixIdKey> {
     allocator: &'arena Allocator,
     primary: Vec<'arena, T>,
     // These structure-of-arrays vectors share indices. Binary search touches
@@ -570,7 +593,7 @@ pub struct TypedRadixIndexArena<'arena, T: Unpin, I: RadixId> {
     id: PhantomData<fn(I) -> I>,
 }
 
-impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
+impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
     /// Creates an empty store in `allocator`.
     pub fn new_in(allocator: &'arena Allocator) -> Self {
         Self {
@@ -612,8 +635,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     #[inline]
     pub fn primary_id(&self, index: usize) -> Option<I> {
         if index < self.primary.len() {
-            let id = RadixIndexId::from_primary_index(index);
-            Some(I::from_radix_index(id))
+            Some(I::from_primary_index(index))
         } else {
             None
         }
@@ -665,10 +687,10 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
             self.can_push_primary(),
             "RadixIndexArena primary capacity exhausted"
         );
-        let id = RadixIndexId::from_primary_index(self.primary.len());
+        let id = I::from_primary_index(self.primary.len());
         self.primary.push(value);
         self.len += 1;
-        I::from_radix_index(id)
+        id
     }
 
     /// Inserts a rare sibling after a primary value.
@@ -681,15 +703,9 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     /// Panics for a non-primary owner, an invalid or duplicate key, an unknown
     /// primary ID, or `u32::MAX` total values.
     pub fn insert_sibling(&mut self, primary: I, sibling_key: u16, value: T) -> I {
-        let primary = primary.radix_index();
         assert!(
             primary.is_primary() && !primary.is_overflow(),
             "sibling owner must be a compact primary ID"
-        );
-        assert_eq!(
-            primary.property_index(),
-            0,
-            "sibling owner must not be a property sub-ID"
         );
         assert!(
             sibling_key != 0 && u32::from(sibling_key) <= SIBLING_MASK,
@@ -711,7 +727,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
         };
         self.sibling_trees[group_index].insert(self.allocator, sibling_key, value);
         self.len += 1;
-        I::from_radix_index(RadixIndexId::from_parts(primary_index, sibling_key, 0))
+        I::from_parts(primary_index, sibling_key)
     }
 
     /// Returns whether another live sibling can be represented below `primary`.
@@ -719,10 +735,8 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     /// This is the AST wrapper's preflight for choosing its overflow fallback
     /// before moving a value into the compact store.
     pub fn can_insert_sibling(&self, primary: I) -> bool {
-        let primary = primary.radix_index();
         if !primary.is_primary()
             || primary.is_overflow()
-            || primary.property_index() != 0
             || self.primary.get(primary.primary_index()).is_none()
         {
             return false;
@@ -787,7 +801,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
             .expect("after and before must be current base-ID semantic neighbors");
 
         if let Some(key) = self.unused_key_between(primary_index, lower, upper) {
-            let primary = I::from_radix_index(RadixIndexId::from_parts(primary_index, 0, 0));
+            let primary = I::from_parts(primary_index, 0);
             let id = self.insert_sibling(primary, key, value);
             return RadixInsertResult {
                 id,
@@ -811,8 +825,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     /// still be referenced must use [`retire_sibling`](Self::retire_sibling)
     /// instead.
     pub fn remove_sibling(&mut self, id: I) -> Option<T> {
-        let id = id.radix_index();
-        if id.is_primary() || id.property_index() != 0 {
+        if id.is_primary() {
             return None;
         }
         let group_index = self.sibling_group_index(id.primary_index()).ok()?;
@@ -826,8 +839,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
 
     /// Retires an inserted sibling without making its encoded ID reusable.
     pub fn retire_sibling(&mut self, id: I) -> Option<T> {
-        let id = id.radix_index();
-        if id.is_primary() || id.property_index() != 0 {
+        if id.is_primary() {
             return None;
         }
         let group_index = self.sibling_group_index(id.primary_index()).ok()?;
@@ -842,7 +854,6 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     /// Resolves an ID to its value.
     #[inline]
     pub fn get(&self, id: I) -> Option<&T> {
-        let id = id.radix_index();
         if id.is_overflow() {
             self.primary
                 .get(COMPACT_PRIMARY_CAPACITY + id.overflow_index())
@@ -857,7 +868,6 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     /// Mutably resolves an ID to its value.
     #[inline]
     pub fn get_mut(&mut self, id: I) -> Option<&mut T> {
-        let id = id.radix_index();
         if id.is_overflow() {
             self.primary
                 .get_mut(COMPACT_PRIMARY_CAPACITY + id.overflow_index())
@@ -948,17 +958,10 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
         after: I,
         before: Option<I>,
     ) -> Option<(usize, u16, u16, std::vec::Vec<u16>)> {
-        let after = after.radix_index();
-        let before = before.map(RadixId::radix_index);
-        if after.is_overflow()
-            || after.property_index() != 0
-            || self.get(I::from_radix_index(after)).is_none()
-        {
+        if after.is_overflow() || self.get(after).is_none() {
             return None;
         }
-        if before.is_some_and(|before| {
-            before.property_index() != 0 || self.get(I::from_radix_index(before)).is_none()
-        }) {
+        if before.is_some_and(|before| self.get(before).is_none()) {
             return None;
         }
 
@@ -1082,12 +1085,12 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
             } else {
                 tree.insert(self.allocator, key, value);
             }
-            let new = I::from_radix_index(RadixIndexId::from_parts(primary_index, key, 0));
+            let new = I::from_parts(primary_index, key);
             if index == insertion_index {
                 inserted = Some(new);
             } else if old_key != key {
                 remaps.push(RadixIdRemap {
-                    old: I::from_radix_index(RadixIndexId::from_parts(primary_index, old_key, 0)),
+                    old: I::from_parts(primary_index, old_key),
                     new,
                 });
             }
@@ -1100,7 +1103,7 @@ impl<'arena, T: Unpin, I: RadixId> TypedRadixIndexArena<'arena, T, I> {
     }
 }
 
-impl<T: Unpin, I: RadixId> Index<I> for TypedRadixIndexArena<'_, T, I> {
+impl<T: Unpin, I: RadixIdKey> Index<I> for TypedRadixIndexArena<'_, T, I> {
     type Output = T;
 
     #[inline]
@@ -1121,22 +1124,21 @@ enum IterKind<'tree, 'arena, T: Unpin> {
 }
 
 /// Iterator over authored IDs and values in parse order.
-pub struct PrimaryIterEnumerated<'tree, T, I: RadixId> {
+pub struct PrimaryIterEnumerated<'tree, T, I: RadixIdKey> {
     primary: &'tree [T],
     front: usize,
     back: usize,
     id: PhantomData<fn(I) -> I>,
 }
 
-impl<'tree, T, I: RadixId> PrimaryIterEnumerated<'tree, T, I> {
+impl<'tree, T, I: RadixIdKey> PrimaryIterEnumerated<'tree, T, I> {
     #[inline]
     fn item(&self, index: usize) -> (I, &'tree T) {
-        let id = RadixIndexId::from_primary_index(index);
-        (I::from_radix_index(id), &self.primary[index])
+        (I::from_primary_index(index), &self.primary[index])
     }
 }
 
-impl<'tree, T, I: RadixId> Iterator for PrimaryIterEnumerated<'tree, T, I> {
+impl<'tree, T, I: RadixIdKey> Iterator for PrimaryIterEnumerated<'tree, T, I> {
     type Item = (I, &'tree T);
 
     #[inline]
@@ -1156,7 +1158,7 @@ impl<'tree, T, I: RadixId> Iterator for PrimaryIterEnumerated<'tree, T, I> {
     }
 }
 
-impl<T, I: RadixId> DoubleEndedIterator for PrimaryIterEnumerated<'_, T, I> {
+impl<T, I: RadixIdKey> DoubleEndedIterator for PrimaryIterEnumerated<'_, T, I> {
     #[inline]
     fn next_back(&mut self) -> Option<Self::Item> {
         if self.front == self.back {
@@ -1167,8 +1169,8 @@ impl<T, I: RadixId> DoubleEndedIterator for PrimaryIterEnumerated<'_, T, I> {
     }
 }
 
-impl<T, I: RadixId> ExactSizeIterator for PrimaryIterEnumerated<'_, T, I> {}
-impl<T, I: RadixId> std::iter::FusedIterator for PrimaryIterEnumerated<'_, T, I> {}
+impl<T, I: RadixIdKey> ExactSizeIterator for PrimaryIterEnumerated<'_, T, I> {}
+impl<T, I: RadixIdKey> std::iter::FusedIterator for PrimaryIterEnumerated<'_, T, I> {}
 
 /// Iterator that merges primary values with sparse sibling radix trees.
 pub struct SemanticIter<'tree, 'arena, T: Unpin> {
@@ -1181,7 +1183,7 @@ pub struct SemanticIter<'tree, 'arena, T: Unpin> {
 }
 
 /// Iterator over typed IDs and values in semantic order.
-pub struct SemanticIterEnumerated<'tree, 'arena, T: Unpin, I: RadixId> {
+pub struct SemanticIterEnumerated<'tree, 'arena, T: Unpin, I: RadixIdKey> {
     primary: &'tree [T],
     next_primary: usize,
     current_primary: usize,
@@ -1281,7 +1283,7 @@ impl<'tree, 'arena: 'tree, T: Unpin> SemanticIter<'tree, 'arena, T> {
     }
 }
 
-impl<'tree, 'arena: 'tree, T: Unpin, I: RadixId> Iterator
+impl<'tree, 'arena: 'tree, T: Unpin, I: RadixIdKey> Iterator
     for SemanticIterEnumerated<'tree, 'arena, T, I>
 {
     type Item = (I, &'tree T);
@@ -1292,17 +1294,17 @@ impl<'tree, 'arena: 'tree, T: Unpin, I: RadixId> Iterator
             match &mut self.current {
                 SemanticSegment::Primary(primary) => {
                     if let Some(value) = primary.next() {
-                        let id = RadixIndexId::from_primary_index(self.current_primary);
+                        let id = I::from_primary_index(self.current_primary);
                         self.current_primary += 1;
                         self.remaining -= 1;
-                        return Some((I::from_radix_index(id), value));
+                        return Some((id, value));
                     }
                 }
                 SemanticSegment::Siblings(siblings) => {
                     if let Some((key, value)) = siblings.next_enumerated() {
-                        let id = RadixIndexId::from_parts(self.sibling_primary, key, 0);
+                        let id = I::from_parts(self.sibling_primary, key);
                         self.remaining -= 1;
-                        return Some((I::from_radix_index(id), value));
+                        return Some((id, value));
                     }
                 }
                 SemanticSegment::Done => return None,
@@ -1319,10 +1321,10 @@ impl<'tree, 'arena: 'tree, T: Unpin, I: RadixId> Iterator
     }
 }
 
-impl<T: Unpin, I: RadixId> ExactSizeIterator for SemanticIterEnumerated<'_, '_, T, I> {}
-impl<T: Unpin, I: RadixId> std::iter::FusedIterator for SemanticIterEnumerated<'_, '_, T, I> {}
+impl<T: Unpin, I: RadixIdKey> ExactSizeIterator for SemanticIterEnumerated<'_, '_, T, I> {}
+impl<T: Unpin, I: RadixIdKey> std::iter::FusedIterator for SemanticIterEnumerated<'_, '_, T, I> {}
 
-impl<'tree, 'arena: 'tree, T: Unpin, I: RadixId> SemanticIterEnumerated<'tree, 'arena, T, I> {
+impl<'tree, 'arena: 'tree, T: Unpin, I: RadixIdKey> SemanticIterEnumerated<'tree, 'arena, T, I> {
     #[inline]
     fn advance_segment(&mut self) {
         match self.current {
@@ -1357,7 +1359,7 @@ impl<'tree, 'arena: 'tree, T: Unpin, I: RadixId> SemanticIterEnumerated<'tree, '
     }
 }
 
-impl<'tree, 'arena: 'tree, T: Unpin, I: RadixId> IntoIterator
+impl<'tree, 'arena: 'tree, T: Unpin, I: RadixIdKey> IntoIterator
     for &'tree TypedRadixIndexArena<'arena, T, I>
 {
     type Item = &'tree T;
@@ -1436,12 +1438,13 @@ fn radix_parts(key: u16) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, OVERFLOW_CAPACITY, RadixAllocationCounts,
-        RadixIndexArena, RadixIndexId, RadixLeaf, RadixRoot, SIBLING_MASK, TypedRadixIndexArena,
+        COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, OVERFLOW_CAPACITY, RadixAllocationCounts, RadixId,
+        RadixIndexArena, RadixLeaf, RadixRoot, SIBLING_MASK, TypedRadixIndexArena,
     };
     use crate::Allocator;
 
-    crate::define_radix_id!(struct TestRuleId);
+    struct TestRuleMarker;
+    type TestRuleId = RadixId<TestRuleMarker>;
 
     #[test]
     fn primary_ids_directly_address_parse_vector() {
@@ -1641,12 +1644,12 @@ mod tests {
         }
 
         let result = values.insert_between(
-            RadixIndexId::from_parts(0, 513, 0),
-            Some(RadixIndexId::from_parts(0, 514, 0)),
+            RadixId::<u16>::from_parts(0, 513),
+            Some(RadixId::<u16>::from_parts(0, 514)),
             10_000,
         );
 
-        assert_eq!(values.get(RadixIndexId::from_parts(0, 512, 0)), Some(&512));
+        assert_eq!(values.get(RadixId::<u16>::from_parts(0, 512)), Some(&512));
         assert!(
             result
                 .remaps
@@ -1664,13 +1667,10 @@ mod tests {
         for key in 1..=512 {
             values.insert_sibling(primary, key, key);
         }
-        let old_direct = RadixIndexId::from_parts(0, 512, 0);
+        let old_direct = RadixId::<u16>::from_parts(0, 512);
 
-        let result = values.insert_between(
-            RadixIndexId::from_parts(0, 511, 0),
-            Some(old_direct),
-            10_000,
-        );
+        let result =
+            values.insert_between(RadixId::<u16>::from_parts(0, 511), Some(old_direct), 10_000);
 
         let remap = result
             .remaps
@@ -1853,22 +1853,12 @@ mod tests {
     }
 
     #[test]
-    fn property_index_uses_the_low_two_bits() {
-        let id = RadixIndexId::from_parts(0x6bcde, 0x2aa, 3);
-        assert_eq!(id.primary_index(), 0x6bcde);
-        assert_eq!(id.sibling_key(), 0x2aa);
-        assert_eq!(id.property_index(), 3);
-        assert_eq!(id.get() & 0b11, 3);
-        assert_eq!((id.get() >> 2) & 0x3ff, 0x2aa);
-    }
-
-    #[test]
     fn radix_ids_reserve_u32_max_as_the_option_niche() {
-        assert_eq!(std::mem::size_of::<RadixIndexId>(), 4);
-        assert_eq!(std::mem::size_of::<Option<RadixIndexId>>(), 4);
+        assert_eq!(std::mem::size_of::<RadixId<u8>>(), 4);
+        assert_eq!(std::mem::size_of::<Option<RadixId<u8>>>(), 4);
 
-        let highest_property_sub_id = RadixIndexId::from_overflow_index(OVERFLOW_CAPACITY - 1, 2);
-        assert_eq!(highest_property_sub_id.get(), u32::MAX - 5);
+        let highest_overflow_id = RadixId::<u8>::from_overflow_index(OVERFLOW_CAPACITY - 1);
+        assert_eq!(highest_overflow_id.get(), u32::MAX - 7);
     }
 
     #[test]
@@ -1897,15 +1887,15 @@ mod tests {
     }
 
     #[test]
-    fn property_sub_ids_resolve_the_same_storage_value() {
+    fn ids_resolve_their_own_storage_value() {
         let allocator = Allocator::new();
         let mut values = RadixIndexArena::new_in(&allocator);
         let primary = values.push_primary(1);
         let sibling = values.insert_sibling(primary, 17, 2);
 
-        assert_eq!(values[primary.with_property_index(3)], 1);
-        assert_eq!(values[sibling.with_property_index(2)], 2);
-        assert_eq!(values.remove_sibling(sibling.with_property_index(1)), None);
+        assert_eq!(values[primary], 1);
+        assert_eq!(values[sibling], 2);
+        assert_eq!(values.remove_sibling(sibling), Some(2));
     }
 
     #[test]
@@ -1925,7 +1915,6 @@ mod tests {
         assert_eq!(second.primary_index(), 1);
         assert_eq!(inserted.sibling_key(), 512);
         assert_eq!(values.get(inserted), Some(&20));
-        assert_eq!(inserted.with_property_index(3).property_index(), 3);
     }
 
     #[test]

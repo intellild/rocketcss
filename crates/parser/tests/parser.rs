@@ -1,8 +1,10 @@
-use rocketcss_ast::radix_ast::{CssRulePayload, DeclarationPayload, RuleId, RuleRecord};
+use rocketcss_ast::radix_ast::{
+    ConcreteRuleId as RuleId, CssRulePayload, DeclarationPayload, RuleRecord,
+};
 use rocketcss_parser::parse;
 use rocketcss_parser::prelude::*;
 
-fn root_rule_ids(compilation: &Compilation<'_>) -> std::vec::Vec<RuleId> {
+fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<'ast>> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .unwrap()
@@ -13,12 +15,15 @@ fn root_rule_ids(compilation: &Compilation<'_>) -> std::vec::Vec<RuleId> {
 fn root_rule<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
     index: usize,
-) -> (RuleId, &'tree RuleRecord<CssRulePayload<'ast>>) {
+) -> (RuleId<'ast>, &'tree RuleRecord<CssRulePayload<'ast>>) {
     let id = root_rule_ids(compilation)[index];
     (id, compilation.rule(id).unwrap())
 }
 
-fn child_rule_ids(compilation: &Compilation<'_>, parent: RuleId) -> std::vec::Vec<RuleId> {
+fn child_rule_ids<'ast>(
+    compilation: &Compilation<'ast>,
+    parent: RuleId<'ast>,
+) -> std::vec::Vec<RuleId<'ast>> {
     let list = compilation.rule(parent).unwrap().child_list().unwrap();
     compilation
         .rules_in_list(list)
@@ -29,7 +34,7 @@ fn child_rule_ids(compilation: &Compilation<'_>, parent: RuleId) -> std::vec::Ve
 
 fn style_selectors<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
-    rule: RuleId,
+    rule: RuleId<'ast>,
 ) -> &'tree SelectorList<'ast> {
     let selector = match compilation.rule(rule).unwrap().payload() {
         CssRulePayload::Style(payload) => payload.selector_value,
@@ -41,7 +46,7 @@ fn style_selectors<'tree, 'ast>(
 
 fn property_declarations<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
-    rule: RuleId,
+    rule: RuleId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
     let block = compilation
         .rule(rule)
@@ -61,7 +66,7 @@ fn property_declarations<'tree, 'ast>(
 
 fn declaration_values<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
-    rule: RuleId,
+    rule: RuleId<'ast>,
 ) -> std::vec::Vec<&'tree Declaration<'ast>> {
     property_declarations(compilation, rule)
         .into_iter()

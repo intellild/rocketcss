@@ -2,17 +2,18 @@
 
 #[cfg(test)]
 use rocketcss_ast::radix_ast::{
-    CascadeOrigin, CascadePhase, EffectiveKeyData, HistorySegment, SelectorPathId, SelectorValueId,
+    CascadeOrigin, CascadePhase, ConcreteEffectiveKey, ConcreteHistorySegment, SelectorPathId,
+    SelectorValueId,
 };
 use rocketcss_ast::radix_ast::{
-    Compilation, CompilationCapacity, ContainerRulePayload, CounterStyleRulePayload,
-    CssRulePayload, DeclarationBlockId, DeclarationBlockOwner, DeclarationPayload,
-    EffectiveContext, EffectiveKeyId, FontFaceRulePayload, FontFeatureSubrulePayload,
-    FontFeatureValuesRulePayload, FontPaletteValuesRulePayload, KeyframePayload,
-    KeyframesRulePayload, LayerBlockRulePayload, LayerStatementRulePayload, MediaRulePayload,
-    MozDocumentRulePayload, NestedDeclarationsPayload, NestingRulePayload, PageDeclarationsPayload,
-    PageMarginPayload, PageRulePayload, PositionTryRulePayload, PropertyRuleDescriptor,
-    PropertyRulePayload, RuleId, RuleListId, ScopeRulePayload, SelectorFrameKind,
+    Compilation, CompilationCapacity, ConcreteDeclarationBlockId, ConcreteEffectiveContext,
+    ConcreteRuleId, ContainerRulePayload, CounterStyleRulePayload, CssRulePayload,
+    DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, FontFaceRulePayload,
+    FontFeatureSubrulePayload, FontFeatureValuesRulePayload, FontPaletteValuesRulePayload,
+    KeyframePayload, KeyframesRulePayload, LayerBlockRulePayload, LayerStatementRulePayload,
+    MediaRulePayload, MozDocumentRulePayload, NestedDeclarationsPayload, NestingRulePayload,
+    PageDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
+    PropertyRuleDescriptor, PropertyRulePayload, RuleListId, ScopeRulePayload, SelectorFrameKind,
     StartingStyleRulePayload, StyleRulePayload, SupportsRulePayload, UnknownAtRulePayload,
     ViewTransitionRulePayload, ViewportRulePayload,
 };
@@ -72,7 +73,7 @@ impl<'ast> Compiler<'ast> {
             self,
             &mut compilation,
             root,
-            EffectiveContext::default(),
+            ConcreteEffectiveContext::<'ast>::default(),
             &options,
             0,
         )
@@ -117,7 +118,7 @@ fn parse_rule_list<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -197,34 +198,34 @@ fn parse_rule_list<'ast>(
 
 fn mutation_error<'ast>(
     input: &Compiler<'ast>,
-    error: rocketcss_ast::radix_ast::MutationError,
+    error: rocketcss_ast::radix_ast::ConcreteMutationError<'ast>,
 ) -> ParseError<'ast, ParserError<'ast>> {
-    use rocketcss_ast::radix_ast::MutationError;
+    use rocketcss_ast::radix_ast::ConcreteMutationError;
 
     let error = match error {
-        MutationError::PrimaryRuleCapacityExhausted
-        | MutationError::PrimaryDeclarationBlockCapacityExhausted
-        | MutationError::RuleListCapacityExhausted
-        | MutationError::EffectiveKeyCapacityExhausted
-        | MutationError::SelectorContextCapacityExhausted
-        | MutationError::DeclarationCapacityExhausted
-        | MutationError::DeclarationOverflowCapacityExhausted
-        | MutationError::LocalRuleCapacityExhausted(_)
-        | MutationError::LocalDeclarationBlockCapacityExhausted(_) => {
+        ConcreteMutationError::<'ast>::PrimaryRuleCapacityExhausted
+        | ConcreteMutationError::<'ast>::PrimaryDeclarationBlockCapacityExhausted
+        | ConcreteMutationError::<'ast>::RuleListCapacityExhausted
+        | ConcreteMutationError::<'ast>::EffectiveKeyCapacityExhausted
+        | ConcreteMutationError::<'ast>::SelectorContextCapacityExhausted
+        | ConcreteMutationError::<'ast>::DeclarationCapacityExhausted
+        | ConcreteMutationError::<'ast>::DeclarationOverflowCapacityExhausted
+        | ConcreteMutationError::<'ast>::LocalRuleCapacityExhausted(_)
+        | ConcreteMutationError::<'ast>::LocalDeclarationBlockCapacityExhausted(_) => {
             ParserError::AstCapacityExceeded
         }
-        MutationError::UnknownRule(_)
-        | MutationError::UnknownRuleList(_)
-        | MutationError::UnknownEffectiveKey(_)
-        | MutationError::RetiredRule(_)
-        | MutationError::ChildListAlreadyExists(_)
-        | MutationError::DeclarationBlockAlreadyExists(_)
-        | MutationError::UnknownDeclarationBlock(_)
-        | MutationError::UnknownDeclarationOverflow(_)
-        | MutationError::UnknownDeclaration(_)
-        | MutationError::NonContiguousDeclarationRange(_)
-        | MutationError::InvalidRuleTopology(_)
-        | MutationError::RuleHasChildren(_) => ParserError::InvalidRule,
+        ConcreteMutationError::<'ast>::UnknownRule(_)
+        | ConcreteMutationError::<'ast>::UnknownRuleList(_)
+        | ConcreteMutationError::<'ast>::UnknownEffectiveKey(_)
+        | ConcreteMutationError::<'ast>::RetiredRule(_)
+        | ConcreteMutationError::<'ast>::ChildListAlreadyExists(_)
+        | ConcreteMutationError::<'ast>::DeclarationBlockAlreadyExists(_)
+        | ConcreteMutationError::<'ast>::UnknownDeclarationBlock(_)
+        | ConcreteMutationError::<'ast>::UnknownDeclarationOverflow(_)
+        | ConcreteMutationError::<'ast>::UnknownDeclaration(_)
+        | ConcreteMutationError::<'ast>::NonContiguousDeclarationRange(_)
+        | ConcreteMutationError::<'ast>::InvalidRuleTopology(_)
+        | ConcreteMutationError::<'ast>::RuleHasChildren(_) => ParserError::InvalidRule,
     };
     input.new_custom_error(error)
 }

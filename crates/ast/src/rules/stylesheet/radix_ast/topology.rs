@@ -5,7 +5,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     ///
     /// Direct siblings are not necessarily adjacent in the global Radix
     /// sequence because all descendants of the left sibling appear first.
-    pub fn subtree_tail(&self, rule: RuleId) -> Option<RuleId> {
+    pub fn subtree_tail(&self, rule: RuleId<R>) -> Option<RuleId<R>> {
         let mut current = rule;
         loop {
             let record = self.rules.get(current)?;
@@ -27,7 +27,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     ///
     /// This may be a direct sibling, an ancestor's sibling, or `None` at the
     /// end of the stylesheet.
-    pub fn next_after_subtree(&self, rule: RuleId) -> Option<RuleId> {
+    pub fn next_after_subtree(&self, rule: RuleId<R>) -> Option<RuleId<R>> {
         let mut current = rule;
         loop {
             let record = self.rules.get(current)?;

@@ -8,7 +8,7 @@ use super::*;
 pub trait CompilationVisitor<'ast> {
     fn visit_rule(
         &mut self,
-        _id: RuleId,
+        _id: ConcreteRuleId<'ast>,
         _rule: &RuleRecord<CssRulePayload<'ast>>,
         _compilation: &Compilation<'ast>,
     ) {
@@ -16,15 +16,15 @@ pub trait CompilationVisitor<'ast> {
 
     fn visit_declaration_block(
         &mut self,
-        _id: DeclarationBlockId,
-        _block: &DeclarationBlockRecord,
+        _id: ConcreteDeclarationBlockId<'ast>,
+        _block: &DeclarationBlockRecord<CssRulePayload<'ast>>,
         _compilation: &Compilation<'ast>,
     ) {
     }
 
     fn visit_declaration(
         &mut self,
-        _block: DeclarationBlockId,
+        _block: ConcreteDeclarationBlockId<'ast>,
         _id: DeclarationId,
         _declaration: &DeclarationRecord<DeclarationPayload<'ast>>,
         _compilation: &Compilation<'ast>,
@@ -33,7 +33,7 @@ pub trait CompilationVisitor<'ast> {
 
     fn visit_descriptor(
         &mut self,
-        _block: DeclarationBlockId,
+        _block: ConcreteDeclarationBlockId<'ast>,
         _id: DeclarationId,
         _descriptor: &DeclarationRecord<DeclarationPayload<'ast>>,
         _compilation: &Compilation<'ast>,
@@ -54,18 +54,23 @@ pub trait CompilationVisitorMut<'ast> {
     ) {
     }
 
-    fn visit_rule(&mut self, _id: RuleId, _cx: &mut CompilationVisitMutContext<'_, 'ast>) {}
+    fn visit_rule(
+        &mut self,
+        _id: ConcreteRuleId<'ast>,
+        _cx: &mut CompilationVisitMutContext<'_, 'ast>,
+    ) {
+    }
 
     fn visit_declaration_block(
         &mut self,
-        _id: DeclarationBlockId,
+        _id: ConcreteDeclarationBlockId<'ast>,
         _cx: &mut CompilationVisitMutContext<'_, 'ast>,
     ) {
     }
 
     fn visit_declaration(
         &mut self,
-        _block: DeclarationBlockId,
+        _block: ConcreteDeclarationBlockId<'ast>,
         _id: DeclarationId,
         _cx: &mut CompilationVisitMutContext<'_, 'ast>,
     ) {
@@ -73,7 +78,7 @@ pub trait CompilationVisitorMut<'ast> {
 
     fn visit_descriptor(
         &mut self,
-        _block: DeclarationBlockId,
+        _block: ConcreteDeclarationBlockId<'ast>,
         _id: DeclarationId,
         _cx: &mut CompilationVisitMutContext<'_, 'ast>,
     ) {
@@ -94,26 +99,26 @@ impl<'comp, 'ast> CompilationVisitMutContext<'comp, 'ast> {
     #[inline]
     pub fn replace_rule_selector_value(
         &mut self,
-        rule: RuleId,
+        rule: ConcreteRuleId<'ast>,
         selector: SelectorValueId,
-    ) -> Result<bool, MutationError> {
+    ) -> Result<bool, ConcreteMutationError<'ast>> {
         self.compilation.replace_rule_selector_value(rule, selector)
     }
 
     #[inline]
     pub fn replace_property_declaration(
         &mut self,
-        block: DeclarationBlockId,
+        block: ConcreteDeclarationBlockId<'ast>,
         declaration: DeclarationId,
         replacement: crate::Declaration<'ast>,
-    ) -> Result<crate::Declaration<'ast>, MutationError> {
+    ) -> Result<crate::Declaration<'ast>, ConcreteMutationError<'ast>> {
         if !matches!(
             self.compilation
                 .declaration(declaration)
                 .map(DeclarationRecord::payload),
             Some(DeclarationPayload::Property(_))
         ) {
-            return Err(MutationError::UnknownDeclaration(declaration));
+            return Err(ConcreteMutationError::UnknownDeclaration(declaration));
         }
         let previous = self.compilation.replace_declaration(
             block,
@@ -132,7 +137,7 @@ impl<'comp, 'ast> CompilationVisitMutContext<'comp, 'ast> {
         selectors: crate::SelectorList<'ast>,
         kind: SelectorFrameKind,
         vendor_prefix: crate::VendorPrefix,
-    ) -> Result<SelectorValueId, MutationError> {
+    ) -> Result<SelectorValueId, ConcreteMutationError<'ast>> {
         self.compilation
             .intern_selector_value(selectors, kind, vendor_prefix)
     }
@@ -144,7 +149,7 @@ impl<'ast> Compilation<'ast> {
     pub fn visit_compilation<V: ?Sized + CompilationVisitor<'ast>>(
         &self,
         visitor: &mut V,
-    ) -> Result<(), MutationError> {
+    ) -> Result<(), ConcreteMutationError<'ast>> {
         for (rule_id, rule) in self.rules_in_source_order() {
             if !rule.is_live() {
                 continue;
@@ -155,9 +160,9 @@ impl<'ast> Compilation<'ast> {
             };
             let block = self
                 .declaration_block(block_id)
-                .ok_or(MutationError::UnknownDeclarationBlock(block_id))?;
+                .ok_or(ConcreteMutationError::UnknownDeclarationBlock(block_id))?;
             if !block.is_live() {
-                return Err(MutationError::InvalidRuleTopology(rule_id));
+                return Err(ConcreteMutationError::InvalidRuleTopology(rule_id));
             }
             let property_block = rule.payload().owns_property_declarations();
             if property_block {
@@ -182,7 +187,7 @@ impl<'ast> Compilation<'ast> {
     pub fn visit_compilation_mut<V: ?Sized + CompilationVisitorMut<'ast>>(
         &mut self,
         visitor: &mut V,
-    ) -> Result<(), MutationError> {
+    ) -> Result<(), ConcreteMutationError<'ast>> {
         self.transform_selector_values(|id, selectors| {
             visitor.visit_selector_value(id, selectors);
         });
@@ -190,7 +195,7 @@ impl<'ast> Compilation<'ast> {
         while let Some(rule_id) = current {
             let rule = self
                 .rule(rule_id)
-                .ok_or(MutationError::UnknownRule(rule_id))?;
+                .ok_or(ConcreteMutationError::UnknownRule(rule_id))?;
             current = rule.next_in_source();
             if !rule.is_live() {
                 continue;
@@ -202,16 +207,16 @@ impl<'ast> Compilation<'ast> {
             );
             let rule = self
                 .rule(rule_id)
-                .ok_or(MutationError::UnknownRule(rule_id))?;
+                .ok_or(ConcreteMutationError::UnknownRule(rule_id))?;
             let property_block = rule.payload().owns_property_declarations();
             let Some(block_id) = rule.declaration_block() else {
                 continue;
             };
             let block = self
                 .declaration_block(block_id)
-                .ok_or(MutationError::UnknownDeclarationBlock(block_id))?;
+                .ok_or(ConcreteMutationError::UnknownDeclarationBlock(block_id))?;
             if !block.is_live() {
-                return Err(MutationError::InvalidRuleTopology(rule_id));
+                return Err(ConcreteMutationError::InvalidRuleTopology(rule_id));
             }
             if property_block {
                 visitor.visit_declaration_block(

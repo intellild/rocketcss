@@ -2,8 +2,8 @@ use super::*;
 
 impl<R, D, K> RadixCompilation<'_, R, D, K>
 where
-    R: RuleIdReferences + Unpin,
-    K: RuleIdReferences + Copy + Eq + std::hash::Hash,
+    R: RuleIdReferences<R> + Unpin,
+    K: RuleIdReferences<R> + Copy + Eq + std::hash::Hash,
 {
     /// Inserts a new direct sibling after `after` at its final Radix ID.
     ///
@@ -12,15 +12,15 @@ where
     /// rule. This preserves global lexical preorder without reusing IDs.
     pub fn insert_rule_after(
         &mut self,
-        after: RuleId,
+        after: RuleId<R>,
         payload: R,
-    ) -> Result<RadixInsertResult<RuleId>, MutationError> {
+    ) -> Result<RadixInsertResult<RuleId<R>>, MutationError<R>> {
         let after_record = self
             .rules
             .get(after)
-            .ok_or(MutationError::UnknownRule(after))?;
+            .ok_or(MutationError::<R>::UnknownRule(after))?;
         if !after_record.live {
-            return Err(MutationError::RetiredRule(after));
+            return Err(MutationError::<R>::RetiredRule(after));
         }
         let parent = after_record.parent;
         let list = after_record.parent_list;
@@ -28,43 +28,43 @@ where
         let list_record = self
             .rule_lists
             .try_get(list)
-            .ok_or(MutationError::UnknownRuleList(list))?;
+            .ok_or(MutationError::<R>::UnknownRuleList(list))?;
         if direct_before.is_none() && list_record.last != Some(after) {
-            return Err(MutationError::InvalidRuleTopology(after));
+            return Err(MutationError::<R>::InvalidRuleTopology(after));
         }
         if direct_before.is_some_and(|before| {
             self.rules.get(before).is_none_or(|before| {
                 !before.live || before.previous_sibling != Some(after) || before.parent_list != list
             })
         }) {
-            return Err(MutationError::InvalidRuleTopology(after));
+            return Err(MutationError::<R>::InvalidRuleTopology(after));
         }
 
         let logical_tail = self
             .subtree_tail(after)
-            .ok_or(MutationError::InvalidRuleTopology(after))?;
+            .ok_or(MutationError::<R>::InvalidRuleTopology(after))?;
         let storage_before = self.next_after_subtree(after);
         if direct_before.is_some() && storage_before != direct_before {
-            return Err(MutationError::InvalidRuleTopology(after));
+            return Err(MutationError::<R>::InvalidRuleTopology(after));
         }
         let mut anchor = logical_tail;
         loop {
             let next = self
                 .rules
                 .get(anchor)
-                .ok_or(MutationError::InvalidRuleTopology(after))?
+                .ok_or(MutationError::<R>::InvalidRuleTopology(after))?
                 .next_in_source;
             if next == storage_before {
                 break;
             }
-            let next = next.ok_or(MutationError::InvalidRuleTopology(after))?;
+            let next = next.ok_or(MutationError::<R>::InvalidRuleTopology(after))?;
             if self.rules.get(next).is_none_or(|rule| rule.live) {
-                return Err(MutationError::InvalidRuleTopology(after));
+                return Err(MutationError::<R>::InvalidRuleTopology(after));
             }
             anchor = next;
         }
         if !self.rules.can_insert_between(anchor, storage_before) {
-            return Err(MutationError::LocalRuleCapacityExhausted(anchor));
+            return Err(MutationError::<R>::LocalRuleCapacityExhausted(anchor));
         }
 
         let result = self.rules.insert_between(
@@ -118,7 +118,7 @@ where
         Ok(result)
     }
 
-    fn repair_rule_id_remaps(&mut self, remaps: &[RadixIdRemap<RuleId>]) {
+    fn repair_rule_id_remaps(&mut self, remaps: &[RadixIdRemap<RuleId<R>>]) {
         if remaps.is_empty() {
             return;
         }
@@ -160,7 +160,7 @@ where
                 .declaration_blocks
                 .get_mut(id)
                 .expect("an enumerated block ID remains resolvable");
-            let DeclarationBlockOwner::Rule(owner) = &mut block.owner;
+            let DeclarationBlockOwner::<R>::Rule(owner) = &mut block.owner;
             *owner = remap_rule_id(*owner, remaps);
         }
         for key in self.effective_keys.iter_mut() {
@@ -199,7 +199,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     fn declaration_list_for_ids(
         &mut self,
         declarations: &[DeclarationId],
-    ) -> Result<DeclarationList, MutationError> {
+    ) -> Result<DeclarationList, MutationError<R>> {
         let contiguous = declarations
             .windows(2)
             .all(|pair| pair[0].index() + 1 == pair[1].index());
@@ -220,7 +220,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
         let overflow = self
             .declaration_overflows
             .try_push(overflow)
-            .map_err(|_| MutationError::DeclarationOverflowCapacityExhausted)?;
+            .map_err(|_| MutationError::<R>::DeclarationOverflowCapacityExhausted)?;
         Ok(DeclarationList::Overflow(overflow))
     }
 
@@ -233,22 +233,22 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     /// fifth local occurrence to the arena-backed complete overflow list.
     pub fn append_transformed_declaration(
         &mut self,
-        block: DeclarationBlockId,
+        block: DeclarationBlockId<R>,
         payload: D,
         important: bool,
-    ) -> Result<DeclarationId, MutationError> {
+    ) -> Result<DeclarationId, MutationError<R>> {
         let block_record = self
             .declaration_blocks
             .get(block)
-            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?;
         if !block_record.live {
-            return Err(MutationError::UnknownDeclarationBlock(block));
+            return Err(MutationError::<R>::UnknownDeclarationBlock(block));
         }
         let revision = block_record.revision.wrapping_add(1);
         let declaration = self
             .declarations
             .try_next_id()
-            .map_err(|_| MutationError::DeclarationCapacityExhausted)?;
+            .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
         let mut declarations = self
             .declaration_ids_in_block(block)?
             .collect::<std::vec::Vec<_>>();
@@ -257,7 +257,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
         let inserted = self
             .declarations
             .try_push(DeclarationRecord { payload, important })
-            .map_err(|_| MutationError::DeclarationCapacityExhausted)?;
+            .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
         debug_assert_eq!(inserted, declaration);
         let block = self
             .declaration_blocks
@@ -272,8 +272,8 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     /// block before its owner rule is inserted.
     pub fn can_insert_declaration_block_between(
         &self,
-        after: DeclarationBlockId,
-        before: Option<DeclarationBlockId>,
+        after: DeclarationBlockId<R>,
+        before: Option<DeclarationBlockId<R>>,
         declaration_count: usize,
     ) -> bool {
         self.declaration_blocks.can_insert_between(after, before)
@@ -288,37 +288,39 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     /// and binds it to an already inserted live owner rule.
     pub fn insert_declaration_block_between(
         &mut self,
-        after: DeclarationBlockId,
-        before: Option<DeclarationBlockId>,
-        owner: RuleId,
+        after: DeclarationBlockId<R>,
+        before: Option<DeclarationBlockId<R>>,
+        owner: RuleId<R>,
         effective_key: EffectiveKeyId,
-    ) -> Result<RadixInsertResult<DeclarationBlockId>, MutationError> {
+    ) -> Result<RadixInsertResult<DeclarationBlockId<R>>, MutationError<R>> {
         let owner_record = self
             .rules
             .get(owner)
-            .ok_or(MutationError::UnknownRule(owner))?;
+            .ok_or(MutationError::<R>::UnknownRule(owner))?;
         if !owner_record.live {
-            return Err(MutationError::RetiredRule(owner));
+            return Err(MutationError::<R>::RetiredRule(owner));
         }
         if owner_record.declaration_block.is_some() {
-            return Err(MutationError::DeclarationBlockAlreadyExists(owner));
+            return Err(MutationError::<R>::DeclarationBlockAlreadyExists(owner));
         }
         if self.effective_keys.try_get(effective_key).is_none() {
-            return Err(MutationError::UnknownEffectiveKey(effective_key));
+            return Err(MutationError::<R>::UnknownEffectiveKey(effective_key));
         }
         if !self.declaration_blocks.can_insert_between(after, before) {
-            return Err(MutationError::LocalDeclarationBlockCapacityExhausted(after));
+            return Err(MutationError::<R>::LocalDeclarationBlockCapacityExhausted(
+                after,
+            ));
         }
 
         let result = self.declaration_blocks.insert_between(
             after,
             before,
-            DeclarationBlockRecord {
+            DeclarationBlockRecord::<R> {
                 declarations: DeclarationList::Range(DeclarationRange {
                     start: self.declarations.len() as u32,
                     len: 0,
                 }),
-                owner: DeclarationBlockOwner::Rule(owner),
+                owner: DeclarationBlockOwner::<R>::Rule(owner),
                 effective_key,
                 revision: 0,
                 live: true,
@@ -353,28 +355,28 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     /// block revision used by incremental Nano candidates.
     pub fn replace_declaration(
         &mut self,
-        block: DeclarationBlockId,
+        block: DeclarationBlockId<R>,
         declaration: DeclarationId,
         replacement: D,
-    ) -> Result<D, MutationError> {
+    ) -> Result<D, MutationError<R>> {
         let block_record = self
             .declaration_blocks
             .get(block)
-            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?;
         if !block_record.live {
-            return Err(MutationError::UnknownDeclarationBlock(block));
+            return Err(MutationError::<R>::UnknownDeclarationBlock(block));
         }
         let revision = block_record.revision.wrapping_add(1);
         if !self
             .declaration_ids_in_block(block)?
             .any(|candidate| candidate == declaration)
         {
-            return Err(MutationError::UnknownDeclaration(declaration));
+            return Err(MutationError::<R>::UnknownDeclaration(declaration));
         }
         let record = self
             .declarations
             .try_get_mut(declaration)
-            .ok_or(MutationError::UnknownDeclaration(declaration))?;
+            .ok_or(MutationError::<R>::UnknownDeclaration(declaration))?;
         let previous = std::mem::replace(record.payload_mut(), replacement);
         self.declaration_blocks
             .get_mut(block)
@@ -394,41 +396,41 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     /// retiring those owners only after all of their occurrences are dead.
     pub fn merge_adjacent_rule_declaration_blocks(
         &mut self,
-        left: RuleId,
-        right: RuleId,
-    ) -> Result<MergedAdjacentRuleBlocks, MutationError> {
+        left: RuleId<R>,
+        right: RuleId<R>,
+    ) -> Result<MergedAdjacentRuleBlocks<R>, MutationError<R>> {
         let left_rule = self
             .rules
             .get(left)
-            .ok_or(MutationError::UnknownRule(left))?;
+            .ok_or(MutationError::<R>::UnknownRule(left))?;
         let right_rule = self
             .rules
             .get(right)
-            .ok_or(MutationError::UnknownRule(right))?;
+            .ok_or(MutationError::<R>::UnknownRule(right))?;
         if !left_rule.live {
-            return Err(MutationError::RetiredRule(left));
+            return Err(MutationError::<R>::RetiredRule(left));
         }
         if !right_rule.live {
-            return Err(MutationError::RetiredRule(right));
+            return Err(MutationError::<R>::RetiredRule(right));
         }
         if left_rule.child_list.is_some() {
-            return Err(MutationError::RuleHasChildren(left));
+            return Err(MutationError::<R>::RuleHasChildren(left));
         }
         if left_rule.next_sibling != Some(right)
             || right_rule.previous_sibling != Some(left)
             || left_rule.parent != right_rule.parent
             || left_rule.parent_list != right_rule.parent_list
         {
-            return Err(MutationError::InvalidRuleTopology(left));
+            return Err(MutationError::<R>::InvalidRuleTopology(left));
         }
         let mut bridge_blocks = std::vec::Vec::new();
         let mut source_cursor = left_rule.next_in_source;
         while source_cursor != Some(right) {
             let source_rule = source_cursor
                 .and_then(|id| self.rules.get(id).map(|rule| (id, rule)))
-                .ok_or(MutationError::InvalidRuleTopology(left))?;
+                .ok_or(MutationError::<R>::InvalidRuleTopology(left))?;
             if source_rule.1.live {
-                return Err(MutationError::InvalidRuleTopology(source_rule.0));
+                return Err(MutationError::<R>::InvalidRuleTopology(source_rule.0));
             }
             if let Some(block) = source_rule.1.declaration_block {
                 bridge_blocks.push(block);
@@ -437,25 +439,25 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
         }
         let left_block_id = left_rule
             .declaration_block
-            .ok_or(MutationError::InvalidRuleTopology(left))?;
+            .ok_or(MutationError::<R>::InvalidRuleTopology(left))?;
         let right_block_id = right_rule
             .declaration_block
-            .ok_or(MutationError::InvalidRuleTopology(right))?;
+            .ok_or(MutationError::<R>::InvalidRuleTopology(right))?;
         let left_block = self
             .declaration_blocks
             .get(left_block_id)
-            .ok_or(MutationError::UnknownDeclarationBlock(left_block_id))?;
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(left_block_id))?;
         let right_block = self
             .declaration_blocks
             .get(right_block_id)
-            .ok_or(MutationError::UnknownDeclarationBlock(right_block_id))?;
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(right_block_id))?;
         if !left_block.live
             || !right_block.live
-            || left_block.owner != DeclarationBlockOwner::Rule(left)
-            || right_block.owner != DeclarationBlockOwner::Rule(right)
+            || left_block.owner != DeclarationBlockOwner::<R>::Rule(left)
+            || right_block.owner != DeclarationBlockOwner::<R>::Rule(right)
             || left_block.effective_key != right_block.effective_key
         {
-            return Err(MutationError::InvalidRuleTopology(left));
+            return Err(MutationError::<R>::InvalidRuleTopology(left));
         }
         let effective_key = left_block.effective_key;
         let mut merged_declarations = self
@@ -465,9 +467,9 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
             let bridge_block = self
                 .declaration_blocks
                 .get(bridge)
-                .ok_or(MutationError::UnknownDeclarationBlock(bridge))?;
+                .ok_or(MutationError::<R>::UnknownDeclarationBlock(bridge))?;
             if bridge_block.live {
-                return Err(MutationError::InvalidRuleTopology(left));
+                return Err(MutationError::<R>::InvalidRuleTopology(left));
             }
             merged_declarations.extend(self.declaration_ids_in_block(bridge)?);
         }
@@ -497,7 +499,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
             .expect("the retained rule was validated before commit");
         retained_rule.revision = retained_rule.revision.wrapping_add(1);
 
-        Ok(MergedAdjacentRuleBlocks {
+        Ok(MergedAdjacentRuleBlocks::<R> {
             retired_rule: left,
             retired_block: left_block_id,
             retained_rule: right,
@@ -511,13 +513,16 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     /// Parsed primary IDs and inserted sibling IDs are never reused. The
     /// declaration block is retired in the same transaction, while its range
     /// continues to own the corresponding source-tape occurrences.
-    pub fn retire_rule(&mut self, id: RuleId) -> Result<RetiredRule, MutationError> {
-        let rule = self.rules.get(id).ok_or(MutationError::UnknownRule(id))?;
+    pub fn retire_rule(&mut self, id: RuleId<R>) -> Result<RetiredRule<R>, MutationError<R>> {
+        let rule = self
+            .rules
+            .get(id)
+            .ok_or(MutationError::<R>::UnknownRule(id))?;
         if !rule.live {
-            return Err(MutationError::RetiredRule(id));
+            return Err(MutationError::<R>::RetiredRule(id));
         }
         if rule.child_list.is_some() {
-            return Err(MutationError::RuleHasChildren(id));
+            return Err(MutationError::<R>::RuleHasChildren(id));
         }
         let list = rule.parent_list;
         let previous = rule.previous_sibling;
@@ -527,7 +532,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
         let list_record = self
             .rule_lists
             .try_get(list)
-            .ok_or(MutationError::UnknownRuleList(list))?;
+            .ok_or(MutationError::<R>::UnknownRuleList(list))?;
         if list_record.live_len == 0
             || previous.is_none() && list_record.first != Some(id)
             || next.is_none() && list_record.last != Some(id)
@@ -542,14 +547,14 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
                     .is_none_or(|next| next.previous_sibling != Some(id) || !next.live)
             })
         {
-            return Err(MutationError::InvalidRuleTopology(id));
+            return Err(MutationError::<R>::InvalidRuleTopology(id));
         }
         if declaration_block.is_some_and(|block| {
-            self.declaration_blocks
-                .get(block)
-                .is_none_or(|block| !block.live || block.owner != DeclarationBlockOwner::Rule(id))
+            self.declaration_blocks.get(block).is_none_or(|block| {
+                !block.live || block.owner != DeclarationBlockOwner::<R>::Rule(id)
+            })
         }) {
-            return Err(MutationError::InvalidRuleTopology(id));
+            return Err(MutationError::<R>::InvalidRuleTopology(id));
         }
 
         if let Some(previous) = previous {
@@ -601,15 +606,15 @@ impl<'ast> Compilation<'ast> {
     #[doc(hidden)]
     pub fn transform_rule_payload(
         &mut self,
-        rule_id: RuleId,
+        rule_id: ConcreteRuleId<'ast>,
         transform: impl FnOnce(&mut CssRulePayload<'ast>),
-    ) -> Result<(), MutationError> {
+    ) -> Result<(), ConcreteMutationError<'ast>> {
         let rule = self
             .rules
             .get_mut(rule_id)
-            .ok_or(MutationError::UnknownRule(rule_id))?;
+            .ok_or(ConcreteMutationError::UnknownRule(rule_id))?;
         if !rule.live {
-            return Err(MutationError::RetiredRule(rule_id));
+            return Err(ConcreteMutationError::RetiredRule(rule_id));
         }
         transform(&mut rule.payload);
         rule.revision = rule.revision.wrapping_add(1);
@@ -621,27 +626,27 @@ impl<'ast> Compilation<'ast> {
     #[doc(hidden)]
     pub fn declaration_occurrence_mut(
         &mut self,
-        block: DeclarationBlockId,
+        block: ConcreteDeclarationBlockId<'ast>,
         declaration_id: DeclarationId,
-    ) -> Result<(&mut DeclarationPayload<'ast>, bool), MutationError> {
+    ) -> Result<(&mut DeclarationPayload<'ast>, bool), ConcreteMutationError<'ast>> {
         let block_record = self
             .declaration_blocks
             .get(block)
-            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+            .ok_or(ConcreteMutationError::UnknownDeclarationBlock(block))?;
         if !block_record.live {
-            return Err(MutationError::UnknownDeclarationBlock(block));
+            return Err(ConcreteMutationError::UnknownDeclarationBlock(block));
         }
         let revision = block_record.revision.wrapping_add(1);
         if !self
             .declaration_ids_in_block(block)?
             .any(|candidate| candidate == declaration_id)
         {
-            return Err(MutationError::UnknownDeclaration(declaration_id));
+            return Err(ConcreteMutationError::UnknownDeclaration(declaration_id));
         }
         let declaration = self
             .declarations
             .try_get_mut(declaration_id)
-            .ok_or(MutationError::UnknownDeclaration(declaration_id))?;
+            .ok_or(ConcreteMutationError::UnknownDeclaration(declaration_id))?;
         let important = declaration.important;
         self.declaration_blocks
             .get_mut(block)
@@ -658,19 +663,19 @@ impl<'ast> Compilation<'ast> {
     /// The block revision is bumped before the reference is exposed.
     pub fn property_declaration_mut(
         &mut self,
-        block: DeclarationBlockId,
+        block: ConcreteDeclarationBlockId<'ast>,
         declaration_id: DeclarationId,
-    ) -> Result<(&mut crate::Declaration<'ast>, bool), MutationError> {
+    ) -> Result<(&mut crate::Declaration<'ast>, bool), ConcreteMutationError<'ast>> {
         let (payload, important) = self.declaration_occurrence_mut(block, declaration_id)?;
         let DeclarationPayload::Property(payload) = payload else {
-            return Err(MutationError::UnknownDeclaration(declaration_id));
+            return Err(ConcreteMutationError::UnknownDeclaration(declaration_id));
         };
         Ok((payload, important))
     }
 }
 
 #[inline]
-fn remap_rule_id(id: RuleId, remaps: &[RadixIdRemap<RuleId>]) -> RuleId {
+fn remap_rule_id<P>(id: RuleId<P>, remaps: &[RadixIdRemap<RuleId<P>>]) -> RuleId<P> {
     remaps
         .iter()
         .find_map(|remap| (remap.old == id).then_some(remap.new))
@@ -678,10 +683,10 @@ fn remap_rule_id(id: RuleId, remaps: &[RadixIdRemap<RuleId>]) -> RuleId {
 }
 
 #[inline]
-fn remap_declaration_block_id(
-    id: DeclarationBlockId,
-    remaps: &[RadixIdRemap<DeclarationBlockId>],
-) -> DeclarationBlockId {
+fn remap_declaration_block_id<P>(
+    id: DeclarationBlockId<P>,
+    remaps: &[RadixIdRemap<DeclarationBlockId<P>>],
+) -> DeclarationBlockId<P> {
     remaps
         .iter()
         .find_map(|remap| (remap.old == id).then_some(remap.new))

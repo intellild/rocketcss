@@ -6,7 +6,7 @@ use crate::{
     TokenOrValue, Vec, VendorPrefix, ViewTransitionProperty,
 };
 
-use super::{DeclarationId, RadixIdRemap, RuleId, RuleIdReferences, SelectorValueId};
+use super::{DeclarationId, RadixIdRemap, RuleIdReferences, SelectorValueId};
 
 /// One typed descriptor occurrence inside `@property`.
 #[derive(Debug, PartialEq)]
@@ -99,9 +99,9 @@ impl CssRulePayload<'_> {
     }
 }
 
-impl RuleIdReferences for CssRulePayload<'_> {
+impl<'ast> RuleIdReferences<CssRulePayload<'ast>> for CssRulePayload<'ast> {
     #[inline]
-    fn remap_rule_ids(&mut self, _remaps: &[RadixIdRemap<RuleId>]) {}
+    fn remap_rule_ids(&mut self, _remaps: &[RadixIdRemap<super::RuleId<CssRulePayload<'ast>>>]) {}
 }
 
 #[derive(Debug, PartialEq)]

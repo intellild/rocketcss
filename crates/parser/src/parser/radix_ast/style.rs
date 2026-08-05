@@ -4,11 +4,11 @@ pub(super) fn parse_style_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let allocator = input.allocator();
     let selectors = input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
         if options.error_recovery {
@@ -72,10 +72,10 @@ pub(super) fn parse_style_rule<'ast>(
 pub(super) fn parse_mixed_style_contents<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    owner_rule: RuleId,
+    owner_rule: ConcreteRuleId<'ast>,
     effective_key: EffectiveKeyId,
-    context: EffectiveContext,
-    mut active_segment: Option<(RuleId, DeclarationBlockId)>,
+    context: ConcreteEffectiveContext<'ast>,
+    mut active_segment: Option<(ConcreteRuleId<'ast>, ConcreteDeclarationBlockId<'ast>)>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -210,10 +210,10 @@ pub(super) fn parse_mixed_style_contents<'ast>(
     Ok(())
 }
 
-pub(super) fn ensure_child_list(
-    compilation: &mut Compilation<'_>,
-    owner: RuleId,
-) -> Result<RuleListId, rocketcss_ast::radix_ast::MutationError> {
+pub(super) fn ensure_child_list<'ast>(
+    compilation: &mut Compilation<'ast>,
+    owner: ConcreteRuleId<'ast>,
+) -> Result<RuleListId, rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
     if let Some(list) = compilation
         .rule(owner)
         .expect("the current style rule remains live")

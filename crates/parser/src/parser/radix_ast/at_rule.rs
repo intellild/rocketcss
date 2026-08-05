@@ -8,12 +8,12 @@ pub(super) fn parse_group_at_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     if name.eq_ignore_ascii_case("media") {
         parse_media_rule(
             input,
@@ -194,12 +194,12 @@ fn parse_media_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
     let query = parse_media_list(raw_prelude, input.allocator())?;
     let rule = compilation
@@ -230,12 +230,12 @@ fn parse_layer_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let (raw_prelude, ending) = parse_at_rule_header(input, depth, name)?;
     let mut names = parse_layer_names(raw_prelude, input.allocator())?;
     if ending == AtRuleEnding::Block {
@@ -283,12 +283,12 @@ fn parse_container_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
     let (container_name, condition) = parse_container_prelude(raw_prelude, input.allocator())?;
     let rule = compilation
@@ -319,12 +319,12 @@ fn parse_scope_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
     let (scope_start, scope_end) = parse_scope_prelude(input, raw_prelude, depth + 1)?;
     let rule = compilation
@@ -355,12 +355,12 @@ fn parse_moz_document_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
     validate_moz_document_prelude(raw_prelude, input.allocator())?;
     let rule = compilation
@@ -391,7 +391,7 @@ fn parse_unknown_at_rule<'ast>(
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let allocator = input.allocator();
     let prelude = input.parse_until_before(
         Delimiter::Semicolon | Delimiter::CurlyBracketBlock,
@@ -426,7 +426,7 @@ fn parse_top_level_statement_rule<'ast>(
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let (prelude, ending) = parse_at_rule_header(input, depth, name)?;
     if ending == AtRuleEnding::Block {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
@@ -469,7 +469,7 @@ fn parse_keyframes_rule<'ast>(
     depth: usize,
     start: &ParserState,
     at_rule_name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
     let name = parse_keyframes_name(prelude, input.allocator())?;
     let rule = compilation
@@ -546,7 +546,7 @@ fn parse_font_feature_values_rule<'ast>(
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
     let family_names = parse_family_names(prelude, input.allocator())?;
     let rule = compilation
@@ -656,7 +656,7 @@ fn parse_page_rule<'ast>(
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
     let selectors = parse_page_selectors(prelude, input.allocator())?;
     let page = compilation
@@ -669,7 +669,7 @@ fn parse_page_rule<'ast>(
         )
         .map_err(|error| mutation_error(input, error))?;
     let key = compilation
-        .append_effective_key(EffectiveContext::isolated(page))
+        .append_effective_key(ConcreteEffectiveContext::<'ast>::isolated(page))
         .map_err(|error| mutation_error(input, error))?;
     let block = compilation
         .append_declaration_block(DeclarationBlockOwner::Rule(page), key)
@@ -700,9 +700,9 @@ fn parse_page_rule<'ast>(
 fn parse_page_contents<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    page: RuleId,
+    page: ConcreteRuleId<'ast>,
     effective_key: EffectiveKeyId,
-    mut active_segment: Option<(RuleId, DeclarationBlockId)>,
+    mut active_segment: Option<(ConcreteRuleId<'ast>, ConcreteDeclarationBlockId<'ast>)>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -821,12 +821,12 @@ fn parse_nesting_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
     let selectors = parse_selector_string(input, prelude, depth + 1)?;
     let selector_value = compilation
@@ -882,7 +882,7 @@ fn parse_property_rule<'ast>(
     depth: usize,
     start: &ParserState,
     at_rule_name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
     let name = parse_single_ident(prelude, input.allocator())?;
     if !name.starts_with("--") {
@@ -961,7 +961,7 @@ fn parse_font_face_rule<'ast>(
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     if !parse_group_rule_prelude(input, depth, name)?.is_empty() {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
     }
@@ -1016,7 +1016,7 @@ fn parse_font_palette_values_rule<'ast>(
     depth: usize,
     start: &ParserState,
     at_rule_name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
     let name = parse_single_ident(prelude, input.allocator())?;
     if !name.starts_with("--") {
@@ -1074,7 +1074,7 @@ fn parse_view_transition_rule<'ast>(
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     if !parse_group_rule_prelude(input, depth, name)?.is_empty() {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
     }
@@ -1129,7 +1129,7 @@ fn parse_counter_style_rule<'ast>(
     depth: usize,
     start: &ParserState,
     at_rule_name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
     let name = parse_single_ident(prelude, input.allocator())?;
     let rule = append_declaration_owner(
@@ -1162,7 +1162,7 @@ fn parse_viewport_rule<'ast>(
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     if !parse_group_rule_prelude(input, depth, name)?.is_empty() {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
     }
@@ -1196,7 +1196,7 @@ fn parse_position_try_rule<'ast>(
     depth: usize,
     start: &ParserState,
     at_rule_name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
     let name = parse_single_ident(prelude, input.allocator())?;
     if !name.starts_with("--") {
@@ -1229,12 +1229,12 @@ fn append_declaration_owner<'ast>(
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
     payload: CssRulePayload<'ast>,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let rule = compilation
         .append_rule(list, payload)
         .map_err(|error| mutation_error(input, error))?;
     let key = compilation
-        .append_effective_key(EffectiveContext::isolated(rule))
+        .append_effective_key(ConcreteEffectiveContext::<'ast>::isolated(rule))
         .map_err(|error| mutation_error(input, error))?;
     compilation
         .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
@@ -1245,7 +1245,7 @@ fn append_declaration_owner<'ast>(
 fn parse_declaration_owner_body<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    rule: RuleId,
+    rule: ConcreteRuleId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -1261,7 +1261,7 @@ fn parse_declaration_owner_body<'ast>(
 fn parse_standard_declaration_contents<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    block: DeclarationBlockId,
+    block: ConcreteDeclarationBlockId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -1318,12 +1318,12 @@ fn parse_supports_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
     let condition = parse_supports_condition(raw_prelude);
     let rule = compilation
@@ -1354,12 +1354,12 @@ fn parse_starting_style_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     list: RuleListId,
-    context: EffectiveContext,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
     start: &ParserState,
     name: &'ast str,
-) -> Result<RuleId, ParseError<'ast, ParserError<'ast>>> {
+) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     if !parse_group_rule_prelude(input, depth, name)?.is_empty() {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
     }
@@ -1423,8 +1423,8 @@ fn parse_at_rule_header<'ast>(
 fn parse_group_rule_contents<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    rule: RuleId,
-    context: EffectiveContext,
+    rule: ConcreteRuleId<'ast>,
+    context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {

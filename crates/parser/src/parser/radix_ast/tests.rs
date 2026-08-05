@@ -3,17 +3,23 @@ use crate::parser::ReplayCounters;
 
 fn selector_representative(
     _compilation: &Compilation<'_>,
-    key: &EffectiveKeyData,
+    key: &ConcreteEffectiveKey<'_>,
 ) -> Option<SelectorPathId> {
     key.selector_path()
 }
 
-fn context_representative(compilation: &Compilation<'_>, key: &EffectiveKeyData) -> Option<RuleId> {
+fn context_representative<'ast>(
+    compilation: &Compilation<'ast>,
+    key: &ConcreteEffectiveKey<'ast>,
+) -> Option<ConcreteRuleId<'ast>> {
     let (_, value) = compilation.context_path_record(key.context_path()?)?;
     compilation.context_value_representative(value)
 }
 
-fn effective_key_for(compilation: &Compilation<'_>, rule: RuleId) -> EffectiveKeyId {
+fn effective_key_for<'ast>(
+    compilation: &Compilation<'ast>,
+    rule: ConcreteRuleId<'ast>,
+) -> EffectiveKeyId {
     let block = compilation
         .rule(rule)
         .and_then(|record| record.declaration_block())
@@ -24,18 +30,39 @@ fn effective_key_for(compilation: &Compilation<'_>, rule: RuleId) -> EffectiveKe
         .effective_key()
 }
 
-fn selector_path_for_rule(compilation: &Compilation<'_>, rule: RuleId) -> Option<SelectorPathId> {
+fn selector_path_for_rule<'ast>(
+    compilation: &Compilation<'ast>,
+    rule: ConcreteRuleId<'ast>,
+) -> Option<SelectorPathId> {
     compilation
         .effective_key(effective_key_for(compilation, rule))
         .and_then(|key| key.selector_path())
 }
 
-fn selector_value_for_rule(compilation: &Compilation<'_>, rule: RuleId) -> SelectorValueId {
+fn selector_value_for_rule<'ast>(
+    compilation: &Compilation<'ast>,
+    rule: ConcreteRuleId<'ast>,
+) -> SelectorValueId {
     match compilation.rule(rule).unwrap().payload() {
         CssRulePayload::Style(payload) => payload.selector_value,
         CssRulePayload::Nesting(payload) => payload.selector_value,
         _ => panic!("the test rule must own a selector"),
     }
+}
+
+fn effective_key_seed<'ast>(
+    compilation: &Compilation<'ast>,
+    rule: ConcreteRuleId<'ast>,
+) -> ConcreteEffectiveKey<'ast> {
+    let block = compilation.rule(rule).unwrap().declaration_block().unwrap();
+    *compilation
+        .effective_key(
+            compilation
+                .declaration_block(block)
+                .unwrap()
+                .effective_key(),
+        )
+        .unwrap()
 }
 
 fn declaration_ranges(compilation: &Compilation<'_>) -> std::vec::Vec<(u32, u32)> {
@@ -214,7 +241,7 @@ fn parser_interns_exact_effective_keys_and_isolates_opaque_contexts() {
         .unwrap();
     assert_eq!(key.origin(), CascadeOrigin::Author);
     assert_eq!(key.cascade_phase(), CascadePhase::AuthorNormalAndImportant);
-    assert_eq!(key.history_segment(), HistorySegment::StyleCascade);
+    assert_eq!(key.history_segment(), ConcreteHistorySegment::StyleCascade);
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
 
@@ -393,7 +420,7 @@ fn local_relabel_repairs_topology_and_effective_key_seeds() {
         )
         .unwrap();
     let key = compilation
-        .append_effective_key(EffectiveContext::isolated(first.id))
+        .append_effective_key(ConcreteEffectiveContext::isolated(first.id))
         .unwrap();
     let mut tracked = first.id;
     let mut relabeled = false;
@@ -415,7 +442,7 @@ fn local_relabel_repairs_topology_and_effective_key_seeds() {
     assert!(relabeled);
     assert_eq!(
         compilation.effective_key(key).unwrap().history_segment(),
-        HistorySegment::Isolated(tracked)
+        ConcreteHistorySegment::Isolated(tracked)
     );
     assert!(compilation.rule(tracked).is_some());
 }
@@ -575,18 +602,11 @@ fn media_inside_style_splits_ranges_and_preserves_context() {
         unreachable!()
     };
 
-    let key_seed = |rule: RuleId| {
-        let block = radix.rule(rule).unwrap().declaration_block().unwrap();
-        radix
-            .effective_key(radix.declaration_block(block).unwrap().effective_key())
-            .copied()
-            .unwrap()
-    };
-    let outer_seed = key_seed(outer.0);
-    let media_before_seed = key_seed(media_before.0);
-    let nested_seed = key_seed(nested.0);
-    let media_after_seed = key_seed(media_after.0);
-    let outer_after_seed = key_seed(outer_after.0);
+    let outer_seed = effective_key_seed(&radix, outer.0);
+    let media_before_seed = effective_key_seed(&radix, media_before.0);
+    let nested_seed = effective_key_seed(&radix, nested.0);
+    let media_after_seed = effective_key_seed(&radix, media_after.0);
+    let outer_after_seed = effective_key_seed(&radix, outer_after.0);
     assert_eq!(context_representative(&radix, &outer_seed), None);
     assert_eq!(
         selector_representative(&radix, &outer_seed),
@@ -657,27 +677,20 @@ fn supports_wrappers_share_group_topology_without_losing_style_context() {
         Some(outer_style)
     );
 
-    let seed_for = |rule: RuleId| {
-        let block = radix.rule(rule).unwrap().declaration_block().unwrap();
-        radix
-            .effective_key(radix.declaration_block(block).unwrap().effective_key())
-            .copied()
-            .unwrap()
-    };
     assert_eq!(
-        context_representative(&radix, &seed_for(top_style)),
+        context_representative(&radix, &effective_key_seed(&radix, top_style)),
         Some(top_supports)
     );
     assert_eq!(
-        selector_representative(&radix, &seed_for(nested_declarations)),
+        selector_representative(&radix, &effective_key_seed(&radix, nested_declarations)),
         selector_path_for_rule(&radix, outer_style)
     );
     assert_eq!(
-        context_representative(&radix, &seed_for(nested_declarations)),
+        context_representative(&radix, &effective_key_seed(&radix, nested_declarations)),
         Some(nested_supports)
     );
     assert_eq!(
-        context_representative(&radix, &seed_for(trailing_declarations)),
+        context_representative(&radix, &effective_key_seed(&radix, trailing_declarations)),
         None
     );
 
@@ -1482,9 +1495,9 @@ fn non_universal_property_still_requires_an_initial_value() {
     );
 }
 
-fn property_declarations<'a>(
-    compilation: &'a Compilation<'a>,
-) -> std::vec::Vec<&'a Declaration<'a>> {
+fn property_declarations<'comp, 'ast>(
+    compilation: &'comp Compilation<'ast>,
+) -> std::vec::Vec<&'comp Declaration<'ast>> {
     compilation
         .declarations_in_source_order()
         .filter_map(|(_, declaration)| declaration.payload().as_property())

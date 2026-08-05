@@ -184,7 +184,7 @@ struct TombstoneProperties;
 impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for TombstoneProperties {
     fn visit_declaration(
         &mut self,
-        block: rocketcss_ast::radix_ast::DeclarationBlockId,
+        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'a>,
         declaration: rocketcss_ast::radix_ast::DeclarationId,
         cx: &mut rocketcss_ast::radix_ast::CompilationVisitMutContext<'_, 'a>,
     ) {

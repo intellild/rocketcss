@@ -6,7 +6,7 @@ use std::{
 
 use rocketcss_ast::{
     Compilation,
-    radix_ast::{CompilationVisitorMut, MutationError},
+    radix_ast::{CompilationVisitorMut, ConcreteMutationError},
 };
 use rocketcss_common::{Allocator, GhostToken};
 use rustc_hash::FxHashMap;
@@ -170,12 +170,14 @@ impl<'a, 'ghost, V: CompilationVisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlu
     ) -> Result<(), BoxError> {
         compilation
             .visit_compilation_mut(&mut self.visitor)
-            .map_err(|error| Box::new(RadixTraversalError(error)) as BoxError)
+            .map_err(|error| {
+                Box::new(RadixTraversalError(error.erase_arena_lifetime())) as BoxError
+            })
     }
 }
 
 #[derive(Debug)]
-struct RadixTraversalError(MutationError);
+struct RadixTraversalError(ConcreteMutationError<'static>);
 
 impl fmt::Display for RadixTraversalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

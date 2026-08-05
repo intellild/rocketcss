@@ -2,8 +2,9 @@ use rocketcss_visitor::prelude::*;
 
 use rocketcss_ast::radix_ast::{
     Compilation, CompilationVisitMutContext, CompilationVisitor, CompilationVisitorMut,
-    CssRulePayload, DeclarationBlockId, DeclarationBlockOwner, DeclarationId, DeclarationPayload,
-    DeclarationRecord, RuleId, RuleRecord, SelectorValueId,
+    ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId, CssRulePayload,
+    DeclarationBlockOwner, DeclarationId, DeclarationPayload, DeclarationRecord, RuleRecord,
+    SelectorValueId,
 };
 
 fn parse_test_compilation<'a>(allocator: &'a Allocator, source: &'a str) -> Compilation<'a> {
@@ -34,7 +35,7 @@ struct StructuralRecorder {
 impl<'a> CompilationVisitor<'a> for StructuralRecorder {
     fn visit_rule(
         &mut self,
-        _id: RuleId,
+        _id: RuleId<'a>,
         _rule: &RuleRecord<CssRulePayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
@@ -43,8 +44,8 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
 
     fn visit_declaration_block(
         &mut self,
-        _id: DeclarationBlockId,
-        _block: &rocketcss_ast::radix_ast::DeclarationBlockRecord,
+        _id: DeclarationBlockId<'a>,
+        _block: &rocketcss_ast::radix_ast::DeclarationBlockRecord<CssRulePayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
         self.events.push(StructuralEvent::DeclarationBlock);
@@ -52,7 +53,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
 
     fn visit_declaration(
         &mut self,
-        _block: DeclarationBlockId,
+        _block: DeclarationBlockId<'a>,
         _id: DeclarationId,
         _declaration: &DeclarationRecord<DeclarationPayload<'a>>,
         _compilation: &Compilation<'a>,
@@ -62,7 +63,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
 
     fn visit_descriptor(
         &mut self,
-        _block: DeclarationBlockId,
+        _block: DeclarationBlockId<'a>,
         _id: DeclarationId,
         _descriptor: &DeclarationRecord<DeclarationPayload<'a>>,
         _compilation: &Compilation<'a>,
@@ -102,15 +103,15 @@ fn radix_traversal_uses_lexical_rule_and_declaration_order() {
     );
 }
 
-struct RadixRewrite {
-    first_rule: RuleId,
+struct RadixRewrite<'a> {
+    first_rule: RuleId<'a>,
     replacement_selector: SelectorValueId,
     selector_replaced: bool,
     declaration_replaced: bool,
 }
 
-impl<'a> CompilationVisitorMut<'a> for RadixRewrite {
-    fn visit_rule(&mut self, id: RuleId, cx: &mut CompilationVisitMutContext<'_, 'a>) {
+impl<'a> CompilationVisitorMut<'a> for RadixRewrite<'a> {
+    fn visit_rule(&mut self, id: RuleId<'a>, cx: &mut CompilationVisitMutContext<'_, 'a>) {
         if id == self.first_rule {
             self.selector_replaced = cx
                 .replace_rule_selector_value(id, self.replacement_selector)
@@ -120,7 +121,7 @@ impl<'a> CompilationVisitorMut<'a> for RadixRewrite {
 
     fn visit_declaration(
         &mut self,
-        block: DeclarationBlockId,
+        block: DeclarationBlockId<'a>,
         id: DeclarationId,
         cx: &mut CompilationVisitMutContext<'_, 'a>,
     ) {
@@ -202,8 +203,8 @@ struct PanicOnNestedStyle {
     styles_seen: usize,
 }
 
-impl CompilationVisitorMut<'_> for PanicOnNestedStyle {
-    fn visit_rule(&mut self, id: RuleId, cx: &mut CompilationVisitMutContext<'_, '_>) {
+impl<'ast> CompilationVisitorMut<'ast> for PanicOnNestedStyle {
+    fn visit_rule(&mut self, id: RuleId<'ast>, cx: &mut CompilationVisitMutContext<'_, 'ast>) {
         if matches!(
             cx.compilation().rule(id).unwrap().payload(),
             CssRulePayload::Style(_)

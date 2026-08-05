@@ -40,7 +40,7 @@ pub fn try_minify<'ast, 'ghost>(
     compilation: &mut Compilation<'ast>,
     token: &mut GhostToken<'ghost>,
     options: MinifyOptions,
-) -> Result<MinifyStats, radix_ast::MutationError> {
+) -> Result<MinifyStats, radix_ast::ConcreteMutationError<'ast>> {
     let allocator = Allocator::new();
     let cx = MinifyContext::new(options, &allocator);
     let declaration_blocks = rules::DeclarationBlockMinifier::new(&allocator);
@@ -59,9 +59,9 @@ pub fn try_minify<'ast, 'ghost>(
 
     let mut current = compilation.first_rule_in_source();
     while let Some(rule_id) = current {
-        let rule = compilation
-            .rule(rule_id)
-            .ok_or(radix_ast::MutationError::UnknownRule(rule_id))?;
+        let rule = compilation.rule(rule_id).ok_or(
+            radix_ast::ConcreteMutationError::<'ast>::UnknownRule(rule_id),
+        )?;
         current = rule.next_in_source();
         if !rule.is_live() {
             continue;

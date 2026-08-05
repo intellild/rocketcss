@@ -2,7 +2,7 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use divan::{Bencher, black_box, counter::ItemsCount};
-use rocketcss_common::{Allocator, BTreeIndexArena, RadixIndexArena, RadixIndexId};
+use rocketcss_common::{Allocator, BTreeIndexArena, RadixId, RadixIndexArena};
 use std::num::NonZeroU64;
 
 const SIZES: &[usize] = &[256, 4_096, 65_536];
@@ -76,7 +76,7 @@ fn sparse_radix(allocator: &Allocator, len: usize) -> RadixIndexArena<'_, Payloa
 fn sparse_radix_with_ids(
     allocator: &Allocator,
     len: usize,
-) -> (RadixIndexArena<'_, Payload>, Vec<RadixIndexId>) {
+) -> (RadixIndexArena<'_, Payload>, Vec<RadixId<Payload>>) {
     let mut values = radix_with_values(allocator, len);
     let mut ids = Vec::with_capacity(len + sparse_insert_count(len));
     for primary in 0..len {

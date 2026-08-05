@@ -64,7 +64,7 @@ fn run_with_error_recovery(source: &str) -> String {
     })
 }
 
-fn first_rule_id(compilation: &Compilation<'_>) -> radix_ast::RuleId {
+fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .expect("the root rule list remains valid")
@@ -73,7 +73,9 @@ fn first_rule_id(compilation: &Compilation<'_>) -> radix_ast::RuleId {
         .expect("expected at least one rule")
 }
 
-fn first_declaration_block_id(compilation: &Compilation<'_>) -> radix_ast::DeclarationBlockId {
+fn first_declaration_block_id<'ast>(
+    compilation: &Compilation<'ast>,
+) -> radix_ast::ConcreteDeclarationBlockId<'ast> {
     compilation
         .rule(first_rule_id(compilation))
         .and_then(|rule| rule.declaration_block())

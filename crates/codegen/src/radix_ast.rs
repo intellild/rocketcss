@@ -2,9 +2,9 @@
 
 use crate::{prelude::*, rules::NamedProperty};
 use rocketcss_ast::radix_ast::{
-    Compilation, CssRulePayload, DeclarationBlockId, DeclarationPayload, FontFeatureSubrulePayload,
-    PageRulePayload, PropertyRuleDescriptor, PropertyRulePayload, RuleId, RuleListId, RuleListIter,
-    RuleRecord,
+    Compilation, ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId,
+    CssRulePayload, DeclarationPayload, FontFeatureSubrulePayload, PageRulePayload,
+    PropertyRuleDescriptor, PropertyRulePayload, RuleListId, RuleListIter, RuleRecord,
 };
 
 #[derive(Clone, Copy)]
@@ -46,7 +46,7 @@ impl<'ast> std::ops::Deref for RadixWriter<'_, 'ast> {
     }
 }
 
-impl RadixWriter<'_, '_> {
+impl<'ast> RadixWriter<'_, 'ast> {
     fn root_is_empty(&self) -> bool {
         self.rule_list(self.stylesheet().root_rules())
             .is_none_or(|list| list.live_len() == 0)
@@ -87,8 +87,8 @@ impl RadixWriter<'_, '_> {
 
     fn write_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
-        id: RuleId,
-        rule: &RuleRecord<CssRulePayload<'_>>,
+        id: RuleId<'ast>,
+        rule: &RuleRecord<CssRulePayload<'ast>>,
         dest: &mut PrinterT,
         last_semicolon: LastSemicolon,
         cx: &ToCssContext<'_, '_, 'ghost>,
@@ -287,7 +287,7 @@ impl RadixWriter<'_, '_> {
 
     fn write_style_body<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'_>>,
+        rule: &RuleRecord<CssRulePayload<'ast>>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -337,7 +337,7 @@ impl RadixWriter<'_, '_> {
 
     fn write_property_block<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'_>>,
+        rule: &RuleRecord<CssRulePayload<'ast>>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -352,7 +352,7 @@ impl RadixWriter<'_, '_> {
 
     fn write_property_declarations<'ghost, PrinterT: PrinterTrait>(
         &self,
-        block: DeclarationBlockId,
+        block: DeclarationBlockId<'ast>,
         dest: &mut PrinterT,
         last_semicolon: LastSemicolon,
         cx: &ToCssContext<'_, '_, 'ghost>,
@@ -387,7 +387,7 @@ impl RadixWriter<'_, '_> {
 
     fn write_named_property_block<'ghost, PrinterT: PrinterTrait>(
         &self,
-        id: RuleId,
+        id: RuleId<'ast>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
         kind: NamedKind,
@@ -425,7 +425,7 @@ impl RadixWriter<'_, '_> {
 
     fn write_font_feature_subrule<'ghost, PrinterT: PrinterTrait>(
         &self,
-        id: RuleId,
+        id: RuleId<'ast>,
         payload: &FontFeatureSubrulePayload,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
@@ -457,7 +457,7 @@ impl RadixWriter<'_, '_> {
 
     fn write_page_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'_>>,
+        rule: &RuleRecord<CssRulePayload<'ast>>,
         payload: &PageRulePayload<'_>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
@@ -555,7 +555,7 @@ impl RadixWriter<'_, '_> {
 
     fn write_property_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
-        _id: RuleId,
+        _id: RuleId<'ast>,
         payload: &PropertyRulePayload<'_>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
@@ -620,7 +620,7 @@ impl RadixWriter<'_, '_> {
         descriptor
     }
 
-    fn block_is_non_empty(&self, block: DeclarationBlockId) -> bool {
+    fn block_is_non_empty(&self, block: DeclarationBlockId<'ast>) -> bool {
         self.declarations_in_block(block)
             .expect("codegen only reads a validated declaration block")
             .any(|record| {
@@ -629,7 +629,7 @@ impl RadixWriter<'_, '_> {
     }
 }
 
-type VisibleRule<'comp, 'ast> = (RuleId, &'comp RuleRecord<CssRulePayload<'ast>>);
+type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<CssRulePayload<'ast>>);
 
 fn next_visible_rule<'comp, 'ast>(
     compilation: &'comp Compilation<'ast>,
