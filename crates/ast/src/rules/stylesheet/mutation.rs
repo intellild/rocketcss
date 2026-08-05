@@ -1,97 +1,103 @@
 use super::*;
 
 impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
-    fn is_valid_direct_rule_context(&self, context: DirectRuleContext<R>) -> bool {
-        self.rules.get(context.rule).is_some_and(|rule| {
-            rule.live && rule.parent == context.parent && rule.revision == context.revision
-        })
-    }
-
-    /// Finds the preceding live direct rule by walking backward from a known
-    /// source position and climbing out of the previous subtree. This never
-    /// restarts at the parent list's first child.
-    fn previous_direct_rule_before(
-        &self,
-        parent: Option<RuleId<R>>,
-        before: RuleId<R>,
-    ) -> Option<RuleId<R>> {
-        let mut cursor = self.rules.previous_id(before);
-        while let Some(candidate) = cursor {
-            let mut direct = candidate;
-            loop {
-                if Some(direct) == parent {
-                    return None;
-                }
-                let record = self.rules.get(direct)?;
-                if record.parent == parent {
-                    break;
-                }
-                direct = record.parent?;
-            }
-            let record = self.rules.get(direct)?;
-            if record.live {
-                return Some(direct);
-            }
-            cursor = self.rules.previous_id(direct);
-        }
-        None
-    }
-
-    /// Finds the following live direct rule from a known subtree boundary.
-    /// Retired direct subtrees are skipped in place, so work is proportional
-    /// to the local tombstone run rather than the width of the parent list.
-    fn next_direct_rule_after(
-        &self,
-        parent: Option<RuleId<R>>,
-        after: RuleId<R>,
-    ) -> Option<RuleId<R>> {
-        let mut cursor = self.next_after_subtree(after);
-        while let Some(candidate) = cursor {
-            let record = self.rules.get(candidate)?;
-            if record.parent != parent {
-                return None;
-            }
-            if record.live {
-                return Some(candidate);
-            }
-            cursor = record
-                .nested_rule_count
-                .checked_add(1)
-                .and_then(|span| self.rules.advance_id(candidate, span));
-        }
-        None
-    }
-
-    fn direct_rule_edge_between(
-        &self,
-        left: RuleId<R>,
-        right: RuleId<R>,
-    ) -> Option<DirectRuleEdge<R>> {
-        let left_rule = self.rules.get(left)?;
-        let right_rule = self.rules.get(right)?;
-        let parent = left_rule.parent;
-        if !left_rule.live
-            || !right_rule.live
-            || right_rule.parent != parent
-            || self.next_direct_rule_after(parent, left) != Some(right)
-        {
-            return None;
-        }
-        Some(DirectRuleEdge {
-            parent,
-            previous: self.previous_direct_rule_before(parent, left),
-            left,
-            right,
-            next: self.next_direct_rule_after(parent, right),
-            left_revision: left_rule.revision,
-            right_revision: right_rule.revision,
-        })
-    }
-
-    fn push_rule_edge(&self, delta: &mut RuleMutationDelta<R>, left: RuleId<R>, right: RuleId<R>) {
-        let Some(edge) = self.direct_rule_edge_between(left, right) else {
-            return;
+    pub(super) fn is_valid_direct_rule_context(&self, context: DirectRuleContext<R>) -> bool {
+        // Neighbor revisions are carried forward when publishing local edge
+        // contexts, but a mutation on the neighbor's opposite boundary does
+        // not invalidate this position. The current endpoint revision (and
+        // parent revision for nested lists) owns this context's boundaries.
+        let endpoint_is_valid = |id: RuleId<R>, _revision: u32| {
+            self.rules
+                .get(id)
+                .is_some_and(|rule| rule.live && rule.parent == context.parent)
         };
+        let subtree_is_valid = |id: RuleId<R>, expected: RadixRange<RuleRecord<R>>| {
+            self.rules.get(id).is_some_and(|rule| {
+                rule.live && rule.parent == context.parent && rule.subtree_range(id) == expected
+            })
+        };
+        let Some(rule) = self.rules.get(context.rule) else {
+            return false;
+        };
+        let insertion_anchor = if context.bridge.is_empty() {
+            context.subtree.last_id()
+        } else {
+            context.bridge.last_id()
+        };
+        let next_insertion_anchor = context.next_subtree.map(|subtree| {
+            if context.next_bridge.is_empty() {
+                subtree.last_id()
+            } else {
+                context.next_bridge.last_id()
+            }
+        });
+        let following_insertion_anchor = context.following_subtree.map(|subtree| {
+            if context.following_bridge.is_empty() {
+                subtree.last_id()
+            } else {
+                context.following_bridge.last_id()
+            }
+        });
+        if !rule.live
+            || rule.parent != context.parent
+            || rule.revision != context.revision
+            || rule.subtree_range(context.rule) != context.subtree
+            || context.insertion_anchor != insertion_anchor
+            || context.next_insertion_anchor != next_insertion_anchor
+            || context.following_insertion_anchor != following_insertion_anchor
+            || context
+                .next
+                .is_some_and(|next| context.storage_before != Some(next))
+            || context
+                .following
+                .is_some_and(|following| context.next_storage_before != Some(following))
+            || context.after_following.is_some_and(|after_following| {
+                context.following_storage_before != Some(after_following)
+            })
+            || context.previous.is_some() != context.previous_revision.is_some()
+            || context.previous.is_some() != context.previous_subtree.is_some()
+            || context.next.is_some() != context.next_revision.is_some()
+            || context.next.is_some() != context.next_subtree.is_some()
+            || context.following.is_some() != context.following_revision.is_some()
+            || context.following.is_some() != context.following_subtree.is_some()
+            || !context
+                .previous
+                .zip(context.previous_revision)
+                .is_none_or(|(id, revision)| endpoint_is_valid(id, revision))
+            || !context
+                .previous
+                .zip(context.previous_subtree)
+                .is_none_or(|(id, subtree)| subtree_is_valid(id, subtree))
+            || !context
+                .next
+                .zip(context.next_revision)
+                .is_none_or(|(id, revision)| endpoint_is_valid(id, revision))
+            || !context
+                .next
+                .zip(context.next_subtree)
+                .is_none_or(|(id, subtree)| subtree_is_valid(id, subtree))
+            || !context
+                .following
+                .zip(context.following_revision)
+                .is_none_or(|(id, revision)| endpoint_is_valid(id, revision))
+            || !context
+                .following
+                .zip(context.following_subtree)
+                .is_none_or(|(id, subtree)| subtree_is_valid(id, subtree))
+        {
+            return false;
+        }
+        match (context.parent, context.parent_revision) {
+            (Some(parent), Some(revision)) => self
+                .rules
+                .get(parent)
+                .is_some_and(|rule| rule.live && rule.revision == revision),
+            (None, None) => true,
+            _ => false,
+        }
+    }
+
+    fn push_rule_edge(delta: &mut RuleMutationDelta<R>, edge: DirectRuleEdge<R>) {
         if delta
             .new_edges
             .iter()
@@ -108,17 +114,116 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         *slot = Some(edge);
     }
 
-    pub(super) fn incident_rule_edges(&self, rule: RuleId<R>) -> RuleMutationDelta<R> {
-        let mut delta = RuleMutationDelta::empty();
-        let Some(record) = self.rules.get(rule).filter(|record| record.live) else {
-            return delta;
-        };
-        let parent = record.parent;
-        if let Some(previous) = self.previous_direct_rule_before(parent, rule) {
-            self.push_rule_edge(&mut delta, previous, rule);
+    fn rule_edge(
+        left_context: DirectRuleContext<R>,
+        right_context: DirectRuleContext<R>,
+    ) -> DirectRuleEdge<R> {
+        debug_assert_eq!(left_context.next, Some(right_context.rule));
+        debug_assert_eq!(left_context.next_revision, Some(right_context.revision));
+        DirectRuleEdge {
+            context: left_context,
         }
-        if let Some(next) = self.next_direct_rule_after(parent, rule) {
-            self.push_rule_edge(&mut delta, rule, next);
+    }
+
+    pub(super) fn local_rule_edges(&self, context: DirectRuleContext<R>) -> RuleMutationDelta<R> {
+        let mut delta = RuleMutationDelta::empty();
+        if let (Some(previous), Some(subtree)) = (context.previous, context.previous_subtree) {
+            let revision = self
+                .rules
+                .get(previous)
+                .expect("a validated previous direct rule remains resolvable")
+                .revision;
+            let previous_context = DirectRuleContext {
+                parent: context.parent,
+                parent_revision: context.parent_revision,
+                before_previous: None,
+                before_previous_revision: None,
+                previous: context.before_previous,
+                previous_revision: context.before_previous_revision,
+                rule: previous,
+                next: Some(context.rule),
+                next_revision: Some(context.revision),
+                following: context.next,
+                following_revision: context.next_revision,
+                after_following: context.following,
+                after_following_revision: context.following_revision,
+                revision,
+                before_previous_subtree: None,
+                previous_incoming_bridge: RadixRange::empty(),
+                previous_subtree: context.before_previous_subtree,
+                incoming_bridge: context.previous_incoming_bridge,
+                subtree,
+                bridge: context.incoming_bridge,
+                insertion_anchor: if context.incoming_bridge.is_empty() {
+                    subtree.last_id()
+                } else {
+                    context.incoming_bridge.last_id()
+                },
+                storage_before: Some(context.rule),
+                next_subtree: Some(context.subtree),
+                next_bridge: context.bridge,
+                next_insertion_anchor: Some(context.insertion_anchor),
+                next_storage_before: context.storage_before,
+                following_subtree: context.next_subtree,
+                following_bridge: context.next_bridge,
+                following_insertion_anchor: context.next_insertion_anchor,
+                following_storage_before: context.next_storage_before,
+                after_following_subtree: context.following_subtree,
+            };
+            Self::push_rule_edge(&mut delta, Self::rule_edge(previous_context, context));
+        }
+        if let (Some(next), Some(subtree), Some(insertion_anchor)) = (
+            context.next,
+            context.next_subtree,
+            context.next_insertion_anchor,
+        ) {
+            let revision = self
+                .rules
+                .get(next)
+                .expect("a validated next direct rule remains resolvable")
+                .revision;
+            let next_context = DirectRuleContext {
+                parent: context.parent,
+                parent_revision: context.parent_revision,
+                before_previous: context.previous,
+                before_previous_revision: context.previous_revision,
+                previous: Some(context.rule),
+                previous_revision: Some(context.revision),
+                rule: next,
+                next: context.following,
+                next_revision: context.following_revision,
+                following: context.after_following,
+                following_revision: context.after_following_revision,
+                after_following: None,
+                after_following_revision: None,
+                revision,
+                before_previous_subtree: context.previous_subtree,
+                previous_incoming_bridge: context.incoming_bridge,
+                previous_subtree: Some(context.subtree),
+                incoming_bridge: context.bridge,
+                subtree,
+                bridge: context.next_bridge,
+                insertion_anchor,
+                storage_before: context.next_storage_before,
+                next_subtree: context.following_subtree,
+                next_bridge: RadixRange::empty(),
+                next_insertion_anchor: context.following_subtree.map(|range| range.last_id()),
+                next_storage_before: context.after_following,
+                following_subtree: context.after_following.and_then(|following| {
+                    self.rules
+                        .get(following)
+                        .map(|rule| rule.subtree_range(following))
+                }),
+                following_bridge: RadixRange::empty(),
+                following_insertion_anchor: context.after_following.and_then(|following| {
+                    self.rules
+                        .get(following)
+                        .map(|rule| rule.subtree_range(following).last_id())
+                }),
+                following_storage_before: None,
+                after_following_subtree: None,
+            };
+            Self::push_rule_edge(&mut delta, Self::rule_edge(context, next_context));
         }
         delta
     }
@@ -126,14 +231,14 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     /// Reclassifies the current incident edges of one iterator-produced rule
     /// position after a non-structural declaration change.
     #[doc(hidden)]
-    pub fn rule_incident_edges(
+    pub fn rule_edges_at_context(
         &self,
         context: DirectRuleContext<R>,
     ) -> Result<RuleMutationDelta<R>, MutationError<R>> {
         if !self.is_valid_direct_rule_context(context) {
             return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
         }
-        Ok(self.incident_rule_edges(context.rule))
+        Ok(self.local_rule_edges(context))
     }
 }
 
@@ -155,45 +260,26 @@ where
         if !self.is_valid_direct_rule_context(context) {
             return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
         }
-        let after = context.rule;
-        let after_record = self
+        let parent = context.parent;
+        let direct_before = context.next;
+        if !self
             .rules
-            .get(after)
-            .ok_or(MutationError::<R>::UnknownRule(after))?;
-        if !after_record.live {
-            return Err(MutationError::<R>::RetiredRule(after));
-        }
-        let parent = after_record.parent;
-        let direct_before = self.next_direct_rule_after(parent, after);
-
-        let logical_tail = self
-            .subtree_tail(after)
-            .ok_or(MutationError::<R>::InvalidRuleTopology(after))?;
-        let storage_before =
-            direct_before.or_else(|| parent.and_then(|parent| self.next_after_subtree(parent)));
-        let mut anchor = logical_tail;
-        loop {
-            let next = self.rules.next_id(anchor);
-            if next == storage_before {
-                break;
-            }
-            let next = next.ok_or(MutationError::<R>::InvalidRuleTopology(after))?;
-            if self.rules.get(next).is_none_or(|rule| rule.live) {
-                return Err(MutationError::<R>::InvalidRuleTopology(after));
-            }
-            anchor = next;
-        }
-        if !self.rules.can_insert_between(anchor, storage_before) {
-            return Err(MutationError::<R>::LocalRuleCapacityExhausted(anchor));
+            .can_insert_between(context.insertion_anchor, context.storage_before)
+        {
+            return Err(MutationError::<R>::LocalRuleCapacityExhausted(
+                context.insertion_anchor,
+            ));
         }
 
+        self.authored_declaration_append = None;
         let result = self.rules.insert_between(
-            anchor,
-            storage_before,
+            context.insertion_anchor,
+            context.storage_before,
             RuleRecord {
                 payload,
                 parent,
                 nested_rule_count: 0,
+                subtree_last: None,
                 declaration_block: None,
                 revision: 0,
                 live: true,
@@ -201,9 +287,11 @@ where
         );
         self.repair_rule_id_remaps(&result.remaps);
 
-        let after = remap_rule_id(after, &result.remaps);
+        let context = context.remapped_with(|id| remap_rule_id(id, &result.remaps));
+        let after = context.rule;
         let direct_before = direct_before.map(|id| remap_rule_id(id, &result.remaps));
         let parent = parent.map(|id| remap_rule_id(id, &result.remaps));
+        let inserted = result.id;
         let mut ancestor = parent;
         while let Some(id) = ancestor {
             let rule = self
@@ -211,6 +299,10 @@ where
                 .get_mut(id)
                 .expect("an insertion ancestor remains resolvable after ID repair");
             rule.nested_rule_count += 1;
+            if rule.subtree_last.unwrap_or(id) == context.insertion_anchor {
+                rule.subtree_last = Some(inserted);
+            }
+            rule.revision = rule.revision.wrapping_add(1);
             ancestor = rule.parent;
         }
 
@@ -237,16 +329,225 @@ where
                 .revision = revision;
         }
 
-        let inserted = result.id;
+        let parent_revision = parent.map(|parent| {
+            self.rules
+                .get(parent)
+                .expect("the insertion parent remains resolvable")
+                .revision
+        });
+        let after_revision = self
+            .rules
+            .get(after)
+            .expect("the insertion predecessor remains resolvable")
+            .revision;
+        let before_revision = direct_before.map(|before| {
+            self.rules
+                .get(before)
+                .expect("the insertion successor remains resolvable")
+                .revision
+        });
+        let inserted_subtree = RadixRange::singleton(inserted);
+        let mut after_context = context;
+        after_context.parent = parent;
+        after_context.parent_revision = parent_revision;
+        after_context.revision = after_revision;
+        after_context.next = Some(inserted);
+        after_context.next_revision = Some(0);
+        after_context.following = direct_before;
+        after_context.following_revision = before_revision;
+        after_context.after_following = context.following;
+        after_context.after_following_revision = context.following_revision;
+        after_context.storage_before = Some(inserted);
+        after_context.next_subtree = Some(inserted_subtree);
+        after_context.next_bridge = RadixRange::empty();
+        after_context.next_insertion_anchor = Some(inserted);
+        after_context.next_storage_before = context.storage_before;
+        after_context.following_subtree = context.next_subtree;
+        after_context.following_bridge = context.next_bridge;
+        after_context.following_insertion_anchor = context.next_insertion_anchor;
+        after_context.following_storage_before = context.next_storage_before;
+        after_context.after_following_subtree = context.following_subtree;
+
+        let inserted_context = DirectRuleContext {
+            parent,
+            parent_revision,
+            before_previous: context.previous,
+            before_previous_revision: context.previous_revision,
+            previous: Some(after),
+            previous_revision: Some(after_revision),
+            rule: inserted,
+            next: direct_before,
+            next_revision: before_revision,
+            following: context.following,
+            following_revision: context.following_revision,
+            after_following: context.after_following,
+            after_following_revision: context.after_following_revision,
+            revision: 0,
+            before_previous_subtree: context.previous_subtree,
+            previous_incoming_bridge: context.incoming_bridge,
+            previous_subtree: Some(context.subtree),
+            incoming_bridge: context.bridge,
+            subtree: inserted_subtree,
+            bridge: RadixRange::empty(),
+            insertion_anchor: inserted,
+            storage_before: context.storage_before,
+            next_subtree: context.next_subtree,
+            next_bridge: context.next_bridge,
+            next_insertion_anchor: context.next_insertion_anchor,
+            next_storage_before: context.next_storage_before,
+            following_subtree: context.following_subtree,
+            following_bridge: context.following_bridge,
+            following_insertion_anchor: context.following_insertion_anchor,
+            following_storage_before: context.following_storage_before,
+            after_following_subtree: context.after_following_subtree,
+        };
+
         let mut delta = RuleMutationDelta::empty();
-        if let Some(previous) = self.previous_direct_rule_before(parent, after) {
-            self.push_rule_edge(&mut delta, previous, after);
+        if let (Some(previous), Some(previous_revision), Some(previous_subtree)) = (
+            context.previous,
+            context.previous_revision,
+            context.previous_subtree,
+        ) {
+            let previous_context = DirectRuleContext {
+                parent,
+                parent_revision,
+                before_previous: None,
+                before_previous_revision: None,
+                previous: context.before_previous,
+                previous_revision: context.before_previous_revision,
+                rule: previous,
+                next: Some(after),
+                next_revision: Some(after_revision),
+                following: Some(inserted),
+                following_revision: Some(0),
+                after_following: direct_before,
+                after_following_revision: before_revision,
+                revision: previous_revision,
+                before_previous_subtree: None,
+                previous_incoming_bridge: RadixRange::empty(),
+                previous_subtree: context.before_previous_subtree,
+                incoming_bridge: context.previous_incoming_bridge,
+                subtree: previous_subtree,
+                bridge: context.incoming_bridge,
+                insertion_anchor: if context.incoming_bridge.is_empty() {
+                    previous_subtree.last_id()
+                } else {
+                    context.incoming_bridge.last_id()
+                },
+                storage_before: Some(after),
+                next_subtree: Some(context.subtree),
+                next_bridge: context.bridge,
+                next_insertion_anchor: Some(context.insertion_anchor),
+                next_storage_before: Some(inserted),
+                following_subtree: Some(inserted_subtree),
+                following_bridge: RadixRange::empty(),
+                following_insertion_anchor: Some(inserted),
+                following_storage_before: context.storage_before,
+                after_following_subtree: context.next_subtree,
+            };
+            Self::push_rule_edge(&mut delta, Self::rule_edge(previous_context, after_context));
         }
-        self.push_rule_edge(&mut delta, after, inserted);
-        if let Some(following) = self.next_direct_rule_after(parent, inserted) {
-            self.push_rule_edge(&mut delta, inserted, following);
-            if let Some(next) = self.next_direct_rule_after(parent, following) {
-                self.push_rule_edge(&mut delta, following, next);
+        Self::push_rule_edge(&mut delta, Self::rule_edge(after_context, inserted_context));
+        if let (Some(before), Some(revision), Some(subtree), Some(insertion_anchor)) = (
+            direct_before,
+            before_revision,
+            context.next_subtree,
+            context.next_insertion_anchor,
+        ) {
+            let before_context = DirectRuleContext {
+                parent,
+                parent_revision,
+                before_previous: Some(after),
+                before_previous_revision: Some(after_revision),
+                previous: Some(inserted),
+                previous_revision: Some(0),
+                rule: before,
+                next: context.following,
+                next_revision: context.following_revision,
+                following: context.after_following,
+                following_revision: context.after_following_revision,
+                after_following: None,
+                after_following_revision: None,
+                revision,
+                before_previous_subtree: Some(context.subtree),
+                previous_incoming_bridge: context.bridge,
+                previous_subtree: Some(inserted_subtree),
+                incoming_bridge: RadixRange::empty(),
+                subtree,
+                bridge: context.next_bridge,
+                insertion_anchor,
+                storage_before: context.next_storage_before,
+                next_subtree: context.following_subtree,
+                next_bridge: RadixRange::empty(),
+                next_insertion_anchor: context.following_subtree.map(|range| range.last_id()),
+                next_storage_before: context.after_following,
+                following_subtree: context
+                    .after_following
+                    .and_then(|id| self.rules.get(id).map(|rule| rule.subtree_range(id))),
+                following_bridge: RadixRange::empty(),
+                following_insertion_anchor: context.after_following.and_then(|id| {
+                    self.rules
+                        .get(id)
+                        .map(|rule| rule.subtree_range(id).last_id())
+                }),
+                following_storage_before: None,
+                after_following_subtree: None,
+            };
+            Self::push_rule_edge(
+                &mut delta,
+                Self::rule_edge(inserted_context, before_context),
+            );
+            if let (Some(following), Some(following_subtree)) =
+                (context.following, context.following_subtree)
+            {
+                let following_revision = self
+                    .rules
+                    .get(following)
+                    .expect("a validated following direct rule remains resolvable")
+                    .revision;
+                let following_context = DirectRuleContext {
+                    parent,
+                    parent_revision,
+                    before_previous: Some(inserted),
+                    before_previous_revision: Some(0),
+                    previous: Some(before),
+                    previous_revision: Some(revision),
+                    rule: following,
+                    next: context.after_following,
+                    next_revision: context.after_following_revision,
+                    following: None,
+                    following_revision: None,
+                    after_following: None,
+                    after_following_revision: None,
+                    revision: following_revision,
+                    before_previous_subtree: Some(inserted_subtree),
+                    previous_incoming_bridge: RadixRange::empty(),
+                    previous_subtree: Some(subtree),
+                    incoming_bridge: context.next_bridge,
+                    subtree: following_subtree,
+                    bridge: RadixRange::empty(),
+                    insertion_anchor: following_subtree.last_id(),
+                    storage_before: context.after_following,
+                    next_subtree: context
+                        .after_following
+                        .and_then(|id| self.rules.get(id).map(|rule| rule.subtree_range(id))),
+                    next_bridge: RadixRange::empty(),
+                    next_insertion_anchor: context.after_following.and_then(|id| {
+                        self.rules
+                            .get(id)
+                            .map(|rule| rule.subtree_range(id).last_id())
+                    }),
+                    next_storage_before: None,
+                    following_subtree: None,
+                    following_bridge: RadixRange::empty(),
+                    following_insertion_anchor: None,
+                    following_storage_before: None,
+                    after_following_subtree: None,
+                };
+                Self::push_rule_edge(
+                    &mut delta,
+                    Self::rule_edge(before_context, following_context),
+                );
             }
         }
         Ok(InsertedRule {
@@ -261,6 +562,7 @@ where
         }
         self.rules.for_each_enumerated_mut(|_, rule| {
             rule.parent = rule.parent.map(|id| remap_rule_id(id, remaps));
+            rule.subtree_last = rule.subtree_last.map(|id| remap_rule_id(id, remaps));
             rule.payload.remap_rule_ids(remaps);
         });
 
@@ -303,19 +605,20 @@ where
         &self,
         edge: DirectRuleEdge<R>,
     ) -> Result<DeclarationBlockId<R>, MutationError<R>> {
-        let after = edge.left;
-        let before_or_at = edge.right;
+        let after = edge.left();
+        let before_or_at = edge.right();
         self.rules
             .get(before_or_at)
             .ok_or(MutationError::<R>::UnknownRule(before_or_at))?;
         if !self.is_valid_direct_rule_edge(edge) {
             return Err(MutationError::<R>::InvalidRuleTopology(after));
         }
-        let tail = self
-            .subtree_tail(after)
+        let bridge = edge.left_context().bridge;
+        let bridge_ids = self
+            .rules
+            .ids_in_range(bridge)
             .ok_or(MutationError::<R>::InvalidRuleTopology(after))?;
-        let mut current = self.rules.next_id(tail);
-        while let Some(rule) = current {
+        for rule in bridge_ids.chain(std::iter::once(before_or_at)) {
             let record = self
                 .rules
                 .get(rule)
@@ -323,24 +626,18 @@ where
             if let Some(block) = record.declaration_block {
                 return Ok(block);
             }
-            if rule == before_or_at {
-                break;
-            }
-            current = self.rules.next_id(rule);
         }
         Err(MutationError::<R>::InvalidRuleTopology(after))
     }
 
-    /// Inserts one synthesized rule and its declaration block as a single
-    /// preflighted AST transaction.
-    ///
-    /// `before_or_at` bounds the source-order search for the next block. The
-    /// caller supplies semantic rule/block endpoints; physical subtree and
-    /// tombstone placement stays private to the AST.
+    /// Context-consuming S3 transaction that inserts one synthesized rule and
+    /// declaration block without rediscovering declaration-block or
+    /// declaration gaps.
+    #[doc(hidden)]
     pub fn insert_rule_with_declaration_block_after(
         &mut self,
         edge: DirectRuleEdge<R>,
-        after_block: DeclarationBlockId<R>,
+        append: DeclarationAppendContext<R>,
         payload: R,
         effective_key: EffectiveKeyId,
         additional_declarations: usize,
@@ -348,14 +645,28 @@ where
         if self.effective_keys.try_get(effective_key).is_none() {
             return Err(MutationError::<R>::UnknownEffectiveKey(effective_key));
         }
+        let after_block = append.block();
+        let block = self
+            .declaration_blocks
+            .get(after_block)
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(after_block))?;
+        if !block.live
+            || block.revision != append.position.revision
+            || block.declarations != append.position.declarations
+        {
+            return Err(MutationError::<R>::NonContiguousDeclarationRange(
+                after_block,
+            ));
+        }
         let before_block = self.first_declaration_block_after_rule(edge)?;
+        if append.position.next != Some(before_block) {
+            return Err(MutationError::<R>::InvalidRuleTopology(edge.left()));
+        }
         let additional_declarations = u32::try_from(additional_declarations)
             .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
-        let (after_declaration, before_declaration) =
-            self.declaration_neighbors_at_block_end(after_block)?;
         if !self.can_insert_declaration_range_between(
-            after_declaration,
-            before_declaration,
+            append.after,
+            append.before,
             additional_declarations,
         ) {
             return Err(MutationError::<R>::DeclarationCapacityExhausted);
@@ -376,52 +687,32 @@ where
             inserted.rule.id,
             effective_key,
         )?;
+        let append = append.remapped(&declaration_block.remaps);
+        let declaration_append = DeclarationAppendContext {
+            position: DeclarationBlockPosition {
+                order: append.position.order.wrapping_add(1),
+                previous: Some(append.position.block),
+                block: declaration_block.id,
+                next: append.position.next,
+                revision: 0,
+                live: true,
+                declarations: DeclarationList::empty(),
+                previous_non_empty_tail: append.after,
+                next_non_empty_start: append.before,
+            },
+            after: append.after,
+            before: append.before,
+        };
         Ok(InsertedRuleWithDeclarationBlock {
             rule: inserted.rule,
             declaration_block,
+            declaration_append,
             delta: inserted.delta,
         })
     }
 }
 
 impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
-    fn declaration_neighbors_at_block_end(
-        &self,
-        target: DeclarationBlockId<R>,
-    ) -> Result<(Option<DeclarationId>, Option<DeclarationId>), MutationError<R>> {
-        let mut previous = None;
-        let mut found = false;
-        for (block_id, block) in self.declaration_blocks.iter_enumerated() {
-            if block_id == target {
-                found = true;
-                if !block.declarations.is_empty() {
-                    previous = Some(
-                        self.declarations
-                            .last_id(block.declarations)
-                            .ok_or(MutationError::<R>::NonContiguousDeclarationRange(target))?,
-                    );
-                }
-                continue;
-            }
-            if block.declarations.is_empty() {
-                continue;
-            }
-            if found {
-                return Ok((previous, Some(block.declarations.start_id())));
-            }
-            previous = Some(
-                self.declarations
-                    .last_id(block.declarations)
-                    .ok_or(MutationError::<R>::NonContiguousDeclarationRange(block_id))?,
-            );
-        }
-        if found {
-            Ok((previous, None))
-        } else {
-            Err(MutationError::<R>::UnknownDeclarationBlock(target))
-        }
-    }
-
     fn can_insert_declaration_range_between(
         &self,
         after: Option<DeclarationId>,
@@ -443,6 +734,38 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         }
     }
 
+    /// Refreshes the current block-local portion of an append cursor after a
+    /// payload-only declaration or effective-key mutation.
+    #[doc(hidden)]
+    pub fn refresh_declaration_append_context(
+        &self,
+        context: DeclarationAppendContext<R>,
+    ) -> Result<DeclarationAppendContext<R>, MutationError<R>> {
+        let block = context.position.block;
+        let record = self
+            .declaration_blocks
+            .get(block)
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?;
+        if !record.live {
+            return Err(MutationError::<R>::UnknownDeclarationBlock(block));
+        }
+        let after = if record.declarations.is_empty() {
+            context.position.previous_non_empty_tail
+        } else {
+            Some(record.declarations.last_id())
+        };
+        Ok(DeclarationAppendContext {
+            position: DeclarationBlockPosition {
+                revision: record.revision,
+                live: record.live,
+                declarations: record.declarations,
+                ..context.position
+            },
+            after,
+            before: context.before,
+        })
+    }
+
     /// Inserts a complete transformed declaration batch at the semantic end of
     /// `block`. The batch is preflighted before the declaration arena or block
     /// range is changed, and no existing declaration ID is relabeled.
@@ -455,9 +778,26 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         Values: IntoIterator<Item = (D, bool)>,
         Values::IntoIter: ExactSizeIterator,
     {
+        let context = self.declaration_append_context(block)?;
+        self.insert_transformed_declarations_with_context(context, declarations)
+            .map(|_| ())
+    }
+
+    /// Context-consuming form used by local mutation schedulers.
+    #[doc(hidden)]
+    pub fn insert_transformed_declarations_with_context<Values>(
+        &mut self,
+        context: DeclarationAppendContext<R>,
+        declarations: Values,
+    ) -> Result<DeclarationAppendContext<R>, MutationError<R>>
+    where
+        Values: IntoIterator<Item = (D, bool)>,
+        Values::IntoIter: ExactSizeIterator,
+    {
         let declarations = declarations.into_iter();
         let len = u32::try_from(declarations.len())
             .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
+        let block = context.position.block;
         let block_record = self
             .declaration_blocks
             .get(block)
@@ -465,21 +805,27 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         if !block_record.live {
             return Err(MutationError::<R>::UnknownDeclarationBlock(block));
         }
+        if block_record.revision != context.position.revision
+            || block_record.declarations != context.position.declarations
+        {
+            return Err(MutationError::<R>::NonContiguousDeclarationRange(block));
+        }
         if len == 0 {
-            return Ok(());
+            return Ok(context);
         }
         let existing = block_record.declarations;
         let revision = block_record.revision.wrapping_add(len);
-        let (after, before) = self.declaration_neighbors_at_block_end(block)?;
-        if !self.can_insert_declaration_range_between(after, before, len) {
+        if !self.can_insert_declaration_range_between(context.after, context.before, len) {
             return Err(MutationError::<R>::DeclarationCapacityExhausted);
         }
         let records =
             declarations.map(|(payload, important)| DeclarationRecord { payload, important });
-        let inserted = match after {
-            Some(after) => self
-                .declarations
-                .insert_stable_range_between(after, before, records),
+        self.authored_declaration_append = None;
+        let inserted = match context.after {
+            Some(after) => {
+                self.declarations
+                    .insert_stable_range_between(after, context.before, records)
+            }
             None => self.declarations.push_primary_range(records),
         };
         let block = self
@@ -490,10 +836,19 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             block.declarations = inserted;
         } else {
             debug_assert_eq!(block.declarations, existing);
-            block.declarations.extend_by(len);
+            block.declarations.extend(inserted);
         }
         block.revision = revision;
-        Ok(())
+        Ok(DeclarationAppendContext {
+            position: DeclarationBlockPosition {
+                revision,
+                declarations: block.declarations,
+                previous_non_empty_tail: Some(block.declarations.last_id()),
+                ..context.position
+            },
+            after: Some(block.declarations.last_id()),
+            before: context.before,
+        })
     }
 
     /// Inserts a synthesized declaration block at its final semantic block ID
@@ -524,6 +879,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             ));
         }
 
+        self.authored_declaration_append = None;
         let result = self.declaration_blocks.insert_between(
             after,
             before,
@@ -567,10 +923,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             return Err(MutationError::<R>::UnknownDeclarationBlock(block));
         }
         let revision = block_record.revision.wrapping_add(1);
-        if !self
-            .declaration_ids_in_block(block)?
-            .any(|candidate| candidate == declaration)
-        {
+        if !block_record.declarations.contains(declaration) {
             return Err(MutationError::<R>::UnknownDeclaration(declaration));
         }
         let record = self
@@ -589,17 +942,18 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     /// and retires the left rule in the same transaction.
     ///
     /// Semantic callers must additionally decide whether these rule kinds are
-    /// mergeable. This storage transaction proves adjacency, equal AST-owned
-    /// EffectiveKeys, unique block ownership, and contiguous ranges before it
-    /// publishes any mutation. Retired source-order blocks between the live
-    /// endpoints are absorbed as well; semantic callers are responsible for
-    /// retiring those owners only after all of their occurrences are dead.
+    /// mergeable. This storage transaction uses the edge's already-proven
+    /// source bridge to preserve declaration-block order, and validates equal
+    /// AST-owned EffectiveKeys and unique block ownership before it publishes
+    /// any mutation. Retired source-order blocks between the live endpoints
+    /// are absorbed as well; semantic callers are responsible for retiring
+    /// those owners only after all of their occurrences are dead.
     pub fn merge_adjacent_rule_declaration_blocks(
         &mut self,
         edge: DirectRuleEdge<R>,
     ) -> Result<MergedAdjacentRuleBlocks<R>, MutationError<R>> {
-        let left = edge.left;
-        let right = edge.right;
+        let left = edge.left();
+        let right = edge.right();
         if !self.is_valid_direct_rule_edge(edge) {
             return Err(MutationError::<R>::InvalidRuleTopology(left));
         }
@@ -624,18 +978,21 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             return Err(MutationError::<R>::InvalidRuleTopology(left));
         }
         let mut bridge_blocks = std::vec::Vec::new();
-        let mut source_cursor = self.rules.next_id(left);
-        while source_cursor != Some(right) {
-            let source_rule = source_cursor
-                .and_then(|id| self.rules.get(id).map(|rule| (id, rule)))
+        let bridge_ids = self
+            .rules
+            .ids_in_range(edge.left_context().bridge)
+            .ok_or(MutationError::<R>::InvalidRuleTopology(left))?;
+        for source_id in bridge_ids {
+            let source_rule = self
+                .rules
+                .get(source_id)
                 .ok_or(MutationError::<R>::InvalidRuleTopology(left))?;
-            if source_rule.1.live {
-                return Err(MutationError::<R>::InvalidRuleTopology(source_rule.0));
+            if source_rule.live {
+                return Err(MutationError::<R>::InvalidRuleTopology(source_id));
             }
-            if let Some(block) = source_rule.1.declaration_block {
+            if let Some(block) = source_rule.declaration_block {
                 bridge_blocks.push(block);
             }
-            source_cursor = self.rules.next_id(source_rule.0);
         }
         let left_block_id = left_rule
             .declaration_block
@@ -661,25 +1018,17 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         }
         let effective_key = left_block.effective_key;
         let mut merged_declarations = DeclarationList::empty();
-        let mut previous_non_empty = None;
-        let mut merge_range = |block_id: DeclarationBlockId<R>, range: DeclarationList| {
+        let mut merge_range = |range: DeclarationList| {
             if range.is_empty() {
-                return Ok(());
-            }
-            if let Some(previous) = previous_non_empty
-                && !self.declarations.ranges_are_adjacent(previous, range)
-            {
-                return Err(MutationError::<R>::NonContiguousDeclarationRange(block_id));
+                return;
             }
             if merged_declarations.is_empty() {
                 merged_declarations = range;
             } else {
-                merged_declarations.extend_by(range.len());
+                merged_declarations.extend(range);
             }
-            previous_non_empty = Some(range);
-            Ok(())
         };
-        merge_range(left_block_id, left_block.declarations)?;
+        merge_range(left_block.declarations);
         for &bridge in &bridge_blocks {
             let bridge_block = self
                 .declaration_blocks
@@ -688,9 +1037,9 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             if bridge_block.live {
                 return Err(MutationError::<R>::InvalidRuleTopology(left));
             }
-            merge_range(bridge, bridge_block.declarations)?;
+            merge_range(bridge_block.declarations);
         }
-        merge_range(right_block_id, right_block.declarations)?;
+        merge_range(right_block.declarations);
 
         self.retire_rule(edge.left_context())?;
         self.declaration_blocks
@@ -711,12 +1060,18 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             .expect("the retained block was validated before commit");
         retained_block.declarations = merged_declarations;
         retained_block.revision = retained_block.revision.wrapping_add(1);
-        let retained_rule = self
-            .rules
-            .get_mut(right)
-            .expect("the retained rule was validated before commit");
-        retained_rule.revision = retained_rule.revision.wrapping_add(1);
-        let delta = self.incident_rule_edges(right);
+        let left_context = edge.left_context();
+        let mut right_context = edge.right_context();
+        let mut incoming_bridge = left_context.incoming_bridge;
+        incoming_bridge.extend(left_context.subtree);
+        incoming_bridge.extend(left_context.bridge);
+        right_context.before_previous = left_context.before_previous;
+        right_context.before_previous_revision = left_context.before_previous_revision;
+        right_context.previous = left_context.previous;
+        right_context.previous_revision = left_context.previous_revision;
+        right_context.previous_subtree = left_context.previous_subtree;
+        right_context.incoming_bridge = incoming_bridge;
+        let delta = self.local_rule_edges(right_context);
 
         Ok(MergedAdjacentRuleBlocks::<R> {
             retired_rule: left,
@@ -738,7 +1093,26 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         &mut self,
         context: DirectRuleContext<R>,
     ) -> Result<RetiredRule<R>, MutationError<R>> {
+        self.retire_rule_with_captured_successor(context, None)
+    }
+
+    /// Retires one rule while reusing the next full position captured by the
+    /// same direct-list pass. A non-adjacent captured position is ignored;
+    /// batch clients can therefore pass their next affected position without
+    /// rediscovering whether unaffected rules lie between them.
+    #[doc(hidden)]
+    pub fn retire_rule_with_captured_successor(
+        &mut self,
+        context: DirectRuleContext<R>,
+        captured_successor: Option<DirectRuleContext<R>>,
+    ) -> Result<RetiredRule<R>, MutationError<R>> {
         if !self.is_valid_direct_rule_context(context) {
+            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
+        }
+        let captured_successor =
+            captured_successor.filter(|successor| context.next == Some(successor.rule));
+        if captured_successor.is_some_and(|successor| !self.is_valid_direct_rule_context(successor))
+        {
             return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
         }
         let id = context.rule;
@@ -752,9 +1126,8 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         if self.has_nested_rules(id)? {
             return Err(MutationError::<R>::RuleHasChildren(id));
         }
-        let parent = rule.parent;
-        let previous = self.previous_direct_rule_before(parent, id);
-        let next = self.next_direct_rule_after(parent, id);
+        let previous = context.previous;
+        let next = context.next;
         let declaration_block = rule.declaration_block;
         if declaration_block.is_some_and(|block| {
             self.declaration_blocks.get(block).is_none_or(|block| {
@@ -778,14 +1151,167 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             block.live = false;
             block.revision = block.revision.wrapping_add(1);
         }
+        let previous_revision = previous.map(|previous| {
+            self.rules
+                .get(previous)
+                .expect("a validated previous direct rule remains resolvable")
+                .revision
+        });
+        let next_revision = next.map(|next| {
+            self.rules
+                .get(next)
+                .expect("a validated next direct rule remains resolvable")
+                .revision
+        });
+        let successor_context = match (next, next_revision) {
+            (Some(next), Some(revision)) => {
+                let mut incoming_bridge = context.incoming_bridge;
+                incoming_bridge.extend(context.subtree);
+                incoming_bridge.extend(context.bridge);
+                let previous_incoming_bridge = if previous.is_some() {
+                    context.previous_incoming_bridge
+                } else {
+                    RadixRange::empty()
+                };
+                let successor = if let Some(successor) = captured_successor {
+                    DirectRuleContext {
+                        before_previous: previous.and(context.before_previous),
+                        before_previous_revision: previous.and(context.before_previous_revision),
+                        previous,
+                        previous_revision,
+                        before_previous_subtree: previous.and(context.before_previous_subtree),
+                        previous_incoming_bridge,
+                        previous_subtree: previous.and(context.previous_subtree),
+                        incoming_bridge,
+                        ..successor
+                    }
+                } else {
+                    let subtree = context.next_subtree.unwrap_or_else(|| {
+                        self.rules
+                            .get(next)
+                            .expect("a validated next direct rule remains resolvable")
+                            .subtree_range(next)
+                    });
+                    let insertion_anchor = context.next_insertion_anchor.unwrap_or_else(|| {
+                        if context.next_bridge.is_empty() {
+                            subtree.last_id()
+                        } else {
+                            context.next_bridge.last_id()
+                        }
+                    });
+                    DirectRuleContext {
+                        parent: context.parent,
+                        parent_revision: context.parent_revision,
+                        before_previous: previous.and(context.before_previous),
+                        before_previous_revision: previous.and(context.before_previous_revision),
+                        previous,
+                        previous_revision,
+                        rule: next,
+                        next: context.following,
+                        next_revision: context.following_revision,
+                        following: context.after_following,
+                        following_revision: context.after_following_revision,
+                        after_following: None,
+                        after_following_revision: None,
+                        revision,
+                        before_previous_subtree: previous.and(context.before_previous_subtree),
+                        previous_incoming_bridge,
+                        previous_subtree: previous.and(context.previous_subtree),
+                        incoming_bridge,
+                        subtree,
+                        bridge: context.next_bridge,
+                        insertion_anchor,
+                        storage_before: context.next_storage_before,
+                        next_subtree: context.following_subtree,
+                        next_bridge: RadixRange::empty(),
+                        next_insertion_anchor: context
+                            .following_subtree
+                            .map(|range| range.last_id()),
+                        next_storage_before: context.after_following,
+                        following_subtree: context.after_following.and_then(|following| {
+                            self.rules
+                                .get(following)
+                                .map(|rule| rule.subtree_range(following))
+                        }),
+                        following_bridge: RadixRange::empty(),
+                        following_insertion_anchor: context.after_following.and_then(|following| {
+                            self.rules
+                                .get(following)
+                                .map(|rule| rule.subtree_range(following).last_id())
+                        }),
+                        following_storage_before: None,
+                        after_following_subtree: None,
+                    }
+                };
+                Some(successor)
+            }
+            (None, None) => None,
+            _ => return Err(MutationError::<R>::InvalidRuleTopology(id)),
+        };
+        let predecessor_context = match (previous, previous_revision) {
+            (Some(previous), Some(revision)) => {
+                let subtree = context.previous_subtree.unwrap_or_else(|| {
+                    self.rules
+                        .get(previous)
+                        .expect("a validated previous direct rule remains resolvable")
+                        .subtree_range(previous)
+                });
+                let mut bridge = context.incoming_bridge;
+                bridge.extend(context.subtree);
+                bridge.extend(context.bridge);
+                Some(DirectRuleContext {
+                    parent: context.parent,
+                    parent_revision: context.parent_revision,
+                    before_previous: None,
+                    before_previous_revision: None,
+                    previous: context.before_previous,
+                    previous_revision: context.before_previous_revision,
+                    rule: previous,
+                    next,
+                    next_revision,
+                    following: context.following,
+                    following_revision: context.following_revision,
+                    after_following: context.after_following,
+                    after_following_revision: context.after_following_revision,
+                    revision,
+                    before_previous_subtree: None,
+                    previous_incoming_bridge: RadixRange::empty(),
+                    previous_subtree: context.before_previous_subtree,
+                    incoming_bridge: context.previous_incoming_bridge,
+                    subtree,
+                    bridge,
+                    insertion_anchor: bridge.last_id(),
+                    storage_before: context.storage_before,
+                    next_subtree: context.next_subtree,
+                    next_bridge: context.next_bridge,
+                    next_insertion_anchor: context.next_insertion_anchor,
+                    next_storage_before: context.next_storage_before,
+                    following_subtree: context.following_subtree,
+                    following_bridge: context.following_bridge,
+                    following_insertion_anchor: context.following_insertion_anchor,
+                    following_storage_before: context.following_storage_before,
+                    after_following_subtree: context.after_following_subtree,
+                })
+            }
+            (None, None) => None,
+            _ => return Err(MutationError::<R>::InvalidRuleTopology(id)),
+        };
         let mut delta = RuleMutationDelta::empty();
-        if let (Some(previous), Some(next)) = (previous, next) {
-            self.push_rule_edge(&mut delta, previous, next);
+        if let Some(context) = predecessor_context {
+            for edge in self.local_rule_edges(context).edges() {
+                Self::push_rule_edge(&mut delta, edge);
+            }
+        }
+        if let Some(context) = successor_context {
+            for edge in self.local_rule_edges(context).edges() {
+                Self::push_rule_edge(&mut delta, edge);
+            }
         }
         Ok(RetiredRule {
             id,
             declaration_block,
             delta,
+            successor_context,
         })
     }
 }
@@ -826,10 +1352,7 @@ impl<'ast> StyleSheet<'ast> {
             return Err(StyleSheetMutationError::UnknownDeclarationBlock(block));
         }
         let revision = block_record.revision.wrapping_add(1);
-        if !self
-            .declaration_ids_in_block(block)?
-            .any(|candidate| candidate == declaration_id)
-        {
+        if !block_record.declarations.contains(declaration_id) {
             return Err(StyleSheetMutationError::UnknownDeclaration(declaration_id));
         }
         let declaration = self

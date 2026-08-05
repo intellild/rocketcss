@@ -879,6 +879,7 @@ impl<'ast> StyleSheet<'ast> {
         if !record.is_live() {
             return Err(MutationError::RetiredRule(rule));
         }
+        let subtree = record.subtree_range(rule);
         let (old_value, expected_kind, expected_prefix) = match record.payload() {
             CssRule::Style(payload) => (
                 payload.selector_value,
@@ -925,13 +926,12 @@ impl<'ast> StyleSheet<'ast> {
         }
         let new_path = self.intern_selector_path(old_path_record.parent, new_value)?;
 
-        let after_subtree = self.next_after_subtree(rule);
-        let mut current = Some(rule);
         let mut blocks = rocketcss_common::vec::Vec::new_in(allocator);
-        while let Some(id) = current {
-            if Some(id) == after_subtree {
-                break;
-            }
+        for id in self
+            .rules
+            .ids_in_range(subtree)
+            .ok_or(MutationError::InvalidRuleTopology(rule))?
+        {
             let record = self
                 .rule(id)
                 .ok_or(MutationError::InvalidRuleTopology(rule))?;
@@ -940,7 +940,6 @@ impl<'ast> StyleSheet<'ast> {
             {
                 blocks.push(block);
             }
-            current = self.next_rule_in_source(id);
         }
 
         let mut path_remaps = rocketcss_common::hash_map::HashMap::new_in(allocator);
@@ -1002,7 +1001,12 @@ impl<'ast> StyleSheet<'ast> {
         }
         let changed = self.replace_rule_selector_value_in(edge.left(), new_value, allocator)?;
         let delta = if changed {
-            self.incident_rule_edges(edge.left())
+            let mut context = edge.left_context();
+            context.revision = self
+                .rule(context.rule)
+                .expect("the changed selector rule remains live")
+                .revision;
+            self.local_rule_edges(context)
         } else {
             RuleMutationDelta::empty()
         };
@@ -1022,7 +1026,9 @@ impl<'ast> StyleSheet<'ast> {
                 .selector_paths
                 .try_get(path)
                 .ok_or(MutationError::InvalidRuleTopology(
-                    self.first_rule_in_source()
+                    self.rules
+                        .ids()
+                        .next()
                         .expect("a selector path requires at least one rule"),
                 ))?;
         let Some(parent) = record.parent else {

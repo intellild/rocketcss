@@ -37,19 +37,59 @@ fn direct_edge<'ast, R: std::fmt::Debug + Unpin, D: Unpin, K>(
     }
 }
 
+fn declaration_append<'ast, R: Unpin, D: Unpin, K>(
+    stylesheet: &StyleSheet<'ast, R, D, K>,
+    block: DeclarationBlockId<R>,
+) -> DeclarationAppendContext<R> {
+    stylesheet
+        .declaration_block_positions()
+        .find(|position| position.block() == block)
+        .unwrap()
+        .append_context()
+}
+
 #[test]
 fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<RuleId<&str>>(), size_of::<u32>());
     assert_eq!(size_of::<Option<RuleId<&str>>>(), size_of::<u32>());
     assert_eq!(size_of::<DeclarationId>(), size_of::<u32>());
     assert_eq!(size_of::<Option<DeclarationId>>(), size_of::<u32>());
-    assert_eq!(size_of::<DeclarationList>(), size_of::<[u32; 2]>());
+    assert_eq!(size_of::<DeclarationList>(), size_of::<[u32; 3]>());
     assert_eq!(size_of::<DeclarationBlockId<&str>>(), size_of::<u32>());
     assert_eq!(
         size_of::<Option<DeclarationBlockId<&str>>>(),
         size_of::<u32>()
     );
-    assert_eq!(size_of::<DirectRuleEdge<&str>>(), size_of::<[u32; 7]>());
+    assert_eq!(size_of::<DirectRuleEdge<&str>>(), size_of::<[u32; 59]>());
+}
+
+#[test]
+fn direct_rule_positions_cover_empty_singleton_and_multiple_lists() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<u8, (), ()>::new_in(&allocator);
+
+    assert_eq!(stylesheet.root_rule_positions().count(), 0);
+
+    let first = stylesheet.append_rule(None, 1).unwrap();
+    let singleton = stylesheet
+        .root_rule_positions()
+        .map(|position| (position.context().rule(), position.incoming_edge()))
+        .collect::<std::vec::Vec<_>>();
+    assert_eq!(singleton, [(first, None)]);
+
+    let second = stylesheet.append_rule(None, 2).unwrap();
+    let positions = stylesheet
+        .root_rule_positions()
+        .map(|position| {
+            (
+                position.context().rule(),
+                position
+                    .incoming_edge()
+                    .map(|edge| (edge.left(), edge.right())),
+            )
+        })
+        .collect::<std::vec::Vec<_>>();
+    assert_eq!(positions, [(first, None), (second, Some((first, second)))]);
 }
 
 #[test]
@@ -178,8 +218,9 @@ fn local_rule_mutations_invalidate_old_edges_and_publish_exact_replacements() {
         .unwrap();
 
     let original = direct_edge(&stylesheet, left, right);
+    let left_append = declaration_append(&stylesheet, left_block);
     let inserted = stylesheet
-        .insert_rule_with_declaration_block_after(original, left_block, 4, key, 0)
+        .insert_rule_with_declaration_block_after(original, left_append, 4, key, 0)
         .unwrap();
     let inserted_rule = inserted.rule.id;
     assert!(!stylesheet.is_valid_direct_rule_edge(original));
@@ -309,6 +350,7 @@ fn insertion_after_a_nested_subtree_updates_every_ancestor_span() {
     let grandchild = stylesheet.append_rule(Some(child), "grandchild").unwrap();
     let following = stylesheet.append_rule(None, "following").unwrap();
 
+    let parent_context = direct_context(&stylesheet, parent);
     let child_context = direct_context(&stylesheet, child);
     let inserted = stylesheet
         .insert_rule_after(child_context, "inserted")
@@ -333,6 +375,30 @@ fn insertion_after_a_nested_subtree_updates_every_ancestor_span() {
     );
     assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 3);
     assert_eq!(stylesheet.rule(child).unwrap().nested_rule_count, 1);
+    assert!(matches!(
+        stylesheet.rule_edges_at_context(parent_context),
+        Err(MutationError::InvalidRuleTopology(id)) if id == parent
+    ));
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
+fn descendant_insertion_invalidates_a_following_siblings_saved_subtree_boundary() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<&str, (), ()>::new_in(&allocator);
+    let parent = stylesheet.append_rule(None, "parent").unwrap();
+    let child = stylesheet.append_rule(Some(parent), "child").unwrap();
+    let following = stylesheet.append_rule(None, "following").unwrap();
+    let stale_following = direct_context(&stylesheet, following);
+
+    stylesheet
+        .insert_rule_after(direct_context(&stylesheet, child), "inserted")
+        .unwrap();
+
+    assert!(matches!(
+        stylesheet.rule_edges_at_context(stale_following),
+        Err(MutationError::InvalidRuleTopology(id)) if id == following
+    ));
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 
@@ -451,8 +517,9 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
         .unwrap();
 
     let edge = direct_edge(&stylesheet, left, right);
+    let left_append = declaration_append(&stylesheet, left_block);
     let inserted = stylesheet
-        .insert_rule_with_declaration_block_after(edge, left_block, 3, key, 1)
+        .insert_rule_with_declaration_block_after(edge, left_append, 3, key, 1)
         .unwrap();
     assert!(inserted.rule.remaps.is_empty());
     assert!(inserted.declaration_block.remaps.is_empty());
@@ -520,16 +587,18 @@ fn synthesized_declaration_is_inserted_between_neighbor_block_ranges() {
         .unwrap()
         .next()
         .unwrap();
-    assert_eq!(stylesheet.declarations.next_id(first), Some(second));
-    assert_eq!(
-        stylesheet.declarations.next_id(second),
-        Some(
-            stylesheet
-                .declaration_ids_in_block(following_block)
-                .unwrap()
-                .next()
-                .unwrap()
-        )
+    let following = stylesheet
+        .declaration_ids_in_block(following_block)
+        .unwrap()
+        .next()
+        .unwrap();
+    assert!(
+        stylesheet
+            .declarations
+            .ids()
+            .collect::<std::vec::Vec<_>>()
+            .windows(3)
+            .any(|ids| ids == [first, second, following])
     );
     let edge = direct_edge(&stylesheet, left, inserted);
     stylesheet
@@ -926,6 +995,83 @@ fn merging_empty_declaration_ranges_uses_only_block_order_and_lengths() {
 }
 
 #[test]
+fn declaration_block_positions_bridge_consecutive_empty_ranges_once() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<u8, u8, ()>::new_in(&allocator);
+    let key = stylesheet.append_effective_key(()).unwrap();
+
+    let left_rule = stylesheet.append_rule(None, 1).unwrap();
+    let left = stylesheet
+        .append_declaration_block(DeclarationBlockOwner::Rule(left_rule), key)
+        .unwrap();
+    let left_declaration = stylesheet
+        .append_authored_declaration(left, 10, false)
+        .unwrap();
+    let first_empty_rule = stylesheet.append_rule(None, 2).unwrap();
+    let first_empty = stylesheet
+        .append_declaration_block(DeclarationBlockOwner::Rule(first_empty_rule), key)
+        .unwrap();
+    let second_empty_rule = stylesheet.append_rule(None, 3).unwrap();
+    let second_empty = stylesheet
+        .append_declaration_block(DeclarationBlockOwner::Rule(second_empty_rule), key)
+        .unwrap();
+    let right_rule = stylesheet.append_rule(None, 4).unwrap();
+    let right = stylesheet
+        .append_declaration_block(DeclarationBlockOwner::Rule(right_rule), key)
+        .unwrap();
+    let right_declaration = stylesheet
+        .append_authored_declaration(right, 20, false)
+        .unwrap();
+
+    let positions = stylesheet
+        .declaration_block_positions()
+        .map(|position| {
+            let append = position.append_context();
+            (
+                position.block,
+                position.previous,
+                position.next,
+                append.after,
+                append.before,
+            )
+        })
+        .collect::<std::vec::Vec<_>>();
+    assert_eq!(
+        positions,
+        [
+            (
+                left,
+                None,
+                Some(first_empty),
+                Some(left_declaration),
+                Some(right_declaration)
+            ),
+            (
+                first_empty,
+                Some(left),
+                Some(second_empty),
+                Some(left_declaration),
+                Some(right_declaration),
+            ),
+            (
+                second_empty,
+                Some(first_empty),
+                Some(right),
+                Some(left_declaration),
+                Some(right_declaration),
+            ),
+            (
+                right,
+                Some(second_empty),
+                None,
+                Some(right_declaration),
+                None
+            ),
+        ]
+    );
+}
+
+#[test]
 fn transformed_range_capacity_failure_does_not_partially_mutate_the_ast() {
     let allocator = Allocator::new();
     let mut stylesheet = StyleSheet::<u8, u16, ()>::new_in(&allocator);
@@ -944,8 +1090,9 @@ fn transformed_range_capacity_failure_does_not_partially_mutate_the_ast() {
     stylesheet
         .append_authored_declaration(right_block, u16::MAX, false)
         .unwrap();
+    let mut sibling_range = DeclarationList::empty();
     for sibling_key in 1..=1023 {
-        stylesheet.declarations.insert_sibling(
+        let id = stylesheet.declarations.insert_sibling(
             first,
             sibling_key,
             DeclarationRecord {
@@ -953,12 +1100,17 @@ fn transformed_range_capacity_failure_does_not_partially_mutate_the_ast() {
                 important: false,
             },
         );
+        if sibling_range.is_empty() {
+            sibling_range.initialize(id);
+        } else {
+            sibling_range.append(id);
+        }
     }
     stylesheet
         .declaration_block_mut(left_block)
         .unwrap()
         .declarations
-        .extend_by(1023);
+        .extend(sibling_range);
     assert_eq!(stylesheet.validate_ast(), Ok(()));
     let before = stylesheet
         .declaration_block(left_block)

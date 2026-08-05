@@ -212,6 +212,7 @@ impl<'a> BoxFamilyIr<'a> {
 
 struct DeclarationSequence<'sequence, 'ast> {
     blocks: &'sequence [RadixDeclarationBlockId<'ast>],
+    declaration_ids: std::vec::Vec<std::vec::Vec<RadixDeclarationId>>,
     stylesheet: &'sequence mut StyleSheet<'ast>,
 }
 
@@ -221,7 +222,20 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         blocks: &'sequence [RadixDeclarationBlockId<'ast>],
         stylesheet: &'sequence mut StyleSheet<'ast>,
     ) -> Self {
-        Self { blocks, stylesheet }
+        let declaration_ids = blocks
+            .iter()
+            .map(|&block| {
+                stylesheet
+                    .declaration_ids_in_block(block)
+                    .expect("a declaration sequence block remains valid")
+                    .collect()
+            })
+            .collect();
+        Self {
+            blocks,
+            declaration_ids,
+            stylesheet,
+        }
     }
 
     #[inline]
@@ -238,25 +252,17 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn block_len(&self, index: usize) -> usize {
-        self.stylesheet
-            .declaration_occurrences_in_block(self.blocks[index])
-            .map_or(0, |declarations| declarations.len())
+        self.declaration_ids[index].len()
     }
 
     #[inline]
-    fn radix_declaration_id(
-        blocks: &[RadixDeclarationBlockId<'ast>],
-        stylesheet: &StyleSheet<'ast>,
-        location: DeclarationLocation,
-    ) -> RadixDeclarationId {
-        stylesheet
-            .declaration_id_at_in_block(blocks[location.block()], location.declaration())
-            .expect("the declaration location was validated against the block length")
+    fn radix_declaration_id(&self, location: DeclarationLocation) -> RadixDeclarationId {
+        self.declaration_ids[location.block()][location.declaration()]
     }
 
     #[inline]
     fn declaration(&self, location: DeclarationLocation) -> &Declaration<'ast> {
-        let id = Self::radix_declaration_id(self.blocks, self.stylesheet, location);
+        let id = self.radix_declaration_id(location);
         let CssDeclaration::Property(declaration) = self
             .stylesheet
             .declaration(id)
@@ -270,7 +276,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
-        let id = Self::radix_declaration_id(self.blocks, self.stylesheet, location);
+        let id = self.radix_declaration_id(location);
         self.stylesheet
             .property_declaration_mut(self.blocks[location.block()], id)
             .expect("a Radix property declaration remains mutable")
@@ -288,7 +294,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn is_important(&self, location: DeclarationLocation) -> bool {
-        let id = Self::radix_declaration_id(self.blocks, self.stylesheet, location);
+        let id = self.radix_declaration_id(location);
         self.stylesheet
             .declaration(id)
             .expect("a Radix declaration sequence ID remains resolvable")
@@ -1088,6 +1094,7 @@ mod tests {
         BorderColor, Function, Gradient, GradientItem, Image, KnownColor, LineDirection, SVGPaint,
         VerticalPositionKeyword,
     };
+    use rocketcss_parser::{Compiler, ParserOptions};
 
     #[test]
     fn declaration_location_fits_in_one_word() {
@@ -1107,6 +1114,37 @@ mod tests {
         assert_eq!(key.property_id(), 349);
         assert_eq!(key.vendor_prefix(), prefix);
         assert!(key.is_important());
+    }
+
+    #[test]
+    fn radix_declaration_sequence_builds_an_explicit_id_sidecar() {
+        let allocator = Allocator::new();
+        let mut stylesheet = rocketcss_common::GhostToken::scope(|mut token| {
+            Compiler::new(&allocator).parse(
+                "a{color:red;width:1px}",
+                &mut token,
+                ParserOptions::default(),
+            )
+        })
+        .unwrap();
+        let block = stylesheet
+            .root_rules()
+            .next()
+            .and_then(|(_, rule)| rule.declaration_block())
+            .unwrap();
+        let expected = stylesheet
+            .declaration_ids_in_block(block)
+            .unwrap()
+            .collect::<std::vec::Vec<_>>();
+        let blocks = [block];
+
+        let sequence = DeclarationSequence::radix(&blocks, &mut stylesheet);
+
+        assert_eq!(sequence.declaration_ids, [expected]);
+        assert_eq!(
+            sequence.radix_declaration_id(DeclarationLocation::new(0, 1)),
+            sequence.declaration_ids[0][1]
+        );
     }
 
     #[test]

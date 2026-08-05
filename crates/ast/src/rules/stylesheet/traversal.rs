@@ -186,12 +186,11 @@ impl<'ast> StyleSheet<'ast> {
         self.transform_selector_values(|id, selectors| {
             visitor.visit_selector_value(id, selectors);
         });
-        let mut current = self.first_rule_in_source();
-        while let Some(rule_id) = current {
+        let mut rule_cursor = self.rules.detached_ids();
+        while let Some(rule_id) = rule_cursor.next(&self.rules) {
             let rule = self
                 .rule(rule_id)
                 .ok_or(StyleSheetMutationError::UnknownRule(rule_id))?;
-            current = self.next_rule_in_source(rule_id);
             if !rule.is_live() {
                 continue;
             }
@@ -216,9 +215,17 @@ impl<'ast> StyleSheet<'ast> {
                     &mut StyleSheetVisitMutContext { stylesheet: self },
                 );
             }
-            let declaration_count = self.declaration_ids_in_block(block_id)?.len();
-            for index in 0..declaration_count {
-                let declaration_id = self.declaration_id_at_in_block(block_id, index)?;
+            let declarations = self
+                .declaration_block(block_id)
+                .ok_or(StyleSheetMutationError::UnknownDeclarationBlock(block_id))?
+                .declarations();
+            let mut declaration_cursor = self
+                .declarations
+                .detached_ids_in_range(declarations)
+                .ok_or(StyleSheetMutationError::NonContiguousDeclarationRange(
+                    block_id,
+                ))?;
+            while let Some(declaration_id) = declaration_cursor.next(&self.declarations) {
                 if property_block {
                     visitor.visit_declaration(
                         block_id,
