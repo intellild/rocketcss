@@ -2,6 +2,41 @@ use std::mem::size_of;
 
 use super::*;
 
+fn direct_context<'ast, R: std::fmt::Debug + Unpin, D: Unpin, K>(
+    stylesheet: &StyleSheet<'ast, R, D, K>,
+    rule: RuleId<R>,
+) -> DirectRuleContext<R> {
+    match stylesheet.rule(rule).unwrap().parent() {
+        Some(parent) => stylesheet
+            .nested_rule_contexts(parent)
+            .unwrap()
+            .find(|context| context.rule() == rule)
+            .unwrap(),
+        None => stylesheet
+            .root_rule_contexts()
+            .find(|context| context.rule() == rule)
+            .unwrap(),
+    }
+}
+
+fn direct_edge<'ast, R: std::fmt::Debug + Unpin, D: Unpin, K>(
+    stylesheet: &StyleSheet<'ast, R, D, K>,
+    left: RuleId<R>,
+    right: RuleId<R>,
+) -> DirectRuleEdge<R> {
+    match stylesheet.rule(left).unwrap().parent() {
+        Some(parent) => stylesheet
+            .nested_rule_edges(parent)
+            .unwrap()
+            .find(|edge| edge.left() == left && edge.right() == right)
+            .unwrap(),
+        None => stylesheet
+            .root_rule_edges()
+            .find(|edge| edge.left() == left && edge.right() == right)
+            .unwrap(),
+    }
+}
+
 #[test]
 fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<RuleId<&str>>(), size_of::<u32>());
@@ -14,6 +49,7 @@ fn typed_ids_keep_compact_optional_layout() {
         size_of::<Option<DeclarationBlockId<&str>>>(),
         size_of::<u32>()
     );
+    assert_eq!(size_of::<DirectRuleEdge<&str>>(), size_of::<[u32; 7]>());
 }
 
 #[test]
@@ -54,11 +90,10 @@ fn lexical_order_and_direct_topology_are_independent() {
     );
     assert_eq!(
         stylesheet
-            .sibling_rules(outer)
-            .unwrap()
-            .map(|(id, _)| id)
+            .root_rule_edges()
+            .map(|edge| (edge.left(), edge.right()))
             .collect::<std::vec::Vec<_>>(),
-        [outer, following]
+        [(outer, following)]
     );
     assert_eq!(stylesheet.rule(nested).unwrap().parent(), Some(outer));
     assert_eq!(
@@ -83,6 +118,151 @@ fn lexical_order_and_direct_topology_are_independent() {
         ["color:red"]
     );
     assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
+fn direct_rule_edges_stay_in_one_parent_and_skip_descendants_and_tombstones() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<&str, (), ()>::new_in(&allocator);
+    let parent = stylesheet.append_rule(None, "parent").unwrap();
+    let first = stylesheet.append_rule(Some(parent), "first").unwrap();
+    stylesheet.append_rule(Some(first), "grandchild").unwrap();
+    let retired = stylesheet.append_rule(Some(parent), "retired").unwrap();
+    let last = stylesheet.append_rule(Some(parent), "last").unwrap();
+    let following = stylesheet.append_rule(None, "following").unwrap();
+
+    let retired_context = direct_context(&stylesheet, retired);
+    stylesheet.retire_rule(retired_context).unwrap();
+
+    assert_eq!(
+        stylesheet
+            .root_rule_edges()
+            .map(|edge| (edge.left(), edge.right()))
+            .collect::<std::vec::Vec<_>>(),
+        [(parent, following)]
+    );
+    assert_eq!(
+        stylesheet
+            .nested_rule_edges(parent)
+            .unwrap()
+            .map(|edge| (edge.left(), edge.right()))
+            .collect::<std::vec::Vec<_>>(),
+        [(first, last)]
+    );
+    assert!(
+        stylesheet
+            .nested_rule_edges(first)
+            .unwrap()
+            .next()
+            .is_none()
+    );
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
+fn local_rule_mutations_invalidate_old_edges_and_publish_exact_replacements() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<u8, (), ()>::new_in(&allocator);
+    let key = stylesheet.append_effective_key(()).unwrap();
+    let left = stylesheet.append_rule(None, 1).unwrap();
+    let left_block = stylesheet
+        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .unwrap();
+    let right = stylesheet.append_rule(None, 2).unwrap();
+    stylesheet
+        .append_declaration_block(DeclarationBlockOwner::Rule(right), key)
+        .unwrap();
+    let next = stylesheet.append_rule(None, 3).unwrap();
+    stylesheet
+        .append_declaration_block(DeclarationBlockOwner::Rule(next), key)
+        .unwrap();
+
+    let original = direct_edge(&stylesheet, left, right);
+    let inserted = stylesheet
+        .insert_rule_with_declaration_block_after(original, left_block, 4, key, 0)
+        .unwrap();
+    let inserted_rule = inserted.rule.id;
+    assert!(!stylesheet.is_valid_direct_rule_edge(original));
+    assert_eq!(
+        inserted
+            .delta
+            .edges()
+            .map(|edge| (edge.left(), edge.right()))
+            .collect::<std::vec::Vec<_>>(),
+        [(left, inserted_rule), (inserted_rule, right), (right, next)]
+    );
+    assert!(
+        inserted
+            .delta
+            .edges()
+            .all(|edge| stylesheet.is_valid_direct_rule_edge(edge))
+    );
+
+    let merge_edge = inserted
+        .delta
+        .edges()
+        .find(|edge| edge.left() == inserted_rule && edge.right() == right)
+        .unwrap();
+    let merged = stylesheet
+        .merge_adjacent_rule_declaration_blocks(merge_edge)
+        .unwrap();
+    assert_eq!(
+        merged
+            .delta
+            .edges()
+            .map(|edge| (edge.left(), edge.right()))
+            .collect::<std::vec::Vec<_>>(),
+        [(left, right), (right, next)]
+    );
+
+    let right_context = merged
+        .delta
+        .edges()
+        .find(|edge| edge.left() == left && edge.right() == right)
+        .unwrap()
+        .right_context();
+    let retired = stylesheet.retire_rule(right_context).unwrap();
+    assert_eq!(
+        retired
+            .delta
+            .edges()
+            .map(|edge| (edge.left(), edge.right()))
+            .collect::<std::vec::Vec<_>>(),
+        [(left, next)]
+    );
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
+fn local_relabel_repairs_retained_edge_contexts_without_rewalking_the_list() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<u8, (), ()>::new_in(&allocator);
+    let left = stylesheet.append_rule(None, 0).unwrap();
+    let right = stylesheet.append_rule(None, u8::MAX).unwrap();
+
+    let left_context = direct_context(&stylesheet, left);
+    let first = stylesheet
+        .insert_rule_after(left_context, 1)
+        .unwrap()
+        .rule
+        .id;
+    let left_context = direct_context(&stylesheet, left);
+    stylesheet.insert_rule_after(left_context, 2).unwrap();
+    let mut retained = direct_edge(&stylesheet, first, right);
+    let mut relabeled = false;
+
+    for payload in 3..32 {
+        let left_context = direct_context(&stylesheet, left);
+        let inserted = stylesheet.insert_rule_after(left_context, payload).unwrap();
+        if !inserted.rule.remaps.is_empty() {
+            relabeled = true;
+            retained = retained.remapped(&inserted.rule.remaps);
+        }
+        assert!(stylesheet.is_valid_direct_rule_edge(retained));
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
+    }
+
+    assert!(relabeled);
 }
 
 #[test]
@@ -129,7 +309,12 @@ fn insertion_after_a_nested_subtree_updates_every_ancestor_span() {
     let grandchild = stylesheet.append_rule(Some(child), "grandchild").unwrap();
     let following = stylesheet.append_rule(None, "following").unwrap();
 
-    let inserted = stylesheet.insert_rule_after(child, "inserted").unwrap().id;
+    let child_context = direct_context(&stylesheet, child);
+    let inserted = stylesheet
+        .insert_rule_after(child_context, "inserted")
+        .unwrap()
+        .rule
+        .id;
 
     assert_eq!(
         stylesheet
@@ -159,9 +344,11 @@ fn retired_nested_tombstones_stay_in_the_span_but_not_semantic_traversal() {
     let child = stylesheet.append_rule(Some(parent), "child").unwrap();
     let following = stylesheet.append_rule(None, "following").unwrap();
 
-    stylesheet.retire_rule(child).unwrap();
+    let child_context = direct_context(&stylesheet, child);
+    stylesheet.retire_rule(child_context).unwrap();
     assert!(!stylesheet.has_nested_rules(parent).unwrap());
-    stylesheet.retire_rule(parent).unwrap();
+    let parent_context = direct_context(&stylesheet, parent);
+    stylesheet.retire_rule(parent_context).unwrap();
 
     assert_eq!(
         stylesheet
@@ -215,8 +402,9 @@ fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
         .append_authored_declaration(right_block, 20, false)
         .unwrap();
 
+    let edge = direct_edge(&stylesheet, left, right);
     let merged = stylesheet
-        .merge_adjacent_rule_declaration_blocks(left, right)
+        .merge_adjacent_rule_declaration_blocks(edge)
         .unwrap();
 
     assert_eq!(merged.retired_block, left_block);
@@ -262,8 +450,9 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
         .append_authored_declaration(right_block, 20, false)
         .unwrap();
 
+    let edge = direct_edge(&stylesheet, left, right);
     let inserted = stylesheet
-        .insert_rule_with_declaration_block_after(left, right, left_block, 3, key, 1)
+        .insert_rule_with_declaration_block_after(edge, left_block, 3, key, 1)
         .unwrap();
     assert!(inserted.rule.remaps.is_empty());
     assert!(inserted.declaration_block.remaps.is_empty());
@@ -313,7 +502,12 @@ fn synthesized_declaration_is_inserted_between_neighbor_block_ranges() {
         .append_authored_declaration(following_block, 20, false)
         .unwrap();
 
-    let inserted = stylesheet.insert_rule_after(left, 3).unwrap().id;
+    let left_context = direct_context(&stylesheet, left);
+    let inserted = stylesheet
+        .insert_rule_after(left_context, 3)
+        .unwrap()
+        .rule
+        .id;
     let inserted_block = stylesheet
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
@@ -337,8 +531,9 @@ fn synthesized_declaration_is_inserted_between_neighbor_block_ranges() {
                 .unwrap()
         )
     );
+    let edge = direct_edge(&stylesheet, left, inserted);
     stylesheet
-        .merge_adjacent_rule_declaration_blocks(left, inserted)
+        .merge_adjacent_rule_declaration_blocks(edge)
         .unwrap();
 
     assert_eq!(
@@ -390,7 +585,12 @@ fn large_synthesized_merge_remains_one_radix_range() {
         .append_authored_declaration(following_block, 20, false)
         .unwrap();
 
-    let inserted = stylesheet.insert_rule_after(left, 3).unwrap().id;
+    let left_context = direct_context(&stylesheet, left);
+    let inserted = stylesheet
+        .insert_rule_after(left_context, 3)
+        .unwrap()
+        .rule
+        .id;
     let inserted_block = stylesheet
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
@@ -401,8 +601,9 @@ fn large_synthesized_merge_remains_one_radix_range() {
             [(30, false), (31, false), (32, false)],
         )
         .unwrap();
+    let edge = direct_edge(&stylesheet, left, inserted);
     stylesheet
-        .merge_adjacent_rule_declaration_blocks(left, inserted)
+        .merge_adjacent_rule_declaration_blocks(edge)
         .unwrap();
 
     assert_eq!(
@@ -446,7 +647,12 @@ fn appending_another_transformed_batch_extends_the_same_range() {
     stylesheet
         .append_authored_declaration(following_block, 20, false)
         .unwrap();
-    let inserted = stylesheet.insert_rule_after(left, 3).unwrap().id;
+    let left_context = direct_context(&stylesheet, left);
+    let inserted = stylesheet
+        .insert_rule_after(left_context, 3)
+        .unwrap()
+        .rule
+        .id;
     let inserted_block = stylesheet
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
@@ -454,8 +660,9 @@ fn appending_another_transformed_batch_extends_the_same_range() {
     stylesheet
         .insert_transformed_declarations_at_block_end(inserted_block, [(30, false), (31, false)])
         .unwrap();
+    let edge = direct_edge(&stylesheet, left, inserted);
     stylesheet
-        .merge_adjacent_rule_declaration_blocks(left, inserted)
+        .merge_adjacent_rule_declaration_blocks(edge)
         .unwrap();
     stylesheet
         .insert_transformed_declarations_at_block_end(inserted_block, [(32, false)])
@@ -530,7 +737,12 @@ fn streaming_declaration_mutation_preserves_radix_range_order() {
     inserted_range
         .append_authored_declaration(following_block, 2, false)
         .unwrap();
-    let inserted = inserted_range.insert_rule_after(left, 2).unwrap().id;
+    let left_context = direct_context(&inserted_range, left);
+    let inserted = inserted_range
+        .insert_rule_after(left_context, 2)
+        .unwrap()
+        .rule
+        .id;
     let inserted_block = inserted_range
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
@@ -543,8 +755,9 @@ fn streaming_declaration_mutation_preserves_radix_range_order() {
         .unwrap()
         .next()
         .unwrap();
+    let edge = direct_edge(&inserted_range, left, inserted);
     inserted_range
-        .merge_adjacent_rule_declaration_blocks(left, inserted)
+        .merge_adjacent_rule_declaration_blocks(edge)
         .unwrap();
     visited.clear();
     inserted_range
@@ -585,7 +798,12 @@ fn streaming_declaration_mutation_preserves_radix_range_order() {
     large_range
         .append_authored_declaration(following_block, 4, false)
         .unwrap();
-    let inserted = large_range.insert_rule_after(left, 2).unwrap().id;
+    let left_context = direct_context(&large_range, left);
+    let inserted = large_range
+        .insert_rule_after(left_context, 2)
+        .unwrap()
+        .rule
+        .id;
     let inserted_block = large_range
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
@@ -601,8 +819,9 @@ fn streaming_declaration_mutation_preserves_radix_range_order() {
             .declaration_ids_in_block(inserted_block)
             .unwrap(),
     );
+    let edge = direct_edge(&large_range, left, inserted);
     large_range
-        .merge_adjacent_rule_declaration_blocks(left, inserted)
+        .merge_adjacent_rule_declaration_blocks(edge)
         .unwrap();
     visited.clear();
     large_range
@@ -685,8 +904,9 @@ fn merging_empty_declaration_ranges_uses_only_block_order_and_lengths() {
         .append_authored_declaration(right_block, 3, false)
         .unwrap();
 
+    let edge = direct_edge(&stylesheet, left, right);
     stylesheet
-        .merge_adjacent_rule_declaration_blocks(left, right)
+        .merge_adjacent_rule_declaration_blocks(edge)
         .unwrap();
 
     assert!(

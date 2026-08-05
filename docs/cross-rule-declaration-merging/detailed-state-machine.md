@@ -30,17 +30,18 @@ authority for physical ownership, identity, order, and topology:
 - S5 finishes deferred representation and clears merge-only state.
 
 The target storage uses typed `RadixIndexId` wrappers, primary source-order
-vectors, sparse sibling Radix trees, direct rule topology, and a lexical
-declaration tape. Ordinary long-lived Rust references to mutable style rules
-are not part of the model. Code generation is outside the minify pipeline and
-observes committed Radix AST state after S5 cleanup.
+vectors, sparse sibling Radix trees, parent plus preorder subtree spans, and a
+lexical declaration tape. Parent-list iterators produce direct edge contexts;
+Nano retains them only during the transform and stores no AST sibling links.
+Ordinary long-lived Rust references to mutable style rules are not part of the
+model. Code generation is outside the minify pipeline and observes committed
+Radix AST state after S5 cleanup.
 
 ## Core identifiers
 
 ```rust,ignore
 type RuleId = TypedRadixIndexId;
 type DeclarationBlockId = TypedRadixIndexId;
-type RuleListId = u32;
 type RuleListSegmentId = u32;
 type DeclarationEntryId = u32;
 type DeclarationSequenceId = u32;
@@ -75,7 +76,7 @@ struct MergeState<'ast> {
 
 struct RuleState<'ast> {
     rule: RuleId,
-    owning_list: RuleListId,
+    parent: Option<RuleId>,
     list_segment: RuleListSegmentId,
     selector_state: SelectorState<'ast>,
     local_selectors: LocalSelectorListRef<'ast>,
@@ -86,8 +87,7 @@ struct RuleState<'ast> {
     live: bool,
     retained_child_count: u32,
     retired_output_storage: bool,
-    previous_live: Option<RuleId>,
-    next_live: Option<RuleId>,
+    revision: Revision,
 }
 
 struct DeclarationEntryState<'ast> {
@@ -162,10 +162,13 @@ struct EffectiveRuleHistory {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct Edge {
-    list: RuleListId,
-    segment: RuleListSegmentId,
+    parent: Option<RuleId>,
+    previous: Option<RuleId>,
     left: RuleId,
     right: RuleId,
+    next: Option<RuleId>,
+    left_revision: Revision,
+    right_revision: Revision,
 }
 
 struct PartialMergeCandidate<'ast> {
@@ -183,11 +186,12 @@ struct PartialMergePlan<'ast> {
 }
 ```
 
-These tables describe semantic sidecars. Rules and declaration blocks already
-live in stylesheet-owned Radix stores; ordered sequences use AST occurrence
-IDs/ranges, and synthesized nodes receive final sibling IDs during S3. Authored
-declaration IDs are allocated in lexical source order, including around nested
-rules.
+These tables describe semantic sidecars. `Edge` is an AST-produced opaque
+context, not a Nano-maintained sibling graph. Rules and declaration blocks
+already live in stylesheet-owned Radix stores; ordered sequences use AST
+occurrence IDs/ranges, and synthesized nodes receive final sibling IDs during
+S3. Authored declaration IDs are allocated in lexical source order, including
+around nested rules.
 
 The concrete containers may change. The ownership and dependency relationships
 must not.
@@ -607,15 +611,19 @@ intervening node and expose a new same-selector edge after initial discovery.
 
 ## Persistent stabilization state
 
-The merge state lives for the complete semantic fixed point. Discovery builds
-the initial rule table, live sibling links, declaration sequences, histories,
-and dirty work once.
+The merge state lives for the complete semantic fixed point. Discovery walks
+each root or nested parent list to capture AST-produced direct edges, then
+builds declaration sequences, histories, and dirty work once. It does not
+build live sibling links.
 
-Logically retiring one endpoint splices `previous_live`/`next_live` and
-classifies only the final newly exposed edge. It must not compact the AST,
+Retiring one endpoint consumes an iterator-produced rule context and returns a
+fixed-capacity `RuleMutationDelta`. Consecutive S2 retirements under one parent
+are collected from one direct-rule pass; only delta edges whose endpoints are
+still live publish after the batch. The scheduler must not compact the AST,
 re-walk every declaration block, or rebuild every effective-rule history to
-discover that edge. Each later semantic mutation updates the corresponding
-edge, history generation, sequence revision, and S4 work item in place.
+discover those edges. Each later semantic mutation consumes its delta and
+updates the corresponding history generation, sequence revision, and S4 work
+item in place.
 
 Local rule-list insertion/unlinking happens during proven S1-S3 transactions.
 Optional compaction happens once in S5 after the Stabilizer is empty. This

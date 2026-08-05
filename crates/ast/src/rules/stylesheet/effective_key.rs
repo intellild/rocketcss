@@ -987,6 +987,28 @@ impl<'ast> StyleSheet<'ast> {
         Ok(true)
     }
 
+    /// Edge-context variant used by the incremental cross-rule scheduler.
+    /// The selector/key mutation and the incident topology publication remain
+    /// one AST-owned operation, so Nano never rediscovers sibling adjacency.
+    #[doc(hidden)]
+    pub fn replace_rule_selector_value_in_edge(
+        &mut self,
+        edge: DirectRuleEdge<CssRule<'ast>>,
+        new_value: SelectorValueId,
+        allocator: &Allocator,
+    ) -> Result<(bool, RuleMutationDelta<CssRule<'ast>>), MutationError<'ast>> {
+        if !self.is_valid_direct_rule_edge(edge) {
+            return Err(MutationError::InvalidRuleTopology(edge.left()));
+        }
+        let changed = self.replace_rule_selector_value_in(edge.left(), new_value, allocator)?;
+        let delta = if changed {
+            self.incident_rule_edges(edge.left())
+        } else {
+            RuleMutationDelta::empty()
+        };
+        Ok((changed, delta))
+    }
+
     fn replace_selector_path_in(
         &mut self,
         path: SelectorPathId,

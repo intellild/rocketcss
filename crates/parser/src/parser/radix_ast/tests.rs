@@ -1,6 +1,23 @@
 use super::*;
 use crate::parser::ReplayCounters;
 
+fn direct_context<'ast>(
+    stylesheet: &StyleSheet<'ast>,
+    rule: CssRuleId<'ast>,
+) -> DirectRuleContext<CssRule<'ast>> {
+    match stylesheet.rule(rule).unwrap().parent() {
+        Some(parent) => stylesheet
+            .nested_rule_contexts(parent)
+            .unwrap()
+            .find(|context| context.rule() == rule)
+            .unwrap(),
+        None => stylesheet
+            .root_rule_contexts()
+            .find(|context| context.rule() == rule)
+            .unwrap(),
+    }
+}
+
 fn selector_representative(
     _stylesheet: &StyleSheet<'_>,
     key: &CssEffectiveKey<'_>,
@@ -333,9 +350,10 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
 
+    let outer_context = direct_context(&stylesheet, outer);
     let inserted = stylesheet
         .insert_rule_after(
-            outer,
+            outer_context,
             CssRule::NestedDeclarations(NestedDeclarationsRule { span: DUMMY_SP }),
         )
         .unwrap();
@@ -345,7 +363,7 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
             .root_rules()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
-        [outer, inserted.id, following]
+        [outer, inserted.rule.id, following]
     );
     assert_eq!(
         stylesheet
@@ -355,16 +373,15 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
         [outer]
             .into_iter()
             .chain(nested)
-            .chain([inserted.id, following])
+            .chain([inserted.rule.id, following])
             .collect::<std::vec::Vec<_>>()
     );
     assert_eq!(
         stylesheet
-            .sibling_rules(outer)
-            .unwrap()
-            .map(|(id, _)| id)
+            .root_rule_edges()
+            .map(|edge| (edge.left(), edge.right()))
             .collect::<std::vec::Vec<_>>(),
-        [outer, inserted.id, following]
+        [(outer, inserted.rule.id), (inserted.rule.id, following)]
     );
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
@@ -376,26 +393,28 @@ fn local_relabel_repairs_topology_and_effective_key_seeds() {
         .parse_stylesheet("a{}b{}", ParserOptions::default())
         .unwrap();
     let outer = stylesheet.root_rules().next().unwrap().0;
+    let outer_context = direct_context(&stylesheet, outer);
     let first = stylesheet
         .insert_rule_after(
-            outer,
+            outer_context,
             CssRule::NestedDeclarations(NestedDeclarationsRule { span: DUMMY_SP }),
         )
         .unwrap();
     let key = stylesheet
-        .append_effective_key(CssEffectiveContext::isolated(first.id))
+        .append_effective_key(CssEffectiveContext::isolated(first.rule.id))
         .unwrap();
-    let mut tracked = first.id;
+    let mut tracked = first.rule.id;
     let mut relabeled = false;
 
     for _ in 0..16 {
+        let outer_context = direct_context(&stylesheet, outer);
         let result = stylesheet
             .insert_rule_after(
-                outer,
+                outer_context,
                 CssRule::NestedDeclarations(NestedDeclarationsRule { span: DUMMY_SP }),
             )
             .unwrap();
-        if let Some(remap) = result.remaps.iter().find(|remap| remap.old == tracked) {
+        if let Some(remap) = result.rule.remaps.iter().find(|remap| remap.old == tracked) {
             tracked = remap.new;
             relabeled = true;
         }
@@ -427,7 +446,8 @@ fn insertion_after_retirement_preserves_live_source_order() {
             rules.next().unwrap().0,
         )
     };
-    stylesheet.retire_rule(retired).unwrap();
+    let retired_context = direct_context(&stylesheet, retired);
+    stylesheet.retire_rule(retired_context).unwrap();
     assert!(!stylesheet.rule(retired).unwrap().is_live());
     assert_eq!(
         stylesheet
@@ -437,12 +457,14 @@ fn insertion_after_retirement_preserves_live_source_order() {
         [first, last]
     );
 
+    let first_context = direct_context(&stylesheet, first);
     let inserted = stylesheet
         .insert_rule_after(
-            first,
+            first_context,
             CssRule::NestedDeclarations(NestedDeclarationsRule { span: DUMMY_SP }),
         )
         .unwrap()
+        .rule
         .id;
 
     assert_eq!(

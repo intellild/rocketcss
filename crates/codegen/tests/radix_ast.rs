@@ -93,9 +93,11 @@ fn streams_an_adjacent_block_merge_directly_from_live_topology() {
             .rules_in_source_order()
             .filter_map(|(id, rule)| matches!(rule.payload(), CssRule::Style(_)).then_some(id))
             .collect::<std::vec::Vec<_>>();
-        radix
-            .merge_adjacent_rule_declaration_blocks(styles[0], styles[1])
+        let edge = radix
+            .root_rule_edges()
+            .find(|edge| edge.left() == styles[0] && edge.right() == styles[1])
             .unwrap();
+        radix.merge_adjacent_rule_declaration_blocks(edge).unwrap();
 
         let actual = radix
             .to_css_string(

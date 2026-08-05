@@ -302,7 +302,7 @@ fn discover_style(
             discover_style_children(style, effective, at_rules, state);
             refresh_retained_child_count(current, state);
 
-            if let Some(edge) = previous_live_edge(current, state) {
+            if let Some(edge) = ast_edge_before(current, state) {
                 mark_edge_dirty(edge, state);
             }
         }
@@ -523,8 +523,11 @@ fn candidate_is_valid(
     state: &MergeState,
 ) -> bool {
     let edge = candidate.edge;
-    let left = state.rules.get(edge.left);
-    let right = state.rules.get(edge.right);
+    if !state.ast.is_valid_direct_rule_edge(edge) {
+        return false;
+    }
+    let left = state.rules.get(edge.left());
+    let right = state.rules.get(edge.right());
 
     let (Some(left_id), Some(right_id)) = (
         left.leading_sequence,
@@ -538,12 +541,8 @@ fn candidate_is_valid(
 
     left.live
         && right.live
-        && left.owning_list == edge.list
-        && right.owning_list == edge.list
-        && left.list_segment == edge.segment
-        && right.list_segment == edge.segment
-        && left.next_live == Some(edge.right)
-        && right.previous_live == Some(edge.left)
+        && left.parent == right.parent
+        && left.list_segment == right.list_segment
         && left.at_rule_context == right.at_rule_context
         && left.emission_identity == right.emission_identity
         && left.retained_child_count == 0
@@ -619,26 +618,17 @@ local Radix position during this commit; S5 does not recover its order later.
 ## Logical empty transition
 
 ```rust,ignore
-fn rule_became_logically_empty(rule: RuleId, state: &mut MergeState) {
-    let previous = state.rules[rule].previous_live;
-    let next = state.rules[rule].next_live;
-
-    remove_edge_work(previous, Some(rule), state);
-    remove_edge_work(Some(rule), next, state);
-    unlink_live_rule(rule, state);
-
-    if let (Some(previous), Some(next)) = (previous, next)
-        && state.rules[previous].list_segment
-            == state.rules[next].list_segment
-    {
-        mark_edge_dirty(
-            Edge::new_between(previous, next, state),
-            state,
-        );
+fn rule_became_logically_empty(
+    context: DirectRuleContext,
+    state: &mut MergeState,
+) {
+    let retired = state.ast.retire_rule(context);
+    for edge in retired.delta.edges() {
+        mark_edge_dirty(edge, state);
     }
 
-    propagate_retained_child_change_to_ancestors(rule, state);
-    state.pending_s4_cleanup.insert(rule);
+    propagate_retained_child_change_to_ancestors(context.rule(), state);
+    state.pending_s4_cleanup.insert(context.rule());
 }
 ```
 
