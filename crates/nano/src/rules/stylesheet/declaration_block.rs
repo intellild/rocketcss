@@ -212,7 +212,8 @@ impl<'a> BoxFamilyIr<'a> {
 
 struct DeclarationSequence<'sequence, 'ast> {
     blocks: &'sequence [RadixDeclarationBlockId<'ast>],
-    declaration_ids: std::vec::Vec<std::vec::Vec<RadixDeclarationId>>,
+    declaration_ids: &'sequence [RadixDeclarationId],
+    block_offsets: &'sequence [usize],
     stylesheet: &'sequence mut StyleSheet<'ast>,
 }
 
@@ -221,19 +222,35 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
     fn radix(
         blocks: &'sequence [RadixDeclarationBlockId<'ast>],
         stylesheet: &'sequence mut StyleSheet<'ast>,
+        declaration_ids: &'sequence mut std::vec::Vec<RadixDeclarationId>,
+        block_offsets: &'sequence mut std::vec::Vec<usize>,
     ) -> Self {
-        let mut declaration_ids = std::vec::Vec::with_capacity(blocks.len());
+        declaration_ids.clear();
+        block_offsets.clear();
+        let declaration_count = blocks
+            .iter()
+            .map(|&block| {
+                stylesheet
+                    .declaration_block(block)
+                    .expect("a declaration sequence block remains valid")
+                    .declarations()
+                    .len() as usize
+            })
+            .sum();
+        declaration_ids.reserve(declaration_count);
+        block_offsets.reserve(blocks.len() + 1);
+        block_offsets.push(0);
         for &block in blocks {
             let ids = stylesheet
                 .declaration_ids_in_block(block)
                 .expect("a declaration sequence block remains valid");
-            let mut block_ids = std::vec::Vec::with_capacity(ids.len());
-            block_ids.extend(ids);
-            declaration_ids.push(block_ids);
+            declaration_ids.extend(ids);
+            block_offsets.push(declaration_ids.len());
         }
         Self {
             blocks,
             declaration_ids,
+            block_offsets,
             stylesheet,
         }
     }
@@ -252,12 +269,12 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn block_len(&self, index: usize) -> usize {
-        self.declaration_ids[index].len()
+        self.block_offsets[index + 1] - self.block_offsets[index]
     }
 
     #[inline]
     fn radix_declaration_id(&self, location: DeclarationLocation) -> RadixDeclarationId {
-        self.declaration_ids[location.block()][location.declaration()]
+        self.declaration_ids[self.block_offsets[location.block()] + location.declaration()]
     }
 
     #[inline]
@@ -309,12 +326,16 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
 pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
     ir: DeclarationIr<'scratch, 'ast>,
+    declaration_ids: std::vec::Vec<RadixDeclarationId>,
+    block_offsets: std::vec::Vec<usize>,
 }
 
 impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     pub(crate) fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             ir: DeclarationIr::new(allocator),
+            declaration_ids: std::vec::Vec::new(),
+            block_offsets: std::vec::Vec::new(),
         }
     }
 
@@ -324,24 +345,26 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         block: RadixDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
-        let blocks = [block];
-        let mut sequence = DeclarationSequence::radix(&blocks, stylesheet);
-        if sequence.block_len(0) < 2 {
+        let declaration_count = stylesheet
+            .declaration_ids_in_block(block)
+            .expect("a stylesheet property block remains valid")
+            .len();
+        if declaration_count < 2 {
             return;
         }
-        self.minify_non_trivial(&mut sequence, cx);
-    }
-
-    fn minify_non_trivial(
-        &mut self,
-        sequence: &mut DeclarationSequence<'_, 'ast>,
-        cx: &mut MinifyContext<'scratch>,
-    ) {
+        let blocks = [block];
+        let Self {
+            ir,
+            declaration_ids,
+            block_offsets,
+        } = self;
+        let mut sequence =
+            DeclarationSequence::radix(&blocks, stylesheet, declaration_ids, block_offsets);
         if !sequence.locations_fit() {
             return;
         }
-        self.ir.clear();
-        deduplicate_declarations(sequence, &mut self.ir, cx);
+        ir.clear();
+        deduplicate_declarations(&mut sequence, ir, cx);
     }
 }
 
@@ -1117,33 +1140,43 @@ mod tests {
     }
 
     #[test]
-    fn radix_declaration_sequence_builds_an_explicit_id_sidecar() {
+    fn radix_declaration_sequence_builds_one_flat_id_sidecar() {
         let allocator = Allocator::new();
         let mut stylesheet = rocketcss_common::GhostToken::scope(|mut token| {
             Compiler::new(&allocator).parse(
-                "a{color:red;width:1px}",
+                "a{color:red;width:1px}b{height:2px}",
                 &mut token,
                 ParserOptions::default(),
             )
         })
         .unwrap();
-        let block = stylesheet
+        let blocks = stylesheet
             .root_rules()
-            .next()
-            .and_then(|(_, rule)| rule.declaration_block())
-            .unwrap();
-        let expected = stylesheet
-            .declaration_ids_in_block(block)
-            .unwrap()
+            .map(|(_, rule)| rule.declaration_block().unwrap())
             .collect::<std::vec::Vec<_>>();
-        let blocks = [block];
+        let mut expected = std::vec::Vec::new();
+        for &block in &blocks {
+            expected.extend(stylesheet.declaration_ids_in_block(block).unwrap());
+        }
+        let mut declaration_ids = std::vec::Vec::new();
+        let mut block_offsets = std::vec::Vec::new();
 
-        let sequence = DeclarationSequence::radix(&blocks, &mut stylesheet);
+        let sequence = DeclarationSequence::radix(
+            &blocks,
+            &mut stylesheet,
+            &mut declaration_ids,
+            &mut block_offsets,
+        );
 
-        assert_eq!(sequence.declaration_ids, [expected]);
+        assert_eq!(sequence.declaration_ids, expected);
+        assert_eq!(sequence.block_offsets, [0, 2, 3]);
         assert_eq!(
             sequence.radix_declaration_id(DeclarationLocation::new(0, 1)),
-            sequence.declaration_ids[0][1]
+            expected[1]
+        );
+        assert_eq!(
+            sequence.radix_declaration_id(DeclarationLocation::new(1, 0)),
+            expected[2]
         );
     }
 
