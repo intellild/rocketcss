@@ -503,36 +503,15 @@ pub struct DirectRuleContext<P> {
 /// mutation. This never escapes into Nano candidate queues.
 struct DirectRuleMutationContext<P> {
     parent: Option<RuleId<P>>,
-    parent_revision: Option<u32>,
-    before_previous: Option<RuleId<P>>,
-    before_previous_revision: Option<u32>,
     previous: Option<RuleId<P>>,
-    previous_revision: Option<u32>,
     rule: RuleId<P>,
     next: Option<RuleId<P>>,
-    next_revision: Option<u32>,
-    following: Option<RuleId<P>>,
-    following_revision: Option<u32>,
-    after_following: Option<RuleId<P>>,
-    after_following_revision: Option<u32>,
     revision: u32,
-    before_previous_subtree: Option<RadixRange<RuleRecord<P>>>,
-    previous_incoming_bridge: RadixRange<RuleRecord<P>>,
-    previous_subtree: Option<RadixRange<RuleRecord<P>>>,
     incoming_bridge: RadixRange<RuleRecord<P>>,
     subtree: RadixRange<RuleRecord<P>>,
     bridge: RadixRange<RuleRecord<P>>,
     insertion_anchor: RuleId<P>,
     storage_before: Option<RuleId<P>>,
-    next_subtree: Option<RadixRange<RuleRecord<P>>>,
-    next_bridge: RadixRange<RuleRecord<P>>,
-    next_insertion_anchor: Option<RuleId<P>>,
-    next_storage_before: Option<RuleId<P>>,
-    following_subtree: Option<RadixRange<RuleRecord<P>>>,
-    following_bridge: RadixRange<RuleRecord<P>>,
-    following_insertion_anchor: Option<RuleId<P>>,
-    following_storage_before: Option<RuleId<P>>,
-    after_following_subtree: Option<RadixRange<RuleRecord<P>>>,
 }
 
 impl<P> Clone for DirectRuleMutationContext<P> {
@@ -548,12 +527,9 @@ impl<P> std::fmt::Debug for DirectRuleMutationContext<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DirectRuleMutationContext")
             .field("parent", &self.parent)
-            .field("before_previous", &self.before_previous)
             .field("previous", &self.previous)
             .field("rule", &self.rule)
             .field("next", &self.next)
-            .field("following", &self.following)
-            .field("after_following", &self.after_following)
             .field("revision", &self.revision)
             .field("subtree", &self.subtree)
             .field("bridge", &self.bridge)
@@ -567,36 +543,15 @@ impl<P> PartialEq for DirectRuleMutationContext<P> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.parent == other.parent
-            && self.parent_revision == other.parent_revision
-            && self.before_previous == other.before_previous
-            && self.before_previous_revision == other.before_previous_revision
             && self.previous == other.previous
-            && self.previous_revision == other.previous_revision
             && self.rule == other.rule
             && self.next == other.next
-            && self.next_revision == other.next_revision
-            && self.following == other.following
-            && self.following_revision == other.following_revision
-            && self.after_following == other.after_following
-            && self.after_following_revision == other.after_following_revision
             && self.revision == other.revision
-            && self.before_previous_subtree == other.before_previous_subtree
-            && self.previous_incoming_bridge == other.previous_incoming_bridge
-            && self.previous_subtree == other.previous_subtree
             && self.incoming_bridge == other.incoming_bridge
             && self.subtree == other.subtree
             && self.bridge == other.bridge
             && self.insertion_anchor == other.insertion_anchor
             && self.storage_before == other.storage_before
-            && self.next_subtree == other.next_subtree
-            && self.next_bridge == other.next_bridge
-            && self.next_insertion_anchor == other.next_insertion_anchor
-            && self.next_storage_before == other.next_storage_before
-            && self.following_subtree == other.following_subtree
-            && self.following_bridge == other.following_bridge
-            && self.following_insertion_anchor == other.following_insertion_anchor
-            && self.following_storage_before == other.following_storage_before
-            && self.after_following_subtree == other.after_following_subtree
     }
 }
 
@@ -613,29 +568,14 @@ impl<P> DirectRuleMutationContext<P> {
         };
         Self {
             parent: self.parent.map(remap),
-            before_previous: self.before_previous.map(remap),
             previous: self.previous.map(remap),
             rule: remap(self.rule),
             next: self.next.map(remap),
-            following: self.following.map(remap),
-            after_following: self.after_following.map(remap),
-            before_previous_subtree: self.before_previous_subtree.map(remap_range),
-            previous_incoming_bridge: remap_range(self.previous_incoming_bridge),
-            previous_subtree: self.previous_subtree.map(remap_range),
             incoming_bridge: remap_range(self.incoming_bridge),
             subtree: remap_range(self.subtree),
             bridge: remap_range(self.bridge),
             insertion_anchor: remap(self.insertion_anchor),
             storage_before: self.storage_before.map(remap),
-            next_subtree: self.next_subtree.map(remap_range),
-            next_bridge: remap_range(self.next_bridge),
-            next_insertion_anchor: self.next_insertion_anchor.map(remap),
-            next_storage_before: self.next_storage_before.map(remap),
-            following_subtree: self.following_subtree.map(remap_range),
-            following_bridge: remap_range(self.following_bridge),
-            following_insertion_anchor: self.following_insertion_anchor.map(remap),
-            following_storage_before: self.following_storage_before.map(remap),
-            after_following_subtree: self.after_following_subtree.map(remap_range),
             ..self
         }
     }
@@ -1020,6 +960,7 @@ pub struct StyleSheet<
     context_path_ids: FxHashMap<ContextPathKey, ContextPathId>,
     layer_contexts: DenseStore<LayerContextId, LayerContextRecord<R>>,
     layer_context_ids: FxHashMap<LayerContextKey<R>, LayerContextId>,
+    rule_mutation_contexts: FxHashMap<RuleId<R>, DirectRuleMutationContext<R>>,
 }
 
 impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
@@ -1070,6 +1011,10 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
             layer_contexts: DenseStore::with_capacity(capacity.contexts),
             layer_context_ids: FxHashMap::with_capacity_and_hasher(
                 capacity.contexts,
+                Default::default(),
+            ),
+            rule_mutation_contexts: FxHashMap::with_capacity_and_hasher(
+                capacity.rules,
                 Default::default(),
             ),
         }
@@ -1371,12 +1316,106 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
         &self,
         parent: Option<RuleId<R>>,
     ) -> Result<DirectRuleMutationContextIter<'_, 'ast, R>, MutationError<R>> {
-        let (rules, parent_revision) = self.direct_rules(parent)?;
-        Ok(DirectRuleMutationContextIter::new(
-            parent,
-            parent_revision,
-            rules,
-        ))
+        let (rules, _) = self.direct_rules(parent)?;
+        Ok(DirectRuleMutationContextIter::new(parent, rules))
+    }
+
+    /// Builds the AST-owned physical mutation sidecar and all live direct
+    /// adjacencies in one whole-tree pass.
+    ///
+    /// Later candidate checks keep compact edges and expand only a selected
+    /// endpoint through the sidecar.
+    #[doc(hidden)]
+    pub fn prepare_direct_rule_mutation_contexts(
+        &mut self,
+    ) -> Result<std::vec::Vec<DirectRuleEdge<R>>, MutationError<R>> {
+        struct ListState<P> {
+            previous: Option<DirectRuleMutationContext<P>>,
+            pending_gap: RadixRange<RuleRecord<P>>,
+        }
+
+        let mut contexts =
+            FxHashMap::with_capacity_and_hasher(self.rule_count(), Default::default());
+        let mut lists: FxHashMap<Option<RuleId<R>>, ListState<R>> =
+            FxHashMap::with_capacity_and_hasher(self.rule_count(), Default::default());
+        let mut following =
+            FxHashMap::with_capacity_and_hasher(self.rule_count(), Default::default());
+        let mut edges = std::vec::Vec::with_capacity(self.rule_count());
+        let mut previous_physical = None;
+
+        for (rule, record) in self.rules.iter_enumerated() {
+            if let Some(previous) = previous_physical {
+                following.insert(previous, rule);
+            }
+            previous_physical = Some(rule);
+
+            let state = lists.entry(record.parent).or_insert(ListState {
+                previous: None,
+                pending_gap: RadixRange::empty(),
+            });
+            if !record.live {
+                state.pending_gap.extend(record.subtree_range(rule));
+                continue;
+            }
+
+            let incoming_bridge = state.pending_gap;
+            state.pending_gap.clear();
+            let previous = state.previous.take();
+            if let Some(mut previous) = previous {
+                previous.next = Some(rule);
+                previous.bridge = incoming_bridge;
+                previous.insertion_anchor = if incoming_bridge.is_empty() {
+                    previous.subtree.last_id()
+                } else {
+                    incoming_bridge.last_id()
+                };
+                previous.storage_before = Some(rule);
+                edges.push(DirectRuleEdge {
+                    parent: record.parent,
+                    left: previous.rule,
+                    right: rule,
+                    left_revision: previous.revision,
+                    right_revision: record.revision,
+                });
+                contexts.insert(previous.rule, previous);
+            }
+            state.previous = Some(DirectRuleMutationContext {
+                parent: record.parent,
+                previous: previous.map(|previous| previous.rule),
+                rule,
+                next: None,
+                revision: record.revision,
+                incoming_bridge,
+                subtree: record.subtree_range(rule),
+                bridge: RadixRange::empty(),
+                insertion_anchor: record.subtree_range(rule).last_id(),
+                storage_before: None,
+            });
+        }
+
+        for (parent, state) in lists {
+            let Some(mut last) = state.previous else {
+                continue;
+            };
+            last.bridge = state.pending_gap;
+            last.insertion_anchor = if last.bridge.is_empty() {
+                last.subtree.last_id()
+            } else {
+                last.bridge.last_id()
+            };
+            last.storage_before = parent.and_then(|parent_id| {
+                let parent = self
+                    .rules
+                    .get(parent_id)
+                    .expect("a direct-list owner remains resolvable");
+                following
+                    .get(&parent.subtree_range(parent_id).last_id())
+                    .copied()
+            });
+            contexts.insert(last.rule, last);
+        }
+        self.rule_mutation_contexts = contexts;
+        Ok(edges)
     }
 
     fn direct_rule_ids(
@@ -1939,39 +1978,27 @@ impl<R: Unpin> Iterator for DirectRuleContextIter<'_, '_, R> {
 /// and retains the local physical gap required by later mutations.
 struct DirectRuleMutationContextIter<'comp, 'ast, R: Unpin> {
     parent: Option<RuleId<R>>,
-    parent_revision: Option<u32>,
     rules: DirectRuleIter<'comp, 'ast, R>,
     storage_after: Option<RuleId<R>>,
     pending_gap: RadixRange<RuleRecord<R>>,
-    previous_context: Option<DirectRuleMutationContext<R>>,
+    previous: Option<LiveDirectRule<R>>,
     current: Option<LiveDirectRule<R>>,
     next: Option<LiveDirectRule<R>>,
-    following: Option<LiveDirectRule<R>>,
-    after_following: Option<LiveDirectRule<R>>,
 }
 
 impl<'comp, 'ast, R: Unpin> DirectRuleMutationContextIter<'comp, 'ast, R> {
-    fn new(
-        parent: Option<RuleId<R>>,
-        parent_revision: Option<u32>,
-        rules: DirectRuleIter<'comp, 'ast, R>,
-    ) -> Self {
+    fn new(parent: Option<RuleId<R>>, rules: DirectRuleIter<'comp, 'ast, R>) -> Self {
         let mut result = Self {
             parent,
-            parent_revision,
             rules,
             storage_after: None,
             pending_gap: RadixRange::empty(),
-            previous_context: None,
+            previous: None,
             current: None,
             next: None,
-            following: None,
-            after_following: None,
         };
         result.current = result.next_live();
         result.next = result.next_live();
-        result.following = result.next_live();
-        result.after_following = result.next_live();
         result
     }
 
@@ -2008,90 +2035,26 @@ impl<R: Unpin> Iterator for DirectRuleMutationContextIter<'_, '_, R> {
             bridge.last_id()
         };
         let storage_before = self.next.map(|next| next.id).or(self.storage_after);
-        let next_bridge = self
-            .following
-            .map_or(self.pending_gap, |following| following.gap_before);
-        let next_insertion_anchor = self.next.map(|next| {
-            if next_bridge.is_empty() {
-                next.subtree.last_id()
-            } else {
-                next_bridge.last_id()
-            }
-        });
-        let next_storage_before = self
-            .following
-            .map(|following| following.id)
-            .or(self.storage_after);
-        let following_bridge = self
-            .after_following
-            .map_or(self.pending_gap, |after_following| {
-                after_following.gap_before
-            });
-        let following_insertion_anchor = self.following.map(|following| {
-            if following_bridge.is_empty() {
-                following.subtree.last_id()
-            } else {
-                following_bridge.last_id()
-            }
-        });
-        let following_storage_before = self
-            .after_following
-            .map(|after_following| after_following.id)
-            .or(self.storage_after);
         let context = DirectRuleMutationContext {
             parent: self.parent,
-            parent_revision: self.parent_revision,
-            before_previous: self.previous_context.and_then(|context| context.previous),
-            before_previous_revision: self
-                .previous_context
-                .and_then(|context| context.previous_revision),
-            previous: self.previous_context.map(|context| context.rule),
-            previous_revision: self.previous_context.map(|context| context.revision),
+            previous: self.previous.map(|previous| previous.id),
             rule: current.id,
             next: self.next.map(|next| next.id),
-            next_revision: self.next.map(|next| next.revision),
-            following: self.following.map(|following| following.id),
-            following_revision: self.following.map(|following| following.revision),
-            after_following: self.after_following.map(|following| following.id),
-            after_following_revision: self.after_following.map(|following| following.revision),
             revision: current.revision,
-            before_previous_subtree: self
-                .previous_context
-                .and_then(|context| context.previous_subtree),
-            previous_incoming_bridge: self
-                .previous_context
-                .map_or(RadixRange::empty(), |context| context.incoming_bridge),
-            previous_subtree: self.previous_context.map(|context| context.subtree),
             incoming_bridge: current.gap_before,
             subtree: current.subtree,
             bridge,
             insertion_anchor,
             storage_before,
-            next_subtree: self.next.map(|next| next.subtree),
-            next_bridge,
-            next_insertion_anchor,
-            next_storage_before,
-            following_subtree: self.following.map(|following| following.subtree),
-            following_bridge,
-            following_insertion_anchor,
-            following_storage_before,
-            after_following_subtree: self
-                .after_following
-                .map(|after_following| after_following.subtree),
         };
-        self.previous_context = Some(context);
+        self.previous = Some(current);
         self.current = self.next;
-        self.next = self.following;
-        self.following = self.after_following;
-        self.after_following = self.next_live();
+        self.next = self.next_live();
         Some(context)
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let buffered = usize::from(self.current.is_some())
-            + usize::from(self.next.is_some())
-            + usize::from(self.following.is_some())
-            + usize::from(self.after_following.is_some());
+        let buffered = usize::from(self.current.is_some()) + usize::from(self.next.is_some());
         (0, Some(self.rules.remaining as usize + buffered))
     }
 }

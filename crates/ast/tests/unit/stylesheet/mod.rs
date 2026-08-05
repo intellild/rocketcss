@@ -254,7 +254,7 @@ fn local_rule_mutations_invalidate_old_edges_and_publish_exact_replacements() {
             .edges()
             .map(|edge| (edge.left(), edge.right()))
             .collect::<std::vec::Vec<_>>(),
-        [(left, inserted_rule), (inserted_rule, right), (right, next)]
+        [(left, inserted_rule), (inserted_rule, right)]
     );
     assert!(
         inserted
