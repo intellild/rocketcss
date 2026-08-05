@@ -129,6 +129,17 @@ fn lexical_order_and_direct_topology_are_independent() {
         ["outer", "following"]
     );
     assert_eq!(
+        stylesheet.root_rule_ids().collect::<std::vec::Vec<_>>(),
+        [outer, following]
+    );
+    assert_eq!(
+        stylesheet
+            .nested_rule_ids(outer)
+            .unwrap()
+            .collect::<std::vec::Vec<_>>(),
+        [nested]
+    );
+    assert_eq!(
         stylesheet
             .root_rule_edges()
             .map(|edge| (edge.left(), edge.right()))
@@ -307,7 +318,7 @@ fn local_relabel_repairs_retained_edge_contexts_without_rewalking_the_list() {
 }
 
 #[test]
-fn validation_rejects_an_invalid_nested_rule_count() {
+fn validation_rejects_an_invalid_descendant_count() {
     let allocator = Allocator::new();
     let mut stylesheet = StyleSheet::<u8, (), ()>::new_in(&allocator);
     let root = None;
@@ -315,11 +326,11 @@ fn validation_rejects_an_invalid_nested_rule_count() {
     stylesheet.append_rule(Some(first), 2).unwrap();
     stylesheet.append_rule(root, 3).unwrap();
 
-    stylesheet.rule_mut(first).unwrap().nested_rule_count = 3;
+    stylesheet.rule_mut(first).unwrap().descendant_count = 3;
 
     assert_eq!(
         stylesheet.validate_ast(),
-        Err(ValidationError::<u8>::NestedRuleCountMismatch {
+        Err(ValidationError::<u8>::DescendantCountMismatch {
             rule: first,
             expected: 2,
             actual: 3,
@@ -328,7 +339,26 @@ fn validation_rejects_an_invalid_nested_rule_count() {
 }
 
 #[test]
-fn nested_rule_count_tracks_all_descendants() {
+fn validation_rejects_an_invalid_cached_direct_rule_count() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<u8, (), ()>::new_in(&allocator);
+    let parent = stylesheet.append_rule(None, 1).unwrap();
+    stylesheet.append_rule(Some(parent), 2).unwrap();
+
+    stylesheet.rule_mut(parent).unwrap().nested_rule_count = 2;
+
+    assert_eq!(
+        stylesheet.validate_ast(),
+        Err(ValidationError::<u8>::NestedRuleCountMismatch {
+            rule: parent,
+            expected: 1,
+            actual: 2,
+        })
+    );
+}
+
+#[test]
+fn cached_rule_counts_track_physical_descendants_and_live_direct_children() {
     let allocator = Allocator::new();
     let mut stylesheet = StyleSheet::<(), (), ()>::new_in(&allocator);
     let root = None;
@@ -336,7 +366,9 @@ fn nested_rule_count_tracks_all_descendants() {
     let child = stylesheet.append_rule(Some(parent), ()).unwrap();
     stylesheet.append_rule(Some(child), ()).unwrap();
 
-    assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 2);
+    assert_eq!(stylesheet.rule(parent).unwrap().descendant_count, 2);
+    assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 1);
+    assert_eq!(stylesheet.rule(child).unwrap().descendant_count, 1);
     assert_eq!(stylesheet.rule(child).unwrap().nested_rule_count, 1);
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
@@ -373,7 +405,9 @@ fn insertion_after_a_nested_subtree_updates_every_ancestor_span() {
             .collect::<std::vec::Vec<_>>(),
         [parent, child, grandchild, inserted, following]
     );
-    assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 3);
+    assert_eq!(stylesheet.rule(parent).unwrap().descendant_count, 3);
+    assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 2);
+    assert_eq!(stylesheet.rule(child).unwrap().descendant_count, 1);
     assert_eq!(stylesheet.rule(child).unwrap().nested_rule_count, 1);
     assert!(matches!(
         stylesheet.rule_edges_at_context(parent_context),
@@ -423,7 +457,8 @@ fn retired_nested_tombstones_stay_in_the_span_but_not_semantic_traversal() {
             .collect::<std::vec::Vec<_>>(),
         [following]
     );
-    assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 1);
+    assert_eq!(stylesheet.rule(parent).unwrap().descendant_count, 1);
+    assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 0);
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 
