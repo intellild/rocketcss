@@ -658,6 +658,22 @@ impl<P> Clone for DeclarationBlockPosition<P> {
 
 impl<P> Copy for DeclarationBlockPosition<P> {}
 
+impl<P> PartialEq for DeclarationBlockPosition<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.order == other.order
+            && self.previous == other.previous
+            && self.block == other.block
+            && self.next == other.next
+            && self.revision == other.revision
+            && self.live == other.live
+            && self.declarations == other.declarations
+            && self.previous_non_empty_tail == other.previous_non_empty_tail
+            && self.next_non_empty_start == other.next_non_empty_start
+    }
+}
+
+impl<P> Eq for DeclarationBlockPosition<P> {}
+
 impl<P> std::fmt::Debug for DeclarationBlockPosition<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DeclarationBlockPosition")
@@ -732,6 +748,14 @@ impl<P> Clone for DeclarationAppendContext<P> {
 }
 
 impl<P> Copy for DeclarationAppendContext<P> {}
+
+impl<P> PartialEq for DeclarationAppendContext<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.position == other.position && self.after == other.after && self.before == other.before
+    }
+}
+
+impl<P> Eq for DeclarationAppendContext<P> {}
 
 impl<P> std::fmt::Debug for DeclarationAppendContext<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -853,6 +877,9 @@ pub struct MergedAdjacentRuleBlocks<P> {
     pub retained_rule: RuleId<P>,
     pub retained_block: DeclarationBlockId<P>,
     pub effective_key: EffectiveKeyId,
+    /// Refreshed append cursor for the retained declaration representation.
+    #[doc(hidden)]
+    pub declaration_append: DeclarationAppendContext<P>,
     pub delta: RuleMutationDelta<P>,
 }
 
@@ -869,8 +896,20 @@ pub struct InsertedRule<P> {
 pub struct InsertedRuleWithDeclarationBlock<P> {
     pub rule: RadixInsertResult<RuleId<P>>,
     pub declaration_block: RadixInsertResult<DeclarationBlockId<P>>,
+    /// Refreshed append cursor for the block immediately before the insertion.
+    #[doc(hidden)]
+    pub predecessor_declaration_append: DeclarationAppendContext<P>,
     pub declaration_append: DeclarationAppendContext<P>,
     pub delta: RuleMutationDelta<P>,
+}
+
+/// Payload and local append state returned by one declaration replacement.
+#[derive(Debug)]
+pub struct ReplacedDeclaration<P, D> {
+    pub previous: D,
+    /// Refreshed append cursor for the affected declaration block.
+    #[doc(hidden)]
+    pub declaration_append: DeclarationAppendContext<P>,
 }
 
 /// A violated store, ownership, or direct-topology invariant.
@@ -1148,6 +1187,25 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
         &self,
     ) -> impl Iterator<Item = (DeclarationBlockId<R>, &DeclarationBlock<R>)> {
         self.declaration_blocks.iter_enumerated()
+    }
+
+    /// Compares two known declaration-block IDs in semantic source order.
+    ///
+    /// Radix insertion preserves encoded order, but that representation detail
+    /// stays owned by the AST rather than leaking into transformation state.
+    #[doc(hidden)]
+    pub fn declaration_block_is_before(
+        &self,
+        left: DeclarationBlockId<R>,
+        right: DeclarationBlockId<R>,
+    ) -> Result<bool, MutationError<R>> {
+        self.declaration_blocks
+            .get(left)
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(left))?;
+        self.declaration_blocks
+            .get(right)
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(right))?;
+        Ok(left < right)
     }
 
     /// Iterates declaration-block positions and their block/declaration gaps

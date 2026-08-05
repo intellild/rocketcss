@@ -23,8 +23,7 @@ pub(crate) fn stabilize_cross_rule_builder<'arena, 'ast>(
     mut builder: CrossRuleBuilder<'arena, 'ast>,
     stylesheet: &mut rocketcss_ast::StyleSheet<'ast>,
     preserve_selector_compatibility: bool,
-    key_remaps: &[rocketcss_ast::EffectiveKeyId],
 ) -> Result<(), rocketcss_ast::StyleSheetMutationError<'ast>> {
-    builder.finalize(stylesheet, key_remaps)?;
+    builder.finalize(stylesheet)?;
     radix_state::stabilize_with_builder(builder, stylesheet, preserve_selector_compatibility)
 }

@@ -95,7 +95,7 @@ pub fn try_minify<'ast, 'ghost>(
         Ok(())
     })?;
 
-    let context_repair = stylesheet.refresh_context_value_identities_with_remaps(&allocator)?;
+    stylesheet.refresh_context_value_identities_in(&allocator)?;
 
     if let Some(builder) = cross_rule {
         let preserve_selector_compatibility = minifier
@@ -105,7 +105,6 @@ pub fn try_minify<'ast, 'ghost>(
             builder,
             stylesheet,
             preserve_selector_compatibility,
-            context_repair.effective_key_remaps(),
         )?;
     }
     Ok(minifier.cx.stats())

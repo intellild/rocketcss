@@ -47,9 +47,8 @@ impl<'arena, 'ast> CrossRuleBuilder<'arena, 'ast> {
     pub(super) fn finalize(
         &mut self,
         stylesheet: &mut StyleSheet<'ast>,
-        key_remaps: &[EffectiveKeyId],
     ) -> Result<(), MutationError<'ast>> {
-        self.state.finalize_published_blocks(stylesheet, key_remaps)
+        self.state.finalize_published_blocks(stylesheet)
     }
 }
 
@@ -228,7 +227,6 @@ struct MinifyScratch<'arena, 'ast> {
     affected_blocks: HashSet<'arena, DeclarationBlockId<'ast>>,
     affected_rules: FxHashMap<RuleId<'ast>, AffectedRule<'ast>>,
     affected_parents: FxHashSet<Option<RuleId<'ast>>>,
-    affected_block_updates: Vec<'arena, DeclarationBlockId<'ast>>,
     affected_parent_updates: Vec<'arena, Option<RuleId<'ast>>>,
     rule_contexts: Vec<'arena, RuleContext<'ast>>,
     mutation_deltas: Vec<'arena, RuleDelta<'ast>>,
@@ -262,7 +260,6 @@ impl<'arena, 'ast> MinifyScratch<'arena, 'ast> {
                 rule_capacity,
                 Default::default(),
             ),
-            affected_block_updates: Vec::with_capacity_in(block_capacity, allocator),
             affected_parent_updates: Vec::with_capacity_in(rule_capacity, allocator),
             rule_contexts: Vec::with_capacity_in(rule_capacity, allocator),
             mutation_deltas: Vec::with_capacity_in(rule_capacity, allocator),
@@ -272,22 +269,17 @@ impl<'arena, 'ast> MinifyScratch<'arena, 'ast> {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct PublishedBlock<'ast> {
+struct HistoryOccurrence<'ast> {
     block: DeclarationBlockId<'ast>,
-    effective_key: EffectiveKeyId,
+    append: DeclarationAppendContext<CssRule<'ast>>,
 }
 
 struct CrossRuleState<'arena, 'ast> {
     allocator: &'arena Allocator,
     declaration_ir: DeclarationIrStore<'arena, 'ast>,
-    // The authored common case is one occurrence per key. Keep that one ID
-    // inline in the arena vector and grow it only when S2 needs a history.
-    histories: HashMap<'arena, EffectiveKeyId, Vec<'arena, DeclarationBlockId<'ast>>>,
-    block_order: Vec<'arena, DeclarationBlockId<'ast>>,
-    block_order_indices: FxHashMap<DeclarationBlockId<'ast>, usize>,
-    declaration_append_contexts:
-        FxHashMap<DeclarationBlockId<'ast>, DeclarationAppendContext<CssRule<'ast>>>,
-    published_blocks: Vec<'arena, PublishedBlock<'ast>>,
+    // The authored common case is one occurrence per key. Keep that local
+    // block/cursor pair inline and grow it only when S2 needs a history.
+    histories: HashMap<'arena, EffectiveKeyId, Vec<'arena, HistoryOccurrence<'ast>>>,
     direct_style_edges: Vec<'arena, Candidate<'ast>>,
     same_selector_candidates: SameSelectorCandidateList<'arena, 'ast>,
     declaration_override_candidates: DeclarationOverrideCandidateList<'arena>,
@@ -310,16 +302,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 block_capacity,
             ),
             histories: HashMap::with_capacity_in(effective_key_capacity, allocator),
-            block_order: Vec::with_capacity_in(block_capacity, allocator),
-            block_order_indices: FxHashMap::with_capacity_and_hasher(
-                block_capacity,
-                Default::default(),
-            ),
-            declaration_append_contexts: FxHashMap::with_capacity_and_hasher(
-                block_capacity,
-                Default::default(),
-            ),
-            published_blocks: Vec::with_capacity_in(block_capacity, allocator),
             direct_style_edges: Vec::with_capacity_in(rule_capacity, allocator),
             same_selector_candidates: SameSelectorCandidateList::with_capacity_in(
                 rule_capacity,
@@ -363,47 +345,36 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         block: DeclarationBlockId<'ast>,
     ) -> Result<(), MutationError<'ast>> {
         self.declaration_ir.freeze_block(stylesheet, block)?;
-        let block_record = stylesheet
-            .declaration_block(block)
-            .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(block))?;
-        self.published_blocks.push(PublishedBlock {
-            block,
-            effective_key: block_record.effective_key(),
-        });
-        let order = self.block_order.len();
-        self.block_order.push(block);
-        self.block_order_indices.insert(block, order);
+        self.published_block_count += 1;
         Ok(())
     }
 
     fn finalize_published_blocks(
         &mut self,
         stylesheet: &mut StyleSheet<'ast>,
-        key_remaps: &[EffectiveKeyId],
     ) -> Result<(), MutationError<'ast>> {
-        self.declaration_append_contexts.clear();
+        let mut initialized = 0;
         for position in stylesheet.declaration_block_positions() {
-            if stylesheet
-                .declaration_block(position.block())
-                .is_some_and(|block| block.is_live())
-            {
-                self.declaration_append_contexts
-                    .insert(position.block(), position.append_context());
+            let block = position.block();
+            let Some(record) = stylesheet.declaration_block(block) else {
+                return Err(MutationError::<'ast>::UnknownDeclarationBlock(block));
+            };
+            if !record.is_live() {
+                continue;
             }
-        }
-        self.published_block_count = 0;
-        for index in 0..self.published_blocks.len() {
-            let mut published = self.published_blocks[index];
-            if !key_remaps.is_empty() {
-                published.effective_key = key_remaps[published.effective_key.index()];
-                self.published_blocks[index] = published;
-            }
-            self.published_block_count += 1;
-            if self.insert_history_occurrence(published.effective_key, published.block) {
+            initialized += 1;
+            if self.push_history_occurrence(
+                record.effective_key(),
+                HistoryOccurrence {
+                    block,
+                    append: position.append_context(),
+                },
+            ) {
                 self.declaration_override_candidates
-                    .push(published.effective_key);
+                    .push(record.effective_key());
             }
         }
+        debug_assert_eq!(initialized, self.published_block_count);
         let edges = stylesheet.prepare_direct_rule_mutation_contexts()?;
         self.enqueue_initial_edges(stylesheet, edges)
     }
@@ -430,7 +401,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     {
         let mut state = CrossRuleState::new_in(stylesheet, stylesheet.allocator());
         state.publish_all_blocks(stylesheet)?;
-        state.finalize_published_blocks(stylesheet, &[])?;
+        state.finalize_published_blocks(stylesheet)?;
         Ok(state)
     }
 }
@@ -517,7 +488,11 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             let Some(key) = validate_s1(stylesheet, candidate) else {
                 continue;
             };
-            let merged = stylesheet.merge_adjacent_rule_declaration_blocks(candidate.edge)?;
+            let retained = self.history_occurrence(key, candidate.right)?;
+            let merged = stylesheet.merge_adjacent_rule_declaration_blocks_with_context(
+                candidate.edge,
+                retained.append,
+            )?;
             debug_assert_eq!(merged.effective_key, key);
             self.declaration_ir
                 .compose(merged.retired_block, merged.retained_block);
@@ -525,10 +500,12 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 .histories
                 .get_mut(&key)
                 .expect("an initialized live block has a key history");
-            history.retain(|block| *block != merged.retired_block);
-            self.declaration_append_contexts
-                .remove(&merged.retired_block);
-            self.refresh_declaration_append_context(stylesheet, merged.retained_block)?;
+            history.retain(|occurrence| occurrence.block != merged.retired_block);
+            self.update_history_append_context(
+                key,
+                merged.retained_block,
+                merged.declaration_append,
+            )?;
             commits += 1;
             self.enqueue_mutation_delta(stylesheet, merged.delta);
             self.declaration_override_candidates.push(key);
@@ -546,7 +523,9 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 continue;
             };
             self.scratch.history.clear();
-            self.scratch.history.extend(history.iter().copied());
+            self.scratch
+                .history
+                .extend(history.iter().map(|occurrence| occurrence.block));
             self.scratch.affected_blocks.clear();
             self.scratch.previous_by_property.clear();
             self.scratch.declarations_to_remove.clear();
@@ -573,23 +552,18 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                         .insert(property_key, (block, declaration));
                 }
             }
-            for &(block, declaration) in &self.scratch.declarations_to_remove {
-                stylesheet.replace_declaration(
-                    block,
+            for removal_index in 0..self.scratch.declarations_to_remove.len() {
+                let (block, declaration) = self.scratch.declarations_to_remove[removal_index];
+                let occurrence = self.history_occurrence(key, block)?;
+                let replaced = stylesheet.replace_declaration_with_context(
+                    occurrence.append,
                     declaration,
                     CssDeclaration::Property(Declaration::Tombstone),
                 )?;
+                self.update_history_append_context(key, block, replaced.declaration_append)?;
                 self.declaration_ir.mark_dead(block, declaration);
                 self.scratch.affected_blocks.insert(block);
                 stats.declarations_removed += 1;
-            }
-            self.scratch.affected_block_updates.clear();
-            self.scratch
-                .affected_block_updates
-                .extend(self.scratch.affected_blocks.iter().copied());
-            for update_index in 0..self.scratch.affected_block_updates.len() {
-                let block = self.scratch.affected_block_updates[update_index];
-                self.refresh_declaration_append_context(stylesheet, block)?;
             }
 
             self.scratch.affected_rules.clear();
@@ -669,7 +643,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                         let retired = stylesheet
                             .retire_rule_with_captured_successor(context, captured_successor)?;
                         successor_context = retired.successor_context;
-                        self.declaration_append_contexts.remove(&affected.block);
                         self.remove_history_occurrence(affected.effective_key, affected.block);
                         stats.empty_rules_retired += 1;
                         retired.delta
@@ -843,6 +816,9 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             else {
                 continue;
             };
+            let mut left_occurrence =
+                self.history_occurrence(endpoints.left_key, candidate.left)?;
+            let right_occurrence = self.history_occurrence(endpoints.right_key, candidate.right)?;
 
             if self.scratch.left_residual.is_empty() {
                 let (_, selector_delta) = stylesheet.replace_rule_selector_value_in_edge(
@@ -850,6 +826,8 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     selector_value,
                     self.allocator,
                 )?;
+                left_occurrence.append =
+                    stylesheet.refresh_declaration_append_context(left_occurrence.append)?;
                 let left_payload = stylesheet
                     .rule_mut(endpoints.left_rule)
                     .expect("the reused S3 endpoint remains live")
@@ -860,12 +838,14 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     _ => unreachable!("the S3 selector owner was validated"),
                 }
 
+                let mut right_append = right_occurrence.append;
                 for declaration in &self.scratch.common {
-                    stylesheet.replace_declaration(
-                        candidate.right,
+                    let replaced = stylesheet.replace_declaration_with_context(
+                        right_append,
                         declaration.right,
                         CssDeclaration::Property(Declaration::Tombstone),
                     )?;
+                    right_append = replaced.declaration_append;
                     self.declaration_ir
                         .mark_dead(candidate.right, declaration.right);
                 }
@@ -877,13 +857,16 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     shared_key
                 );
                 self.remove_history_occurrence(endpoints.left_key, candidate.left);
-                self.insert_history_occurrence(shared_key, candidate.left);
+                self.insert_history_occurrence(stylesheet, shared_key, left_occurrence)?;
 
                 let retain_right = self.declaration_ir.block_live_count(candidate.right) != 0
                     || stylesheet.has_nested_rules(endpoints.right_rule)?;
-                self.refresh_declaration_append_context(stylesheet, candidate.left)?;
                 if retain_right {
-                    self.refresh_declaration_append_context(stylesheet, candidate.right)?;
+                    self.update_history_append_context(
+                        endpoints.right_key,
+                        candidate.right,
+                        right_append,
+                    )?;
                 }
                 self.scratch.mutation_deltas.clear();
                 self.scratch.mutation_deltas.push(selector_delta);
@@ -894,7 +877,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     let retired = stylesheet.retire_rule(candidate.edge.right_context())?;
                     self.scratch.mutation_deltas.push(retired.delta);
                     self.remove_history_occurrence(endpoints.right_key, candidate.right);
-                    self.declaration_append_contexts.remove(&candidate.right);
                 }
                 for delta_index in 0..self.scratch.mutation_deltas.len() {
                     self.enqueue_mutation_delta(
@@ -922,10 +904,9 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     selector_value,
                 }),
             };
-            let left_append = self.declaration_append_context(candidate.left)?;
             let insertion = match stylesheet.insert_rule_with_declaration_block_after(
                 candidate.edge,
-                left_append,
+                left_occurrence.append,
                 payload,
                 shared_key,
                 self.scratch.common.len(),
@@ -944,6 +925,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             };
             let insertion_delta = insertion.delta;
             let declaration_append = insertion.declaration_append;
+            let predecessor_declaration_append = insertion.predecessor_declaration_append;
             let rule_result = insertion.rule;
             let right_rule = remap_rule_id(endpoints.right_rule, &rule_result.remaps);
             let shared_rule = rule_result.id;
@@ -953,7 +935,10 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             let left_block = remap_block_id(candidate.left, &block_result.remaps);
             let right_block = remap_block_id(candidate.right, &block_result.remaps);
             let shared_block = block_result.id;
-            self.insert_block_order_after(left_block, shared_block)?;
+            let mut left_append = predecessor_declaration_append;
+            let mut right_append = self
+                .history_occurrence(endpoints.right_key, right_block)?
+                .append;
 
             let mut moved_declarations = std::vec::Vec::with_capacity(self.scratch.common.len());
             for declaration in &self.scratch.common {
@@ -961,16 +946,19 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     .declaration(declaration.left)
                     .ok_or(MutationError::<'ast>::UnknownDeclaration(declaration.left))?
                     .is_important();
-                let moved = stylesheet.replace_declaration(
-                    left_block,
+                let replaced = stylesheet.replace_declaration_with_context(
+                    left_append,
                     declaration.left,
                     CssDeclaration::Property(Declaration::Tombstone),
                 )?;
-                stylesheet.replace_declaration(
-                    right_block,
+                left_append = replaced.declaration_append;
+                let moved = replaced.previous;
+                let replaced = stylesheet.replace_declaration_with_context(
+                    right_append,
                     declaration.right,
                     CssDeclaration::Property(Declaration::Tombstone),
                 )?;
+                right_append = replaced.declaration_append;
                 self.declaration_ir.mark_dead(left_block, declaration.left);
                 self.declaration_ir
                     .mark_dead(right_block, declaration.right);
@@ -980,26 +968,23 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 declaration_append,
                 moved_declarations,
             )?;
-            self.declaration_append_contexts
-                .insert(shared_block, declaration_append);
-            self.refresh_declaration_append_context(stylesheet, left_block)?;
-            let left_append = self
-                .declaration_append_context(left_block)?
-                .with_inserted_successor(declaration_append);
-            self.declaration_append_contexts
-                .insert(left_block, left_append);
+            let left_append = left_append.with_inserted_successor(declaration_append);
+            self.update_history_append_context(endpoints.left_key, left_block, left_append)?;
             self.declaration_ir.freeze_block(stylesheet, shared_block)?;
-            self.insert_history_occurrence(shared_key, shared_block);
+            self.insert_history_occurrence(
+                stylesheet,
+                shared_key,
+                HistoryOccurrence {
+                    block: shared_block,
+                    append: declaration_append,
+                },
+            )?;
 
             let retain_right = self.declaration_ir.block_live_count(right_block) != 0
                 || stylesheet.has_nested_rules(right_rule)?;
             if retain_right {
-                self.refresh_declaration_append_context(stylesheet, right_block)?;
-                let right_append = self
-                    .declaration_append_context(right_block)?
-                    .with_inserted_predecessor(declaration_append);
-                self.declaration_append_contexts
-                    .insert(right_block, right_append);
+                let right_append = right_append.with_inserted_predecessor(declaration_append);
+                self.update_history_append_context(endpoints.right_key, right_block, right_append)?;
             }
             self.scratch.mutation_deltas.clear();
             self.scratch.mutation_deltas.push(insertion_delta);
@@ -1012,7 +997,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 let retired = stylesheet.retire_rule(right_context)?;
                 self.scratch.mutation_deltas.push(retired.delta);
                 self.remove_history_occurrence(endpoints.right_key, right_block);
-                self.declaration_append_contexts.remove(&right_block);
             }
             for delta_index in 0..self.scratch.mutation_deltas.len() {
                 self.enqueue_mutation_delta(stylesheet, self.scratch.mutation_deltas[delta_index]);
@@ -1030,7 +1014,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     fn remove_history_occurrence(&mut self, key: EffectiveKeyId, block: DeclarationBlockId<'ast>) {
         let remove_key = if let Some(history) = self.histories.get_mut(&key) {
-            history.retain(|candidate| *candidate != block);
+            history.retain(|candidate| candidate.block != block);
             history.is_empty()
         } else {
             false
@@ -1040,10 +1024,10 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         }
     }
 
-    fn insert_history_occurrence(
+    fn push_history_occurrence(
         &mut self,
         key: EffectiveKeyId,
-        block: DeclarationBlockId<'ast>,
+        occurrence: HistoryOccurrence<'ast>,
     ) -> bool {
         if !self.histories.contains_key(&key) {
             self.histories.insert(key, self.allocator.vec());
@@ -1052,57 +1036,72 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             .histories
             .get_mut(&key)
             .expect("the history was inserted above");
-        let order = *self
-            .block_order_indices
-            .get(&block)
-            .expect("a history block has a source-order token");
-        let index = history.partition_point(|candidate| {
-            self.block_order_indices
-                .get(candidate)
-                .is_some_and(|candidate_order| *candidate_order < order)
-        });
-        if history.get(index) != Some(&block) {
-            history.insert(index, block);
-        }
+        history.push(occurrence);
         history.len() == 2
     }
 
-    fn insert_block_order_after(
+    fn insert_history_occurrence(
         &mut self,
-        after: DeclarationBlockId<'ast>,
-        inserted: DeclarationBlockId<'ast>,
-    ) -> Result<(), MutationError<'ast>> {
-        let index = self
-            .block_order_indices
-            .get(&after)
-            .copied()
-            .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(after))?
-            + 1;
-        self.block_order.insert(index, inserted);
-        for (order, &block) in self.block_order.iter().enumerate().skip(index) {
-            self.block_order_indices.insert(block, order);
+        stylesheet: &StyleSheet<'ast>,
+        key: EffectiveKeyId,
+        occurrence: HistoryOccurrence<'ast>,
+    ) -> Result<bool, MutationError<'ast>> {
+        if !self.histories.contains_key(&key) {
+            self.histories.insert(key, self.allocator.vec());
         }
-        Ok(())
+        let history = self
+            .histories
+            .get_mut(&key)
+            .expect("the history was inserted above");
+        let mut start = 0;
+        let mut end = history.len();
+        while start < end {
+            let middle = start + (end - start) / 2;
+            if stylesheet.declaration_block_is_before(history[middle].block, occurrence.block)? {
+                start = middle + 1;
+            } else {
+                end = middle;
+            }
+        }
+        if history
+            .get(start)
+            .is_none_or(|current| current.block != occurrence.block)
+        {
+            history.insert(start, occurrence);
+        } else {
+            history[start] = occurrence;
+        }
+        Ok(history.len() == 2)
     }
 
-    fn declaration_append_context(
+    fn history_occurrence(
         &self,
+        key: EffectiveKeyId,
         block: DeclarationBlockId<'ast>,
-    ) -> Result<DeclarationAppendContext<CssRule<'ast>>, MutationError<'ast>> {
-        self.declaration_append_contexts
-            .get(&block)
+    ) -> Result<HistoryOccurrence<'ast>, MutationError<'ast>> {
+        self.histories
+            .get(&key)
+            .and_then(|history| history.iter().find(|occurrence| occurrence.block == block))
             .copied()
             .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(block))
     }
 
-    fn refresh_declaration_append_context(
+    fn update_history_append_context(
         &mut self,
-        stylesheet: &StyleSheet<'ast>,
+        key: EffectiveKeyId,
         block: DeclarationBlockId<'ast>,
+        append: DeclarationAppendContext<CssRule<'ast>>,
     ) -> Result<(), MutationError<'ast>> {
-        let context = self.declaration_append_context(block)?;
-        let context = stylesheet.refresh_declaration_append_context(context)?;
-        self.declaration_append_contexts.insert(block, context);
+        let occurrence = self
+            .histories
+            .get_mut(&key)
+            .and_then(|history| {
+                history
+                    .iter_mut()
+                    .find(|occurrence| occurrence.block == block)
+            })
+            .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(block))?;
+        occurrence.append = append;
         Ok(())
     }
 
@@ -1128,31 +1127,11 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             return;
         }
         self.declaration_ir.repair_block_remaps(&result.remaps);
-        for block in &mut self.published_blocks {
-            block.block = remap_block_id(block.block, &result.remaps);
-        }
         for history in self.histories.values_mut() {
-            for block in history {
-                *block = remap_block_id(*block, &result.remaps);
+            for occurrence in history {
+                occurrence.block = remap_block_id(occurrence.block, &result.remaps);
+                occurrence.append = occurrence.append.remapped(&result.remaps);
             }
-        }
-        for block in &mut self.block_order {
-            *block = remap_block_id(*block, &result.remaps);
-        }
-        let mut remapped_append_contexts = FxHashMap::with_capacity_and_hasher(
-            self.declaration_append_contexts.len(),
-            Default::default(),
-        );
-        for (block, context) in self.declaration_append_contexts.drain() {
-            remapped_append_contexts.insert(
-                remap_block_id(block, &result.remaps),
-                context.remapped(&result.remaps),
-            );
-        }
-        self.declaration_append_contexts = remapped_append_contexts;
-        self.block_order_indices.clear();
-        for (order, &block) in self.block_order.iter().enumerate() {
-            self.block_order_indices.insert(block, order);
         }
         for edge in &mut self.direct_style_edges {
             edge.remap_blocks(&result.remaps);
@@ -1532,9 +1511,9 @@ mod tests {
             1
         );
         for (&key, blocks) in &state.histories {
-            assert!(blocks.iter().all(|&block| {
+            assert!(blocks.iter().all(|occurrence| {
                 stylesheet
-                    .declaration_block(block)
+                    .declaration_block(occurrence.block)
                     .is_some_and(|block| block.effective_key() == key)
             }));
         }
@@ -1611,7 +1590,7 @@ mod tests {
             state
                 .histories
                 .values()
-                .any(|history| history.as_slice() == [retained])
+                .any(|history| history.len() == 1 && history[0].block == retained)
         );
         assert_eq!(stylesheet.validate_ast(), Ok(()));
     }
@@ -1856,12 +1835,13 @@ mod tests {
                 stylesheet.declarations_in_source_order().count(),
                 authored_declarations + 1
             );
-            assert!(
-                state
-                    .histories
-                    .values()
-                    .all(|history| { history.windows(2).all(|pair| pair[0] < pair[1]) })
-            );
+            assert!(state.histories.values().all(|history| {
+                history.windows(2).all(|pair| {
+                    stylesheet
+                        .declaration_block_is_before(pair[0].block, pair[1].block)
+                        .unwrap()
+                })
+            }));
             let actual = stylesheet
                 .to_css_string(
                     PrinterOptions { prettify: false },

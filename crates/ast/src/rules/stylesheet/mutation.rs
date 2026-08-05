@@ -397,9 +397,11 @@ where
             after: append.after,
             before: append.before,
         };
+        let predecessor_declaration_append = append.with_inserted_successor(declaration_append);
         Ok(InsertedRuleWithDeclarationBlock {
             rule: inserted.rule,
             declaration_block,
+            predecessor_declaration_append,
             declaration_append,
             delta: inserted.delta,
         })
@@ -601,6 +603,34 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
 }
 
 impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
+    /// Replaces one declaration through an existing append cursor and returns
+    /// the refreshed cursor with the previous payload.
+    #[doc(hidden)]
+    pub fn replace_declaration_with_context(
+        &mut self,
+        context: DeclarationAppendContext<R>,
+        declaration: DeclarationId,
+        replacement: D,
+    ) -> Result<ReplacedDeclaration<R, D>, MutationError<R>> {
+        let block = context.block();
+        let block_record = self
+            .declaration_blocks
+            .get(block)
+            .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?;
+        if !block_record.live
+            || block_record.revision != context.position.revision
+            || block_record.declarations != context.position.declarations
+        {
+            return Err(MutationError::<R>::NonContiguousDeclarationRange(block));
+        }
+        let previous = self.replace_declaration(block, declaration, replacement)?;
+        let declaration_append = self.refresh_declaration_append_context(context)?;
+        Ok(ReplacedDeclaration {
+            previous,
+            declaration_append,
+        })
+    }
+
     /// Replaces one declaration payload through its owning block and bumps the
     /// block revision used by incremental Nano candidates.
     pub fn replace_declaration(
@@ -645,6 +675,25 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     pub fn merge_adjacent_rule_declaration_blocks(
         &mut self,
         edge: DirectRuleEdge<R>,
+    ) -> Result<MergedAdjacentRuleBlocks<R>, MutationError<R>> {
+        let right = edge.right();
+        let right_block = self
+            .rules
+            .get(right)
+            .ok_or(MutationError::<R>::UnknownRule(right))?
+            .declaration_block
+            .ok_or(MutationError::<R>::InvalidRuleTopology(right))?;
+        let append = self.declaration_append_context(right_block)?;
+        self.merge_adjacent_rule_declaration_blocks_with_context(edge, append)
+    }
+
+    /// Context-consuming form for schedulers that already retain the right
+    /// block's append cursor.
+    #[doc(hidden)]
+    pub fn merge_adjacent_rule_declaration_blocks_with_context(
+        &mut self,
+        edge: DirectRuleEdge<R>,
+        append: DeclarationAppendContext<R>,
     ) -> Result<MergedAdjacentRuleBlocks<R>, MutationError<R>> {
         let left = edge.left();
         let right = edge.right();
@@ -704,6 +753,14 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             .declaration_blocks
             .get(right_block_id)
             .ok_or(MutationError::<R>::UnknownDeclarationBlock(right_block_id))?;
+        if append.block() != right_block_id
+            || append.position.revision != right_block.revision
+            || append.position.declarations != right_block.declarations
+        {
+            return Err(MutationError::<R>::NonContiguousDeclarationRange(
+                right_block_id,
+            ));
+        }
         if !left_block.live
             || !right_block.live
             || left_block.owner != DeclarationBlockOwner::<R>::Rule(left)
@@ -756,6 +813,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             .expect("the retained block was validated before commit");
         retained_block.declarations = merged_declarations;
         retained_block.revision = retained_block.revision.wrapping_add(1);
+        let declaration_append = self.refresh_declaration_append_context(append)?;
         let mut right_context = right_context;
         let mut incoming_bridge = left_context.incoming_bridge;
         incoming_bridge.extend(left_context.subtree);
@@ -770,6 +828,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             retained_rule: right,
             retained_block: right_block_id,
             effective_key,
+            declaration_append,
             delta,
         })
     }
