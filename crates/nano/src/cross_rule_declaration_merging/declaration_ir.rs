@@ -63,9 +63,9 @@ impl<'arena, 'ast> DeclarationIrClassifier<'arena, 'ast> {
     }
 
     fn intern_custom_property(&mut self, name: &'ast str) -> u32 {
-        let next_id = u32::try_from(self.custom_property_ids.len())
+        let vacant_id = u32::try_from(self.custom_property_ids.len())
             .expect("custom property count exceeds u32::MAX");
-        *self.custom_property_ids.entry(name).or_insert(next_id)
+        *self.custom_property_ids.entry(name).or_insert(vacant_id)
     }
 }
 

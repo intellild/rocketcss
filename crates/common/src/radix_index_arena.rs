@@ -4,8 +4,9 @@
 //! high primary field of [`RadixId`] as a direct index. If that compact
 //! prefix fills, authored values keep appending to the same vector and use a
 //! high-bit-tagged dense overflow ID. Rare transformed values inserted after a
-//! compact primary live in lazy two-level radix trees indexed by a separate
-//! sparse `u32` vector.
+//! compact primary live in lazy two-level radix trees reached through a dense
+//! `u32` index sidecar. A separate sorted sparse primary list drives semantic
+//! traversal without affecting O(1) lookup.
 //!
 //! ```text
 //! 31                         12 11                         2 1         0
@@ -44,6 +45,7 @@ const OVERFLOW_TAG: u32 = 1 << (u32::BITS - 1);
 const COMPACT_PRIMARY_CAPACITY: usize = 1 << (PRIMARY_BITS - 1);
 const OVERFLOW_INDEX_BITS: u32 = u32::BITS - RESERVED_BITS - 1;
 const OVERFLOW_CAPACITY: usize = (1 << OVERFLOW_INDEX_BITS) - 1;
+const NO_SIBLING_GROUP: u32 = u32::MAX;
 
 /// Stable compact identity for a value in [`RadixIndexArena`].
 ///
@@ -181,10 +183,11 @@ impl<T> RadixId<T> {
 
 /// A contiguous run in one [`RadixIndexArena`]'s semantic order.
 ///
-/// An empty range is represented solely by `len == 0`. Its `start_id` is a
-/// semantically invalid placeholder and must never be resolved.
+/// An empty range is represented solely by `len == 0`. Its endpoint IDs are
+/// semantically invalid placeholders and must never be resolved.
 pub struct RadixRange<T> {
     start_id: RadixId<T>,
+    last_id: RadixId<T>,
     len: u32,
 }
 
@@ -202,6 +205,7 @@ impl<T> fmt::Debug for RadixRange<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RadixRange")
             .field("start_id", &self.start_id)
+            .field("last_id", &self.last_id)
             .field("len", &self.len)
             .finish()
     }
@@ -210,7 +214,7 @@ impl<T> fmt::Debug for RadixRange<T> {
 impl<T> PartialEq for RadixRange<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.start_id == other.start_id && self.len == other.len
+        self.start_id == other.start_id && self.last_id == other.last_id && self.len == other.len
     }
 }
 
@@ -222,6 +226,7 @@ impl<T> RadixRange<T> {
     pub fn empty() -> Self {
         Self {
             start_id: RadixId::from_parts(0, 0),
+            last_id: RadixId::from_parts(0, 0),
             len: 0,
         }
     }
@@ -229,12 +234,22 @@ impl<T> RadixRange<T> {
     /// Creates a semantic range. A zero length is canonicalized to
     /// [`empty`](Self::empty).
     #[inline]
-    pub fn new(start_id: RadixId<T>, len: u32) -> Self {
+    pub fn new(start_id: RadixId<T>, last_id: RadixId<T>, len: u32) -> Self {
         if len == 0 {
             Self::empty()
         } else {
-            Self { start_id, len }
+            Self {
+                start_id,
+                last_id,
+                len,
+            }
         }
+    }
+
+    /// Creates a one-value semantic range.
+    #[inline]
+    pub fn singleton(id: RadixId<T>) -> Self {
+        Self::new(id, id, 1)
     }
 
     /// Returns the first ID in a non-empty range.
@@ -246,6 +261,18 @@ impl<T> RadixRange<T> {
     pub fn start_id(self) -> RadixId<T> {
         assert!(self.len != 0, "an empty RadixRange has no start ID");
         self.start_id
+    }
+
+    /// Returns the final ID in a non-empty range.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the range is empty because its endpoint is only a
+    /// placeholder.
+    #[inline]
+    pub fn last_id(self) -> RadixId<T> {
+        assert!(self.len != 0, "an empty RadixRange has no last ID");
+        self.last_id
     }
 
     /// Returns the number of semantic values in the range.
@@ -260,29 +287,53 @@ impl<T> RadixRange<T> {
         self.len == 0
     }
 
+    /// Returns whether `id` is encoded between this range's known endpoints.
+    /// Arena insertion preserves encoded semantic order, so no traversal is
+    /// required for a range that was constructed from actual insertion IDs.
+    #[doc(hidden)]
+    #[inline]
+    pub fn contains(self, id: RadixId<T>) -> bool {
+        !self.is_empty() && self.start_id <= id && id <= self.last_id
+    }
+
     /// Initializes an empty range with its first live ID.
     #[doc(hidden)]
     #[inline]
-    pub fn initialize(&mut self, start_id: RadixId<T>) {
+    pub fn initialize(&mut self, id: RadixId<T>) {
         assert!(
             self.is_empty(),
             "only an empty RadixRange can be initialized"
         );
-        self.start_id = start_id;
-        self.len = 1;
+        *self = Self::singleton(id);
     }
 
-    /// Extends a non-empty range by `additional` semantic values.
+    /// Appends one known semantic ID to a non-empty range.
     #[doc(hidden)]
     #[inline]
-    pub fn extend_by(&mut self, additional: u32) {
-        if additional == 0 {
-            return;
-        }
+    pub fn append(&mut self, id: RadixId<T>) {
         assert!(!self.is_empty(), "an empty RadixRange must be initialized");
+        self.last_id = id;
         self.len = self
             .len
-            .checked_add(additional)
+            .checked_add(1)
+            .expect("RadixRange length exhausted");
+    }
+
+    /// Extends this range by a complete, ordered range.
+    #[doc(hidden)]
+    #[inline]
+    pub fn extend(&mut self, next: Self) {
+        if next.is_empty() {
+            return;
+        }
+        if self.is_empty() {
+            *self = next;
+            return;
+        }
+        self.last_id = next.last_id;
+        self.len = self
+            .len
+            .checked_add(next.len)
             .expect("RadixRange length exhausted");
     }
 
@@ -571,88 +622,6 @@ impl<'arena, T> RadixTree<'arena, T> {
         keys
     }
 
-    fn next_key_after(&self, key: u16) -> Option<u16> {
-        let root = self.root.as_deref()?;
-        let (high, low) = radix_parts(key);
-        if low < RADIX_SIZE - 1 {
-            let occupied = root.leaves[high].as_deref().map_or(0, |leaf| leaf.occupied)
-                & (u32::MAX << (low + 1));
-            if occupied != 0 {
-                let next_low = occupied.trailing_zeros() as usize;
-                return Some((high * RADIX_SIZE + next_low) as u16);
-            }
-        }
-        let later_branches = if high < RADIX_SIZE - 1 {
-            root.occupied_branches & (u32::MAX << (high + 1))
-        } else {
-            0
-        };
-        let next_high = later_branches.trailing_zeros() as usize;
-        (next_high < RADIX_SIZE).then(|| {
-            let branch_bit = 1_u32 << next_high;
-            if root.direct_occupied & branch_bit != 0 {
-                return (next_high * RADIX_SIZE) as u16;
-            }
-            let next_low = root.leaves[next_high]
-                .as_deref()
-                .expect("an occupied non-direct branch has a leaf")
-                .occupied
-                .trailing_zeros() as usize;
-            (next_high * RADIX_SIZE + next_low) as u16
-        })
-    }
-
-    fn previous_key_before(&self, key: u16) -> Option<u16> {
-        let root = self.root.as_deref()?;
-        let (high, low) = radix_parts(key);
-        if low != 0 {
-            let occupied =
-                root.leaves[high].as_deref().map_or(0, |leaf| leaf.occupied) & ((1_u32 << low) - 1);
-            if occupied != 0 {
-                let previous_low = (u32::BITS - 1 - occupied.leading_zeros()) as usize;
-                return Some((high * RADIX_SIZE + previous_low) as u16);
-            }
-            if root.direct_occupied & (1_u32 << high) != 0 {
-                return Some((high * RADIX_SIZE) as u16);
-            }
-        }
-        let earlier_branches = if high == 0 {
-            0
-        } else {
-            root.occupied_branches & ((1_u32 << high) - 1)
-        };
-        if earlier_branches == 0 {
-            return None;
-        }
-        let previous_high = (u32::BITS - 1 - earlier_branches.leading_zeros()) as usize;
-        let leaf_occupied = root.leaves[previous_high]
-            .as_deref()
-            .map_or(0, |leaf| leaf.occupied);
-        if leaf_occupied != 0 {
-            let previous_low = (u32::BITS - 1 - leaf_occupied.leading_zeros()) as usize;
-            Some((previous_high * RADIX_SIZE + previous_low) as u16)
-        } else {
-            debug_assert_ne!(root.direct_occupied & (1_u32 << previous_high), 0);
-            Some((previous_high * RADIX_SIZE) as u16)
-        }
-    }
-
-    fn last_key(&self) -> Option<u16> {
-        let root = self.root.as_deref()?;
-        if root.occupied_branches == 0 {
-            return None;
-        }
-        let high = (u32::BITS - 1 - root.occupied_branches.leading_zeros()) as usize;
-        let leaf_occupied = root.leaves[high].as_deref().map_or(0, |leaf| leaf.occupied);
-        if leaf_occupied != 0 {
-            let low = (u32::BITS - 1 - leaf_occupied.leading_zeros()) as usize;
-            Some((high * RADIX_SIZE + low) as u16)
-        } else {
-            debug_assert_ne!(root.direct_occupied & (1_u32 << high), 0);
-            Some((high * RADIX_SIZE) as u16)
-        }
-    }
-
     fn for_each_enumerated_mut(&mut self, mut visit: impl FnMut(u16, &mut T)) {
         let Some(root) = self.root.as_deref_mut() else {
             return;
@@ -806,8 +775,9 @@ pub type RadixIndexArena<'arena, T> = TypedRadixIndexArena<'arena, T, RadixId<T>
 pub struct TypedRadixIndexArena<'arena, T: Unpin, I: RadixIdKey> {
     allocator: &'arena Allocator,
     primary: Vec<'arena, T>,
-    // These structure-of-arrays vectors share indices. Binary search touches
-    // only compact primary IDs; tree pointers are loaded after a match.
+    // Stable tree indices make a known sibling ID an O(1) lookup. The sorted
+    // primary list is traversal-only and never determines tree storage.
+    sibling_group_indices: Vec<'arena, u32>,
     sibling_primary_indices: Vec<'arena, u32>,
     sibling_trees: Vec<'arena, RadixTree<'arena, T>>,
     len: u32,
@@ -820,6 +790,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         Self {
             allocator,
             primary: Vec::new_in(allocator),
+            sibling_group_indices: Vec::new_in(allocator),
             sibling_primary_indices: Vec::new_in(allocator),
             sibling_trees: Vec::new_in(allocator),
             len: 0,
@@ -833,6 +804,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         Self {
             allocator,
             primary: Vec::with_capacity_in(capacity, allocator),
+            sibling_group_indices: Vec::with_capacity_in(capacity, allocator),
             sibling_primary_indices: Vec::new_in(allocator),
             sibling_trees: Vec::new_in(allocator),
             len: 0,
@@ -846,100 +818,6 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         self.len as usize
     }
 
-    /// Returns the number of values stored in the primary parse vector.
-    #[inline]
-    pub fn primary_len(&self) -> usize {
-        self.primary.len()
-    }
-
-    /// Returns the direct primary ID for `index` when it exists.
-    #[inline]
-    pub fn primary_id(&self, index: usize) -> Option<I> {
-        if index < self.primary.len() {
-            Some(I::from_primary_index(index))
-        } else {
-            None
-        }
-    }
-
-    /// Returns the next value ID in semantic arena order.
-    pub fn next_id(&self, id: I) -> Option<I> {
-        self.get(id)?;
-        if id.is_overflow() {
-            let index = COMPACT_PRIMARY_CAPACITY + id.overflow_index();
-            return self.primary_id(index + 1);
-        }
-
-        let primary_index = id.primary_index();
-        if let Some(key) = self
-            .sibling_group_index(primary_index)
-            .ok()
-            .and_then(|group| self.sibling_trees[group].next_key_after(id.sibling_key()))
-        {
-            return Some(I::from_parts(primary_index, key));
-        }
-        self.primary_id(primary_index + 1)
-    }
-
-    /// Returns the previous value ID in semantic arena order.
-    pub fn previous_id(&self, id: I) -> Option<I> {
-        self.get(id)?;
-        if !id.is_overflow() && id.sibling_key() != 0 {
-            let primary_index = id.primary_index();
-            return Some(
-                self.sibling_group_index(primary_index)
-                    .ok()
-                    .and_then(|group| {
-                        self.sibling_trees[group].previous_key_before(id.sibling_key())
-                    })
-                    .map_or_else(
-                        || I::from_parts(primary_index, 0),
-                        |key| I::from_parts(primary_index, key),
-                    ),
-            );
-        }
-
-        let primary_index = if id.is_overflow() {
-            COMPACT_PRIMARY_CAPACITY + id.overflow_index()
-        } else {
-            id.primary_index()
-        };
-        let previous_primary = primary_index.checked_sub(1)?;
-        if previous_primary < COMPACT_PRIMARY_CAPACITY
-            && let Some(key) = self
-                .sibling_group_index(previous_primary)
-                .ok()
-                .and_then(|group| self.sibling_trees[group].last_key())
-        {
-            return Some(I::from_parts(previous_primary, key));
-        }
-        self.primary_id(previous_primary)
-    }
-
-    /// Advances `steps` values in semantic arena order.
-    ///
-    /// Authored primary-only arenas use direct indexing. Once a rare sibling
-    /// exists, the bounded radix cursor preserves semantic order.
-    pub fn advance_id(&self, id: I, steps: u32) -> Option<I> {
-        self.get(id)?;
-        if steps == 0 {
-            return Some(id);
-        }
-        if !self.has_siblings() && id.is_primary() {
-            let index = if id.is_overflow() {
-                COMPACT_PRIMARY_CAPACITY + id.overflow_index()
-            } else {
-                id.primary_index()
-            };
-            return self.primary_id(index.checked_add(steps as usize)?);
-        }
-        let mut current = id;
-        for _ in 0..steps {
-            current = self.next_id(current)?;
-        }
-        Some(current)
-    }
-
     /// Mutably visits every value with its typed ID in semantic arena order.
     ///
     /// This is the mutation counterpart to [`iter_enumerated`](Self::iter_enumerated)
@@ -948,11 +826,13 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
     pub fn for_each_enumerated_mut(&mut self, mut visit: impl FnMut(I, &mut T)) {
         let mut next_group = 0;
         let sibling_primary_indices = &self.sibling_primary_indices;
+        let sibling_group_indices = &self.sibling_group_indices;
         let sibling_trees = &mut self.sibling_trees;
         for (primary_index, value) in self.primary.iter_mut().enumerate() {
             visit(I::from_primary_index(primary_index), value);
             if sibling_primary_indices.get(next_group).copied() == Some(primary_index as u32) {
-                sibling_trees[next_group].for_each_enumerated_mut(|key, value| {
+                let tree_index = sibling_group_indices[primary_index] as usize;
+                sibling_trees[tree_index].for_each_enumerated_mut(|key, value| {
                     visit(I::from_parts(primary_index, key), value);
                 });
                 next_group += 1;
@@ -973,15 +853,9 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         PrimaryIterEnumerated {
             primary: &self.primary,
             front: 0,
-            back: self.primary_len(),
+            back: self.primary.len(),
             id: PhantomData,
         }
-    }
-
-    /// Returns whether at least one inserted sibling is live.
-    #[inline]
-    pub fn has_siblings(&self) -> bool {
-        self.len() != self.primary.len()
     }
 
     /// Returns whether the store contains no values.
@@ -1009,6 +883,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         );
         let id = I::from_primary_index(self.primary.len());
         self.primary.push(value);
+        self.sibling_group_indices.push(NO_SIBLING_GROUP);
         self.len += 1;
         id
     }
@@ -1037,11 +912,14 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
             .get(primary_index)
             .expect("unknown primary radix ID");
         let group_index = match self.sibling_group_index(primary_index) {
-            Ok(index) => index,
-            Err(index) => {
+            Some(index) => index,
+            None => {
+                let semantic_index = self.sibling_group_position(primary_index).unwrap_err();
                 self.sibling_primary_indices
-                    .insert(index, primary_index as u32);
-                self.sibling_trees.insert(index, RadixTree::new());
+                    .insert(semantic_index, primary_index as u32);
+                let index = self.sibling_trees.len();
+                self.sibling_trees.push(RadixTree::new());
+                self.sibling_group_indices[primary_index] = index as u32;
                 index
             }
         };
@@ -1064,7 +942,6 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         self.len < u32::MAX
             && self
                 .sibling_group_index(primary.primary_index())
-                .ok()
                 .and_then(|group| self.sibling_trees.get(group))
                 .is_none_or(|tree| tree.used_len() < SIBLING_MASK as usize)
     }
@@ -1085,7 +962,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         {
             return true;
         }
-        let Some(group) = self.sibling_group_index(primary_index).ok() else {
+        let Some(group) = self.sibling_group_index(primary_index) else {
             return false;
         };
         let insertion_index = live_keys.partition_point(|key| *key <= lower);
@@ -1148,7 +1025,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         if id.is_primary() {
             return None;
         }
-        let group_index = self.sibling_group_index(id.primary_index()).ok()?;
+        let group_index = self.sibling_group_index(id.primary_index())?;
         let value = self
             .sibling_trees
             .get_mut(group_index)?
@@ -1162,7 +1039,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         if id.is_primary() {
             return None;
         }
-        let group_index = self.sibling_group_index(id.primary_index()).ok()?;
+        let group_index = self.sibling_group_index(id.primary_index())?;
         let value = self
             .sibling_trees
             .get_mut(group_index)?
@@ -1180,7 +1057,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         } else if id.is_primary() {
             self.primary.get(id.primary_index())
         } else {
-            let group_index = self.sibling_group_index(id.primary_index()).ok()?;
+            let group_index = self.sibling_group_index(id.primary_index())?;
             self.sibling_trees.get(group_index)?.get(id.sibling_key())
         }
     }
@@ -1194,7 +1071,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         } else if id.is_primary() {
             self.primary.get_mut(id.primary_index())
         } else {
-            let group_index = self.sibling_group_index(id.primary_index()).ok()?;
+            let group_index = self.sibling_group_index(id.primary_index())?;
             self.sibling_trees
                 .get_mut(group_index)?
                 .get_mut(id.sibling_key())
@@ -1204,7 +1081,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
     /// Iterates all values in semantic order.
     #[inline]
     pub fn iter(&self) -> Iter<'_, 'arena, T> {
-        let kind = if !self.has_siblings() {
+        let kind = if self.sibling_primary_indices.is_empty() {
             IterKind::Primary(self.primary_iter())
         } else {
             IterKind::Expanded(self.semantic_iter())
@@ -1230,6 +1107,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         SemanticIter {
             primary: &self.primary,
             next_primary: primary_end,
+            sibling_group_indices: &self.sibling_group_indices,
             sibling_primary_indices: &self.sibling_primary_indices,
             sibling_trees: &self.sibling_trees,
             next_group: 0,
@@ -1241,6 +1119,27 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
     #[inline]
     pub fn iter_enumerated(&self) -> SemanticIterEnumerated<'_, 'arena, T, I> {
         self.semantic_iter_enumerated()
+    }
+
+    /// Iterates typed IDs in semantic order without resolving each ID again.
+    #[inline]
+    pub fn ids(&self) -> RadixIds<'_, 'arena, T, I> {
+        RadixIds {
+            arena: self,
+            cursor: DetachedRadixIds::at_start(self),
+            remaining: self.len,
+            expected_last: None,
+        }
+    }
+
+    /// Creates detached semantic-ID cursor state for mutation-safe AST
+    /// traversal. The cursor holds no arena borrow; callers pass the arena only
+    /// while advancing it and must not structurally mutate the arena between
+    /// steps.
+    #[doc(hidden)]
+    #[inline]
+    pub fn detached_ids(&self) -> DetachedRadixIds {
+        DetachedRadixIds::at_start(self)
     }
 
     /// Iterates typed IDs and values by merging primary slices with sparse
@@ -1257,6 +1156,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
             primary: &self.primary,
             next_primary: primary_end,
             current_primary: 0,
+            sibling_group_indices: &self.sibling_group_indices,
             sibling_primary_indices: &self.sibling_primary_indices,
             sibling_trees: &self.sibling_trees,
             next_group: 0,
@@ -1268,7 +1168,13 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
     }
 
     #[inline]
-    fn sibling_group_index(&self, primary_index: usize) -> Result<usize, usize> {
+    fn sibling_group_index(&self, primary_index: usize) -> Option<usize> {
+        let index = *self.sibling_group_indices.get(primary_index)?;
+        (index != NO_SIBLING_GROUP).then_some(index as usize)
+    }
+
+    #[inline]
+    fn sibling_group_position(&self, primary_index: usize) -> Result<usize, usize> {
         self.sibling_primary_indices
             .binary_search(&(primary_index as u32))
     }
@@ -1313,7 +1219,6 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
 
         let live_keys = self
             .sibling_group_index(primary_index)
-            .ok()
             .and_then(|group| self.sibling_trees.get(group))
             .map_or_else(std::vec::Vec::new, RadixTree::live_keys);
         let no_live_between = live_keys.iter().all(|&key| key <= lower || key >= upper);
@@ -1328,7 +1233,6 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         }
         let tree = self
             .sibling_group_index(primary_index)
-            .ok()
             .and_then(|group| self.sibling_trees.get(group));
         let middle = lower + (upper - lower) / 2;
         let width = upper - lower - 1;
@@ -1448,27 +1352,50 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
             self.can_push_primary_range(len),
             "RadixIndexArena primary range capacity exhausted"
         );
-        let mut start = None;
+        let mut endpoints = None;
         for value in values {
             let id = self.push_primary(value);
-            start.get_or_insert(id);
+            endpoints = Some((endpoints.map_or(id, |(start, _)| start), id));
         }
-        start.map_or_else(RadixRange::empty, |start| RadixRange::new(start, len))
+        endpoints.map_or_else(RadixRange::empty, |(start, last)| {
+            RadixRange::new(start, last, len)
+        })
     }
 
     /// Returns the IDs in `range`, or `None` when the complete range is not
     /// present in this arena. Empty ranges never resolve their placeholder ID.
-    pub fn ids_in_range(&self, range: RadixRange<M>) -> Option<RadixRangeIdIter<'_, 'arena, T, M>> {
-        let next = if range.is_empty() {
-            None
+    pub fn ids_in_range(
+        &self,
+        range: RadixRange<M>,
+    ) -> Option<RadixIds<'_, 'arena, T, RadixId<M>>> {
+        let cursor = if range.is_empty() {
+            DetachedRadixIds::empty()
         } else {
-            self.last_id(range)?;
-            Some(range.start_id())
+            DetachedRadixIds::at_id(self, range.start_id())?
         };
-        Some(RadixRangeIdIter {
+        Some(RadixIds {
             arena: self,
-            next,
+            cursor,
             remaining: range.len(),
+            expected_last: (!range.is_empty()).then(|| range.last_id()),
+        })
+    }
+
+    /// Creates a detached cursor over one semantic range.
+    #[doc(hidden)]
+    pub fn detached_ids_in_range(
+        &self,
+        range: RadixRange<M>,
+    ) -> Option<DetachedRadixRangeIds<RadixId<M>>> {
+        let cursor = if range.is_empty() {
+            DetachedRadixIds::empty()
+        } else {
+            DetachedRadixIds::at_id(self, range.start_id())?
+        };
+        Some(DetachedRadixRangeIds {
+            cursor,
+            remaining: range.len(),
+            expected_last: (!range.is_empty()).then(|| range.last_id()),
         })
     }
 
@@ -1498,43 +1425,30 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         if range.is_empty() {
             return Some(());
         }
-        self.last_id(range)?;
-        let mut current = range.start_id();
+        let mut cursor = DetachedRadixIds::at_id(self, range.start_id())?;
         for offset in 0..range.len() {
-            let next = (offset + 1 < range.len())
-                .then(|| self.next_id(current))
-                .flatten();
-            visit(current, self.get_mut(current)?);
-            if let Some(next) = next {
-                current = next;
+            let id = cursor.advance(self)?;
+            if offset + 1 == range.len() {
+                debug_assert_eq!(id, range.last_id());
             }
+            let value = if id.is_primary() || id.is_overflow() {
+                self.primary.get_mut(id.primary_index())?
+            } else {
+                let tree_index = match &cursor.current {
+                    RadixIdSegment::Siblings {
+                        primary_index,
+                        tree_index,
+                        ..
+                    } if *primary_index == id.primary_index() => *tree_index,
+                    _ => return None,
+                };
+                self.sibling_trees
+                    .get_mut(tree_index)?
+                    .get_mut(id.sibling_key())?
+            };
+            visit(id, value);
         }
         Some(())
-    }
-
-    /// Resolves `offset` inside one range in semantic arena order.
-    pub fn id_at(&self, range: RadixRange<M>, offset: u32) -> Option<RadixId<M>> {
-        if offset >= range.len() {
-            return None;
-        }
-        self.advance_id(range.start_id(), offset)
-    }
-
-    /// Returns the final ID in a non-empty valid range.
-    pub fn last_id(&self, range: RadixRange<M>) -> Option<RadixId<M>> {
-        let offset = range.len().checked_sub(1)?;
-        self.id_at(range, offset)
-    }
-
-    /// Returns whether two non-empty ranges touch in semantic arena order.
-    pub fn ranges_are_adjacent(&self, left: RadixRange<M>, right: RadixRange<M>) -> bool {
-        if right.is_empty() {
-            return false;
-        }
-        let Some(left_last) = self.last_id(left) else {
-            return false;
-        };
-        self.next_id(left_last) == Some(right.start_id())
     }
 
     /// Preflights a stable batch insertion between current semantic neighbors.
@@ -1546,12 +1460,12 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         len: u32,
     ) -> bool {
         if len == 0 {
-            return self.get(after).is_some() && self.next_id(after) == before;
+            return self.insertion_gap_is_current(after, before);
         }
         if self.len.checked_add(len).is_none() {
             return false;
         }
-        if before.is_none() && self.next_id(after).is_none() && self.get(after).is_some() {
+        if before.is_none() && self.insertion_gap_is_current(after, None) {
             return self.can_push_primary_range(len);
         }
         let Some((primary_index, lower, upper, _)) = self.insertion_point(after, before) else {
@@ -1588,7 +1502,7 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
             return RadixRange::empty();
         }
 
-        if before.is_none() && self.next_id(after).is_none() {
+        if before.is_none() && self.insertion_gap_is_current(after, None) {
             return self.push_primary_range(values);
         }
 
@@ -1599,12 +1513,13 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
             .stable_unused_keys_between(primary_index, lower, upper, len)
             .expect("stable range key capacity was preflighted");
         let primary = RadixId::from_parts(primary_index, 0);
-        let mut start = None;
+        let mut endpoints = None;
         for (key, value) in keys.into_iter().zip(values) {
             let id = self.insert_sibling(primary, key, value);
-            start.get_or_insert(id);
+            endpoints = Some((endpoints.map_or(id, |(start, _)| start), id));
         }
-        RadixRange::new(start.expect("a non-empty batch has a first ID"), len)
+        let (start, last) = endpoints.expect("a non-empty batch has endpoints");
+        RadixRange::new(start, last, len)
     }
 
     fn stable_unused_keys_between(
@@ -1617,7 +1532,6 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         let needed = len as usize;
         let tree = self
             .sibling_group_index(primary_index)
-            .ok()
             .and_then(|group| self.sibling_trees.get(group));
         let mut keys = std::vec::Vec::with_capacity(needed);
         for key in lower + 1..upper {
@@ -1630,26 +1544,314 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         }
         (needed == 0).then_some(keys)
     }
+
+    fn insertion_gap_is_current(&self, after: RadixId<M>, before: Option<RadixId<M>>) -> bool {
+        let Some(mut cursor) = DetachedRadixIds::at_id(self, after) else {
+            return false;
+        };
+        cursor.advance(self) == Some(after) && cursor.advance(self) == before
+    }
 }
 
-/// Iterator over the IDs in one [`RadixRange`].
-pub struct RadixRangeIdIter<'tree, 'arena, T: Unpin, M> {
-    arena: &'tree TypedRadixIndexArena<'arena, T, RadixId<M>>,
-    next: Option<RadixId<M>>,
+/// Detached traversal state for semantic IDs.
+///
+/// The cursor locates the starting sibling group once. Advancing thereafter
+/// walks primary segments and copied radix occupancy masks without resolving
+/// the previously returned ID.
+pub struct DetachedRadixIds {
+    next_primary: usize,
+    next_group: usize,
+    current: RadixIdSegment,
+}
+
+/// Detached bounded traversal state for one [`RadixRange`].
+pub struct DetachedRadixRangeIds<I: RadixIdKey> {
+    cursor: DetachedRadixIds,
     remaining: u32,
+    expected_last: Option<I>,
 }
 
-impl<T: Unpin, M> Iterator for RadixRangeIdIter<'_, '_, T, M> {
-    type Item = RadixId<M>;
+impl<I: RadixIdKey> DetachedRadixRangeIds<I> {
+    /// Advances the bounded cursor once using a short-lived arena borrow.
+    #[doc(hidden)]
+    pub fn next<T: Unpin>(&mut self, arena: &TypedRadixIndexArena<'_, T, I>) -> Option<I> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let id = self.cursor.next(arena)?;
+        self.remaining -= 1;
+        if self.remaining == 0 {
+            debug_assert_eq!(Some(id), self.expected_last);
+        }
+        Some(id)
+    }
+}
+
+enum RadixIdSegment {
+    Primary {
+        next: usize,
+        end: usize,
+    },
+    Siblings {
+        primary_index: usize,
+        tree_index: usize,
+        cursor: RadixTreeKeyCursor,
+    },
+    Done,
+}
+
+impl DetachedRadixIds {
+    #[inline]
+    fn empty() -> Self {
+        Self {
+            next_primary: 0,
+            next_group: 0,
+            current: RadixIdSegment::Done,
+        }
+    }
+
+    #[inline]
+    fn at_start<T: Unpin, I: RadixIdKey>(arena: &TypedRadixIndexArena<'_, T, I>) -> Self {
+        let end = arena
+            .sibling_primary_indices
+            .first()
+            .map_or(arena.primary.len(), |&primary_index| {
+                primary_index as usize + 1
+            });
+        Self {
+            next_primary: end,
+            next_group: 0,
+            current: if end == 0 {
+                RadixIdSegment::Done
+            } else {
+                RadixIdSegment::Primary { next: 0, end }
+            },
+        }
+    }
+
+    fn at_id<T: Unpin, I: RadixIdKey>(
+        arena: &TypedRadixIndexArena<'_, T, I>,
+        id: I,
+    ) -> Option<Self> {
+        let primary_index = id.primary_index();
+        if id.is_overflow() {
+            arena.primary.get(primary_index)?;
+            return Some(Self {
+                next_primary: arena.primary.len(),
+                next_group: arena.sibling_primary_indices.len(),
+                current: RadixIdSegment::Primary {
+                    next: primary_index,
+                    end: arena.primary.len(),
+                },
+            });
+        }
+
+        arena.primary.get(primary_index)?;
+        let group_position = arena.sibling_group_position(primary_index);
+        if id.is_primary() {
+            let next_group = group_position.unwrap_or_else(|next_group| next_group);
+            let end = arena
+                .sibling_primary_indices
+                .get(next_group)
+                .map_or(arena.primary.len(), |&primary_index| {
+                    primary_index as usize + 1
+                });
+            return Some(Self {
+                next_primary: end,
+                next_group,
+                current: RadixIdSegment::Primary {
+                    next: primary_index,
+                    end,
+                },
+            });
+        }
+
+        let group = group_position.ok()?;
+        let tree_index = arena.sibling_group_index(primary_index)?;
+        let tree = &arena.sibling_trees[tree_index];
+        tree.get(id.sibling_key())?;
+        Some(Self {
+            next_primary: primary_index + 1,
+            next_group: group + 1,
+            current: RadixIdSegment::Siblings {
+                primary_index,
+                tree_index,
+                cursor: RadixTreeKeyCursor::from_key(tree, id.sibling_key())?,
+            },
+        })
+    }
+
+    #[inline]
+    fn advance<T: Unpin, I: RadixIdKey>(
+        &mut self,
+        arena: &TypedRadixIndexArena<'_, T, I>,
+    ) -> Option<I> {
+        loop {
+            match &mut self.current {
+                RadixIdSegment::Primary { next, end } => {
+                    if *next < *end {
+                        let id = I::from_primary_index(*next);
+                        *next += 1;
+                        return Some(id);
+                    }
+                }
+                RadixIdSegment::Siblings {
+                    primary_index,
+                    tree_index,
+                    cursor,
+                } => {
+                    let tree = &arena.sibling_trees[*tree_index];
+                    if let Some(key) = cursor.next_key(tree) {
+                        return Some(I::from_parts(*primary_index, key));
+                    }
+                }
+                RadixIdSegment::Done => return None,
+            }
+            self.advance_segment(arena);
+        }
+    }
+
+    /// Advances the cursor once. Cursor state is updated before control
+    /// returns to the caller.
+    #[doc(hidden)]
+    #[inline]
+    pub fn next<T: Unpin, I: RadixIdKey>(
+        &mut self,
+        arena: &TypedRadixIndexArena<'_, T, I>,
+    ) -> Option<I> {
+        self.advance(arena)
+    }
+
+    #[inline]
+    fn advance_segment<T: Unpin, I: RadixIdKey>(&mut self, arena: &TypedRadixIndexArena<'_, T, I>) {
+        if matches!(self.current, RadixIdSegment::Primary { .. })
+            && let Some(&primary_index) = arena.sibling_primary_indices.get(self.next_group)
+            && self.next_primary == primary_index as usize + 1
+        {
+            let tree_index = arena
+                .sibling_group_index(primary_index as usize)
+                .expect("a traversal sibling primary has a stable tree index");
+            let tree = &arena.sibling_trees[tree_index];
+            self.next_group += 1;
+            if let Some(cursor) = RadixTreeKeyCursor::at_start(tree) {
+                self.current = RadixIdSegment::Siblings {
+                    primary_index: primary_index as usize,
+                    tree_index,
+                    cursor,
+                };
+                return;
+            }
+        }
+
+        let start = self.next_primary;
+        let end = arena
+            .sibling_primary_indices
+            .get(self.next_group)
+            .map_or(arena.primary.len(), |&primary_index| {
+                primary_index as usize + 1
+            });
+        self.next_primary = end;
+        self.current = if start == end {
+            RadixIdSegment::Done
+        } else {
+            RadixIdSegment::Primary { next: start, end }
+        };
+    }
+}
+
+struct RadixTreeKeyCursor {
+    branches: u32,
+    slots: u32,
+    branch: usize,
+    direct_pending: bool,
+    first_low: Option<usize>,
+}
+
+impl RadixTreeKeyCursor {
+    #[inline]
+    fn at_start<T>(tree: &RadixTree<'_, T>) -> Option<Self> {
+        let root = tree.root.as_deref()?;
+        (root.occupied_branches != 0).then_some(Self {
+            branches: root.occupied_branches,
+            slots: 0,
+            branch: 0,
+            direct_pending: false,
+            first_low: None,
+        })
+    }
+
+    #[inline]
+    fn from_key<T>(tree: &RadixTree<'_, T>, key: u16) -> Option<Self> {
+        let root = tree.root.as_deref()?;
+        let (high, low) = radix_parts(key);
+        let branches = root.occupied_branches & (u32::MAX << high);
+        (branches != 0).then_some(Self {
+            branches,
+            slots: 0,
+            branch: high,
+            direct_pending: false,
+            first_low: Some(low),
+        })
+    }
+
+    #[inline]
+    fn next_key<T>(&mut self, tree: &RadixTree<'_, T>) -> Option<u16> {
+        let root = tree.root.as_deref()?;
+        loop {
+            if self.direct_pending {
+                self.direct_pending = false;
+                return Some((self.branch << RADIX_BITS) as u16);
+            }
+
+            if self.slots != 0 {
+                let slot = self.slots.trailing_zeros() as usize;
+                self.slots &= self.slots - 1;
+                return Some(((self.branch << RADIX_BITS) | slot) as u16);
+            }
+
+            let branch = self.branches.trailing_zeros() as usize;
+            if branch == u32::BITS as usize {
+                return None;
+            }
+            self.branches &= self.branches - 1;
+            self.branch = branch;
+            let first_low = self.first_low.take().unwrap_or(0);
+            let branch_bit = 1_u32 << branch;
+            self.direct_pending = first_low == 0 && root.direct_occupied & branch_bit != 0;
+            let low_mask = if first_low <= 1 {
+                !1_u32
+            } else {
+                u32::MAX << first_low
+            };
+            self.slots = root.leaves[branch]
+                .as_deref()
+                .map_or(0, |leaf| leaf.occupied & low_mask);
+        }
+    }
+}
+
+/// Iterator over IDs in one arena or [`RadixRange`].
+pub struct RadixIds<'tree, 'arena, T: Unpin, I: RadixIdKey> {
+    arena: &'tree TypedRadixIndexArena<'arena, T, I>,
+    cursor: DetachedRadixIds,
+    remaining: u32,
+    expected_last: Option<I>,
+}
+
+impl<T: Unpin, I: RadixIdKey> Iterator for RadixIds<'_, '_, T, I> {
+    type Item = I;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let id = self.next?;
+        if self.remaining == 0 {
+            return None;
+        }
+        let id = self.cursor.advance(self.arena)?;
         self.remaining -= 1;
-        self.next = if self.remaining == 0 {
-            None
-        } else {
-            self.arena.next_id(id)
-        };
+        if self.remaining == 0
+            && let Some(expected_last) = self.expected_last
+        {
+            debug_assert_eq!(id, expected_last);
+        }
         Some(id)
     }
 
@@ -1660,12 +1862,29 @@ impl<T: Unpin, M> Iterator for RadixRangeIdIter<'_, '_, T, M> {
     }
 }
 
-impl<T: Unpin, M> ExactSizeIterator for RadixRangeIdIter<'_, '_, T, M> {}
-impl<T: Unpin, M> std::iter::FusedIterator for RadixRangeIdIter<'_, '_, T, M> {}
+impl<T: Unpin, I: RadixIdKey> RadixIds<'_, '_, T, I> {
+    /// Returns the semantic ID immediately following an exhausted bounded
+    /// iterator, using the iterator's existing cursor state.
+    ///
+    /// Whole-arena iterators and bounded iterators that have not been fully
+    /// consumed return `None`.
+    #[doc(hidden)]
+    #[inline]
+    pub fn following(&mut self) -> Option<I> {
+        if self.remaining != 0 {
+            return None;
+        }
+        self.expected_last.take()?;
+        self.cursor.advance(self.arena)
+    }
+}
+
+impl<T: Unpin, I: RadixIdKey> ExactSizeIterator for RadixIds<'_, '_, T, I> {}
+impl<T: Unpin, I: RadixIdKey> std::iter::FusedIterator for RadixIds<'_, '_, T, I> {}
 
 /// Iterator over the values in one [`RadixRange`].
 pub struct RadixRangeIter<'tree, 'arena, T: Unpin, M> {
-    ids: RadixRangeIdIter<'tree, 'arena, T, M>,
+    ids: RadixIds<'tree, 'arena, T, RadixId<M>>,
 }
 
 impl<'tree, T: Unpin, M> Iterator for RadixRangeIter<'tree, '_, T, M> {
@@ -1691,7 +1910,7 @@ impl<T: Unpin, M> std::iter::FusedIterator for RadixRangeIter<'_, '_, T, M> {}
 
 /// Iterator over typed IDs and values in one [`RadixRange`].
 pub struct RadixRangeIterEnumerated<'tree, 'arena, T: Unpin, M> {
-    ids: RadixRangeIdIter<'tree, 'arena, T, M>,
+    ids: RadixIds<'tree, 'arena, T, RadixId<M>>,
 }
 
 impl<'tree, T: Unpin, M> Iterator for RadixRangeIterEnumerated<'tree, '_, T, M> {
@@ -1789,6 +2008,7 @@ impl<T, I: RadixIdKey> std::iter::FusedIterator for PrimaryIterEnumerated<'_, T,
 pub struct SemanticIter<'tree, 'arena, T: Unpin> {
     primary: &'tree [T],
     next_primary: usize,
+    sibling_group_indices: &'tree [u32],
     sibling_primary_indices: &'tree [u32],
     sibling_trees: &'tree [RadixTree<'arena, T>],
     next_group: usize,
@@ -1800,6 +2020,7 @@ pub struct SemanticIterEnumerated<'tree, 'arena, T: Unpin, I: RadixIdKey> {
     primary: &'tree [T],
     next_primary: usize,
     current_primary: usize,
+    sibling_group_indices: &'tree [u32],
     sibling_primary_indices: &'tree [u32],
     sibling_trees: &'tree [RadixTree<'arena, T>],
     next_group: usize,
@@ -1873,7 +2094,8 @@ impl<'tree, 'arena: 'tree, T: Unpin> SemanticIter<'tree, 'arena, T> {
                     return;
                 };
                 debug_assert_eq!(self.next_primary, primary_index as usize + 1);
-                let tree = &self.sibling_trees[self.next_group];
+                let tree_index = self.sibling_group_indices[primary_index as usize] as usize;
+                let tree = &self.sibling_trees[tree_index];
                 self.next_group += 1;
                 if let Some(siblings) = tree.iter() {
                     self.current = SemanticSegment::Siblings(siblings);
@@ -1947,7 +2169,8 @@ impl<'tree, 'arena: 'tree, T: Unpin, I: RadixIdKey> SemanticIterEnumerated<'tree
                     return;
                 };
                 debug_assert_eq!(self.next_primary, primary_index as usize + 1);
-                let tree = &self.sibling_trees[self.next_group];
+                let tree_index = self.sibling_group_indices[primary_index as usize] as usize;
+                let tree = &self.sibling_trees[tree_index];
                 self.next_group += 1;
                 if let Some(siblings) = tree.iter() {
                     self.sibling_primary = primary_index as usize;
@@ -2051,8 +2274,9 @@ fn radix_parts(key: u16) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, OVERFLOW_CAPACITY, RadixAllocationCounts, RadixId,
-        RadixIndexArena, RadixLeaf, RadixRange, RadixRoot, SIBLING_MASK, TypedRadixIndexArena,
+        COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, NO_SIBLING_GROUP, OVERFLOW_CAPACITY,
+        RadixAllocationCounts, RadixId, RadixIndexArena, RadixLeaf, RadixRange, RadixRoot,
+        SIBLING_MASK, TypedRadixIndexArena,
     };
     use crate::Allocator;
 
@@ -2102,7 +2326,7 @@ mod tests {
             [0, 1, 2, 3, 4, 5, 6]
         );
         assert_eq!(values.len(), 7);
-        assert_eq!(values.primary_len(), 3);
+        assert_eq!(values.primary_iter().len(), 3);
         assert_eq!(second.primary_index(), 1);
     }
 
@@ -2486,6 +2710,7 @@ mod tests {
         let overflow = values.push_primary(1_u8);
         let next_overflow = values.push_primary(2_u8);
         let last_compact = last_compact.unwrap();
+        let boundary_sibling = values.insert_sibling(last_compact, 512, 9_u8);
 
         assert!(!last_compact.is_overflow());
         assert!(overflow.is_primary());
@@ -2496,22 +2721,32 @@ mod tests {
         assert_eq!(next_overflow.primary_index(), COMPACT_PRIMARY_CAPACITY + 1);
         assert_eq!(values.get(overflow), Some(&1));
         assert_eq!(values.get(next_overflow), Some(&2));
-        assert_eq!(values.primary_id(COMPACT_PRIMARY_CAPACITY), Some(overflow));
         assert_eq!(
-            values.primary_id(COMPACT_PRIMARY_CAPACITY + 1),
-            Some(next_overflow)
+            RadixId::from_primary_index(COMPACT_PRIMARY_CAPACITY),
+            overflow
         );
-        assert_eq!(values.primary_len(), COMPACT_PRIMARY_CAPACITY + 2);
+        assert_eq!(
+            RadixId::from_primary_index(COMPACT_PRIMARY_CAPACITY + 1),
+            next_overflow
+        );
+        assert_eq!(values.primary_iter().len(), COMPACT_PRIMARY_CAPACITY + 2);
         assert_eq!(values.primary_iter().next_back(), Some(&2));
         assert_eq!(values.iter_enumerated().last(), Some((next_overflow, &2)));
-        let boundary_range = RadixRange::new(last_compact, 3);
+        assert_eq!(
+            values
+                .ids()
+                .skip(COMPACT_PRIMARY_CAPACITY - 1)
+                .collect::<std::vec::Vec<_>>(),
+            [last_compact, boundary_sibling, overflow, next_overflow]
+        );
+        let boundary_range = RadixRange::new(last_compact, next_overflow, 4);
         assert_eq!(
             values
                 .iter_range(boundary_range)
                 .unwrap()
                 .copied()
                 .collect::<std::vec::Vec<_>>(),
-            [0, 1, 2]
+            [0, 9, 1, 2]
         );
         assert!(!values.can_insert_sibling(overflow));
         assert!(!values.can_insert_sibling(next_overflow));
@@ -2550,7 +2785,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_cursors_cross_primary_and_inserted_values() {
+    fn semantic_id_cursor_crosses_primary_and_inserted_values() {
         let allocator = Allocator::new();
         let mut values = TypedRadixIndexArena::<_, TestRuleId>::with_capacity_in(3, &allocator);
         let first = values.push_primary(10);
@@ -2559,27 +2794,49 @@ mod tests {
         let after_first = values.insert_sibling(first, 512, 20);
         let after_second = values.insert_sibling(second, 512, 40);
 
-        assert_eq!(values.next_id(first), Some(after_first));
-        assert_eq!(values.next_id(after_first), Some(second));
-        assert_eq!(values.next_id(second), Some(after_second));
-        assert_eq!(values.next_id(after_second), Some(third));
-        assert_eq!(values.next_id(third), None);
-
-        assert_eq!(values.previous_id(third), Some(after_second));
-        assert_eq!(values.previous_id(after_second), Some(second));
-        assert_eq!(values.previous_id(second), Some(after_first));
-        assert_eq!(values.previous_id(after_first), Some(first));
-        assert_eq!(values.previous_id(first), None);
-
-        assert_eq!(values.advance_id(first, 0), Some(first));
-        assert_eq!(values.advance_id(first, 2), Some(second));
-        assert_eq!(values.advance_id(first, 4), Some(third));
-        assert_eq!(values.advance_id(first, 5), None);
+        assert_eq!(
+            values.ids().collect::<std::vec::Vec<_>>(),
+            [first, after_first, second, after_second, third]
+        );
 
         assert_eq!(values.retire_sibling(after_first), Some(20));
-        assert_eq!(values.next_id(first), Some(second));
-        assert_eq!(values.previous_id(second), Some(first));
-        assert_eq!(values.advance_id(first, 2), Some(after_second));
+        assert_eq!(
+            values.ids().collect::<std::vec::Vec<_>>(),
+            [first, second, after_second, third]
+        );
+    }
+
+    #[test]
+    fn stable_group_sidecar_decouples_lookup_from_semantic_group_order() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::with_capacity_in(3, &allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(30);
+        let third = values.push_primary(50);
+
+        let after_third = values.insert_sibling(third, 512, 60);
+        let after_first = values.insert_sibling(first, 512, 20);
+
+        assert_eq!(values.sibling_primary_indices.as_slice(), [0, 2]);
+        assert_eq!(
+            values.sibling_group_indices.as_slice(),
+            [1, NO_SIBLING_GROUP, 0]
+        );
+        assert_eq!(values.get(after_first), Some(&20));
+        assert_eq!(values.get(after_third), Some(&60));
+        assert_eq!(
+            values.ids().collect::<std::vec::Vec<_>>(),
+            [first, after_first, second, third, after_third]
+        );
+
+        let range = RadixRange::new(first, after_third, 5);
+        values
+            .for_each_in_range_mut(range, |_, value| *value += 1)
+            .unwrap();
+        assert_eq!(
+            values.iter().copied().collect::<std::vec::Vec<_>>(),
+            [11, 21, 31, 51, 61]
+        );
     }
 
     #[test]
@@ -2648,8 +2905,6 @@ mod tests {
         assert_eq!(values.ids_in_range(range).unwrap().len(), 0);
         assert_eq!(values.iter_range(range).unwrap().len(), 0);
         assert_eq!(values.iter_range_enumerated(range).unwrap().len(), 0);
-        assert_eq!(values.last_id(range), None);
-        assert_eq!(values.id_at(range, 0), None);
     }
 
     #[test]
@@ -2659,10 +2914,11 @@ mod tests {
         let first = values.push_primary(10);
         let second = values.push_primary(30);
         let inserted = values.insert_sibling(first, 512, 20);
-        let range = RadixRange::new(first, 3);
+        let range = RadixRange::new(first, second, 3);
 
-        assert_eq!(values.id_at(range, 1), Some(inserted));
-        assert_eq!(values.last_id(range), Some(second));
+        assert_eq!(range.start_id(), first);
+        assert_eq!(range.last_id(), second);
+        assert_eq!(values.ids_in_range(range).unwrap().nth(1), Some(inserted));
         assert_eq!(
             values
                 .iter_range(range)
@@ -2701,10 +2957,7 @@ mod tests {
                 .collect::<std::vec::Vec<_>>(),
             [20, 30]
         );
-        assert_eq!(
-            values.next_id(values.last_id(inserted).unwrap()),
-            Some(second)
-        );
+        assert_eq!(inserted.last_id().sibling_key(), 2);
         assert_eq!(
             values.iter().copied().collect::<std::vec::Vec<_>>(),
             [10, 20, 30, 40]
@@ -2723,8 +2976,10 @@ mod tests {
         assert!(values.can_insert_stable_range_between(first, Some(boundary), 2));
         assert!(!values.can_insert_stable_range_between(first, Some(boundary), 3));
         assert_eq!(values.len(), before_len);
-        assert_eq!(values.next_id(first), Some(boundary));
-        assert_eq!(values.next_id(boundary), Some(second));
+        assert_eq!(
+            values.ids().collect::<std::vec::Vec<_>>(),
+            [first, boundary, second]
+        );
     }
 
     #[test]
@@ -2735,7 +2990,7 @@ mod tests {
         let inserted = values.insert_stable_range_between(first, None, [20, 30]);
 
         assert!(inserted.start_id().is_primary());
-        assert_eq!(values.primary_len(), 3);
+        assert_eq!(values.primary_iter().len(), 3);
         assert_eq!(
             values
                 .iter_range(inserted)

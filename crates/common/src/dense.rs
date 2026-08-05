@@ -163,19 +163,19 @@ impl<I: DenseId, T> DenseStore<I, T> {
 
     #[inline]
     pub fn try_push(&mut self, value: T) -> Result<I, DenseCapacityError> {
-        let id = self.try_next_id()?;
+        let id = self.try_next_available()?;
         self.values.push(value);
         Ok(id)
     }
 
     #[inline]
-    pub fn next_id(&self) -> I {
-        self.try_next_id()
+    pub fn next_available(&self) -> I {
+        self.try_next_available()
             .unwrap_or_else(|_| panic!("{} count exceeds u32::MAX", type_name::<I>()))
     }
 
     #[inline]
-    pub fn try_next_id(&self) -> Result<I, DenseCapacityError> {
+    pub fn try_next_available(&self) -> Result<I, DenseCapacityError> {
         I::from_index(self.values.len()).ok_or(DenseCapacityError)
     }
 
