@@ -1132,6 +1132,38 @@ fn declaration_block_positions_bridge_consecutive_empty_ranges_once() {
 }
 
 #[test]
+fn declaration_mutation_results_refresh_append_contexts() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<u8, u8, ()>::new_in(&allocator);
+    let key = stylesheet.append_effective_key(()).unwrap();
+    let rule = stylesheet.append_rule(None, 1).unwrap();
+    let block = stylesheet
+        .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
+        .unwrap();
+    let first = stylesheet
+        .append_authored_declaration(block, 10, false)
+        .unwrap();
+    let second = stylesheet
+        .append_authored_declaration(block, 20, false)
+        .unwrap();
+    let original = declaration_append(&stylesheet, block);
+
+    let replaced = stylesheet
+        .replace_declaration_with_context(original, first, 11)
+        .unwrap();
+    assert_eq!(replaced.previous, 10);
+    assert!(matches!(
+        stylesheet.replace_declaration_with_context(original, second, 21),
+        Err(MutationError::NonContiguousDeclarationRange(id)) if id == block
+    ));
+    let replaced = stylesheet
+        .replace_declaration_with_context(replaced.declaration_append, second, 21)
+        .unwrap();
+    assert_eq!(replaced.previous, 20);
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
 fn transformed_range_capacity_failure_does_not_partially_mutate_the_ast() {
     let allocator = Allocator::new();
     let mut stylesheet = StyleSheet::<u8, u16, ()>::new_in(&allocator);
