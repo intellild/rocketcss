@@ -2,99 +2,21 @@ use super::*;
 
 impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     pub(super) fn is_valid_direct_rule_context(&self, context: DirectRuleContext<R>) -> bool {
-        // Neighbor revisions are carried forward when publishing local edge
-        // contexts, but a mutation on the neighbor's opposite boundary does
-        // not invalidate this position. The current endpoint revision (and
-        // parent revision for nested lists) owns this context's boundaries.
-        let endpoint_is_valid = |id: RuleId<R>, _revision: u32| {
-            self.rules
-                .get(id)
-                .is_some_and(|rule| rule.live && rule.parent == context.parent)
-        };
-        let subtree_is_valid = |id: RuleId<R>, expected: RadixRange<RuleRecord<R>>| {
-            self.rules.get(id).is_some_and(|rule| {
-                rule.live && rule.parent == context.parent && rule.subtree_range(id) == expected
-            })
-        };
-        let Some(rule) = self.rules.get(context.rule) else {
-            return false;
-        };
-        let insertion_anchor = if context.bridge.is_empty() {
-            context.subtree.last_id()
-        } else {
-            context.bridge.last_id()
-        };
-        let next_insertion_anchor = context.next_subtree.map(|subtree| {
-            if context.next_bridge.is_empty() {
-                subtree.last_id()
-            } else {
-                context.next_bridge.last_id()
-            }
-        });
-        let following_insertion_anchor = context.following_subtree.map(|subtree| {
-            if context.following_bridge.is_empty() {
-                subtree.last_id()
-            } else {
-                context.following_bridge.last_id()
-            }
-        });
-        if !rule.live
-            || rule.parent != context.parent
-            || rule.revision != context.revision
-            || rule.subtree_range(context.rule) != context.subtree
-            || context.insertion_anchor != insertion_anchor
-            || context.next_insertion_anchor != next_insertion_anchor
-            || context.following_insertion_anchor != following_insertion_anchor
-            || context
-                .next
-                .is_some_and(|next| context.storage_before != Some(next))
-            || context
-                .following
-                .is_some_and(|following| context.next_storage_before != Some(following))
-            || context.after_following.is_some_and(|after_following| {
-                context.following_storage_before != Some(after_following)
-            })
-            || context.previous.is_some() != context.previous_revision.is_some()
-            || context.previous.is_some() != context.previous_subtree.is_some()
-            || context.next.is_some() != context.next_revision.is_some()
-            || context.next.is_some() != context.next_subtree.is_some()
-            || context.following.is_some() != context.following_revision.is_some()
-            || context.following.is_some() != context.following_subtree.is_some()
-            || !context
-                .previous
-                .zip(context.previous_revision)
-                .is_none_or(|(id, revision)| endpoint_is_valid(id, revision))
-            || !context
-                .previous
-                .zip(context.previous_subtree)
-                .is_none_or(|(id, subtree)| subtree_is_valid(id, subtree))
-            || !context
-                .next
-                .zip(context.next_revision)
-                .is_none_or(|(id, revision)| endpoint_is_valid(id, revision))
-            || !context
-                .next
-                .zip(context.next_subtree)
-                .is_none_or(|(id, subtree)| subtree_is_valid(id, subtree))
-            || !context
-                .following
-                .zip(context.following_revision)
-                .is_none_or(|(id, revision)| endpoint_is_valid(id, revision))
-            || !context
-                .following
-                .zip(context.following_subtree)
-                .is_none_or(|(id, subtree)| subtree_is_valid(id, subtree))
-        {
-            return false;
+        self.rules.get(context.rule).is_some_and(|rule| {
+            rule.live && rule.parent == context.parent && rule.revision == context.revision
+        })
+    }
+
+    pub(super) fn direct_rule_mutation_context(
+        &self,
+        context: DirectRuleContext<R>,
+    ) -> Result<DirectRuleMutationContext<R>, MutationError<R>> {
+        if !self.is_valid_direct_rule_context(context) {
+            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
         }
-        match (context.parent, context.parent_revision) {
-            (Some(parent), Some(revision)) => self
-                .rules
-                .get(parent)
-                .is_some_and(|rule| rule.live && rule.revision == revision),
-            (None, None) => true,
-            _ => false,
-        }
+        self.direct_rule_mutation_contexts(context.parent)?
+            .find(|candidate| candidate.rule == context.rule)
+            .ok_or(MutationError::<R>::InvalidRuleTopology(context.rule))
     }
 
     fn push_rule_edge(delta: &mut RuleMutationDelta<R>, edge: DirectRuleEdge<R>) {
@@ -115,17 +37,24 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
     }
 
     fn rule_edge(
-        left_context: DirectRuleContext<R>,
-        right_context: DirectRuleContext<R>,
+        left_context: DirectRuleMutationContext<R>,
+        right_context: DirectRuleMutationContext<R>,
     ) -> DirectRuleEdge<R> {
         debug_assert_eq!(left_context.next, Some(right_context.rule));
         debug_assert_eq!(left_context.next_revision, Some(right_context.revision));
         DirectRuleEdge {
-            context: left_context,
+            parent: left_context.parent,
+            left: left_context.rule,
+            right: right_context.rule,
+            left_revision: left_context.revision,
+            right_revision: right_context.revision,
         }
     }
 
-    pub(super) fn local_rule_edges(&self, context: DirectRuleContext<R>) -> RuleMutationDelta<R> {
+    pub(super) fn local_rule_edges(
+        &self,
+        context: DirectRuleMutationContext<R>,
+    ) -> RuleMutationDelta<R> {
         let mut delta = RuleMutationDelta::empty();
         if let (Some(previous), Some(subtree)) = (context.previous, context.previous_subtree) {
             let revision = self
@@ -133,7 +62,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
                 .get(previous)
                 .expect("a validated previous direct rule remains resolvable")
                 .revision;
-            let previous_context = DirectRuleContext {
+            let previous_context = DirectRuleMutationContext {
                 parent: context.parent,
                 parent_revision: context.parent_revision,
                 before_previous: None,
@@ -182,7 +111,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
                 .get(next)
                 .expect("a validated next direct rule remains resolvable")
                 .revision;
-            let next_context = DirectRuleContext {
+            let next_context = DirectRuleMutationContext {
                 parent: context.parent,
                 parent_revision: context.parent_revision,
                 before_previous: context.previous,
@@ -235,9 +164,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         &self,
         context: DirectRuleContext<R>,
     ) -> Result<RuleMutationDelta<R>, MutationError<R>> {
-        if !self.is_valid_direct_rule_context(context) {
-            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
-        }
+        let context = self.direct_rule_mutation_context(context)?;
         Ok(self.local_rule_edges(context))
     }
 }
@@ -257,9 +184,7 @@ where
         context: DirectRuleContext<R>,
         payload: R,
     ) -> Result<InsertedRule<R>, MutationError<R>> {
-        if !self.is_valid_direct_rule_context(context) {
-            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
-        }
+        let context = self.direct_rule_mutation_context(context)?;
         let parent = context.parent;
         let direct_before = context.next;
         if !self
@@ -373,7 +298,7 @@ where
         after_context.following_storage_before = context.next_storage_before;
         after_context.after_following_subtree = context.following_subtree;
 
-        let inserted_context = DirectRuleContext {
+        let inserted_context = DirectRuleMutationContext {
             parent,
             parent_revision,
             before_previous: context.previous,
@@ -413,7 +338,7 @@ where
             context.previous_revision,
             context.previous_subtree,
         ) {
-            let previous_context = DirectRuleContext {
+            let previous_context = DirectRuleMutationContext {
                 parent,
                 parent_revision,
                 before_previous: None,
@@ -459,7 +384,7 @@ where
             context.next_subtree,
             context.next_insertion_anchor,
         ) {
-            let before_context = DirectRuleContext {
+            let before_context = DirectRuleMutationContext {
                 parent,
                 parent_revision,
                 before_previous: Some(after),
@@ -510,7 +435,7 @@ where
                     .get(following)
                     .expect("a validated following direct rule remains resolvable")
                     .revision;
-                let following_context = DirectRuleContext {
+                let following_context = DirectRuleMutationContext {
                     parent,
                     parent_revision,
                     before_previous: Some(inserted),
@@ -618,7 +543,9 @@ where
         if !self.is_valid_direct_rule_edge(edge) {
             return Err(MutationError::<R>::InvalidRuleTopology(after));
         }
-        let bridge = edge.left_context().bridge;
+        let bridge = self
+            .direct_rule_mutation_context(edge.left_context())?
+            .bridge;
         let bridge_ids = self
             .rules
             .ids_in_range(bridge)
@@ -962,6 +889,8 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         if !self.is_valid_direct_rule_edge(edge) {
             return Err(MutationError::<R>::InvalidRuleTopology(left));
         }
+        let left_context = self.direct_rule_mutation_context(edge.left_context())?;
+        let right_context = self.direct_rule_mutation_context(edge.right_context())?;
         let left_rule = self
             .rules
             .get(left)
@@ -985,7 +914,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         let mut bridge_blocks = std::vec::Vec::new();
         let bridge_ids = self
             .rules
-            .ids_in_range(edge.left_context().bridge)
+            .ids_in_range(left_context.bridge)
             .ok_or(MutationError::<R>::InvalidRuleTopology(left))?;
         for source_id in bridge_ids {
             let source_rule = self
@@ -1065,8 +994,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
             .expect("the retained block was validated before commit");
         retained_block.declarations = merged_declarations;
         retained_block.revision = retained_block.revision.wrapping_add(1);
-        let left_context = edge.left_context();
-        let mut right_context = edge.right_context();
+        let mut right_context = right_context;
         let mut incoming_bridge = left_context.incoming_bridge;
         incoming_bridge.extend(left_context.subtree);
         incoming_bridge.extend(left_context.bridge);
@@ -1101,25 +1029,19 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         self.retire_rule_with_captured_successor(context, None)
     }
 
-    /// Retires one rule while reusing the next full position captured by the
-    /// same direct-list pass. A non-adjacent captured position is ignored;
-    /// batch clients can therefore pass their next affected position without
-    /// rediscovering whether unaffected rules lie between them.
+    /// Retires one rule while accepting the next compact position captured by
+    /// the same direct-list pass. A non-adjacent captured position is ignored.
     #[doc(hidden)]
     pub fn retire_rule_with_captured_successor(
         &mut self,
         context: DirectRuleContext<R>,
         captured_successor: Option<DirectRuleContext<R>>,
     ) -> Result<RetiredRule<R>, MutationError<R>> {
-        if !self.is_valid_direct_rule_context(context) {
-            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
-        }
-        let captured_successor =
-            captured_successor.filter(|successor| context.next == Some(successor.rule));
-        if captured_successor.is_some_and(|successor| !self.is_valid_direct_rule_context(successor))
-        {
-            return Err(MutationError::<R>::InvalidRuleTopology(context.rule));
-        }
+        let context = self.direct_rule_mutation_context(context)?;
+        let captured_successor = captured_successor
+            .filter(|successor| context.next == Some(successor.rule))
+            .map(|successor| self.direct_rule_mutation_context(successor))
+            .transpose()?;
         let id = context.rule;
         let rule = self
             .rules
@@ -1189,7 +1111,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
                     RadixRange::empty()
                 };
                 let successor = if let Some(successor) = captured_successor {
-                    DirectRuleContext {
+                    DirectRuleMutationContext {
                         before_previous: previous.and(context.before_previous),
                         before_previous_revision: previous.and(context.before_previous_revision),
                         previous,
@@ -1214,7 +1136,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
                             context.next_bridge.last_id()
                         }
                     });
-                    DirectRuleContext {
+                    DirectRuleMutationContext {
                         parent: context.parent,
                         parent_revision: context.parent_revision,
                         before_previous: previous.and(context.before_previous),
@@ -1274,7 +1196,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
                 let mut bridge = context.incoming_bridge;
                 bridge.extend(context.subtree);
                 bridge.extend(context.bridge);
-                Some(DirectRuleContext {
+                Some(DirectRuleMutationContext {
                     parent: context.parent,
                     parent_revision: context.parent_revision,
                     before_previous: None,
@@ -1322,6 +1244,11 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
                 Self::push_rule_edge(&mut delta, edge);
             }
         }
+        let successor_context = successor_context.map(|context| DirectRuleContext {
+            parent: context.parent,
+            rule: context.rule,
+            revision: context.revision,
+        });
         Ok(RetiredRule {
             id,
             declaration_block,

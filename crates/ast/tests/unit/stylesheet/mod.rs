@@ -60,7 +60,9 @@ fn typed_ids_keep_compact_optional_layout() {
         size_of::<Option<DeclarationBlockId<&str>>>(),
         size_of::<u32>()
     );
-    assert_eq!(size_of::<DirectRuleEdge<&str>>(), size_of::<[u32; 59]>());
+    assert_eq!(size_of::<DirectRuleContext<&str>>(), size_of::<[u32; 3]>());
+    assert_eq!(size_of::<DirectRuleEdge<&str>>(), size_of::<[u32; 5]>());
+    assert_eq!(size_of::<RuleMutationDelta<&str>>(), size_of::<[u32; 20]>());
 }
 
 #[test]
@@ -428,7 +430,7 @@ fn insertion_after_a_nested_subtree_updates_every_ancestor_span() {
 }
 
 #[test]
-fn descendant_insertion_invalidates_a_following_siblings_saved_subtree_boundary() {
+fn compact_position_rehydrates_after_an_unrelated_subtree_boundary_change() {
     let allocator = Allocator::new();
     let mut stylesheet = StyleSheet::<&str, (), ()>::new_in(&allocator);
     let parent = stylesheet.append_rule(None, "parent").unwrap();
@@ -440,10 +442,15 @@ fn descendant_insertion_invalidates_a_following_siblings_saved_subtree_boundary(
         .insert_rule_after(direct_context(&stylesheet, child), "inserted")
         .unwrap();
 
-    assert!(matches!(
-        stylesheet.rule_edges_at_context(stale_following),
-        Err(MutationError::InvalidRuleTopology(id)) if id == following
-    ));
+    assert_eq!(
+        stylesheet
+            .rule_edges_at_context(stale_following)
+            .unwrap()
+            .edges()
+            .map(|edge| (edge.left(), edge.right()))
+            .collect::<std::vec::Vec<_>>(),
+        [(parent, following)]
+    );
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 
