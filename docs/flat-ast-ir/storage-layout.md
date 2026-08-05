@@ -70,8 +70,8 @@ For a rule at position `R`:
 - the root span is the whole rules arena.
 
 These calculations are private to the AST crate. Other crates use semantic
-operations such as `root_rules`, `nested_rules`, `has_nested_rules`,
-`next_sibling`, source-order iteration, and scoped source-order transforms;
+operations such as `root_rules`, `nested_rules`, `sibling_rules`,
+`has_nested_rules`, source-order iteration, and scoped source-order transforms;
 they do not read spans or drive Radix cursors themselves.
 
 ```text

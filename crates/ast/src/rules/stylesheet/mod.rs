@@ -729,6 +729,23 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
         self.direct_rules(Some(parent))
     }
 
+    /// Iterates the live rules in `rule`'s direct sibling list, including
+    /// `rule` itself. Consumers that need adjacency must carry neighboring
+    /// IDs while advancing this iterator instead of issuing per-rule lookups.
+    pub fn sibling_rules(
+        &self,
+        rule: RuleId<R>,
+    ) -> Result<impl Iterator<Item = (RuleId<R>, &RuleRecord<R>)>, MutationError<R>> {
+        let record = self
+            .rules
+            .get(rule)
+            .ok_or(MutationError::<R>::UnknownRule(rule))?;
+        if !record.live {
+            return Err(MutationError::<R>::RetiredRule(rule));
+        }
+        self.direct_rules(record.parent)
+    }
+
     /// Returns whether a live rule has at least one live direct nested rule.
     #[inline]
     pub fn has_nested_rules(&self, parent: RuleId<R>) -> Result<bool, MutationError<R>> {
@@ -780,29 +797,6 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
     #[inline]
     pub fn authored_rule_count(&self) -> usize {
         self.rules.primary_len()
-    }
-
-    pub fn previous_sibling(&self, id: RuleId<R>) -> Option<RuleId<R>> {
-        let parent = self.rules.get(id)?.parent;
-        let mut previous = None;
-        for (candidate, _) in self.direct_rules(parent).ok()? {
-            if candidate == id {
-                return previous;
-            }
-            previous = Some(candidate);
-        }
-        None
-    }
-
-    pub fn next_sibling(&self, id: RuleId<R>) -> Option<RuleId<R>> {
-        let parent = self.rules.get(id)?.parent;
-        let mut rules = self.direct_rules(parent).ok()?;
-        while let Some((candidate, _)) = rules.next() {
-            if candidate == id {
-                return rules.next().map(|(next, _)| next);
-            }
-        }
-        None
     }
 
     /// Appends a key record. W6 routes this operation through exact interning.
