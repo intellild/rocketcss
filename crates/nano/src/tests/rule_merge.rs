@@ -36,6 +36,10 @@ fn stabilizes_overlapping_partial_selector_candidates() {
         "a,b{color:red}b,c{width:1px}"
     );
     assert_eq!(
+        run("a{color:red;background:red}b{color:red;width:1px}c{width:1px}"),
+        "a{background:red}a,b{color:red}b,c{width:1px}"
+    );
+    assert_eq!(
         run("a{opacity:.5}b{opacity:.5}c{opacity:.5}d{opacity:.5}"),
         "a,b,c,d{opacity:.5}"
     );

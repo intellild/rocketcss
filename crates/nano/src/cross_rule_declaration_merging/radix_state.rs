@@ -982,18 +982,22 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
             let retain_right = self.declaration_ir.block_live_count(right_block) != 0
                 || stylesheet.has_nested_rules(right_rule)?;
+            let right_context = insertion_delta
+                .edges()
+                .find(|edge| edge.left() == shared_rule && edge.right() == right_rule)
+                .map(|edge| edge.right_context())
+                .ok_or(MutationError::<'ast>::InvalidRuleTopology(right_rule))?;
             if retain_right {
                 let right_append = right_append.with_inserted_predecessor(declaration_append);
                 self.update_history_append_context(endpoints.right_key, right_block, right_append)?;
             }
             self.scratch.mutation_deltas.clear();
             self.scratch.mutation_deltas.push(insertion_delta);
-            if !retain_right {
-                let right_context = insertion_delta
-                    .edges()
-                    .find(|edge| edge.left() == shared_rule && edge.right() == right_rule)
-                    .map(|edge| edge.right_context())
-                    .ok_or(MutationError::<'ast>::InvalidRuleTopology(right_rule))?;
+            if retain_right {
+                self.scratch
+                    .mutation_deltas
+                    .push(stylesheet.rule_edges_at_context(right_context)?);
+            } else {
                 let retired = stylesheet.retire_rule(right_context)?;
                 self.scratch.mutation_deltas.push(retired.delta);
                 self.remove_history_occurrence(endpoints.right_key, right_block);
