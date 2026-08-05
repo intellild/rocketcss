@@ -46,7 +46,7 @@ impl<'arena, 'ast> CrossRuleBuilder<'arena, 'ast> {
 
     pub(super) fn finalize(
         &mut self,
-        stylesheet: &StyleSheet<'ast>,
+        stylesheet: &mut StyleSheet<'ast>,
         key_remaps: &[EffectiveKeyId],
     ) -> Result<(), MutationError<'ast>> {
         self.state.finalize_published_blocks(stylesheet, key_remaps)
@@ -378,7 +378,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     fn finalize_published_blocks(
         &mut self,
-        stylesheet: &StyleSheet<'ast>,
+        stylesheet: &mut StyleSheet<'ast>,
         key_remaps: &[EffectiveKeyId],
     ) -> Result<(), MutationError<'ast>> {
         self.declaration_append_contexts.clear();
@@ -404,43 +404,26 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     .push(published.effective_key);
             }
         }
-        self.enqueue_initial_edges(stylesheet)
+        let edges = stylesheet.prepare_direct_rule_mutation_contexts()?;
+        self.enqueue_initial_edges(stylesheet, edges)
     }
 
     fn enqueue_initial_edges(
         &mut self,
         stylesheet: &StyleSheet<'ast>,
+        edges: impl IntoIterator<Item = RuleEdge<'ast>>,
     ) -> Result<(), MutationError<'ast>> {
-        self.enqueue_rule_list_positions(stylesheet, stylesheet.root_rule_positions())
-    }
-
-    fn enqueue_rule_list_positions(
-        &mut self,
-        stylesheet: &StyleSheet<'ast>,
-        positions: impl Iterator<Item = rocketcss_ast::DirectRulePosition<CssRule<'ast>>>,
-    ) -> Result<(), MutationError<'ast>> {
-        for position in positions {
-            if let Some(edge) = position.incoming_edge()
-                && let Some(candidate) = self.edge_candidate_from_edge(stylesheet, edge)
-            {
+        for edge in edges {
+            if let Some(candidate) = self.edge_candidate_from_fresh_edge(stylesheet, edge) {
                 self.enqueue_edge_candidate(candidate);
             }
-            self.enqueue_nested_rule_list_positions(stylesheet, position.context().rule())?;
         }
         Ok(())
     }
 
-    fn enqueue_nested_rule_list_positions(
-        &mut self,
-        stylesheet: &StyleSheet<'ast>,
-        parent: RuleId<'ast>,
-    ) -> Result<(), MutationError<'ast>> {
-        self.enqueue_rule_list_positions(stylesheet, stylesheet.nested_rule_positions(parent)?)
-    }
-
     #[cfg(test)]
     fn from_stylesheet<'minify>(
-        stylesheet: &StyleSheet<'ast>,
+        stylesheet: &mut StyleSheet<'ast>,
     ) -> Result<CrossRuleState<'minify, 'ast>, MutationError<'ast>>
     where
         'ast: 'minify,
@@ -1125,7 +1108,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     fn enqueue_mutation_delta(&mut self, stylesheet: &StyleSheet<'ast>, delta: RuleDelta<'ast>) {
         for edge in delta.edges() {
-            if let Some(candidate) = self.edge_candidate_from_edge(stylesheet, edge) {
+            if let Some(candidate) = self.edge_candidate_from_fresh_edge(stylesheet, edge) {
                 self.enqueue_edge_candidate(candidate);
             }
         }
@@ -1189,14 +1172,11 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         self.partial_merge_candidates.remap_rules(&result.remaps);
     }
 
-    fn edge_candidate_from_edge(
+    fn edge_candidate_from_fresh_edge(
         &self,
         stylesheet: &StyleSheet<'ast>,
         edge: RuleEdge<'ast>,
     ) -> Option<Candidate<'ast>> {
-        if !stylesheet.is_valid_direct_rule_edge(edge) {
-            return None;
-        }
         let left_rule_id = edge.left();
         let right_rule_id = edge.right();
         let left_rule = stylesheet.rule(left_rule_id)?;
@@ -1513,13 +1493,13 @@ mod tests {
     #[test]
     fn finalizes_histories_ir_and_direct_edges_from_published_metadata() {
         let allocator = Allocator::new();
-        let stylesheet = Compiler::new(&allocator)
+        let mut stylesheet = Compiler::new(&allocator)
             .parse_test_stylesheet(
                 "a{color:red}a{color:blue}@media print{a{color:red}a{color:blue}}b{color:red}b{color:blue}a{color:green}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         assert_eq!(state.published_block_count, 7);
         assert_eq!(state.declaration_ir.occurrence_count(), 7);
@@ -1567,13 +1547,13 @@ mod tests {
     #[test]
     fn nested_declaration_segments_join_history_without_becoming_style_edges() {
         let allocator = Allocator::new();
-        let stylesheet = Compiler::new(&allocator)
+        let mut stylesheet = Compiler::new(&allocator)
             .parse_test_stylesheet(
                 "a{width:1px;& b{height:2px}width:3px}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         assert_eq!(state.published_block_count, 3);
         assert_eq!(state.declaration_ir.occurrence_count(), 3);
@@ -1584,13 +1564,13 @@ mod tests {
     #[test]
     fn singleton_direct_lists_still_recurse_into_nested_positions() {
         let allocator = Allocator::new();
-        let stylesheet = Compiler::new(&allocator)
+        let mut stylesheet = Compiler::new(&allocator)
             .parse_test_stylesheet(
                 "@media print{@supports(display:grid){a{color:red}b{color:blue}}}",
                 ParserOptions::default(),
             )
             .unwrap();
-        let state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         assert_eq!(stylesheet.root_rule_positions().count(), 1);
         assert_eq!(state.direct_style_edges.len(), 1);
@@ -1610,7 +1590,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         assert_eq!(state.run_s1(&mut stylesheet).unwrap(), 2);
         let live = stylesheet
@@ -1642,7 +1622,7 @@ mod tests {
         let mut stylesheet = Compiler::new(&allocator)
             .parse_test_stylesheet("a{color:red}a{color:blue}", ParserOptions::default())
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
         let candidate = state.same_selector_candidates.pop().unwrap();
 
         stylesheet
@@ -1668,7 +1648,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         let stats = state.run_s2_exact(&mut stylesheet).unwrap();
 
@@ -1687,7 +1667,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         let stats = state.run_s2_exact(&mut stylesheet).unwrap();
 
@@ -1706,7 +1686,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         let stats = state.run_s2_exact(&mut stylesheet).unwrap();
         assert_eq!(
@@ -1745,7 +1725,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         let stats = state.run_s2_exact(&mut stylesheet).unwrap();
         assert_eq!(stats.declarations_removed, 1);
@@ -1763,7 +1743,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         assert_eq!(state.run_s1(&mut stylesheet).unwrap(), 0);
         let s2 = state.run_s2_exact(&mut stylesheet).unwrap();
@@ -1786,7 +1766,7 @@ mod tests {
                 },
             )
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         assert_eq!(
             state.run_s2_exact(&mut stylesheet).unwrap(),
@@ -1806,7 +1786,7 @@ mod tests {
                     options,
                 )
                 .unwrap();
-            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
             assert_eq!(
                 state.run_s3(&mut stylesheet, true).unwrap(),
@@ -1846,7 +1826,7 @@ mod tests {
                 .parse_test_stylesheet("a{color:red;width:1px}b{color:red;height:2px}", options)
                 .unwrap();
             let authored_declarations = stylesheet.declarations_in_source_order().count();
-            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
             assert_eq!(
                 state.run_s3(&mut stylesheet, true).unwrap(),
@@ -1913,7 +1893,7 @@ mod tests {
             let mut stylesheet = Compiler::new(&allocator)
                 .parse_test_stylesheet("a{width:1px;color:red}b{color:red}", options)
                 .unwrap();
-            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
             assert_eq!(
                 state.run_s3(&mut stylesheet, true).unwrap(),
@@ -1953,7 +1933,7 @@ mod tests {
             let mut stylesheet = Compiler::new(&allocator)
                 .parse_test_stylesheet("a{color:red}b{color:red}a,b{width:1px}", options)
                 .unwrap();
-            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
             let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.reused_left_commits, 1);
@@ -1988,7 +1968,7 @@ mod tests {
                     options,
                 )
                 .unwrap();
-            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
             let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.reused_left_commits, 1);
@@ -2020,7 +2000,7 @@ mod tests {
             let mut stylesheet = Compiler::new(&allocator)
                 .parse_test_stylesheet("a{color:red}b{color:red;width:1px}c{width:1px}", options)
                 .unwrap();
-            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
             let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.reused_left_commits, 2);
@@ -2051,7 +2031,7 @@ mod tests {
             let mut stylesheet = Compiler::new(&allocator)
                 .parse_test_stylesheet("a{width:1px;color:red}b{color:red}a,b{padding:0}", options)
                 .unwrap();
-            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
             let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.allocated_shared_commits, 1);
@@ -2091,7 +2071,7 @@ mod tests {
                     options,
                 )
                 .unwrap();
-            let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
             let stats = state.run(&mut stylesheet, true).unwrap();
             assert_eq!(stats.s3.allocated_shared_commits, 1);
@@ -2136,7 +2116,7 @@ mod tests {
                 ParserOptions::default(),
             )
             .unwrap();
-        let mut state = CrossRuleState::from_stylesheet(&stylesheet).unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
 
         assert_eq!(state.direct_style_edges.len(), 1);
         assert!(!state.direct_style_edges[0].same_effective_key);

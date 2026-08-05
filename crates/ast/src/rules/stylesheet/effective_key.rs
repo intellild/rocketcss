@@ -1006,6 +1006,7 @@ impl<'ast> StyleSheet<'ast> {
                 .rule(context.rule)
                 .expect("the changed selector rule remains live")
                 .revision;
+            self.cache_rule_mutation_context(context);
             self.local_rule_edges(context)
         } else {
             RuleMutationDelta::empty()
