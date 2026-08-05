@@ -68,7 +68,7 @@
 2. **`enter_selector_context` 每规则一次**（effective_key.rs:591）：每进一个 style rule 就 `intern_selector_path`。
 
 3. **append 路径的簿记**
-   - `append_rule`（stylesheet/mod.rs）：除 push 外，还要维护 `previous_in_source/next_in_source` 双向链 + `previous_sibling/next_sibling` 双向链，每个规则 2 次 `get_mut` 指针写。
+   - `append_rule`（stylesheet/mod.rs）：除 push 外，还要维护源码顺序和树拓扑记账；旧的 sibling 链已移除，当前通过 preorder span 迭代直接同级规则。
    - `append_authored_declaration`（stylesheet/mod.rs）：每次 `try_next_id` + range 连续性校验 + 记录 push，比 master 的 `DeclarationBlock.push` 多一次 ID 记账。
 
 4. **容量低估**（§4）：bootstrap 触发几何扩容。

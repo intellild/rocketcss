@@ -52,8 +52,14 @@ fn lexical_order_and_direct_topology_are_independent() {
             .collect::<std::vec::Vec<_>>(),
         ["outer", "following"]
     );
-    assert_eq!(stylesheet.next_sibling(outer), Some(following));
-    assert_eq!(stylesheet.previous_sibling(following), Some(outer));
+    assert_eq!(
+        stylesheet
+            .sibling_rules(outer)
+            .unwrap()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [outer, following]
+    );
     assert_eq!(stylesheet.rule(nested).unwrap().parent(), Some(outer));
     assert_eq!(
         stylesheet.declaration_block(block).unwrap().owner(),

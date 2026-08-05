@@ -7,8 +7,8 @@
 
 use rocketcss_ast::{
     CssDeclaration, CssDeclarationBlockId as DeclarationBlockId, CssRule, CssRuleId as RuleId,
-    Declaration, DeclarationBlockOwner, EffectiveKeyId, EqIgnoringTombstones, NestingRule, Span,
-    StyleRule, StyleSheet, StyleSheetMutationError as MutationError,
+    Declaration, DeclarationBlockOwner, EffectiveKeyId, EqIgnoringTombstones, NestingRule,
+    RuleRecord, Span, StyleRule, StyleSheet, StyleSheetMutationError as MutationError,
 };
 use rocketcss_common::{
     Allocator, RadixIdRemap, RadixInsertResult,
@@ -38,8 +38,12 @@ impl<'arena, 'ast> CrossRuleBuilder<'arena, 'ast> {
         self.state.publish_block(stylesheet, block)
     }
 
-    pub(super) fn finalize(&mut self, key_remaps: &[EffectiveKeyId]) {
-        self.state.finalize_published_blocks(key_remaps);
+    pub(super) fn finalize(
+        &mut self,
+        stylesheet: &StyleSheet<'ast>,
+        key_remaps: &[EffectiveKeyId],
+    ) -> Result<(), MutationError<'ast>> {
+        self.state.finalize_published_blocks(stylesheet, key_remaps)
     }
 }
 
@@ -264,8 +268,6 @@ impl<'arena, 'ast> MinifyScratch<'arena, 'ast> {
 struct PublishedBlock<'ast> {
     block: DeclarationBlockId<'ast>,
     effective_key: EffectiveKeyId,
-    revision: u32,
-    previous_style_block: Option<(DeclarationBlockId<'ast>, EffectiveKeyId, u32)>,
 }
 
 struct CrossRuleState<'arena, 'ast> {
@@ -328,53 +330,23 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         let block_record = stylesheet
             .declaration_block(block)
             .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(block))?;
-        let DeclarationBlockOwner::Rule(owner) = block_record.owner();
-        let owner_record = stylesheet
-            .rule(owner)
-            .ok_or(MutationError::<'ast>::InvalidRuleTopology(owner))?;
-        let previous_style_block = if is_style_owner(owner_record.payload())
-            && let Some(previous) = stylesheet.previous_sibling(owner)
-        {
-            let previous_record = stylesheet
-                .rule(previous)
-                .ok_or(MutationError::<'ast>::InvalidRuleTopology(previous))?;
-            if is_style_owner(previous_record.payload()) {
-                let previous_block = previous_record
-                    .declaration_block()
-                    .ok_or(MutationError::<'ast>::InvalidRuleTopology(previous))?;
-                let previous_block_record = stylesheet.declaration_block(previous_block).ok_or(
-                    MutationError::<'ast>::UnknownDeclarationBlock(previous_block),
-                )?;
-                Some((
-                    previous_block,
-                    previous_block_record.effective_key(),
-                    previous_block_record.revision(),
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
         self.published_blocks.push(PublishedBlock {
             block,
             effective_key: block_record.effective_key(),
-            revision: block_record.revision(),
-            previous_style_block,
         });
         Ok(())
     }
 
-    fn finalize_published_blocks(&mut self, key_remaps: &[EffectiveKeyId]) {
+    fn finalize_published_blocks(
+        &mut self,
+        stylesheet: &StyleSheet<'ast>,
+        key_remaps: &[EffectiveKeyId],
+    ) -> Result<(), MutationError<'ast>> {
         self.published_block_count = 0;
         for index in 0..self.published_blocks.len() {
             let mut published = self.published_blocks[index];
             if !key_remaps.is_empty() {
                 published.effective_key = key_remaps[published.effective_key.index()];
-                if let Some((block, effective_key, revision)) = published.previous_style_block {
-                    published.previous_style_block =
-                        Some((block, key_remaps[effective_key.index()], revision));
-                }
                 self.published_blocks[index] = published;
             }
             self.published_block_count += 1;
@@ -382,22 +354,33 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 self.declaration_override_candidates
                     .push(published.effective_key);
             }
-            if let Some((previous_block, previous_key, previous_revision)) =
-                published.previous_style_block
-            {
-                self.enqueue_edge_candidate(Candidate {
-                    left: previous_block,
-                    right: published.block,
-                    left_revision: previous_revision,
-                    right_revision: published.revision,
-                    same_effective_key: previous_key == published.effective_key,
-                    may_share_declaration: self
-                        .declaration_ir
-                        .property_bloom(previous_block)
-                        .may_share_declaration(self.declaration_ir.property_bloom(published.block)),
-                });
-            }
         }
+        self.enqueue_initial_edges(stylesheet)
+    }
+
+    fn enqueue_initial_edges(
+        &mut self,
+        stylesheet: &StyleSheet<'ast>,
+    ) -> Result<(), MutationError<'ast>> {
+        self.enqueue_rule_list_edges(stylesheet, stylesheet.root_rules())
+    }
+
+    fn enqueue_rule_list_edges<'tree>(
+        &mut self,
+        stylesheet: &'tree StyleSheet<'ast>,
+        rules: impl Iterator<Item = (RuleId<'ast>, &'tree RuleRecord<CssRule<'ast>>)>,
+    ) -> Result<(), MutationError<'ast>> {
+        let mut previous = None;
+        for (rule, _) in rules {
+            if let Some(left) = previous
+                && let Some(edge) = self.edge_candidate_from_adjacent(stylesheet, left, rule)
+            {
+                self.enqueue_edge_candidate(edge);
+            }
+            self.enqueue_rule_list_edges(stylesheet, stylesheet.nested_rules(rule)?)?;
+            previous = Some(rule);
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -409,7 +392,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     {
         let mut state = CrossRuleState::new_in(stylesheet, stylesheet.allocator());
         state.publish_all_blocks(stylesheet)?;
-        state.finalize_published_blocks(&[]);
+        state.finalize_published_blocks(stylesheet, &[])?;
         Ok(state)
     }
 }
@@ -508,18 +491,18 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             history.retain(|block| *block != merged.retired_block);
             commits += 1;
 
+            let (previous, next) = sibling_neighbors(stylesheet, merged.retained_rule).ok_or(
+                MutationError::<'ast>::InvalidRuleTopology(merged.retained_rule),
+            )?;
+
             for (left, right) in [
-                stylesheet
-                    .previous_sibling(merged.retained_rule)
-                    .map(|previous| (previous, merged.retained_rule)),
-                stylesheet
-                    .next_sibling(merged.retained_rule)
-                    .map(|next| (merged.retained_rule, next)),
+                previous.map(|previous| (previous, merged.retained_rule)),
+                next.map(|next| (merged.retained_rule, next)),
             ]
             .into_iter()
             .flatten()
             {
-                if let Some(edge) = self.edge_candidate(stylesheet, left, right) {
+                if let Some(edge) = self.edge_candidate_from_adjacent(stylesheet, left, right) {
                     self.enqueue_edge_candidate(edge);
                 }
             }
@@ -589,7 +572,8 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     let retired = stylesheet.retire_rule(owner)?;
                     self.remove_history_occurrence(block_key, block);
                     if let (Some(previous), Some(next)) = (retired.previous, retired.next)
-                        && let Some(edge) = self.edge_candidate(stylesheet, previous, next)
+                        && let Some(edge) =
+                            self.edge_candidate_from_adjacent(stylesheet, previous, next)
                     {
                         self.enqueue_edge_candidate(edge);
                     }
@@ -894,7 +878,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             self.declaration_override_candidates
                 .push(endpoints.right_key);
             self.declaration_override_candidates.push(shared_key);
-            debug_assert_eq!(stylesheet.previous_sibling(shared_rule), Some(left_rule));
+            debug_assert!(are_adjacent_siblings(stylesheet, left_rule, shared_rule));
             stats.allocated_shared_commits += 1;
             break;
         }
@@ -938,16 +922,16 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         left: RuleId<'ast>,
         right: Option<RuleId<'ast>>,
     ) {
-        let previous = stylesheet.previous_sibling(left);
+        let (previous, left_next) = sibling_neighbors(stylesheet, left).unwrap_or((None, None));
+        let right_next = right
+            .and_then(|right| sibling_neighbors(stylesheet, right))
+            .and_then(|(_, next)| next);
         for edge in [
-            previous.and_then(|previous| self.edge_candidate(stylesheet, previous, left)),
-            stylesheet
-                .next_sibling(left)
-                .and_then(|next| self.edge_candidate(stylesheet, left, next)),
-            right.and_then(|right| {
-                stylesheet
-                    .next_sibling(right)
-                    .and_then(|next| self.edge_candidate(stylesheet, right, next))
+            previous
+                .and_then(|previous| self.edge_candidate_from_adjacent(stylesheet, previous, left)),
+            left_next.and_then(|next| self.edge_candidate_from_adjacent(stylesheet, left, next)),
+            right.zip(right_next).and_then(|(right, next)| {
+                self.edge_candidate_from_adjacent(stylesheet, right, next)
             }),
         ]
         .into_iter()
@@ -958,16 +942,13 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     }
 
     fn enqueue_rule_incident_edges(&mut self, stylesheet: &StyleSheet<'ast>, rule: RuleId<'ast>) {
-        if stylesheet.rule(rule).is_none() {
+        let Some((previous, next)) = sibling_neighbors(stylesheet, rule) else {
             return;
-        }
+        };
         for edge in [
-            stylesheet
-                .previous_sibling(rule)
-                .and_then(|previous| self.edge_candidate(stylesheet, previous, rule)),
-            stylesheet
-                .next_sibling(rule)
-                .and_then(|next| self.edge_candidate(stylesheet, rule, next)),
+            previous
+                .and_then(|previous| self.edge_candidate_from_adjacent(stylesheet, previous, rule)),
+            next.and_then(|next| self.edge_candidate_from_adjacent(stylesheet, rule, next)),
         ]
         .into_iter()
         .flatten()
@@ -992,10 +973,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         self.declaration_ir.repair_block_remaps(&result.remaps);
         for block in &mut self.published_blocks {
             block.block = remap_block_id(block.block, &result.remaps);
-            if let Some((previous, key, revision)) = block.previous_style_block {
-                block.previous_style_block =
-                    Some((remap_block_id(previous, &result.remaps), key, revision));
-            }
         }
         for history in self.histories.values_mut() {
             for block in history {
@@ -1009,7 +986,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         self.partial_merge_candidates.remap_blocks(&result.remaps);
     }
 
-    fn edge_candidate(
+    fn edge_candidate_from_adjacent(
         &self,
         stylesheet: &StyleSheet<'ast>,
         left: RuleId<'ast>,
@@ -1019,8 +996,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         let right_rule = stylesheet.rule(right)?;
         if !left_rule.is_live()
             || !right_rule.is_live()
-            || stylesheet.next_sibling(left) != Some(right)
-            || stylesheet.previous_sibling(right) != Some(left)
             || !is_style_owner(left_rule.payload())
             || !is_style_owner(right_rule.payload())
         {
@@ -1053,6 +1028,29 @@ impl<'ast> Candidate<'ast> {
 
 fn is_style_owner(payload: &CssRule<'_>) -> bool {
     matches!(payload, CssRule::Style(_) | CssRule::Nesting(_))
+}
+
+fn sibling_neighbors<'ast>(
+    stylesheet: &StyleSheet<'ast>,
+    rule: RuleId<'ast>,
+) -> Option<(Option<RuleId<'ast>>, Option<RuleId<'ast>>)> {
+    let mut previous = None;
+    let mut rules = stylesheet.sibling_rules(rule).ok()?;
+    while let Some((candidate, _)) = rules.next() {
+        if candidate == rule {
+            return Some((previous, rules.next().map(|(next, _)| next)));
+        }
+        previous = Some(candidate);
+    }
+    None
+}
+
+fn are_adjacent_siblings<'ast>(
+    stylesheet: &StyleSheet<'ast>,
+    left: RuleId<'ast>,
+    right: RuleId<'ast>,
+) -> bool {
+    sibling_neighbors(stylesheet, right).is_some_and(|(previous, _)| previous == Some(left))
 }
 
 fn remap_rule_id<'ast>(id: RuleId<'ast>, remaps: &[RadixIdRemap<RuleId<'ast>>]) -> RuleId<'ast> {
@@ -1091,8 +1089,7 @@ fn validate_s1<'ast>(
     let left_rule = stylesheet.rule(left)?;
     let right_rule = stylesheet.rule(right)?;
     if stylesheet.has_nested_rules(left).ok()?
-        || stylesheet.next_sibling(left) != Some(right)
-        || stylesheet.previous_sibling(right) != Some(left)
+        || !are_adjacent_siblings(stylesheet, left, right)
         || !is_style_owner(left_rule.payload())
         || !is_style_owner(right_rule.payload())
     {
@@ -1147,8 +1144,7 @@ fn validate_s3<'ast>(
     let left_rule = stylesheet.rule(left_rule_id)?;
     let right_rule = stylesheet.rule(right_rule_id)?;
     if stylesheet.has_nested_rules(left_rule_id).ok()?
-        || stylesheet.next_sibling(left_rule_id) != Some(right_rule_id)
-        || stylesheet.previous_sibling(right_rule_id) != Some(left_rule_id)
+        || !are_adjacent_siblings(stylesheet, left_rule_id, right_rule_id)
     {
         return None;
     }

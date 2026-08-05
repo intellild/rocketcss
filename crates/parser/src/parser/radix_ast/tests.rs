@@ -358,10 +358,14 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
             .chain([inserted.id, following])
             .collect::<std::vec::Vec<_>>()
     );
-    assert_eq!(stylesheet.next_sibling(outer), Some(inserted.id));
-    assert_eq!(stylesheet.previous_sibling(inserted.id), Some(outer));
-    assert_eq!(stylesheet.next_sibling(inserted.id), Some(following));
-    assert_eq!(stylesheet.previous_sibling(following), Some(inserted.id));
+    assert_eq!(
+        stylesheet
+            .sibling_rules(outer)
+            .unwrap()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [outer, inserted.id, following]
+    );
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 

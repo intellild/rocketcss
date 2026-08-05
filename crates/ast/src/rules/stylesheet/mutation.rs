@@ -1,5 +1,37 @@
 use super::*;
 
+struct DirectRuleNeighbors<R> {
+    previous: Option<RuleId<R>>,
+    next: Option<RuleId<R>>,
+}
+
+impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
+    fn direct_rule_neighbors(
+        &self,
+        id: RuleId<R>,
+    ) -> Result<DirectRuleNeighbors<R>, MutationError<R>> {
+        let record = self
+            .rules
+            .get(id)
+            .ok_or(MutationError::<R>::UnknownRule(id))?;
+        if !record.live {
+            return Err(MutationError::<R>::RetiredRule(id));
+        }
+        let mut previous = None;
+        let mut rules = self.direct_rules(record.parent)?;
+        while let Some((candidate, _)) = rules.next() {
+            if candidate == id {
+                return Ok(DirectRuleNeighbors {
+                    previous,
+                    next: rules.next().map(|(next, _)| next),
+                });
+            }
+            previous = Some(candidate);
+        }
+        Err(MutationError::<R>::InvalidRuleTopology(id))
+    }
+}
+
 impl<R, D: Unpin, K> StyleSheet<'_, R, D, K>
 where
     R: RuleIdReferences<R> + Unpin,
@@ -23,7 +55,7 @@ where
             return Err(MutationError::<R>::RetiredRule(after));
         }
         let parent = after_record.parent;
-        let direct_before = self.next_sibling(after);
+        let direct_before = self.direct_rule_neighbors(after)?.next;
 
         let logical_tail = self
             .subtree_tail(after)
@@ -124,7 +156,7 @@ where
         self.rules
             .get(before_or_at)
             .ok_or(MutationError::<R>::UnknownRule(before_or_at))?;
-        if self.next_sibling(after) != Some(before_or_at) {
+        if self.direct_rule_neighbors(after)?.next != Some(before_or_at) {
             return Err(MutationError::<R>::InvalidRuleTopology(after));
         }
         let tail = self
@@ -433,7 +465,9 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         if self.has_nested_rules(left)? {
             return Err(MutationError::<R>::RuleHasChildren(left));
         }
-        if self.next_sibling(left) != Some(right) || left_rule.parent != right_rule.parent {
+        if self.direct_rule_neighbors(left)?.next != Some(right)
+            || left_rule.parent != right_rule.parent
+        {
             return Err(MutationError::<R>::InvalidRuleTopology(left));
         }
         let mut bridge_blocks = std::vec::Vec::new();
@@ -556,8 +590,7 @@ impl<R: Unpin, D: Unpin, K> StyleSheet<'_, R, D, K> {
         if self.has_nested_rules(id)? {
             return Err(MutationError::<R>::RuleHasChildren(id));
         }
-        let previous = self.previous_sibling(id);
-        let next = self.next_sibling(id);
+        let DirectRuleNeighbors { previous, next } = self.direct_rule_neighbors(id)?;
         let declaration_block = rule.declaration_block;
         if declaration_block.is_some_and(|block| {
             self.declaration_blocks.get(block).is_none_or(|block| {
