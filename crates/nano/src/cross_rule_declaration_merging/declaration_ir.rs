@@ -20,9 +20,9 @@ pub(super) struct DeclarationIrClassifier<'arena, 'ast> {
 }
 
 impl<'arena, 'ast> DeclarationIrClassifier<'arena, 'ast> {
-    pub(super) fn new_in(allocator: &'arena Allocator) -> Self {
+    pub(super) fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
         Self {
-            custom_property_ids: HashMap::new_in(allocator),
+            custom_property_ids: HashMap::with_capacity_in(capacity, allocator),
         }
     }
 
@@ -247,9 +247,9 @@ struct PropertyIndex<'arena> {
 }
 
 impl<'arena> PropertyIndex<'arena> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+    fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
         Self {
-            by_property: HashMap::new_in(allocator),
+            by_property: HashMap::with_capacity_in(capacity, allocator),
         }
     }
 }
@@ -285,7 +285,7 @@ impl<'arena> DeclarationOccurrenceMap<'arena> {
     fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
         Self {
             primary: Vec::with_capacity_in(capacity, allocator),
-            inserted: FxHashMap::default(),
+            inserted: FxHashMap::with_capacity_and_hasher(capacity, Default::default()),
         }
     }
 
@@ -344,7 +344,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
     ) -> Self {
         Self {
             allocator,
-            classifier: DeclarationIrClassifier::new_in(allocator),
+            classifier: DeclarationIrClassifier::with_capacity_in(declaration_capacity, allocator),
             occurrences: DeclarationOccurrenceMap::with_capacity_in(
                 declaration_capacity,
                 allocator,
@@ -360,11 +360,10 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
         block: rocketcss_ast::CssDeclarationBlockId<'ast>,
     ) -> Result<(), rocketcss_ast::StyleSheetMutationError<'ast>> {
         let mut summary = DeclarationBlockIr::default();
-        let mut property_index = PropertyIndex::new_in(self.allocator);
-        for (order, (declaration, record)) in stylesheet
-            .declaration_occurrences_in_block(block)?
-            .enumerate()
-        {
+        let declarations = stylesheet.declaration_occurrences_in_block(block)?;
+        let mut property_index =
+            PropertyIndex::with_capacity_in(declarations.len(), self.allocator);
+        for (order, (declaration, record)) in declarations.enumerate() {
             self.publish_occurrence(
                 declaration,
                 record,
