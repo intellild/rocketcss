@@ -1126,7 +1126,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
     pub fn ids(&self) -> RadixIds<'_, 'arena, T, I> {
         RadixIds {
             arena: self,
-            cursor: DetachedRadixIds::at_start(self),
+            cursor: RadixIdsCursor::Arena(DetachedRadixIds::at_start(self)),
             remaining: self.len,
             expected_last: None,
         }
@@ -1368,14 +1368,10 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         &self,
         range: RadixRange<M>,
     ) -> Option<RadixIds<'_, 'arena, T, RadixId<M>>> {
-        let cursor = if range.is_empty() {
-            DetachedRadixIds::empty()
-        } else {
-            DetachedRadixIds::at_id(self, range.start_id())?
-        };
+        let cursor = DetachedRadixRangeCursor::from_range(self, range)?;
         Some(RadixIds {
             arena: self,
-            cursor,
+            cursor: RadixIdsCursor::Range(cursor),
             remaining: range.len(),
             expected_last: (!range.is_empty()).then(|| range.last_id()),
         })
@@ -1387,13 +1383,8 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         &self,
         range: RadixRange<M>,
     ) -> Option<DetachedRadixRangeIds<RadixId<M>>> {
-        let cursor = if range.is_empty() {
-            DetachedRadixIds::empty()
-        } else {
-            DetachedRadixIds::at_id(self, range.start_id())?
-        };
         Some(DetachedRadixRangeIds {
-            cursor,
+            cursor: DetachedRadixRangeCursor::from_range(self, range)?,
             remaining: range.len(),
             expected_last: (!range.is_empty()).then(|| range.last_id()),
         })
@@ -1422,30 +1413,13 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         range: RadixRange<M>,
         mut visit: impl FnMut(RadixId<M>, &mut T),
     ) -> Option<()> {
-        if range.is_empty() {
-            return Some(());
-        }
-        let mut cursor = DetachedRadixIds::at_id(self, range.start_id())?;
+        let mut cursor = DetachedRadixRangeCursor::from_range(self, range)?;
         for offset in 0..range.len() {
             let id = cursor.advance(self)?;
             if offset + 1 == range.len() {
                 debug_assert_eq!(id, range.last_id());
             }
-            let value = if id.is_primary() || id.is_overflow() {
-                self.primary.get_mut(id.primary_index())?
-            } else {
-                let tree_index = match &cursor.current {
-                    RadixIdSegment::Siblings {
-                        primary_index,
-                        tree_index,
-                        ..
-                    } if *primary_index == id.primary_index() => *tree_index,
-                    _ => return None,
-                };
-                self.sibling_trees
-                    .get_mut(tree_index)?
-                    .get_mut(id.sibling_key())?
-            };
+            let value = self.get_mut(id)?;
             visit(id, value);
         }
         Some(())
@@ -1566,7 +1540,7 @@ pub struct DetachedRadixIds {
 
 /// Detached bounded traversal state for one [`RadixRange`].
 pub struct DetachedRadixRangeIds<I: RadixIdKey> {
-    cursor: DetachedRadixIds,
+    cursor: DetachedRadixRangeCursor,
     remaining: u32,
     expected_last: Option<I>,
 }
@@ -1578,12 +1552,111 @@ impl<I: RadixIdKey> DetachedRadixRangeIds<I> {
         if self.remaining == 0 {
             return None;
         }
-        let id = self.cursor.next(arena)?;
+        let id = self.cursor.advance(arena)?;
         self.remaining -= 1;
         if self.remaining == 0 {
             debug_assert_eq!(Some(id), self.expected_last);
         }
         Some(id)
+    }
+}
+
+/// Range-local cursor initialized directly from a [`RadixRange`]'s known
+/// first ID. Unlike whole-arena detached traversal, it needs neither the
+/// sorted sibling-group sidecar nor a binary search to resume at that ID.
+struct DetachedRadixRangeCursor {
+    current: RadixRangeIdSegment,
+}
+
+enum RadixRangeIdSegment {
+    Primary {
+        next: usize,
+    },
+    Siblings {
+        primary_index: usize,
+        tree_index: usize,
+        cursor: RadixTreeKeyCursor,
+    },
+    Done,
+}
+
+impl DetachedRadixRangeCursor {
+    fn from_range<T: Unpin, M>(
+        arena: &TypedRadixIndexArena<'_, T, RadixId<M>>,
+        range: RadixRange<M>,
+    ) -> Option<Self> {
+        if range.is_empty() {
+            return Some(Self {
+                current: RadixRangeIdSegment::Done,
+            });
+        }
+        Self::at_id(arena, range.start_id())
+    }
+
+    fn at_id<T: Unpin, I: RadixIdKey>(
+        arena: &TypedRadixIndexArena<'_, T, I>,
+        id: I,
+    ) -> Option<Self> {
+        arena.get(id)?;
+        let current = if id.is_primary() {
+            RadixRangeIdSegment::Primary {
+                next: id.primary_index(),
+            }
+        } else {
+            let primary_index = id.primary_index();
+            let tree_index = arena.sibling_group_index(primary_index)?;
+            let cursor = RadixTreeKeyCursor::from_key(
+                arena.sibling_trees.get(tree_index)?,
+                id.sibling_key(),
+            )?;
+            RadixRangeIdSegment::Siblings {
+                primary_index,
+                tree_index,
+                cursor,
+            }
+        };
+        Some(Self { current })
+    }
+
+    #[inline]
+    fn advance<T: Unpin, I: RadixIdKey>(
+        &mut self,
+        arena: &TypedRadixIndexArena<'_, T, I>,
+    ) -> Option<I> {
+        loop {
+            match &mut self.current {
+                RadixRangeIdSegment::Primary { next } => {
+                    let primary_index = *next;
+                    arena.primary.get(primary_index)?;
+                    let id = I::from_primary_index(primary_index);
+                    *next += 1;
+                    if !id.is_overflow()
+                        && let Some(tree_index) = arena.sibling_group_index(primary_index)
+                        && let Some(cursor) =
+                            RadixTreeKeyCursor::at_start(&arena.sibling_trees[tree_index])
+                    {
+                        self.current = RadixRangeIdSegment::Siblings {
+                            primary_index,
+                            tree_index,
+                            cursor,
+                        };
+                    }
+                    return Some(id);
+                }
+                RadixRangeIdSegment::Siblings {
+                    primary_index,
+                    tree_index,
+                    cursor,
+                } => {
+                    if let Some(key) = cursor.next_key(&arena.sibling_trees[*tree_index]) {
+                        return Some(I::from_parts(*primary_index, key));
+                    }
+                    let next = *primary_index + 1;
+                    self.current = RadixRangeIdSegment::Primary { next };
+                }
+                RadixRangeIdSegment::Done => return None,
+            }
+        }
     }
 }
 
@@ -1601,15 +1674,6 @@ enum RadixIdSegment {
 }
 
 impl DetachedRadixIds {
-    #[inline]
-    fn empty() -> Self {
-        Self {
-            next_primary: 0,
-            next_group: 0,
-            current: RadixIdSegment::Done,
-        }
-    }
-
     #[inline]
     fn at_start<T: Unpin, I: RadixIdKey>(arena: &TypedRadixIndexArena<'_, T, I>) -> Self {
         let end = arena
@@ -1833,9 +1897,14 @@ impl RadixTreeKeyCursor {
 /// Iterator over IDs in one arena or [`RadixRange`].
 pub struct RadixIds<'tree, 'arena, T: Unpin, I: RadixIdKey> {
     arena: &'tree TypedRadixIndexArena<'arena, T, I>,
-    cursor: DetachedRadixIds,
+    cursor: RadixIdsCursor,
     remaining: u32,
     expected_last: Option<I>,
+}
+
+enum RadixIdsCursor {
+    Arena(DetachedRadixIds),
+    Range(DetachedRadixRangeCursor),
 }
 
 impl<T: Unpin, I: RadixIdKey> Iterator for RadixIds<'_, '_, T, I> {
@@ -1845,7 +1914,10 @@ impl<T: Unpin, I: RadixIdKey> Iterator for RadixIds<'_, '_, T, I> {
         if self.remaining == 0 {
             return None;
         }
-        let id = self.cursor.advance(self.arena)?;
+        let id = match &mut self.cursor {
+            RadixIdsCursor::Arena(cursor) => cursor.advance(self.arena)?,
+            RadixIdsCursor::Range(cursor) => cursor.advance(self.arena)?,
+        };
         self.remaining -= 1;
         if self.remaining == 0
             && let Some(expected_last) = self.expected_last
@@ -1875,7 +1947,10 @@ impl<T: Unpin, I: RadixIdKey> RadixIds<'_, '_, T, I> {
             return None;
         }
         self.expected_last.take()?;
-        self.cursor.advance(self.arena)
+        match &mut self.cursor {
+            RadixIdsCursor::Arena(cursor) => cursor.advance(self.arena),
+            RadixIdsCursor::Range(cursor) => cursor.advance(self.arena),
+        }
     }
 }
 
@@ -2934,6 +3009,43 @@ mod tests {
             values.iter().copied().collect::<std::vec::Vec<_>>(),
             [11, 21, 31]
         );
+    }
+
+    #[test]
+    fn bounded_range_cursor_resumes_at_a_sibling_and_retains_its_following_id() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(40);
+        let third = values.push_primary(70);
+        let after_first = values.insert_sibling(first, 256, 20);
+        let later_after_first = values.insert_sibling(first, 768, 30);
+        let after_second = values.insert_sibling(second, 512, 50);
+        let range = RadixRange::new(after_first, second, 3);
+
+        let mut ids = values.ids_in_range(range).unwrap();
+        assert_eq!(
+            ids.by_ref().collect::<std::vec::Vec<_>>(),
+            [after_first, later_after_first, second]
+        );
+        assert_eq!(ids.following(), Some(after_second));
+        assert_eq!(ids.following(), None);
+
+        let mut detached = values.detached_ids_in_range(range).unwrap();
+        assert_eq!(detached.next(&values), Some(after_first));
+        assert_eq!(detached.next(&values), Some(later_after_first));
+        assert_eq!(detached.next(&values), Some(second));
+        assert_eq!(detached.next(&values), None);
+
+        let mutable_range = RadixRange::new(after_first, after_second, 4);
+        values
+            .for_each_in_range_mut(mutable_range, |_, value| *value += 1)
+            .unwrap();
+        assert_eq!(
+            values.iter().copied().collect::<std::vec::Vec<_>>(),
+            [10, 21, 31, 41, 51, 70]
+        );
+        assert_eq!(third.primary_index(), 2);
     }
 
     #[test]
