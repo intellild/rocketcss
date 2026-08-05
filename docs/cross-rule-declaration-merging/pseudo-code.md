@@ -6,8 +6,8 @@
 - [S1: same-selector coalescing](./s1-same-selector-coalescing.md)
 - [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md)
 - [S3: selector partial factoring](./s3-selector-partial-factoring.md)
-- [S4: AST reification planning](./s4-ast-reification-planning.md)
-- [S5: AST reification commit](./s5-ast-reification-commit.md)
+- [S4: lossless representation planning](./s4-ast-reification-planning.md)
+- [S5: terminal commit and cleanup](./s5-ast-reification-commit.md)
 - [Non-goals](./non-goal.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
@@ -16,7 +16,7 @@
 This file shows control flow only. State ownership and transition requirements
 are normative in [Detailed state machine](./detailed-state-machine.md).
 
-## Physical flat-IR binding
+## Physical Radix-AST binding
 
 The semantic algorithms below use named structures for clarity. Their target
 physical input is produced without a recursive declaration-block discovery
@@ -37,10 +37,14 @@ fn finish_declaration_run(
         history_segment: compilation.current_history_segment(),
     });
 
-    compilation.declaration_blocks.push(DeclarationBlockHeader {
-        offset: start.index(),
-        len: compilation.declarations.next_id().index() - start.index(),
+    compilation.declaration_blocks.push_primary(DeclarationBlock {
+        owner: compilation.current_declaration_owner(),
+        declarations: DeclarationList::Range(DeclarationRange {
+            offset: start.index(),
+            len: compilation.declarations.next_id().index() - start.index(),
+        }),
         effective_key: key,
+        revision: 0,
         flags: DeclarationBlockFlags::empty(),
     })
 }
@@ -48,9 +52,10 @@ fn finish_declaration_run(
 
 The parser appends every property before parsing the following nested node, so
 declaration IDs reflect lexical order. Selector-local normalization recomputes
-the key when it replaces a selector value. Syntax topology supplies direct
-sibling and subtree relationships; the target scanner does not need
-`walk_declaration_blocks`.
+the AST-owned key when it replaces a selector value. Syntax topology supplies
+direct sibling and subtree relationships. Nano iterates the block store and
+does not need `walk_declaration_blocks`, `DeclarationBlockEntry`, or a separate
+semantic-order key.
 
 ## Typed context keys
 
@@ -423,7 +428,7 @@ fn commit_s1(edge: Edge, state: &mut MergeState) {
 }
 ```
 
-History occurrences and their semantic source-order keys are preserved.
+History occurrences and their AST occurrence IDs are preserved.
 
 ## Declaration resolver
 
@@ -468,10 +473,11 @@ fn apply_effect_edit(
 }
 ```
 
-`apply_effect_edit` changes semantic liveness only. Typed effects, authored
-origins, owning sequences, and semantic source positions remain available so
-S4 can choose a representation. The authored declaration AST remains intact
-until S5.
+`apply_effect_edit` changes semantic liveness. Typed effects, authored origins,
+owning sequences, and AST IDs remain available so S4 can choose a
+representation. Exact removable declarations may be tombstoned locally;
+partially live or format-sensitive declarations remain intact until their
+deferred representation is committed.
 
 ## S2 local fixed point
 
@@ -592,16 +598,15 @@ fn commit_partial_merge(
     remove_old_incident_work(old, state);
     apply_endpoint_effect_plans(&candidate.plan, state);
 
-    let shared = create_logical_synthesized_style_rule(
+    let shared = insert_synthesized_style_rule_in_radix_ast(
         candidate.edge,
         local_selectors,
         effective,
         candidate.plan.common,
-        candidate.plan.insertion_order,
         state,
     );
 
-    insert_synthesized_history_entry_by_source_order(shared, state);
+    insert_synthesized_history_entry_by_block_id(shared, state);
     recompute_endpoint_liveness(candidate.edge, state);
     reconnect_final_neighborhood_once(old, shared, state);
 
@@ -612,8 +617,8 @@ fn commit_partial_merge(
 
 The concrete implementation prepares every fallible selector operation before
 applying endpoint effect edits. A transactional implementation is also valid if
-abort cannot leave partial semantic mutation. The synthesized rule is inserted
-into the AST only during S5.
+abort cannot leave partial mutation. The synthesized rule receives its final
+local Radix position during this commit; S5 does not recover its order later.
 
 ## Logical empty transition
 
@@ -711,7 +716,7 @@ fn stabilize(state: &mut MergeState) {
 }
 ```
 
-## S4 logical cleanup and AST reification planning
+## S4 logical cleanup and representation planning
 
 ```rust,ignore
 fn plan_s4_work_item(
@@ -732,18 +737,18 @@ fn plan_s4_work_item(
 }
 ```
 
-## S5 AST reification commit
+## S5 terminal commit and cleanup
 
 ```rust,ignore
-fn reify_ast(state: &mut MergeState) {
+fn finish_ast_commit(state: &mut MergeState) {
     assert_semantic_fixed_point(state);
     assert_ast_plan_complete(state);
 
     apply_planned_declarations_and_importance(state);
-    apply_planned_synthesized_rules(state);
-    apply_planned_removals_and_compact_rule_lists(state);
+    finish_planned_removals(state);
+    optionally_compact_tombstones(state);
     clear_merge_only_storage_and_revisions(state);
-    state.reified = true;
+    state.committed = true;
 }
 ```
 
@@ -751,18 +756,19 @@ The minify-stage entry point sequences the semantic pass and AST commit:
 
 ```rust,ignore
 fn run_cross_rule_merge(stylesheet: &mut Stylesheet) {
-    let mut state = discover_merge_state(stylesheet);
+    let mut state = initialize_sidecars_from_radix_ast(stylesheet);
     stabilize(&mut state);
-    reify_ast(&mut state);
+    finish_ast_commit(&mut state);
     assert!(is_minify_complete(&state));
 }
 ```
 
 S4 may plan an authored shorthand plus later overrides, typed longhands for
 partially live virtual effects, or another proven equivalent representation.
-S5 makes no new semantic or profitability decision: it writes that plan into
-the final stylesheet AST. Code generation is a later, independent consumer of
-that AST.
+S5 makes no new semantic or profitability decision. It finishes any deferred
+representation and drops pass-local state; S1-S3 structural insertions already
+occupy their final Radix positions. Code generation is a later, independent
+consumer of that AST.
 
 ## Completion invariant
 
@@ -782,6 +788,6 @@ fn is_semantically_complete(state: &MergeState) -> bool {
 fn is_minify_complete(state: &MergeState) -> bool {
     is_semantically_complete(state)
         && state.ast_plan.is_complete()
-        && state.reified
+        && state.committed
 }
 ```

@@ -1,7 +1,25 @@
-use rocketcss_ast::FontFamily;
+use rocketcss_ast::{AbsoluteFontWeight, FontFamily, FontWeight};
 use rocketcss_common::vec::Vec;
 
 use crate::{Minify, MinifyContext, Options, OptionsOp};
+
+impl Minify for FontWeight {
+    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
+    where
+        Self: 'cx,
+    {
+        if !cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
+            return;
+        }
+        let weight = match self {
+            Self::Absolute(AbsoluteFontWeight::Normal) => 400.0,
+            Self::Absolute(AbsoluteFontWeight::Bold) => 700.0,
+            _ => return,
+        };
+        *self = Self::Absolute(AbsoluteFontWeight::Weight(weight));
+        cx.record_value_normalized();
+    }
+}
 
 impl<'a> Minify for Vec<'a, FontFamily<'a>> {
     fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)

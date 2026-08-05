@@ -1,179 +1,189 @@
 # Storage layout
 
-## Compilation-owned stores
+## Compiler ownership
 
-`Compiler` owns the source, source map, atom pool, and the stores that form one
-parsed compilation. It is constructed without an allocator argument.
-`StyleSheet` is a root ID plus stylesheet metadata; it does not own a recursive
-object graph.
+`Compiler` owns one compilation's source, source map, atom pool, arena, AST
+stores, and semantic interners. There are exactly three node stores, one
+`RadixIndexArena` per node kind:
 
 ```rust,ignore
-struct Compilation {
-    syntax: DenseStore<SyntaxNode, RuleId>,
-    style_rules: DenseStore<StyleRuleData, StyleRuleId>,
-    media_rules: DenseStore<MediaRuleData, MediaRuleId>,
-    selectors: DenseStore<SelectorData, SelectorId>,
-    declaration_blocks: DenseStore<DeclarationBlockHeader, DeclarationBlockId>,
-    declarations: DenseStore<DeclarationSlot, DeclarationId>,
+struct Compilation<'ast> {
+    allocator: Allocator,
+    string_pool: StringPool<'ast>,
+
+    rules: RadixIndexArena<CssRule<'ast>>,
+    declaration_blocks: RadixIndexArena<DeclarationBlock<'ast>>,
+    declarations: RadixIndexArena<DeclarationProperty<'ast>>,
+
+    selector_values: SelectorValueInterner,
+    context_paths: ContextPathInterner,
     effective_keys: EffectiveKeyInterner,
+}
+```
+
+Every rule, declaration block, and declaration property is a node in the
+corresponding arena with a stable four-byte typed ID. A "list" is never a
+separate collection of pointers: it is a range reference into one arena. The
+arena is the sequence; the range is a two-word window descriptor.
+
+## Lists are range references
+
+`Vec<CssRule>` and `Vec<Declaration>` do not exist as physical containers.
+Both the root rule list and every nested rule list are one range over the
+rules arena:
+
+```rust,ignore
+struct RuleRange {
+    start: RuleId,
+    len: u32,
 }
 
 struct StyleSheet {
-    first_rule: Option<RuleId>,
-    rule_count: u32,
+    root_rules: RuleRange,
 }
 ```
 
-`SyntaxNode` should remain compact. A tagged `RuleId` plus per-rule-kind payload
-stores avoids making every rule slot as large as the largest inline enum
-variant. The exact tag encoding is an implementation and benchmark decision.
-
-## Flat tree topology
-
-Preorder alone cannot answer direct-sibling queries because descendants are
-interleaved. Each rule therefore stores enough topology to skip a subtree and
-follow its owning list:
+A rule owns its direct children as an inline range; no separate rule-list
+store is required:
 
 ```rust,ignore
-struct SyntaxNode {
+struct CssRule<'ast> {
+    payload: CssRulePayload<'ast>,
     parent: Option<RuleId>,
-    next_sibling: Option<RuleId>,
-    subtree_end: RuleId,
-    payload: RulePayloadId,
-    flags: SyntaxNodeFlags,
+    children: Option<RuleRange>,
+    declaration_block: Option<DeclarationBlockId>,
+    revision: u32,
+    live: bool,
 }
 ```
 
-`subtree_end` is the first ID after the subtree. Direct children are found from
-the parent's first child and `next_sibling`; a complete subtree remains a dense
-preorder interval. Equivalent encodings are acceptable if these operations
-remain constant-time and do not require a recursive walk.
-
-The flat topology replaces `rocketcss_common::boxed::Box`, boxed rule payloads,
-and address-based identity. Visitors receive IDs plus a `Compilation`/store
-view. Structural mutable visitors emit rewrite operations instead of retaining
-mutable references while stores grow.
-
-## Source-order allocation invariant
-
-For every authored token belonging to an AST entity, the corresponding slot is
-allocated when the parser reaches that entity. In particular, declaration IDs
-must increase in lexical property order across the entire stylesheet.
-
-```css
-a {
-  x: 1;
-}
-a {
-  y: 1;
-  & b {
-    z: 1;
-  }
-}
-```
-
-The declaration tape must be `x, y, z`. Allocating the parent declaration block
-only after recursively parsing its children would produce `x, z, y`; that is
-forbidden even if serialization could later hide the difference.
-
-An empty leading declaration run captures its cursor before a nested child:
-
-```css
-a {
-  x: 1;
-}
-a {
-  & b {
-    z: 1;
-  }
-  w: 1;
-}
-```
-
-The second `a` has an empty leading block at the position before `z`; `w`
-belongs to a later `NestedDeclarationsRule` block. No range extension may
-mistake `z` for part of either `a` declaration sequence.
-
-This invariant is enforced by parser-level tests that inspect IDs and ranges,
-not inferred from generated CSS. The implementation plan defines the complete
-test matrix.
-
-## Declaration tape and block headers
+A declaration block references its ordered declarations as one range over the
+declaration-property arena:
 
 ```rust,ignore
-struct DeclarationBlockHeader {
-    offset: u32,
+struct DeclarationRange {
+    start: DeclarationPropertyId,
     len: u32,
-    effective_key: EffectiveKeyId,
-    flags: DeclarationBlockFlags,
 }
 
-struct DeclarationSlot {
-    value: Declaration,
-    source: SourceLocationId,
+struct DeclarationBlock<'ast> {
+    owner: RuleId,
+    declarations: DeclarationRange,
+    effective_key: EffectiveKeyId,
+    revision: u32,
+    live: bool,
 }
 ```
 
-A block initially owns the half-open interval
-`offset..offset + len`. Importance and tombstones should be packed into
-sidecars or compact flags so adding one boolean does not inflate every aligned
-`Declaration` value.
+A range is a window in the arena's semantic ID order: iterate from `start`
+forward, taking `len` live nodes. `RadixIndexId` numeric order equals semantic
+order (primary node, then its locally inserted siblings, then the next primary),
+so the window is a real slice in ID order even after rare local insertions.
 
-A block header has exactly one semantic owner. If shared declaration storage is
-ever required, model the owner edge explicitly:
+There is no `first`/`last`/`previous_sibling`/`next_sibling` topology, no
+`previous_in_source`/`next_in_source` chain, and no per-rule child-list
+indirection. Direct CSS sibling adjacency of a list is exactly arena adjacency
+inside that list's range. Linked lists existed only to paper over noncontiguous
+allocation; the allocation invariants below make them unnecessary.
+
+## Allocation invariants
+
+### Rules allocate level by level
+
+Depth-first parsing would interleave a nested rule's descendants between its
+parent's direct children, so no single list would be contiguous. Instead the
+rules arena is filled in per-list order:
+
+1. append every direct child of the current list contiguously; then
+2. queue each appended rule's body; and
+3. process the queue so the next level's rules (the children of the rules just
+   appended) become the next contiguous region.
+
+Equivalently, the rules arena stores the CSS rule tree in breadth-first order.
+Each rule's `children` range is a contiguous primary slice:
+
+```text
+level 0  a    media   c              root_rules = (a, 3)
+level 1  b  b1   d                   a.children = (b, 2)   media.children = (d, 1)
+level 2  e                           b1.children = (e, 1)
+```
+
+Arena order is `[a, media, c, b, b1, d, e]`; every range is a contiguous window.
+
+Code generation, visitor walks, and minify traversal read the tree by
+recursively following `children` ranges, so source order is preserved even
+though the arena is not in lexical preorder. The global arena order is
+deterministic; it is simply not a source-order scan.
+
+The parser's nested-body queue replaces immediate `parse_nested_block`
+recursion while still reading the source once.
+
+### Declaration ranges never interleave
+
+A block's declarations are appended contiguously in source order. Nested rules
+close the current declaration run before their own declarations are parsed, and
+post-nesting declarations of the parent go to a distinct
+`NestedDeclarationsRule` block. No block's range ever absorbs a descendant's
+properties, so the declaration-property arena needs no level ordering: its
+primary order is lexical source order and every block range is a contiguous
+slice.
+
+## Iteration
+
+Range iteration is store-native:
 
 ```rust,ignore
-struct DeclarationOccurrence {
-    block: DeclarationBlockId,
-    effective_key: EffectiveKeyId,
+for rule_id in compilation.rules.window(root_rules) {
+    consume(rule_id);
 }
 ```
 
-Do not make a freely copyable block ID imply that one physical header can carry
-different contexts.
+`window(range)` walks the arena's semantic iterator from `start` and takes
+`len` live nodes, skipping tombstones. When no local insertion exists, the walk
+is a plain primary slice. There is no recursive AST walk that rebuilds a
+transient flat vector.
 
-Two block ranges can be coalesced in place only when:
+## Mutation
 
-1. their semantic order equals their physical order;
-2. the left range ends at or before the right range begins; and
-3. every slot in a nonempty gap is already a tombstone owned by retired output.
+### Insertion
 
-Only exactly adjacent ranges allow the trivial `len += other.len` operation.
-Otherwise the logical declaration sequence retains multiple ranges until S5
-reification builds a compact tape. Live foreign declarations must never be
-absorbed into a merged range.
+A synthesized rule or block is inserted at its final semantic position with the
+arena's local sibling mechanism (`insert_between`/`insert_sibling`). The new
+node's ID sorts into the owning range; the range's `len` increments. No primary
+node moves, no later ID changes, and no list bookkeeping beyond the range
+update is needed.
 
-## Selectors and values
+### Retirement
 
-Selector names continue to use compiler-scoped `Atom` values. Complete
-selector values may be hash-consed to a canonical `SelectorValueId`, with exact
-equality after hash-bucket selection. Occurrence IDs and canonical value IDs
-are distinct: two authored `a` selectors have two occurrence locations but may
-share one value identity.
+Retiring a rule or block keeps its ID as a tombstone and decrements the owning
+range's `len`. Window iteration skips tombstones. `start` need not move: it
+names the first member's stable ID, and iteration filters non-live nodes.
 
-Flattening each small selector component into a separately indexed store can
-cost more indirection than it saves. The default candidate is a flat selector
-component tape whose selector headers store `(offset, len)`. Compare that
-against per-component IDs using representative parse, minify, and codegen
-benchmarks before fixing the public layout.
+Because direct siblings are arena-adjacent, finding the real neighbors for an
+insertion is a short tombstone-skipping scan of the range, not a walk over a
+`previous_in_source` chain.
 
-## Removing `Box` and the AST allocator
+## Effective keys
 
-The target AST has no stable-address requirement:
+Effective keys are unchanged by this layout and remain AST data owned by the
+block. See [Effective keys](./effective-key.md).
 
-- stores own values directly;
-- relationships use typed IDs;
-- store growth may relocate memory without invalidating IDs; and
-- reification builds new stores rather than mutating an address-linked tree.
+## Code generation
 
-Consequently, `rocketcss_common::boxed::Box` and
-`rocketcss_common::Allocator` become dead infrastructure once their last node
-type migrates. The migration removes them from parser constructors, AST types,
-visitors, minifiers, codegen, and `Compiler::new`; it must not retain a
-compatibility allocation layer.
+Codegen starts from `StyleSheet.root_rules`, follows each `children` range
+recursively, and reads values from the Radix stores. Primary-only ranges use
+contiguous traversal; ranges that received a local insertion merge primary
+segments with sibling Radix segments.
 
-`StringPool` changes from allocator-backed storage to an owned compiler store.
-Its internal backing allocation is not AST ownership and must not expose AST
-addresses. A future analysis may introduce an independent scratch facility only
-when a benchmark justifies it; such a facility is outside the AST API and does
-not preserve the existing allocator.
+## Required invariants
+
+- There are exactly three node arenas; no other node collection exists.
+- Every live rule and every live declaration block belongs to exactly one range.
+- A rule's direct children are one contiguous semantic window (level-order
+  allocation).
+- A block's declarations are one contiguous semantic window (never interleaved).
+- `RuleRange.start` names a stable ID; iteration counts live nodes only.
+- Sibling insertion sorts into its range without moving primaries.
+- Retirement leaves a tombstone and decrements its range's `len`.
+- Direct sibling adjacency equals arena adjacency within one range.
+- No arena pointer is used as semantic equality or persistent identity.

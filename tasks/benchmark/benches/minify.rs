@@ -30,6 +30,41 @@ impl std::fmt::Display for CrossRuleIrCase {
     }
 }
 
+const EXHAUSTED_S3_ENDPOINT_CHAIN: &str = concat!(
+    ".r00{opacity:.5}",
+    ".r01{opacity:.5}",
+    ".r02{opacity:.5}",
+    ".r03{opacity:.5}",
+    ".r04{opacity:.5}",
+    ".r05{opacity:.5}",
+    ".r06{opacity:.5}",
+    ".r07{opacity:.5}",
+    ".r08{opacity:.5}",
+    ".r09{opacity:.5}",
+    ".r10{opacity:.5}",
+    ".r11{opacity:.5}",
+    ".r12{opacity:.5}",
+    ".r13{opacity:.5}",
+    ".r14{opacity:.5}",
+    ".r15{opacity:.5}",
+    ".r16{opacity:.5}",
+    ".r17{opacity:.5}",
+    ".r18{opacity:.5}",
+    ".r19{opacity:.5}",
+    ".r20{opacity:.5}",
+    ".r21{opacity:.5}",
+    ".r22{opacity:.5}",
+    ".r23{opacity:.5}",
+    ".r24{opacity:.5}",
+    ".r25{opacity:.5}",
+    ".r26{opacity:.5}",
+    ".r27{opacity:.5}",
+    ".r28{opacity:.5}",
+    ".r29{opacity:.5}",
+    ".r30{opacity:.5}",
+    ".r31{opacity:.5}",
+);
+
 const CROSS_RULE_IR_CASES: &[CrossRuleIrCase] = &[
     CrossRuleIrCase {
         name: "small_block",
@@ -48,8 +83,8 @@ const CROSS_RULE_IR_CASES: &[CrossRuleIrCase] = &[
         source: "a{color:red}b{width:1px}c{height:2px}d{opacity:.5}e{display:block}f{visibility:hidden}",
     },
     CrossRuleIrCase {
-        name: "shared_s3_block",
-        source: "a{opacity:.5}b{opacity:.5}c{opacity:.5}d{opacity:.5}e{opacity:.5}f{opacity:.5}g{opacity:.5}h{opacity:.5}",
+        name: "exhausted_s3_endpoint_chain",
+        source: EXHAUSTED_S3_ENDPOINT_CHAIN,
     },
     CrossRuleIrCase {
         name: "allocated_s3_block",

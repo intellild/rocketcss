@@ -1,22 +1,24 @@
 use super::{
-    properties::parse_declaration,
     selector::parse_selector_list,
-    stylesheet::{check_depth, recover_declaration, span_from},
+    stylesheet::{check_depth, recover_declaration},
     values::{
         collect_tokens, matches_ignore_case, remove_important, single_token, token_ident,
         trim_leading_whitespace,
     },
 };
 use crate::prelude::*;
+use rocketcss_ast::radix_ast::PropertyRuleDescriptor;
 
-pub(super) fn parse_font_face_contents<'i>(
+pub(super) fn parse_font_face_contents_into<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, rocketcss_ast::FontFaceProperty<'i>>, ParseError<'i, ParserError<'i>>> {
+    mut push: impl FnMut(
+        rocketcss_ast::FontFaceProperty<'i>,
+    ) -> Result<(), ParseError<'i, ParserError<'i>>>,
+) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut properties = allocator.vec();
     loop {
         let token = match input.next() {
             Ok(token) => token.clone(),
@@ -57,12 +59,12 @@ pub(super) fn parse_font_face_contents<'i>(
         };
 
         match result {
-            Ok(property) => properties.push(property),
+            Ok(property) => push(property)?,
             Err(_) if options.error_recovery => recover_declaration(input),
             Err(error) => return Err(error),
         }
     }
-    Ok(properties)
+    Ok(())
 }
 
 fn parse_unicode_ranges<'i>(
@@ -229,43 +231,6 @@ pub(super) fn parse_keyframes_name<'i>(
     Ok(name)
 }
 
-pub(super) fn parse_keyframe_list<'i>(
-    input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
-    options: &ParserOptions<'i>,
-    depth: usize,
-) -> Result<Vec<'i, Keyframe<'i>>, ParseError<'i, ParserError<'i>>> {
-    check_depth(input, depth)?;
-    let mut keyframes = allocator.vec();
-    loop {
-        input.skip_whitespace();
-        if input.is_exhausted() {
-            break;
-        }
-        let parsed = input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
-            input.parse_comma_separated(parse_keyframe_selector)
-        });
-        input.expect_curly_bracket_block()?;
-        if parsed.is_err() {
-            input.parse_nested_block(|input| {
-                while input.next_including_whitespace_and_comments().is_ok() {}
-                Ok::<_, ParseError<'i, ParserError<'i>>>(())
-            })?;
-            continue;
-        }
-        let mut selectors = allocator.vec();
-        selectors.extend(parsed?);
-        let declarations = input.parse_nested_block(|input| {
-            parse_declaration_block(input, allocator, options, depth + 1)
-        })?;
-        keyframes.push(Keyframe {
-            declarations: input.alloc_declaration_block(declarations),
-            selectors,
-        });
-    }
-    Ok(keyframes)
-}
-
 pub(super) fn parse_keyframe_selector<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<KeyframeSelector, ParseError<'i, ParserError<'i>>> {
@@ -293,49 +258,6 @@ pub(super) fn parse_keyframe_selector<'i>(
         }
         _ => Err(input.new_custom_error(ParserError::InvalidValue)),
     }
-}
-
-pub(super) fn parse_declaration_block<'i>(
-    input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
-    options: &ParserOptions<'i>,
-    depth: usize,
-) -> Result<DeclarationBlock<'i>, ParseError<'i, ParserError<'i>>> {
-    check_depth(input, depth)?;
-    let mut declarations = DeclarationBlock::new(allocator);
-
-    loop {
-        let start = input.state();
-        let token = match input.next() {
-            Ok(token) => token.clone(),
-            Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
-            Err(error) => return Err(error.into()),
-        };
-        if matches!(token, ValueToken::Semicolon) {
-            continue;
-        }
-
-        let result = match token {
-            ValueToken::Ident(name) => {
-                input.expect_colon()?;
-                parse_declaration(input, allocator, name, depth)
-            }
-            _ => Err(input.new_custom_error(ParserError::InvalidDeclaration)),
-        };
-
-        match result {
-            Ok((declaration, important)) => {
-                declarations.push(declaration, important);
-            }
-            Err(_) if options.error_recovery => {
-                input.reset(&start);
-                recover_declaration(input);
-            }
-            Err(error) => return Err(error),
-        }
-    }
-
-    Ok(declarations)
 }
 
 pub(super) fn at_rule_vendor_prefix(name: &str) -> VendorPrefix {
@@ -392,6 +314,7 @@ pub(super) fn parse_container_prelude<'i>(
 ) -> Result<ContainerPrelude<'i>, ParseError<'i, ParserError<'i>>> {
     let mut parser = Compiler::new_with_source(prelude, allocator);
     let name = parser.try_parse(Compiler::expect_ident).ok();
+    parser.skip_whitespace();
     let condition = if parser.is_exhausted() {
         None
     } else {
@@ -484,65 +407,6 @@ pub(super) fn parse_page_selectors<'i>(
     Ok(selectors)
 }
 
-pub(super) fn parse_page_body<'i>(
-    input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
-    options: &ParserOptions<'i>,
-    depth: usize,
-) -> Result<(DeclarationBlock<'i>, Vec<'i, PageMarginRule>), ParseError<'i, ParserError<'i>>> {
-    let mut declarations = DeclarationBlock::new(allocator);
-    let mut rules = allocator.vec();
-
-    loop {
-        let start = input.state();
-        let token = match input.next() {
-            Ok(token) => token.clone(),
-            Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
-            Err(error) => return Err(error.into()),
-        };
-        if matches!(token, ValueToken::Semicolon) {
-            continue;
-        }
-
-        let result = match token {
-            ValueToken::Ident(name) => {
-                input.expect_colon()?;
-                let (declaration, important) =
-                    parse_declaration(input, allocator, name, depth + 1)?;
-                declarations.push(declaration, important);
-                Ok(None)
-            }
-            ValueToken::AtKeyword(name) => {
-                let margin_box = page_margin_box(name)
-                    .ok_or_else(|| input.new_custom_error(ParserError::InvalidAtRule(name)))?;
-                input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
-                    input.expect_exhausted()?;
-                    Ok::<_, ParseError<'i, ParserError<'i>>>(())
-                })?;
-                input.expect_curly_bracket_block()?;
-                let declarations = input.parse_nested_block(|input| {
-                    parse_declaration_block(input, allocator, options, depth + 1)
-                })?;
-                Ok(Some(PageMarginRule {
-                    declarations: input.alloc_declaration_block(declarations),
-                    span: span_from(&start, input.position()),
-                    margin_box,
-                }))
-            }
-            _ => Err(input.new_custom_error(ParserError::InvalidDeclaration)),
-        };
-
-        match result {
-            Ok(Some(rule)) => rules.push(rule),
-            Ok(None) => {}
-            Err(_) if options.error_recovery => recover_declaration(input),
-            Err(error) => return Err(error),
-        }
-    }
-
-    Ok((declarations, rules))
-}
-
 pub(super) fn parse_family_names<'i>(
     source: &'i str,
     allocator: &'i Allocator,
@@ -570,49 +434,14 @@ pub(super) fn parse_family_names<'i>(
     Ok(names)
 }
 
-pub(super) fn parse_font_feature_subrules<'i>(
+pub(super) fn parse_font_feature_declarations_into<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, FontFeatureSubrule<'i>>, ParseError<'i, ParserError<'i>>> {
+    mut push: impl FnMut(FontFeatureDeclaration<'i>) -> Result<(), ParseError<'i, ParserError<'i>>>,
+) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut rules = allocator.vec();
-    loop {
-        let start = input.state();
-        let name = match input.next() {
-            Ok(ValueToken::AtKeyword(name)) => *name,
-            Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
-            Ok(_) => return Err(input.new_custom_error(ParserError::InvalidRule)),
-            Err(error) => return Err(error.into()),
-        };
-        let kind = font_feature_subrule_type(name)
-            .ok_or_else(|| input.new_custom_error(ParserError::InvalidAtRule(name)))?;
-        input.parse_until_before(Delimiter::CurlyBracketBlock, |input| {
-            input.expect_exhausted()?;
-            Ok::<_, ParseError<'i, ParserError<'i>>>(())
-        })?;
-        input.expect_curly_bracket_block()?;
-        let declarations = input.parse_nested_block(|input| {
-            parse_font_feature_declarations(input, allocator, options, depth + 1)
-        })?;
-        rules.push(FontFeatureSubrule {
-            declarations,
-            span: span_from(&start, input.position()),
-            name: kind,
-        });
-    }
-    Ok(rules)
-}
-
-pub(super) fn parse_font_feature_declarations<'i>(
-    input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
-    options: &ParserOptions<'i>,
-    depth: usize,
-) -> Result<Vec<'i, FontFeatureDeclaration<'i>>, ParseError<'i, ParserError<'i>>> {
-    check_depth(input, depth)?;
-    let mut declarations = allocator.vec();
     loop {
         let name = match input.next() {
             Ok(ValueToken::Semicolon) => continue,
@@ -637,12 +466,12 @@ pub(super) fn parse_font_feature_declarations<'i>(
             Ok::<_, ParseError<'i, ParserError<'i>>>(FontFeatureDeclaration { name, values })
         })();
         match result {
-            Ok(declaration) => declarations.push(declaration),
+            Ok(declaration) => push(declaration)?,
             Err(_) if options.error_recovery => recover_declaration(input),
             Err(error) => return Err(error),
         }
     }
-    Ok(declarations)
+    Ok(())
 }
 
 pub(super) fn font_feature_subrule_type(name: &str) -> Option<FontFeatureSubruleType> {
@@ -659,14 +488,14 @@ pub(super) fn font_feature_subrule_type(name: &str) -> Option<FontFeatureSubrule
     )
 }
 
-pub(super) fn parse_font_palette_contents<'i>(
+pub(super) fn parse_font_palette_contents_into<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, FontPaletteValuesProperty<'i>>, ParseError<'i, ParserError<'i>>> {
+    mut push: impl FnMut(FontPaletteValuesProperty<'i>) -> Result<(), ParseError<'i, ParserError<'i>>>,
+) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut properties = allocator.vec();
     loop {
         let token = match input.next() {
             Ok(token) => token.clone(),
@@ -697,25 +526,26 @@ pub(super) fn parse_font_palette_contents<'i>(
             _ => Err(input.new_custom_error(ParserError::InvalidDeclaration)),
         };
         match result {
-            Ok(property) => properties.push(property),
+            Ok(property) => push(property)?,
             Err(_) if options.error_recovery => recover_declaration(input),
             Err(error) => return Err(error),
         }
     }
-    Ok(properties)
+    Ok(())
 }
 
-pub(super) fn parse_property_rule<'i>(
+pub(super) fn parse_property_rule_descriptors_into<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-    name: &'i str,
-) -> Result<PropertyRule<'i>, ParseError<'i, ParserError<'i>>> {
+    mut push: impl FnMut(PropertyRuleDescriptor<'i>),
+) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut syntax = None;
-    let mut inherits = None;
-    let mut initial_value = None;
+    let mut has_syntax = false;
+    let mut syntax_is_universal = false;
+    let mut has_inherits = false;
+    let mut has_initial_value = false;
 
     loop {
         let descriptor = match input.next() {
@@ -736,24 +566,38 @@ pub(super) fn parse_property_rule<'i>(
             }
             trim_leading_whitespace(&mut value);
 
-            if descriptor.eq_ignore_ascii_case("syntax") {
+            let parsed = if descriptor.eq_ignore_ascii_case("syntax") {
                 let Some(ValueToken::String(value)) = single_token(&value) else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 };
-                syntax = Some(parse_syntax_string(value, allocator)?);
+                let syntax = parse_syntax_string(value, allocator)?;
+                syntax_is_universal = matches!(syntax, SyntaxString::Universal);
+                has_syntax = true;
+                PropertyRuleDescriptor::Syntax(allocator.boxed(syntax))
             } else if descriptor.eq_ignore_ascii_case("inherits") {
                 let Some(value) = value.first().and_then(token_ident) else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 };
-                inherits = Some(match_ignore_ascii_case!(
+                let inherits = match_ignore_ascii_case!(
                     value,
                     "true" => true,
                     "false" => false,
                     _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
-                ));
+                );
+                has_inherits = true;
+                PropertyRuleDescriptor::Inherits(inherits)
             } else if descriptor.eq_ignore_ascii_case("initial-value") {
-                initial_value = Some(allocator.boxed(ParsedComponent::TokenList(value)));
-            }
+                has_initial_value = true;
+                PropertyRuleDescriptor::InitialValue(
+                    allocator.boxed(ParsedComponent::TokenList(value)),
+                )
+            } else {
+                PropertyRuleDescriptor::Unknown(allocator.boxed(CustomProperty {
+                    name: allocator.boxed(CustomPropertyName::Unknown(descriptor)),
+                    value,
+                }))
+            };
+            push(parsed);
             Ok::<_, ParseError<'i, ParserError<'i>>>(())
         })();
         if let Err(error) = result {
@@ -765,19 +609,10 @@ pub(super) fn parse_property_rule<'i>(
         }
     }
 
-    let syntax = syntax.ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
-    let is_universal = matches!(syntax, SyntaxString::Universal);
-    let inherits = inherits.ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
-    if !is_universal && initial_value.is_none() {
+    if !has_syntax || !has_inherits || (!syntax_is_universal && !has_initial_value) {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
-    Ok(PropertyRule {
-        inherits,
-        initial_value,
-        span: Span::default(),
-        name,
-        syntax: allocator.boxed(syntax),
-    })
+    Ok(())
 }
 
 pub(super) fn parse_syntax_string<'i>(
@@ -837,14 +672,14 @@ pub(super) fn parse_syntax_string<'i>(
     Ok(SyntaxString::Components(components))
 }
 
-pub(super) fn parse_view_transition_contents<'i>(
+pub(super) fn parse_view_transition_contents_into<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<Vec<'i, ViewTransitionProperty<'i>>, ParseError<'i, ParserError<'i>>> {
+    mut push: impl FnMut(ViewTransitionProperty<'i>) -> Result<(), ParseError<'i, ParserError<'i>>>,
+) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut properties = allocator.vec();
     loop {
         let descriptor = match input.next() {
             Ok(ValueToken::Semicolon) => continue,
@@ -903,12 +738,12 @@ pub(super) fn parse_view_transition_contents<'i>(
         })();
 
         match result {
-            Ok(property) => properties.push(property),
+            Ok(property) => push(property)?,
             Err(_) if options.error_recovery => recover_declaration(input),
             Err(error) => return Err(error),
         }
     }
-    Ok(properties)
+    Ok(())
 }
 
 pub(super) fn page_margin_box(name: &str) -> Option<PageMarginBox> {

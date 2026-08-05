@@ -1,39 +1,16 @@
-use crate::{Minify, MinifyContext, Options, OptionsOp};
+use crate::MinifyContext;
 use rocketcss_ast::{
-    CSSWideOr, Columns, CssColor, Declaration, DeclarationBlock, DeclarationBlockId,
-    DeclarationBlockStore, EqIgnoringTombstones, KnownFunction, LengthValue, Margin, Padding,
-    PropertyId, Token, TokenOrValue, UnparsedProperty, UnparsedPropertyReason, VendorPrefix, Visit,
-    VisitContext, Visitor, match_ignore_ascii_case,
+    CSSWideOr, Columns, CssColor, Declaration, EqIgnoringTombstones, Margin, Padding, PropertyId,
+    VendorPrefix, Visit, VisitContext, Visitor,
+    radix_ast::{
+        Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
+        DeclarationId as RadixDeclarationId, DeclarationPayload,
+    },
 };
 use rocketcss_common::{
     GhostToken,
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
-
-fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
-    match value {
-        TokenOrValue::Var(_) | TokenOrValue::Env(_) => true,
-        TokenOrValue::Function(function) => {
-            matches!(function.kind(), KnownFunction::Var | KnownFunction::Env)
-                || function
-                    .arguments
-                    .iter()
-                    .any(token_or_value_contains_variable)
-        }
-        _ => false,
-    }
-}
-
-impl<'a> Minify for DeclarationBlock<'a> {
-    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        let allocator = cx.allocator();
-        let mut minifier = DeclarationBlockMinifier::new(allocator);
-        minifier.minify(self, cx);
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct UnknownDeclarationKey<'a> {
@@ -236,90 +213,74 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-enum DeclarationBlocks<'sequence, 'ast> {
-    Direct(&'sequence mut DeclarationBlock<'ast>),
-    Store {
-        blocks: &'sequence [DeclarationBlockId],
-        store: &'sequence mut DeclarationBlockStore<'ast>,
-    },
-}
-
 struct DeclarationSequence<'sequence, 'ast> {
-    blocks: DeclarationBlocks<'sequence, 'ast>,
+    blocks: &'sequence [RadixDeclarationBlockId<'ast>],
+    compilation: &'sequence mut Compilation<'ast>,
 }
 
 impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
     #[inline]
-    fn direct(block: &'sequence mut DeclarationBlock<'ast>) -> Self {
-        Self {
-            blocks: DeclarationBlocks::Direct(block),
-        }
-    }
-
-    #[inline]
-    fn store(
-        blocks: &'sequence [DeclarationBlockId],
-        store: &'sequence mut DeclarationBlockStore<'ast>,
+    fn radix(
+        blocks: &'sequence [RadixDeclarationBlockId<'ast>],
+        compilation: &'sequence mut Compilation<'ast>,
     ) -> Self {
         Self {
-            blocks: DeclarationBlocks::Store { blocks, store },
+            blocks,
+            compilation,
         }
     }
 
     #[inline]
     fn block_count(&self) -> usize {
-        match &self.blocks {
-            DeclarationBlocks::Direct(_) => 1,
-            DeclarationBlocks::Store { blocks, .. } => blocks.len(),
-        }
+        self.blocks.len()
     }
 
     #[inline]
     fn locations_fit(&self) -> bool {
         let block_count = self.block_count();
         block_count <= DeclarationLocation::MAX_COUNT
-            && (0..block_count)
-                .all(|block| self.block(block).len() <= DeclarationLocation::MAX_COUNT)
+            && (0..block_count).all(|block| self.block_len(block) <= DeclarationLocation::MAX_COUNT)
     }
 
     #[inline]
-    fn block(&self, index: usize) -> &DeclarationBlock<'ast> {
-        match &self.blocks {
-            DeclarationBlocks::Direct(block) => {
-                debug_assert_eq!(index, 0);
-                block
-            }
-            DeclarationBlocks::Store { blocks, store } => store.get(blocks[index]),
-        }
+    fn block_len(&self, index: usize) -> usize {
+        self.compilation
+            .declaration_occurrences_in_block(self.blocks[index])
+            .map_or(0, |declarations| declarations.len())
     }
 
     #[inline]
-    fn block_mut(&mut self, index: usize) -> &mut DeclarationBlock<'ast> {
-        match &mut self.blocks {
-            DeclarationBlocks::Direct(block) => {
-                debug_assert_eq!(index, 0);
-                block
-            }
-            DeclarationBlocks::Store { blocks, store } => store.get_mut(blocks[index]),
-        }
-    }
-
-    #[inline]
-    fn block_id(&self, index: usize) -> Option<DeclarationBlockId> {
-        match &self.blocks {
-            DeclarationBlocks::Direct(_) => None,
-            DeclarationBlocks::Store { blocks, .. } => Some(blocks[index]),
-        }
+    fn radix_declaration_id(
+        blocks: &[RadixDeclarationBlockId<'ast>],
+        compilation: &Compilation<'ast>,
+        location: DeclarationLocation,
+    ) -> RadixDeclarationId {
+        compilation
+            .declaration_id_at_in_block(blocks[location.block()], location.declaration())
+            .expect("the declaration location was validated against the block length")
     }
 
     #[inline]
     fn declaration(&self, location: DeclarationLocation) -> &Declaration<'ast> {
-        &self.block(location.block()).declarations[location.declaration()]
+        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
+        let DeclarationPayload::Property(declaration) = self
+            .compilation
+            .declaration(id)
+            .expect("a Radix declaration sequence ID remains resolvable")
+            .payload()
+        else {
+            unreachable!("local declaration minification only receives property blocks")
+        };
+        declaration
     }
 
     #[inline]
     fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
-        &mut self.block_mut(location.block()).declarations[location.declaration()]
+        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
+        self.compilation
+            .property_declaration_mut(self.blocks[location.block()], id)
+            .expect("a Radix property declaration remains mutable")
+            .0
     }
 
     #[inline]
@@ -333,13 +294,16 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn is_important(&self, location: DeclarationLocation) -> bool {
-        self.block(location.block())
-            .is_important(location.declaration())
+        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
+        self.compilation
+            .declaration(id)
+            .expect("a Radix declaration sequence ID remains resolvable")
+            .is_important()
     }
 
     #[inline]
-    fn allocator(&self, location: DeclarationLocation) -> &'ast Allocator {
-        self.block(location.block()).declarations.bump()
+    fn allocator(&self, _location: DeclarationLocation) -> &'ast Allocator {
+        self.compilation.allocator()
     }
 }
 
@@ -354,16 +318,17 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         }
     }
 
-    #[inline]
-    pub(crate) fn minify(
+    pub(crate) fn minify_compilation_block(
         &mut self,
-        block: &mut DeclarationBlock<'ast>,
+        compilation: &mut Compilation<'ast>,
+        block: RadixDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
-        if block.len() < 2 {
+        let blocks = [block];
+        let mut sequence = DeclarationSequence::radix(&blocks, compilation);
+        if sequence.block_len(0) < 2 {
             return;
         }
-        let mut sequence = DeclarationSequence::direct(block);
         self.minify_non_trivial(&mut sequence, cx);
     }
 
@@ -377,65 +342,6 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         }
         self.ir.clear();
         deduplicate_declarations(sequence, &mut self.ir, cx);
-    }
-
-    pub(crate) fn deduplicate_exact_sequence(
-        &mut self,
-        blocks: &[DeclarationBlockId],
-        store: &mut DeclarationBlockStore<'ast>,
-        cx: &mut MinifyContext<'scratch>,
-        mut on_declaration_removed: impl FnMut(DeclarationBlockId, usize),
-    ) {
-        let sequence = DeclarationSequence::store(blocks, store);
-        if !sequence.locations_fit() {
-            return;
-        }
-        self.ir.declarations.clear();
-        let mut history = ExactDeclarationHistory {
-            declarations: &mut self.ir.declarations,
-            sequence,
-        };
-        for block in 0..history.sequence.block_count() {
-            history.observe_block(block, cx, &mut on_declaration_removed);
-        }
-    }
-}
-
-struct ExactDeclarationHistory<'sequence, 'scratch, 'ast> {
-    declarations: &'sequence mut DeclarationMap<'scratch, 'ast>,
-    sequence: DeclarationSequence<'sequence, 'ast>,
-}
-
-impl<'scratch, 'ast> ExactDeclarationHistory<'_, 'scratch, 'ast>
-where
-    'ast: 'scratch,
-{
-    fn observe_block(
-        &mut self,
-        block: usize,
-        cx: &mut MinifyContext<'scratch>,
-        on_declaration_removed: &mut impl FnMut(DeclarationBlockId, usize),
-    ) {
-        let declaration_count = self.sequence.block(block).len();
-        for declaration in 0..declaration_count {
-            let current = DeclarationLocation::new(block, declaration);
-            if self.sequence.declaration(current).is_tombstone() {
-                continue;
-            }
-            let important = self.sequence.is_important(current);
-            let Some(removed) = deduplicate_exact_declaration(
-                &mut self.sequence,
-                current,
-                important,
-                self.declarations,
-                cx,
-            ) else {
-                continue;
-            };
-            if let Some(id) = self.sequence.block_id(removed.block()) {
-                on_declaration_removed(id, removed.declaration());
-            }
-        }
     }
 }
 
@@ -543,7 +449,7 @@ fn deduplicate_declarations<'scratch, 'ast>(
     'ast: 'scratch,
 {
     for block in 0..sequence.block_count() {
-        let declaration_count = sequence.block(block).len();
+        let declaration_count = sequence.block_len(block);
         for declaration in 0..declaration_count {
             let current = DeclarationLocation::new(block, declaration);
             if sequence.declaration(current).is_tombstone() {
@@ -857,7 +763,6 @@ where
                 && fold_box_side_override(sequence, shorthand, current, family, side)
             {
                 cx.record_declaration_removed();
-                minify_unparsed_declaration(sequence, shorthand, cx);
                 return true;
             }
 
@@ -929,61 +834,11 @@ fn box_property(declaration: &Declaration<'_>) -> Option<BoxProperty> {
     }
 }
 
-fn can_override_box_longhands(declaration: &Declaration<'_>, family: BoxFamily) -> bool {
-    match declaration {
-        Declaration::Margin(..) | Declaration::Padding(..) => true,
-        Declaration::Unparsed(value) => {
-            !declaration_contains_variable(declaration)
-                && box_component_count(&value.value, family).is_some()
-        }
-        _ => false,
-    }
-}
-
-fn box_component_count(values: &[TokenOrValue<'_>], family: BoxFamily) -> Option<usize> {
-    let count = match values.len() {
-        1 => 1,
-        3 | 5 | 7
-            if values.iter().enumerate().all(|(index, value)| {
-                index % 2 == 0
-                    || matches!(value, TokenOrValue::Token(token)
-                        if matches!(&**token, Token::WhiteSpace(_)))
-            }) =>
-        {
-            values.len().div_ceil(2)
-        }
-        _ => return None,
-    };
-    let mut components = values.iter().step_by(2);
-    if components.clone().any(is_css_wide_value) && count != 1 {
-        return None;
-    }
-    components
-        .all(|value| is_box_component(value, family))
-        .then_some(count)
-}
-
-fn is_box_component(value: &TokenOrValue<'_>, family: BoxFamily) -> bool {
-    match value {
-        TokenOrValue::Length(_) => true,
-        TokenOrValue::Function(function) => match_ignore_ascii_case!(
-            function.name(),
-            "calc" | "min" | "max" | "clamp" | "anchor-size" => true,
-            _ => false,
-        ),
-        TokenOrValue::Token(token) => match &**token {
-            Token::Number(value) => *value == 0.0,
-            Token::Percentage(_) => true,
-            Token::Dimension { unit, .. } => unit.is_length(),
-            Token::Ident(value) => {
-                is_css_wide_keyword(value)
-                    || matches!(family, BoxFamily::Margin)
-                        && match_ignore_ascii_case!(value, "auto" => true, _ => false)
-            }
-            _ => false,
-        },
-        _ => false,
-    }
+fn can_override_box_longhands(declaration: &Declaration<'_>, _family: BoxFamily) -> bool {
+    matches!(
+        declaration,
+        Declaration::Margin(..) | Declaration::Padding(..)
+    )
 }
 
 fn fold_box_side_override(
@@ -1038,113 +893,12 @@ fn fold_box_side_override(
             }
             _ => false,
         },
-        (_, Declaration::Unparsed(shorthand), Declaration::Unparsed(longhand)) => {
-            fold_unparsed_box_side(shorthand, longhand, family, side)
-        }
         _ => false,
     };
     if !folded {
         sequence.replace(longhand, longhand_declaration);
     }
     folded
-}
-
-fn fold_unparsed_box_side<'a>(
-    shorthand: &mut UnparsedProperty<'a>,
-    longhand: &mut UnparsedProperty<'a>,
-    family: BoxFamily,
-    side: usize,
-) -> bool {
-    if longhand.value.len() != 1
-        || !is_box_component(&longhand.value[0], family)
-        || is_css_wide_value(&longhand.value[0])
-        || longhand.value.iter().any(token_or_value_contains_variable)
-        || shorthand.value.iter().any(token_or_value_contains_variable)
-    {
-        return false;
-    }
-    let Some(component_count) = box_component_count(&shorthand.value, family) else {
-        return false;
-    };
-    let component = match (component_count, side) {
-        (1, _) => 0,
-        (2, 0 | 2) => 0,
-        (2, 1 | 3) => 1,
-        (3, 0) => 0,
-        (3, 1 | 3) => 1,
-        (3, 2) => 2,
-        (4, side) => side,
-        _ => unreachable!(),
-    };
-    let value_index = component * 2;
-    if shorthand.value[value_index] == longhand.value[0] {
-        return true;
-    }
-    if shorthand.value.iter().step_by(2).any(is_css_wide_value) {
-        return false;
-    }
-    let component_is_unique = match component_count {
-        1 | 2 => false,
-        3 => side == 0 || side == 2,
-        4 => true,
-        _ => unreachable!(),
-    };
-    let allocator = shorthand.value.bump();
-    let mut target_index = value_index;
-    if component_count < 4 && !component_is_unique {
-        let additions = match component_count {
-            1 => [
-                clone_simple_token_or_value(&shorthand.value[0], allocator),
-                clone_simple_token_or_value(&shorthand.value[0], allocator),
-                clone_simple_token_or_value(&shorthand.value[0], allocator),
-            ],
-            2 => [
-                clone_simple_token_or_value(&shorthand.value[0], allocator),
-                clone_simple_token_or_value(&shorthand.value[2], allocator),
-                None,
-            ],
-            3 => [
-                clone_simple_token_or_value(&shorthand.value[2], allocator),
-                None,
-                None,
-            ],
-            _ => unreachable!(),
-        };
-        if additions.iter().flatten().count() != 4 - component_count {
-            return false;
-        }
-        for addition in additions.into_iter().flatten() {
-            shorthand
-                .value
-                .push(TokenOrValue::Token(allocator.boxed(Token::WhiteSpace(" "))));
-            shorthand.value.push(addition);
-        }
-        target_index = side * 2;
-    }
-    std::mem::swap(&mut shorthand.value[target_index], &mut longhand.value[0]);
-    true
-}
-
-fn clone_simple_token_or_value<'a>(
-    value: &TokenOrValue<'a>,
-    allocator: &'a Allocator,
-) -> Option<TokenOrValue<'a>> {
-    match value {
-        TokenOrValue::Token(token)
-            if matches!(
-                &**token,
-                Token::Ident(_) | Token::Number(_) | Token::Percentage(_) | Token::Dimension { .. }
-            ) =>
-        {
-            Some(TokenOrValue::Token(allocator.boxed((**token).clone())))
-        }
-        TokenOrValue::Length(length) => Some(TokenOrValue::Length(LengthValue {
-            unit: length.unit,
-            value: length.value,
-        })),
-        TokenOrValue::DashedIdent(value) => Some(TokenOrValue::DashedIdent(value)),
-        _ => None,
-    }
 }
 
 fn merge_box_longhands<'ast, 'cx>(
@@ -1199,7 +953,7 @@ where
     if typed {
         return merge_typed_box_longhands(sequence, locations, family, cx);
     }
-    merge_unparsed_box_longhands(sequence, locations, family, cx)
+    false
 }
 
 fn css_wide_box_longhands(
@@ -1290,78 +1044,6 @@ where
     true
 }
 
-fn merge_unparsed_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
-    locations: [DeclarationLocation; 4],
-    family: BoxFamily,
-    cx: &mut MinifyContext<'cx>,
-) -> bool
-where
-    'ast: 'cx,
-{
-    if locations.iter().any(|&location| {
-        !matches!(sequence.declaration(location), Declaration::Unparsed(value)
-            if value.value.len() == 1 && is_box_component(&value.value[0], family))
-    }) {
-        return false;
-    }
-    let variable_count = locations
-        .iter()
-        .filter(|&&location| declaration_contains_variable(sequence.declaration(location)))
-        .count();
-    if variable_count != 0 && variable_count != locations.len() {
-        return false;
-    }
-    let first_value = match sequence.declaration(locations[0]) {
-        Declaration::Unparsed(value) => &value.value,
-        _ => unreachable!(),
-    };
-    let all_equal = locations[1..].iter().all(|&location| {
-        matches!(sequence.declaration(location), Declaration::Unparsed(value)
-            if value.value == *first_value)
-    });
-    if !all_equal
-        && locations.iter().any(|&location| {
-            matches!(sequence.declaration(location), Declaration::Unparsed(value)
-                if value.value.iter().any(is_css_wide_value))
-        })
-    {
-        return false;
-    }
-
-    let target = *locations.iter().max().expect("four box sides");
-    let allocator = sequence.allocator(target);
-    let mut sides = locations.map(|location| {
-        let Declaration::Unparsed(value) = sequence.declaration_mut(location) else {
-            unreachable!("unparsed box IR validates every side")
-        };
-        std::mem::replace(&mut value.value, allocator.vec())
-    });
-    let mut value = std::mem::replace(&mut sides[0], allocator.vec());
-    if !all_equal {
-        for side in &mut sides[1..] {
-            value.push(TokenOrValue::Token(allocator.boxed(Token::WhiteSpace(" "))));
-            value.append(side);
-        }
-    }
-    let Declaration::Unparsed(target_value) = sequence.declaration_mut(target) else {
-        unreachable!("unparsed box IR target remains unparsed")
-    };
-    *target_value.property_id = match family {
-        BoxFamily::Margin => PropertyId::Margin,
-        BoxFamily::Padding => PropertyId::Padding,
-    };
-    target_value.value = value;
-    for &location in &locations {
-        if location != target {
-            sequence.replace(location, Declaration::Tombstone);
-        }
-    }
-    record_merged_longhands(locations, target, cx);
-    minify_unparsed_declaration(sequence, target, cx);
-    true
-}
-
 fn record_merged_longhands(
     locations: [DeclarationLocation; 4],
     target: DeclarationLocation,
@@ -1374,38 +1056,9 @@ fn record_merged_longhands(
     }
 }
 
-fn minify_unparsed_declaration<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
-    location: DeclarationLocation,
-    cx: &mut MinifyContext<'cx>,
-) where
-    'ast: 'cx,
-{
-    let Declaration::Unparsed(value) = sequence.declaration_mut(location) else {
-        return;
-    };
-    if !matches!(value.reason, UnparsedPropertyReason::UnsupportedGrammar) {
-        return;
-    }
-    let previous = cx.value_context;
-    cx.value_context = crate::properties::value_context(
-        &value.property_id,
-        cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
-        cx.is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
-    );
-    value.minify(cx);
-    cx.value_context = previous;
-}
-
 fn declaration_skips_minification(declaration: &Declaration<'_>) -> bool {
-    matches!(
-        declaration,
-        Declaration::Unparsed(value)
-            if !matches!(
-                value.reason,
-                UnparsedPropertyReason::UnsupportedGrammar
-            )
-    ) || functional_color_requires_history_barrier(declaration)
+    matches!(declaration, Declaration::Unparsed(_))
+        || functional_color_requires_history_barrier(declaration)
 }
 
 fn functional_color_requires_history_barrier(declaration: &Declaration<'_>) -> bool {
@@ -1432,24 +1085,6 @@ impl<'ast, 'ghost> Visitor<'ast, 'ghost> for FunctionalColorBarrierVisitor {
             node.visit_children(self, cx);
         }
     }
-}
-
-fn is_css_wide_value(value: &TokenOrValue<'_>) -> bool {
-    matches!(value, TokenOrValue::Token(token)
-        if matches!(&**token, Token::Ident(value) if is_css_wide_keyword(value)))
-}
-
-fn is_css_wide_keyword(value: &str) -> bool {
-    match_ignore_ascii_case!(
-        value,
-        "initial" | "inherit" | "unset" | "revert" | "revert-layer" => true,
-        _ => false,
-    )
-}
-
-fn declaration_contains_variable(declaration: &Declaration<'_>) -> bool {
-    matches!(declaration, Declaration::Unparsed(value)
-        if value.value.iter().any(token_or_value_contains_variable))
 }
 
 #[cfg(test)]

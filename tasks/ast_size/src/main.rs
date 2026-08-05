@@ -3,6 +3,11 @@ use std::{
     mem::{align_of, size_of},
 };
 
+use rocketcss_ast::radix_ast::{
+    CssRulePayload, DeclarationBlockRecord, DeclarationPayload, DeclarationRecord, KeyframePayload,
+    NestedDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
+    RuleRecord, ViewportRulePayload,
+};
 use rocketcss_ast::*;
 use rocketcss_common::{boxed::Box, vec::Vec};
 
@@ -21,7 +26,8 @@ macro_rules! print_property_sizes {
     (
         $(
             $(#[$meta:meta])*
-            $name:literal: $property:ident($value:ty $(, $vendor_prefix:ty)?),
+            $name:literal: $property:ident($value:ty $(, $vendor_prefix:ty)?)
+                $([$strategy:ident $( : $($strategy_args:tt)+)?])?,
         )+
     ) => {
         println!();
@@ -46,9 +52,9 @@ fn main() {
     print_sizes!(
         rocketcss_common::boxed::Box<'static, u8>,
         rocketcss_common::vec::Vec<'static, u8>,
-        CssRule<'static>,
-        StyleRule<'static>,
-        DeclarationBlock<'static>,
+        RuleRecord<CssRulePayload<'static>>,
+        DeclarationBlockRecord<CssRulePayload<'static>>,
+        DeclarationRecord<DeclarationPayload<'static>>,
         Declaration<'static>,
         PropertyId<'static>,
         TokenOrValue<'static>,
@@ -82,13 +88,12 @@ fn main() {
         BorderImage<'static>,
         EnvironmentVariable<'static>,
         DashedIdentReference<'static>,
-        CounterStyleRule<'static>,
-        NestedDeclarationsRule,
-        ViewportRule,
-        PositionTryRule<'static>,
-        PageRule<'static>,
-        PageMarginRule,
-        Keyframe<'static>,
+        NestedDeclarationsPayload,
+        ViewportRulePayload,
+        PositionTryRulePayload<'static>,
+        PageRulePayload<'static>,
+        PageMarginPayload,
+        KeyframePayload<'static>,
         PositionProperty,
         BorderStyle,
         BorderBlockStyle,

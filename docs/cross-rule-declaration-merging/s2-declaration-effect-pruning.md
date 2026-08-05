@@ -6,8 +6,8 @@
 - [S1: same-selector coalescing](./s1-same-selector-coalescing.md)
 - [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md)
 - [S3: selector partial factoring](./s3-selector-partial-factoring.md)
-- [S4: AST reification planning](./s4-ast-reification-planning.md)
-- [S5: AST reification commit](./s5-ast-reification-commit.md)
+- [S4: lossless representation planning](./s4-ast-reification-planning.md)
+- [S5: terminal commit and cleanup](./s5-ast-reification-commit.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
 - [Non-goals](./non-goal.md)
@@ -33,8 +33,8 @@ S2 does not:
   [S3](./s3-selector-partial-factoring.md);
 - choose the final compact AST form; see
   [S4](./s4-ast-reification-planning.md); or
-- mutate authored declaration blocks; see
-  [S5](./s5-ast-reification-commit.md).
+- choose how a partially live declaration is serialized; see
+  [S4](./s4-ast-reification-planning.md).
 
 > Incremental implementation contract: until logical effect masks and S4/S5
 > reification exist, cross-block S2 is restricted to exact duplicate
@@ -96,7 +96,7 @@ S2 consumes one `EffectiveRuleHistory`:
 
 ```rust,ignore
 struct EffectiveRuleHistory {
-    entries: OrderedMap<SemanticSourceOrderKey, DeclarationEntryId>,
+    entries: OrderedMap<DeclarationBlockId, DeclarationEntryId>,
     generation: Generation,
     consumed_generation: Generation,
 }
@@ -123,8 +123,8 @@ lists. S2 requires history identity, not local S1/S3 adjacency.
 | `MutatedDuringScan`      | A typed edit increments `generation` while scanning. | Continue scanning the same history. |
 | `BlockedByOpaqueSegment` | A barrier assigned a different `HistorySegmentId`.   | Never compare across the barrier.   |
 
-Discovery order is not authoritative. `entries` are always read by
-`SemanticSourceOrderKey`.
+Discovery order is not authoritative. `entries` are always read by the
+`DeclarationBlockId` order supplied by the Radix AST.
 
 ### Scheduling identity
 
@@ -144,23 +144,21 @@ Subsequent S1-S4 mutations increment `generation` and enqueue the same history
 identity when it is not already queued.
 
 The exact-only implementation does not require one allocation per history. In
-the target flat IR, parser/normalization discovery observes declaration blocks
-in lexical source order and stores a compact `EffectiveKeyId` on each uniquely
-owned occurrence. Immutable initial histories use one-dimensional linked
-storage:
+the target Radix IR, parser/normalization writes a compact `EffectiveKeyId` on
+each uniquely owned block. Nano observes declaration blocks in AST order;
+immutable initial histories use one-dimensional linked storage:
 
 ```rust,ignore
-occurrences: DenseStore<DeclarationOccurrence, DeclarationOccurrenceId>
-next_in_history: Vec<Option<DeclarationOccurrenceId>>
+next_in_history: DenseMap<DeclarationBlockId, Option<DeclarationBlockId>>
 history_heads: Vec<u32>
 ```
 
-Only keys with at least two entries need storage. `occurrences` retains the
-source-ordered block IDs and effective keys, `next_in_history` links entries
-with the same canonical identity, and `history_heads` starts each S2 traversal.
-This is a physical representation of the same ordered histories; it does not
-change their semantic identity or permit comparisons between histories. The
-target pipeline builds these links while parsing/finalizing keys and does not
+Only keys with at least two entries need storage. AST blocks retain their IDs
+and EffectiveKeys, `next_in_history` links entries with the same canonical
+identity, and `history_heads` starts each S2 traversal. This is a physical
+representation of the same ordered histories; it does not change their
+semantic identity or permit comparisons between histories. The target
+pipeline builds these links while iterating/finalizing AST blocks and does not
 need a recursive `walk_declaration_blocks` prepass.
 
 `Candidate(left, right)` is an edge representation for S1/S3. It must not be
@@ -221,17 +219,17 @@ It does not change the authored AST.
 
 After S2 reaches a local fixed point:
 
-| State component    | Output requirement                                                                   |
-| ------------------ | ------------------------------------------------------------------------------------ |
-| Effect masks       | Every proven dead effect is marked dead.                                             |
-| Authored origins   | Preserved for every live or dead occurrence until S5.                                |
-| Typed effect data  | Retained with origin and owner identity so S4 can choose a representation.           |
-| History generation | `generation == consumed_generation`.                                                 |
-| Sequence revisions | Incremented for every affected aggregate sequence.                                   |
-| Sequence liveness  | Aggregate live-effect counts match the remaining live masks.                         |
-| S3 candidates      | Incident stale candidates invalidated.                                               |
-| Logical adjacency  | Rules that became empty are already unlinked and newly exposed edges are classified. |
-| AST                | Unchanged.                                                                           |
+| State component    | Output requirement                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| Effect masks       | Every proven dead effect is marked dead.                                              |
+| Authored origins   | Preserved until an immediately safe tombstone or a deferred S4 representation commit. |
+| Typed effect data  | Retained with origin and owner identity so S4 can choose a representation.            |
+| History generation | `generation == consumed_generation`.                                                  |
+| Sequence revisions | Incremented for every affected aggregate sequence.                                    |
+| Sequence liveness  | Aggregate live-effect counts match the remaining live masks.                          |
+| S3 candidates      | Incident stale candidates invalidated.                                                |
+| Logical adjacency  | Rules that became empty are already unlinked and newly exposed edges are classified.  |
+| AST                | Exact removals and newly empty-rule unlinking may already be committed locally.       |
 
 S2 output is conservative. `NoChange` is a valid stable result.
 
@@ -271,8 +269,9 @@ occurrence#2 color = blue [Live]
 history.generation == history.consumed_generation
 ```
 
-No AST declaration is deleted yet. S4 plans a representation containing only
-the live effect, and S5 writes it.
+In the complete effect-IR design the occurrence becomes logically dead. If it
+is an exact removable occurrence, S2 may tombstone it immediately; otherwise
+S4 chooses a lossless representation and S5 only commits that deferred form.
 
 ### Example 2: partial shorthand override
 
@@ -509,7 +508,8 @@ plan derived from S2's stable output. See
 - Unknown property relationships default to `NoChange`.
 - Every applied edit is proven reifiable from retained typed effects and
   origins, but S2 does not choose the representation.
-- Authored or synthesized origins remain attached until S5.
+- Authored or synthesized origins remain attached until their exact local
+  removal or deferred representation commit.
 - Every semantic edit increments all dependent revisions and generations.
 - Incident S3 candidates are invalidated.
 - A newly empty endpoint is unlinked before S4 and newly exposed edges are

@@ -1,7 +1,6 @@
 //! Common arena and AST types used when constructing CSS syntax trees.
 
 pub use crate::color::*;
-pub use crate::css_rule::*;
 pub use crate::length::*;
 pub use crate::media::*;
 pub use crate::properties::*;

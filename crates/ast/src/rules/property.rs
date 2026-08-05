@@ -63,6 +63,11 @@ pub struct UnparsedProperty<'a> {
     pub property_id: Box<'a, PropertyId<'a>>,
     #[visit(skip)]
     pub reason: UnparsedPropertyReason,
+    /// The authored value after removing declaration-level whitespace and
+    /// `!important`. This keeps fallback serialization independent from the
+    /// lossy numeric and function normalization used by typed tokens.
+    #[visit(skip)]
+    pub raw_value: Option<&'a str>,
     pub value: Vec<'a, TokenOrValue<'a>>,
 }
 
@@ -87,15 +92,6 @@ pub enum UnparsedPropertyReason {
 pub struct CustomProperty<'a> {
     pub name: Box<'a, CustomPropertyName<'a>>,
     pub value: Vec<'a, TokenOrValue<'a>>,
-}
-
-#[derive(Debug, PartialEq, Visit)]
-pub struct PropertyRule<'a> {
-    pub inherits: bool,
-    pub initial_value: Option<Box<'a, ParsedComponent<'a>>>,
-    pub span: Span,
-    pub name: &'a str,
-    pub syntax: Box<'a, SyntaxString<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

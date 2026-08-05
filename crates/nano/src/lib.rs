@@ -7,7 +7,6 @@ mod properties;
 mod rules;
 mod selector;
 mod token;
-mod utils;
 mod values;
 
 pub mod prelude;
@@ -15,7 +14,6 @@ pub mod prelude;
 use rocketcss_ast::*;
 use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_visitor::{BoxError, Plugin, PluginContext, VisitMut, VisitorMut};
-use std::pin::Pin;
 
 pub use context::{MinifyContext, MinifyStats};
 pub use options::{MinifyOptions, Options, OptionsOp};
@@ -27,17 +25,173 @@ pub trait Minify {
         Self: 'cx;
 }
 
-/// Minifies a stylesheet in place and returns transformation statistics.
-pub fn minify<'a, 'ghost>(
-    compilation: &mut Compilation<'a>,
+/// Minifies the compiler-owned compilation in place.
+pub fn minify<'ast, 'ghost>(
+    compilation: &mut Compilation<'ast>,
     token: &mut GhostToken<'ghost>,
     options: MinifyOptions,
 ) -> MinifyStats {
+    try_minify(compilation, token, options)
+        .expect("a parsed Radix compilation remains structurally valid while minifying")
+}
+
+/// Fallible entry point for structural transforms.
+pub fn try_minify<'ast, 'ghost>(
+    compilation: &mut Compilation<'ast>,
+    token: &mut GhostToken<'ghost>,
+    options: MinifyOptions,
+) -> Result<MinifyStats, radix_ast::ConcreteMutationError<'ast>> {
     let allocator = Allocator::new();
-    let mut cx = MinifyContext::new(options, &allocator);
-    let (stylesheet, declaration_blocks) = compilation.parts_mut();
-    minify_style_sheet(stylesheet, declaration_blocks, token, &mut cx);
-    cx.stats()
+    let cx = MinifyContext::new(options, &allocator);
+    let declaration_blocks = rules::DeclarationBlockMinifier::new(&allocator);
+    let merge_adjacent_rules = options.is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any);
+    let mut cross_rule = merge_adjacent_rules
+        .then(|| cross_rule_declaration_merging::new_cross_rule_builder(compilation, &allocator));
+    let mut minifier = Minifier {
+        cx,
+        declaration_blocks,
+    };
+    let mut visit_context = VisitMutContext::new(token);
+
+    compilation.transform_selector_values_in(&allocator, |_, selectors| {
+        minifier.visit_selector_list(selectors, &mut visit_context);
+    });
+
+    let mut current = compilation.first_rule_in_source();
+    while let Some(rule_id) = current {
+        let rule = compilation.rule(rule_id).ok_or(
+            radix_ast::ConcreteMutationError::<'ast>::UnknownRule(rule_id),
+        )?;
+        current = rule.next_in_source();
+        if !rule.is_live() {
+            continue;
+        }
+        let property_block = rule.payload().owns_property_declarations();
+        let block_id = rule.declaration_block();
+        compilation.transform_rule_payload(rule_id, |payload| {
+            minify_rule_payload(payload, &mut minifier, &mut visit_context);
+        })?;
+        let Some(block_id) = block_id else {
+            continue;
+        };
+        compilation.for_each_declaration_mut(block_id, |_, record| {
+            if property_block {
+                let rocketcss_ast::radix_ast::DeclarationPayload::Property(declaration) =
+                    record.payload_mut()
+                else {
+                    unreachable!("a property rule owns only property declarations")
+                };
+                declaration.visit_mut(&mut minifier, &mut visit_context);
+            } else {
+                minify_descriptor(record.payload_mut(), &mut minifier, &mut visit_context);
+            }
+        })?;
+        if property_block {
+            minifier.declaration_blocks.minify_compilation_block(
+                compilation,
+                block_id,
+                &mut minifier.cx,
+            );
+        }
+        if let Some(builder) = cross_rule.as_mut() {
+            cross_rule_declaration_merging::publish_cross_rule_block(
+                builder,
+                compilation,
+                block_id,
+            )?;
+        }
+    }
+
+    let context_repair = compilation.refresh_context_value_identities_with_remaps(&allocator)?;
+
+    if let Some(builder) = cross_rule {
+        let preserve_selector_compatibility = minifier
+            .cx
+            .is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::Any);
+        cross_rule_declaration_merging::stabilize_cross_rule_builder(
+            builder,
+            compilation,
+            preserve_selector_compatibility,
+            context_repair.effective_key_remaps(),
+        )?;
+    }
+    Ok(minifier.cx.stats())
+}
+
+fn minify_rule_payload<'ast, 'ghost>(
+    payload: &mut radix_ast::CssRulePayload<'ast>,
+    minifier: &mut Minifier<'ast, '_>,
+    cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+) {
+    use radix_ast::CssRulePayload;
+
+    match payload {
+        CssRulePayload::Media(payload) => payload.query.visit_mut(minifier, cx),
+        CssRulePayload::Supports(payload) => payload.condition.visit_mut(minifier, cx),
+        CssRulePayload::Container(payload) => {
+            if let Some(condition) = &mut payload.condition {
+                condition.visit_mut(minifier, cx);
+            }
+        }
+        CssRulePayload::Scope(payload) => {
+            if let Some(selectors) = &mut payload.scope_start {
+                minifier.visit_selector_list(selectors, cx);
+            }
+            if let Some(selectors) = &mut payload.scope_end {
+                minifier.visit_selector_list(selectors, cx);
+            }
+        }
+        CssRulePayload::Unknown(payload) => {
+            minifier.minify_unknown_token_lists(&mut payload.prelude, payload.block.as_mut(), cx)
+        }
+        CssRulePayload::Import(payload) => payload.visit_mut(minifier, cx),
+        CssRulePayload::CustomMedia(payload) => payload.query.visit_mut(minifier, cx),
+        CssRulePayload::Keyframes(payload) => payload.name.visit_mut(minifier, cx),
+        CssRulePayload::Keyframe(payload) => payload.selectors.visit_mut(minifier, cx),
+        CssRulePayload::Page(payload) => payload.selectors.visit_mut(minifier, cx),
+        CssRulePayload::FontFeatureValues(payload) => payload.name.visit_mut(minifier, cx),
+        CssRulePayload::Style(_)
+        | CssRulePayload::StartingStyle(_)
+        | CssRulePayload::LayerStatement(_)
+        | CssRulePayload::LayerBlock(_)
+        | CssRulePayload::MozDocument(_)
+        | CssRulePayload::CounterStyle(_)
+        | CssRulePayload::Viewport(_)
+        | CssRulePayload::PositionTry(_)
+        | CssRulePayload::FontFace(_)
+        | CssRulePayload::FontPaletteValues(_)
+        | CssRulePayload::ViewTransition(_)
+        | CssRulePayload::Charset(_)
+        | CssRulePayload::Namespace(_)
+        | CssRulePayload::PageMargin(_)
+        | CssRulePayload::PageDeclarations(_)
+        | CssRulePayload::Nesting(_)
+        | CssRulePayload::FontFeatureSubrule(_)
+        | CssRulePayload::Property(_)
+        | CssRulePayload::NestedDeclarations(_) => {}
+    }
+}
+
+fn minify_descriptor<'ast, 'ghost>(
+    descriptor: &mut radix_ast::DeclarationPayload<'ast>,
+    minifier: &mut Minifier<'ast, '_>,
+    cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+) {
+    use radix_ast::{DeclarationPayload, PropertyRuleDescriptor};
+
+    match descriptor {
+        DeclarationPayload::Property(declaration) => declaration.visit_mut(minifier, cx),
+        DeclarationPayload::FontFace(property) => property.visit_mut(minifier, cx),
+        DeclarationPayload::FontPaletteValues(property) => property.visit_mut(minifier, cx),
+        DeclarationPayload::ViewTransition(property) => property.visit_mut(minifier, cx),
+        DeclarationPayload::FontFeature(declaration) => declaration.visit_mut(minifier, cx),
+        DeclarationPayload::PropertyRule(descriptor) => match descriptor {
+            PropertyRuleDescriptor::Syntax(syntax) => syntax.visit_mut(minifier, cx),
+            PropertyRuleDescriptor::Inherits(_) => {}
+            PropertyRuleDescriptor::InitialValue(value) => value.visit_mut(minifier, cx),
+            PropertyRuleDescriptor::Unknown(property) => property.visit_mut(minifier, cx),
+        },
+    }
 }
 
 /// Adapter for running in-place minification in a visitor plugin pipeline.
@@ -74,253 +228,32 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for MinifyPlugin {
     }
 }
 
-pub(crate) fn minify_style_sheet<'ast, 'ghost, 'cx>(
-    stylesheet: &mut StyleSheet<'ast>,
-    declaration_block_store: &mut DeclarationBlockStore<'ast>,
-    token: &mut GhostToken<'ghost>,
-    cx: &mut MinifyContext<'cx>,
-) where
-    'ast: 'cx,
-{
-    // Minifier IR and transient collections are scratch state. Keep them out
-    // of the AST arena so every temporary allocation is released when this
-    // minify pass finishes.
-    // Move the context into the visitor so it and its scratch IR share one
-    // `'cx` lifetime, then restore it after traversal.
-    let replacement = MinifyContext::new(cx.options(), cx.allocator());
-    let owned_cx = std::mem::replace(cx, replacement);
-    let allocator = owned_cx.allocator();
-    let declaration_blocks = rules::DeclarationBlockMinifier::new(allocator);
-    let collect_cross_rule_state =
-        owned_cx.is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any);
-    let cross_rule_declaration_ir = if collect_cross_rule_state {
-        cross_rule_declaration_merging::FrozenDeclarationIrStore::with_block_capacity(
-            declaration_block_store.len(),
-        )
-    } else {
-        Default::default()
-    };
-    let mut minifier = Minifier {
-        cx: owned_cx,
-        declaration_blocks,
-        cross_rule_declaration_ir,
-    };
-    let discovery = {
-        let mut visit_context =
-            VisitMutContext::new_with_declaration_blocks(token, declaration_block_store);
-        if collect_cross_rule_state {
-            Some(minifier.minify_and_collect_style_sheet(stylesheet, &mut visit_context))
-        } else {
-            stylesheet.visit_mut(&mut minifier, &mut visit_context);
-            None
-        }
-    };
-    if let Some(discovery) = discovery {
-        let declaration_ir = std::mem::take(&mut minifier.cross_rule_declaration_ir);
-        let plan = cross_rule_declaration_merging::stabilize_cross_rule_declarations(
-            discovery,
-            declaration_block_store,
-            declaration_ir,
-            &mut minifier.declaration_blocks,
-            &mut minifier.cx,
-        );
-        plan.apply(stylesheet);
-    }
-    let Minifier { cx: result, .. } = minifier;
-    *cx = result;
-}
-
 struct Minifier<'ast, 'cx> {
     cx: MinifyContext<'cx>,
     declaration_blocks: rules::DeclarationBlockMinifier<'cx, 'ast>,
-    cross_rule_declaration_ir: cross_rule_declaration_merging::FrozenDeclarationIrStore<'ast>,
 }
 
 impl<'ast, 'cx> Minifier<'ast, 'cx> {
-    fn minify_and_collect_style_sheet<'tree, 'ghost>(
+    fn minify_unknown_token_lists<'ghost>(
         &mut self,
-        stylesheet: &'tree mut StyleSheet<'ast>,
+        prelude: &mut rocketcss_common::vec::Vec<'ast, TokenOrValue<'ast>>,
+        mut block: Option<&mut rocketcss_common::vec::Vec<'ast, TokenOrValue<'ast>>>,
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
-    ) -> utils::DeclarationBlockDiscovery<'tree, 'ast>
-    where
-        'ast: 'tree,
-    {
-        let mut collector = utils::DeclarationBlockCollector::new();
-        self.minify_and_collect_rule_list(&mut stylesheet.rules, &mut collector, cx);
-        collector.finish()
-    }
-
-    fn minify_and_collect_rule_list<'tree, 'ghost>(
-        &mut self,
-        rules: &'tree mut rocketcss_common::vec::Vec<'ast, CssRule<'ast>>,
-        collector: &mut utils::DeclarationBlockCollector<'tree, 'ast>,
-        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
-    ) where
-        'ast: 'tree,
-    {
-        let rule_list = collector.allocate_rule_list();
-        let mut rule_list_segment = collector.allocate_rule_list_segment();
-        for (sibling, rule) in rules.iter_mut().enumerate() {
-            let ends_segment = utils::ends_rule_list_segment(rule);
-            self.minify_and_collect_rule(
-                rule,
-                utils::StructuralLocation {
-                    rule_list,
-                    rule_list_segment,
-                    sibling_ordinal: utils::SiblingOrdinal::from_index(sibling),
-                },
-                collector,
-                cx,
-            );
-            if ends_segment {
-                rule_list_segment = collector.allocate_rule_list_segment();
-            }
-        }
-    }
-
-    fn minify_and_collect_rule<'tree, 'ghost>(
-        &mut self,
-        rule: &'tree mut CssRule<'ast>,
-        location: utils::StructuralLocation,
-        collector: &mut utils::DeclarationBlockCollector<'tree, 'ast>,
-        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
-    ) where
-        'ast: 'tree,
-    {
-        match rule {
-            CssRule::Media(rule) => {
-                let MediaRule { query, rules, .. } = &mut **rule;
-                query.visit_mut(self, cx);
-                let parent = collector.enter_condition(utils::ConditionalFrame::Media(query));
-                self.minify_and_collect_rule_list(rules, collector, cx);
-                collector.leave_condition(parent);
-            }
-            CssRule::Style(rule) => self.minify_and_collect_style_rule(
-                rule.as_mut(),
-                utils::SelectorFrameKind::Style,
-                location,
-                collector,
-                cx,
-            ),
-            CssRule::Supports(rule) => {
-                let SupportsRule {
-                    condition, rules, ..
-                } = &mut **rule;
-                condition.visit_mut(self, cx);
-                let parent =
-                    collector.enter_condition(utils::ConditionalFrame::Supports(condition));
-                self.minify_and_collect_rule_list(rules, collector, cx);
-                collector.leave_condition(parent);
-            }
-            CssRule::MozDocument(rule) => {
-                let parent =
-                    collector.enter_opaque_condition(utils::OpaqueConditionalKind::MozDocument);
-                self.minify_and_collect_rule_list(&mut rule.rules, collector, cx);
-                collector.leave_condition(parent);
-            }
-            CssRule::Nesting(rule) => self.minify_and_collect_style_rule(
-                rule.style.as_mut(),
-                utils::SelectorFrameKind::Nesting,
-                location,
-                collector,
-                cx,
-            ),
-            CssRule::NestedDeclarations(rule) => {
-                cx.with_declaration_block(rule.declarations, |block, cx| {
-                    block.visit_mut(self, cx);
-                    self.cross_rule_declaration_ir
-                        .freeze_physical_block(rule.declarations, block);
-                });
-                collector.push_declaration_block(
-                    rule.declarations,
-                    utils::DeclarationBlockKind::NestedDeclarations,
-                    location,
-                );
-            }
-            CssRule::LayerBlock(rule) => {
-                let parent = collector.enter_opaque_condition(utils::OpaqueConditionalKind::Layer);
-                self.minify_and_collect_rule_list(&mut rule.rules, collector, cx);
-                collector.leave_condition(parent);
-            }
-            CssRule::Container(rule) => {
-                let ContainerRule {
-                    condition,
-                    name,
-                    rules,
-                    ..
-                } = &mut **rule;
-                if let Some(condition) = condition.as_mut() {
-                    condition.visit_mut(self, cx);
-                }
-                let parent = collector.enter_condition(utils::ConditionalFrame::Container {
-                    name: *name,
-                    condition: condition.as_deref(),
-                });
-                self.minify_and_collect_rule_list(rules, collector, cx);
-                collector.leave_condition(parent);
-            }
-            CssRule::Scope(rule) => {
-                if let Some(selectors) = &mut rule.scope_start {
-                    self.visit_selector_list(selectors, cx);
-                }
-                if let Some(selectors) = &mut rule.scope_end {
-                    self.visit_selector_list(selectors, cx);
-                }
-                let parent = collector.enter_opaque_condition(utils::OpaqueConditionalKind::Scope);
-                self.minify_and_collect_rule_list(&mut rule.rules, collector, cx);
-                collector.leave_condition(parent);
-            }
-            CssRule::StartingStyle(rule) => {
-                let parent =
-                    collector.enter_opaque_condition(utils::OpaqueConditionalKind::StartingStyle);
-                self.minify_and_collect_rule_list(&mut rule.rules, collector, cx);
-                collector.leave_condition(parent);
-            }
-            _ => rule.visit_mut_children(self, cx),
-        }
-    }
-
-    fn minify_and_collect_style_rule<'tree, 'ghost>(
-        &mut self,
-        rule: Pin<&'tree mut StyleRule<'ast>>,
-        kind: utils::SelectorFrameKind,
-        location: utils::StructuralLocation,
-        collector: &mut utils::DeclarationBlockCollector<'tree, 'ast>,
-        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
-    ) where
-        'ast: 'tree,
-    {
-        let (declarations, span, vendor_prefix) = {
-            let rule = rule.as_ref().get_ref();
-            (rule.declarations, rule.span, rule.vendor_prefix)
-        };
-        let (selectors, rules) = rule.selectors_and_rules_mut();
-        self.visit_selector_list(selectors, cx);
-        cx.with_declaration_block(declarations, |block, cx| {
+    ) {
+        let previous = self.cx.value_context;
+        self.cx.value_context = Default::default();
+        self.cx
+            .value_context
+            .set_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS, true);
+        if let Some(block) = &mut block {
             block.visit_mut(self, cx);
-            self.cross_rule_declaration_ir
-                .freeze_physical_block(declarations, block);
-        });
-
-        let parent = collector.enter_selector(kind, selectors, vendor_prefix);
-        collector.push_declaration_block(
-            declarations,
-            match kind {
-                utils::SelectorFrameKind::Style => utils::DeclarationBlockKind::Style {
-                    selectors,
-                    span,
-                    vendor_prefix,
-                    has_children: !rules.is_empty(),
-                    has_live_selectors: selectors.iter().any(|selector| !selector.is_tombstone()),
-                },
-                utils::SelectorFrameKind::Nesting => utils::DeclarationBlockKind::Nesting,
-            },
-            location,
-        );
-        if !rules.is_empty() {
-            self.minify_and_collect_rule_list(rules, collector, cx);
         }
-        collector.leave_selector(parent);
+        prelude.visit_mut(self, cx);
+        prelude.minify(&mut self.cx);
+        if let Some(block) = block {
+            block.minify(&mut self.cx);
+        }
+        self.cx.value_context = previous;
     }
 }
 
@@ -353,15 +286,6 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         }
     }
 
-    fn visit_declaration_block(
-        &mut self,
-        node: &mut DeclarationBlock<'ast>,
-        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
-    ) {
-        node.visit_mut_children(self, cx);
-        self.declaration_blocks.minify(node, &mut self.cx);
-    }
-
     fn visit_keyframe_selector(
         &mut self,
         node: &mut KeyframeSelector,
@@ -380,33 +304,23 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         node.minify(&mut self.cx);
     }
 
-    fn visit_unparsed_property(
+    fn visit_font_weight(
         &mut self,
-        node: &mut UnparsedProperty<'ast>,
+        node: &mut FontWeight,
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
-        if matches!(
-            node.reason,
-            UnparsedPropertyReason::UnknownProperty | UnparsedPropertyReason::InvalidValue
-        ) {
-            return;
-        }
-        let previous = self.cx.value_context;
-        self.cx.value_context = properties::value_context(
-            &node.property_id,
-            self.cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any),
-            self.cx
-                .is_enabled(Options::CONVERT_ZERO_PERCENTAGES, OptionsOp::Any),
-        );
-        if matches!(node.reason, UnparsedPropertyReason::UnsupportedGrammar) {
-            node.visit_mut_children(self, cx);
-        } else {
-            self.cx
-                .value_context
-                .set_enabled(context::ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
-        }
+        node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
-        self.cx.value_context = previous;
+    }
+
+    fn visit_unparsed_property(
+        &mut self,
+        _node: &mut UnparsedProperty<'ast>,
+        _cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
+        // Every unparsed declaration is a lossless minification barrier. The
+        // parser retained it because semantic validation was not possible, so
+        // even token-level transforms could change authored behavior.
     }
 
     fn visit_custom_property(
@@ -524,21 +438,6 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     ) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
-    }
-
-    fn visit_unknown_at_rule(
-        &mut self,
-        node: &mut UnknownAtRule<'ast>,
-        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
-    ) {
-        let previous = self.cx.value_context;
-        self.cx.value_context = Default::default();
-        self.cx
-            .value_context
-            .set_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS, true);
-        node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
-        self.cx.value_context = previous;
     }
 
     fn visit_token_or_value(

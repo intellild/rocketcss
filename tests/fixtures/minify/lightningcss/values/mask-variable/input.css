@@ -1,0 +1,4 @@
+.foo {
+  mask: none center / 100% no-repeat;
+  mask-image: var(--svg);
+}

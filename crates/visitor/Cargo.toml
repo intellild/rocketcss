@@ -11,6 +11,7 @@ version               = "0.1.0"
 [dependencies]
 rocketcss_ast    = { workspace = true }
 rocketcss_common = { workspace = true }
+rustc-hash       = { workspace = true }
 
 [dev-dependencies]
 rocketcss_parser = { workspace = true }

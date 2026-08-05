@@ -15,13 +15,20 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
         )
         .unwrap();
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let CssRule::Style(rule) = &stylesheet.rules[0] else {
+        let radix_ast::CssRulePayload::Style(rule) = stylesheet
+            .rule(first_rule_id(&stylesheet))
+            .expect("the style rule remains valid")
+            .payload()
+        else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().get_ref();
-        assert!(matches!(rule.selectors[0], Selector::Parsed(_)));
-        assert!(matches!(rule.selectors[1], Selector::Tombstone));
-        assert!(matches!(rule.selectors[2], Selector::Parsed(_)));
+        let selectors = stylesheet
+            .selector_value(rule.selector_value)
+            .expect("the style selector remains valid")
+            .selectors();
+        assert!(matches!(selectors[0], Selector::Parsed(_)));
+        assert!(matches!(selectors[1], Selector::Tombstone));
+        assert!(matches!(selectors[2], Selector::Parsed(_)));
         assert_eq!(stats.values_normalized, 1);
         assert_eq!(
             stylesheet

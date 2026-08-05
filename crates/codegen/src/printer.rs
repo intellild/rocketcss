@@ -1,6 +1,8 @@
-use std::fmt::{self, Write};
+use std::{
+    fmt::{self, Write},
+    marker::PhantomData,
+};
 
-use rocketcss_ast::{DeclarationBlock, DeclarationBlockId, DeclarationBlockStore};
 use rocketcss_common::GhostToken;
 
 /// Options controlling CSS serialization.
@@ -324,7 +326,7 @@ impl<W: Write> PrinterTrait for Printer<'_, W> {
 #[derive(Clone, Copy)]
 pub struct ToCssContext<'token, 'ast, 'ghost> {
     token: &'token GhostToken<'ghost>,
-    declaration_blocks: Option<&'token DeclarationBlockStore<'ast>>,
+    ast: PhantomData<&'ast ()>,
 }
 
 impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
@@ -332,31 +334,13 @@ impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
     pub const fn new(token: &'token GhostToken<'ghost>) -> Self {
         Self {
             token,
-            declaration_blocks: None,
-        }
-    }
-
-    #[inline]
-    pub const fn new_with_declaration_blocks(
-        token: &'token GhostToken<'ghost>,
-        declaration_blocks: &'token DeclarationBlockStore<'ast>,
-    ) -> Self {
-        Self {
-            token,
-            declaration_blocks: Some(declaration_blocks),
+            ast: PhantomData,
         }
     }
 
     #[inline]
     pub const fn token(&self) -> &'token GhostToken<'ghost> {
         self.token
-    }
-
-    #[inline]
-    pub fn declaration_block(&self, id: DeclarationBlockId) -> &DeclarationBlock<'ast> {
-        self.declaration_blocks
-            .expect("declaration block store is unavailable")
-            .get(id)
     }
 }
 

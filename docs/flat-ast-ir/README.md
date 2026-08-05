@@ -1,80 +1,121 @@
-# Flat source-order AST IR
+# Radix source-order AST IR
 
 ## Status
 
-This directory defines the target physical representation for RocketCSS's CSS
-AST. It replaces the current tree of boxed and arena-allocated nodes with dense
-stores and source-order tapes addressed by compact `u32` IDs.
+This directory defines the target physical AST representation built on
+`rocketcss_common::RadixIndexArena`. It supersedes the earlier global B+ tree
+design.
 
-The semantic CSS tree still exists. Parent, sibling, and subtree metadata encode
-that tree without making Rust ownership reproduce it. A formatted stylesheet
-with one property per line is a useful mental model: parsing appends syntax and
-properties in lexical order, while IDs and ranges recover structure.
+The workload is parse-first and insert-rare. Authored nodes stay in one dense
+primary vector. A structural transform inserts rare nodes into a two-level
+radix sequence owned by the preceding primary node. Stable compact IDs encode
+both authored position and local insertion order.
 
-This is a storage design, not permission to change CSS semantics. Parsing,
-minification, visitors, and code generation must preserve lossless syntax,
-cascade order, nesting, fallback chains, and source locations.
+This is a storage design, not a change to CSS semantics. Selector
+compatibility, cascade order, nesting, fallback order, source locations, and
+lossless output remain governed by the AST and S1-S5 semantic documents.
 
 ## Documents
 
-- [Storage layout](./storage-layout.md) specifies dense stores, source-order
-  allocation, tree topology, declaration ranges, and allocator removal.
-- [Effective keys](./effective-key.md) specifies canonical context identities
-  stored with declaration occurrences.
-- [Minification and reification](./minify-and-reification.md) maps the S1-S5
-  cross-rule merge design onto the flat representation.
+- [Storage layout](./storage-layout.md) defines the three compiler-owned
+  arenas, range references, level-order rule allocation, and AST-owned
+  effective keys.
+- [Radix index arena](./radix-index-arena.md) defines the primary/sibling
+  sequence, lookup, insertion, iteration, and overflow rules.
+- [ID encoding](./declaration-id-encoding.md) defines the `19 | 10 | 2` layout
+  and the typed rule/block/declaration IDs over one encoding.
+- [Effective keys](./effective-key.md) defines how parser context and canonical
+  selectors produce the key stored on each declaration block.
+- [Minification and commit](./minify-and-reification.md) describes how Nano
+  operates directly on the AST without rebuilding a flat block table or a
+  separate semantic-order domain.
 
-The cross-rule algorithm remains specified in
+The semantic validity of cross-rule transforms remains specified in
 [Cross-rule declaration merging](../cross-rule-declaration-merging/overall.md).
-Those documents describe semantic states; this directory defines their target
-physical storage.
 
 ## Target pipeline
 
 ```text
 Compiler::parse
-  append source-order syntax nodes and typed payloads
+  append authored rules level by level and blocks in source order
+  build children and declaration ranges over the three RadixIndexArena stores
+  intern wrapper/context paths while parsing
+  write EffectiveKey seed directly on each DeclarationBlock
        ↓
-  append every property to one declaration tape in lexical order
+rule-local minify
+  canonicalize selectors
+  finalize or replace DeclarationBlock.effective_key in place
        ↓
-  finalize selector/context IDs and declaration-block headers
+cross-rule minify
+  iterate rule/block stores in RadixIndexId order
+  use DeclarationBlockId as identity and source-order key
+  insert synthesized nodes into local sibling Radix trees
+  extend ranges and enqueue only edges and histories affected by each edit
        ↓
-local minify
-  replace payload IDs or tombstone slots; do not move live source occurrences
-       ↓
-S1/S2/S3/S4
-  operate on IDs, ranges, live links, effects, and rewrite plans
-       ↓
-S5
-  rebuild compact tapes in final semantic order
+terminal cleanup
+  verify queues are stable and discard merge-only sidecars
+  optionally compact tombstones when measurement justifies it
        ↓
 code generation
-  scan compact syntax and declaration tapes
+  walk children ranges recursively and stream primary slices and sibling
+  Radix segments in semantic order
 ```
+
+There is no production `walk_declaration_blocks` prepass, transient
+`Vec<DeclarationBlockEntry>`, minify-time EffectiveKey reconstruction,
+variable-length `SemanticOrderKey`, or mandatory full-store S5 rebuild.
 
 ## Decisions
 
-1. Every stable AST entity is addressed by a typed dense ID. An ID identifies
-   a store slot, not a memory address.
-2. Authored rule and property allocation order is lexical source order.
-3. Tree relationships are explicit metadata, not Rust pointer ownership.
-4. A declaration block is a header over a range in the global declaration
-   tape. Importance and liveness use compact sidecar storage.
-5. Effective selector and conditional identities are canonical dense IDs.
-6. Structural rewrites are planned and committed by reification; appending a
-   synthesized node does not determine its semantic output position.
-7. `rocketcss_common::boxed::Box`, `rocketcss_common::Allocator`, and the
-   allocator argument to `Compiler` have no role in the target representation
-   and are removed after all owning nodes migrate.
+1. There are exactly three node arenas: `RadixIndexArena<CssRule>`,
+   `RadixIndexArena<DeclarationBlock>`, and
+   `RadixIndexArena<DeclarationProperty>`. No other node collection exists.
+2. A list is a range reference: `start` ID + `len`, a two-word window over one
+   arena. The arena is the sequence; the range is the window.
+3. Rules allocate in per-list order, level by level, so every rule's direct
+   children form one contiguous primary range. Declaration blocks and their
+   properties are single-range sequences by construction.
+4. Rare local insertions use sparse sibling Radix trees stored separately from
+   primary values.
+5. Compact base IDs are `0 + 19-bit primary | 10-bit sibling | 2 reserved`;
+   overflow base IDs are `1 + 29-bit dense index | 2 reserved`. The reserved
+   bits are always zero for AST node IDs.
+6. Numeric base-ID order and `RadixIndexArena::semantic_iter` order are the
+   authoritative semantic order inside one store; a range is a window in that
+   order.
+7. Direct sibling adjacency equals arena adjacency inside one range; there is
+   no first/last/previous/next linked-list topology.
+8. `EffectiveKeyId` is AST data owned by `DeclarationBlock`, not Nano discovery
+   data.
+9. S1/S3 insertions allocate a local sibling ID immediately, so newly exposed
+   candidates can reference stable AST IDs without rebuilding the stylesheet.
+10. Nano sidecars contain only transform state such as liveness, history links,
+    summaries, revisions, and queue membership.
+11. Exhausting the compact primary prefix continues in the dense overflow
+    tail. Exhausting a local sibling skips the optional structural transform;
+    valid CSS never depends on a debug assertion or panic.
+
+## Removed target abstractions
+
+The Radix design makes these earlier target abstractions unnecessary:
+
+- global B+ stores and page aggregates;
+- `SemanticOrderKey`, `SemanticSourceOrderKey`, and a source-order heap;
+- a recursive AST walk that reconstructs `(block, EffectiveKey)` entries;
+- a second flat block identity distinct from `DeclarationBlockId`;
+- a logical-only synthesized rule that waits for a complete S5 store rebuild;
+- declaration-block owner reconstruction through raw references;
+- linked-list rule topology and source-order chains;
+- the tri-state declaration list (`Range`/`Local4`/`Overflow`) and the local
+  property sub-ID bits; and
+- mandatory terminal copying solely to restore semantic order.
 
 ## Deliberate boundaries
 
-- The first version does not interpret at-rule equivalence. Unsupported or
-  unmodeled wrappers contribute an opaque occurrence ID to the context.
-- Flattening storage does not flatten CSS nesting semantics.
-- It is not yet decided whether every selector component deserves its own ID.
-  A component tape plus ranges may have better locality than per-component
-  indirection and must be benchmarked.
-- `StringPool` becomes an owned compiler store; it must not require the old
-  allocator. A future pass may independently introduce measured scratch
-  storage, but that is not a reason to preserve the current allocator API.
+- This branch does not interpret unsupported at-rule semantics. Opaque wrapper
+  occurrences remain distinct context frames.
+- Flattened storage does not flatten native CSS nesting semantics.
+- Fingerprints and hashes only select interner candidates; exact equality is
+  still authoritative.
+- Selector component storage remains a separate benchmark decision.
+- Arena addresses stabilize payloads but are not semantic IDs.

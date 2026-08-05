@@ -9,6 +9,7 @@ pub struct MinifyStats {
     pub declarations_removed: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum PropertyContext {
     Animation,

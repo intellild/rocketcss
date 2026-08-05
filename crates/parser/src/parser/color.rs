@@ -1,4 +1,4 @@
-use super::values::collect_tokens;
+use super::values::{collect_tokens, token_values_contain_opaque};
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for CssColor<'i> {
@@ -19,6 +19,9 @@ impl<'i> Parse<'i> for CssColor<'i> {
                 let allocator = input.allocator();
                 let arguments =
                     input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+                if token_values_contain_opaque(&arguments) {
+                    return Err(location.new_custom_error(ParserError::InvalidValue));
+                }
                 let mut function = Function::new(name, arguments);
                 if matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
                     if !is_supported_rgb_function(&function) {

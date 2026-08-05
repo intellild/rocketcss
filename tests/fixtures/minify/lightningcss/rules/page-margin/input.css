@@ -1,0 +1,4 @@
+@page LandscapeTable:first {
+  margin: 1in;
+  @bottom-left { margin: 10pt; }
+}

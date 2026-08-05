@@ -13,3 +13,11 @@ allocator-api2 = { workspace = true }
 bumpalo        = { workspace = true, features = ["allocator-api2"] }
 hashbrown      = { workspace = true }
 rustc-hash     = { workspace = true }
+
+[dev-dependencies]
+divan    = { workspace = true }
+mimalloc = { workspace = true }
+
+[[bench]]
+harness = false
+name    = "btree_index_arena"

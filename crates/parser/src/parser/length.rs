@@ -1,4 +1,4 @@
-use super::values::collect_tokens;
+use super::values::{collect_tokens, token_values_contain_opaque};
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for Length<'i> {
@@ -72,6 +72,9 @@ impl<'i> Parse<'i> for Size<'i> {
             ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
                 let arguments =
                     input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+                if token_values_contain_opaque(&arguments) {
+                    return Err(input.new_custom_error(ParserError::InvalidValue));
+                }
                 Ok(Size::MathFunction(
                     allocator.boxed(Function::new(name, arguments)),
                 ))
@@ -134,6 +137,9 @@ impl<'i> Parse<'i> for MaxSize<'i> {
             ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
                 let arguments =
                     input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+                if token_values_contain_opaque(&arguments) {
+                    return Err(input.new_custom_error(ParserError::InvalidValue));
+                }
                 Ok(Self::MathFunction(
                     allocator.boxed(Function::new(name, arguments)),
                 ))

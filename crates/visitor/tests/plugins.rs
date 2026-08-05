@@ -7,18 +7,24 @@ struct Rename<'a> {
     to: Atom<'a>,
 }
 
-impl<'a, 'ghost> VisitorMut<'a, 'ghost> for Rename<'a> {
-    fn visit_selector_component(
+impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for Rename<'a> {
+    fn visit_selector_value(
         &mut self,
-        component: &mut SelectorComponent<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+        _id: rocketcss_ast::radix_ast::SelectorValueId,
+        selectors: &mut SelectorList<'a>,
     ) {
-        if let SelectorComponent::Class(name) = component
-            && *name == self.from
-        {
-            *name = self.to;
+        for selector in selectors {
+            let Selector::Parsed(components) = selector else {
+                continue;
+            };
+            for component in components {
+                if let SelectorComponent::Class(name) = component
+                    && *name == self.from
+                {
+                    *name = self.to;
+                }
+            }
         }
-        component.visit_mut_children(self, cx);
     }
 }
 
@@ -82,12 +88,20 @@ fn plugins_run_in_registration_order_and_share_context() {
             context.get::<std::vec::Vec<&str>>().unwrap(),
             &["one", "two"]
         );
-        let CssRule::Style(rule) = &sheet.rules[0] else {
+        let (_, rule) = sheet
+            .rules_in_list(sheet.stylesheet().root_rules())
+            .unwrap()
+            .next()
+            .unwrap();
+        let rocketcss_ast::radix_ast::CssRulePayload::Style(rule) = rule.payload() else {
             panic!("expected style rule")
         };
-        let rule = rule.as_ref().get_ref();
+        let selectors = sheet
+            .selector_value(rule.selector_value)
+            .expect("the selector value remains valid")
+            .selectors();
         assert!(matches!(
-            rule.selectors[0][0],
+            selectors[0][0],
             SelectorComponent::Class(name) if name == "last"
         ));
     });
@@ -142,5 +156,84 @@ fn plugin_errors_include_the_plugin_name() {
             error.to_string(),
             "plugin `failing` failed: expected failure"
         );
+    });
+}
+
+struct RecordRadixPlugin(&'static str);
+
+impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordRadixPlugin {
+    fn name(&self) -> &str {
+        self.0
+    }
+
+    fn transform(
+        &mut self,
+        _compilation: &mut Compilation<'a>,
+        context: &mut PluginContext<'a, '_, 'ghost>,
+    ) -> Result<(), BoxError> {
+        context
+            .get_mut::<std::vec::Vec<&'static str>>()
+            .unwrap()
+            .push(self.0);
+        Ok(())
+    }
+}
+
+struct TombstoneProperties;
+
+impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for TombstoneProperties {
+    fn visit_declaration(
+        &mut self,
+        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'a>,
+        declaration: rocketcss_ast::radix_ast::DeclarationId,
+        cx: &mut rocketcss_ast::radix_ast::CompilationVisitMutContext<'_, 'a>,
+    ) {
+        cx.replace_property_declaration(block, declaration, Declaration::Tombstone)
+            .unwrap();
+    }
+}
+
+#[test]
+fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut compilation = rocketcss_parser::Compiler::new(&allocator)
+            .parse(
+                "a{color:red}",
+                &mut token,
+                rocketcss_parser::ParserOptions::default(),
+            )
+            .unwrap();
+        let mut context = PluginContext::new(&allocator, &mut token);
+        context.insert(std::vec::Vec::<&'static str>::new());
+        let mut plugins = Plugins::new();
+        plugins.add(RecordRadixPlugin("one"));
+        plugins.add_visitor("tombstone-properties", TombstoneProperties);
+        plugins.add(RecordRadixPlugin("two"));
+
+        plugins.run(&mut compilation, &mut context).unwrap();
+
+        assert_eq!(
+            context.get::<std::vec::Vec<&str>>().unwrap(),
+            &["one", "two"]
+        );
+        let block = compilation
+            .rules_in_list(compilation.stylesheet().root_rules())
+            .unwrap()
+            .next()
+            .unwrap()
+            .1
+            .declaration_block()
+            .unwrap();
+        assert!(matches!(
+            compilation
+                .declarations_in_block(block)
+                .unwrap()
+                .next()
+                .unwrap()
+                .payload(),
+            rocketcss_ast::radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+        ));
+        assert_eq!(compilation.validate_ast(), Ok(()));
     });
 }

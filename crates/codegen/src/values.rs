@@ -22,6 +22,7 @@ keyword_values! {
     BackgroundAttachment,
     BackgroundClip,
     BackgroundOrigin,
+    ObjectFit,
     DisplayKeyword,
     DisplayOutside,
     Visibility,
@@ -87,6 +88,11 @@ keyword_values! {
     CursorKeyword,
     CaretShape,
     UserSelect,
+    PointerEvents,
+    Float,
+    Clear,
+    TouchAction,
+    ScrollBehavior,
     SymbolsType,
     PredefinedCounterStyle,
     ListStylePosition,
@@ -109,6 +115,33 @@ keyword_values! {
     ContainerType,
     PrintColorAdjust,
     CSSWideKeyword,
+}
+
+impl<'ghost> ToCss<'ghost> for ScrollbarColor<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result {
+        match self {
+            Self::Auto => dest.write_str("auto"),
+            Self::Colors(first, second) => {
+                first.to_css(dest, cx)?;
+                dest.write_char(' ')?;
+                second.to_css(dest, cx)
+            }
+        }
+    }
+}
+
+impl<'ghost> ToCss<'ghost> for Content<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result {
+        crate::token::write_token_list(&self.value, dest, cx)
+    }
 }
 
 impl<'ghost> ToCss<'ghost> for Image<'_> {
@@ -163,8 +196,13 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                 } else {
                     "linear-gradient("
                 })?;
-                direction.to_css(dest, _cx)?;
-                dest.delim(Delimiter::Comma)?;
+                if !matches!(
+                    direction,
+                    LineDirection::Vertical(VerticalPositionKeyword::Bottom)
+                ) {
+                    direction.to_css(dest, _cx)?;
+                    dest.delim(Delimiter::Comma)?;
+                }
                 write_gradient_items(items, dest, _cx)?;
                 dest.write_char(')')
             }

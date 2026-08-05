@@ -4,14 +4,27 @@ use super::{
 };
 use crate::prelude::*;
 
+mod alignment;
 mod animation;
 mod background;
+mod border;
 mod box_model;
+mod flex;
 mod font;
+mod image;
+mod mask;
 mod multicol;
+mod svg;
+mod text;
+mod transform;
+mod ui;
 
-pub(super) use animation::{parse_animation_list, parse_comma_separated, value_contains_comment};
+pub(super) use animation::{
+    parse_animation_list, parse_comma_separated, parse_transition_property_list,
+    value_contains_comment,
+};
 pub(super) use font::parse_font_family_list;
+pub(super) use transform::parse_transform_list;
 
 pub(super) fn single_token<'a, 'i>(value: &'a [TokenOrValue<'i>]) -> Option<&'a ValueToken<'i>> {
     if let [TokenOrValue::Token(token)] = value {
@@ -19,6 +32,21 @@ pub(super) fn single_token<'a, 'i>(value: &'a [TokenOrValue<'i>]) -> Option<&'a 
     } else {
         None
     }
+}
+
+pub(super) fn token_values_contain_opaque(values: &[TokenOrValue<'_>]) -> bool {
+    values.iter().any(|value| match value {
+        TokenOrValue::Token(token) => matches!(**token, ValueToken::Comment(_)),
+        TokenOrValue::Var(_) | TokenOrValue::Env(_) => true,
+        TokenOrValue::Function(function) => {
+            function.kind().is_variable()
+                || function
+                    .arguments
+                    .iter()
+                    .any(|argument| token_values_contain_opaque(std::slice::from_ref(argument)))
+        }
+        _ => false,
+    })
 }
 
 pub(super) fn collect_tokens<'i>(

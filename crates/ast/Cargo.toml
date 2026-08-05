@@ -12,3 +12,5 @@ version               = "0.1.0"
 bitflags         = { workspace = true }
 rocketcss_common = { workspace = true }
 rocketcss_macros = { workspace = true }
+rustc-hash       = { workspace = true }
+smallvec         = { workspace = true }

@@ -10,10 +10,10 @@
   history and occurrence states, edit results, and examples.
 - [S3: selector partial factoring](./s3-selector-partial-factoring.md): S3
   candidate states, atomic commit outputs, and examples.
-- [S4: AST reification planning](./s4-ast-reification-planning.md): S4
-  retention and representation states, plan outputs, and examples.
-- [S5: AST reification commit](./s5-ast-reification-commit.md): S5 plan input,
-  AST output, commit ordering, and examples.
+- [S4: lossless representation planning](./s4-ast-reification-planning.md):
+  declaration representation states, plan outputs, and examples.
+- [S5: terminal commit and cleanup](./s5-ast-reification-commit.md): deferred
+  representation commit, validation, cleanup, and examples.
 - [Non-goals](./non-goal.md): deliberately unsupported transformations and
   deferred implementation choices.
 - [Detailed state machine](./detailed-state-machine.md): state ownership,
@@ -22,8 +22,8 @@
   algorithms.
 - [Performance](./performance.md): measured regressions, retained optimizations,
   and future hot-path work.
-- [Flat source-order AST IR](../flat-ast-ir/README.md): target dense storage,
-  source-order allocation, effective-key IDs, and S5 compaction.
+- [Radix source-order AST IR](../flat-ast-ir/README.md): target storage,
+  stable source-order IDs, AST-owned effective keys, and direct local commit.
 
 ## Status
 
@@ -31,25 +31,23 @@ This is a correctness-first design for merging and pruning declarations across
 style rules. Runtime, allocation, hashing, and final representation
 profitability optimizations are intentionally deferred.
 
-The pass operates after selector minification and canonicalization. It builds a
-semantic declaration-effect IR, runs the merge state machine over that IR, and
-then reifies the stable result into the stylesheet's physical representation
-before minification returns. The current implementation still targets a nested
-arena AST; the target representation is the
-[flat source-order AST IR](../flat-ast-ir/README.md). Code generation is not
-part of the minify pipeline: it receives only committed AST state and does not
-consume merge state or declaration-effect IR.
+The pass operates after selector minification and canonicalization. It builds
+declaration-effect summaries, runs the merge state machine, and commits each
+proven local structural edit into the target
+[Radix source-order AST](../flat-ast-ir/README.md). Code generation is not part
+of the minify pipeline: it receives committed AST state and does not consume
+merge state or declaration-effect IR.
 
 ```text
-stylesheet representation
--> discovery and declaration-effect IR
+Radix AST with block-owned EffectiveKeyId
+-> store iteration and declaration-effect summaries
 -> S1/S2/S3 semantic fixed point
--> S4 reification plan
--> S5 compacting commit
--> minify returns the rewritten flat IR
+-> S4 lossless representation choices
+-> S5 terminal cleanup
+-> minify returns the rewritten Radix AST
 
 later:
-rewritten flat IR -> code generation
+rewritten Radix AST -> code generation
 ```
 
 ## Goals
@@ -69,8 +67,26 @@ The pass should:
 7. remove nodes that become logically empty without losing opaque or retained
    descendants;
 8. reach an idempotent fixed point without changing cascade behavior; and
-9. reify the stable semantic result into a lossless AST representation before
-   code generation can observe it.
+9. leave every committed semantic result in a lossless AST representation
+   before code generation can observe it.
+
+## Target physical binding
+
+The semantic model below is intentionally richer than the physical AST. In the
+target implementation:
+
+- `RuleId` and `DeclarationBlockId` are typed `RadixIndexId` values;
+- each `DeclarationBlock` stores its `EffectiveKeyId` directly;
+- AST topology supplies parent/list/direct-sibling relationships;
+- block ID order supplies deterministic semantic source order;
+- S3 inserts a synthesized node at its final local sibling-Radix position; and
+- S5 does not rebuild complete stores merely to recover order.
+
+Consequently `SemanticOrderKey`, `SemanticSourceOrderKey`,
+`DeclarationBlockEntry`, a production `walk_declaration_blocks`, and a
+Nano-owned EffectiveKey reconstruction store are not physical target types.
+Conceptual sequences/effect histories in these documents must be implemented
+as sidecars keyed by AST IDs.
 
 Declaration order, fallback chains, importance, vendor prefixes, selector
 validity, source origin, and lossless serialization are correctness inputs. An
@@ -247,7 +263,6 @@ struct DeclarationEffectIr<'ast> {
 
 struct EffectOccurrence<'ast> {
     origin: DeclarationOccurrenceId,
-    source_order: SemanticSourceOrderKey,
     phase: CascadePhaseKey,
     effects: SmallVec<EffectEntry<'ast>>,
     expansion: EffectExpansion,
@@ -376,8 +391,8 @@ declarations may share an S2 history, but they do not form an S1/S3 edge.
 1. [**S1: same-selector coalescing**](./s1-same-selector-coalescing.md)
 2. [**S2: exact-effective-rule declaration pruning**](./s2-declaration-effect-pruning.md)
 3. [**S3: selector partial factoring**](./s3-selector-partial-factoring.md)
-4. [**S4: logical cleanup and AST reification planning**](./s4-ast-reification-planning.md)
-5. [**S5: AST reification commit**](./s5-ast-reification-commit.md)
+4. [**S4: logical cleanup and representation planning**](./s4-ast-reification-planning.md)
+5. [**S5: terminal commit and cleanup**](./s5-ast-reification-commit.md)
 
 S1 and S2 always have priority over S3 candidate commit. S3 plans may be
 discovered early, but remain speculative until all histories capable of
@@ -396,10 +411,11 @@ identities.
 
 RocketCSS keeps the right rule as the active output owner. The merge IR links
 the left declaration sequence before the right sequence, and the left endpoint
-is retired from adjacency. In the target flat IR, physically adjacent
-declaration ranges can be coalesced directly; other sequences retain ordered
-ranges until S4/S5 compact them. `previous_merged` is only a transitional
-nested-AST encoding and is not part of the target representation:
+is retired from adjacency. In the target Radix AST, physically adjacent
+declaration ranges can be coalesced directly; other sequences use a lossless
+local or complete overflow representation. The current exact-only S1 commit
+chooses that representation atomically. Future partially-live effect work may
+defer a choice to S4. `previous_merged` has been deleted:
 
 ```text
 left declaration blocks
@@ -412,8 +428,8 @@ retain children because it remains the owner and its children stay after the
 combined declarations.
 
 Histories contain ordered declaration entries, not one entry per surviving
-style-rule owner. S1 therefore preserves the semantic source-order keys of both
-sequences.
+style-rule owner. S1 therefore preserves the ordered AST occurrence IDs of
+both sequences.
 
 ### S2: exact-effective-rule declaration pruning
 
@@ -421,8 +437,9 @@ The complete S2 history, occurrence, and output state enumeration is in
 [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md).
 
 S2 processes all declaration-effect occurrences with one exact
-`EffectiveRuleKey` in semantic source order. It only applies typed, lossless
-effect edit plans. Authored AST declarations remain origin records until S5.
+`EffectiveRuleKey` in AST ID order. It only applies typed, lossless effect edit
+plans. Authored AST declarations remain origin records through terminal
+cleanup.
 
 The incremental implementation is intentionally narrower: before effect masks
 and S4/S5 exist, it removes only an earlier declaration occurrence that is
@@ -499,16 +516,16 @@ Validity requires:
 9. a lossless S4 AST representation exists for every residual and synthesized
    effect sequence.
 
-Endpoint selector values are immutable and cannot be moved. Commit appends a
-validated selector-union payload and records its canonical value ID. During the
-current nested-AST migration this may still require arena-aware deep
-materialization; the target flat IR uses dense-store insertion instead. If
+Endpoint selector values are immutable and cannot be moved. Commit interns a
+validated selector-union payload and its EffectiveKey, then inserts the
+synthesized rule and block at their final local Radix position. During the
+current nested-AST migration this may still require an adapter. If
 materialization or validation is unavailable, S3 is disabled.
 
-### S4: logical cleanup and AST reification planning
+### S4: lossless representation planning
 
 The complete S4 retention, representation, and plan state enumeration is in
-[S4: AST reification planning](./s4-ast-reification-planning.md).
+[S4: lossless representation planning](./s4-ast-reification-planning.md).
 
 S4 incrementally plans retained sequences after their current S1-S3
 dependencies are stable. It may run more than once before the global fixed
@@ -547,33 +564,31 @@ semantic commit. S4 may choose among equivalent representations and feed
 revision or profitability changes back into the scheduler, but it cannot make
 an unrepresentable semantic state valid.
 
-### S5: AST reification commit
+### S5: terminal commit and cleanup
 
 The complete S5 plan-input and AST-output state enumeration is in
-[S5: AST reification commit](./s5-ast-reification-commit.md).
+[S5: terminal commit and cleanup](./s5-ast-reification-commit.md).
 
-S5 is the only stage that writes the stable semantic result into the final
-stylesheet representation. The target implementation allocates fresh dense
-stores and emits surviving nodes in semantic order. It consumes the complete
-S4 plan and:
+S1-S3 may already write proven local changes into the stable Radix AST. S5 is
+the one-way terminal boundary that consumes the complete S4 plan and:
 
 1. writes the planned declarations and importance bits to each active output
    owner;
 2. preserves the planned authored shorthand and fallback occurrences;
 3. materializes the planned typed longhand replacements;
-4. writes synthesized selectors and rules at their planned semantic positions;
-5. rebuilds rule topology and compact declaration ranges while dropping
-   tombstones and retired nodes; and
+4. verifies synthesized selectors and rules already occupy their committed
+   Radix positions;
+5. finishes deferred unlinking or optional tombstone compaction; and
 6. releases all merge-only sequence and retired-storage relationships.
 
 S4 representation choice may optimize size, but profitability never authorizes
 a semantic change. The S5 commit is one-way for this minify invocation and does
 not restart S1-S4.
 
-After S5, code generation serializes the resulting flat IR through its ordinary
-entry points. It does not follow merge IR, inspect effect indexes, or decide how
-shorthand effects should be materialized. No AST `Box`, AST arena allocation,
-or address-stable merge link is needed after the flat-storage migration.
+After S5, code generation serializes the resulting Radix AST through its
+ordinary entry points. It does not follow merge IR, inspect effect indexes, or
+decide how shorthand effects should be materialized. Semantic order already
+comes from the AST stores and topology.
 
 ## Candidate requirement
 
@@ -607,21 +622,21 @@ revisions. Any endpoint change invalidates and recomputes the candidate.
   neither chooses an AST representation nor moves or eagerly rewrites authored
   declarations.
 - S1 and S3 never cross a rule-list segment.
-- Histories are ordered by semantic source position, not discovery time.
+- Histories are ordered by AST occurrence ID, not discovery time.
 - Authored declaration IDs are initially allocated in lexical source order.
 - A declaration range never absorbs a live slot owned by another rule or
   nested declaration run.
 - Editing any block in a merged sequence increments its aggregate revision.
-- Every effect occurrence retains an authored or synthesized source origin until
-  S5 completes.
-- Every committed effect state has a lossless flat-IR reification path.
+- Every effect occurrence retains an authored or synthesized source origin
+  until its local removal or deferred representation commit completes.
+- Every committed effect state has a lossless AST representation path.
 - Every retained non-endpoint node prevents an edge from skipping over it.
 - S3 commit is one atomic live-graph transition.
 - Synthesized selectors are canonicalized during the same pass.
 - Dirty queues are hints; consumers revalidate current eligibility.
 - The pass stops only at a complete work-queue and history-generation fixed
   point.
-- Code generation observes only the flat representation reified by S5.
+- Code generation observes only committed live Radix AST state after S5.
 
 Implementation details and unsupported transformations are listed in
 [Non-goals](./non-goal.md). State ownership and transitions are specified in

@@ -8,8 +8,6 @@ where
 {
 }
 
-fn assert_branded_to_css<T: ToCss<'static>>() {}
-
 fn serialize_with_printer_trait<'ghost, T: ToCss<'ghost>, PrinterT: PrinterTrait>(
     value: &T,
     printer: &mut PrinterT,
@@ -21,12 +19,6 @@ fn serialize_with_printer_trait<'ghost, T: ToCss<'ghost>, PrinterT: PrinterTrait
 macro_rules! assert_types {
     ($($ty:ty),+ $(,)?) => {
         $(assert_to_css::<$ty>();)+
-    };
-}
-
-macro_rules! assert_ghost_types {
-    ($($ty:ty),+ $(,)?) => {
-        $(assert_branded_to_css::<$ty>();)+
     };
 }
 
@@ -49,7 +41,7 @@ fn every_css_ast_node_implements_to_css() {
         SyntaxComponentKind<'static>, ContainerCondition<'static>, ContainerSizeFeature<'static>,
         ContainerSizeFeatureId, StyleQuery<'static>, ScrollStateQuery<'static>,
         ScrollStateFeature<'static>, ScrollStateFeatureId, ViewTransitionProperty<'static>,
-        Navigation, DefaultAtRule, MediaList<'static>,
+        Navigation, MediaList<'static>,
         MediaQuery<'static>, LengthValue, EnvironmentVariable<'static>, Url<'static>,
         Variable<'static>, DashedIdentReference<'static>, Function<'static>, ImportRule<'static>,
         Position<'static>,
@@ -76,14 +68,10 @@ fn every_css_ast_node_implements_to_css() {
         Point<'static>, Mask<'static>, MaskBorder<'static>, DropShadow<'static>, Container<'static>,
         ColorScheme, UnparsedProperty<'static>, CustomProperty<'static>,
         ViewTransitionPartSelector<'static>,
-        TimelineRangePercentage, FontFaceRule<'static>, UrlSource<'static>, UnicodeRange,
-        FontPaletteValuesRule<'static>, OverrideColors<'static>, FontFeatureValuesRule<'static>,
-        FontFeatureSubrule<'static>, FontFeatureDeclaration<'static>, FamilyName<'static>,
+        TimelineRangePercentage, UrlSource<'static>, UnicodeRange,
+        OverrideColors<'static>, FontFeatureDeclaration<'static>, FamilyName<'static>,
         PageSelector<'static>, CharsetRule<'static>, NamespaceRule<'static>,
-        CustomMediaRule<'static>, LayerStatementRule<'static>,
-        PropertyRule<'static>, SyntaxComponent<'static>,
-        ViewTransitionRule<'static>,
-        UnknownAtRule<'static>,
+        CustomMediaRule<'static>, SyntaxComponent<'static>,
 
         SelectorList<'static>, Selector<'static>, SelectorComponent<'static>, Combinator,
         AttrSelector<'static>, NamespaceConstraint<'static>, AttrOperation<'static>,
@@ -138,20 +126,6 @@ fn every_css_ast_node_implements_to_css() {
         Filter<'static>, ZIndex, ContainerType, ContainerNameList<'static>,
         ViewTransitionName<'static>, NoneOrCustomIdentList<'static>, ViewTransitionGroup<'static>,
         PrintColorAdjust, CSSWideKeyword, CustomPropertyName<'static>
-    }
-
-    assert_ghost_types! {
-        CssRule<'static>, StyleSheet<'static>,
-        DeclarationBlock<'static>,
-        MediaRule<'static>, StyleRule<'static>,
-        KeyframesRule<'static>, Keyframe<'static>,
-        PageRule<'static>, PageMarginRule,
-        SupportsRule<'static>, CounterStyleRule<'static>,
-        MozDocumentRule<'static>, NestingRule<'static>,
-        NestedDeclarationsRule, ViewportRule,
-        LayerBlockRule<'static>, ContainerRule<'static>,
-        ScopeRule<'static>, StartingStyleRule<'static>,
-        PositionTryRule<'static>,
     }
 }
 

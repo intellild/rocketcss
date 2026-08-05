@@ -190,3 +190,8 @@ pub enum UnicodeBidi {
     IsolateOverride,
     Plaintext,
 }
+
+#[derive(Debug, PartialEq, Visit)]
+pub struct Content<'a> {
+    pub value: Vec<'a, TokenOrValue<'a>>,
+}

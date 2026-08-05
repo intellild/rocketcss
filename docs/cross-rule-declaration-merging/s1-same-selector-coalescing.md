@@ -6,8 +6,8 @@
 - [S1: same-selector coalescing](./s1-same-selector-coalescing.md)
 - [S2: declaration-effect pruning](./s2-declaration-effect-pruning.md)
 - [S3: selector partial factoring](./s3-selector-partial-factoring.md)
-- [S4: AST reification planning](./s4-ast-reification-planning.md)
-- [S5: AST reification commit](./s5-ast-reification-commit.md)
+- [S4: lossless representation planning](./s4-ast-reification-planning.md)
+- [S5: terminal commit and cleanup](./s5-ast-reification-commit.md)
 - [Detailed state machine](./detailed-state-machine.md)
 - [Pseudocode](./pseudo-code.md)
 - [Non-goals](./non-goal.md)
@@ -96,7 +96,7 @@ left.live_effect_count  = sum of live effects in left.blocks
 right.live_effect_count = sum of live effects in right.blocks
 ```
 
-Every block keeps its original `SemanticSourceOrderKey` and history entry.
+Every block keeps its original AST occurrence ID and history entry.
 S1 must not collapse the sequence into one property map or one synthetic
 history occurrence.
 
@@ -115,15 +115,15 @@ right.leading_sequence = combined
 
 The output states are:
 
-| State component    | Before                                                     | After                                                |
-| ------------------ | ---------------------------------------------------------- | ---------------------------------------------------- |
-| Live endpoints     | `left`, `right`                                            | `right` only                                         |
-| Output owner       | `left` and `right` separately                              | `right`                                              |
-| Declaration order  | Left block order, then right block order in the stylesheet | One sequence with the same order                     |
-| Live effect count  | One aggregate per endpoint                                 | Exact sum of both sequence aggregates                |
-| History membership | One entry per original block                               | Unchanged                                            |
-| Sequence revision  | Revisions of two sequences                                 | New incremented aggregate revision                   |
-| AST                | Two authored rules                                         | Unchanged until [S5](./s5-ast-reification-commit.md) |
+| State component    | Before                                                     | After                                     |
+| ------------------ | ---------------------------------------------------------- | ----------------------------------------- |
+| Live endpoints     | `left`, `right`                                            | `right` only                              |
+| Output owner       | `left` and `right` separately                              | `right`                                   |
+| Declaration order  | Left block order, then right block order in the stylesheet | One sequence with the same order          |
+| Live effect count  | One aggregate per endpoint                                 | Exact sum of both sequence aggregates     |
+| History membership | One entry per original block                               | Unchanged                                 |
+| Sequence revision  | Revisions of two sequences                                 | New incremented aggregate revision        |
+| AST topology       | Two live authored rules                                    | Left retired/unlinked; right remains live |
 
 The local live chain changes atomically:
 
@@ -171,9 +171,9 @@ rule#2 = Live, active_output_owner
 sequence#3 = [color: red] -> [background: white]
 ```
 
-The AST still contains both authored rules at this point. S4 later decides how
-`sequence#3` is represented, and S5 writes the decision. A possible final AST
-is:
+The Radix store may retain the left rule as a tombstone, but live topology
+already contains only the right owner. S4 decides how `sequence#3` is
+represented, and S5 finishes deferred declaration storage. The output is:
 
 ```css
 a {
@@ -365,19 +365,18 @@ See [S3 candidate invalidation](./s3-selector-partial-factoring.md#candidate-inv
 
 ### Effect on S4
 
-S1 creates a retired syntax node and one active output owner. Physically
+S1 retires/unlinks one syntax node and keeps one active output owner. Physically
 adjacent declaration ranges may be coalesced immediately. If their physical gap
 contains any live foreign declaration, including one from a nested child, S1
-must retain an ordered multi-range sequence until S5. S4 assigns the complete
-sequence to the right owner and plans removal of the retired shell only after
-no plan depends on its storage. See
+uses a lossless sequence/overflow representation. S4 assigns the complete
+sequence to the right owner and plans remaining storage cleanup only after no
+plan depends on it. See
 [S4 sequence representation states](./s4-ast-reification-planning.md#sequence-representation-states).
 
 ### Effect on S5
 
-S5 writes the combined declaration representation to the right output owner,
-removes the retired left rule while compacting the flat tapes, and clears the
-merge-only storage relationship. See
+S5 finishes any deferred declaration representation, clears the retired
+relationship, and optionally compacts tombstones. See
 [S5 ownership commit](./s5-ast-reification-commit.md#ownership-and-storage-output).
 
 ## Invariants
@@ -387,7 +386,7 @@ merge-only storage relationship. See
 - Effective rule keys and emission identities use exact equality.
 - The left endpoint has no retained child content.
 - The right endpoint is the active output owner.
-- Declaration blocks and source-order keys retain their original order.
+- Declaration blocks and AST occurrence IDs retain their original order.
 - A physical range is widened only across adjacent slots or a gap proven to
   contain tombstones exclusively.
 - Live declarations owned by descendants or neighboring rules are never

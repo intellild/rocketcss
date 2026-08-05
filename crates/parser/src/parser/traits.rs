@@ -17,6 +17,7 @@ pub enum ParserError<'i> {
     UnexpectedNamespaceRule,
     UnexpectedToken(TokenAndSpan),
     MaximumNestingDepth,
+    AstCapacityExceeded,
 }
 
 impl fmt::Display for ParserError<'_> {
@@ -35,6 +36,7 @@ impl fmt::Display for ParserError<'_> {
             ),
             Self::UnexpectedToken(token) => write!(formatter, "unexpected token: {token:?}"),
             Self::MaximumNestingDepth => formatter.write_str("maximum nesting depth exceeded"),
+            Self::AstCapacityExceeded => formatter.write_str("AST compact ID capacity exceeded"),
         }
     }
 }

@@ -48,41 +48,6 @@ fn processed_bytes(case: BenchCase) -> BytesCount {
     BytesCount::new(case.source.len() * case.pipeline_iterations)
 }
 
-const EXHAUSTED_S3_ENDPOINT_CHAIN: &str = concat!(
-    ".r00{opacity:.5}",
-    ".r01{opacity:.5}",
-    ".r02{opacity:.5}",
-    ".r03{opacity:.5}",
-    ".r04{opacity:.5}",
-    ".r05{opacity:.5}",
-    ".r06{opacity:.5}",
-    ".r07{opacity:.5}",
-    ".r08{opacity:.5}",
-    ".r09{opacity:.5}",
-    ".r10{opacity:.5}",
-    ".r11{opacity:.5}",
-    ".r12{opacity:.5}",
-    ".r13{opacity:.5}",
-    ".r14{opacity:.5}",
-    ".r15{opacity:.5}",
-    ".r16{opacity:.5}",
-    ".r17{opacity:.5}",
-    ".r18{opacity:.5}",
-    ".r19{opacity:.5}",
-    ".r20{opacity:.5}",
-    ".r21{opacity:.5}",
-    ".r22{opacity:.5}",
-    ".r23{opacity:.5}",
-    ".r24{opacity:.5}",
-    ".r25{opacity:.5}",
-    ".r26{opacity:.5}",
-    ".r27{opacity:.5}",
-    ".r28{opacity:.5}",
-    ".r29{opacity:.5}",
-    ".r30{opacity:.5}",
-    ".r31{opacity:.5}",
-);
-
 #[divan::bench(args = BENCH_CASES)]
 fn parse(bencher: Bencher<'_, '_>, case: BenchCase) {
     bencher.counter(processed_bytes(case)).bench_local(|| {
@@ -126,25 +91,6 @@ fn minify(bencher: Bencher<'_, '_>, case: BenchCase) {
                         rocketcss_nano::MinifyOptions::default(),
                     ));
                 }
-            });
-    });
-}
-
-#[divan::bench]
-fn minify_exhausted_s3_endpoint_chain(bencher: Bencher<'_, '_>) {
-    rocketcss_common::GhostToken::scope(|token| {
-        let token = RefCell::new(token);
-        bencher
-            .counter(BytesCount::new(EXHAUSTED_S3_ENDPOINT_CHAIN.len()))
-            .with_inputs(|| {
-                ParsedStyleSheet::new(EXHAUSTED_S3_ENDPOINT_CHAIN, &mut token.borrow_mut())
-            })
-            .bench_local_values(|mut input| {
-                black_box(rocketcss_nano::minify(
-                    &mut input.stylesheet,
-                    &mut token.borrow_mut(),
-                    rocketcss_nano::MinifyOptions::default(),
-                ));
             });
     });
 }
