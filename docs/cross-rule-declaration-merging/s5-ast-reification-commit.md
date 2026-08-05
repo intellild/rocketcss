@@ -23,7 +23,8 @@ S5:
 - verifies topology, owners, EffectiveKeys, and Radix order;
 - clears histories, summaries, queue membership, revisions, and retired
   pass-local relationships; and
-- optionally compacts tombstones/overflow lists when measurement justifies it.
+- optionally compacts tombstones or sparse sibling storage when measurement
+  justifies it.
 
 S5 makes no semantic, selector-union, movement, compatibility, or profitability
 decision.
@@ -70,8 +71,8 @@ For each S4 plan:
 | `Mixed`        | Interleave retained origins and typed replacements exactly.      |
 | Empty          | Store an empty list; owner may remain for children.              |
 
-The final block chooses `Range`, `Local4`, or complete `Overflow` according to
-S4. S5 never lets a compact range absorb a foreign live declaration.
+The final block owns one `RadixRange` according to S4. S5 never lets a range
+absorb a declaration owned by another block.
 
 ## Structural cleanup
 
@@ -93,7 +94,7 @@ Local topology after cleanup must satisfy:
 Compaction is not required for correctness or ordering. It may:
 
 - remove declaration tombstones;
-- shrink oversized overflow lists;
+- compact sparse declaration sibling storage;
 - discard empty sparse sibling groups from lookup sidecars; or
 - merge other pass-local slack.
 

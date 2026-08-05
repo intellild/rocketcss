@@ -88,10 +88,15 @@ Codegen / Visitor / Nano
 
 ## Declarations
 
-Authored declarations form one lexical source tape. A declaration block starts
-as a contiguous `DeclarationRange`. Structural minification may replace that
-representation with `Local4` or arena-backed `Overflow` IDs when the final
-semantic sequence is no longer one authored slice.
+Declarations form one global semantic `RadixIndexArena`. Parsing appends
+primary declarations in lexical order; structural minification inserts stable
+sibling IDs at the declaration's final semantic position. Every declaration
+block therefore remains one contiguous `RadixRange`.
+
+`len == 0` is the only empty representation. Its `start_id` is an
+unresolvable placeholder; the block's semantic position comes from
+`DeclarationBlockStore` order, and the first declaration overwrites the
+placeholder with its real ID.
 
 Nested rules close the current declaration segment. Declarations that appear
 after nested rules are represented by an explicit `NestedDeclarations` rule,
@@ -102,7 +107,7 @@ Every declaration block permanently records its rule owner and effective key:
 ```rust,ignore
 struct DeclarationBlockRecord {
     owner: RuleId,
-    declarations: DeclarationList, // Range | Local4 | Overflow
+    declarations: DeclarationList, // RadixRange<DeclarationSlot>
     effective_key: EffectiveKeyId,
     revision: u32,
     live: bool,

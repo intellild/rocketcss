@@ -64,8 +64,8 @@ code generation / visitors
    returns explicit ID remaps that the AST repairs atomically.
 8. Tree mechanics are private to the AST crate. Parser, codegen, visitor, and
    Nano use semantic AST operations only.
-9. Declaration blocks own their `EffectiveKeyId` and ordered declaration
-   representation (`Range`, `Local4`, or `Overflow`).
+9. Declaration blocks own their `EffectiveKeyId` and one contiguous semantic
+   `RadixRange`; `len == 0` is the only empty representation.
 10. Valid CSS does not depend on optional local insertion capacity; exhausting
     a compact insertion namespace rejects that optimization safely.
 

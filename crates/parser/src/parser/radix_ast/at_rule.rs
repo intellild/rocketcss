@@ -613,7 +613,7 @@ fn parse_font_feature_subrules_into<'ast>(
                 depth + 1,
                 |declaration| {
                     if sink_error.is_none()
-                        && let Err(error) = compilation.append_declaration(
+                        && let Err(error) = compilation.append_authored_declaration(
                             block,
                             DeclarationPayload::FontFeature(declaration),
                             false,
@@ -744,7 +744,7 @@ fn parse_page_contents<'ast>(
                     let (segment, block) = active_segment
                         .expect("a page declaration always has an active syntax segment");
                     compilation
-                        .append_declaration(
+                        .append_authored_declaration(
                             block,
                             DeclarationPayload::Property(declaration),
                             important,
@@ -911,7 +911,7 @@ fn parse_property_rule<'ast>(
                 PropertyRuleDescriptor::InitialValue(_) => 2,
                 PropertyRuleDescriptor::Unknown(_) => 3,
             };
-            match compilation.append_declaration(
+            match compilation.append_authored_declaration(
                 block,
                 DeclarationPayload::PropertyRule(descriptor),
                 false,
@@ -973,7 +973,7 @@ fn parse_font_face_rule<'ast>(
     input.parse_nested_block(|input| {
         parse_font_face_contents_into(input, allocator, options, depth + 1, |property| {
             if sink_error.is_none()
-                && let Err(error) = compilation.append_declaration(
+                && let Err(error) = compilation.append_authored_declaration(
                     block,
                     DeclarationPayload::FontFace(property),
                     false,
@@ -1031,7 +1031,7 @@ fn parse_font_palette_values_rule<'ast>(
     input.parse_nested_block(|input| {
         parse_font_palette_contents_into(input, allocator, options, depth + 1, |property| {
             if sink_error.is_none()
-                && let Err(error) = compilation.append_declaration(
+                && let Err(error) = compilation.append_authored_declaration(
                     block,
                     DeclarationPayload::FontPaletteValues(property),
                     false,
@@ -1086,7 +1086,7 @@ fn parse_view_transition_rule<'ast>(
     input.parse_nested_block(|input| {
         parse_view_transition_contents_into(input, allocator, options, depth + 1, |property| {
             if sink_error.is_none()
-                && let Err(error) = compilation.append_declaration(
+                && let Err(error) = compilation.append_authored_declaration(
                     block,
                     DeclarationPayload::ViewTransition(property),
                     false,
@@ -1281,7 +1281,7 @@ fn parse_standard_declaration_contents<'ast>(
                 )
                 .and_then(|(declaration, important)| {
                     compilation
-                        .append_declaration(
+                        .append_authored_declaration(
                             block,
                             DeclarationPayload::Property(declaration),
                             important,

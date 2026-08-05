@@ -17,7 +17,7 @@ pub enum PropertyRuleDescriptor<'ast> {
     Unknown(Box<'ast, CustomProperty<'ast>>),
 }
 
-/// One heterogeneous occurrence in the global authored declaration tape.
+/// One heterogeneous occurrence in the global semantic declaration arena.
 #[derive(Debug, PartialEq)]
 pub enum DeclarationPayload<'ast> {
     Property(Declaration<'ast>),
@@ -80,7 +80,7 @@ pub enum CssRulePayload<'ast> {
 impl CssRulePayload<'_> {
     /// Returns whether this rule owns ordinary CSS property declarations.
     ///
-    /// Descriptor families share the physical declaration tape but keep their
+    /// Descriptor families share the physical declaration arena but keep their
     /// distinct typed visitor and minifier semantics.
     #[inline]
     pub const fn owns_property_declarations(&self) -> bool {

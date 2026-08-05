@@ -365,12 +365,11 @@ See [S3 candidate invalidation](./s3-selector-partial-factoring.md#candidate-inv
 
 ### Effect on S4
 
-S1 retires/unlinks one syntax node and keeps one active output owner. Physically
-adjacent declaration ranges may be coalesced immediately. If their physical gap
-contains any live foreign declaration, including one from a nested child, S1
-uses a lossless sequence/overflow representation. S4 assigns the complete
-sequence to the right owner and plans remaining storage cleanup only after no
-plan depends on it. See
+S1 retires/unlinks one syntax node and keeps one active output owner. Consecutive
+semantic declaration ranges are coalesced immediately by retaining the first
+start ID and summing their lengths. Bridge tombstones remain physical members
+of that range. Future moves that cannot reuse consecutive ranges require a
+stable batch-insertion plan from S4. See
 [S4 sequence representation states](./s4-ast-reification-planning.md#sequence-representation-states).
 
 ### Effect on S5

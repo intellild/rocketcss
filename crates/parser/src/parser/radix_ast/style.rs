@@ -138,7 +138,7 @@ pub(super) fn parse_mixed_style_contents<'ast>(
                         let (active_rule, active_block) = active_segment
                             .expect("a declaration always has an active syntax segment");
                         compilation
-                            .append_declaration(
+                            .append_authored_declaration(
                                 active_block,
                                 DeclarationPayload::Property(declaration),
                                 important,

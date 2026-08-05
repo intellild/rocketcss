@@ -33,30 +33,31 @@ parsing, lookup, visitors, and codegen continue normally.
 
 ## Typed identity domains
 
-Rules and declaration blocks use separate typed Radix arenas. Authored
-declarations use their own dense typed ID. The wrappers prevent accidental
-interchange even when the compact layouts match:
+Rules, declaration blocks, and declarations use separate typed Radix arenas.
+The wrappers prevent accidental interchange even when the compact layouts
+match:
 
 ```rust,ignore
 struct RuleId(RadixIndexId);
 struct DeclarationBlockId(RadixIndexId);
-struct DeclarationId(DenseId);
+struct DeclarationId(RadixIndexId);
 
 let rules: RadixIndexArena<CssRule>;
 let declaration_blocks: RadixIndexArena<DeclarationBlock>;
-let declarations: DenseStore<DeclarationId, DeclarationRecord>;
+let declarations: RadixIndexArena<DeclarationRecord>;
 ```
 
 Rules do not use a range handle. Lexical preorder plus the rule's physical
-descendant count identifies its subtree. A declaration block may reference one
-contiguous run in the authored dense tape:
+descendant count identifies its subtree. A declaration block references one
+contiguous run in declaration-arena semantic order:
 
 ```rust,ignore
-struct DeclarationRange { start: u32, len: u32 }
+struct RadixRange<T> { start_id: RadixId<T>, len: u32 }
 ```
 
-After structural edits, a block may instead use its inline `Local4` or
-arena-backed `Overflow` declaration-ID representation.
+`len == 0` denotes an empty range; its placeholder `start_id` is never
+resolved. Structural edits insert a stable batch between semantic neighbors,
+so the block stays one range and existing declaration IDs are not relabeled.
 
 ## Ordering
 
@@ -81,13 +82,13 @@ Parsing appends authored base nodes with the reserved bits zero:
 ```rust,ignore
 let rule = rules.push_primary(parsed_rule);
 let block = declaration_blocks.push_primary(parsed_block);
-let property = declarations.push(parsed_property);
+let property = declarations.push_primary(parsed_property);
 ```
 
 Structural insertion chooses a nonzero sibling key below a primary anchor:
 
 ```rust,ignore
-let inserted = declaration_blocks.insert_sibling(anchor, sibling_key, block);
+let inserted = declarations.insert_stable_range_between(after, before, values);
 ```
 
 Keys should initially leave numeric gaps when multiple synthesized siblings

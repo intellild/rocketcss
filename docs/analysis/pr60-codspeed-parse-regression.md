@@ -98,7 +98,7 @@
 ### C. 砍 append 簿记（中等收益）
 
 - `RuleRecord` 里的 `previous_in_source/next_in_source` 若只在 minify/代码生成时用，可改为**惰性重建**：parse 阶段只记 `last_rule_in_source`，minify 前一次性串链；省掉每规则 2 次 `get_mut`。
-- `append_declaration` 的 `NonContiguousDeclarationRange` 校验是 debug 语义，可 `debug_assert` 化（release 下已是纯加法，收益小）。
+- `append_authored_declaration` 的 `NonContiguousDeclarationRange` 校验是 debug 语义，可 `debug_assert` 化（release 下已是纯加法，收益小）。
 
 ### D. 验证方法
 

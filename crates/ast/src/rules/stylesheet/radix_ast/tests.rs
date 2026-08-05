@@ -6,6 +6,9 @@ use super::*;
 fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<RuleId<&str>>(), size_of::<u32>());
     assert_eq!(size_of::<Option<RuleId<&str>>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationId>(), size_of::<u32>());
+    assert_eq!(size_of::<Option<DeclarationId>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationList>(), size_of::<[u32; 2]>());
     assert_eq!(size_of::<DeclarationBlockId<&str>>(), size_of::<u32>());
     assert_eq!(
         size_of::<Option<DeclarationBlockId<&str>>>(),
@@ -27,14 +30,14 @@ fn lexical_order_and_direct_topology_are_independent() {
         .append_declaration_block(DeclarationBlockOwner::<&str>::Rule(nested), key)
         .unwrap();
     let declaration = compilation
-        .append_declaration(block, "color:red", false)
+        .append_authored_declaration(block, "color:red", false)
         .unwrap();
 
     assert_eq!(outer.primary_index(), 0);
     assert_eq!(nested.primary_index(), 1);
     assert_eq!(following.primary_index(), 2);
     assert_eq!(block.primary_index(), 0);
-    assert_eq!(declaration.index(), 0);
+    assert_eq!(declaration.primary_index(), 0);
     assert_eq!(
         compilation
             .rules_in_source_order()
@@ -199,14 +202,14 @@ fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     compilation
-        .append_declaration(left_block, 10, false)
+        .append_authored_declaration(left_block, 10, false)
         .unwrap();
     let right = compilation.append_rule(root, 2).unwrap();
     let right_block = compilation
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(right), key)
         .unwrap();
     compilation
-        .append_declaration(right_block, 20, false)
+        .append_authored_declaration(right_block, 20, false)
         .unwrap();
 
     let merged = compilation
@@ -246,14 +249,14 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     compilation
-        .append_declaration(left_block, 10, false)
+        .append_authored_declaration(left_block, 10, false)
         .unwrap();
     let right = compilation.append_rule(root, 2).unwrap();
     let right_block = compilation
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(right), key)
         .unwrap();
     compilation
-        .append_declaration(right_block, 20, false)
+        .append_authored_declaration(right_block, 20, false)
         .unwrap();
 
     let inserted = compilation
@@ -262,7 +265,7 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
     assert!(inserted.rule.remaps.is_empty());
     assert!(inserted.declaration_block.remaps.is_empty());
     compilation
-        .append_declaration(inserted.declaration_block.id, 30, false)
+        .insert_transformed_declarations_at_block_end(inserted.declaration_block.id, [(30, false)])
         .unwrap();
 
     assert_eq!(
@@ -287,7 +290,7 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
 }
 
 #[test]
-fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
+fn synthesized_declaration_is_inserted_between_neighbor_block_ranges() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = None;
@@ -297,14 +300,14 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     let first = compilation
-        .append_declaration(left_block, 10, false)
+        .append_authored_declaration(left_block, 10, false)
         .unwrap();
     let following = compilation.append_rule(root, 2).unwrap();
     let following_block = compilation
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
     compilation
-        .append_declaration(following_block, 20, false)
+        .append_authored_declaration(following_block, 20, false)
         .unwrap();
 
     let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
@@ -312,20 +315,37 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
         .id;
-    let second = compilation
-        .append_declaration(inserted_block, 30, false)
+    compilation
+        .insert_transformed_declarations_at_block_end(inserted_block, [(30, false)])
         .unwrap();
+    let second = compilation
+        .declaration_ids_in_block(inserted_block)
+        .unwrap()
+        .next()
+        .unwrap();
+    assert_eq!(compilation.declarations.next_id(first), Some(second));
+    assert_eq!(
+        compilation.declarations.next_id(second),
+        Some(
+            compilation
+                .declaration_ids_in_block(following_block)
+                .unwrap()
+                .next()
+                .unwrap()
+        )
+    );
     compilation
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         compilation
             .declaration_block(inserted_block)
             .unwrap()
-            .declarations(),
-        DeclarationList::Local4(_)
-    ));
+            .declarations()
+            .len(),
+        2
+    );
     assert_eq!(
         compilation
             .declaration_ids_in_block(inserted_block)
@@ -345,7 +365,7 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
 }
 
 #[test]
-fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() {
+fn large_synthesized_merge_remains_one_radix_range() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = None;
@@ -356,7 +376,7 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
         .unwrap();
     for value in [10, 11, 12] {
         compilation
-            .append_declaration(left_block, value, false)
+            .append_authored_declaration(left_block, value, false)
             .unwrap();
     }
     let following = compilation.append_rule(root, 2).unwrap();
@@ -364,7 +384,7 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
     compilation
-        .append_declaration(following_block, 20, false)
+        .append_authored_declaration(following_block, 20, false)
         .unwrap();
 
     let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
@@ -372,22 +392,24 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
         .id;
-    for value in [30, 31, 32] {
-        compilation
-            .append_declaration(inserted_block, value, false)
-            .unwrap();
-    }
+    compilation
+        .insert_transformed_declarations_at_block_end(
+            inserted_block,
+            [(30, false), (31, false), (32, false)],
+        )
+        .unwrap();
     compilation
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         compilation
             .declaration_block(inserted_block)
             .unwrap()
-            .declarations(),
-        DeclarationList::Overflow(_)
-    ));
+            .declarations()
+            .len(),
+        6
+    );
     assert_eq!(
         compilation
             .declarations_in_block(inserted_block)
@@ -400,7 +422,7 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
 }
 
 #[test]
-fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
+fn appending_another_transformed_batch_extends_the_same_range() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = None;
@@ -411,7 +433,7 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
         .unwrap();
     for value in [10, 11] {
         compilation
-            .append_declaration(left_block, value, false)
+            .append_authored_declaration(left_block, value, false)
             .unwrap();
     }
     let following = compilation.append_rule(root, 2).unwrap();
@@ -419,40 +441,31 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
     compilation
-        .append_declaration(following_block, 20, false)
+        .append_authored_declaration(following_block, 20, false)
         .unwrap();
     let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
     let inserted_block = compilation
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
         .id;
-    for value in [30, 31] {
-        compilation
-            .append_declaration(inserted_block, value, false)
-            .unwrap();
-    }
+    compilation
+        .insert_transformed_declarations_at_block_end(inserted_block, [(30, false), (31, false)])
+        .unwrap();
     compilation
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert!(matches!(
-        compilation
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Local4(_)
-    ));
-
     compilation
-        .append_transformed_declaration(inserted_block, 32, false)
+        .insert_transformed_declarations_at_block_end(inserted_block, [(32, false)])
         .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         compilation
             .declaration_block(inserted_block)
             .unwrap()
-            .declarations(),
-        DeclarationList::Overflow(_)
-    ));
+            .declarations()
+            .len(),
+        5
+    );
     assert_eq!(
         compilation
             .declarations_in_block(inserted_block)
@@ -465,7 +478,7 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
 }
 
 #[test]
-fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
+fn streaming_declaration_mutation_preserves_radix_range_order() {
     let allocator = Allocator::new();
 
     let mut range = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
@@ -476,9 +489,9 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(rule), key)
         .unwrap();
     let range_ids = [
-        range.append_declaration(block, 1, false).unwrap(),
-        range.append_declaration(block, 2, false).unwrap(),
-        range.append_declaration(block, 3, false).unwrap(),
+        range.append_authored_declaration(block, 1, false).unwrap(),
+        range.append_authored_declaration(block, 2, false).unwrap(),
+        range.append_authored_declaration(block, 3, false).unwrap(),
     ];
     let mut visited = std::vec::Vec::new();
     range
@@ -497,39 +510,41 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         [11, 12, 13]
     );
 
-    let mut local4 = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut inserted_range = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = None;
-    let key = local4.append_effective_key("local4").unwrap();
-    let left = local4.append_rule(root, 0).unwrap();
-    let left_block = local4
+    let key = inserted_range.append_effective_key("inserted").unwrap();
+    let left = inserted_range.append_rule(root, 0).unwrap();
+    let left_block = inserted_range
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
-    let first = local4.append_declaration(left_block, 1, false).unwrap();
-    let following = local4.append_rule(root, 1).unwrap();
-    let following_block = local4
+    let first = inserted_range
+        .append_authored_declaration(left_block, 1, false)
+        .unwrap();
+    let following = inserted_range.append_rule(root, 1).unwrap();
+    let following_block = inserted_range
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
-    local4
-        .append_declaration(following_block, 2, false)
+    inserted_range
+        .append_authored_declaration(following_block, 2, false)
         .unwrap();
-    let inserted = local4.insert_rule_after(left, 2).unwrap().id;
-    let inserted_block = local4
+    let inserted = inserted_range.insert_rule_after(left, 2).unwrap().id;
+    let inserted_block = inserted_range
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
         .id;
-    let second = local4.append_declaration(inserted_block, 3, false).unwrap();
-    local4
+    inserted_range
+        .insert_transformed_declarations_at_block_end(inserted_block, [(3, false)])
+        .unwrap();
+    let second = inserted_range
+        .declaration_ids_in_block(inserted_block)
+        .unwrap()
+        .next()
+        .unwrap();
+    inserted_range
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert!(matches!(
-        local4
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Local4(_)
-    ));
     visited.clear();
-    local4
+    inserted_range
         .for_each_declaration_mut(inserted_block, |id, record| {
             visited.push(id);
             *record.payload_mut() += 10;
@@ -537,7 +552,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         .unwrap();
     assert_eq!(visited, [first, second]);
     assert_eq!(
-        local4
+        inserted_range
             .declarations_in_block(inserted_block)
             .unwrap()
             .map(|record| *record.payload())
@@ -545,52 +560,49 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         [11, 13]
     );
 
-    let mut overflow = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut large_range = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = None;
-    let key = overflow.append_effective_key("overflow").unwrap();
-    let left = overflow.append_rule(root, 0).unwrap();
-    let left_block = overflow
+    let key = large_range.append_effective_key("large").unwrap();
+    let left = large_range.append_rule(root, 0).unwrap();
+    let left_block = large_range
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     let mut expected = std::vec::Vec::new();
     for value in [1, 2, 3] {
         expected.push(
-            overflow
-                .append_declaration(left_block, value, false)
+            large_range
+                .append_authored_declaration(left_block, value, false)
                 .unwrap(),
         );
     }
-    let following = overflow.append_rule(root, 1).unwrap();
-    let following_block = overflow
+    let following = large_range.append_rule(root, 1).unwrap();
+    let following_block = large_range
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
-    overflow
-        .append_declaration(following_block, 4, false)
+    large_range
+        .append_authored_declaration(following_block, 4, false)
         .unwrap();
-    let inserted = overflow.insert_rule_after(left, 2).unwrap().id;
-    let inserted_block = overflow
+    let inserted = large_range.insert_rule_after(left, 2).unwrap().id;
+    let inserted_block = large_range
         .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
         .unwrap()
         .id;
-    for value in [5, 6, 7] {
-        expected.push(
-            overflow
-                .append_declaration(inserted_block, value, false)
-                .unwrap(),
-        );
-    }
-    overflow
+    large_range
+        .insert_transformed_declarations_at_block_end(
+            inserted_block,
+            [(5, false), (6, false), (7, false)],
+        )
+        .unwrap();
+    expected.extend(
+        large_range
+            .declaration_ids_in_block(inserted_block)
+            .unwrap(),
+    );
+    large_range
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert!(matches!(
-        overflow
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Overflow(_)
-    ));
     visited.clear();
-    overflow
+    large_range
         .for_each_declaration_mut(inserted_block, |id, record| {
             visited.push(id);
             *record.payload_mut() += 10;
@@ -598,7 +610,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         .unwrap();
     assert_eq!(visited, expected);
     assert_eq!(
-        overflow
+        large_range
             .declarations_in_block(inserted_block)
             .unwrap()
             .map(|record| *record.payload())
@@ -626,6 +638,125 @@ fn a_rule_owns_at_most_one_declaration_block() {
 }
 
 #[test]
+fn empty_declaration_list_initializes_from_its_first_authored_declaration() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<(), u8, ()>::new_in(&allocator);
+    let rule = compilation.append_rule(None, ()).unwrap();
+    let key = compilation.append_effective_key(()).unwrap();
+    let block = compilation
+        .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
+        .unwrap();
+
+    assert!(
+        compilation
+            .declaration_block(block)
+            .unwrap()
+            .declarations()
+            .is_empty()
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+
+    let declaration = compilation
+        .append_authored_declaration(block, 1, false)
+        .unwrap();
+    let declarations = compilation.declaration_block(block).unwrap().declarations();
+    assert_eq!(declarations.len(), 1);
+    assert_eq!(declarations.start_id(), declaration);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn merging_empty_declaration_ranges_uses_only_block_order_and_lengths() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, ()>::new_in(&allocator);
+    let key = compilation.append_effective_key(()).unwrap();
+    let left = compilation.append_rule(None, 1).unwrap();
+    let left_block = compilation
+        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .unwrap();
+    let right = compilation.append_rule(None, 2).unwrap();
+    let right_block = compilation
+        .append_declaration_block(DeclarationBlockOwner::Rule(right), key)
+        .unwrap();
+    let declaration = compilation
+        .append_authored_declaration(right_block, 3, false)
+        .unwrap();
+
+    compilation
+        .merge_adjacent_rule_declaration_blocks(left, right)
+        .unwrap();
+
+    assert!(
+        compilation
+            .declaration_block(left_block)
+            .unwrap()
+            .declarations()
+            .is_empty()
+    );
+    let retained = compilation
+        .declaration_block(right_block)
+        .unwrap()
+        .declarations();
+    assert_eq!(retained.len(), 1);
+    assert_eq!(retained.start_id(), declaration);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn transformed_range_capacity_failure_does_not_partially_mutate_the_ast() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u16, ()>::new_in(&allocator);
+    let key = compilation.append_effective_key(()).unwrap();
+    let left = compilation.append_rule(None, 1).unwrap();
+    let left_block = compilation
+        .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
+        .unwrap();
+    let first = compilation
+        .append_authored_declaration(left_block, 0, false)
+        .unwrap();
+    let right = compilation.append_rule(None, 2).unwrap();
+    let right_block = compilation
+        .append_declaration_block(DeclarationBlockOwner::Rule(right), key)
+        .unwrap();
+    compilation
+        .append_authored_declaration(right_block, u16::MAX, false)
+        .unwrap();
+    for sibling_key in 1..=1023 {
+        compilation.declarations.insert_sibling(
+            first,
+            sibling_key,
+            DeclarationRecord {
+                payload: sibling_key,
+                important: false,
+            },
+        );
+    }
+    compilation
+        .declaration_block_mut(left_block)
+        .unwrap()
+        .declarations
+        .extend_by(1023);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+    let before = compilation
+        .declaration_block(left_block)
+        .unwrap()
+        .declarations();
+
+    assert_eq!(
+        compilation.insert_transformed_declarations_at_block_end(left_block, [(42, false)]),
+        Err(MutationError::DeclarationCapacityExhausted)
+    );
+    assert_eq!(
+        compilation
+            .declaration_block(left_block)
+            .unwrap()
+            .declarations(),
+        before
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
 fn a_declaration_range_cannot_cross_a_nested_allocation() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<(), &str, ()>::new_in(&allocator);
@@ -637,17 +768,17 @@ fn a_declaration_range_cannot_cross_a_nested_allocation() {
         .append_declaration_block(DeclarationBlockOwner::<()>::Rule(outer), key)
         .unwrap();
     compilation
-        .append_declaration(outer_block, "before", false)
+        .append_authored_declaration(outer_block, "before", false)
         .unwrap();
     let nested_block = compilation
         .append_declaration_block(DeclarationBlockOwner::<()>::Rule(nested), key)
         .unwrap();
     compilation
-        .append_declaration(nested_block, "nested", false)
+        .append_authored_declaration(nested_block, "nested", false)
         .unwrap();
 
     assert_eq!(
-        compilation.append_declaration(outer_block, "after", false),
+        compilation.append_authored_declaration(outer_block, "after", false),
         Err(MutationError::<()>::NonContiguousDeclarationRange(
             outer_block
         ))
