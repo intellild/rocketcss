@@ -1,6 +1,6 @@
 use super::*;
 
-impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
+impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
     /// Returns the final live rule in `rule`'s lexical subtree.
     pub(crate) fn subtree_tail(&self, rule: RuleId<R>) -> Option<RuleId<R>> {
         let record = self.rules.get(rule)?;

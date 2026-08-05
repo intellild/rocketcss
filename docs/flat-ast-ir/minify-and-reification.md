@@ -12,8 +12,9 @@ RuleStore: RadixIndexArena<RuleRecord>
 DeclarationBlockStore: RadixIndexArena<DeclarationBlockRecord>
   stable DeclarationBlockId + owner + AST-owned EffectiveKeyId
 
-DeclarationStore: authored lexical declaration tape
-  block representation is Range | Local4 | Overflow
+DeclarationStore: RadixIndexArena<DeclarationRecord>
+  primary parse order + stable synthesized siblings
+  each block owns one RadixRange
 
 Nano sidecars
   declaration IR, summaries, histories, revisions, and queue membership

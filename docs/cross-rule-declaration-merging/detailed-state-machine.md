@@ -260,9 +260,9 @@ membership into one synthetic occurrence.
 
 `blocks` is a pass-local ordered sequence, not a second AST and not a
 requirement to copy declaration payloads when S1 concatenates two sequences.
-The committed AST stores the complete ordered declaration IDs directly as a
-coalesced `Range`, `Local4`, or arena-backed `Overflow` list. There is no
-`previous_merged` field or owner chain.
+The committed AST stores the complete ordered declaration sequence as one
+coalesced semantic `RadixRange`. There is no `previous_merged` field, owner
+chain, or indirect declaration-ID list.
 
 S1 updates the sequence aggregate and commits the chosen declaration-list
 representation in one transaction. S2 updates `live_effect_count` when effect

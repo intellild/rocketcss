@@ -90,10 +90,12 @@ For every rule it verifies:
 
 ## Declaration representation
 
-Authored declarations remain one lexical tape. A block starts with a contiguous
-`DeclarationRange`; mutations may select `Local4` or arena-backed `Overflow`
-when the final sequence is noncontiguous. This declaration representation is
-independent of the rule subtree-count design.
+Authored declarations are primary values in one semantic `RadixIndexArena`.
+Each block stores a `RadixRange<DeclarationSlot>`; `len == 0` represents an
+empty block without consulting its placeholder start ID. Stable transformed
+batch insertion preserves existing IDs while keeping every block in one
+contiguous semantic range. This declaration representation is independent of
+the rule subtree-count design.
 
 ## Verification gates
 

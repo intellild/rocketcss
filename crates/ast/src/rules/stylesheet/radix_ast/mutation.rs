@@ -1,6 +1,6 @@
 use super::*;
 
-impl<R, D, K> RadixCompilation<'_, R, D, K>
+impl<R, D: Unpin, K> RadixCompilation<'_, R, D, K>
 where
     R: RuleIdReferences<R> + Unpin,
     K: RuleIdReferences<R> + Copy + Eq + std::hash::Hash,
@@ -167,12 +167,15 @@ where
         }
         let before_block =
             self.first_declaration_block_after_rule(after_rule, before_or_at_rule)?;
-        if self
-            .declarations
-            .len()
-            .checked_add(additional_declarations)
-            .is_none_or(|len| len > u32::MAX as usize)
-        {
+        let additional_declarations = u32::try_from(additional_declarations)
+            .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
+        let (after_declaration, before_declaration) =
+            self.declaration_neighbors_at_block_end(after_block)?;
+        if !self.can_insert_declaration_range_between(
+            after_declaration,
+            before_declaration,
+            additional_declarations,
+        ) {
             return Err(MutationError::<R>::DeclarationCapacityExhausted);
         }
         if !self
@@ -198,48 +201,80 @@ where
     }
 }
 
-impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
-    fn declaration_list_for_ids(
-        &mut self,
-        declarations: &[DeclarationId],
-    ) -> Result<DeclarationList, MutationError<R>> {
-        let contiguous = declarations
-            .windows(2)
-            .all(|pair| pair[0].index() + 1 == pair[1].index());
-        if contiguous {
-            let start = declarations.first().map_or(0, |id| id.index() as u32);
-            return Ok(DeclarationList::Range(DeclarationRange {
-                start,
-                len: declarations.len() as u32,
-            }));
+impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
+    fn declaration_neighbors_at_block_end(
+        &self,
+        target: DeclarationBlockId<R>,
+    ) -> Result<(Option<DeclarationId>, Option<DeclarationId>), MutationError<R>> {
+        let mut previous = None;
+        let mut found = false;
+        for (block_id, block) in self.declaration_blocks.iter_enumerated() {
+            if block_id == target {
+                found = true;
+                if !block.declarations.is_empty() {
+                    previous = Some(
+                        self.declarations
+                            .last_id(block.declarations)
+                            .ok_or(MutationError::<R>::NonContiguousDeclarationRange(target))?,
+                    );
+                }
+                continue;
+            }
+            if block.declarations.is_empty() {
+                continue;
+            }
+            if found {
+                return Ok((previous, Some(block.declarations.start_id())));
+            }
+            previous = Some(
+                self.declarations
+                    .last_id(block.declarations)
+                    .ok_or(MutationError::<R>::NonContiguousDeclarationRange(block_id))?,
+            );
         }
-        if let Some(local) = LocalPropertySet::from_ids(declarations) {
-            return Ok(DeclarationList::Local4(local));
+        if found {
+            Ok((previous, None))
+        } else {
+            Err(MutationError::<R>::UnknownDeclarationBlock(target))
         }
-        let mut overflow = self.allocator.vec();
-        for &declaration in declarations {
-            overflow.push(declaration);
-        }
-        let overflow = self
-            .declaration_overflows
-            .try_push(overflow)
-            .map_err(|_| MutationError::<R>::DeclarationOverflowCapacityExhausted)?;
-        Ok(DeclarationList::Overflow(overflow))
     }
 
-    /// Appends a transformed declaration to any live block representation.
-    ///
-    /// Authored parsing continues to use `append_declaration`, which rejects a
-    /// range closed by nested syntax. This transaction is for synthesized
-    /// declarations: it retains a contiguous range when possible, uses
-    /// `Local4` for a small non-contiguous sequence, and atomically promotes a
-    /// fifth local occurrence to the arena-backed complete overflow list.
-    pub fn append_transformed_declaration(
+    fn can_insert_declaration_range_between(
+        &self,
+        after: Option<DeclarationId>,
+        before: Option<DeclarationId>,
+        len: u32,
+    ) -> bool {
+        if len == 0 {
+            return true;
+        }
+        match after {
+            Some(after) => self
+                .declarations
+                .can_insert_stable_range_between(after, before, len),
+            None => {
+                before.is_none()
+                    && self.declarations.is_empty()
+                    && self.declarations.can_push_primary_range(len)
+            }
+        }
+    }
+
+    /// Inserts a complete transformed declaration batch at the semantic end of
+    /// `block`. The batch is preflighted before the declaration arena or block
+    /// range is changed, and no existing declaration ID is relabeled.
+    pub fn insert_transformed_declarations_at_block_end<Values>(
         &mut self,
         block: DeclarationBlockId<R>,
-        payload: D,
-        important: bool,
-    ) -> Result<DeclarationId, MutationError<R>> {
+        declarations: Values,
+    ) -> Result<(), MutationError<R>>
+    where
+        Values: IntoIterator<Item = (D, bool)>,
+        Values::IntoIter: ExactSizeIterator,
+    {
+        let declarations = declarations.into_iter();
+        let len = u32::try_from(declarations.len())
+            .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
         let block_record = self
             .declaration_blocks
             .get(block)
@@ -247,28 +282,35 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
         if !block_record.live {
             return Err(MutationError::<R>::UnknownDeclarationBlock(block));
         }
-        let revision = block_record.revision.wrapping_add(1);
-        let declaration = self
-            .declarations
-            .try_next_id()
-            .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
-        let mut declarations = self
-            .declaration_ids_in_block(block)?
-            .collect::<std::vec::Vec<_>>();
-        declarations.push(declaration);
-        let representation = self.declaration_list_for_ids(&declarations)?;
-        let inserted = self
-            .declarations
-            .try_push(DeclarationRecord { payload, important })
-            .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
-        debug_assert_eq!(inserted, declaration);
+        if len == 0 {
+            return Ok(());
+        }
+        let existing = block_record.declarations;
+        let revision = block_record.revision.wrapping_add(len);
+        let (after, before) = self.declaration_neighbors_at_block_end(block)?;
+        if !self.can_insert_declaration_range_between(after, before, len) {
+            return Err(MutationError::<R>::DeclarationCapacityExhausted);
+        }
+        let records =
+            declarations.map(|(payload, important)| DeclarationRecord { payload, important });
+        let inserted = match after {
+            Some(after) => self
+                .declarations
+                .insert_stable_range_between(after, before, records),
+            None => self.declarations.push_primary_range(records),
+        };
         let block = self
             .declaration_blocks
             .get_mut(block)
             .expect("the transformed declaration owner was validated");
-        block.declarations = representation;
+        if existing.is_empty() {
+            block.declarations = inserted;
+        } else {
+            debug_assert_eq!(block.declarations, existing);
+            block.declarations.extend_by(len);
+        }
         block.revision = revision;
-        Ok(inserted)
+        Ok(())
     }
 
     /// Inserts a synthesized declaration block at its final semantic block ID
@@ -303,10 +345,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
             after,
             before,
             DeclarationBlockRecord::<R> {
-                declarations: DeclarationList::Range(DeclarationRange {
-                    start: self.declarations.len() as u32,
-                    len: 0,
-                }),
+                declarations: DeclarationList::empty(),
                 owner: DeclarationBlockOwner::<R>::Rule(owner),
                 effective_key,
                 revision: 0,
@@ -328,7 +367,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     }
 }
 
-impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
+impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
     /// Replaces one declaration payload through its owning block and bumps the
     /// block revision used by incremental Nano candidates.
     pub fn replace_declaration(
@@ -353,7 +392,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
         }
         let record = self
             .declarations
-            .try_get_mut(declaration)
+            .get_mut(declaration)
             .ok_or(MutationError::<R>::UnknownDeclaration(declaration))?;
         let previous = std::mem::replace(record.payload_mut(), replacement);
         self.declaration_blocks
@@ -434,9 +473,26 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
             return Err(MutationError::<R>::InvalidRuleTopology(left));
         }
         let effective_key = left_block.effective_key;
-        let mut merged_declarations = self
-            .declaration_ids_in_block(left_block_id)?
-            .collect::<std::vec::Vec<_>>();
+        let mut merged_declarations = DeclarationList::empty();
+        let mut previous_non_empty = None;
+        let mut merge_range = |block_id: DeclarationBlockId<R>, range: DeclarationList| {
+            if range.is_empty() {
+                return Ok(());
+            }
+            if let Some(previous) = previous_non_empty
+                && !self.declarations.ranges_are_adjacent(previous, range)
+            {
+                return Err(MutationError::<R>::NonContiguousDeclarationRange(block_id));
+            }
+            if merged_declarations.is_empty() {
+                merged_declarations = range;
+            } else {
+                merged_declarations.extend_by(range.len());
+            }
+            previous_non_empty = Some(range);
+            Ok(())
+        };
+        merge_range(left_block_id, left_block.declarations)?;
         for &bridge in &bridge_blocks {
             let bridge_block = self
                 .declaration_blocks
@@ -445,27 +501,28 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
             if bridge_block.live {
                 return Err(MutationError::<R>::InvalidRuleTopology(left));
             }
-            merged_declarations.extend(self.declaration_ids_in_block(bridge)?);
+            merge_range(bridge, bridge_block.declarations)?;
         }
-        merged_declarations.extend(self.declaration_ids_in_block(right_block_id)?);
-        let merged_declaration_list = self.declaration_list_for_ids(&merged_declarations)?;
+        merge_range(right_block_id, right_block.declarations)?;
 
         self.retire_rule(left)?;
         self.declaration_blocks
             .get_mut(left_block_id)
             .expect("the retired block remains a source tombstone")
-            .declarations = DeclarationList::Range(DeclarationRange { start: 0, len: 0 });
+            .declarations
+            .clear();
         for bridge in bridge_blocks {
             self.declaration_blocks
                 .get_mut(bridge)
                 .expect("a validated bridge block remains a source tombstone")
-                .declarations = DeclarationList::Range(DeclarationRange { start: 0, len: 0 });
+                .declarations
+                .clear();
         }
         let retained_block = self
             .declaration_blocks
             .get_mut(right_block_id)
             .expect("the retained block was validated before commit");
-        retained_block.declarations = merged_declaration_list;
+        retained_block.declarations = merged_declarations;
         retained_block.revision = retained_block.revision.wrapping_add(1);
         let retained_rule = self
             .rules
@@ -487,7 +544,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     ///
     /// Parsed primary IDs and inserted sibling IDs are never reused. The
     /// declaration block is retired in the same transaction, while its range
-    /// continues to own the corresponding source-tape occurrences.
+    /// continues to own the corresponding arena occurrences.
     pub fn retire_rule(&mut self, id: RuleId<R>) -> Result<RetiredRule<R>, MutationError<R>> {
         let rule = self
             .rules
@@ -553,7 +610,7 @@ impl<'ast> Compilation<'ast> {
         Ok(())
     }
 
-    /// Resolves one authored declaration-tape occurrence through its owner for
+    /// Resolves one declaration-arena occurrence through its owner for
     /// a scoped local transform.
     #[doc(hidden)]
     pub fn declaration_occurrence_mut(
@@ -577,7 +634,7 @@ impl<'ast> Compilation<'ast> {
         }
         let declaration = self
             .declarations
-            .try_get_mut(declaration_id)
+            .get_mut(declaration_id)
             .ok_or(ConcreteMutationError::UnknownDeclaration(declaration_id))?;
         let important = declaration.important;
         self.declaration_blocks

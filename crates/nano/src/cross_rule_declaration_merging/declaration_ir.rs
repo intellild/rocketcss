@@ -6,7 +6,7 @@ use rocketcss_common::{
     Allocator, RadixIdRemap,
     prelude::{HashMap, Vec},
 };
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHashMap, FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum CompactPropertyKey {
@@ -263,7 +263,7 @@ pub(super) struct IndexedDeclaration {
 pub(super) struct DeclarationIrStore<'arena, 'ast> {
     allocator: &'arena Allocator,
     classifier: DeclarationIrClassifier<'arena, 'ast>,
-    occurrences: Vec<'arena, Option<DeclarationOccurrenceIr>>,
+    occurrences: DeclarationOccurrenceMap<'arena>,
     blocks: HashMap<
         'arena,
         rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
@@ -283,6 +283,63 @@ pub(super) struct DeclarationOccurrenceIr {
     pub(super) live: bool,
 }
 
+struct DeclarationOccurrenceMap<'arena> {
+    primary: Vec<'arena, Option<DeclarationOccurrenceIr>>,
+    inserted: FxHashMap<rocketcss_ast::radix_ast::DeclarationId, DeclarationOccurrenceIr>,
+}
+
+impl<'arena> DeclarationOccurrenceMap<'arena> {
+    fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
+        Self {
+            primary: Vec::with_capacity_in(capacity, allocator),
+            inserted: FxHashMap::default(),
+        }
+    }
+
+    fn insert(
+        &mut self,
+        declaration: rocketcss_ast::radix_ast::DeclarationId,
+        occurrence: DeclarationOccurrenceIr,
+    ) {
+        if declaration.is_primary() {
+            let index = declaration.primary_index();
+            if self.primary.len() <= index {
+                self.primary.resize(index + 1, None);
+            }
+            self.primary[index] = Some(occurrence);
+        } else {
+            self.inserted.insert(declaration, occurrence);
+        }
+    }
+
+    fn get(
+        &self,
+        declaration: rocketcss_ast::radix_ast::DeclarationId,
+    ) -> Option<&DeclarationOccurrenceIr> {
+        if declaration.is_primary() {
+            self.primary.get(declaration.primary_index())?.as_ref()
+        } else {
+            self.inserted.get(&declaration)
+        }
+    }
+
+    fn get_mut(
+        &mut self,
+        declaration: rocketcss_ast::radix_ast::DeclarationId,
+    ) -> Option<&mut DeclarationOccurrenceIr> {
+        if declaration.is_primary() {
+            self.primary.get_mut(declaration.primary_index())?.as_mut()
+        } else {
+            self.inserted.get_mut(&declaration)
+        }
+    }
+
+    #[cfg(test)]
+    fn values(&self) -> impl Iterator<Item = &DeclarationOccurrenceIr> {
+        self.primary.iter().flatten().chain(self.inserted.values())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct DeclarationBlockIr {
     live_count: u32,
@@ -298,7 +355,10 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
         Self {
             allocator,
             classifier: DeclarationIrClassifier::new_in(allocator),
-            occurrences: Vec::with_capacity_in(declaration_capacity, allocator),
+            occurrences: DeclarationOccurrenceMap::with_capacity_in(
+                declaration_capacity,
+                allocator,
+            ),
             blocks: HashMap::with_capacity_in(block_capacity, allocator),
             property_index: HashMap::with_capacity_in(block_capacity, allocator),
         }
@@ -367,53 +427,25 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
                 .or_insert_with(|| self.allocator.vec())
                 .push(IndexedDeclaration { declaration, order });
         }
-        if self.occurrences.len() <= declaration.index() {
-            self.occurrences.resize(declaration.index() + 1, None);
-        }
-        self.occurrences[declaration.index()] = Some(DeclarationOccurrenceIr {
-            property_key,
-            movement_domain,
-            live,
-        });
-    }
-
-    pub(super) fn publish_synthesized_declaration(
-        &mut self,
-        compilation: &rocketcss_ast::Compilation<'ast>,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
-    ) -> Result<(), rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
-        let record = compilation.declaration(declaration).ok_or(
-            rocketcss_ast::radix_ast::MutationError::UnknownDeclaration(declaration),
-        )?;
-        let order = compilation.declaration_ids_in_block(block)?.len() - 1;
-        let mut summary = self.blocks.get(&block).copied().unwrap_or_default();
-        let mut property_index = self
-            .property_index
-            .remove(&block)
-            .unwrap_or_else(|| PropertyIndex::new_in(self.allocator));
-        self.publish_occurrence(
+        self.occurrences.insert(
             declaration,
-            record,
-            order,
-            &mut summary,
-            &mut property_index,
+            DeclarationOccurrenceIr {
+                property_key,
+                movement_domain,
+                live,
+            },
         );
-        self.blocks.insert(block, summary);
-        self.property_index.insert(block, property_index);
-        Ok(())
     }
 
     #[cfg(test)]
     pub(super) fn occurrence_count(&self) -> usize {
-        self.occurrences.iter().flatten().count()
+        self.occurrences.values().count()
     }
 
     #[cfg(test)]
     pub(super) fn matchable_count(&self) -> usize {
         self.occurrences
-            .iter()
-            .flatten()
+            .values()
             .filter(|occurrence| occurrence.property_key.is_some())
             .count()
     }
@@ -421,8 +453,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
     #[cfg(test)]
     pub(super) fn live_count(&self) -> usize {
         self.occurrences
-            .iter()
-            .flatten()
+            .values()
             .filter(|occurrence| occurrence.live)
             .count()
     }
@@ -430,8 +461,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
     #[cfg(test)]
     pub(super) fn movement_domain_count(&self) -> usize {
         self.occurrences
-            .iter()
-            .flatten()
+            .values()
             .filter(|occurrence| occurrence.movement_domain.is_some())
             .count()
     }
@@ -456,8 +486,8 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
             .checked_add(left.live_count)
             .expect("declaration count exceeds u32::MAX");
         right.property_bloom.union_with(left.property_bloom);
-        // The merged sequence may contain a non-contiguous bridge. Its index
-        // is therefore rebuilt lazily by the linear fallback after S1.
+        // Merging changes the retained block's local declaration offsets, so
+        // its property index is rebuilt lazily by the linear fallback.
         self.property_index.remove(&left_id);
         self.property_index.remove(&right_id);
     }
@@ -466,7 +496,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
         &self,
         declaration: rocketcss_ast::radix_ast::DeclarationId,
     ) -> Option<&DeclarationOccurrenceIr> {
-        self.occurrences.get(declaration.index())?.as_ref()
+        self.occurrences.get(declaration)
     }
 
     pub(super) fn live_declarations(
@@ -503,9 +533,10 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
         block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
         declaration: rocketcss_ast::radix_ast::DeclarationId,
     ) {
-        let occurrence = self.occurrences[declaration.index()]
-            .as_mut()
-            .expect("an authored declaration has initialized IR");
+        let occurrence = self
+            .occurrences
+            .get_mut(declaration)
+            .expect("a declaration has initialized IR");
         if !occurrence.live {
             return;
         }

@@ -1,6 +1,6 @@
 use super::*;
 
-impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
+impl<R: Unpin, D: Unpin, K> RadixCompilation<'_, R, D, K> {
     /// Checks preorder subtree spans, parent links, and block owners.
     pub fn validate_ast(&self) -> Result<(), ValidationError<R>> {
         let source_len = self.rules.len();
@@ -62,52 +62,34 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
                 }
             }
         }
-        let mut declaration_owners = vec![None; self.declarations.len()];
+        let mut declaration_cursor = self.declarations.iter_enumerated().peekable();
+        let mut owned_declarations = 0_u32;
         for (block_id, block) in self.declaration_blocks.iter_enumerated() {
-            let declarations = match block.declarations {
-                DeclarationList::Range(range) => {
-                    if range.start as usize + range.len as usize > self.declarations.len() {
+            let range = block.declarations;
+            if !range.is_empty() {
+                let Some(&(expected, _)) = declaration_cursor.peek() else {
+                    return Err(ValidationError::<R>::InvalidDeclarationRange {
+                        block: block_id,
+                        range,
+                    });
+                };
+                let actual = range.start_id();
+                if actual != expected {
+                    return Err(ValidationError::<R>::DeclarationRangeStartsOutOfOrder {
+                        block: block_id,
+                        expected,
+                        actual,
+                    });
+                }
+                for _ in 0..range.len() {
+                    if declaration_cursor.next().is_none() {
                         return Err(ValidationError::<R>::InvalidDeclarationRange {
                             block: block_id,
                             range,
                         });
                     }
-                    DeclarationIdIter {
-                        kind: DeclarationIdIterKind::Range(
-                            range.start as usize..range.start as usize + range.len as usize,
-                        ),
-                    }
+                    owned_declarations += 1;
                 }
-                DeclarationList::Local4(local) => DeclarationIdIter {
-                    kind: DeclarationIdIterKind::Local4 { local, index: 0 },
-                },
-                DeclarationList::Overflow(overflow) => DeclarationIdIter {
-                    kind: DeclarationIdIterKind::Overflow(
-                        self.declaration_overflows
-                            .try_get(overflow)
-                            .ok_or(ValidationError::<R>::InvalidDeclarationOverflow {
-                                block: block_id,
-                                overflow,
-                            })?
-                            .iter(),
-                    ),
-                },
-            };
-            for declaration in declarations {
-                let Some(owner) = declaration_owners.get_mut(declaration.index()) else {
-                    return Err(ValidationError::<R>::InvalidDeclarationReference {
-                        block: block_id,
-                        declaration,
-                    });
-                };
-                if let Some(first) = *owner {
-                    return Err(ValidationError::<R>::DuplicateDeclarationOwner {
-                        declaration,
-                        first,
-                        second: block_id,
-                    });
-                }
-                *owner = Some(block_id);
             }
             if !block.live {
                 continue;
@@ -140,10 +122,9 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
                 });
             }
         }
-        let owned_declarations = declaration_owners.iter().flatten().count();
-        if owned_declarations != self.declarations.len() {
+        if declaration_cursor.next().is_some() {
             return Err(ValidationError::<R>::UnownedDeclarations {
-                expected: owned_declarations as u32,
+                expected: owned_declarations,
                 actual: self.declarations.len() as u32,
             });
         }

@@ -27,7 +27,7 @@ S4 answers:
 - whether partially live shorthand effects require typed longhands;
 - how retained fallback/opaque origins interleave with replacements;
 - which output block owns the resulting declaration list; and
-- whether a block uses a source range, `Local4`, or complete overflow list.
+- whether stable local Radix capacity exists for the final declaration range.
 
 ## Input state
 
@@ -97,16 +97,14 @@ semantic insertion position: the block ID already encodes that position.
 
 ## Sequence representation states
 
-Choose the smallest lossless option:
+Retain or coalesce one exact consecutive semantic `RadixRange`. Synthesized
+declarations are inserted at their final arena position as one stable batch;
+existing declaration IDs are not relabeled. If the local Radix interval lacks
+capacity, reject the optional optimization before changing the AST.
 
-1. retain/coalesce an exact consecutive authored `Range`;
-2. use `Local4` for at most four small local/synthesized declarations whose
-   sub-IDs fit the low two property bits; or
-3. allocate a complete ordered `Overflow` list.
-
-A range must never include a live declaration owned by a nested or neighboring
-block. `Overflow` contains the complete sequence, not only the nonconsecutive
-suffix.
+A range must never include a declaration owned by a nested or neighboring
+block. Physical tombstones remain in the owning range even though semantic
+consumers skip their payloads.
 
 Representation choice may consider output size only among already proven
 equivalent choices.
@@ -125,7 +123,7 @@ work outside partially committed mutations.
 
 The implemented S2 removes only completely identical obsolete declaration
 occurrences, and S3 moves only complete equal declarations. Those cases always
-know their final `Range`, `Local4`, or complete `Overflow` representation during
+know their final `RadixRange` during
 the S1-S3 transaction. Therefore the current dirty-S4 set is empty by
 construction. Partially live shorthand/effect work remains `NoChange`; it must
 introduce the deferred S4 plan described here before that broader semantic
@@ -149,9 +147,10 @@ the one live origin.
 ### Example 2: reusing an S1 sequence
 
 S1 selects the right rule as the live owner of the left-then-right declaration
-sequence. If both authored ranges remain exact and consecutive, S4 coalesces
-them. Otherwise it chooses one complete overflow sequence without changing
-their AST occurrence order.
+sequence. Consecutive semantic ranges coalesce by retaining the first start ID
+and summing their lengths. If future partially-live work needs to move values,
+S4 must plan a stable batch insertion that produces one final range without
+changing existing declaration IDs.
 
 ### Example 3: partially live shorthand
 

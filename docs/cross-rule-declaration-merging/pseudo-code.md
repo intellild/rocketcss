@@ -25,7 +25,6 @@ pass:
 ```rust,ignore
 fn finish_declaration_run(
     compilation: &mut Compilation,
-    start: DeclarationId,
     context: ContextPathId,
     selector: SelectorValueId,
 ) -> DeclarationBlockId {
@@ -37,12 +36,9 @@ fn finish_declaration_run(
         history_segment: compilation.current_history_segment(),
     });
 
-    compilation.declaration_blocks.push_primary(DeclarationBlock {
+    compilation.append_declaration_block(DeclarationBlock {
         owner: compilation.current_declaration_owner(),
-        declarations: DeclarationList::Range(DeclarationRange {
-            offset: start.index(),
-            len: compilation.declarations.next_id().index() - start.index(),
-        }),
+        declarations: RadixRange::empty(),
         effective_key: key,
         revision: 0,
         flags: DeclarationBlockFlags::empty(),
@@ -50,8 +46,8 @@ fn finish_declaration_run(
 }
 ```
 
-The parser appends every property before parsing the following nested node, so
-declaration IDs reflect lexical order. Selector-local normalization recomputes
+The parser appends every property with `append_authored_declaration`, so
+primary declaration IDs reflect lexical order. Selector-local normalization recomputes
 the AST-owned key when it replaces a selector value. Syntax topology supplies
 direct sibling and subtree relationships. Nano iterates the block store and
 does not need `walk_declaration_blocks`, `DeclarationBlockEntry`, or a separate

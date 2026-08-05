@@ -66,11 +66,14 @@ fn effective_key_seed<'ast>(
 }
 
 fn declaration_ranges(compilation: &Compilation<'_>) -> std::vec::Vec<(u32, u32)> {
+    let mut start = 0;
     compilation
         .declaration_blocks_in_source_order()
         .map(|(_, block)| {
-            let range = block.declarations().as_range().unwrap();
-            (range.start(), range.len())
+            let len = block.declarations().len();
+            let range = (start, len);
+            start += len;
+            range
         })
         .collect()
 }
@@ -140,27 +143,33 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
 
     let blocks = compilation
         .declaration_blocks_in_source_order()
-        .map(|(id, block)| {
-            (
-                id.primary_index(),
-                block.owner(),
-                block.declarations().as_range().unwrap(),
-            )
-        })
+        .map(|(id, block)| (id.primary_index(), block.owner(), block.declarations()))
         .collect::<std::vec::Vec<_>>();
     assert_eq!(blocks.len(), 4);
     assert_eq!(blocks[0].0, 0);
-    assert_eq!((blocks[0].2.start(), blocks[0].2.len()), (0, 1));
+    assert_eq!(
+        (blocks[0].2.start_id().primary_index(), blocks[0].2.len()),
+        (0, 1)
+    );
     assert_eq!(blocks[1].0, 1);
-    assert_eq!((blocks[1].2.start(), blocks[1].2.len()), (1, 1));
+    assert_eq!(
+        (blocks[1].2.start_id().primary_index(), blocks[1].2.len()),
+        (1, 1)
+    );
     assert_eq!(blocks[2].0, 2);
-    assert_eq!((blocks[2].2.start(), blocks[2].2.len()), (2, 1));
+    assert_eq!(
+        (blocks[2].2.start_id().primary_index(), blocks[2].2.len()),
+        (2, 1)
+    );
     assert_eq!(blocks[3].0, 3);
-    assert_eq!((blocks[3].2.start(), blocks[3].2.len()), (3, 1));
+    assert_eq!(
+        (blocks[3].2.start_id().primary_index(), blocks[3].2.len()),
+        (3, 1)
+    );
     assert_eq!(
         compilation
             .declarations_in_source_order()
-            .map(|(id, _)| id.index())
+            .map(|(id, _)| id.primary_index())
             .collect::<std::vec::Vec<_>>(),
         [0, 1, 2, 3]
     );
@@ -877,18 +886,12 @@ fn declaration_owner_rules_share_one_lexical_property_tape() {
     assert_eq!(
         radix
             .declarations_in_source_order()
-            .map(|(id, _)| id.index())
+            .map(|(id, _)| id.primary_index())
             .collect::<std::vec::Vec<_>>(),
         [0, 1, 2, 3, 4, 5, 6]
     );
     assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
-            .collect::<std::vec::Vec<_>>(),
+        declaration_ranges(&radix),
         [(0, 1), (1, 2), (3, 1), (4, 2), (6, 1)]
     );
 
@@ -925,16 +928,7 @@ fn font_face_descriptors_are_typed_occurrences_in_the_global_tape() {
         radix.rule(ids[1]).unwrap().payload(),
         CssRulePayload::FontFace(_)
     ));
-    assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
-            .collect::<std::vec::Vec<_>>(),
-        [(0, 1), (1, 3), (4, 1)]
-    );
+    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 3), (4, 1)]);
 
     let block = radix.rule(ids[1]).unwrap().declaration_block().unwrap();
     let descriptors = radix
@@ -970,16 +964,7 @@ fn palette_and_view_transition_descriptors_keep_typed_source_order() {
         radix.rule(ids[2]).unwrap().payload(),
         CssRulePayload::ViewTransition(_)
     ));
-    assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
-            .collect::<std::vec::Vec<_>>(),
-        [(0, 1), (1, 3), (4, 2), (6, 1)]
-    );
+    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 3), (4, 2), (6, 1)]);
 
     let palette_block = radix.rule(ids[1]).unwrap().declaration_block().unwrap();
     let palette = radix
@@ -1123,16 +1108,7 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
         second_frame.selectors.as_slice(),
         [KeyframeSelector::Percentage(0.5), KeyframeSelector::To]
     ));
-    assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
-            .collect::<std::vec::Vec<_>>(),
-        [(0, 1), (1, 1), (2, 2), (4, 1)]
-    );
+    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 1), (2, 2), (4, 1)]);
     assert_eq!(radix.validate_ast(), Ok(()));
 }
 
@@ -1164,13 +1140,7 @@ fn page_margin_rules_split_parent_declaration_ranges() {
         ]
     );
     assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
-            .collect::<std::vec::Vec<_>>(),
+        declaration_ranges(&radix),
         [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 0)]
     );
 
@@ -1323,16 +1293,7 @@ fn font_feature_subrules_and_declarations_are_flattened() {
             .collect::<std::vec::Vec<_>>(),
         [rules[1].0, rules[2].0]
     );
-    assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
-            .collect::<std::vec::Vec<_>>(),
-        [(0, 2), (2, 1)]
-    );
+    assert_eq!(declaration_ranges(&radix), [(0, 2), (2, 1)]);
 
     let CssRulePayload::FontFeatureValues(radix_features) = radix.rule(wrapper).unwrap().payload()
     else {
@@ -1399,9 +1360,9 @@ fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
         declarations[2].payload(),
         DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Syntax(_))
     ));
-    assert_eq!(property.syntax.unwrap().index(), 2);
-    assert_eq!(property.inherits.unwrap().index(), 3);
-    assert_eq!(property.initial_value.unwrap().index(), 4);
+    assert_eq!(property.syntax.unwrap().primary_index(), 2);
+    assert_eq!(property.inherits.unwrap().primary_index(), 3);
+    assert_eq!(property.initial_value.unwrap().primary_index(), 4);
 
     assert_eq!(property.name, "--space");
     let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Syntax(syntax)) = radix

@@ -95,7 +95,7 @@
 
 ### C. 砍 append 簿记（中等收益）
 - `RuleRecord` 里的 `previous_in_source/next_in_source` 若只在 minify/代码生成时用，可改为**惰性重建**：parse 阶段只记 `last_rule_in_source`，minify 前一次性串链；省掉每规则 2 次 `get_mut`。
-- `append_declaration` 的 `NonContiguousDeclarationRange` 校验是 debug 语义，可 `debug_assert` 化（release 下已是纯加法，收益小）。
+- `append_authored_declaration` 的 `NonContiguousDeclarationRange` 校验是 debug 语义，可 `debug_assert` 化（release 下已是纯加法，收益小）。
 
 ### D. 验证方法
 - 建议把 parse 拆成两个 CodSpeed job（BASE/HEAD 同一 runner 重跑）消除 "Different runtime environments" 噪声后再定版；或直接在本地 CI 加 `parse` 门禁。

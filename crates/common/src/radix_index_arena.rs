@@ -144,10 +144,15 @@ impl<T> RadixId<T> {
         self.inner.get()
     }
 
-    /// Returns the index of the owning primary value.
+    /// Returns the linear parse-vector index of a primary value, or the index
+    /// of the owning primary value for an inserted sibling.
     #[inline]
     pub const fn primary_index(self) -> usize {
-        (self.get() >> LOCAL_BITS) as usize
+        if self.is_overflow() {
+            COMPACT_PRIMARY_CAPACITY + self.overflow_index()
+        } else {
+            (self.get() >> LOCAL_BITS) as usize
+        }
     }
 
     #[inline]
@@ -171,6 +176,121 @@ impl<T> RadixId<T> {
     #[inline]
     pub const fn is_overflow(self) -> bool {
         self.get() & OVERFLOW_TAG != 0
+    }
+}
+
+/// A contiguous run in one [`RadixIndexArena`]'s semantic order.
+///
+/// An empty range is represented solely by `len == 0`. Its `start_id` is a
+/// semantically invalid placeholder and must never be resolved.
+pub struct RadixRange<T> {
+    start_id: RadixId<T>,
+    len: u32,
+}
+
+impl<T> Clone for RadixRange<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for RadixRange<T> {}
+
+impl<T> fmt::Debug for RadixRange<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RadixRange")
+            .field("start_id", &self.start_id)
+            .field("len", &self.len)
+            .finish()
+    }
+}
+
+impl<T> PartialEq for RadixRange<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.start_id == other.start_id && self.len == other.len
+    }
+}
+
+impl<T> Eq for RadixRange<T> {}
+
+impl<T> RadixRange<T> {
+    /// Creates an empty range whose placeholder start must not be resolved.
+    #[inline]
+    pub fn empty() -> Self {
+        Self {
+            start_id: RadixId::from_parts(0, 0),
+            len: 0,
+        }
+    }
+
+    /// Creates a semantic range. A zero length is canonicalized to
+    /// [`empty`](Self::empty).
+    #[inline]
+    pub fn new(start_id: RadixId<T>, len: u32) -> Self {
+        if len == 0 {
+            Self::empty()
+        } else {
+            Self { start_id, len }
+        }
+    }
+
+    /// Returns the first ID in a non-empty range.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the range is empty because its start is only a placeholder.
+    #[inline]
+    pub fn start_id(self) -> RadixId<T> {
+        assert!(self.len != 0, "an empty RadixRange has no start ID");
+        self.start_id
+    }
+
+    /// Returns the number of semantic values in the range.
+    #[inline]
+    pub const fn len(self) -> u32 {
+        self.len
+    }
+
+    /// Returns whether the range contains no values.
+    #[inline]
+    pub const fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    /// Initializes an empty range with its first live ID.
+    #[doc(hidden)]
+    #[inline]
+    pub fn initialize(&mut self, start_id: RadixId<T>) {
+        assert!(
+            self.is_empty(),
+            "only an empty RadixRange can be initialized"
+        );
+        self.start_id = start_id;
+        self.len = 1;
+    }
+
+    /// Extends a non-empty range by `additional` semantic values.
+    #[doc(hidden)]
+    #[inline]
+    pub fn extend_by(&mut self, additional: u32) {
+        if additional == 0 {
+            return;
+        }
+        assert!(!self.is_empty(), "an empty RadixRange must be initialized");
+        self.len = self
+            .len
+            .checked_add(additional)
+            .expect("RadixRange length exhausted");
+    }
+
+    /// Clears the range and restores the canonical empty placeholder.
+    #[doc(hidden)]
+    #[inline]
+    pub fn clear(&mut self) {
+        *self = Self::empty();
     }
 }
 
@@ -988,7 +1108,7 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
     ///
     /// Panics for invalid/non-neighbor IDs or when compact IDs are exhausted.
     /// AST wrappers must use [`can_insert_between`](Self::can_insert_between)
-    /// to select their non-panicking overflow representation first.
+    /// to select their non-panicking fallback or rejection path first.
     pub fn insert_between(
         &mut self,
         after: I,
@@ -1302,6 +1422,299 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         }
     }
 }
+
+impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
+    /// Returns whether `len` additional primary values can be appended.
+    pub fn can_push_primary_range(&self, len: u32) -> bool {
+        self.len.checked_add(len).is_some()
+            && self
+                .primary
+                .len()
+                .checked_add(len as usize)
+                .is_some_and(|primary_len| {
+                    primary_len <= COMPACT_PRIMARY_CAPACITY + OVERFLOW_CAPACITY
+                })
+    }
+
+    /// Appends a batch of primary values and returns their semantic range.
+    pub fn push_primary_range<Values>(&mut self, values: Values) -> RadixRange<M>
+    where
+        Values: IntoIterator<Item = T>,
+        Values::IntoIter: ExactSizeIterator,
+    {
+        let values = values.into_iter();
+        let len = u32::try_from(values.len()).expect("Radix primary range length exceeds u32");
+        assert!(
+            self.can_push_primary_range(len),
+            "RadixIndexArena primary range capacity exhausted"
+        );
+        let mut start = None;
+        for value in values {
+            let id = self.push_primary(value);
+            start.get_or_insert(id);
+        }
+        start.map_or_else(RadixRange::empty, |start| RadixRange::new(start, len))
+    }
+
+    /// Returns the IDs in `range`, or `None` when the complete range is not
+    /// present in this arena. Empty ranges never resolve their placeholder ID.
+    pub fn ids_in_range(&self, range: RadixRange<M>) -> Option<RadixRangeIdIter<'_, 'arena, T, M>> {
+        let next = if range.is_empty() {
+            None
+        } else {
+            self.last_id(range)?;
+            Some(range.start_id())
+        };
+        Some(RadixRangeIdIter {
+            arena: self,
+            next,
+            remaining: range.len(),
+        })
+    }
+
+    /// Iterates values in one valid semantic range.
+    pub fn iter_range(&self, range: RadixRange<M>) -> Option<RadixRangeIter<'_, 'arena, T, M>> {
+        Some(RadixRangeIter {
+            ids: self.ids_in_range(range)?,
+        })
+    }
+
+    /// Iterates typed IDs and values in one valid semantic range.
+    pub fn iter_range_enumerated(
+        &self,
+        range: RadixRange<M>,
+    ) -> Option<RadixRangeIterEnumerated<'_, 'arena, T, M>> {
+        Some(RadixRangeIterEnumerated {
+            ids: self.ids_in_range(range)?,
+        })
+    }
+
+    /// Mutably visits one valid semantic range without materializing its IDs.
+    pub fn for_each_in_range_mut(
+        &mut self,
+        range: RadixRange<M>,
+        mut visit: impl FnMut(RadixId<M>, &mut T),
+    ) -> Option<()> {
+        if range.is_empty() {
+            return Some(());
+        }
+        self.last_id(range)?;
+        let mut current = range.start_id();
+        for offset in 0..range.len() {
+            let next = (offset + 1 < range.len())
+                .then(|| self.next_id(current))
+                .flatten();
+            visit(current, self.get_mut(current)?);
+            if let Some(next) = next {
+                current = next;
+            }
+        }
+        Some(())
+    }
+
+    /// Resolves `offset` inside one range in semantic arena order.
+    pub fn id_at(&self, range: RadixRange<M>, offset: u32) -> Option<RadixId<M>> {
+        if offset >= range.len() {
+            return None;
+        }
+        self.advance_id(range.start_id(), offset)
+    }
+
+    /// Returns the final ID in a non-empty valid range.
+    pub fn last_id(&self, range: RadixRange<M>) -> Option<RadixId<M>> {
+        let offset = range.len().checked_sub(1)?;
+        self.id_at(range, offset)
+    }
+
+    /// Returns whether two non-empty ranges touch in semantic arena order.
+    pub fn ranges_are_adjacent(&self, left: RadixRange<M>, right: RadixRange<M>) -> bool {
+        if right.is_empty() {
+            return false;
+        }
+        let Some(left_last) = self.last_id(left) else {
+            return false;
+        };
+        self.next_id(left_last) == Some(right.start_id())
+    }
+
+    /// Preflights a stable batch insertion between current semantic neighbors.
+    /// Existing IDs are never relabeled.
+    pub fn can_insert_stable_range_between(
+        &self,
+        after: RadixId<M>,
+        before: Option<RadixId<M>>,
+        len: u32,
+    ) -> bool {
+        if len == 0 {
+            return self.get(after).is_some() && self.next_id(after) == before;
+        }
+        if self.len.checked_add(len).is_none() {
+            return false;
+        }
+        if before.is_none() && self.next_id(after).is_none() && self.get(after).is_some() {
+            return self.can_push_primary_range(len);
+        }
+        let Some((primary_index, lower, upper, _)) = self.insertion_point(after, before) else {
+            return false;
+        };
+        self.stable_unused_keys_between(primary_index, lower, upper, len)
+            .is_some()
+    }
+
+    /// Inserts a stable batch between current semantic neighbors and returns
+    /// its contiguous semantic range. Existing IDs are not relabeled.
+    ///
+    /// # Panics
+    ///
+    /// Panics unless the full insertion passes
+    /// [`can_insert_stable_range_between`](Self::can_insert_stable_range_between).
+    pub fn insert_stable_range_between<Values>(
+        &mut self,
+        after: RadixId<M>,
+        before: Option<RadixId<M>>,
+        values: Values,
+    ) -> RadixRange<M>
+    where
+        Values: IntoIterator<Item = T>,
+        Values::IntoIter: ExactSizeIterator,
+    {
+        let values = values.into_iter();
+        let len = u32::try_from(values.len()).expect("Radix stable range length exceeds u32");
+        assert!(
+            self.can_insert_stable_range_between(after, before, len),
+            "RadixIndexArena stable range capacity exhausted"
+        );
+        if len == 0 {
+            return RadixRange::empty();
+        }
+
+        if before.is_none() && self.next_id(after).is_none() {
+            return self.push_primary_range(values);
+        }
+
+        let (primary_index, lower, upper, _) = self
+            .insertion_point(after, before)
+            .expect("stable range endpoints were preflighted");
+        let keys = self
+            .stable_unused_keys_between(primary_index, lower, upper, len)
+            .expect("stable range key capacity was preflighted");
+        let primary = RadixId::from_parts(primary_index, 0);
+        let mut start = None;
+        for (key, value) in keys.into_iter().zip(values) {
+            let id = self.insert_sibling(primary, key, value);
+            start.get_or_insert(id);
+        }
+        RadixRange::new(start.expect("a non-empty batch has a first ID"), len)
+    }
+
+    fn stable_unused_keys_between(
+        &self,
+        primary_index: usize,
+        lower: u16,
+        upper: u16,
+        len: u32,
+    ) -> Option<std::vec::Vec<u16>> {
+        let needed = len as usize;
+        let tree = self
+            .sibling_group_index(primary_index)
+            .ok()
+            .and_then(|group| self.sibling_trees.get(group));
+        let mut keys = std::vec::Vec::with_capacity(needed);
+        for key in lower + 1..upper {
+            if tree.is_none_or(|tree| !tree.is_used(key)) {
+                keys.push(key);
+                if keys.len() == needed {
+                    return Some(keys);
+                }
+            }
+        }
+        (needed == 0).then_some(keys)
+    }
+}
+
+/// Iterator over the IDs in one [`RadixRange`].
+pub struct RadixRangeIdIter<'tree, 'arena, T: Unpin, M> {
+    arena: &'tree TypedRadixIndexArena<'arena, T, RadixId<M>>,
+    next: Option<RadixId<M>>,
+    remaining: u32,
+}
+
+impl<T: Unpin, M> Iterator for RadixRangeIdIter<'_, '_, T, M> {
+    type Item = RadixId<M>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = self.next?;
+        self.remaining -= 1;
+        self.next = if self.remaining == 0 {
+            None
+        } else {
+            self.arena.next_id(id)
+        };
+        Some(id)
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.remaining as usize;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<T: Unpin, M> ExactSizeIterator for RadixRangeIdIter<'_, '_, T, M> {}
+impl<T: Unpin, M> std::iter::FusedIterator for RadixRangeIdIter<'_, '_, T, M> {}
+
+/// Iterator over the values in one [`RadixRange`].
+pub struct RadixRangeIter<'tree, 'arena, T: Unpin, M> {
+    ids: RadixRangeIdIter<'tree, 'arena, T, M>,
+}
+
+impl<'tree, T: Unpin, M> Iterator for RadixRangeIter<'tree, '_, T, M> {
+    type Item = &'tree T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.ids.next().map(|id| {
+            self.ids
+                .arena
+                .get(id)
+                .expect("a preflighted RadixRange remains valid")
+        })
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.ids.size_hint()
+    }
+}
+
+impl<T: Unpin, M> ExactSizeIterator for RadixRangeIter<'_, '_, T, M> {}
+impl<T: Unpin, M> std::iter::FusedIterator for RadixRangeIter<'_, '_, T, M> {}
+
+/// Iterator over typed IDs and values in one [`RadixRange`].
+pub struct RadixRangeIterEnumerated<'tree, 'arena, T: Unpin, M> {
+    ids: RadixRangeIdIter<'tree, 'arena, T, M>,
+}
+
+impl<'tree, T: Unpin, M> Iterator for RadixRangeIterEnumerated<'tree, '_, T, M> {
+    type Item = (RadixId<M>, &'tree T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = self.ids.next()?;
+        let value = self
+            .ids
+            .arena
+            .get(id)
+            .expect("a preflighted RadixRange remains valid");
+        Some((id, value))
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.ids.size_hint()
+    }
+}
+
+impl<T: Unpin, M> ExactSizeIterator for RadixRangeIterEnumerated<'_, '_, T, M> {}
+impl<T: Unpin, M> std::iter::FusedIterator for RadixRangeIterEnumerated<'_, '_, T, M> {}
 
 impl<T: Unpin, I: RadixIdKey> Index<I> for TypedRadixIndexArena<'_, T, I> {
     type Output = T;
@@ -1639,7 +2052,7 @@ fn radix_parts(key: u16) -> (usize, usize) {
 mod tests {
     use super::{
         COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, OVERFLOW_CAPACITY, RadixAllocationCounts, RadixId,
-        RadixIndexArena, RadixLeaf, RadixRoot, SIBLING_MASK, TypedRadixIndexArena,
+        RadixIndexArena, RadixLeaf, RadixRange, RadixRoot, SIBLING_MASK, TypedRadixIndexArena,
     };
     use crate::Allocator;
 
@@ -2071,18 +2484,37 @@ mod tests {
         }
 
         let overflow = values.push_primary(1_u8);
+        let next_overflow = values.push_primary(2_u8);
         let last_compact = last_compact.unwrap();
 
         assert!(!last_compact.is_overflow());
         assert!(overflow.is_primary());
         assert!(overflow.is_overflow());
         assert!(last_compact < overflow);
+        assert!(overflow < next_overflow);
+        assert_eq!(overflow.primary_index(), COMPACT_PRIMARY_CAPACITY);
+        assert_eq!(next_overflow.primary_index(), COMPACT_PRIMARY_CAPACITY + 1);
         assert_eq!(values.get(overflow), Some(&1));
+        assert_eq!(values.get(next_overflow), Some(&2));
         assert_eq!(values.primary_id(COMPACT_PRIMARY_CAPACITY), Some(overflow));
-        assert_eq!(values.primary_len(), COMPACT_PRIMARY_CAPACITY + 1);
-        assert_eq!(values.primary_iter().next_back(), Some(&1));
-        assert_eq!(values.iter_enumerated().last(), Some((overflow, &1)));
+        assert_eq!(
+            values.primary_id(COMPACT_PRIMARY_CAPACITY + 1),
+            Some(next_overflow)
+        );
+        assert_eq!(values.primary_len(), COMPACT_PRIMARY_CAPACITY + 2);
+        assert_eq!(values.primary_iter().next_back(), Some(&2));
+        assert_eq!(values.iter_enumerated().last(), Some((next_overflow, &2)));
+        let boundary_range = RadixRange::new(last_compact, 3);
+        assert_eq!(
+            values
+                .iter_range(boundary_range)
+                .unwrap()
+                .copied()
+                .collect::<std::vec::Vec<_>>(),
+            [0, 1, 2]
+        );
         assert!(!values.can_insert_sibling(overflow));
+        assert!(!values.can_insert_sibling(next_overflow));
         assert!(!values.can_insert_between(overflow, None));
     }
 
@@ -2204,5 +2636,113 @@ mod tests {
             ]
         );
         assert_eq!(iter.len(), 0);
+    }
+
+    #[test]
+    fn empty_range_never_resolves_its_placeholder_start() {
+        let allocator = Allocator::new();
+        let values = TypedRadixIndexArena::<u8, TestRuleId>::new_in(&allocator);
+        let range = RadixRange::empty();
+
+        assert!(range.is_empty());
+        assert_eq!(values.ids_in_range(range).unwrap().len(), 0);
+        assert_eq!(values.iter_range(range).unwrap().len(), 0);
+        assert_eq!(values.iter_range_enumerated(range).unwrap().len(), 0);
+        assert_eq!(values.last_id(range), None);
+        assert_eq!(values.id_at(range, 0), None);
+    }
+
+    #[test]
+    fn ranges_follow_semantic_order_across_siblings_and_primaries() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(30);
+        let inserted = values.insert_sibling(first, 512, 20);
+        let range = RadixRange::new(first, 3);
+
+        assert_eq!(values.id_at(range, 1), Some(inserted));
+        assert_eq!(values.last_id(range), Some(second));
+        assert_eq!(
+            values
+                .iter_range(range)
+                .unwrap()
+                .copied()
+                .collect::<std::vec::Vec<_>>(),
+            [10, 20, 30]
+        );
+        values
+            .for_each_in_range_mut(range, |_, value| *value += 1)
+            .unwrap();
+        assert_eq!(
+            values.iter().copied().collect::<std::vec::Vec<_>>(),
+            [11, 21, 31]
+        );
+    }
+
+    #[test]
+    fn stable_batch_insertion_preserves_existing_ids_and_returns_one_range() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(40);
+
+        assert!(values.can_insert_stable_range_between(first, Some(second), 2));
+        let inserted = values.insert_stable_range_between(first, Some(second), [20, 30]);
+
+        assert_eq!(values.get(first), Some(&10));
+        assert_eq!(values.get(second), Some(&40));
+        assert_eq!(inserted.len(), 2);
+        assert_eq!(
+            values
+                .iter_range(inserted)
+                .unwrap()
+                .copied()
+                .collect::<std::vec::Vec<_>>(),
+            [20, 30]
+        );
+        assert_eq!(
+            values.next_id(values.last_id(inserted).unwrap()),
+            Some(second)
+        );
+        assert_eq!(
+            values.iter().copied().collect::<std::vec::Vec<_>>(),
+            [10, 20, 30, 40]
+        );
+    }
+
+    #[test]
+    fn stable_batch_capacity_is_preflighted_for_the_complete_range() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(50);
+        let boundary = values.insert_sibling(first, 3, 40);
+        let before_len = values.len();
+
+        assert!(values.can_insert_stable_range_between(first, Some(boundary), 2));
+        assert!(!values.can_insert_stable_range_between(first, Some(boundary), 3));
+        assert_eq!(values.len(), before_len);
+        assert_eq!(values.next_id(first), Some(boundary));
+        assert_eq!(values.next_id(boundary), Some(second));
+    }
+
+    #[test]
+    fn stable_batch_at_the_arena_tail_appends_primaries() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+        let first = values.push_primary(10);
+        let inserted = values.insert_stable_range_between(first, None, [20, 30]);
+
+        assert!(inserted.start_id().is_primary());
+        assert_eq!(values.primary_len(), 3);
+        assert_eq!(
+            values
+                .iter_range(inserted)
+                .unwrap()
+                .copied()
+                .collect::<std::vec::Vec<_>>(),
+            [20, 30]
+        );
     }
 }

@@ -484,7 +484,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     /// Terminal S5 boundary for the currently implemented exact-only model.
     ///
-    /// S1-S3 commit `Range`/`Local4`/`Overflow` representations atomically.
+    /// S1-S3 commit one semantic `RadixRange` per declaration block.
     /// Complex partially-live effects return `NoChange`, so there is no S4
     /// deferred plan to materialize yet. Consuming `self` tears down every
     /// merge-only queue, history, summary, and revision sidecar. Debug builds
@@ -866,6 +866,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             let right_block = remap_block_id(candidate.right, &block_result.remaps);
             let shared_block = block_result.id;
 
+            let mut moved_declarations = std::vec::Vec::with_capacity(self.scratch.common.len());
             for declaration in &self.scratch.common {
                 let important = compilation
                     .declaration(declaration.left)
@@ -884,13 +885,12 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 self.declaration_ir.mark_dead(left_block, declaration.left);
                 self.declaration_ir
                     .mark_dead(right_block, declaration.right);
-                let moved = compilation.append_declaration(shared_block, moved, important)?;
-                self.declaration_ir.publish_synthesized_declaration(
-                    compilation,
-                    shared_block,
-                    moved,
-                )?;
+                moved_declarations.push((moved, important));
             }
+            compilation
+                .insert_transformed_declarations_at_block_end(shared_block, moved_declarations)?;
+            self.declaration_ir
+                .freeze_block(compilation, shared_block)?;
             self.insert_history_occurrence(shared_key, shared_block);
 
             let retain_right = self.declaration_ir.block_live_count(right_block) != 0
@@ -1598,6 +1598,19 @@ mod tests {
                 }
             );
             assert_eq!(compilation.root_rules().count(), 3);
+            let shared_rule = compilation.root_rules().nth(1).unwrap().0;
+            let shared_block = compilation
+                .rule(shared_rule)
+                .unwrap()
+                .declaration_block()
+                .unwrap();
+            let synthesized = compilation
+                .declaration_ids_in_block(shared_block)
+                .unwrap()
+                .next()
+                .unwrap();
+            assert!(!synthesized.is_primary());
+            assert!(state.declaration_ir.occurrence(synthesized).is_some());
             assert_eq!(
                 compilation.declarations_in_source_order().count(),
                 authored_declarations + 1
@@ -1770,7 +1783,7 @@ mod tests {
     }
 
     #[test]
-    fn s1_after_s3_commits_a_noncontiguous_local4_representation() {
+    fn s1_after_s3_keeps_the_merged_declarations_in_one_radix_range() {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
@@ -1785,11 +1798,7 @@ mod tests {
             assert!(
                 compilation
                     .declaration_blocks_in_source_order()
-                    .any(|(_, block)| block.is_live()
-                        && matches!(
-                            block.declarations(),
-                            rocketcss_ast::radix_ast::DeclarationList::Local4(_)
-                        ))
+                    .any(|(_, block)| block.is_live() && block.declarations().len() == 2)
             );
             let actual = compilation
                 .to_css_string(
@@ -1811,7 +1820,7 @@ mod tests {
     }
 
     #[test]
-    fn s1_after_s3_commits_a_complete_arena_overflow_representation() {
+    fn s1_after_s3_keeps_a_large_merge_in_one_radix_range() {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
@@ -1826,14 +1835,13 @@ mod tests {
             let stats = state.run(&mut compilation, true).unwrap();
             assert_eq!(stats.s3.allocated_shared_commits, 1);
             assert_eq!(stats.s1_commits, 1);
+            let live_range_lengths = compilation
+                .declaration_blocks_in_source_order()
+                .filter_map(|(_, block)| block.is_live().then_some(block.declarations().len()))
+                .collect::<std::vec::Vec<_>>();
             assert!(
-                compilation
-                    .declaration_blocks_in_source_order()
-                    .any(|(_, block)| block.is_live()
-                        && matches!(
-                            block.declarations(),
-                            rocketcss_ast::radix_ast::DeclarationList::Overflow(_)
-                        ))
+                live_range_lengths.contains(&5),
+                "unexpected live declaration ranges: {live_range_lengths:?}"
             );
             let actual = compilation
                 .to_css_string(
