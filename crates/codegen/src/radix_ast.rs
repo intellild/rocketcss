@@ -3,8 +3,8 @@
 use crate::{prelude::*, rules::NamedProperty};
 use rocketcss_ast::{
     CssDeclaration, CssDeclarationBlockId as DeclarationBlockId, CssRule, CssRuleId as RuleId,
-    FontFeatureSubrule, PageRule, PropertyRule, PropertyRuleDescriptor, RuleRecord, RuleTreeEvent,
-    RuleTreeEventIter, StyleSheet,
+    FontFeatureSubrule, PageRule, PropertyRule, PropertyRuleDescriptor, RuleTreeEntry,
+    RuleTreeEntryIter, RuleTreeEvent, StyleSheet,
 };
 
 #[derive(Clone, Copy)]
@@ -20,7 +20,7 @@ impl<'ghost> ToCss<'ghost> for StyleSheet<'_> {
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let writer = RadixWriter(self);
-        let mut cursor = RuleTreeCursor::new(self.rule_tree_events());
+        let mut cursor = RuleTreeCursor::new(self.rule_tree_entries());
         let first_root = writer.next_visible_rule(None, &mut cursor);
         let has_root_rules = first_root.is_some();
         for (index, comment) in self.license_comments().iter().enumerate() {
@@ -32,7 +32,7 @@ impl<'ghost> ToCss<'ghost> for StyleSheet<'_> {
             }
         }
         writer.write_rule_list(None, first_root, &mut cursor, dest, cx)?;
-        debug_assert!(cursor.events.peek().is_none());
+        debug_assert!(cursor.entries.peek().is_none());
         if has_root_rules {
             dest.new_line()?;
         }
@@ -42,25 +42,21 @@ impl<'ghost> ToCss<'ghost> for StyleSheet<'_> {
 
 struct RadixWriter<'comp, 'ast>(&'comp StyleSheet<'ast>);
 
-#[derive(Clone, Copy)]
-struct VisibleRule<'comp, 'ast> {
-    event: RuleTreeEvent<CssRule<'ast>>,
-    rule: &'comp RuleRecord<CssRule<'ast>>,
-}
+type VisibleRule<'comp, 'ast> = RuleTreeEntry<'comp, CssRule<'ast>>;
 
 struct RuleTreeCursor<'comp, 'ast> {
-    events: std::iter::Peekable<RuleTreeEventIter<'comp, 'ast, CssRule<'ast>>>,
+    entries: std::iter::Peekable<RuleTreeEntryIter<'comp, 'ast, CssRule<'ast>>>,
 }
 
 impl<'comp, 'ast> RuleTreeCursor<'comp, 'ast> {
-    fn new(events: RuleTreeEventIter<'comp, 'ast, CssRule<'ast>>) -> Self {
+    fn new(entries: RuleTreeEntryIter<'comp, 'ast, CssRule<'ast>>) -> Self {
         Self {
-            events: events.peekable(),
+            entries: entries.peekable(),
         }
     }
 
-    fn next_child(&mut self, parent: Option<RuleId<'ast>>) -> Option<RuleTreeEvent<CssRule<'ast>>> {
-        (self.events.peek()?.parent() == parent).then(|| self.events.next().unwrap())
+    fn next_child(&mut self, parent: Option<RuleId<'ast>>) -> Option<VisibleRule<'comp, 'ast>> {
+        (self.entries.peek()?.parent() == parent).then(|| self.entries.next().unwrap())
     }
 
     fn skip_children(&mut self, parent: RuleId<'ast>) {
@@ -92,7 +88,7 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
         let mut current = first_rule.or_else(|| self.next_visible_rule(parent, cursor));
         while let Some(visible) = current {
             if !first {
-                if !last_without_block || !rule_without_block(visible.rule.payload()) {
+                if !last_without_block || !rule_without_block(visible.record().payload()) {
                     dest.blank_line()?;
                 } else {
                     dest.new_line()?;
@@ -108,7 +104,7 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                 &mut wrote_unterminated_declaration,
                 cx,
             )?;
-            last_without_block = rule_without_block(visible.rule.payload());
+            last_without_block = rule_without_block(visible.record().payload());
             current = self.next_visible_rule(parent, cursor);
             if current.is_some() && wrote_unterminated_declaration {
                 dest.write_char(';')?;
@@ -122,21 +118,18 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
         parent: Option<RuleId<'ast>>,
         cursor: &mut RuleTreeCursor<'comp, 'ast>,
     ) -> Option<VisibleRule<'comp, 'ast>> {
-        while let Some(event) = cursor.next_child(parent) {
-            let rule = self
-                .0
-                .rule(event.rule())
-                .expect("a tree event's live rule remains resolvable");
+        while let Some(entry) = cursor.next_child(parent) {
+            let rule = entry.record();
             if let CssRule::Style(style) = rule.payload() {
                 let selector = self
                     .selector_value(style.selector_value)
                     .expect("a style selector value remains resolvable");
                 if selector.selectors().iter().all(Selector::is_tombstone) {
-                    cursor.skip_children(event.rule());
+                    cursor.skip_children(entry.rule());
                     continue;
                 }
             }
-            return Some(VisibleRule { event, rule });
+            return Some(entry);
         }
         None
     }
@@ -150,9 +143,9 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
         wrote_unterminated_declaration: &mut bool,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        let event = visible.event;
-        let id = event.rule();
-        let rule = visible.rule;
+        let event = visible.event();
+        let id = visible.rule();
+        let rule = visible.record();
         match rule.payload() {
             CssRule::Style(payload) => {
                 let selector = self
@@ -540,7 +533,7 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
             let mut children = std::vec::Vec::with_capacity(event.child_count() as usize);
             while let Some(child) = self.next_visible_rule(Some(event.rule()), cursor) {
                 assert!(
-                    !child.event.has_children(),
+                    !child.event().has_children(),
                     "a page child cannot own nested rules"
                 );
                 children.push(child);
@@ -548,10 +541,10 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
             let mut declaration_segment_count = usize::from(self.block_is_non_empty(parent_block));
             let mut margin_count = 0_usize;
             for child in &children {
-                match child.rule.payload() {
+                match child.record().payload() {
                     CssRule::PageDeclarations(_) => {
                         let block = child
-                            .rule
+                            .record()
                             .declaration_block()
                             .expect("a page declaration segment owns a block");
                         declaration_segment_count += usize::from(self.block_is_non_empty(block));
@@ -576,9 +569,9 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
                 )?;
             }
             for child in &children {
-                if matches!(child.rule.payload(), CssRule::PageDeclarations(_)) {
+                if matches!(child.record().payload(), CssRule::PageDeclarations(_)) {
                     let block = child
-                        .rule
+                        .record()
                         .declaration_block()
                         .expect("a page declaration segment owns a block");
                     if self.block_is_non_empty(block) {
@@ -601,7 +594,7 @@ impl<'comp, 'ast> RadixWriter<'comp, 'ast> {
             }
             let mut written_margins = 0_usize;
             for &child in &children {
-                if matches!(child.rule.payload(), CssRule::PageMargin(_)) {
+                if matches!(child.record().payload(), CssRule::PageMargin(_)) {
                     if written_segments > 0 || written_margins > 0 {
                         dest.blank_line()?;
                     }
