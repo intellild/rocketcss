@@ -29,6 +29,16 @@ impl<'a> BitVec<'a> {
         self.len == 0
     }
 
+    /// Resets the vector to `len` unset bits while retaining its allocation.
+    #[inline]
+    pub fn reset(&mut self, len: usize) {
+        let len = u32::try_from(len).expect("BitVec length exceeds u32::MAX");
+        let word_len = (len as usize).div_ceil(BITS_PER_WORD);
+        self.words.resize(word_len, 0);
+        self.words.fill(0);
+        self.len = len;
+    }
+
     #[inline]
     pub fn push(&mut self, value: bool) {
         let index = self.len as usize;
