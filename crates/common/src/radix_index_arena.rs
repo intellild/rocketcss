@@ -1390,11 +1390,48 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         })
     }
 
+    /// Returns a primary-vector slice when the complete semantic range is
+    /// provably a contiguous run of primary values.
+    pub fn primary_slice_in_range(&self, range: RadixRange<M>) -> Option<&[T]> {
+        if range.is_empty() {
+            return Some(&self.primary[..0]);
+        }
+
+        let start = range.start_id();
+        let last = range.last_id();
+        if !start.is_primary() || !last.is_primary() {
+            return None;
+        }
+
+        let start = start.primary_index();
+        let last = last.primary_index();
+        let primary_len = last.checked_sub(start)?.checked_add(1)?;
+        if primary_len != range.len() as usize {
+            return None;
+        }
+
+        let next_group = self
+            .sibling_primary_indices
+            .binary_search(&(start as u32))
+            .unwrap_or_else(|next_group| next_group);
+        if self
+            .sibling_primary_indices
+            .get(next_group)
+            .is_some_and(|&primary| (primary as usize) < last)
+        {
+            return None;
+        }
+
+        self.primary.get(start..=last)
+    }
+
     /// Iterates values in one valid semantic range.
     pub fn iter_range(&self, range: RadixRange<M>) -> Option<RadixRangeIter<'_, 'arena, T, M>> {
-        Some(RadixRangeIter {
-            ids: self.ids_in_range(range)?,
-        })
+        let kind = match self.primary_slice_in_range(range) {
+            Some(primary) => RadixRangeIterKind::Primary(primary.iter()),
+            None => RadixRangeIterKind::Semantic(self.ids_in_range(range)?),
+        };
+        Some(RadixRangeIter { kind })
     }
 
     /// Iterates typed IDs and values in one valid semantic range.
@@ -1402,9 +1439,18 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         &self,
         range: RadixRange<M>,
     ) -> Option<RadixRangeIterEnumerated<'_, 'arena, T, M>> {
-        Some(RadixRangeIterEnumerated {
-            ids: self.ids_in_range(range)?,
-        })
+        let kind = match self.primary_slice_in_range(range) {
+            Some(primary) => RadixRangeIterEnumeratedKind::Primary {
+                values: primary.iter(),
+                next_primary: if range.is_empty() {
+                    0
+                } else {
+                    range.start_id().primary_index()
+                },
+            },
+            None => RadixRangeIterEnumeratedKind::Semantic(self.ids_in_range(range)?),
+        };
+        Some(RadixRangeIterEnumerated { kind })
     }
 
     /// Mutably visits one valid semantic range without materializing its IDs.
@@ -1959,24 +2005,35 @@ impl<T: Unpin, I: RadixIdKey> std::iter::FusedIterator for RadixIds<'_, '_, T, I
 
 /// Iterator over the values in one [`RadixRange`].
 pub struct RadixRangeIter<'tree, 'arena, T: Unpin, M> {
-    ids: RadixIds<'tree, 'arena, T, RadixId<M>>,
+    kind: RadixRangeIterKind<'tree, 'arena, T, M>,
+}
+
+enum RadixRangeIterKind<'tree, 'arena, T: Unpin, M> {
+    Primary(std::slice::Iter<'tree, T>),
+    Semantic(RadixIds<'tree, 'arena, T, RadixId<M>>),
 }
 
 impl<'tree, T: Unpin, M> Iterator for RadixRangeIter<'tree, '_, T, M> {
     type Item = &'tree T;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.ids.next().map(|id| {
-            self.ids
-                .arena
-                .get(id)
-                .expect("a preflighted RadixRange remains valid")
-        })
+        match &mut self.kind {
+            RadixRangeIterKind::Primary(primary) => primary.next(),
+            RadixRangeIterKind::Semantic(ids) => ids.next().map(|id| {
+                ids.arena
+                    .get(id)
+                    .expect("a preflighted RadixRange remains valid")
+            }),
+        }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.ids.size_hint()
+        match &self.kind {
+            RadixRangeIterKind::Primary(primary) => primary.size_hint(),
+            RadixRangeIterKind::Semantic(ids) => ids.size_hint(),
+        }
     }
 }
 
@@ -1985,25 +2042,49 @@ impl<T: Unpin, M> std::iter::FusedIterator for RadixRangeIter<'_, '_, T, M> {}
 
 /// Iterator over typed IDs and values in one [`RadixRange`].
 pub struct RadixRangeIterEnumerated<'tree, 'arena, T: Unpin, M> {
-    ids: RadixIds<'tree, 'arena, T, RadixId<M>>,
+    kind: RadixRangeIterEnumeratedKind<'tree, 'arena, T, M>,
+}
+
+enum RadixRangeIterEnumeratedKind<'tree, 'arena, T: Unpin, M> {
+    Primary {
+        values: std::slice::Iter<'tree, T>,
+        next_primary: usize,
+    },
+    Semantic(RadixIds<'tree, 'arena, T, RadixId<M>>),
 }
 
 impl<'tree, T: Unpin, M> Iterator for RadixRangeIterEnumerated<'tree, '_, T, M> {
     type Item = (RadixId<M>, &'tree T);
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let id = self.ids.next()?;
-        let value = self
-            .ids
-            .arena
-            .get(id)
-            .expect("a preflighted RadixRange remains valid");
-        Some((id, value))
+        match &mut self.kind {
+            RadixRangeIterEnumeratedKind::Primary {
+                values,
+                next_primary,
+            } => {
+                let value = values.next()?;
+                let id = RadixId::from_primary_index(*next_primary);
+                *next_primary += 1;
+                Some((id, value))
+            }
+            RadixRangeIterEnumeratedKind::Semantic(ids) => {
+                let id = ids.next()?;
+                let value = ids
+                    .arena
+                    .get(id)
+                    .expect("a preflighted RadixRange remains valid");
+                Some((id, value))
+            }
+        }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.ids.size_hint()
+        match &self.kind {
+            RadixRangeIterEnumeratedKind::Primary { values, .. } => values.size_hint(),
+            RadixRangeIterEnumeratedKind::Semantic(ids) => ids.size_hint(),
+        }
     }
 }
 
@@ -2785,6 +2866,21 @@ mod tests {
         let overflow = values.push_primary(1_u8);
         let next_overflow = values.push_primary(2_u8);
         let last_compact = last_compact.unwrap();
+        let primary_boundary_range = RadixRange::new(last_compact, next_overflow, 3);
+
+        assert_eq!(
+            values.primary_slice_in_range(primary_boundary_range),
+            Some([0, 1, 2].as_slice())
+        );
+        assert_eq!(
+            values
+                .iter_range_enumerated(primary_boundary_range)
+                .unwrap()
+                .map(|(id, value)| (id, *value))
+                .collect::<std::vec::Vec<_>>(),
+            [(last_compact, 0), (overflow, 1), (next_overflow, 2)]
+        );
+
         let boundary_sibling = values.insert_sibling(last_compact, 512, 9_u8);
 
         assert!(!last_compact.is_overflow());
@@ -2815,6 +2911,7 @@ mod tests {
             [last_compact, boundary_sibling, overflow, next_overflow]
         );
         let boundary_range = RadixRange::new(last_compact, next_overflow, 4);
+        assert!(values.primary_slice_in_range(boundary_range).is_none());
         assert_eq!(
             values
                 .iter_range(boundary_range)
@@ -2983,6 +3080,51 @@ mod tests {
     }
 
     #[test]
+    fn primary_range_slice_proves_contiguous_ranges_without_resolving_ids() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(20);
+        let third = values.push_primary(30);
+
+        assert_eq!(
+            values.primary_slice_in_range(RadixRange::empty()),
+            Some([].as_slice())
+        );
+        assert_eq!(
+            values.primary_slice_in_range(RadixRange::singleton(second)),
+            Some([20].as_slice())
+        );
+
+        let range = RadixRange::new(first, third, 3);
+        assert_eq!(
+            values.primary_slice_in_range(range),
+            Some([10, 20, 30].as_slice())
+        );
+        assert!(
+            values
+                .primary_slice_in_range(RadixRange::new(first, third, 2))
+                .is_none()
+        );
+
+        let mut iter = values.iter_range(range).unwrap();
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.next(), Some(&10));
+        assert_eq!(iter.len(), 2);
+
+        let mut enumerated = values.iter_range_enumerated(range).unwrap();
+        assert_eq!(enumerated.len(), 3);
+        assert_eq!(enumerated.next(), Some((first, &10)));
+        assert_eq!(enumerated.next(), Some((second, &20)));
+        assert_eq!(enumerated.next(), Some((third, &30)));
+        assert_eq!(enumerated.len(), 0);
+
+        let stale = range;
+        values.insert_sibling(second, 512, 25);
+        assert!(values.primary_slice_in_range(stale).is_none());
+    }
+
+    #[test]
     fn ranges_follow_semantic_order_across_siblings_and_primaries() {
         let allocator = Allocator::new();
         let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
@@ -2991,6 +3133,7 @@ mod tests {
         let inserted = values.insert_sibling(first, 512, 20);
         let range = RadixRange::new(first, second, 3);
 
+        assert!(values.primary_slice_in_range(range).is_none());
         assert_eq!(range.start_id(), first);
         assert_eq!(range.last_id(), second);
         assert_eq!(values.ids_in_range(range).unwrap().nth(1), Some(inserted));
@@ -3002,12 +3145,52 @@ mod tests {
                 .collect::<std::vec::Vec<_>>(),
             [10, 20, 30]
         );
+        let mut iter = values.iter_range(range).unwrap();
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.next(), Some(&10));
+        assert_eq!(iter.len(), 2);
+        assert_eq!(iter.next(), Some(&20));
+        assert_eq!(iter.next(), Some(&30));
+        let mut enumerated = values.iter_range_enumerated(range).unwrap();
+        assert_eq!(enumerated.len(), 3);
+        assert_eq!(enumerated.next(), Some((first, &10)));
+        assert_eq!(enumerated.len(), 2);
+        assert_eq!(
+            enumerated.collect::<std::vec::Vec<_>>(),
+            [(inserted, &20), (second, &30)]
+        );
         values
             .for_each_in_range_mut(range, |_, value| *value += 1)
             .unwrap();
         assert_eq!(
             values.iter().copied().collect::<std::vec::Vec<_>>(),
             [11, 21, 31]
+        );
+    }
+
+    #[test]
+    fn a_sibling_after_the_last_primary_does_not_block_the_slice_fast_path() {
+        let allocator = Allocator::new();
+        let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+        let first = values.push_primary(10);
+        let second = values.push_primary(20);
+        let after_second = values.insert_sibling(second, 512, 30);
+
+        let ending_at_primary = RadixRange::new(first, second, 2);
+        assert_eq!(
+            values.primary_slice_in_range(ending_at_primary),
+            Some([10, 20].as_slice())
+        );
+
+        let starting_at_sibling = RadixRange::new(after_second, after_second, 1);
+        assert!(values.primary_slice_in_range(starting_at_sibling).is_none());
+        assert_eq!(
+            values
+                .iter_range(starting_at_sibling)
+                .unwrap()
+                .copied()
+                .collect::<std::vec::Vec<_>>(),
+            [30]
         );
     }
 
