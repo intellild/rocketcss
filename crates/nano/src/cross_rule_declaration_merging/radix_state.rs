@@ -257,16 +257,16 @@ impl<'arena, 'ast> MinifyScratch<'arena, 'ast> {
             matched_right: BitVec::new(allocator),
             matched_left: BitVec::new(allocator),
             declarations_to_remove: Vec::with_capacity_in(declaration_capacity, allocator),
-            affected_blocks: HashSet::with_capacity_in(block_capacity, allocator),
-            affected_rules: FxHashMap::with_capacity_and_hasher(rule_capacity, Default::default()),
-            affected_parents: FxHashSet::with_capacity_and_hasher(
-                rule_capacity,
-                Default::default(),
-            ),
+            // S2 clears these collections once per effective key. Their live
+            // size is local to that key, so preallocating them for the whole
+            // stylesheet turns every clear into an O(stylesheet) memset.
+            affected_blocks: HashSet::new_in(allocator),
+            affected_rules: FxHashMap::default(),
+            affected_parents: FxHashSet::default(),
             affected_parent_updates: Vec::with_capacity_in(rule_capacity, allocator),
             rule_contexts: Vec::with_capacity_in(rule_capacity, allocator),
             mutation_deltas: Vec::with_capacity_in(rule_capacity, allocator),
-            previous_by_property: HashMap::with_capacity_in(declaration_capacity, allocator),
+            previous_by_property: HashMap::new_in(allocator),
         }
     }
 }
@@ -1490,6 +1490,18 @@ mod tests {
         ) -> Result<rocketcss_ast::StyleSheet<'ast>, rocketcss_parser::Error<'ast>> {
             rocketcss_common::GhostToken::scope(|mut token| self.parse(source, &mut token, options))
         }
+    }
+
+    #[test]
+    fn s2_scratch_hash_tables_do_not_preallocate_for_the_whole_stylesheet() {
+        let allocator = Allocator::new();
+        let scratch: MinifyScratch<'_, '_> =
+            MinifyScratch::with_capacity_in(1_000, 2_000, 10_000, &allocator);
+
+        assert_eq!(scratch.affected_blocks.capacity(), 0);
+        assert_eq!(scratch.affected_rules.capacity(), 0);
+        assert_eq!(scratch.affected_parents.capacity(), 0);
+        assert_eq!(scratch.previous_by_property.capacity(), 0);
     }
 
     #[test]
