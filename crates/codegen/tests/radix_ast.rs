@@ -80,32 +80,3 @@ fn streams_the_selector_value_published_by_an_ast_transaction() {
         assert_eq!(actual, "b{x:1}b{x:2}");
     });
 }
-
-#[test]
-fn streams_an_adjacent_block_merge_directly_from_live_topology() {
-    GhostToken::scope(|mut token| {
-        let allocator = Allocator::new();
-        let options = ParserOptions::default();
-        let mut radix = Compiler::new(&allocator)
-            .parse("a{color:red}a{color:blue}", &mut token, options)
-            .unwrap();
-        let styles = radix
-            .rules_in_source_order()
-            .filter_map(|(id, rule)| matches!(rule.payload(), CssRule::Style(_)).then_some(id))
-            .collect::<std::vec::Vec<_>>();
-        let edge = radix
-            .root_rule_edges()
-            .find(|edge| edge.left() == styles[0] && edge.right() == styles[1])
-            .unwrap();
-        radix.merge_adjacent_rule_declaration_blocks(edge).unwrap();
-
-        let actual = radix
-            .to_css_string(
-                PrinterOptions { prettify: false },
-                &ToCssContext::new(&token),
-            )
-            .unwrap();
-        assert_eq!(actual, "a{color:red;color:#00f}");
-        assert_eq!(radix.validate_ast(), Ok(()));
-    });
-}

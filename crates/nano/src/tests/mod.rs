@@ -41,6 +41,22 @@ fn run_with_options(source: &str, options: MinifyOptions) -> String {
     })
 }
 
+fn run_with_stats(source: &str) -> (String, MinifyStats) {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet =
+            parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
+        let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let output = stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap();
+        (output, stats)
+    })
+}
+
 fn run_with_error_recovery(source: &str) -> String {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {

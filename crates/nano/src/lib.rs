@@ -45,8 +45,6 @@ pub fn try_minify<'ast, 'ghost>(
     let cx = MinifyContext::new(options, &allocator);
     let declaration_blocks = rules::DeclarationBlockMinifier::new(&allocator);
     let merge_adjacent_rules = options.is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any);
-    let mut cross_rule = merge_adjacent_rules
-        .then(|| cross_rule_declaration_merging::new_cross_rule_builder(stylesheet, &allocator));
     let mut minifier = Minifier {
         cx,
         declaration_blocks,
@@ -87,25 +85,21 @@ pub fn try_minify<'ast, 'ghost>(
                 &mut minifier.cx,
             );
         }
-        if let Some(builder) = cross_rule.as_mut() {
-            cross_rule_declaration_merging::publish_cross_rule_block(
-                builder, stylesheet, block_id,
-            )?;
-        }
         Ok(())
     })?;
 
     stylesheet.refresh_context_value_identities_in(&allocator)?;
 
-    if let Some(builder) = cross_rule {
+    if merge_adjacent_rules {
         let preserve_selector_compatibility = minifier
             .cx
             .is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::Any);
-        cross_rule_declaration_merging::stabilize_cross_rule_builder(
-            builder,
+        let stats = cross_rule_declaration_merging::stabilize(
             stylesheet,
+            &allocator,
             preserve_selector_compatibility,
         )?;
+        minifier.cx.record_cross_rule_stats(stats);
     }
     Ok(minifier.cx.stats())
 }

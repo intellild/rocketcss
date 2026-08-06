@@ -745,6 +745,17 @@ pub struct RadixInsertResult<I> {
     pub remaps: std::vec::Vec<RadixIdRemap<I>>,
 }
 
+/// IDs reserved by one terminal sibling-group planning pass.
+///
+/// Reserved IDs do not contain values until the caller activates them with
+/// [`TypedRadixIndexArena::insert_sibling`]. Existing live siblings may be
+/// relabeled once to make every requested position representable.
+#[derive(Debug)]
+pub struct RadixBatchReservation<I> {
+    pub reserved: std::vec::Vec<I>,
+    pub remaps: std::vec::Vec<RadixIdRemap<I>>,
+}
+
 /// A sequence with a linear primary store and lazy radix-tree insertions.
 ///
 /// Parsing appends primary values with [`push_primary`](Self::push_primary),
@@ -944,6 +955,132 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
                 .sibling_group_index(primary.primary_index())
                 .and_then(|group| self.sibling_trees.get(group))
                 .is_none_or(|tree| tree.used_len() < SIBLING_MASK as usize)
+    }
+
+    /// Reserves several ordered positions below one compact primary anchor.
+    ///
+    /// `positions` are the zero-based positions of the reservations in the
+    /// final sibling sequence (the primary itself is not part of that
+    /// sequence). They must be strictly increasing. All current siblings fill
+    /// the remaining positions in their existing order.
+    ///
+    /// The sibling group is rebuilt at most once. Reservations do not occupy
+    /// the returned IDs, so callers may omit an activation when a tombstone is
+    /// reused instead. No other insertion may target this sibling group until
+    /// all desired reservations have either been activated or abandoned.
+    pub fn reserve_sibling_positions(
+        &mut self,
+        primary: I,
+        positions: &[usize],
+    ) -> Option<RadixBatchReservation<I>> {
+        if !primary.is_primary()
+            || primary.is_overflow()
+            || self.primary.get(primary.primary_index()).is_none()
+            || self
+                .len
+                .checked_add(u32::try_from(positions.len()).ok()?)
+                .is_none()
+        {
+            return None;
+        }
+        if positions.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return None;
+        }
+
+        let primary_index = primary.primary_index();
+        let group = self.sibling_group_index(primary_index);
+        let live_keys = group
+            .and_then(|group| self.sibling_trees.get(group))
+            .map_or_else(std::vec::Vec::new, RadixTree::live_keys);
+        let final_len = live_keys.len().checked_add(positions.len())?;
+        if positions
+            .last()
+            .is_some_and(|&position| position >= final_len)
+            || final_len > SIBLING_MASK as usize
+        {
+            return None;
+        }
+
+        let tree = group.and_then(|group| self.sibling_trees.get(group));
+        let mut old_keys = live_keys.iter().copied();
+        let mut reservation_index = 0;
+        let mut slots = std::vec::Vec::with_capacity(final_len);
+        for index in 0..final_len {
+            if positions.get(reservation_index).copied() == Some(index) {
+                slots.push(None);
+                reservation_index += 1;
+            } else {
+                slots.push(Some(old_keys.next()?));
+            }
+        }
+        if old_keys.next().is_some() || reservation_index != positions.len() {
+            return None;
+        }
+
+        let mut assigned_keys = std::vec::Vec::with_capacity(final_len);
+        let mut previous = 0_u16;
+        for old_key in &slots {
+            let retained = old_key.filter(|&old_key| old_key > previous);
+            let unused = ((previous + 1)..=SIBLING_MASK as u16)
+                .find(|&candidate| tree.is_none_or(|tree| !tree.is_used(candidate)));
+            let key = match (retained, unused) {
+                (Some(retained), Some(unused)) => retained.min(unused),
+                (Some(retained), None) => retained,
+                (None, Some(unused)) => unused,
+                (None, None) => return None,
+            };
+            assigned_keys.push(key);
+            previous = key;
+        }
+
+        let mut reserved = std::vec::Vec::with_capacity(positions.len());
+        let mut remaps = std::vec::Vec::new();
+        for (&old_key, &assigned_key) in slots.iter().zip(&assigned_keys) {
+            match old_key {
+                Some(old_key) if old_key != assigned_key => remaps.push(RadixIdRemap {
+                    old: I::from_parts(primary_index, old_key),
+                    new: I::from_parts(primary_index, assigned_key),
+                }),
+                None => reserved.push(I::from_parts(primary_index, assigned_key)),
+                Some(_) => {}
+            }
+        }
+
+        if !remaps.is_empty() {
+            let group = group.expect("existing siblings own a sibling group");
+            let tree = &mut self.sibling_trees[group];
+            let entries = tree.drain_live_retaining_ids();
+            let mut entries = entries.into_iter();
+            for (&old_key, &assigned_key) in slots.iter().zip(&assigned_keys) {
+                let Some(old_key) = old_key else {
+                    continue;
+                };
+                let (entry_key, value) = entries
+                    .next()
+                    .expect("every existing sibling has one drained value");
+                debug_assert_eq!(entry_key, old_key);
+                if old_key == assigned_key {
+                    tree.restore(self.allocator, assigned_key, value);
+                } else {
+                    tree.insert(self.allocator, assigned_key, value);
+                }
+            }
+            debug_assert!(entries.next().is_none());
+        }
+
+        Some(RadixBatchReservation { reserved, remaps })
+    }
+
+    /// Activates one ID returned by [`reserve_sibling_positions`](Self::reserve_sibling_positions).
+    ///
+    /// Returns `None` if the ID is not a vacant compact sibling position.
+    pub fn activate_reserved_sibling(&mut self, id: I, value: T) -> Option<I> {
+        if id.is_primary() || id.is_overflow() || self.get(id).is_some() {
+            return None;
+        }
+        let primary = I::from_parts(id.primary_index(), 0);
+        self.can_insert_sibling(primary)
+            .then(|| self.insert_sibling(primary, id.sibling_key(), value))
     }
 
     /// Returns whether a compact ID can be assigned between two current
@@ -2650,6 +2787,35 @@ mod tests {
                 .all(|remap| remap.old.sibling_key() != 512)
         );
         assert_eq!(values.get(result.id), Some(&10_000));
+    }
+
+    #[test]
+    fn batch_reservation_relabels_one_group_once_for_multiple_insertions() {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::new_in(&allocator);
+        let primary = values.push_primary(0_u16);
+        values.insert_sibling(primary, 1, 1);
+        values.insert_sibling(primary, 2, 2);
+        values.insert_sibling(primary, 3, 3);
+
+        let reservation = values
+            .reserve_sibling_positions(primary, &[1, 3])
+            .expect("one group has capacity for both terminal insertions");
+        assert!(!reservation.remaps.is_empty());
+        assert_eq!(reservation.reserved.len(), 2);
+        assert_eq!(values.get(reservation.reserved[0]), None);
+        assert_eq!(values.get(reservation.reserved[1]), None);
+
+        values
+            .activate_reserved_sibling(reservation.reserved[0], 10)
+            .unwrap();
+        values
+            .activate_reserved_sibling(reservation.reserved[1], 20)
+            .unwrap();
+        assert_eq!(
+            values.iter().copied().collect::<std::vec::Vec<_>>(),
+            [0, 1, 10, 2, 20, 3]
+        );
     }
 
     #[test]

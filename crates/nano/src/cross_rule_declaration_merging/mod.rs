@@ -1,29 +1,25 @@
 mod declaration_ir;
 mod partial_selector;
-mod radix_state;
+mod scheduler;
 
-pub(crate) use radix_state::CrossRuleBuilder;
+pub(crate) use scheduler::CrossRuleStats;
 
-pub(crate) fn new_cross_rule_builder<'arena, 'ast>(
-    stylesheet: &rocketcss_ast::StyleSheet<'ast>,
-    allocator: &'arena rocketcss_common::Allocator,
-) -> CrossRuleBuilder<'arena, 'ast> {
-    radix_state::CrossRuleBuilder::new(stylesheet, allocator)
-}
-
-pub(crate) fn publish_cross_rule_block<'arena, 'ast>(
-    builder: &mut CrossRuleBuilder<'arena, 'ast>,
-    stylesheet: &rocketcss_ast::StyleSheet<'ast>,
-    block: rocketcss_ast::CssDeclarationBlockId<'ast>,
-) -> Result<(), rocketcss_ast::StyleSheetMutationError<'ast>> {
-    builder.publish_block(stylesheet, block)
-}
-
-pub(crate) fn stabilize_cross_rule_builder<'arena, 'ast>(
-    mut builder: CrossRuleBuilder<'arena, 'ast>,
+pub(crate) fn stabilize<'ast>(
     stylesheet: &mut rocketcss_ast::StyleSheet<'ast>,
+    allocator: &rocketcss_common::Allocator,
     preserve_selector_compatibility: bool,
-) -> Result<(), rocketcss_ast::StyleSheetMutationError<'ast>> {
-    builder.finalize(stylesheet)?;
-    radix_state::stabilize_with_builder(builder, stylesheet, preserve_selector_compatibility)
+) -> Result<scheduler::CrossRuleStats, rocketcss_ast::StyleSheetMutationError<'ast>> {
+    let (plan, mut stats) = {
+        let scheduler = scheduler::CrossRuleScheduler::from_stylesheet(&*stylesheet, allocator)?;
+        scheduler.stabilize(&*stylesheet, preserve_selector_compatibility)
+    };
+    let reification = stylesheet.apply_reification_plan(plan, allocator)?;
+    stats.reification_passes = reification.reification_passes;
+    stats.rule_tombstone_reuses = reification.rule_tombstone_reuses;
+    stats.block_tombstone_reuses = reification.block_tombstone_reuses;
+    stats.declaration_tombstone_reuses = reification.declaration_tombstone_reuses;
+    stats.residual_rule_inserts = reification.residual_rule_inserts;
+    stats.residual_declaration_inserts = reification.residual_declaration_inserts;
+    stats.radix_relabel_groups = reification.radix_relabel_groups;
+    Ok(stats)
 }

@@ -468,9 +468,8 @@ impl<'ast> StyleSheet<'ast> {
         }
 
         // The common minify path leaves the typed selector values untouched.
-        // In that case the existing canonical IDs and all dependent revisions
-        // are already authoritative, so repairing them would only recreate
-        // transient maps and invalidate every candidate for no reason.
+        // In that case the existing canonical IDs are already authoritative,
+        // so repairing them would only recreate transient maps.
         if !changed {
             return false;
         }
@@ -509,7 +508,6 @@ impl<'ast> StyleSheet<'ast> {
             };
             if let Some(selector) = selector {
                 *selector = value_remaps[selector.index()];
-                rule.revision = rule.revision.wrapping_add(1);
             }
         });
 
@@ -575,7 +573,6 @@ impl<'ast> StyleSheet<'ast> {
                     .expect("an enumerated declaration block remains resolvable");
                 if block.live {
                     block.effective_key = key_remaps[block.effective_key.index()];
-                    block.revision = block.revision.wrapping_add(1);
                 }
             }
         }
@@ -721,7 +718,6 @@ impl<'ast> StyleSheet<'ast> {
                     .expect("an enumerated declaration block remains resolvable");
                 if block.live {
                     block.effective_key = key_remaps[block.effective_key.index()];
-                    block.revision = block.revision.wrapping_add(1);
                 }
             }
         }
@@ -975,43 +971,27 @@ impl<'ast> StyleSheet<'ast> {
             CssRule::Nesting(payload) => payload.selector_value = new_value,
             _ => unreachable!("the selector owner kind was validated before commit"),
         }
-        rule_record.revision = rule_record.revision.wrapping_add(1);
         for (block, key) in updates {
             let block = self
                 .declaration_block_mut(block)
                 .expect("a collected subtree block remains resolvable");
             block.effective_key = key;
-            block.revision = block.revision.wrapping_add(1);
         }
         Ok(true)
     }
 
-    /// Edge-context variant used by the incremental cross-rule scheduler.
-    /// The selector/key mutation and incident topology publication remain one
-    /// AST-owned operation. The compact edge is expanded only after selection.
-    #[doc(hidden)]
-    pub fn replace_rule_selector_value_in_edge(
+    /// Terminal-reification variant that validates the planned direct edge
+    /// before applying its selector and effective-key updates.
+    pub(super) fn replace_rule_selector_value_in_edge(
         &mut self,
         edge: DirectRuleEdge<CssRule<'ast>>,
         new_value: SelectorValueId,
         allocator: &Allocator,
-    ) -> Result<(bool, RuleMutationDelta<CssRule<'ast>>), MutationError<'ast>> {
+    ) -> Result<bool, MutationError<'ast>> {
         if !self.is_valid_direct_rule_edge(edge) {
             return Err(MutationError::InvalidRuleTopology(edge.left()));
         }
-        let mut context = self.direct_rule_mutation_context(edge.left_context())?;
-        let changed = self.replace_rule_selector_value_in(edge.left(), new_value, allocator)?;
-        let delta = if changed {
-            context.revision = self
-                .rule(context.rule)
-                .expect("the changed selector rule remains live")
-                .revision;
-            self.cache_rule_mutation_context(context);
-            self.local_rule_edges(context)
-        } else {
-            RuleMutationDelta::empty()
-        };
-        Ok((changed, delta))
+        self.replace_rule_selector_value_in(edge.left(), new_value, allocator)
     }
 
     fn replace_selector_path_in(
@@ -1093,6 +1073,41 @@ impl<'ast> StyleSheet<'ast> {
             ..left_key
         })
         .map(Some)
+    }
+
+    /// Checks whether two effective keys can share a selector-only union key
+    /// without mutating selector or effective-key interners.
+    ///
+    /// Nano uses this while its persistent scheduler is still read-only. The
+    /// matching interning operation is delayed until terminal reification.
+    #[doc(hidden)]
+    pub fn selector_union_effective_keys_are_compatible(
+        &self,
+        left: EffectiveKeyId,
+        right: EffectiveKeyId,
+    ) -> bool {
+        let Some(left_key) = self.effective_key(left).copied() else {
+            return false;
+        };
+        let Some(right_key) = self.effective_key(right).copied() else {
+            return false;
+        };
+        let (Some(left_path), Some(right_path)) = (left_key.selector_path, right_key.selector_path)
+        else {
+            return false;
+        };
+        let Some(left_path) = self.selector_paths.try_get(left_path) else {
+            return false;
+        };
+        let Some(right_path) = self.selector_paths.try_get(right_path) else {
+            return false;
+        };
+        left_path.parent == right_path.parent
+            && left_key.context_path == right_key.context_path
+            && left_key.layer == right_key.layer
+            && left_key.origin == right_key.origin
+            && left_key.cascade_phase == right_key.cascade_phase
+            && left_key.history_segment == right_key.history_segment
     }
 
     pub fn intern_selector_value(

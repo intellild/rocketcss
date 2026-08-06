@@ -37,17 +37,6 @@ fn direct_edge<'ast, R: std::fmt::Debug + Unpin, D: Unpin, K>(
     }
 }
 
-fn declaration_append<'ast, R: Unpin, D: Unpin, K>(
-    stylesheet: &StyleSheet<'ast, R, D, K>,
-    block: DeclarationBlockId<R>,
-) -> DeclarationAppendContext<R> {
-    stylesheet
-        .declaration_block_positions()
-        .find(|position| position.block() == block)
-        .unwrap()
-        .append_context()
-}
-
 #[test]
 fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<RuleId<&str>>(), size_of::<u32>());
@@ -60,9 +49,8 @@ fn typed_ids_keep_compact_optional_layout() {
         size_of::<Option<DeclarationBlockId<&str>>>(),
         size_of::<u32>()
     );
-    assert_eq!(size_of::<DirectRuleContext<&str>>(), size_of::<[u32; 3]>());
-    assert_eq!(size_of::<DirectRuleEdge<&str>>(), size_of::<[u32; 5]>());
-    assert_eq!(size_of::<RuleMutationDelta<&str>>(), size_of::<[u32; 20]>());
+    assert_eq!(size_of::<DirectRuleContext<&str>>(), size_of::<[u32; 2]>());
+    assert_eq!(size_of::<DirectRuleEdge<&str>>(), size_of::<[u32; 3]>());
 }
 
 #[test]
@@ -243,7 +231,7 @@ fn direct_rule_edges_stay_in_one_parent_and_skip_descendants_and_tombstones() {
 }
 
 #[test]
-fn local_rule_mutations_invalidate_old_edges_and_publish_exact_replacements() {
+fn local_rule_mutations_invalidate_old_edges() {
     let allocator = Allocator::new();
     let mut stylesheet = StyleSheet::<u8, (), ()>::new_in(&allocator);
     let key = stylesheet.append_effective_key(()).unwrap();
@@ -252,7 +240,7 @@ fn local_rule_mutations_invalidate_old_edges_and_publish_exact_replacements() {
         .append_declaration_block(DeclarationBlockOwner::Rule(left), key)
         .unwrap();
     let right = stylesheet.append_rule(None, 2).unwrap();
-    stylesheet
+    let right_block = stylesheet
         .append_declaration_block(DeclarationBlockOwner::Rule(right), key)
         .unwrap();
     let next = stylesheet.append_rule(None, 3).unwrap();
@@ -261,59 +249,24 @@ fn local_rule_mutations_invalidate_old_edges_and_publish_exact_replacements() {
         .unwrap();
 
     let original = direct_edge(&stylesheet, left, right);
-    let left_append = declaration_append(&stylesheet, left_block);
     let inserted = stylesheet
-        .insert_rule_with_declaration_block_after(original, left_append, 4, key, 0)
+        .insert_rule_after(original.left_context(), 4)
         .unwrap();
     let inserted_rule = inserted.rule.id;
-    assert!(!stylesheet.is_valid_direct_rule_edge(original));
-    assert_eq!(
-        inserted
-            .delta
-            .edges()
-            .map(|edge| (edge.left(), edge.right()))
-            .collect::<std::vec::Vec<_>>(),
-        [(left, inserted_rule), (inserted_rule, right)]
-    );
-    assert!(
-        inserted
-            .delta
-            .edges()
-            .all(|edge| stylesheet.is_valid_direct_rule_edge(edge))
-    );
-
-    let merge_edge = inserted
-        .delta
-        .edges()
-        .find(|edge| edge.left() == inserted_rule && edge.right() == right)
+    stylesheet
+        .insert_declaration_block_between(left_block, Some(right_block), inserted_rule, key)
         .unwrap();
+    assert!(!stylesheet.is_valid_direct_rule_edge(original));
+    assert!(stylesheet.is_valid_direct_rule_edge(direct_edge(&stylesheet, left, inserted_rule,)));
+    let merge_edge = direct_edge(&stylesheet, inserted_rule, right);
     let merged = stylesheet
         .merge_adjacent_rule_declaration_blocks(merge_edge)
         .unwrap();
-    assert_eq!(
-        merged
-            .delta
-            .edges()
-            .map(|edge| (edge.left(), edge.right()))
-            .collect::<std::vec::Vec<_>>(),
-        [(left, right), (right, next)]
-    );
-
-    let right_context = merged
-        .delta
-        .edges()
-        .find(|edge| edge.left() == left && edge.right() == right)
-        .unwrap()
-        .right_context();
-    let retired = stylesheet.retire_rule(right_context).unwrap();
-    assert_eq!(
-        retired
-            .delta
-            .edges()
-            .map(|edge| (edge.left(), edge.right()))
-            .collect::<std::vec::Vec<_>>(),
-        [(left, next)]
-    );
+    assert_eq!(merged.retained_rule, right);
+    stylesheet
+        .retire_rule(direct_context(&stylesheet, right))
+        .unwrap();
+    assert!(stylesheet.is_valid_direct_rule_edge(direct_edge(&stylesheet, left, next,)));
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 
@@ -441,10 +394,7 @@ fn insertion_after_a_nested_subtree_updates_every_ancestor_span() {
     assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 2);
     assert_eq!(stylesheet.rule(child).unwrap().descendant_count, 1);
     assert_eq!(stylesheet.rule(child).unwrap().nested_rule_count, 1);
-    assert!(matches!(
-        stylesheet.rule_edges_at_context(parent_context),
-        Err(MutationError::InvalidRuleTopology(id)) if id == parent
-    ));
+    assert!(stylesheet.is_valid_direct_rule_context(parent_context));
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 
@@ -461,15 +411,8 @@ fn compact_position_rehydrates_after_an_unrelated_subtree_boundary_change() {
         .insert_rule_after(direct_context(&stylesheet, child), "inserted")
         .unwrap();
 
-    assert_eq!(
-        stylesheet
-            .rule_edges_at_context(stale_following)
-            .unwrap()
-            .edges()
-            .map(|edge| (edge.left(), edge.right()))
-            .collect::<std::vec::Vec<_>>(),
-        [(parent, following)]
-    );
+    assert!(stylesheet.is_valid_direct_rule_context(stale_following));
+    assert!(stylesheet.is_valid_direct_rule_edge(direct_edge(&stylesheet, parent, following,)));
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 
@@ -603,14 +546,16 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
         .unwrap();
 
     let edge = direct_edge(&stylesheet, left, right);
-    let left_append = declaration_append(&stylesheet, left_block);
     let inserted = stylesheet
-        .insert_rule_with_declaration_block_after(edge, left_append, 3, key, 1)
+        .insert_rule_after(edge.left_context(), 3)
         .unwrap();
     assert!(inserted.rule.remaps.is_empty());
-    assert!(inserted.declaration_block.remaps.is_empty());
+    let inserted_block = stylesheet
+        .insert_declaration_block_between(left_block, Some(right_block), inserted.rule.id, key)
+        .unwrap();
+    assert!(inserted_block.remaps.is_empty());
     stylesheet
-        .insert_transformed_declarations_at_block_end(inserted.declaration_block.id, [(30, false)])
+        .insert_transformed_declarations_at_block_end(inserted_block.id, [(30, false)])
         .unwrap();
 
     assert_eq!(
@@ -1165,7 +1110,7 @@ fn declaration_block_positions_bridge_consecutive_empty_ranges_once() {
 }
 
 #[test]
-fn declaration_mutation_results_refresh_append_contexts() {
+fn declaration_mutation_replaces_payloads_in_place() {
     let allocator = Allocator::new();
     let mut stylesheet = StyleSheet::<u8, u8, ()>::new_in(&allocator);
     let key = stylesheet.append_effective_key(()).unwrap();
@@ -1179,20 +1124,10 @@ fn declaration_mutation_results_refresh_append_contexts() {
     let second = stylesheet
         .append_authored_declaration(block, 20, false)
         .unwrap();
-    let original = declaration_append(&stylesheet, block);
-
-    let replaced = stylesheet
-        .replace_declaration_with_context(original, first, 11)
-        .unwrap();
-    assert_eq!(replaced.previous, 10);
-    assert!(matches!(
-        stylesheet.replace_declaration_with_context(original, second, 21),
-        Err(MutationError::NonContiguousDeclarationRange(id)) if id == block
-    ));
-    let replaced = stylesheet
-        .replace_declaration_with_context(replaced.declaration_append, second, 21)
-        .unwrap();
-    assert_eq!(replaced.previous, 20);
+    let replaced = stylesheet.replace_declaration(block, first, 11).unwrap();
+    assert_eq!(replaced, 10);
+    let replaced = stylesheet.replace_declaration(block, second, 21).unwrap();
+    assert_eq!(replaced, 20);
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 

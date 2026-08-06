@@ -89,6 +89,41 @@ fn scheduler_propagates_work_between_s1_s2_and_s3() {
 }
 
 #[test]
+fn reification_reuses_an_s2_leaf_tombstone_for_s3() {
+    let (output, stats) = run_with_stats(
+        "a{color:red;margin:0}b{display:block}c{color:red;padding:0}b{display:block}",
+    );
+    assert_eq!(
+        output,
+        "a{margin:0}a,c{color:red}c{padding:0}b{display:block}"
+    );
+    assert_eq!(stats.initial_scans, 1);
+    assert_eq!(stats.scheduler_ast_mutations, 0);
+    assert_eq!(stats.reification_passes, 1);
+    assert_eq!(stats.rule_tombstone_reuses, 1);
+    assert_eq!(stats.block_tombstone_reuses, 1);
+    assert_eq!(stats.declaration_tombstone_reuses, 1);
+    assert_eq!(stats.residual_rule_inserts, 0);
+    assert_eq!(stats.residual_declaration_inserts, 0);
+}
+
+#[test]
+fn reification_inserts_only_the_declaration_tombstone_deficit() {
+    let (output, stats) = run_with_stats(
+        "a{color:red;width:1px;margin:0}b{display:block}c{color:red;width:1px;padding:0}b{display:block}",
+    );
+    assert_eq!(
+        output,
+        "a{margin:0}a,c{color:red;width:1px}c{padding:0}b{display:block}"
+    );
+    assert_eq!(stats.rule_tombstone_reuses, 1);
+    assert_eq!(stats.block_tombstone_reuses, 1);
+    assert_eq!(stats.declaration_tombstone_reuses, 1);
+    assert_eq!(stats.residual_rule_inserts, 0);
+    assert_eq!(stats.residual_declaration_inserts, 1);
+}
+
+#[test]
 fn synthesized_history_occurrence_keeps_semantic_source_order() {
     assert_eq!(
         run("a,b{opacity:.5}@layer first;a{opacity:.5}b{opacity:.5}@layer second;a,b{opacity:.5}"),

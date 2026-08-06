@@ -1,8 +1,8 @@
 //! Typed storage and topology for [`StyleSheet`].
 
 use rocketcss_common::{
-    Allocator, DenseStore, RadixId, RadixIdRemap, RadixIds, RadixInsertResult, RadixRange,
-    SemanticIterEnumerated, TypedRadixIndexArena, define_dense_id,
+    Allocator, DenseStore, RadixId, RadixIdRemap, RadixIds, RadixRange, SemanticIterEnumerated,
+    TypedRadixIndexArena, define_dense_id,
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -11,6 +11,7 @@ use std::{collections::VecDeque, hash::Hash};
 mod declaration;
 mod effective_key;
 mod mutation;
+mod reification;
 mod rule;
 mod traversal;
 mod validation;
@@ -18,6 +19,7 @@ mod value;
 
 pub use declaration::*;
 pub use effective_key::*;
+pub use reification::*;
 pub use rule::*;
 pub use traversal::*;
 pub use value::*;
@@ -169,7 +171,6 @@ pub struct RuleRecord<P> {
     /// a leaf and the rule ID itself is the subtree endpoint.
     subtree_last: Option<RuleId<P>>,
     declaration_block: Option<DeclarationBlockId<P>>,
-    revision: u32,
     live: bool,
 }
 
@@ -203,11 +204,6 @@ impl<P> RuleRecord<P> {
     #[inline]
     pub const fn declaration_block(&self) -> Option<DeclarationBlockId<P>> {
         self.declaration_block
-    }
-
-    #[inline]
-    pub const fn revision(&self) -> u32 {
-        self.revision
     }
 
     #[inline]
@@ -383,7 +379,6 @@ pub struct DeclarationBlock<P> {
     declarations: DeclarationList,
     owner: DeclarationBlockOwner<P>,
     effective_key: EffectiveKeyId,
-    revision: u32,
     live: bool,
 }
 
@@ -401,11 +396,6 @@ impl<P> DeclarationBlock<P> {
     #[inline]
     pub const fn effective_key(&self) -> EffectiveKeyId {
         self.effective_key
-    }
-
-    #[inline]
-    pub const fn revision(&self) -> u32 {
-        self.revision
     }
 
     #[inline]
@@ -438,14 +428,12 @@ pub enum MutationError<P> {
 /// One live direct-rule adjacency captured by an AST-owned rule-list cursor.
 ///
 /// Queued work retains only the owning list, endpoints, and endpoint
-/// revisions. The larger physical Radix window needed to perform a mutation
+/// identities. The larger physical Radix window needed to perform a mutation
 /// stays inside the AST and is materialized only for a selected mutation.
 pub struct DirectRuleEdge<P> {
     parent: Option<RuleId<P>>,
     left: RuleId<P>,
     right: RuleId<P>,
-    left_revision: u32,
-    right_revision: u32,
 }
 
 impl<P> Clone for DirectRuleEdge<P> {
@@ -463,8 +451,6 @@ impl<P> std::fmt::Debug for DirectRuleEdge<P> {
             .field("parent", &self.parent)
             .field("left", &self.left)
             .field("right", &self.right)
-            .field("left_revision", &self.left_revision)
-            .field("right_revision", &self.right_revision)
             .finish()
     }
 }
@@ -472,11 +458,7 @@ impl<P> std::fmt::Debug for DirectRuleEdge<P> {
 impl<P> PartialEq for DirectRuleEdge<P> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.parent == other.parent
-            && self.left == other.left
-            && self.right == other.right
-            && self.left_revision == other.left_revision
-            && self.right_revision == other.right_revision
+        self.parent == other.parent && self.left == other.left && self.right == other.right
     }
 }
 
@@ -487,8 +469,6 @@ impl<P> std::hash::Hash for DirectRuleEdge<P> {
         self.parent.hash(state);
         self.left.hash(state);
         self.right.hash(state);
-        self.left_revision.hash(state);
-        self.right_revision.hash(state);
     }
 }
 
@@ -510,7 +490,6 @@ impl<P> DirectRuleEdge<P> {
         DirectRuleContext {
             parent: self.parent,
             rule: self.left,
-            revision: self.left_revision,
         }
     }
 
@@ -521,7 +500,6 @@ impl<P> DirectRuleEdge<P> {
         DirectRuleContext {
             parent: self.parent,
             rule: self.right,
-            revision: self.right_revision,
         }
     }
 
@@ -538,29 +516,26 @@ impl<P> DirectRuleEdge<P> {
             parent: self.parent.map(remap),
             left: remap(self.left),
             right: remap(self.right),
-            ..self
         }
     }
 }
 
 /// Compact identity of one live direct rule position.
 ///
-/// The endpoint revision makes retained positions self-invalidating without
-/// retaining the physical Radix window used by structural mutations.
+/// The compact endpoint identity does not retain the physical Radix window
+/// used by structural mutations.
 pub struct DirectRuleContext<P> {
     parent: Option<RuleId<P>>,
     rule: RuleId<P>,
-    revision: u32,
 }
 
 /// AST-internal physical window used while committing one structural rule
 /// mutation. This never escapes into Nano candidate queues.
-struct DirectRuleMutationContext<P> {
+struct DirectRuleWindow<P> {
     parent: Option<RuleId<P>>,
     previous: Option<RuleId<P>>,
     rule: RuleId<P>,
     next: Option<RuleId<P>>,
-    revision: u32,
     incoming_bridge: RadixRange<RuleRecord<P>>,
     subtree: RadixRange<RuleRecord<P>>,
     bridge: RadixRange<RuleRecord<P>>,
@@ -568,23 +543,22 @@ struct DirectRuleMutationContext<P> {
     storage_before: Option<RuleId<P>>,
 }
 
-impl<P> Clone for DirectRuleMutationContext<P> {
+impl<P> Clone for DirectRuleWindow<P> {
     #[inline]
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<P> Copy for DirectRuleMutationContext<P> {}
+impl<P> Copy for DirectRuleWindow<P> {}
 
-impl<P> std::fmt::Debug for DirectRuleMutationContext<P> {
+impl<P> std::fmt::Debug for DirectRuleWindow<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DirectRuleMutationContext")
+        f.debug_struct("DirectRuleWindow")
             .field("parent", &self.parent)
             .field("previous", &self.previous)
             .field("rule", &self.rule)
             .field("next", &self.next)
-            .field("revision", &self.revision)
             .field("subtree", &self.subtree)
             .field("bridge", &self.bridge)
             .field("insertion_anchor", &self.insertion_anchor)
@@ -593,14 +567,13 @@ impl<P> std::fmt::Debug for DirectRuleMutationContext<P> {
     }
 }
 
-impl<P> PartialEq for DirectRuleMutationContext<P> {
+impl<P> PartialEq for DirectRuleWindow<P> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.parent == other.parent
             && self.previous == other.previous
             && self.rule == other.rule
             && self.next == other.next
-            && self.revision == other.revision
             && self.incoming_bridge == other.incoming_bridge
             && self.subtree == other.subtree
             && self.bridge == other.bridge
@@ -609,9 +582,10 @@ impl<P> PartialEq for DirectRuleMutationContext<P> {
     }
 }
 
-impl<P> Eq for DirectRuleMutationContext<P> {}
+impl<P> Eq for DirectRuleWindow<P> {}
 
-impl<P> DirectRuleMutationContext<P> {
+impl<P> DirectRuleWindow<P> {
+    #[cfg(test)]
     fn remapped_with(self, remap: impl Copy + Fn(RuleId<P>) -> RuleId<P>) -> Self {
         let remap_range = |range: RadixRange<RuleRecord<P>>| {
             if range.is_empty() {
@@ -630,7 +604,6 @@ impl<P> DirectRuleMutationContext<P> {
             bridge: remap_range(self.bridge),
             insertion_anchor: remap(self.insertion_anchor),
             storage_before: self.storage_before.map(remap),
-            ..self
         }
     }
 }
@@ -649,7 +622,6 @@ impl<P> std::fmt::Debug for DirectRuleContext<P> {
         f.debug_struct("DirectRuleContext")
             .field("parent", &self.parent)
             .field("rule", &self.rule)
-            .field("revision", &self.revision)
             .finish()
     }
 }
@@ -657,7 +629,7 @@ impl<P> std::fmt::Debug for DirectRuleContext<P> {
 impl<P> PartialEq for DirectRuleContext<P> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.parent == other.parent && self.rule == other.rule && self.revision == other.revision
+        self.parent == other.parent && self.rule == other.rule
     }
 }
 
@@ -697,7 +669,6 @@ pub struct DeclarationBlockPosition<P> {
     previous: Option<DeclarationBlockId<P>>,
     block: DeclarationBlockId<P>,
     next: Option<DeclarationBlockId<P>>,
-    revision: u32,
     live: bool,
     declarations: DeclarationList,
     previous_non_empty_tail: Option<DeclarationId>,
@@ -718,7 +689,6 @@ impl<P> PartialEq for DeclarationBlockPosition<P> {
             && self.previous == other.previous
             && self.block == other.block
             && self.next == other.next
-            && self.revision == other.revision
             && self.live == other.live
             && self.declarations == other.declarations
             && self.previous_non_empty_tail == other.previous_non_empty_tail
@@ -733,7 +703,6 @@ impl<P> std::fmt::Debug for DeclarationBlockPosition<P> {
         f.debug_struct("DeclarationBlockPosition")
             .field("order", &self.order)
             .field("block", &self.block)
-            .field("revision", &self.revision)
             .field("declarations", &self.declarations)
             .finish_non_exhaustive()
     }
@@ -762,7 +731,7 @@ impl<P> DeclarationBlockPosition<P> {
 
     #[inline]
     #[doc(hidden)]
-    pub fn append_context(self) -> DeclarationAppendContext<P> {
+    pub(crate) fn append_context(self) -> DeclarationAppendContext<P> {
         DeclarationAppendContext {
             position: self,
             after: self.declaration_after(),
@@ -789,7 +758,7 @@ impl<P> DeclarationBlockPosition<P> {
 
 /// Opaque preflight context for appending synthesized declarations to one
 /// block without rediscovering declaration neighbors.
-pub struct DeclarationAppendContext<P> {
+pub(crate) struct DeclarationAppendContext<P> {
     position: DeclarationBlockPosition<P>,
     after: Option<DeclarationId>,
     before: Option<DeclarationId>,
@@ -815,7 +784,6 @@ impl<P> std::fmt::Debug for DeclarationAppendContext<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DeclarationAppendContext")
             .field("block", &self.position.block)
-            .field("revision", &self.position.revision)
             .field("after", &self.after)
             .field("before", &self.before)
             .finish()
@@ -827,105 +795,11 @@ impl<P> DeclarationAppendContext<P> {
     pub const fn block(&self) -> DeclarationBlockId<P> {
         self.position.block
     }
-
-    #[doc(hidden)]
-    pub fn remapped(self, remaps: &[RadixIdRemap<DeclarationBlockId<P>>]) -> Self {
-        Self {
-            position: self.position.remapped(remaps),
-            ..self
-        }
-    }
-
-    /// Repairs the predecessor position after `inserted` becomes its direct
-    /// declaration-block successor.
-    #[doc(hidden)]
-    pub fn with_inserted_successor(mut self, inserted: Self) -> Self {
-        let next_non_empty_start = if inserted.position.declarations.is_empty() {
-            inserted.before
-        } else {
-            Some(inserted.position.declarations.start_id())
-        };
-        self.position.next = Some(inserted.position.block);
-        self.position.next_non_empty_start = next_non_empty_start;
-        self.before = next_non_empty_start;
-        self
-    }
-
-    /// Repairs the successor position after `inserted` becomes its direct
-    /// declaration-block predecessor.
-    #[doc(hidden)]
-    pub fn with_inserted_predecessor(mut self, inserted: Self) -> Self {
-        self.position.previous = Some(inserted.position.block);
-        self.position.previous_non_empty_tail = inserted.after;
-        if self.position.declarations.is_empty() {
-            self.after = inserted.after;
-        }
-        self
-    }
-}
-
-/// Fixed-capacity topology work published by one local rule mutation.
-pub struct RuleMutationDelta<P> {
-    new_edges: [Option<DirectRuleEdge<P>>; 4],
-}
-
-impl<P> Clone for RuleMutationDelta<P> {
-    #[inline]
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<P> Copy for RuleMutationDelta<P> {}
-
-impl<P> std::fmt::Debug for RuleMutationDelta<P> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RuleMutationDelta")
-            .field("new_edges", &self.new_edges)
-            .finish()
-    }
-}
-
-impl<P> PartialEq for RuleMutationDelta<P> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        self.new_edges == other.new_edges
-    }
-}
-
-impl<P> Eq for RuleMutationDelta<P> {}
-
-impl<P> RuleMutationDelta<P> {
-    #[inline]
-    pub(super) const fn empty() -> Self {
-        Self {
-            new_edges: [None, None, None, None],
-        }
-    }
-
-    #[inline]
-    pub fn edges(&self) -> impl Iterator<Item = DirectRuleEdge<P>> + '_ {
-        self.new_edges.iter().flatten().copied()
-    }
-}
-
-/// Live topology exposed by retiring one leaf rule.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RetiredRule<P> {
-    pub id: RuleId<P>,
-    pub declaration_block: Option<DeclarationBlockId<P>>,
-    pub delta: RuleMutationDelta<P>,
-    /// Updated cursor state for the next direct rule, when one exists.
-    ///
-    /// Batch mutation clients can continue through consecutive removals
-    /// without restarting the owning direct-rule traversal.
-    #[doc(hidden)]
-    pub successor_context: Option<DirectRuleContext<P>>,
 }
 
 /// Result of folding one direct left sibling into the retained right rule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MergedAdjacentRuleBlocks<P> {
+pub(crate) struct MergedAdjacentRuleBlocks<P> {
     pub retired_rule: RuleId<P>,
     pub retired_block: DeclarationBlockId<P>,
     pub retained_rule: RuleId<P>,
@@ -934,36 +808,13 @@ pub struct MergedAdjacentRuleBlocks<P> {
     /// Refreshed append cursor for the retained declaration representation.
     #[doc(hidden)]
     pub declaration_append: DeclarationAppendContext<P>,
-    pub delta: RuleMutationDelta<P>,
 }
 
-/// Final rule identity and topology work produced by one local insertion.
+/// Final rule identity produced by one local insertion.
 #[derive(Debug)]
-pub struct InsertedRule<P> {
-    pub rule: RadixInsertResult<RuleId<P>>,
-    pub delta: RuleMutationDelta<P>,
-}
-
-/// Final AST identities allocated by one synthesized rule-and-block
-/// transaction.
-#[derive(Debug)]
-pub struct InsertedRuleWithDeclarationBlock<P> {
-    pub rule: RadixInsertResult<RuleId<P>>,
-    pub declaration_block: RadixInsertResult<DeclarationBlockId<P>>,
-    /// Refreshed append cursor for the block immediately before the insertion.
-    #[doc(hidden)]
-    pub predecessor_declaration_append: DeclarationAppendContext<P>,
-    pub declaration_append: DeclarationAppendContext<P>,
-    pub delta: RuleMutationDelta<P>,
-}
-
-/// Payload and local append state returned by one declaration replacement.
-#[derive(Debug)]
-pub struct ReplacedDeclaration<P, D> {
-    pub previous: D,
-    /// Refreshed append cursor for the affected declaration block.
-    #[doc(hidden)]
-    pub declaration_append: DeclarationAppendContext<P>,
+#[cfg(test)]
+pub(crate) struct InsertedRule<P> {
+    pub rule: rocketcss_common::RadixInsertResult<RuleId<P>>,
 }
 
 /// A violated store, ownership, or direct-topology invariant.
@@ -1053,7 +904,6 @@ pub struct StyleSheet<
     context_path_ids: FxHashMap<ContextPathKey, ContextPathId>,
     layer_contexts: DenseStore<LayerContextId, LayerContextRecord<R>>,
     layer_context_ids: FxHashMap<LayerContextKey<R>, LayerContextId>,
-    rule_mutation_contexts: FxHashMap<RuleId<R>, DirectRuleMutationContext<R>>,
 }
 
 impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
@@ -1104,10 +954,6 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
             layer_contexts: DenseStore::with_capacity(capacity.contexts),
             layer_context_ids: FxHashMap::with_capacity_and_hasher(
                 capacity.contexts,
-                Default::default(),
-            ),
-            rule_mutation_contexts: FxHashMap::with_capacity_and_hasher(
-                capacity.rules,
                 Default::default(),
             ),
         }
@@ -1274,7 +1120,7 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
     /// Iterates declaration-block positions and their block/declaration gaps
     /// in one source-order pass.
     #[doc(hidden)]
-    pub fn declaration_block_positions(
+    pub(crate) fn declaration_block_positions(
         &self,
     ) -> impl Iterator<Item = DeclarationBlockPosition<R>> + '_ {
         DeclarationBlockPositionIter::new(self.declaration_blocks.iter_enumerated())
@@ -1354,8 +1200,7 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
     /// The representation is resolved once and the callback receives each
     /// typed occurrence directly. In particular, a contiguous [`RadixRange`] is
     /// streamed from the semantic declaration arena instead of first copying
-    /// its IDs into a temporary vector. The block revision is advanced once
-    /// for every visited occurrence, matching the scoped mutation helpers.
+    /// its IDs into a temporary vector.
     #[doc(hidden)]
     pub fn for_each_declaration_mut(
         &mut self,
@@ -1380,23 +1225,14 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
             .for_each_in_range_mut(declaration_list, |id, record| visit(id, record))
             .ok_or(MutationError::<R>::NonContiguousDeclarationRange(block))?;
 
-        if visited != 0 {
-            let revision =
-                u32::try_from(visited).expect("a block cannot contain u32::MAX declarations");
-            let block = self
-                .declaration_blocks
-                .get_mut(block)
-                .expect("the live block remains resolvable");
-            block.revision = block.revision.wrapping_add(revision);
-        }
         Ok(visited)
     }
 
     fn direct_rules(
         &self,
         parent: Option<RuleId<R>>,
-    ) -> Result<(DirectRuleIter<'_, 'ast, R>, Option<u32>), MutationError<R>> {
-        let (source, remaining, parent_revision) = if let Some(parent) = parent {
+    ) -> Result<DirectRuleIter<'_, 'ast, R>, MutationError<R>> {
+        let (source, remaining) = if let Some(parent) = parent {
             let record = self
                 .rules
                 .get(parent)
@@ -1411,139 +1247,38 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
             if source.next() != Some(parent) {
                 return Err(MutationError::<R>::InvalidRuleTopology(parent));
             }
-            (source, record.descendant_count, Some(record.revision))
+            (source, record.descendant_count)
         } else {
-            (self.rules.ids(), self.rules.len() as u32, None)
+            (self.rules.ids(), self.rules.len() as u32)
         };
-        Ok((
-            DirectRuleIter {
-                rules: &self.rules,
-                source,
-                remaining,
-            },
-            parent_revision,
-        ))
+        Ok(DirectRuleIter {
+            rules: &self.rules,
+            source,
+            remaining,
+        })
     }
 
     fn direct_rule_contexts(
         &self,
         parent: Option<RuleId<R>>,
     ) -> Result<DirectRuleContextIter<'_, 'ast, R>, MutationError<R>> {
-        let (rules, _) = self.direct_rules(parent)?;
+        let rules = self.direct_rules(parent)?;
         Ok(DirectRuleContextIter::new(parent, rules))
     }
 
-    fn direct_rule_mutation_contexts(
+    fn direct_rule_windows(
         &self,
         parent: Option<RuleId<R>>,
-    ) -> Result<DirectRuleMutationContextIter<'_, 'ast, R>, MutationError<R>> {
-        let (rules, _) = self.direct_rules(parent)?;
-        Ok(DirectRuleMutationContextIter::new(parent, rules))
-    }
-
-    /// Builds the AST-owned physical mutation sidecar and all live direct
-    /// adjacencies in one whole-tree pass.
-    ///
-    /// Later candidate checks keep compact edges and expand only a selected
-    /// endpoint through the sidecar.
-    #[doc(hidden)]
-    pub fn prepare_direct_rule_mutation_contexts(
-        &mut self,
-    ) -> Result<std::vec::Vec<DirectRuleEdge<R>>, MutationError<R>> {
-        struct ListState<P> {
-            previous: Option<DirectRuleMutationContext<P>>,
-            pending_gap: RadixRange<RuleRecord<P>>,
-        }
-
-        let mut contexts =
-            FxHashMap::with_capacity_and_hasher(self.rule_count(), Default::default());
-        let mut lists: FxHashMap<Option<RuleId<R>>, ListState<R>> =
-            FxHashMap::with_capacity_and_hasher(self.rule_count(), Default::default());
-        let mut following =
-            FxHashMap::with_capacity_and_hasher(self.rule_count(), Default::default());
-        let mut edges = std::vec::Vec::with_capacity(self.rule_count());
-        let mut previous_physical = None;
-
-        for (rule, record) in self.rules.iter_enumerated() {
-            if let Some(previous) = previous_physical {
-                following.insert(previous, rule);
-            }
-            previous_physical = Some(rule);
-
-            let state = lists.entry(record.parent).or_insert(ListState {
-                previous: None,
-                pending_gap: RadixRange::empty(),
-            });
-            if !record.live {
-                state.pending_gap.extend(record.subtree_range(rule));
-                continue;
-            }
-
-            let incoming_bridge = state.pending_gap;
-            state.pending_gap.clear();
-            let previous = state.previous.take();
-            if let Some(mut previous) = previous {
-                previous.next = Some(rule);
-                previous.bridge = incoming_bridge;
-                previous.insertion_anchor = if incoming_bridge.is_empty() {
-                    previous.subtree.last_id()
-                } else {
-                    incoming_bridge.last_id()
-                };
-                previous.storage_before = Some(rule);
-                edges.push(DirectRuleEdge {
-                    parent: record.parent,
-                    left: previous.rule,
-                    right: rule,
-                    left_revision: previous.revision,
-                    right_revision: record.revision,
-                });
-                contexts.insert(previous.rule, previous);
-            }
-            state.previous = Some(DirectRuleMutationContext {
-                parent: record.parent,
-                previous: previous.map(|previous| previous.rule),
-                rule,
-                next: None,
-                revision: record.revision,
-                incoming_bridge,
-                subtree: record.subtree_range(rule),
-                bridge: RadixRange::empty(),
-                insertion_anchor: record.subtree_range(rule).last_id(),
-                storage_before: None,
-            });
-        }
-
-        for (parent, state) in lists {
-            let Some(mut last) = state.previous else {
-                continue;
-            };
-            last.bridge = state.pending_gap;
-            last.insertion_anchor = if last.bridge.is_empty() {
-                last.subtree.last_id()
-            } else {
-                last.bridge.last_id()
-            };
-            last.storage_before = parent.and_then(|parent_id| {
-                let parent = self
-                    .rules
-                    .get(parent_id)
-                    .expect("a direct-list owner remains resolvable");
-                following
-                    .get(&parent.subtree_range(parent_id).last_id())
-                    .copied()
-            });
-            contexts.insert(last.rule, last);
-        }
-        self.rule_mutation_contexts = contexts;
-        Ok(edges)
+    ) -> Result<DirectRuleWindowIter<'_, 'ast, R>, MutationError<R>> {
+        let rules = self.direct_rules(parent)?;
+        Ok(DirectRuleWindowIter::new(parent, rules))
     }
 
     fn direct_rule_ids(
         &self,
         parent: Option<RuleId<R>>,
     ) -> Result<DirectRuleIdIter<'_, 'ast, R>, MutationError<R>> {
-        let (rules, _) = self.direct_rules(parent)?;
+        let rules = self.direct_rules(parent)?;
         Ok(DirectRuleIdIter { rules })
     }
 
@@ -1598,8 +1333,7 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
         DirectRuleContextIter::new(
             None,
             self.direct_rules(None)
-                .unwrap_or_else(|_| unreachable!("the root rule list always has a cursor"))
-                .0,
+                .unwrap_or_else(|_| unreachable!("the root rule list always has a cursor")),
         )
     }
 
@@ -1650,16 +1384,24 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
     /// an AST-produced edge context.
     #[doc(hidden)]
     pub fn is_valid_direct_rule_edge(&self, edge: DirectRuleEdge<R>) -> bool {
-        self.rules.get(edge.left).is_some_and(|left| {
+        if !self.rules.get(edge.left).is_some_and(|left| {
             left.live
                 && left.parent == edge.parent
-                && left.revision == edge.left_revision
-                && self.rules.get(edge.right).is_some_and(|right| {
-                    right.live
-                        && right.parent == edge.parent
-                        && right.revision == edge.right_revision
-                })
-        })
+                && self
+                    .rules
+                    .get(edge.right)
+                    .is_some_and(|right| right.live && right.parent == edge.parent)
+        }) {
+            return false;
+        }
+        if let Some(parent) = edge.parent {
+            self.nested_rule_edges(parent).is_ok_and(|mut edges| {
+                edges.any(|current| current.left == edge.left && current.right == edge.right)
+            })
+        } else {
+            self.root_rule_edges()
+                .any(|current| current.left == edge.left && current.right == edge.right)
+        }
     }
 
     /// Returns whether a live rule has at least one live direct nested rule.
@@ -1704,7 +1446,6 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
             nested_rule_count: 0,
             subtree_last: None,
             declaration_block: None,
-            revision: 0,
             live: true,
         });
         let direct_parent = parent;
@@ -1719,7 +1460,6 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
                 record.nested_rule_count += 1;
             }
             record.subtree_last = Some(id);
-            record.revision = record.revision.wrapping_add(1);
             ancestor = record.parent;
         }
         Ok(id)
@@ -1776,7 +1516,6 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
             declarations: DeclarationList::empty(),
             owner,
             effective_key,
-            revision: 0,
             live: true,
         });
         self.rules
@@ -1921,7 +1660,6 @@ impl<R: Unpin> Iterator for DeclarationBlockPositionIter<'_, '_, R> {
             previous: self.previous,
             block: current.id,
             next,
-            revision: current.record.revision,
             live: current.record.live,
             declarations: current.record.declarations,
             previous_non_empty_tail: self.previous_non_empty_tail,
@@ -1938,7 +1676,6 @@ impl<R: Unpin> Iterator for DeclarationBlockPositionIter<'_, '_, R> {
 
 struct DirectRuleSlot<R> {
     id: RuleId<R>,
-    revision: u32,
     subtree: RadixRange<RuleRecord<R>>,
     live: bool,
 }
@@ -1984,7 +1721,6 @@ impl<R: Unpin> DirectRuleIter<'_, '_, R> {
         self.remaining -= subtree.len();
         Some(DirectRuleSlot {
             id,
-            revision: rule.revision,
             subtree,
             live: rule.live,
         })
@@ -2019,7 +1755,6 @@ impl<R: Unpin> Iterator for DirectRuleIdIter<'_, '_, R> {
 
 struct LiveDirectRule<R> {
     id: RuleId<R>,
-    revision: u32,
     subtree: RadixRange<RuleRecord<R>>,
     gap_before: RadixRange<RuleRecord<R>>,
 }
@@ -2060,7 +1795,6 @@ impl<'comp, 'ast, R: Unpin> DirectRuleContextIter<'comp, 'ast, R> {
                 return Some(DirectRuleContext {
                     parent: self.parent,
                     rule: slot.id,
-                    revision: slot.revision,
                 });
             }
         }
@@ -2076,8 +1810,6 @@ impl<R: Unpin> Iterator for DirectRuleContextIter<'_, '_, R> {
             parent: self.parent,
             left: left.rule,
             right: context.rule,
-            left_revision: left.revision,
-            right_revision: context.revision,
         });
         self.previous = Some(context);
         self.current = self.next_live();
@@ -2097,7 +1829,7 @@ impl<R: Unpin> Iterator for DirectRuleContextIter<'_, '_, R> {
 
 /// Sliding direct-rule window. It advances every physical rule ID exactly once
 /// and retains the local physical gap required by later mutations.
-struct DirectRuleMutationContextIter<'comp, 'ast, R: Unpin> {
+struct DirectRuleWindowIter<'comp, 'ast, R: Unpin> {
     parent: Option<RuleId<R>>,
     rules: DirectRuleIter<'comp, 'ast, R>,
     storage_after: Option<RuleId<R>>,
@@ -2107,7 +1839,7 @@ struct DirectRuleMutationContextIter<'comp, 'ast, R: Unpin> {
     next: Option<LiveDirectRule<R>>,
 }
 
-impl<'comp, 'ast, R: Unpin> DirectRuleMutationContextIter<'comp, 'ast, R> {
+impl<'comp, 'ast, R: Unpin> DirectRuleWindowIter<'comp, 'ast, R> {
     fn new(parent: Option<RuleId<R>>, rules: DirectRuleIter<'comp, 'ast, R>) -> Self {
         let mut result = Self {
             parent,
@@ -2130,7 +1862,6 @@ impl<'comp, 'ast, R: Unpin> DirectRuleMutationContextIter<'comp, 'ast, R> {
                 self.pending_gap.clear();
                 return Some(LiveDirectRule {
                     id: slot.id,
-                    revision: slot.revision,
                     subtree: slot.subtree,
                     gap_before,
                 });
@@ -2144,8 +1875,8 @@ impl<'comp, 'ast, R: Unpin> DirectRuleMutationContextIter<'comp, 'ast, R> {
     }
 }
 
-impl<R: Unpin> Iterator for DirectRuleMutationContextIter<'_, '_, R> {
-    type Item = DirectRuleMutationContext<R>;
+impl<R: Unpin> Iterator for DirectRuleWindowIter<'_, '_, R> {
+    type Item = DirectRuleWindow<R>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.current?;
@@ -2156,12 +1887,11 @@ impl<R: Unpin> Iterator for DirectRuleMutationContextIter<'_, '_, R> {
             bridge.last_id()
         };
         let storage_before = self.next.map(|next| next.id).or(self.storage_after);
-        let context = DirectRuleMutationContext {
+        let context = DirectRuleWindow {
             parent: self.parent,
             previous: self.previous.map(|previous| previous.id),
             rule: current.id,
             next: self.next.map(|next| next.id),
-            revision: current.revision,
             incoming_bridge: current.gap_before,
             subtree: current.subtree,
             bridge,

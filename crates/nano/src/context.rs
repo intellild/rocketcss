@@ -7,6 +7,16 @@ use crate::{MinifyOptions, Options, OptionsOp};
 pub struct MinifyStats {
     pub values_normalized: u32,
     pub declarations_removed: u32,
+    pub initial_scans: u32,
+    pub scheduler_ast_mutations: u32,
+    pub reification_passes: u32,
+    pub live_endpoint_reuses: u32,
+    pub rule_tombstone_reuses: u32,
+    pub block_tombstone_reuses: u32,
+    pub declaration_tombstone_reuses: u32,
+    pub residual_rule_inserts: u32,
+    pub residual_declaration_inserts: u32,
+    pub radix_relabel_groups: u32,
 }
 
 #[allow(dead_code)]
@@ -128,5 +138,21 @@ impl<'cx> MinifyContext<'cx> {
     #[inline]
     pub(crate) fn record_declaration_removed(&mut self) {
         self.stats.declarations_removed += 1;
+    }
+
+    pub(crate) fn record_cross_rule_stats(
+        &mut self,
+        stats: crate::cross_rule_declaration_merging::CrossRuleStats,
+    ) {
+        self.stats.initial_scans += stats.initial_scans;
+        self.stats.scheduler_ast_mutations += stats.scheduler_ast_mutations;
+        self.stats.reification_passes += stats.reification_passes;
+        self.stats.live_endpoint_reuses += stats.live_endpoint_reuses;
+        self.stats.rule_tombstone_reuses += stats.rule_tombstone_reuses;
+        self.stats.block_tombstone_reuses += stats.block_tombstone_reuses;
+        self.stats.declaration_tombstone_reuses += stats.declaration_tombstone_reuses;
+        self.stats.residual_rule_inserts += stats.residual_rule_inserts;
+        self.stats.residual_declaration_inserts += stats.residual_declaration_inserts;
+        self.stats.radix_relabel_groups += stats.radix_relabel_groups;
     }
 }
