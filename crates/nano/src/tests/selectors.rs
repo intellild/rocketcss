@@ -15,7 +15,7 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
         )
         .unwrap();
         let stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
-        let radix_ast::CssRulePayload::Style(rule) = stylesheet
+        let CssRule::Style(rule) = stylesheet
             .rule(first_rule_id(&stylesheet))
             .expect("the style rule remains valid")
             .payload()

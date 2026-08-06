@@ -24,24 +24,24 @@ pass:
 
 ```rust,ignore
 fn finish_declaration_run(
-    compilation: &mut Compilation,
+    stylesheet: &mut StyleSheet,
     start: DeclarationId,
     context: ContextPathId,
     selector: SelectorValueId,
 ) -> DeclarationBlockId {
-    let key = compilation.effective_keys.intern(EffectiveKeyData {
+    let key = stylesheet.effective_keys.intern(EffectiveKeyData {
         selector_path: selector.into(),
         condition_path: context,
-        layer: compilation.current_layer(),
-        origin_and_phase: compilation.current_origin_and_phase(),
-        history_segment: compilation.current_history_segment(),
+        layer: stylesheet.current_layer(),
+        origin_and_phase: stylesheet.current_origin_and_phase(),
+        history_segment: stylesheet.current_history_segment(),
     });
 
-    compilation.declaration_blocks.push_primary(DeclarationBlock {
-        owner: compilation.current_declaration_owner(),
+    stylesheet.declaration_blocks.push_primary(DeclarationBlock {
+        owner: stylesheet.current_declaration_owner(),
         declarations: DeclarationList::Range(DeclarationRange {
             offset: start.index(),
-            len: compilation.declarations.next_id().index() - start.index(),
+            len: stylesheet.declarations.next_id().index() - start.index(),
         }),
         effective_key: key,
         revision: 0,

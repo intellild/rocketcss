@@ -1,13 +1,13 @@
 # Storage layout
 
-## Compiler ownership
+## StyleSheet ownership
 
-`Compiler` owns one compilation's source, source map, atom pool, arena, AST
+`Compiler` owns one stylesheet's source, source map, atom pool, arena, AST
 stores, and semantic interners. There are exactly three node stores, one
 `RadixIndexArena` per node kind:
 
 ```rust,ignore
-struct Compilation<'ast> {
+struct StyleSheet<'ast> {
     allocator: Allocator,
     string_pool: StringPool<'ast>,
 
@@ -47,8 +47,8 @@ A rule owns its direct children as an inline range; no separate rule-list
 store is required:
 
 ```rust,ignore
-struct CssRule<'ast> {
-    payload: CssRulePayload<'ast>,
+struct RuleRecord<'ast> {
+    payload: CssRule<'ast>,
     parent: Option<RuleId>,
     children: Option<RuleRange>,
     declaration_block: Option<DeclarationBlockId>,
@@ -133,7 +133,7 @@ slice.
 Range iteration is store-native:
 
 ```rust,ignore
-for rule_id in compilation.rules.window(root_rules) {
+for rule_id in stylesheet.rules.window(root_rules) {
     consume(rule_id);
 }
 ```

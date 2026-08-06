@@ -7,10 +7,10 @@ struct Rename<'a> {
     to: Atom<'a>,
 }
 
-impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for Rename<'a> {
+impl<'a> rocketcss_ast::StyleSheetVisitorMut<'a> for Rename<'a> {
     fn visit_selector_value(
         &mut self,
-        _id: rocketcss_ast::radix_ast::SelectorValueId,
+        _id: rocketcss_ast::SelectorValueId,
         selectors: &mut SelectorList<'a>,
     ) {
         for selector in selectors {
@@ -37,7 +37,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordPlugin {
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _stylesheet: &mut StyleSheet<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         context
@@ -89,11 +89,11 @@ fn plugins_run_in_registration_order_and_share_context() {
             &["one", "two"]
         );
         let (_, rule) = sheet
-            .rules_in_list(sheet.stylesheet().root_rules())
+            .rules_in_list(sheet.stylesheet_root().root_rules())
             .unwrap()
             .next()
             .unwrap();
-        let rocketcss_ast::radix_ast::CssRulePayload::Style(rule) = rule.payload() else {
+        let rocketcss_ast::CssRule::Style(rule) = rule.payload() else {
             panic!("expected style rule")
         };
         let selectors = sheet
@@ -127,7 +127,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for FailingPlugin {
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _stylesheet: &mut StyleSheet<'a>,
         _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         Err(std::boxed::Box::new(ExpectedFailure))
@@ -168,7 +168,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordRadixPlugin {
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _stylesheet: &mut StyleSheet<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         context
@@ -181,12 +181,12 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordRadixPlugin {
 
 struct TombstoneProperties;
 
-impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for TombstoneProperties {
+impl<'a> rocketcss_ast::StyleSheetVisitorMut<'a> for TombstoneProperties {
     fn visit_declaration(
         &mut self,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'a>,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
-        cx: &mut rocketcss_ast::radix_ast::CompilationVisitMutContext<'_, 'a>,
+        block: rocketcss_ast::CssDeclarationBlockId<'a>,
+        declaration: rocketcss_ast::DeclarationId,
+        cx: &mut rocketcss_ast::StyleSheetVisitMutContext<'_, 'a>,
     ) {
         cx.replace_property_declaration(block, declaration, Declaration::Tombstone)
             .unwrap();
@@ -194,10 +194,10 @@ impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for TombstoneProper
 }
 
 #[test]
-fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
+fn radix_plugins_run_on_one_authoritative_stylesheet_in_registration_order() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
-        let mut compilation = rocketcss_parser::Compiler::new(&allocator)
+        let mut stylesheet = rocketcss_parser::Compiler::new(&allocator)
             .parse(
                 "a{color:red}",
                 &mut token,
@@ -211,14 +211,14 @@ fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
         plugins.add_visitor("tombstone-properties", TombstoneProperties);
         plugins.add(RecordRadixPlugin("two"));
 
-        plugins.run(&mut compilation, &mut context).unwrap();
+        plugins.run(&mut stylesheet, &mut context).unwrap();
 
         assert_eq!(
             context.get::<std::vec::Vec<&str>>().unwrap(),
             &["one", "two"]
         );
-        let block = compilation
-            .rules_in_list(compilation.stylesheet().root_rules())
+        let block = stylesheet
+            .rules_in_list(stylesheet.stylesheet_root().root_rules())
             .unwrap()
             .next()
             .unwrap()
@@ -226,14 +226,14 @@ fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
             .declaration_block()
             .unwrap();
         assert!(matches!(
-            compilation
+            stylesheet
                 .declarations_in_block(block)
                 .unwrap()
                 .next()
                 .unwrap()
                 .payload(),
-            rocketcss_ast::radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+            rocketcss_ast::CssDeclaration::Property(Declaration::Tombstone)
         ));
-        assert_eq!(compilation.validate_ast(), Ok(()));
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
     });
 }

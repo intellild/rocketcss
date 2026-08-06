@@ -215,6 +215,9 @@ fn ast_module_files(ast_src: &Path, name: &str) -> Vec<PathBuf> {
         .map(|entry| entry.unwrap().path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
         .collect::<Vec<_>>();
+    if name == "rules" {
+        files.push(directory.join("stylesheet/value.rs"));
+    }
     files.sort();
     files
 }
@@ -1052,7 +1055,7 @@ mod tests {
             vec![ast_src.join("color.rs")]
         );
 
-        for (module, representative) in [("rules", "stylesheet.rs"), ("values", "image.rs")] {
+        for (module, representative) in [("rules", "stylesheet/value.rs"), ("values", "image.rs")] {
             let files = ast_module_files(&ast_src, module);
             assert!(files.len() > 1);
             assert!(

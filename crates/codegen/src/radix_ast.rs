@@ -1,10 +1,10 @@
 //! Streaming serialization for the flat Radix AST.
 
 use crate::{prelude::*, rules::NamedProperty};
-use rocketcss_ast::radix_ast::{
-    Compilation, ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId,
-    CssRulePayload, DeclarationPayload, FontFeatureSubrulePayload, PageRulePayload,
-    PropertyRuleDescriptor, PropertyRulePayload, RuleListId, RuleListIter, RuleRecord,
+use rocketcss_ast::{
+    CssDeclaration, CssDeclarationBlockId as DeclarationBlockId, CssRule, CssRuleId as RuleId,
+    FontFeatureSubrule, PageRule, PropertyRule, PropertyRuleDescriptor, RuleListId, RuleListIter,
+    RuleRecord, StyleSheet,
 };
 
 #[derive(Clone, Copy)]
@@ -13,7 +13,7 @@ enum LastSemicolon {
     Required,
 }
 
-impl<'ghost> ToCss<'ghost> for Compilation<'_> {
+impl<'ghost> ToCss<'ghost> for StyleSheet<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -28,7 +28,7 @@ impl<'ghost> ToCss<'ghost> for Compilation<'_> {
                 dest.new_line()?;
             }
         }
-        writer.write_rule_list(self.stylesheet().root_rules(), dest, cx)?;
+        writer.write_rule_list(self.stylesheet_root().root_rules(), dest, cx)?;
         if !writer.root_is_empty() {
             dest.new_line()?;
         }
@@ -36,10 +36,10 @@ impl<'ghost> ToCss<'ghost> for Compilation<'_> {
     }
 }
 
-struct RadixWriter<'comp, 'ast>(&'comp Compilation<'ast>);
+struct RadixWriter<'comp, 'ast>(&'comp StyleSheet<'ast>);
 
 impl<'ast> std::ops::Deref for RadixWriter<'_, 'ast> {
-    type Target = Compilation<'ast>;
+    type Target = StyleSheet<'ast>;
 
     fn deref(&self) -> &Self::Target {
         self.0
@@ -48,7 +48,7 @@ impl<'ast> std::ops::Deref for RadixWriter<'_, 'ast> {
 
 impl<'ast> RadixWriter<'_, 'ast> {
     fn root_is_empty(&self) -> bool {
-        self.rule_list(self.stylesheet().root_rules())
+        self.rule_list(self.stylesheet_root().root_rules())
             .is_none_or(|list| list.live_len() == 0)
     }
 
@@ -88,34 +88,34 @@ impl<'ast> RadixWriter<'_, 'ast> {
     fn write_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
         id: RuleId<'ast>,
-        rule: &RuleRecord<CssRulePayload<'ast>>,
+        rule: &RuleRecord<CssRule<'ast>>,
         dest: &mut PrinterT,
         last_semicolon: LastSemicolon,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match rule.payload() {
-            CssRulePayload::Style(payload) => {
+            CssRule::Style(payload) => {
                 let selector = self
                     .selector_value(payload.selector_value)
                     .expect("a style selector value remains resolvable");
                 selector.selectors().to_css(dest, cx)?;
                 self.write_style_body(rule, dest, cx)
             }
-            CssRulePayload::Media(payload) => {
+            CssRule::Media(payload) => {
                 dest.write_str("@media ")?;
                 payload.query.to_css(dest, cx)?;
                 self.write_child_rule_block(rule, dest, cx)
             }
-            CssRulePayload::Supports(payload) => {
+            CssRule::Supports(payload) => {
                 dest.write_str("@supports ")?;
                 payload.condition.to_css(dest, cx)?;
                 self.write_child_rule_block(rule, dest, cx)
             }
-            CssRulePayload::StartingStyle(_) => {
+            CssRule::StartingStyle(_) => {
                 dest.write_str("@starting-style")?;
                 self.write_child_rule_block(rule, dest, cx)
             }
-            CssRulePayload::LayerStatement(payload) => {
+            CssRule::LayerStatement(payload) => {
                 dest.write_str("@layer ")?;
                 for (index, name) in payload.names.iter().enumerate() {
                     if index > 0 {
@@ -125,7 +125,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 }
                 dest.write_char(';')
             }
-            CssRulePayload::LayerBlock(payload) => {
+            CssRule::LayerBlock(payload) => {
                 dest.write_str("@layer")?;
                 if let Some(name) = &payload.name {
                     dest.write_char(' ')?;
@@ -133,7 +133,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 }
                 self.write_child_rule_block(rule, dest, cx)
             }
-            CssRulePayload::Container(payload) => {
+            CssRule::Container(payload) => {
                 dest.write_str("@container")?;
                 if let Some(name) = payload.name {
                     dest.write_char(' ')?;
@@ -145,7 +145,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 }
                 self.write_child_rule_block(rule, dest, cx)
             }
-            CssRulePayload::Scope(payload) => {
+            CssRule::Scope(payload) => {
                 dest.write_str("@scope")?;
                 if let Some(start) = &payload.scope_start {
                     dest.write_str(" (")?;
@@ -159,11 +159,11 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 }
                 self.write_child_rule_block(rule, dest, cx)
             }
-            CssRulePayload::MozDocument(_) => {
+            CssRule::MozDocument(_) => {
                 dest.write_str("@-moz-document url-prefix()")?;
                 self.write_child_rule_block(rule, dest, cx)
             }
-            CssRulePayload::Unknown(payload) => {
+            CssRule::Unknown(payload) => {
                 dest.write_char('@')?;
                 serialize_identifier(payload.name, dest)?;
                 if !payload.prelude.is_empty() {
@@ -182,18 +182,18 @@ impl<'ast> RadixWriter<'_, 'ast> {
                     dest.write_char(';')
                 }
             }
-            CssRulePayload::CounterStyle(payload) => {
+            CssRule::CounterStyle(payload) => {
                 dest.write_str("@counter-style ")?;
                 serialize_identifier(payload.name, dest)?;
                 self.write_property_block(rule, dest, cx)
             }
-            CssRulePayload::Viewport(payload) => {
+            CssRule::Viewport(payload) => {
                 dest.write_char('@')?;
                 payload.vendor_prefix.to_css(dest, cx)?;
                 dest.write_str("viewport")?;
                 self.write_property_block(rule, dest, cx)
             }
-            CssRulePayload::PositionTry(payload) => {
+            CssRule::PositionTry(payload) => {
                 dest.write_str("@position-try ")?;
                 dest.write_str("--")?;
                 serialize_name(
@@ -202,24 +202,24 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 )?;
                 self.write_property_block(rule, dest, cx)
             }
-            CssRulePayload::FontFace(_) => {
+            CssRule::FontFace(_) => {
                 dest.write_str("@font-face")?;
                 self.write_named_property_block(id, dest, cx, NamedKind::FontFace)
             }
-            CssRulePayload::FontPaletteValues(payload) => {
+            CssRule::FontPaletteValues(payload) => {
                 dest.write_str("@font-palette-values ")?;
                 serialize_identifier(payload.name, dest)?;
                 self.write_named_property_block(id, dest, cx, NamedKind::FontPalette)
             }
-            CssRulePayload::ViewTransition(_) => {
+            CssRule::ViewTransition(_) => {
                 dest.write_str("@view-transition")?;
                 self.write_named_property_block(id, dest, cx, NamedKind::ViewTransition)
             }
-            CssRulePayload::Import(payload) => payload.to_css(dest, cx),
-            CssRulePayload::Charset(payload) => payload.to_css(dest, cx),
-            CssRulePayload::Namespace(payload) => payload.to_css(dest, cx),
-            CssRulePayload::CustomMedia(payload) => payload.to_css(dest, cx),
-            CssRulePayload::Keyframes(payload) => {
+            CssRule::Import(payload) => payload.to_css(dest, cx),
+            CssRule::Charset(payload) => payload.to_css(dest, cx),
+            CssRule::Namespace(payload) => payload.to_css(dest, cx),
+            CssRule::CustomMedia(payload) => payload.to_css(dest, cx),
+            CssRule::Keyframes(payload) => {
                 dest.write_char('@')?;
                 payload.vendor_prefix.to_css(dest, cx)?;
                 dest.write_str("keyframes ")?;
@@ -237,17 +237,17 @@ impl<'ast> RadixWriter<'_, 'ast> {
                     self.write_child_rule_block(rule, dest, cx)
                 }
             }
-            CssRulePayload::Keyframe(payload) => {
+            CssRule::Keyframe(payload) => {
                 write_comma_separated(&payload.selectors, dest, cx)?;
                 self.write_property_block(rule, dest, cx)
             }
-            CssRulePayload::Page(payload) => self.write_page_rule(rule, payload, dest, cx),
-            CssRulePayload::PageMargin(payload) => {
+            CssRule::Page(payload) => self.write_page_rule(rule, payload, dest, cx),
+            CssRule::PageMargin(payload) => {
                 dest.write_char('@')?;
                 payload.margin_box.to_css(dest, cx)?;
                 self.write_property_block(rule, dest, cx)
             }
-            CssRulePayload::PageDeclarations(_) => self
+            CssRule::PageDeclarations(_) => self
                 .write_property_declarations(
                     rule.declaration_block()
                         .expect("a page declaration segment owns a block"),
@@ -256,7 +256,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                     cx,
                 )
                 .map(|_| ()),
-            CssRulePayload::Nesting(payload) => {
+            CssRule::Nesting(payload) => {
                 dest.write_str("@nest ")?;
                 self.selector_value(payload.selector_value)
                     .expect("a nesting selector value remains resolvable")
@@ -264,16 +264,16 @@ impl<'ast> RadixWriter<'_, 'ast> {
                     .to_css(dest, cx)?;
                 self.write_style_body(rule, dest, cx)
             }
-            CssRulePayload::FontFeatureValues(payload) => {
+            CssRule::FontFeatureValues(payload) => {
                 dest.write_str("@font-feature-values ")?;
                 write_comma_separated(&payload.name, dest, cx)?;
                 self.write_child_rule_block(rule, dest, cx)
             }
-            CssRulePayload::FontFeatureSubrule(payload) => {
+            CssRule::FontFeatureSubrule(payload) => {
                 self.write_font_feature_subrule(id, payload, dest, cx)
             }
-            CssRulePayload::Property(payload) => self.write_property_rule(id, payload, dest, cx),
-            CssRulePayload::NestedDeclarations(_) => self
+            CssRule::Property(payload) => self.write_property_rule(id, payload, dest, cx),
+            CssRule::NestedDeclarations(_) => self
                 .write_property_declarations(
                     rule.declaration_block()
                         .expect("a nested declaration segment owns a block"),
@@ -287,7 +287,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_style_body<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'ast>>,
+        rule: &RuleRecord<CssRule<'ast>>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -322,7 +322,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_child_rule_block<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'_>>,
+        rule: &RuleRecord<CssRule<'_>>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -337,7 +337,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_property_block<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'ast>>,
+        rule: &RuleRecord<CssRule<'ast>>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -361,13 +361,13 @@ impl<'ast> RadixWriter<'_, 'ast> {
             .declarations_in_block(block)
             .expect("codegen only reads a validated declaration block")
             .filter(|record| {
-                matches!(record.payload(), DeclarationPayload::Property(value) if !value.is_tombstone())
+                matches!(record.payload(), CssDeclaration::Property(value) if !value.is_tombstone())
             })
             .peekable();
         let mut wrote_declaration = false;
         while let Some(record) = declarations.next() {
             wrote_declaration = true;
-            let DeclarationPayload::Property(declaration) = record.payload() else {
+            let CssDeclaration::Property(declaration) = record.payload() else {
                 panic!("a property block contains a descriptor payload")
             };
             declaration.to_css(dest, cx)?;
@@ -403,13 +403,13 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 .peekable();
             while let Some(record) = values.next() {
                 match (kind, record.payload()) {
-                    (NamedKind::FontFace, DeclarationPayload::FontFace(value)) => {
+                    (NamedKind::FontFace, CssDeclaration::FontFace(value)) => {
                         write_named_property(value, dest, cx)?;
                     }
-                    (NamedKind::FontPalette, DeclarationPayload::FontPaletteValues(value)) => {
+                    (NamedKind::FontPalette, CssDeclaration::FontPaletteValues(value)) => {
                         write_named_property(value, dest, cx)?;
                     }
-                    (NamedKind::ViewTransition, DeclarationPayload::ViewTransition(value)) => {
+                    (NamedKind::ViewTransition, CssDeclaration::ViewTransition(value)) => {
                         write_named_property(value, dest, cx)?;
                     }
                     _ => panic!("a named descriptor block contains another payload family"),
@@ -426,7 +426,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
     fn write_font_feature_subrule<'ghost, PrinterT: PrinterTrait>(
         &self,
         id: RuleId<'ast>,
-        payload: &FontFeatureSubrulePayload,
+        payload: &FontFeatureSubrule,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -442,7 +442,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 .expect("codegen only reads a validated descriptor block")
                 .peekable();
             while let Some(record) = values.next() {
-                let DeclarationPayload::FontFeature(value) = record.payload() else {
+                let CssDeclaration::FontFeature(value) = record.payload() else {
                     panic!("a font feature block contains another payload family")
                 };
                 value.to_css(dest, cx)?;
@@ -457,8 +457,8 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_page_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'ast>>,
-        payload: &PageRulePayload<'_>,
+        rule: &RuleRecord<CssRule<'ast>>,
+        payload: &PageRule<'_>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -480,14 +480,14 @@ impl<'ast> RadixWriter<'_, 'ast> {
                     .expect("the page child list remains valid")
                 {
                     match child.payload() {
-                        CssRulePayload::PageDeclarations(_) => {
+                        CssRule::PageDeclarations(_) => {
                             let block = child
                                 .declaration_block()
                                 .expect("a page declaration segment owns a block");
                             declaration_segment_count +=
                                 usize::from(self.block_is_non_empty(block));
                         }
-                        CssRulePayload::PageMargin(_) => margin_count += 1,
+                        CssRule::PageMargin(_) => margin_count += 1,
                         _ => panic!("a page child list contains another rule family"),
                     }
                 }
@@ -512,7 +512,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                     .rules_in_list(children)
                     .expect("the page child list remains valid")
                 {
-                    if matches!(child.payload(), CssRulePayload::PageDeclarations(_)) {
+                    if matches!(child.payload(), CssRule::PageDeclarations(_)) {
                         let block = child
                             .declaration_block()
                             .expect("a page declaration segment owns a block");
@@ -540,7 +540,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                     .rules_in_list(children)
                     .expect("the page child list remains valid")
                 {
-                    if matches!(child.payload(), CssRulePayload::PageMargin(_)) {
+                    if matches!(child.payload(), CssRule::PageMargin(_)) {
                         if written_segments > 0 || written_margins > 0 {
                             dest.blank_line()?;
                         }
@@ -556,7 +556,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
     fn write_property_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
         _id: RuleId<'ast>,
-        payload: &PropertyRulePayload<'_>,
+        payload: &PropertyRule<'_>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -607,14 +607,11 @@ impl<'ast> RadixWriter<'_, 'ast> {
         })
     }
 
-    fn property_descriptor(
-        &self,
-        id: rocketcss_ast::radix_ast::DeclarationId,
-    ) -> &PropertyRuleDescriptor<'_> {
+    fn property_descriptor(&self, id: rocketcss_ast::DeclarationId) -> &PropertyRuleDescriptor<'_> {
         let record = self
             .declaration(id)
             .expect("a resolved property descriptor remains in the declaration tape");
-        let DeclarationPayload::PropertyRule(descriptor) = record.payload() else {
+        let CssDeclaration::PropertyRule(descriptor) = record.payload() else {
             panic!("a property descriptor id references another declaration family")
         };
         descriptor
@@ -624,20 +621,20 @@ impl<'ast> RadixWriter<'_, 'ast> {
         self.declarations_in_block(block)
             .expect("codegen only reads a validated declaration block")
             .any(|record| {
-                matches!(record.payload(), DeclarationPayload::Property(value) if !value.is_tombstone())
+                matches!(record.payload(), CssDeclaration::Property(value) if !value.is_tombstone())
             })
     }
 }
 
-type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<CssRulePayload<'ast>>);
+type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<CssRule<'ast>>);
 
 fn next_visible_rule<'comp, 'ast>(
-    compilation: &'comp Compilation<'ast>,
-    rules: &mut RuleListIter<'comp, 'ast, CssRulePayload<'ast>>,
+    stylesheet: &'comp StyleSheet<'ast>,
+    rules: &mut RuleListIter<'comp, 'ast, CssRule<'ast>>,
 ) -> Option<VisibleRule<'comp, 'ast>> {
     for (id, rule) in rules {
-        if let CssRulePayload::Style(style) = rule.payload() {
-            let selector = compilation
+        if let CssRule::Style(style) = rule.payload() {
+            let selector = stylesheet
                 .selector_value(style.selector_value)
                 .expect("a style selector value remains resolvable");
             if selector.selectors().iter().all(Selector::is_tombstone) {
@@ -656,13 +653,13 @@ enum NamedKind {
     ViewTransition,
 }
 
-fn rule_without_block(payload: &CssRulePayload<'_>) -> bool {
+fn rule_without_block(payload: &CssRule<'_>) -> bool {
     matches!(
         payload,
-        CssRulePayload::Charset(_)
-            | CssRulePayload::Import(_)
-            | CssRulePayload::Namespace(_)
-            | CssRulePayload::LayerStatement(_)
+        CssRule::Charset(_)
+            | CssRule::Import(_)
+            | CssRule::Namespace(_)
+            | CssRule::LayerStatement(_)
     )
 }
 

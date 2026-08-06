@@ -146,7 +146,7 @@ fn s2_preserves_parent_declaration_positions_around_a_nested_rule() {
 }
 
 fn unparsed_value_storage<'a>(
-    stylesheet: &Compilation<'a>,
+    stylesheet: &StyleSheet<'a>,
 ) -> (*const TokenOrValue<'a>, *const Token<'a>) {
     let Declaration::Unparsed(property) = first_property_declaration(stylesheet) else {
         panic!("expected unparsed property")

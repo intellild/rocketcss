@@ -5,9 +5,9 @@ use rustc_hash::FxHasher;
 
 use crate::VendorPrefix;
 
-use super::{ConcreteMutationError, ConcreteRuleId as RuleId, *};
+use super::{CssRuleId as RuleId, StyleSheetMutationError, *};
 
-type MutationError<'ast> = ConcreteMutationError<'ast>;
+type MutationError<'ast> = StyleSheetMutationError<'ast>;
 
 /// The selector-bearing syntax that contributes one selector path frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -431,7 +431,7 @@ pub(crate) struct LayerContextRecord<P> {
     pub(super) occurrence: super::RuleId<P>,
 }
 
-impl<'ast> Compilation<'ast> {
+impl<'ast> StyleSheet<'ast> {
     /// Applies one local transform to every canonical selector value, then
     /// repairs selector paths and EffectiveKeys whose identities converge.
     ///
@@ -509,8 +509,8 @@ impl<'ast> Compilation<'ast> {
                 .get_mut(id)
                 .expect("an enumerated selector owner remains resolvable");
             let selector = match rule.payload_mut() {
-                CssRulePayload::Style(payload) => Some(&mut payload.selector_value),
-                CssRulePayload::Nesting(payload) => Some(&mut payload.selector_value),
+                CssRule::Style(payload) => Some(&mut payload.selector_value),
+                CssRule::Nesting(payload) => Some(&mut payload.selector_value),
                 _ => None,
             };
             if let Some(selector) = selector {
@@ -750,16 +750,16 @@ impl<'ast> Compilation<'ast> {
 
     pub fn enter_selector_context(
         &mut self,
-        context: EffectiveContext<CssRulePayload<'ast>>,
+        context: EffectiveContext<CssRule<'ast>>,
         rule: RuleId<'ast>,
-    ) -> Result<EffectiveContext<CssRulePayload<'ast>>, MutationError<'ast>> {
+    ) -> Result<EffectiveContext<CssRule<'ast>>, MutationError<'ast>> {
         let value = match self
             .rule(rule)
             .ok_or(MutationError::UnknownRule(rule))?
             .payload()
         {
-            CssRulePayload::Style(payload) => payload.selector_value,
-            CssRulePayload::Nesting(payload) => payload.selector_value,
+            CssRule::Style(payload) => payload.selector_value,
+            CssRule::Nesting(payload) => payload.selector_value,
             _ => return Err(MutationError::InvalidRuleTopology(rule)),
         };
         let selector_path = self.intern_selector_path(context.selector_path, value)?;
@@ -772,12 +772,12 @@ impl<'ast> Compilation<'ast> {
 
     pub fn enter_wrapper_context(
         &mut self,
-        context: EffectiveContext<CssRulePayload<'ast>>,
+        context: EffectiveContext<CssRule<'ast>>,
         rule: RuleId<'ast>,
-    ) -> Result<EffectiveContext<CssRulePayload<'ast>>, MutationError<'ast>> {
+    ) -> Result<EffectiveContext<CssRule<'ast>>, MutationError<'ast>> {
         if matches!(
             self.rule(rule).map(RuleRecord::payload),
-            Some(CssRulePayload::LayerBlock(_))
+            Some(CssRule::LayerBlock(_))
         ) {
             let key = LayerContextKey {
                 parent: context.layer,
@@ -897,12 +897,12 @@ impl<'ast> Compilation<'ast> {
             return Err(MutationError::RetiredRule(rule));
         }
         let (old_value, expected_kind, expected_prefix) = match record.payload() {
-            CssRulePayload::Style(payload) => (
+            CssRule::Style(payload) => (
                 payload.selector_value,
                 SelectorFrameKind::Style,
                 payload.vendor_prefix,
             ),
-            CssRulePayload::Nesting(payload) => (
+            CssRule::Nesting(payload) => (
                 payload.selector_value,
                 SelectorFrameKind::Nesting,
                 VendorPrefix::NONE,
@@ -989,8 +989,8 @@ impl<'ast> Compilation<'ast> {
             .rule_mut(rule)
             .expect("the selector owner was validated before commit");
         match rule_record.payload_mut() {
-            CssRulePayload::Style(payload) => payload.selector_value = new_value,
-            CssRulePayload::Nesting(payload) => payload.selector_value = new_value,
+            CssRule::Style(payload) => payload.selector_value = new_value,
+            CssRule::Nesting(payload) => payload.selector_value = new_value,
             _ => unreachable!("the selector owner kind was validated before commit"),
         }
         rule_record.revision = rule_record.revision.wrapping_add(1);
@@ -1196,12 +1196,12 @@ impl<'ast> Compilation<'ast> {
 
     fn context_frame_kind(&self, rule: RuleId<'ast>) -> Option<ContextFrameKind> {
         match self.rule(rule)?.payload() {
-            CssRulePayload::Media(_) => Some(ContextFrameKind::Media),
-            CssRulePayload::Supports(_) => Some(ContextFrameKind::Supports),
-            CssRulePayload::Container(_) => Some(ContextFrameKind::Container),
-            CssRulePayload::MozDocument(_) => Some(ContextFrameKind::MozDocument),
-            CssRulePayload::Scope(_) => Some(ContextFrameKind::Scope),
-            CssRulePayload::StartingStyle(_) => Some(ContextFrameKind::StartingStyle),
+            CssRule::Media(_) => Some(ContextFrameKind::Media),
+            CssRule::Supports(_) => Some(ContextFrameKind::Supports),
+            CssRule::Container(_) => Some(ContextFrameKind::Container),
+            CssRule::MozDocument(_) => Some(ContextFrameKind::MozDocument),
+            CssRule::Scope(_) => Some(ContextFrameKind::Scope),
+            CssRule::StartingStyle(_) => Some(ContextFrameKind::StartingStyle),
             _ => None,
         }
     }
@@ -1213,13 +1213,13 @@ impl<'ast> Compilation<'ast> {
             rule.hash(&mut hasher);
         } else {
             match self.rule(rule).expect("the context rule exists").payload() {
-                CssRulePayload::Media(payload) => {
+                CssRule::Media(payload) => {
                     debug_hash(&mut hasher, &payload.query);
                 }
-                CssRulePayload::Supports(payload) => {
+                CssRule::Supports(payload) => {
                     debug_hash(&mut hasher, &payload.condition);
                 }
-                CssRulePayload::Container(payload) => {
+                CssRule::Container(payload) => {
                     debug_hash(&mut hasher, &payload.name);
                     debug_hash(&mut hasher, &payload.condition);
                 }
@@ -1242,13 +1242,11 @@ impl<'ast> Compilation<'ast> {
             self.rule(left).map(RuleRecord::payload),
             self.rule(right).map(RuleRecord::payload),
         ) {
-            (Some(CssRulePayload::Media(left)), Some(CssRulePayload::Media(right))) => {
-                left.query == right.query
-            }
-            (Some(CssRulePayload::Supports(left)), Some(CssRulePayload::Supports(right))) => {
+            (Some(CssRule::Media(left)), Some(CssRule::Media(right))) => left.query == right.query,
+            (Some(CssRule::Supports(left)), Some(CssRule::Supports(right))) => {
                 left.condition == right.condition
             }
-            (Some(CssRulePayload::Container(left)), Some(CssRulePayload::Container(right))) => {
+            (Some(CssRule::Container(left)), Some(CssRule::Container(right))) => {
                 left.name == right.name && left.condition == right.condition
             }
             _ => false,
@@ -1299,36 +1297,5 @@ fn remap_id<P>(
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::{Selector, Vec};
-
-    use super::*;
-
-    #[test]
-    fn selector_fingerprint_collisions_still_require_exact_equality() {
-        let allocator = rocketcss_common::Allocator::new();
-        let mut compilation = Compilation::new_in(&allocator);
-        let empty = Vec::new_in(&allocator);
-        let mut tombstone = Vec::new_in(&allocator);
-        tombstone.push(Selector::Tombstone);
-
-        let first = compilation
-            .intern_selector_value_with_fingerprint(
-                empty,
-                SelectorFrameKind::Style,
-                VendorPrefix::NONE,
-                1,
-            )
-            .unwrap();
-        let second = compilation
-            .intern_selector_value_with_fingerprint(
-                tombstone,
-                SelectorFrameKind::Style,
-                VendorPrefix::NONE,
-                1,
-            )
-            .unwrap();
-
-        assert_ne!(first, second);
-    }
-}
+#[path = "../../../tests/unit/stylesheet/effective_key.rs"]
+mod tests;

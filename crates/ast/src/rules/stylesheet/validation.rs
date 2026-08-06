@@ -2,12 +2,15 @@ use rustc_hash::FxHashSet;
 
 use super::*;
 
-impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
+impl<R: Unpin, D, K> StyleSheet<'_, R, D, K> {
     /// Checks typed store IDs, list endpoints, mutual links, and block owners.
     pub fn validate_ast(&self) -> Result<(), ValidationError<R>> {
-        let root = self.rule_lists.try_get(self.stylesheet.root_rules).ok_or(
-            ValidationError::<R>::MissingRootRuleList(self.stylesheet.root_rules),
-        )?;
+        let root = self
+            .rule_lists
+            .try_get(self.stylesheet_root.root_rules)
+            .ok_or(ValidationError::<R>::MissingRootRuleList(
+                self.stylesheet_root.root_rules,
+            ))?;
         if let Some(parent) = root.parent {
             return Err(ValidationError::<R>::RootRuleListHasParent(parent));
         }

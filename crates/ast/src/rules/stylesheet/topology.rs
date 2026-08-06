@@ -1,6 +1,6 @@
 use super::*;
 
-impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
+impl<R: Unpin, D, K> StyleSheet<'_, R, D, K> {
     /// Returns the final live rule in `rule`'s lexical subtree.
     ///
     /// Direct siblings are not necessarily adjacent in the global Radix

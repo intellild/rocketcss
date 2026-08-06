@@ -1,4 +1,4 @@
-use rocketcss_ast::radix_ast::CssRulePayload;
+use rocketcss_ast::CssRule;
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_parser::{Compiler, ParserOptions};
@@ -61,12 +61,10 @@ fn streams_the_selector_value_published_by_an_ast_transaction() {
             .unwrap();
         let styles = radix
             .rules_in_source_order()
-            .filter_map(|(id, rule)| {
-                matches!(rule.payload(), CssRulePayload::Style(_)).then_some(id)
-            })
+            .filter_map(|(id, rule)| matches!(rule.payload(), CssRule::Style(_)).then_some(id))
             .collect::<std::vec::Vec<_>>();
         let replacement = match radix.rule(styles[1]).unwrap().payload() {
-            CssRulePayload::Style(payload) => payload.selector_value,
+            CssRule::Style(payload) => payload.selector_value,
             _ => unreachable!(),
         };
         radix
@@ -93,9 +91,7 @@ fn streams_an_adjacent_block_merge_directly_from_live_topology() {
             .unwrap();
         let styles = radix
             .rules_in_source_order()
-            .filter_map(|(id, rule)| {
-                matches!(rule.payload(), CssRulePayload::Style(_)).then_some(id)
-            })
+            .filter_map(|(id, rule)| matches!(rule.payload(), CssRule::Style(_)).then_some(id))
             .collect::<std::vec::Vec<_>>();
         radix
             .merge_adjacent_rule_declaration_blocks(styles[0], styles[1])

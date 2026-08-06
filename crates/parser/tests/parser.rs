@@ -1,31 +1,29 @@
-use rocketcss_ast::radix_ast::{
-    ConcreteRuleId as RuleId, CssRulePayload, DeclarationPayload, RuleRecord,
-};
+use rocketcss_ast::{CssDeclaration, CssRule, CssRuleId as RuleId, RuleRecord};
 use rocketcss_parser::parse;
 use rocketcss_parser::prelude::*;
 
-fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<'ast>> {
-    compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
+fn root_rule_ids<'ast>(stylesheet: &StyleSheet<'ast>) -> std::vec::Vec<RuleId<'ast>> {
+    stylesheet
+        .rules_in_list(stylesheet.stylesheet_root().root_rules())
         .unwrap()
         .map(|(id, _)| id)
         .collect()
 }
 
 fn root_rule<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    stylesheet: &'tree StyleSheet<'ast>,
     index: usize,
-) -> (RuleId<'ast>, &'tree RuleRecord<CssRulePayload<'ast>>) {
-    let id = root_rule_ids(compilation)[index];
-    (id, compilation.rule(id).unwrap())
+) -> (RuleId<'ast>, &'tree RuleRecord<CssRule<'ast>>) {
+    let id = root_rule_ids(stylesheet)[index];
+    (id, stylesheet.rule(id).unwrap())
 }
 
 fn child_rule_ids<'ast>(
-    compilation: &Compilation<'ast>,
+    stylesheet: &StyleSheet<'ast>,
     parent: RuleId<'ast>,
 ) -> std::vec::Vec<RuleId<'ast>> {
-    let list = compilation.rule(parent).unwrap().child_list().unwrap();
-    compilation
+    let list = stylesheet.rule(parent).unwrap().child_list().unwrap();
+    stylesheet
         .rules_in_list(list)
         .unwrap()
         .map(|(id, _)| id)
@@ -33,26 +31,26 @@ fn child_rule_ids<'ast>(
 }
 
 fn style_selectors<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    stylesheet: &'tree StyleSheet<'ast>,
     rule: RuleId<'ast>,
 ) -> &'tree SelectorList<'ast> {
-    let selector = match compilation.rule(rule).unwrap().payload() {
-        CssRulePayload::Style(payload) => payload.selector_value,
-        CssRulePayload::Nesting(payload) => payload.selector_value,
+    let selector = match stylesheet.rule(rule).unwrap().payload() {
+        CssRule::Style(payload) => payload.selector_value,
+        CssRule::Nesting(payload) => payload.selector_value,
         _ => panic!("expected selector-owning rule"),
     };
-    compilation.selector_value(selector).unwrap().selectors()
+    stylesheet.selector_value(selector).unwrap().selectors()
 }
 
 fn property_declarations<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    stylesheet: &'tree StyleSheet<'ast>,
     rule: RuleId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
-    let block = compilation
+    let block = stylesheet
         .rule(rule)
         .and_then(|record| record.declaration_block())
         .expect("expected declaration-owning rule");
-    compilation
+    stylesheet
         .declarations_in_block(block)
         .unwrap()
         .filter_map(|record| {
@@ -65,17 +63,17 @@ fn property_declarations<'tree, 'ast>(
 }
 
 fn declaration_values<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    stylesheet: &'tree StyleSheet<'ast>,
     rule: RuleId<'ast>,
 ) -> std::vec::Vec<&'tree Declaration<'ast>> {
-    property_declarations(compilation, rule)
+    property_declarations(stylesheet, rule)
         .into_iter()
         .map(|(declaration, _)| declaration)
         .collect()
 }
 
 fn expect_parse_error<'ast>(
-    result: Result<Compilation<'ast>, rocketcss_parser::Error<'ast>>,
+    result: Result<StyleSheet<'ast>, rocketcss_parser::Error<'ast>>,
 ) -> rocketcss_parser::Error<'ast> {
     match result {
         Ok(_) => panic!("expected parsing to fail"),
@@ -172,7 +170,7 @@ fn parses_style_rule_selectors_and_declarations() {
         assert_eq!(compiler.source(), "input.css");
         assert_eq!(root_rule_ids(&sheet).len(), 1);
         let (rule_id, rule) = root_rule(&sheet, 0);
-        let CssRulePayload::Style(payload) = rule.payload() else {
+        let CssRule::Style(payload) = rule.payload() else {
             panic!("expected style rule")
         };
         assert_eq!(payload.span, Span::new(15, source.len() as u32));
@@ -496,7 +494,7 @@ fn scope_prelude_reuses_the_compiler_string_pool() {
             )
             .unwrap();
         let (scope_id, scope) = root_rule(&sheet, 0);
-        let CssRulePayload::Scope(scope) = scope.payload() else {
+        let CssRule::Scope(scope) = scope.payload() else {
             panic!("expected scope rule")
         };
         let SelectorComponent::Class(scope_class) = &scope.scope_start.as_ref().unwrap()[0][0]
@@ -527,7 +525,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
         let sheet = parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
         assert_eq!(root_rule_ids(&sheet).len(), 4);
 
-        let CssRulePayload::Import(rule) = root_rule(&sheet, 0).1.payload() else {
+        let CssRule::Import(rule) = root_rule(&sheet, 0).1.payload() else {
             panic!("expected import")
         };
         assert_eq!(rule.url, "a.css");
@@ -539,7 +537,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
         ));
 
         let (media_id, media) = root_rule(&sheet, 1);
-        let CssRulePayload::Media(rule) = media.payload() else {
+        let CssRule::Media(rule) = media.payload() else {
             panic!("expected media")
         };
         assert_eq!(child_rule_ids(&sheet, media_id).len(), 1);
@@ -550,7 +548,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
         assert!(rule.query.media_queries[0].condition.is_some());
 
         let (font_face_id, font_face) = root_rule(&sheet, 2);
-        let CssRulePayload::FontFace(_) = font_face.payload() else {
+        let CssRule::FontFace(_) = font_face.payload() else {
             panic!("expected font-face")
         };
         let font_face_block = sheet
@@ -565,11 +563,11 @@ fn parses_import_media_unknown_and_font_face_rules() {
         assert_eq!(properties.len(), 2);
         assert!(matches!(
             properties[0].payload(),
-            DeclarationPayload::FontFace(FontFaceProperty::Custom(value))
+            CssDeclaration::FontFace(FontFaceProperty::Custom(value))
                 if matches!(*value.name, CustomPropertyName::Unknown("font-family"))
         ));
 
-        let CssRulePayload::Unknown(rule) = root_rule(&sheet, 3).1.payload() else {
+        let CssRule::Unknown(rule) = root_rule(&sheet, 3).1.payload() else {
             panic!("expected unknown at-rule")
         };
         assert_eq!(rule.name, "unknown");
@@ -589,7 +587,7 @@ fn parses_typed_media_conditions_and_features() {
                (max-width: env(--narrow, 10px)) {}
     "#;
         let sheet = parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
-        let CssRulePayload::Media(rule) = root_rule(&sheet, 0).1.payload() else {
+        let CssRule::Media(rule) = root_rule(&sheet, 0).1.payload() else {
             panic!("expected media rule")
         };
         assert_eq!(rule.query.media_queries.len(), 5);
@@ -905,7 +903,7 @@ fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
         let keyframes = root_rule(&sheet, 0).0;
         let frames = child_rule_ids(&sheet, keyframes);
         assert_eq!(frames.len(), 2);
-        let CssRulePayload::Keyframe(first) = sheet.rule(frames[0]).unwrap().payload() else {
+        let CssRule::Keyframe(first) = sheet.rule(frames[0]).unwrap().payload() else {
             panic!("expected keyframe")
         };
         assert!(matches!(
@@ -913,7 +911,7 @@ fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
             KeyframeSelector::TimelineRangePercentage(value)
                 if value.name == TimelineRangeName::Entry && value.percentage == 0.0
         ));
-        let CssRulePayload::Keyframe(second) = sheet.rule(frames[1]).unwrap().payload() else {
+        let CssRule::Keyframe(second) = sheet.rule(frames[1]).unwrap().payload() else {
             panic!("expected keyframe")
         };
         assert!(matches!(
@@ -946,55 +944,55 @@ fn parses_lightningcss_rule_families() {
 
         assert!(matches!(
             sheet.rule(roots[0]).unwrap().payload(),
-            CssRulePayload::Namespace(rule)
+            CssRule::Namespace(rule)
                 if rule.prefix == Some("svg") && rule.url == "http://www.w3.org/2000/svg"
         ));
         assert!(matches!(
             sheet.rule(roots[1]).unwrap().payload(),
-            CssRulePayload::LayerStatement(rule)
+            CssRule::LayerStatement(rule)
                 if rule.names.len() == 2 && rule.names[1].as_slice() == ["theme", "base"]
         ));
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
-            CssRulePayload::LayerBlock(rule) if rule.name.is_some()
+            CssRule::LayerBlock(rule) if rule.name.is_some()
         ));
         assert_eq!(child_rule_ids(&sheet, roots[2]).len(), 1);
         assert!(matches!(
             sheet.rule(roots[3]).unwrap().payload(),
-            CssRulePayload::CustomMedia(rule)
+            CssRule::CustomMedia(rule)
                 if rule.name == "--narrow" && rule.query.media_queries.len() == 1
         ));
         assert!(matches!(
             sheet.rule(roots[4]).unwrap().payload(),
-            CssRulePayload::Keyframes(rule)
+            CssRule::Keyframes(rule)
                 if matches!(*rule.name, rocketcss_ast::KeyframesName::Ident("fade"))
         ));
         let frames = child_rule_ids(&sheet, roots[4]);
         assert_eq!(frames.len(), 3);
         assert!(matches!(
             sheet.rule(frames[1]).unwrap().payload(),
-            CssRulePayload::Keyframe(rule)
+            CssRule::Keyframe(rule)
                 if matches!(rule.selectors[0], KeyframeSelector::Percentage(0.5))
         ));
         assert!(matches!(
             sheet.rule(roots[5]).unwrap().payload(),
-            CssRulePayload::CounterStyle(_)
+            CssRule::CounterStyle(_)
         ));
         assert!(matches!(
             sheet.rule(roots[6]).unwrap().payload(),
-            CssRulePayload::Viewport(_)
+            CssRule::Viewport(_)
         ));
         assert!(matches!(
             sheet.rule(roots[7]).unwrap().payload(),
-            CssRulePayload::PositionTry(rule) if rule.name == "--fallback"
+            CssRule::PositionTry(rule) if rule.name == "--fallback"
         ));
         assert!(matches!(
             sheet.rule(roots[8]).unwrap().payload(),
-            CssRulePayload::Container(rule) if rule.name == Some("card") && rule.condition.is_some()
+            CssRule::Container(rule) if rule.name == Some("card") && rule.condition.is_some()
         ));
         assert!(matches!(
             sheet.rule(roots[9]).unwrap().payload(),
-            CssRulePayload::MozDocument(_)
+            CssRule::MozDocument(_)
         ));
         assert_eq!(child_rule_ids(&sheet, roots[9]).len(), 1);
     })
@@ -1013,7 +1011,7 @@ fn parses_import_modifiers_scope_and_page() {
         let roots = root_rule_ids(&sheet);
         assert_eq!(roots.len(), 3);
 
-        let CssRulePayload::Import(import) = sheet.rule(roots[0]).unwrap().payload() else {
+        let CssRule::Import(import) = sheet.rule(roots[0]).unwrap().payload() else {
             panic!("expected import")
         };
         assert_eq!(import.layer.as_deref(), Some(&["theme", "base"][..]));
@@ -1028,13 +1026,13 @@ fn parses_import_modifiers_scope_and_page() {
 
         assert!(matches!(
             sheet.rule(roots[1]).unwrap().payload(),
-            CssRulePayload::Scope(rule)
+            CssRule::Scope(rule)
                 if rule.scope_start.is_some() && rule.scope_end.is_some()
         ));
         assert_eq!(child_rule_ids(&sheet, roots[1]).len(), 1);
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
-            CssRulePayload::Page(rule) if rule.selectors.len() == 1
+            CssRule::Page(rule) if rule.selectors.len() == 1
         ));
         assert_eq!(property_declarations(&sheet, roots[2]).len(), 1);
         assert_eq!(child_rule_ids(&sheet, roots[2]).len(), 1);
@@ -1077,7 +1075,7 @@ fn enforces_import_and_namespace_order_like_lightningcss() {
         assert_eq!(root_rule_ids(&valid).len(), 5);
         assert!(matches!(
             root_rule(&valid, 0).1.payload(),
-            CssRulePayload::Charset(rule)
+            CssRule::Charset(rule)
                 if rule.encoding == "UTF-8" && rule.span == Span::new(0, 17)
         ));
 
@@ -1128,7 +1126,7 @@ fn parses_charset_as_a_typed_rule() {
         assert_eq!(root_rule_ids(&sheet).len(), 1);
         assert!(matches!(
             root_rule(&sheet, 0).1.payload(),
-            CssRulePayload::Charset(rule)
+            CssRule::Charset(rule)
                 if rule.encoding == "UTF-8" && rule.span == Span::new(0, 20)
         ));
 
@@ -1159,17 +1157,17 @@ fn parses_declarations_inside_nested_group_rules() {
         let media = child_rule_ids(&sheet, style)[0];
         assert!(matches!(
             sheet.rule(media).unwrap().payload(),
-            CssRulePayload::Media(_)
+            CssRule::Media(_)
         ));
         let media_children = child_rule_ids(&sheet, media);
         assert!(matches!(
             sheet.rule(media_children[0]).unwrap().payload(),
-            CssRulePayload::NestedDeclarations(_)
+            CssRule::NestedDeclarations(_)
         ));
         assert_eq!(property_declarations(&sheet, media_children[0]).len(), 1);
         assert!(matches!(
             sheet.rule(media_children[1]).unwrap().payload(),
-            CssRulePayload::Style(_)
+            CssRule::Style(_)
         ));
     })
 }
@@ -1191,7 +1189,7 @@ fn distinguishes_nested_pseudo_selectors_from_declarations() {
         assert_eq!(children.len(), 1);
         assert!(matches!(
             sheet.rule(children[0]).unwrap().payload(),
-            CssRulePayload::Style(_)
+            CssRule::Style(_)
         ));
     })
 }
@@ -2003,15 +2001,15 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         let sheet = parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
         let roots = root_rule_ids(&sheet);
         assert_eq!(roots.len(), 5);
-        let CssRulePayload::Property(property) = sheet.rule(roots[0]).unwrap().payload() else {
+        let CssRule::Property(property) = sheet.rule(roots[0]).unwrap().payload() else {
             panic!("expected property rule")
         };
         assert_eq!(property.name, "--brand-color");
         assert!(property.initial_value.is_some());
         assert!(matches!(
             sheet.declaration(property.syntax.unwrap()).unwrap().payload(),
-            DeclarationPayload::PropertyRule(
-                rocketcss_ast::radix_ast::PropertyRuleDescriptor::Syntax(syntax)
+            CssDeclaration::PropertyRule(
+                rocketcss_ast::PropertyRuleDescriptor::Syntax(syntax)
             ) if matches!(&**syntax, SyntaxString::Components(_))
         ));
         assert!(matches!(
@@ -2019,9 +2017,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
                 .declaration(property.inherits.unwrap())
                 .unwrap()
                 .payload(),
-            DeclarationPayload::PropertyRule(
-                rocketcss_ast::radix_ast::PropertyRuleDescriptor::Inherits(false)
-            )
+            CssDeclaration::PropertyRule(rocketcss_ast::PropertyRuleDescriptor::Inherits(false))
         ));
         assert_eq!(
             sheet
@@ -2032,7 +2028,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         );
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
-            CssRulePayload::FontPaletteValues(rule) if rule.name == "--dark"
+            CssRule::FontPaletteValues(rule) if rule.name == "--dark"
         ));
         assert_eq!(
             sheet
@@ -2041,8 +2037,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
                 .count(),
             2
         );
-        let CssRulePayload::FontFeatureValues(features) = sheet.rule(roots[3]).unwrap().payload()
-        else {
+        let CssRule::FontFeatureValues(features) = sheet.rule(roots[3]).unwrap().payload() else {
             panic!("expected font-feature-values")
         };
         assert!(matches!(
@@ -2062,7 +2057,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
                 .next()
                 .unwrap()
                 .payload(),
-            DeclarationPayload::FontFeature(declaration)
+            CssDeclaration::FontFeature(declaration)
                 if declaration.values.as_slice() == [1, 2]
         ));
         assert!(matches!(
@@ -2070,7 +2065,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
                 .rule(child_rule_ids(&sheet, roots[4])[0])
                 .unwrap()
                 .payload(),
-            CssRulePayload::Nesting(_)
+            CssRule::Nesting(_)
         ));
     })
 }
@@ -2111,17 +2106,17 @@ fn parses_property_initial_value_edge_cases_losslessly() {
         let sheet = parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
         assert_eq!(root_rule_ids(&sheet).len(), 3);
 
-        let CssRulePayload::Property(omitted) = root_rule(&sheet, 0).1.payload() else {
+        let CssRule::Property(omitted) = root_rule(&sheet, 0).1.payload() else {
             panic!("expected omitted property registration")
         };
         assert!(omitted.initial_value.is_none());
 
-        let CssRulePayload::Property(empty) = root_rule(&sheet, 1).1.payload() else {
+        let CssRule::Property(empty) = root_rule(&sheet, 1).1.payload() else {
             panic!("expected empty property registration")
         };
         assert!(empty.initial_value.is_some());
 
-        let CssRulePayload::Property(ordered) = root_rule(&sheet, 2).1.payload() else {
+        let CssRule::Property(ordered) = root_rule(&sheet, 2).1.payload() else {
             panic!("expected ordered property registration")
         };
         assert!(matches!(
@@ -2129,9 +2124,7 @@ fn parses_property_initial_value_edge_cases_losslessly() {
                 .declaration(ordered.inherits.unwrap())
                 .unwrap()
                 .payload(),
-            DeclarationPayload::PropertyRule(
-                rocketcss_ast::radix_ast::PropertyRuleDescriptor::Inherits(true)
-            )
+            CssDeclaration::PropertyRule(rocketcss_ast::PropertyRuleDescriptor::Inherits(true))
         ));
         assert!(ordered.initial_value.is_some());
     })

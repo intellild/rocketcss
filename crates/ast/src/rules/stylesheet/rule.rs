@@ -19,7 +19,7 @@ pub enum PropertyRuleDescriptor<'ast> {
 
 /// One heterogeneous occurrence in the global authored declaration tape.
 #[derive(Debug, PartialEq)]
-pub enum DeclarationPayload<'ast> {
+pub enum CssDeclaration<'ast> {
     Property(Declaration<'ast>),
     FontFace(FontFaceProperty<'ast>),
     FontPaletteValues(FontPaletteValuesProperty<'ast>),
@@ -28,7 +28,7 @@ pub enum DeclarationPayload<'ast> {
     PropertyRule(PropertyRuleDescriptor<'ast>),
 }
 
-impl<'ast> DeclarationPayload<'ast> {
+impl<'ast> CssDeclaration<'ast> {
     #[inline]
     pub const fn as_property(&self) -> Option<&Declaration<'ast>> {
         match self {
@@ -42,42 +42,42 @@ impl<'ast> DeclarationPayload<'ast> {
     }
 }
 
-/// Rule payloads stored by the compiler-owned Radix AST.
+/// A CSS rule stored in a [`super::StyleSheet`].
 #[derive(Debug, PartialEq)]
-pub enum CssRulePayload<'ast> {
-    Style(StyleRulePayload),
-    Media(MediaRulePayload<'ast>),
-    Supports(SupportsRulePayload<'ast>),
-    StartingStyle(StartingStyleRulePayload),
-    LayerStatement(LayerStatementRulePayload<'ast>),
-    LayerBlock(LayerBlockRulePayload<'ast>),
-    Container(ContainerRulePayload<'ast>),
-    Scope(ScopeRulePayload<'ast>),
-    MozDocument(MozDocumentRulePayload),
-    Unknown(UnknownAtRulePayload<'ast>),
-    CounterStyle(CounterStyleRulePayload<'ast>),
-    Viewport(ViewportRulePayload),
-    PositionTry(PositionTryRulePayload<'ast>),
-    FontFace(FontFaceRulePayload),
-    FontPaletteValues(FontPaletteValuesRulePayload<'ast>),
-    ViewTransition(ViewTransitionRulePayload),
+pub enum CssRule<'ast> {
+    Style(StyleRule),
+    Media(MediaRule<'ast>),
+    Supports(SupportsRule<'ast>),
+    StartingStyle(StartingStyleRule),
+    LayerStatement(LayerStatementRule<'ast>),
+    LayerBlock(LayerBlockRule<'ast>),
+    Container(ContainerRule<'ast>),
+    Scope(ScopeRule<'ast>),
+    MozDocument(MozDocumentRule),
+    Unknown(UnknownAtRule<'ast>),
+    CounterStyle(CounterStyleRule<'ast>),
+    Viewport(ViewportRule),
+    PositionTry(PositionTryRule<'ast>),
+    FontFace(FontFaceRule),
+    FontPaletteValues(FontPaletteValuesRule<'ast>),
+    ViewTransition(ViewTransitionRule),
     Import(ImportRule<'ast>),
     Charset(CharsetRule<'ast>),
     Namespace(NamespaceRule<'ast>),
     CustomMedia(CustomMediaRule<'ast>),
-    Keyframes(KeyframesRulePayload<'ast>),
-    Keyframe(KeyframePayload<'ast>),
-    Page(PageRulePayload<'ast>),
-    PageMargin(PageMarginPayload),
-    PageDeclarations(PageDeclarationsPayload),
-    Nesting(NestingRulePayload),
-    FontFeatureValues(FontFeatureValuesRulePayload<'ast>),
-    FontFeatureSubrule(FontFeatureSubrulePayload),
-    Property(PropertyRulePayload<'ast>),
-    NestedDeclarations(NestedDeclarationsPayload),
+    Keyframes(KeyframesRule<'ast>),
+    Keyframe(Keyframe<'ast>),
+    Page(PageRule<'ast>),
+    PageMargin(PageMarginRule),
+    PageDeclarations(PageDeclarationsRule),
+    Nesting(NestingRule),
+    FontFeatureValues(FontFeatureValuesRule<'ast>),
+    FontFeatureSubrule(FontFeatureSubrule),
+    Property(PropertyRule<'ast>),
+    NestedDeclarations(NestedDeclarationsRule),
 }
 
-impl CssRulePayload<'_> {
+impl CssRule<'_> {
     /// Returns whether this rule owns ordinary CSS property declarations.
     ///
     /// Descriptor families share the physical declaration tape but keep their
@@ -99,68 +99,68 @@ impl CssRulePayload<'_> {
     }
 }
 
-impl<'ast> RuleIdReferences<CssRulePayload<'ast>> for CssRulePayload<'ast> {
+impl<'ast> RuleIdReferences<CssRule<'ast>> for CssRule<'ast> {
     #[inline]
-    fn remap_rule_ids(&mut self, _remaps: &[RadixIdRemap<super::RuleId<CssRulePayload<'ast>>>]) {}
+    fn remap_rule_ids(&mut self, _remaps: &[RadixIdRemap<super::RuleId<CssRule<'ast>>>]) {}
 }
 
 #[derive(Debug, PartialEq)]
-pub struct StyleRulePayload {
+pub struct StyleRule {
     pub span: Span,
     pub selector_value: SelectorValueId,
     pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct MediaRulePayload<'ast> {
+pub struct MediaRule<'ast> {
     pub span: Span,
     pub query: MediaList<'ast>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct SupportsRulePayload<'ast> {
+pub struct SupportsRule<'ast> {
     pub span: Span,
     pub condition: SupportsCondition<'ast>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StartingStyleRulePayload {
+pub struct StartingStyleRule {
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct LayerStatementRulePayload<'ast> {
+pub struct LayerStatementRule<'ast> {
     pub span: Span,
     pub names: Vec<'ast, Vec<'ast, &'ast str>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct LayerBlockRulePayload<'ast> {
+pub struct LayerBlockRule<'ast> {
     pub span: Span,
     pub name: Option<Vec<'ast, &'ast str>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ContainerRulePayload<'ast> {
+pub struct ContainerRule<'ast> {
     pub span: Span,
     pub name: Option<&'ast str>,
     pub condition: Option<Box<'ast, ContainerCondition<'ast>>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct ScopeRulePayload<'ast> {
+pub struct ScopeRule<'ast> {
     pub span: Span,
     pub scope_start: Option<Box<'ast, SelectorList<'ast>>>,
     pub scope_end: Option<Box<'ast, SelectorList<'ast>>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MozDocumentRulePayload {
+pub struct MozDocumentRule {
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct UnknownAtRulePayload<'ast> {
+pub struct UnknownAtRule<'ast> {
     pub span: Span,
     pub name: &'ast str,
     pub prelude: Vec<'ast, TokenOrValue<'ast>>,
@@ -168,88 +168,88 @@ pub struct UnknownAtRulePayload<'ast> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CounterStyleRulePayload<'ast> {
+pub struct CounterStyleRule<'ast> {
     pub span: Span,
     pub name: &'ast str,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ViewportRulePayload {
+pub struct ViewportRule {
     pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PositionTryRulePayload<'ast> {
+pub struct PositionTryRule<'ast> {
     pub span: Span,
     pub name: &'ast str,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FontFaceRulePayload {
+pub struct FontFaceRule {
     pub span: Span,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FontPaletteValuesRulePayload<'ast> {
+pub struct FontPaletteValuesRule<'ast> {
     pub span: Span,
     pub name: &'ast str,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ViewTransitionRulePayload {
+pub struct ViewTransitionRule {
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct KeyframesRulePayload<'ast> {
+pub struct KeyframesRule<'ast> {
     pub span: Span,
     pub name: Box<'ast, KeyframesName<'ast>>,
     pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct KeyframePayload<'ast> {
+pub struct Keyframe<'ast> {
     pub selectors: Vec<'ast, KeyframeSelector>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct PageRulePayload<'ast> {
+pub struct PageRule<'ast> {
     pub span: Span,
     pub selectors: Vec<'ast, PageSelector<'ast>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct PageMarginPayload {
+pub struct PageMarginRule {
     pub span: Span,
     pub margin_box: PageMarginBox,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PageDeclarationsPayload {
+pub struct PageDeclarationsRule {
     pub span: Span,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct NestingRulePayload {
+pub struct NestingRule {
     pub span: Span,
     pub selector_value: SelectorValueId,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FontFeatureValuesRulePayload<'ast> {
+pub struct FontFeatureValuesRule<'ast> {
     pub span: Span,
     pub name: Vec<'ast, FamilyName<'ast>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FontFeatureSubrulePayload {
+pub struct FontFeatureSubrule {
     pub span: Span,
     pub name: FontFeatureSubruleType,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PropertyRulePayload<'ast> {
+pub struct PropertyRule<'ast> {
     pub span: Span,
     pub name: &'ast str,
     pub syntax: Option<DeclarationId>,
@@ -258,6 +258,6 @@ pub struct PropertyRulePayload<'ast> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NestedDeclarationsPayload {
+pub struct NestedDeclarationsRule {
     pub span: Span,
 }

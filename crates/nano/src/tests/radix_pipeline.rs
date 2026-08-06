@@ -4,12 +4,12 @@ use rocketcss_parser::Compiler;
 fn run_radix(source: &str) -> String {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
-        let mut compilation = Compiler::new(&allocator)
+        let mut stylesheet = Compiler::new(&allocator)
             .parse(source, &mut token, ParserOptions::default())
             .unwrap();
-        try_minify(&mut compilation, &mut token, MinifyOptions::default()).unwrap();
-        assert_eq!(compilation.validate_ast(), Ok(()));
-        compilation
+        try_minify(&mut stylesheet, &mut token, MinifyOptions::default()).unwrap();
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
+        stylesheet
             .to_css_string(
                 PrinterOptions { prettify: false },
                 &ToCssContext::new(&token),
@@ -51,22 +51,22 @@ fn radix_s1_s2_and_s3_preserve_pipeline_output() {
 fn radix_minify_is_idempotent() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
-        let mut compilation = Compiler::new(&allocator)
+        let mut stylesheet = Compiler::new(&allocator)
             .parse(
                 "*a{color:rgb(255,0,0)}a{margin:0;color:red}b{margin:0}",
                 &mut token,
                 ParserOptions::default(),
             )
             .unwrap();
-        try_minify(&mut compilation, &mut token, MinifyOptions::default()).unwrap();
-        let once = compilation
+        try_minify(&mut stylesheet, &mut token, MinifyOptions::default()).unwrap();
+        let once = stylesheet
             .to_css_string(
                 PrinterOptions { prettify: false },
                 &ToCssContext::new(&token),
             )
             .unwrap();
-        try_minify(&mut compilation, &mut token, MinifyOptions::default()).unwrap();
-        let twice = compilation
+        try_minify(&mut stylesheet, &mut token, MinifyOptions::default()).unwrap();
+        let twice = stylesheet
             .to_css_string(
                 PrinterOptions { prettify: false },
                 &ToCssContext::new(&token),
@@ -74,7 +74,7 @@ fn radix_minify_is_idempotent() {
             .unwrap();
 
         assert_eq!(twice, once);
-        assert_eq!(compilation.validate_ast(), Ok(()));
+        assert_eq!(stylesheet.validate_ast(), Ok(()));
     });
 }
 

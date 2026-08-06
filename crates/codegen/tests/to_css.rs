@@ -7,39 +7,35 @@ fn parse_stylesheet<'a, 'ghost>(
     source: &'a str,
     allocator: &'a Allocator,
     token: &mut GhostToken<'ghost>,
-) -> Compilation<'a> {
+) -> StyleSheet<'a> {
     parse(source, allocator, token, ParserOptions::default()).unwrap()
 }
 
-fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
-    compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
+fn first_rule_id<'ast>(stylesheet: &StyleSheet<'ast>) -> CssRuleId<'ast> {
+    stylesheet
+        .rules_in_list(stylesheet.stylesheet_root().root_rules())
         .unwrap()
         .next()
         .expect("expected a root rule")
         .0
 }
 
-fn first_block_id<'ast>(
-    compilation: &Compilation<'ast>,
-) -> radix_ast::ConcreteDeclarationBlockId<'ast> {
-    compilation
-        .rule(first_rule_id(compilation))
+fn first_block_id<'ast>(stylesheet: &StyleSheet<'ast>) -> CssDeclarationBlockId<'ast> {
+    stylesheet
+        .rule(first_rule_id(stylesheet))
         .and_then(|rule| rule.declaration_block())
         .expect("expected a declaration block")
 }
 
 fn property_declarations<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
-    block: radix_ast::ConcreteDeclarationBlockId<'ast>,
+    stylesheet: &'tree StyleSheet<'ast>,
+    block: CssDeclarationBlockId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
-    compilation
+    stylesheet
         .declarations_in_block(block)
         .unwrap()
         .filter_map(|record| match record.payload() {
-            radix_ast::DeclarationPayload::Property(declaration) => {
-                Some((declaration, record.is_important()))
-            }
+            CssDeclaration::Property(declaration) => Some((declaration, record.is_important())),
             _ => None,
         })
         .collect()
@@ -190,7 +186,7 @@ fn supports_conditions_preserve_source_order_deterministically() {
 
         for _ in 0..32 {
             let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
-            let radix_ast::CssRulePayload::Supports(rule) = stylesheet
+            let CssRule::Supports(rule) = stylesheet
                 .rule(first_rule_id(&stylesheet))
                 .unwrap()
                 .payload()
@@ -225,7 +221,7 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
             &allocator,
             &mut token,
         );
-        let radix_ast::CssRulePayload::Media(rule) = stylesheet
+        let CssRule::Media(rule) = stylesheet
             .rule(first_rule_id(&stylesheet))
             .unwrap()
             .payload()
@@ -284,7 +280,7 @@ fn pseudo_classes_are_debuggable_and_serializable() {
             ".foo:first-child{color:red}",
         ] {
             let stylesheet = parse_stylesheet(source, &allocator, &mut token);
-            let radix_ast::CssRulePayload::Style(style) = stylesheet
+            let CssRule::Style(style) = stylesheet
                 .rule(first_rule_id(&stylesheet))
                 .unwrap()
                 .payload()
@@ -379,10 +375,10 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
             &mut token,
         );
         for (_, rule) in stylesheet
-            .rules_in_list(stylesheet.stylesheet().root_rules())
+            .rules_in_list(stylesheet.stylesheet_root().root_rules())
             .unwrap()
         {
-            let radix_ast::CssRulePayload::Style(_) = rule.payload() else {
+            let CssRule::Style(_) = rule.payload() else {
                 panic!("expected style rule")
             };
             let layer_list = rule.child_list().expect("expected nested layer list");
@@ -391,7 +387,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
                 .unwrap()
                 .next()
                 .unwrap();
-            let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
+            let CssRule::LayerBlock(_) = layer.payload() else {
                 panic!("expected nested layer block")
             };
             let layer_children = layer.child_list().expect("expected layer contents");
@@ -403,7 +399,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
                     .unwrap()
                     .1
                     .payload(),
-                radix_ast::CssRulePayload::NestedDeclarations(_)
+                CssRule::NestedDeclarations(_)
             ));
         }
         assert_eq!(
@@ -884,7 +880,7 @@ fn preserves_pseudo_elements_inside_is() {
 
 #[test]
 #[ignore = "CSS Modules composition is not implemented"]
-fn preserves_composes_inside_layers_until_module_compilation() {
+fn preserves_composes_inside_layers_until_module_stylesheet() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         const SOURCE: &str = ".default{color:red}.button{composes:default}@layer components{.foo{composes:bar from \"./other.module.css\"}}";
@@ -903,7 +899,7 @@ fn preserves_composes_inside_layers_until_module_compilation() {
 
 #[test]
 #[ignore = "CSS Modules grid symbol transforms are not implemented"]
-fn preserves_dynamic_grid_symbols_until_module_compilation() {
+fn preserves_dynamic_grid_symbols_until_module_stylesheet() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         const SOURCE: &str = ".test{grid-template:\"test\" var(--foo);grid-template:\"test\" 1fr}.item{grid-area:test}";
@@ -998,7 +994,7 @@ fn expands_mixins_at_the_apply_position_without_reordering_declarations() {
 
 #[test]
 #[ignore = "CSS Modules scoped keyframe names are not represented"]
-fn preserves_global_keyframe_names_until_module_compilation() {
+fn preserves_global_keyframe_names_until_module_stylesheet() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         const SOURCE: &str = "@keyframes :global(jump){0%{transform:translateY(0)}50%{transform:translateY(-10px)}100%{transform:translateY(0)}}";
@@ -1072,7 +1068,7 @@ fn does_not_duplicate_authored_text_decoration_when_prefixing_for_targets() {
 }
 
 #[test]
-#[ignore = "CSS Modules scoped selector compilation and cross-rule merging are not implemented"]
+#[ignore = "CSS Modules scoped selector stylesheet and cross-rule merging are not implemented"]
 fn combines_resolved_local_and_global_css_module_selectors() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
@@ -1272,7 +1268,7 @@ fn preserves_property_rules_inside_layer_blocks() {
         const SOURCE: &str = "@layer base{@property --radialprogress{syntax:\"<percentage>\";inherits:true;initial-value:0%}}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let layer = stylesheet.rule(first_rule_id(&stylesheet)).unwrap();
-        let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
+        let CssRule::LayerBlock(_) = layer.payload() else {
             panic!("expected layer block")
         };
         assert!(matches!(
@@ -1283,7 +1279,7 @@ fn preserves_property_rules_inside_layer_blocks() {
                 .unwrap()
                 .1
                 .payload(),
-            radix_ast::CssRulePayload::Property(_)
+            CssRule::Property(_)
         ));
         assert_eq!(
             stylesheet
@@ -1422,7 +1418,7 @@ fn preserves_unknown_media_calc_symbols_and_rule_bodies() {
         let reparsed = parse_stylesheet(&output, &allocator, &mut token);
         assert_eq!(
             reparsed
-                .rules_in_list(reparsed.stylesheet().root_rules())
+                .rules_in_list(reparsed.stylesheet_root().root_rules())
                 .unwrap()
                 .count(),
             1

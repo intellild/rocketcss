@@ -1,21 +1,18 @@
 //! Parser for the compiler-owned Radix AST.
 
 #[cfg(test)]
-use rocketcss_ast::radix_ast::{
-    CascadeOrigin, CascadePhase, ConcreteEffectiveKey, ConcreteHistorySegment, SelectorPathId,
+use rocketcss_ast::{
+    CascadeOrigin, CascadePhase, CssEffectiveKey, CssHistorySegment, SelectorPathId,
     SelectorValueId,
 };
-use rocketcss_ast::radix_ast::{
-    Compilation, CompilationCapacity, ConcreteDeclarationBlockId, ConcreteEffectiveContext,
-    ConcreteRuleId, ContainerRulePayload, CounterStyleRulePayload, CssRulePayload,
-    DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, FontFaceRulePayload,
-    FontFeatureSubrulePayload, FontFeatureValuesRulePayload, FontPaletteValuesRulePayload,
-    KeyframePayload, KeyframesRulePayload, LayerBlockRulePayload, LayerStatementRulePayload,
-    MediaRulePayload, MozDocumentRulePayload, NestedDeclarationsPayload, NestingRulePayload,
-    PageDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
-    PropertyRuleDescriptor, PropertyRulePayload, RuleListId, ScopeRulePayload, SelectorFrameKind,
-    StartingStyleRulePayload, StyleRulePayload, SupportsRulePayload, UnknownAtRulePayload,
-    ViewTransitionRulePayload, ViewportRulePayload,
+use rocketcss_ast::{
+    ContainerRule, CounterStyleRule, CssDeclaration, CssDeclarationBlockId, CssEffectiveContext,
+    CssRule, CssRuleId, DeclarationBlockOwner, EffectiveKeyId, FontFaceRule, FontFeatureSubrule,
+    FontFeatureValuesRule, FontPaletteValuesRule, Keyframe, KeyframesRule, LayerBlockRule,
+    LayerStatementRule, MediaRule, MozDocumentRule, NestedDeclarationsRule, NestingRule,
+    PageDeclarationsRule, PageMarginRule, PageRule, PositionTryRule, PropertyRule,
+    PropertyRuleDescriptor, RuleListId, ScopeRule, SelectorFrameKind, StartingStyleRule, StyleRule,
+    StyleSheet, StyleSheetCapacity, SupportsRule, UnknownAtRule, ViewTransitionRule, ViewportRule,
 };
 
 use super::{
@@ -45,22 +42,22 @@ use style::parse_style_rule;
 
 impl<'ast> Compiler<'ast> {
     /// Parses a stylesheet directly into the authoritative Radix stores.
-    pub(crate) fn parse_compilation(
+    pub(crate) fn parse_stylesheet(
         &mut self,
         source: &'ast str,
         options: ParserOptions<'ast>,
-    ) -> Result<Compilation<'ast>, Error<'ast>> {
+    ) -> Result<StyleSheet<'ast>, Error<'ast>> {
         self.cursor = super::ParserCursor::new(source);
         self.replay.reset_for_new_source();
-        let mut compilation =
-            Compilation::with_capacity_in(self.allocator(), compilation_capacity(source.len()));
+        let mut stylesheet =
+            StyleSheet::with_capacity_in(self.allocator(), stylesheet_capacity(source.len()));
 
         let mut state = self.state();
         while let Ok(token) = self.next_including_whitespace_and_comments() {
             match token {
                 ValueToken::WhiteSpace(_) => {}
                 ValueToken::Comment(comment) if comment.starts_with('!') => {
-                    compilation.push_license_comment(comment);
+                    stylesheet.push_license_comment(comment);
                 }
                 _ => break,
             }
@@ -68,17 +65,17 @@ impl<'ast> Compiler<'ast> {
         }
         self.reset(&state);
 
-        let root = compilation.stylesheet().root_rules();
+        let root = stylesheet.stylesheet_root().root_rules();
         parse_rule_list(
             self,
-            &mut compilation,
+            &mut stylesheet,
             root,
-            ConcreteEffectiveContext::<'ast>::default(),
+            CssEffectiveContext::<'ast>::default(),
             &options,
             0,
         )
         .map_err(|error| into_error(error, options.filename))?;
-        Ok(compilation)
+        Ok(stylesheet)
     }
 }
 
@@ -93,9 +90,9 @@ impl<'ast> Compiler<'ast> {
 /// actual count exceeds its estimate; tighten the divisor before adding more
 /// dense nodes per byte.
 #[doc(hidden)]
-pub fn compilation_capacity(source_len: usize) -> CompilationCapacity {
+pub fn stylesheet_capacity(source_len: usize) -> StyleSheetCapacity {
     let rules = source_len / 96;
-    CompilationCapacity {
+    StyleSheetCapacity {
         rules,
         rule_lists: source_len / 512,
         declaration_blocks: rules,
@@ -116,9 +113,9 @@ enum TopLevelState {
 
 fn parse_rule_list<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
+    stylesheet: &mut StyleSheet<'ast>,
     list: RuleListId,
-    context: ConcreteEffectiveContext<'ast>,
+    context: CssEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
@@ -153,36 +150,27 @@ fn parse_rule_list<'ast>(
                     Err(input.new_custom_error(ParserError::UnexpectedNamespaceRule))
                 } else {
                     parse_group_at_rule(
-                        input,
-                        compilation,
-                        list,
-                        context,
-                        options,
-                        depth,
-                        &start,
-                        name,
+                        input, stylesheet, list, context, options, depth, &start, name,
                     )
                 }
             }
             _ => {
                 input.reset(&start);
-                parse_style_rule(input, compilation, list, context, options, depth, &start)
+                parse_style_rule(input, stylesheet, list, context, options, depth, &start)
             }
         };
         match result {
             Ok(rule) => {
                 if depth == 0 {
-                    top_level_state = match compilation
+                    top_level_state = match stylesheet
                         .rule(rule)
                         .expect("the parsed top-level rule remains resolvable")
                         .payload()
                     {
-                        CssRulePayload::Charset(_) => top_level_state,
-                        CssRulePayload::Import(_) => TopLevelState::Imports,
-                        CssRulePayload::Namespace(_) => TopLevelState::Namespaces,
-                        CssRulePayload::LayerStatement(_)
-                            if top_level_state <= TopLevelState::Layers =>
-                        {
+                        CssRule::Charset(_) => top_level_state,
+                        CssRule::Import(_) => TopLevelState::Imports,
+                        CssRule::Namespace(_) => TopLevelState::Namespaces,
+                        CssRule::LayerStatement(_) if top_level_state <= TopLevelState::Layers => {
                             TopLevelState::Layers
                         }
                         _ => TopLevelState::Body,
@@ -198,34 +186,34 @@ fn parse_rule_list<'ast>(
 
 fn mutation_error<'ast>(
     input: &Compiler<'ast>,
-    error: rocketcss_ast::radix_ast::ConcreteMutationError<'ast>,
+    error: rocketcss_ast::StyleSheetMutationError<'ast>,
 ) -> ParseError<'ast, ParserError<'ast>> {
-    use rocketcss_ast::radix_ast::ConcreteMutationError;
+    use rocketcss_ast::StyleSheetMutationError;
 
     let error = match error {
-        ConcreteMutationError::<'ast>::PrimaryRuleCapacityExhausted
-        | ConcreteMutationError::<'ast>::PrimaryDeclarationBlockCapacityExhausted
-        | ConcreteMutationError::<'ast>::RuleListCapacityExhausted
-        | ConcreteMutationError::<'ast>::EffectiveKeyCapacityExhausted
-        | ConcreteMutationError::<'ast>::SelectorContextCapacityExhausted
-        | ConcreteMutationError::<'ast>::DeclarationCapacityExhausted
-        | ConcreteMutationError::<'ast>::DeclarationOverflowCapacityExhausted
-        | ConcreteMutationError::<'ast>::LocalRuleCapacityExhausted(_)
-        | ConcreteMutationError::<'ast>::LocalDeclarationBlockCapacityExhausted(_) => {
+        StyleSheetMutationError::<'ast>::PrimaryRuleCapacityExhausted
+        | StyleSheetMutationError::<'ast>::PrimaryDeclarationBlockCapacityExhausted
+        | StyleSheetMutationError::<'ast>::RuleListCapacityExhausted
+        | StyleSheetMutationError::<'ast>::EffectiveKeyCapacityExhausted
+        | StyleSheetMutationError::<'ast>::SelectorContextCapacityExhausted
+        | StyleSheetMutationError::<'ast>::DeclarationCapacityExhausted
+        | StyleSheetMutationError::<'ast>::DeclarationOverflowCapacityExhausted
+        | StyleSheetMutationError::<'ast>::LocalRuleCapacityExhausted(_)
+        | StyleSheetMutationError::<'ast>::LocalDeclarationBlockCapacityExhausted(_) => {
             ParserError::AstCapacityExceeded
         }
-        ConcreteMutationError::<'ast>::UnknownRule(_)
-        | ConcreteMutationError::<'ast>::UnknownRuleList(_)
-        | ConcreteMutationError::<'ast>::UnknownEffectiveKey(_)
-        | ConcreteMutationError::<'ast>::RetiredRule(_)
-        | ConcreteMutationError::<'ast>::ChildListAlreadyExists(_)
-        | ConcreteMutationError::<'ast>::DeclarationBlockAlreadyExists(_)
-        | ConcreteMutationError::<'ast>::UnknownDeclarationBlock(_)
-        | ConcreteMutationError::<'ast>::UnknownDeclarationOverflow(_)
-        | ConcreteMutationError::<'ast>::UnknownDeclaration(_)
-        | ConcreteMutationError::<'ast>::NonContiguousDeclarationRange(_)
-        | ConcreteMutationError::<'ast>::InvalidRuleTopology(_)
-        | ConcreteMutationError::<'ast>::RuleHasChildren(_) => ParserError::InvalidRule,
+        StyleSheetMutationError::<'ast>::UnknownRule(_)
+        | StyleSheetMutationError::<'ast>::UnknownRuleList(_)
+        | StyleSheetMutationError::<'ast>::UnknownEffectiveKey(_)
+        | StyleSheetMutationError::<'ast>::RetiredRule(_)
+        | StyleSheetMutationError::<'ast>::ChildListAlreadyExists(_)
+        | StyleSheetMutationError::<'ast>::DeclarationBlockAlreadyExists(_)
+        | StyleSheetMutationError::<'ast>::UnknownDeclarationBlock(_)
+        | StyleSheetMutationError::<'ast>::UnknownDeclarationOverflow(_)
+        | StyleSheetMutationError::<'ast>::UnknownDeclaration(_)
+        | StyleSheetMutationError::<'ast>::NonContiguousDeclarationRange(_)
+        | StyleSheetMutationError::<'ast>::InvalidRuleTopology(_)
+        | StyleSheetMutationError::<'ast>::RuleHasChildren(_) => ParserError::InvalidRule,
     };
     input.new_custom_error(error)
 }

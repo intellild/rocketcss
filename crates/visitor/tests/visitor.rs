@@ -1,13 +1,12 @@
 use rocketcss_visitor::prelude::*;
 
-use rocketcss_ast::radix_ast::{
-    Compilation, CompilationVisitMutContext, CompilationVisitor, CompilationVisitorMut,
-    ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId, CssRulePayload,
-    DeclarationBlockOwner, DeclarationId, DeclarationPayload, DeclarationRecord, RuleRecord,
-    SelectorValueId,
+use rocketcss_ast::{
+    CssDeclaration, CssDeclarationBlockId as DeclarationBlockId, CssRule, CssRuleId as RuleId,
+    DeclarationBlockOwner, DeclarationId, DeclarationRecord, RuleRecord, SelectorValueId,
+    StyleSheet, StyleSheetVisitMutContext, StyleSheetVisitor, StyleSheetVisitorMut,
 };
 
-fn parse_test_compilation<'a>(allocator: &'a Allocator, source: &'a str) -> Compilation<'a> {
+fn parse_test_stylesheet<'a>(allocator: &'a Allocator, source: &'a str) -> StyleSheet<'a> {
     GhostToken::scope(|mut token| {
         rocketcss_parser::Compiler::new(allocator)
             .parse(
@@ -32,12 +31,12 @@ struct StructuralRecorder {
     events: std::vec::Vec<StructuralEvent>,
 }
 
-impl<'a> CompilationVisitor<'a> for StructuralRecorder {
+impl<'a> StyleSheetVisitor<'a> for StructuralRecorder {
     fn visit_rule(
         &mut self,
         _id: RuleId<'a>,
-        _rule: &RuleRecord<CssRulePayload<'a>>,
-        _compilation: &Compilation<'a>,
+        _rule: &RuleRecord<CssRule<'a>>,
+        _stylesheet: &StyleSheet<'a>,
     ) {
         self.events.push(StructuralEvent::Rule);
     }
@@ -45,8 +44,8 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
     fn visit_declaration_block(
         &mut self,
         _id: DeclarationBlockId<'a>,
-        _block: &rocketcss_ast::radix_ast::DeclarationBlockRecord<CssRulePayload<'a>>,
-        _compilation: &Compilation<'a>,
+        _block: &rocketcss_ast::DeclarationBlock<CssRule<'a>>,
+        _stylesheet: &StyleSheet<'a>,
     ) {
         self.events.push(StructuralEvent::DeclarationBlock);
     }
@@ -55,8 +54,8 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
         &mut self,
         _block: DeclarationBlockId<'a>,
         _id: DeclarationId,
-        _declaration: &DeclarationRecord<DeclarationPayload<'a>>,
-        _compilation: &Compilation<'a>,
+        _declaration: &DeclarationRecord<CssDeclaration<'a>>,
+        _stylesheet: &StyleSheet<'a>,
     ) {
         self.events.push(StructuralEvent::Declaration);
     }
@@ -65,8 +64,8 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
         &mut self,
         _block: DeclarationBlockId<'a>,
         _id: DeclarationId,
-        _descriptor: &DeclarationRecord<DeclarationPayload<'a>>,
-        _compilation: &Compilation<'a>,
+        _descriptor: &DeclarationRecord<CssDeclaration<'a>>,
+        _stylesheet: &StyleSheet<'a>,
     ) {
         self.events.push(StructuralEvent::Descriptor);
     }
@@ -75,13 +74,13 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
 #[test]
 fn radix_traversal_uses_lexical_rule_and_declaration_order() {
     let allocator = Allocator::new();
-    let compilation = parse_test_compilation(
+    let stylesheet = parse_test_stylesheet(
         &allocator,
         "a{color:red;@media print{b{width:1px}}height:2px}@font-face{font-family:x;src:url(x)}",
     );
     let mut recorder = StructuralRecorder::default();
 
-    compilation.visit_compilation(&mut recorder).unwrap();
+    stylesheet.visit_stylesheet(&mut recorder).unwrap();
 
     assert_eq!(
         recorder.events,
@@ -110,8 +109,8 @@ struct RadixRewrite<'a> {
     declaration_replaced: bool,
 }
 
-impl<'a> CompilationVisitorMut<'a> for RadixRewrite<'a> {
-    fn visit_rule(&mut self, id: RuleId<'a>, cx: &mut CompilationVisitMutContext<'_, 'a>) {
+impl<'a> StyleSheetVisitorMut<'a> for RadixRewrite<'a> {
+    fn visit_rule(&mut self, id: RuleId<'a>, cx: &mut StyleSheetVisitMutContext<'_, 'a>) {
         if id == self.first_rule {
             self.selector_replaced = cx
                 .replace_rule_selector_value(id, self.replacement_selector)
@@ -123,9 +122,9 @@ impl<'a> CompilationVisitorMut<'a> for RadixRewrite<'a> {
         &mut self,
         block: DeclarationBlockId<'a>,
         id: DeclarationId,
-        cx: &mut CompilationVisitMutContext<'_, 'a>,
+        cx: &mut StyleSheetVisitMutContext<'_, 'a>,
     ) {
-        let owner = cx.compilation().declaration_block(block).unwrap().owner();
+        let owner = cx.stylesheet().declaration_block(block).unwrap().owner();
         if owner == DeclarationBlockOwner::Rule(self.first_rule) {
             cx.replace_property_declaration(block, id, Declaration::Tombstone)
                 .unwrap();
@@ -137,17 +136,16 @@ impl<'a> CompilationVisitorMut<'a> for RadixRewrite<'a> {
 #[test]
 fn radix_mutable_traversal_uses_selector_and_declaration_transactions() {
     let allocator = Allocator::new();
-    let mut compilation = parse_test_compilation(&allocator, ".before{color:red}.after{width:1px}");
-    let rules = compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
+    let mut stylesheet = parse_test_stylesheet(&allocator, ".before{color:red}.after{width:1px}");
+    let rules = stylesheet
+        .rules_in_list(stylesheet.stylesheet_root().root_rules())
         .unwrap()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
     let [first_rule, second_rule] = rules.as_slice() else {
         panic!("expected two style rules")
     };
-    let CssRulePayload::Style(second_payload) = compilation.rule(*second_rule).unwrap().payload()
-    else {
+    let CssRule::Style(second_payload) = stylesheet.rule(*second_rule).unwrap().payload() else {
         panic!("expected a style rule")
     };
     let replacement_selector = second_payload.selector_value;
@@ -158,44 +156,44 @@ fn radix_mutable_traversal_uses_selector_and_declaration_transactions() {
         declaration_replaced: false,
     };
 
-    compilation.visit_compilation_mut(&mut visitor).unwrap();
+    stylesheet.visit_stylesheet_mut(&mut visitor).unwrap();
 
     assert!(visitor.selector_replaced);
     assert!(visitor.declaration_replaced);
-    let first_block = compilation
+    let first_block = stylesheet
         .rule(*first_rule)
         .unwrap()
         .declaration_block()
         .unwrap();
-    let second_block = compilation
+    let second_block = stylesheet
         .rule(*second_rule)
         .unwrap()
         .declaration_block()
         .unwrap();
     assert_eq!(
-        compilation.declaration_block(first_block).unwrap().owner(),
+        stylesheet.declaration_block(first_block).unwrap().owner(),
         DeclarationBlockOwner::Rule(*first_rule)
     );
     assert_eq!(
-        compilation
+        stylesheet
             .declaration_block(first_block)
             .unwrap()
             .effective_key(),
-        compilation
+        stylesheet
             .declaration_block(second_block)
             .unwrap()
             .effective_key()
     );
     assert!(matches!(
-        compilation
+        stylesheet
             .declarations_in_block(first_block)
             .unwrap()
             .next()
             .unwrap()
             .payload(),
-        DeclarationPayload::Property(Declaration::Tombstone)
+        CssDeclaration::Property(Declaration::Tombstone)
     ));
-    assert_eq!(compilation.validate_ast(), Ok(()));
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 
 #[derive(Default)]
@@ -203,11 +201,11 @@ struct PanicOnNestedStyle {
     styles_seen: usize,
 }
 
-impl<'ast> CompilationVisitorMut<'ast> for PanicOnNestedStyle {
-    fn visit_rule(&mut self, id: RuleId<'ast>, cx: &mut CompilationVisitMutContext<'_, 'ast>) {
+impl<'ast> StyleSheetVisitorMut<'ast> for PanicOnNestedStyle {
+    fn visit_rule(&mut self, id: RuleId<'ast>, cx: &mut StyleSheetVisitMutContext<'_, 'ast>) {
         if matches!(
-            cx.compilation().rule(id).unwrap().payload(),
-            CssRulePayload::Style(_)
+            cx.stylesheet().rule(id).unwrap().payload(),
+            CssRule::Style(_)
         ) {
             self.styles_seen += 1;
             assert_ne!(self.styles_seen, 2, "nested style panic");
@@ -217,29 +215,29 @@ impl<'ast> CompilationVisitorMut<'ast> for PanicOnNestedStyle {
 
 struct NoopVisitor;
 
-impl CompilationVisitorMut<'_> for NoopVisitor {}
+impl StyleSheetVisitorMut<'_> for NoopVisitor {}
 
 #[test]
 fn mutable_visitor_panic_keeps_nested_rules_attached() {
     let allocator = Allocator::new();
-    let mut compilation =
-        parse_test_compilation(&allocator, ".card{color:red;button:hover{color:blue}}");
-    let outer = compilation
-        .rules_in_list(compilation.stylesheet().root_rules())
+    let mut stylesheet =
+        parse_test_stylesheet(&allocator, ".card{color:red;button:hover{color:blue}}");
+    let outer = stylesheet
+        .rules_in_list(stylesheet.stylesheet_root().root_rules())
         .unwrap()
         .next()
         .unwrap()
         .0;
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compilation
-            .visit_compilation_mut(&mut PanicOnNestedStyle::default())
+        stylesheet
+            .visit_stylesheet_mut(&mut PanicOnNestedStyle::default())
             .unwrap();
     }));
     assert!(result.is_err());
 
-    compilation.visit_compilation_mut(&mut NoopVisitor).unwrap();
-    let child_list = compilation.rule(outer).unwrap().child_list().unwrap();
-    assert_eq!(compilation.rules_in_list(child_list).unwrap().count(), 1);
-    assert_eq!(compilation.validate_ast(), Ok(()));
+    stylesheet.visit_stylesheet_mut(&mut NoopVisitor).unwrap();
+    let child_list = stylesheet.rule(outer).unwrap().child_list().unwrap();
+    assert_eq!(stylesheet.rules_in_list(child_list).unwrap().count(), 1);
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
 }

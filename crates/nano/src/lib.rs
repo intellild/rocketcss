@@ -25,59 +25,58 @@ pub trait Minify {
         Self: 'cx;
 }
 
-/// Minifies the compiler-owned compilation in place.
+/// Minifies the compiler-owned stylesheet in place.
 pub fn minify<'ast, 'ghost>(
-    compilation: &mut Compilation<'ast>,
+    stylesheet: &mut StyleSheet<'ast>,
     token: &mut GhostToken<'ghost>,
     options: MinifyOptions,
 ) -> MinifyStats {
-    try_minify(compilation, token, options)
-        .expect("a parsed Radix compilation remains structurally valid while minifying")
+    try_minify(stylesheet, token, options)
+        .expect("a parsed Radix stylesheet remains structurally valid while minifying")
 }
 
 /// Fallible entry point for structural transforms.
 pub fn try_minify<'ast, 'ghost>(
-    compilation: &mut Compilation<'ast>,
+    stylesheet: &mut StyleSheet<'ast>,
     token: &mut GhostToken<'ghost>,
     options: MinifyOptions,
-) -> Result<MinifyStats, radix_ast::ConcreteMutationError<'ast>> {
+) -> Result<MinifyStats, StyleSheetMutationError<'ast>> {
     let allocator = Allocator::new();
     let cx = MinifyContext::new(options, &allocator);
     let declaration_blocks = rules::DeclarationBlockMinifier::new(&allocator);
     let merge_adjacent_rules = options.is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any);
     let mut cross_rule = merge_adjacent_rules
-        .then(|| cross_rule_declaration_merging::new_cross_rule_builder(compilation, &allocator));
+        .then(|| cross_rule_declaration_merging::new_cross_rule_builder(stylesheet, &allocator));
     let mut minifier = Minifier {
         cx,
         declaration_blocks,
     };
     let mut visit_context = VisitMutContext::new(token);
 
-    compilation.transform_selector_values_in(&allocator, |_, selectors| {
+    stylesheet.transform_selector_values_in(&allocator, |_, selectors| {
         minifier.visit_selector_list(selectors, &mut visit_context);
     });
 
-    let mut current = compilation.first_rule_in_source();
+    let mut current = stylesheet.first_rule_in_source();
     while let Some(rule_id) = current {
-        let rule = compilation.rule(rule_id).ok_or(
-            radix_ast::ConcreteMutationError::<'ast>::UnknownRule(rule_id),
-        )?;
+        let rule = stylesheet
+            .rule(rule_id)
+            .ok_or(StyleSheetMutationError::<'ast>::UnknownRule(rule_id))?;
         current = rule.next_in_source();
         if !rule.is_live() {
             continue;
         }
         let property_block = rule.payload().owns_property_declarations();
         let block_id = rule.declaration_block();
-        compilation.transform_rule_payload(rule_id, |payload| {
+        stylesheet.transform_rule_payload(rule_id, |payload| {
             minify_rule_payload(payload, &mut minifier, &mut visit_context);
         })?;
         let Some(block_id) = block_id else {
             continue;
         };
-        compilation.for_each_declaration_mut(block_id, |_, record| {
+        stylesheet.for_each_declaration_mut(block_id, |_, record| {
             if property_block {
-                let rocketcss_ast::radix_ast::DeclarationPayload::Property(declaration) =
-                    record.payload_mut()
+                let rocketcss_ast::CssDeclaration::Property(declaration) = record.payload_mut()
                 else {
                     unreachable!("a property rule owns only property declarations")
                 };
@@ -87,22 +86,20 @@ pub fn try_minify<'ast, 'ghost>(
             }
         })?;
         if property_block {
-            minifier.declaration_blocks.minify_compilation_block(
-                compilation,
+            minifier.declaration_blocks.minify_stylesheet_block(
+                stylesheet,
                 block_id,
                 &mut minifier.cx,
             );
         }
         if let Some(builder) = cross_rule.as_mut() {
             cross_rule_declaration_merging::publish_cross_rule_block(
-                builder,
-                compilation,
-                block_id,
+                builder, stylesheet, block_id,
             )?;
         }
     }
 
-    let context_repair = compilation.refresh_context_value_identities_with_remaps(&allocator)?;
+    let context_repair = stylesheet.refresh_context_value_identities_with_remaps(&allocator)?;
 
     if let Some(builder) = cross_rule {
         let preserve_selector_compatibility = minifier
@@ -110,7 +107,7 @@ pub fn try_minify<'ast, 'ghost>(
             .is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::Any);
         cross_rule_declaration_merging::stabilize_cross_rule_builder(
             builder,
-            compilation,
+            stylesheet,
             preserve_selector_compatibility,
             context_repair.effective_key_remaps(),
         )?;
@@ -119,21 +116,19 @@ pub fn try_minify<'ast, 'ghost>(
 }
 
 fn minify_rule_payload<'ast, 'ghost>(
-    payload: &mut radix_ast::CssRulePayload<'ast>,
+    payload: &mut CssRule<'ast>,
     minifier: &mut Minifier<'ast, '_>,
     cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
 ) {
-    use radix_ast::CssRulePayload;
-
     match payload {
-        CssRulePayload::Media(payload) => payload.query.visit_mut(minifier, cx),
-        CssRulePayload::Supports(payload) => payload.condition.visit_mut(minifier, cx),
-        CssRulePayload::Container(payload) => {
+        CssRule::Media(payload) => payload.query.visit_mut(minifier, cx),
+        CssRule::Supports(payload) => payload.condition.visit_mut(minifier, cx),
+        CssRule::Container(payload) => {
             if let Some(condition) = &mut payload.condition {
                 condition.visit_mut(minifier, cx);
             }
         }
-        CssRulePayload::Scope(payload) => {
+        CssRule::Scope(payload) => {
             if let Some(selectors) = &mut payload.scope_start {
                 minifier.visit_selector_list(selectors, cx);
             }
@@ -141,51 +136,49 @@ fn minify_rule_payload<'ast, 'ghost>(
                 minifier.visit_selector_list(selectors, cx);
             }
         }
-        CssRulePayload::Unknown(payload) => {
+        CssRule::Unknown(payload) => {
             minifier.minify_unknown_token_lists(&mut payload.prelude, payload.block.as_mut(), cx)
         }
-        CssRulePayload::Import(payload) => payload.visit_mut(minifier, cx),
-        CssRulePayload::CustomMedia(payload) => payload.query.visit_mut(minifier, cx),
-        CssRulePayload::Keyframes(payload) => payload.name.visit_mut(minifier, cx),
-        CssRulePayload::Keyframe(payload) => payload.selectors.visit_mut(minifier, cx),
-        CssRulePayload::Page(payload) => payload.selectors.visit_mut(minifier, cx),
-        CssRulePayload::FontFeatureValues(payload) => payload.name.visit_mut(minifier, cx),
-        CssRulePayload::Style(_)
-        | CssRulePayload::StartingStyle(_)
-        | CssRulePayload::LayerStatement(_)
-        | CssRulePayload::LayerBlock(_)
-        | CssRulePayload::MozDocument(_)
-        | CssRulePayload::CounterStyle(_)
-        | CssRulePayload::Viewport(_)
-        | CssRulePayload::PositionTry(_)
-        | CssRulePayload::FontFace(_)
-        | CssRulePayload::FontPaletteValues(_)
-        | CssRulePayload::ViewTransition(_)
-        | CssRulePayload::Charset(_)
-        | CssRulePayload::Namespace(_)
-        | CssRulePayload::PageMargin(_)
-        | CssRulePayload::PageDeclarations(_)
-        | CssRulePayload::Nesting(_)
-        | CssRulePayload::FontFeatureSubrule(_)
-        | CssRulePayload::Property(_)
-        | CssRulePayload::NestedDeclarations(_) => {}
+        CssRule::Import(payload) => payload.visit_mut(minifier, cx),
+        CssRule::CustomMedia(payload) => payload.query.visit_mut(minifier, cx),
+        CssRule::Keyframes(payload) => payload.name.visit_mut(minifier, cx),
+        CssRule::Keyframe(payload) => payload.selectors.visit_mut(minifier, cx),
+        CssRule::Page(payload) => payload.selectors.visit_mut(minifier, cx),
+        CssRule::FontFeatureValues(payload) => payload.name.visit_mut(minifier, cx),
+        CssRule::Style(_)
+        | CssRule::StartingStyle(_)
+        | CssRule::LayerStatement(_)
+        | CssRule::LayerBlock(_)
+        | CssRule::MozDocument(_)
+        | CssRule::CounterStyle(_)
+        | CssRule::Viewport(_)
+        | CssRule::PositionTry(_)
+        | CssRule::FontFace(_)
+        | CssRule::FontPaletteValues(_)
+        | CssRule::ViewTransition(_)
+        | CssRule::Charset(_)
+        | CssRule::Namespace(_)
+        | CssRule::PageMargin(_)
+        | CssRule::PageDeclarations(_)
+        | CssRule::Nesting(_)
+        | CssRule::FontFeatureSubrule(_)
+        | CssRule::Property(_)
+        | CssRule::NestedDeclarations(_) => {}
     }
 }
 
 fn minify_descriptor<'ast, 'ghost>(
-    descriptor: &mut radix_ast::DeclarationPayload<'ast>,
+    descriptor: &mut CssDeclaration<'ast>,
     minifier: &mut Minifier<'ast, '_>,
     cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
 ) {
-    use radix_ast::{DeclarationPayload, PropertyRuleDescriptor};
-
     match descriptor {
-        DeclarationPayload::Property(declaration) => declaration.visit_mut(minifier, cx),
-        DeclarationPayload::FontFace(property) => property.visit_mut(minifier, cx),
-        DeclarationPayload::FontPaletteValues(property) => property.visit_mut(minifier, cx),
-        DeclarationPayload::ViewTransition(property) => property.visit_mut(minifier, cx),
-        DeclarationPayload::FontFeature(declaration) => declaration.visit_mut(minifier, cx),
-        DeclarationPayload::PropertyRule(descriptor) => match descriptor {
+        CssDeclaration::Property(declaration) => declaration.visit_mut(minifier, cx),
+        CssDeclaration::FontFace(property) => property.visit_mut(minifier, cx),
+        CssDeclaration::FontPaletteValues(property) => property.visit_mut(minifier, cx),
+        CssDeclaration::ViewTransition(property) => property.visit_mut(minifier, cx),
+        CssDeclaration::FontFeature(declaration) => declaration.visit_mut(minifier, cx),
+        CssDeclaration::PropertyRule(descriptor) => match descriptor {
             PropertyRuleDescriptor::Syntax(syntax) => syntax.visit_mut(minifier, cx),
             PropertyRuleDescriptor::Inherits(_) => {}
             PropertyRuleDescriptor::InitialValue(value) => value.visit_mut(minifier, cx),
@@ -219,10 +212,10 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for MinifyPlugin {
 
     fn transform(
         &mut self,
-        compilation: &mut Compilation<'a>,
+        stylesheet: &mut StyleSheet<'a>,
         cx: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
-        let stats = minify(compilation, cx.ghost_token(), self.options);
+        let stats = minify(stylesheet, cx.ghost_token(), self.options);
         cx.insert(stats);
         Ok(())
     }
