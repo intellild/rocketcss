@@ -14,10 +14,13 @@ use rocketcss_ast::{
 use rocketcss_common::{
     Allocator, RadixIdRemap, RadixInsertResult,
     bit_vec::BitVec,
-    prelude::{HashMap, HashSet, Vec},
+    prelude::{HashMap, HashSet, PriorityQueue, Vec},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::VecDeque;
+use std::{
+    cmp::{Ordering, Reverse},
+    collections::VecDeque,
+};
 
 use super::declaration_ir::{
     CompactPropertyKey, DeclarationIrStore, IndexedDeclaration, MovementDomain,
@@ -136,26 +139,92 @@ impl<'arena, 'ast> SameSelectorCandidateList<'arena, 'ast> {
 
 #[derive(Debug)]
 struct PartialMergeCandidateList<'arena, 'ast> {
-    pending: VecDeque<Candidate<'ast>>,
+    pending: PriorityQueue<'arena, Reverse<OrderedCandidate<'ast>>>,
     queued: HashSet<'arena, Candidate<'ast>>,
+    next_sequence: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct OrderedCandidate<'ast> {
+    candidate: Candidate<'ast>,
+    sequence: u64,
+}
+
+impl PartialEq for OrderedCandidate<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.compare(other).is_eq()
+    }
+}
+
+impl Eq for OrderedCandidate<'_> {}
+
+impl PartialOrd for OrderedCandidate<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedCandidate<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.compare(other)
+    }
+}
+
+impl OrderedCandidate<'_> {
+    fn compare(&self, other: &Self) -> Ordering {
+        self.candidate
+            .left
+            .cmp(&other.candidate.left)
+            .then_with(|| self.candidate.right.cmp(&other.candidate.right))
+            .then_with(|| {
+                self.candidate
+                    .left_revision
+                    .cmp(&other.candidate.left_revision)
+            })
+            .then_with(|| {
+                self.candidate
+                    .right_revision
+                    .cmp(&other.candidate.right_revision)
+            })
+            .then_with(|| {
+                self.candidate
+                    .same_effective_key
+                    .cmp(&other.candidate.same_effective_key)
+            })
+            .then_with(|| {
+                self.candidate
+                    .may_share_declaration
+                    .cmp(&other.candidate.may_share_declaration)
+            })
+            .then_with(|| self.sequence.cmp(&other.sequence))
+    }
 }
 
 impl<'arena, 'ast> PartialMergeCandidateList<'arena, 'ast> {
     fn with_capacity_in(capacity: usize, allocator: &'arena Allocator) -> Self {
         Self {
-            pending: VecDeque::with_capacity(capacity),
+            pending: PriorityQueue::with_capacity_in(capacity, allocator),
             queued: HashSet::with_capacity_in(capacity, allocator),
+            next_sequence: 0,
         }
     }
 
     fn push(&mut self, candidate: Candidate<'ast>) {
         if self.queued.insert(candidate) {
-            self.pending.push_back(candidate);
+            let sequence = self.next_sequence;
+            self.next_sequence = self
+                .next_sequence
+                .checked_add(1)
+                .expect("S3 candidate sequence exhausted");
+            self.pending.push(Reverse(OrderedCandidate {
+                candidate,
+                sequence,
+            }));
         }
     }
 
     fn pop(&mut self) -> Option<Candidate<'ast>> {
-        let candidate = self.pending.pop_front()?;
+        let candidate = self.pending.pop()?.0.candidate;
         self.queued.remove(&candidate);
         Some(candidate)
     }
@@ -165,22 +234,20 @@ impl<'arena, 'ast> PartialMergeCandidateList<'arena, 'ast> {
     }
 
     fn remap_blocks(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>]) {
-        for candidate in &mut self.pending {
-            candidate.remap_blocks(remaps);
-        }
+        self.pending
+            .update_all(|pending| pending.0.candidate.remap_blocks(remaps));
         self.queued.clear();
-        for candidate in &self.pending {
-            self.queued.insert(*candidate);
+        for pending in self.pending.iter() {
+            self.queued.insert(pending.0.candidate);
         }
     }
 
     fn remap_rules(&mut self, remaps: &[RadixIdRemap<RuleId<'ast>>]) {
-        for candidate in &mut self.pending {
-            candidate.remap_rules(remaps);
-        }
+        self.pending
+            .update_all(|pending| pending.0.candidate.remap_rules(remaps));
         self.queued.clear();
-        for candidate in &self.pending {
-            self.queued.insert(*candidate);
+        for pending in self.pending.iter() {
+            self.queued.insert(pending.0.candidate);
         }
     }
 }
@@ -1493,6 +1560,34 @@ mod tests {
     }
 
     #[test]
+    fn partial_merge_heap_restores_semantic_source_order() {
+        let allocator = Allocator::new();
+        let mut stylesheet = Compiler::new(&allocator)
+            .parse_test_stylesheet(
+                "a{color:red}b{color:blue}c{color:green}",
+                ParserOptions::default(),
+            )
+            .unwrap();
+        let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
+        let first = state.partial_merge_candidates.pop().unwrap();
+        let second = state.partial_merge_candidates.pop().unwrap();
+
+        assert!(
+            stylesheet
+                .declaration_block_is_before(first.left, second.left)
+                .unwrap()
+        );
+
+        let mut candidates = PartialMergeCandidateList::with_capacity_in(2, &allocator);
+        candidates.push(second);
+        candidates.push(first);
+
+        assert_eq!(candidates.pop(), Some(first));
+        assert_eq!(candidates.pop(), Some(second));
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
     fn s2_scratch_hash_tables_do_not_preallocate_for_the_whole_stylesheet() {
         let allocator = Allocator::new();
         let scratch: MinifyScratch<'_, '_> =
@@ -1864,8 +1959,10 @@ mod tests {
             let fallback_right = fallback_state
                 .partial_merge_candidates
                 .pending
-                .front()
+                .peek()
                 .unwrap()
+                .0
+                .candidate
                 .right;
             fallback_state
                 .declaration_ir
@@ -2114,7 +2211,7 @@ mod tests {
     }
 
     #[test]
-    fn scheduler_uses_the_s3_queue_for_overlapping_partial_edges() {
+    fn scheduler_uses_the_s3_heap_for_overlapping_partial_edges() {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();

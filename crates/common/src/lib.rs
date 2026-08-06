@@ -11,6 +11,7 @@ pub mod ghost_cell;
 pub mod hash_map;
 pub mod hash_set;
 pub mod prelude;
+pub mod priority_queue;
 pub mod radix_index_arena;
 pub mod raw_vec;
 pub mod reference;
@@ -22,6 +23,7 @@ pub use atom::Atom;
 pub use btree_index_arena::BTreeIndexArena;
 pub use dense::{DenseCapacityError, DenseId, DenseIdGenerator, DenseMap, DenseStore};
 pub use ghost_cell::{GhostBox, GhostCell, GhostToken};
+pub use priority_queue::PriorityQueue;
 pub use radix_index_arena::{
     DetachedRadixIds, DetachedRadixRangeIds, RadixId, RadixIdKey, RadixIdRemap, RadixIds,
     RadixIndexArena, RadixInsertResult, RadixRange, SemanticIterEnumerated, TypedRadixIndexArena,
