@@ -154,6 +154,25 @@ fn lexical_order_and_direct_topology_are_independent() {
     );
     assert_eq!(
         stylesheet
+            .rule_tree_entries()
+            .map(|entry| {
+                (
+                    entry.rule(),
+                    entry.parent(),
+                    entry.event().has_children(),
+                    *entry.record().payload(),
+                    std::ptr::eq(entry.record(), stylesheet.rule(entry.rule()).unwrap()),
+                )
+            })
+            .collect::<std::vec::Vec<_>>(),
+        [
+            (outer, None, true, "outer", true),
+            (nested, Some(outer), false, "nested", true),
+            (following, None, false, "following", true),
+        ]
+    );
+    assert_eq!(
+        stylesheet
             .root_rule_edges()
             .map(|edge| (edge.left(), edge.right()))
             .collect::<std::vec::Vec<_>>(),
@@ -482,6 +501,13 @@ fn retired_nested_tombstones_stay_in_the_span_but_not_semantic_traversal() {
             .collect::<std::vec::Vec<_>>(),
         [following]
     );
+    assert_eq!(
+        stylesheet
+            .rule_tree_entries()
+            .map(|entry| (entry.rule(), *entry.record().payload()))
+            .collect::<std::vec::Vec<_>>(),
+        [(following, "following")]
+    );
     assert_eq!(stylesheet.rule(parent).unwrap().descendant_count, 1);
     assert_eq!(stylesheet.rule(parent).unwrap().nested_rule_count, 0);
     assert_eq!(stylesheet.validate_ast(), Ok(()));
@@ -593,6 +619,13 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
             .map(|(_, rule)| *rule.payload())
             .collect::<std::vec::Vec<_>>(),
         [1, 3, 2]
+    );
+    assert_eq!(
+        stylesheet
+            .rule_tree_entries()
+            .map(|entry| (entry.rule(), *entry.record().payload()))
+            .collect::<std::vec::Vec<_>>(),
+        [(left, 1), (inserted.rule.id, 3), (right, 2),]
     );
     assert_eq!(
         stylesheet

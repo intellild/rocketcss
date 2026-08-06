@@ -268,25 +268,79 @@ impl<P> RuleTreeEvent<P> {
     }
 }
 
+/// One live rule yielded with its tree event and already-resolved record.
+pub struct RuleTreeEntry<'comp, R> {
+    event: RuleTreeEvent<R>,
+    record: &'comp RuleRecord<R>,
+}
+
+impl<R> Clone for RuleTreeEntry<'_, R> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<R> Copy for RuleTreeEntry<'_, R> {}
+
+impl<'comp, R> RuleTreeEntry<'comp, R> {
+    #[inline]
+    pub const fn event(self) -> RuleTreeEvent<R> {
+        self.event
+    }
+
+    #[inline]
+    pub const fn rule(self) -> RuleId<R> {
+        self.event.rule()
+    }
+
+    #[inline]
+    pub const fn parent(self) -> Option<RuleId<R>> {
+        self.event.parent()
+    }
+
+    #[inline]
+    pub const fn record(self) -> &'comp RuleRecord<R> {
+        self.record
+    }
+}
+
+/// Stylesheet-wide preorder entries for live rules.
+pub struct RuleTreeEntryIter<'comp, 'ast, R: Unpin> {
+    source: SemanticIterEnumerated<'comp, 'ast, RuleRecord<R>, RuleId<R>>,
+}
+
+impl<'comp, R: Unpin> Iterator for RuleTreeEntryIter<'comp, '_, R> {
+    type Item = RuleTreeEntry<'comp, R>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (rule, record) in self.source.by_ref() {
+            if record.live {
+                return Some(RuleTreeEntry {
+                    event: RuleTreeEvent {
+                        rule,
+                        parent: record.parent,
+                        child_count: record.nested_rule_count,
+                    },
+                    record,
+                });
+            }
+        }
+        None
+    }
+}
+
 /// Stylesheet-wide preorder events for live rules.
 pub struct RuleTreeEventIter<'comp, 'ast, R: Unpin> {
-    source: SemanticIterEnumerated<'comp, 'ast, RuleRecord<R>, RuleId<R>>,
+    entries: RuleTreeEntryIter<'comp, 'ast, R>,
 }
 
 impl<R: Unpin> Iterator for RuleTreeEventIter<'_, '_, R> {
     type Item = RuleTreeEvent<R>;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        for (rule, record) in self.source.by_ref() {
-            if record.live {
-                return Some(RuleTreeEvent {
-                    rule,
-                    parent: record.parent,
-                    child_count: record.nested_rule_count,
-                });
-            }
-        }
-        None
+        self.entries.next().map(RuleTreeEntry::event)
     }
 }
 
@@ -1157,6 +1211,15 @@ impl<'ast, R: Unpin, D: Unpin, K> StyleSheet<'ast, R, D, K> {
     #[inline]
     pub fn rule_tree_events(&self) -> RuleTreeEventIter<'_, 'ast, R> {
         RuleTreeEventIter {
+            entries: self.rule_tree_entries(),
+        }
+    }
+
+    /// Iterates every live rule once in lexical preorder while retaining the
+    /// record resolved by the underlying semantic iterator.
+    #[inline]
+    pub fn rule_tree_entries(&self) -> RuleTreeEntryIter<'_, 'ast, R> {
+        RuleTreeEntryIter {
             source: self.rules.iter_enumerated(),
         }
     }
