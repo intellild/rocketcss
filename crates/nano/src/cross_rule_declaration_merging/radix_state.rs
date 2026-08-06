@@ -13,12 +13,15 @@ use rocketcss_ast::{
 };
 use rocketcss_common::{
     Allocator, RadixIdRemap, RadixInsertResult,
+    bit_vec::BitVec,
     prelude::{HashMap, HashSet, Vec},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::VecDeque;
 
-use super::declaration_ir::{CompactPropertyKey, DeclarationIrStore, MovementDomain};
+use super::declaration_ir::{
+    CompactPropertyKey, DeclarationIrStore, IndexedDeclaration, MovementDomain,
+};
 use super::partial_selector::materialize_selector_union;
 
 type RuleEdge<'ast> = DirectRuleEdge<CssRule<'ast>>;
@@ -216,13 +219,13 @@ impl<'arena> DeclarationOverrideCandidateList<'arena> {
 #[derive(Debug)]
 struct MinifyScratch<'arena, 'ast> {
     history: Vec<'arena, DeclarationBlockId<'ast>>,
-    left_declarations: Vec<'arena, rocketcss_ast::DeclarationId>,
-    right_declarations: Vec<'arena, rocketcss_ast::DeclarationId>,
+    left_declarations: Vec<'arena, IndexedDeclaration>,
+    right_declarations: Vec<'arena, IndexedDeclaration>,
     left_residual: Vec<'arena, rocketcss_ast::DeclarationId>,
     right_residual: Vec<'arena, rocketcss_ast::DeclarationId>,
     common: Vec<'arena, CommonDeclaration>,
-    matched_right: HashSet<'arena, rocketcss_ast::DeclarationId>,
-    matched_left: HashSet<'arena, rocketcss_ast::DeclarationId>,
+    matched_right: BitVec<'arena>,
+    matched_left: BitVec<'arena>,
     declarations_to_remove: Vec<'arena, (DeclarationBlockId<'ast>, rocketcss_ast::DeclarationId)>,
     affected_blocks: HashSet<'arena, DeclarationBlockId<'ast>>,
     affected_rules: FxHashMap<RuleId<'ast>, AffectedRule<'ast>>,
@@ -251,8 +254,8 @@ impl<'arena, 'ast> MinifyScratch<'arena, 'ast> {
             left_residual: Vec::with_capacity_in(declaration_capacity, allocator),
             right_residual: Vec::with_capacity_in(declaration_capacity, allocator),
             common: Vec::with_capacity_in(declaration_capacity, allocator),
-            matched_right: HashSet::with_capacity_in(declaration_capacity, allocator),
-            matched_left: HashSet::with_capacity_in(declaration_capacity, allocator),
+            matched_right: BitVec::new(allocator),
+            matched_left: BitVec::new(allocator),
             declarations_to_remove: Vec::with_capacity_in(declaration_capacity, allocator),
             affected_blocks: HashSet::with_capacity_in(block_capacity, allocator),
             affected_rules: FxHashMap::with_capacity_and_hasher(rule_capacity, Default::default()),
@@ -676,12 +679,12 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             let Some(endpoints) = validate_s3(stylesheet, candidate) else {
                 continue;
             };
-            self.declaration_ir.live_declarations(
+            let left_slot_count = self.declaration_ir.live_declarations(
                 stylesheet,
                 candidate.left,
                 &mut self.scratch.left_declarations,
             )?;
-            self.declaration_ir.live_declarations(
+            let right_slot_count = self.declaration_ir.live_declarations(
                 stylesheet,
                 candidate.right,
                 &mut self.scratch.right_declarations,
@@ -692,11 +695,11 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 continue;
             }
 
-            self.scratch.matched_right.clear();
-            self.scratch.matched_left.clear();
+            self.scratch.matched_right.reset(right_slot_count);
+            self.scratch.matched_left.reset(left_slot_count);
             self.scratch.common.clear();
             for &left in &self.scratch.left_declarations {
-                let Some(left_ir) = self.declaration_ir.occurrence(left) else {
+                let Some(left_ir) = self.declaration_ir.occurrence(left.declaration) else {
                     continue;
                 };
                 let Some(property_key) = left_ir.property_key else {
@@ -721,43 +724,59 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     .property_candidates(candidate.right, property_key)
                 {
                     for indexed in indexed {
-                        let right = indexed.declaration;
-                        let right_order = indexed.order;
-                        if self.scratch.matched_right.contains(&right)
-                            || !self.scratch.right_declarations.contains(&right)
-                            || !declarations_have_equal_effect(stylesheet, left, right)
+                        let Some(right) = self
+                            .scratch
+                            .right_declarations
+                            .iter()
+                            .find(|right| {
+                                right.declaration == indexed.declaration
+                                    && right.order == indexed.order
+                            })
+                            .copied()
+                        else {
+                            continue;
+                        };
+                        if self.scratch.matched_right.is_set(right.order)
+                            || !declarations_have_equal_effect(
+                                stylesheet,
+                                left.declaration,
+                                right.declaration,
+                            )
                         {
                             continue;
                         }
-                        self.scratch.matched_right.insert(right);
-                        self.scratch.matched_left.insert(left);
+                        self.scratch.matched_right.set(right.order, true);
+                        self.scratch.matched_left.set(left.order, true);
                         self.scratch.common.push(CommonDeclaration {
-                            left,
-                            right,
-                            right_order,
+                            left: left.declaration,
+                            right: right.declaration,
+                            right_order: right.order,
                         });
                         matched = true;
                         break;
                     }
                 }
                 if !matched {
-                    for (right_order, &right) in self.scratch.right_declarations.iter().enumerate()
-                    {
-                        if self.scratch.matched_right.contains(&right)
+                    for &right in &self.scratch.right_declarations {
+                        if self.scratch.matched_right.is_set(right.order)
                             || self
                                 .declaration_ir
-                                .occurrence(right)
+                                .occurrence(right.declaration)
                                 .is_none_or(|right| right.property_key != Some(property_key))
-                            || !declarations_have_equal_effect(stylesheet, left, right)
+                            || !declarations_have_equal_effect(
+                                stylesheet,
+                                left.declaration,
+                                right.declaration,
+                            )
                         {
                             continue;
                         }
-                        self.scratch.matched_right.insert(right);
-                        self.scratch.matched_left.insert(left);
+                        self.scratch.matched_right.set(right.order, true);
+                        self.scratch.matched_left.set(left.order, true);
                         self.scratch.common.push(CommonDeclaration {
-                            left,
-                            right,
-                            right_order,
+                            left: left.declaration,
+                            right: right.declaration,
+                            right_order: right.order,
                         });
                         break;
                     }
@@ -770,13 +789,13 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             self.scratch.left_residual.clear();
             self.scratch.right_residual.clear();
             for &declaration in &self.scratch.left_declarations {
-                if !self.scratch.matched_left.contains(&declaration) {
-                    self.scratch.left_residual.push(declaration);
+                if !self.scratch.matched_left.is_set(declaration.order) {
+                    self.scratch.left_residual.push(declaration.declaration);
                 }
             }
             for &declaration in &self.scratch.right_declarations {
-                if !self.scratch.matched_right.contains(&declaration) {
-                    self.scratch.right_residual.push(declaration);
+                if !self.scratch.matched_right.is_set(declaration.order) {
+                    self.scratch.right_residual.push(declaration.declaration);
                 }
             }
             if !radix_partial_movement_is_safe(
@@ -1365,10 +1384,10 @@ fn declarations_have_equal_effect(
 fn has_opaque_domain_conflict(
     declaration_ir: &DeclarationIrStore<'_, '_>,
     domain: MovementDomain,
-    declarations: &[rocketcss_ast::DeclarationId],
+    declarations: &[IndexedDeclaration],
 ) -> bool {
     declarations.iter().any(|declaration| {
-        let Some(occurrence) = declaration_ir.occurrence(*declaration) else {
+        let Some(occurrence) = declaration_ir.occurrence(declaration.declaration) else {
             return false;
         };
         occurrence.property_key.is_none()
@@ -1756,6 +1775,112 @@ mod tests {
             S2Stats::default()
         );
         assert_eq!(stylesheet.validate_ast(), Ok(()));
+    }
+
+    #[test]
+    fn s3_uses_uncompressed_block_order_after_a_tombstone() {
+        rocketcss_common::GhostToken::scope(|mut token| {
+            let allocator = Allocator::new();
+            let options = ParserOptions::default();
+            let mut stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet("a{color:blue;width:1px}b{width:1px;height:2px}", options)
+                .unwrap();
+            let (left_block, left_append) = {
+                let position = stylesheet.declaration_block_positions().next().unwrap();
+                (position.block(), position.append_context())
+            };
+            let tombstone = stylesheet
+                .declaration_ids_in_block(left_block)
+                .unwrap()
+                .next()
+                .unwrap();
+            stylesheet
+                .replace_declaration_with_context(
+                    left_append,
+                    tombstone,
+                    CssDeclaration::Property(Declaration::Tombstone),
+                )
+                .unwrap();
+
+            let mut state = CrossRuleState::from_stylesheet(&mut stylesheet).unwrap();
+            assert_eq!(
+                state.run_s3(&mut stylesheet, true).unwrap(),
+                S3Stats {
+                    reused_left_commits: 1,
+                    allocated_shared_commits: 0,
+                    rejected_no_common: 0,
+                    rejected_unsafe_movement: 0,
+                    rejected_capacity: 0,
+                }
+            );
+
+            let actual = stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap();
+            let expected = Compiler::new(&allocator)
+                .parse("a,b{width:1px}b{height:2px}", &mut token, options)
+                .unwrap()
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap();
+            assert_eq!(actual, expected);
+            assert_eq!(stylesheet.validate_ast(), Ok(()));
+        });
+    }
+
+    #[test]
+    fn s3_property_index_and_linear_fallback_preserve_match_order() {
+        rocketcss_common::GhostToken::scope(|token| {
+            let allocator = Allocator::new();
+            let options = ParserOptions::default();
+            let source = "a{color:red;width:1px}b{width:1px;color:red;height:2px}";
+            let mut indexed_stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet(source, options)
+                .unwrap();
+            let mut fallback_stylesheet = Compiler::new(&allocator)
+                .parse_test_stylesheet(source, options)
+                .unwrap();
+            let mut indexed_state =
+                CrossRuleState::from_stylesheet(&mut indexed_stylesheet).unwrap();
+            let mut fallback_state =
+                CrossRuleState::from_stylesheet(&mut fallback_stylesheet).unwrap();
+            let fallback_right = fallback_state
+                .partial_merge_candidates
+                .pending
+                .front()
+                .unwrap()
+                .right;
+            fallback_state
+                .declaration_ir
+                .remove_property_index(fallback_right);
+
+            let indexed_stats = indexed_state.run_s3(&mut indexed_stylesheet, true).unwrap();
+            let fallback_stats = fallback_state
+                .run_s3(&mut fallback_stylesheet, true)
+                .unwrap();
+            assert_eq!(indexed_stats, fallback_stats);
+
+            let indexed_css = indexed_stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap();
+            let fallback_css = fallback_stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap();
+            assert_eq!(indexed_css, fallback_css);
+            assert_eq!(indexed_stylesheet.validate_ast(), Ok(()));
+            assert_eq!(fallback_stylesheet.validate_ast(), Ok(()));
+        });
     }
 
     #[test]

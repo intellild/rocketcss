@@ -492,18 +492,20 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
         &self,
         stylesheet: &rocketcss_ast::StyleSheet<'ast>,
         block: rocketcss_ast::CssDeclarationBlockId<'ast>,
-        output: &mut Vec<'arena, rocketcss_ast::DeclarationId>,
-    ) -> Result<(), rocketcss_ast::StyleSheetMutationError<'ast>> {
+        output: &mut Vec<'arena, IndexedDeclaration>,
+    ) -> Result<usize, rocketcss_ast::StyleSheetMutationError<'ast>> {
         output.clear();
-        for declaration in stylesheet.declaration_ids_in_block(block)? {
+        let declarations = stylesheet.declaration_ids_in_block(block)?;
+        let slot_count = declarations.len();
+        for (order, declaration) in declarations.enumerate() {
             if self
                 .occurrence(declaration)
                 .is_some_and(|occurrence| occurrence.live)
             {
-                output.push(declaration);
+                output.push(IndexedDeclaration { declaration, order });
             }
         }
-        Ok(())
+        Ok(slot_count)
     }
 
     pub(super) fn property_candidates(
@@ -515,6 +517,14 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
             .get(&block)
             .and_then(|index| index.by_property.get(&key))
             .map(AsRef::as_ref)
+    }
+
+    #[cfg(test)]
+    pub(super) fn remove_property_index(
+        &mut self,
+        block: rocketcss_ast::CssDeclarationBlockId<'ast>,
+    ) {
+        self.property_index.remove(&block);
     }
 
     pub(super) fn mark_dead(
