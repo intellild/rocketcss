@@ -79,8 +79,11 @@ fn sparse_radix_with_ids(
 ) -> (RadixIndexArena<'_, Payload>, Vec<RadixId<Payload>>) {
     let mut values = radix_with_values(allocator, len);
     let mut ids = Vec::with_capacity(len + sparse_insert_count(len));
-    for primary in 0..len {
-        let id = values.primary_id(primary).unwrap();
+    let primary_ids = values
+        .primary_iter_enumerated()
+        .map(|(id, _)| id)
+        .collect::<Vec<_>>();
+    for (primary, id) in primary_ids.into_iter().enumerate() {
         ids.push(id);
         if primary.is_multiple_of(SPARSE_INSERT_STRIDE) {
             ids.push(values.insert_sibling(id, SPARSE_SIBLING_KEY, inserted_payload(primary)));
@@ -363,9 +366,13 @@ mod random_get {
     fn radix_index_arena(bencher: Bencher<'_, '_>, len: usize) {
         let allocator = Allocator::new();
         let values = radix_with_values(&allocator, len);
+        let primary_ids = values
+            .primary_iter_enumerated()
+            .map(|(id, _)| id)
+            .collect::<Vec<_>>();
         let ids = random_indices(len)
             .into_iter()
-            .map(|index| values.primary_id(index).unwrap())
+            .map(|index| primary_ids[index])
             .collect::<Vec<_>>();
         bencher.counter(ItemsCount::new(ids.len())).bench_local(|| {
             let mut sum = 0_u64;
@@ -486,7 +493,11 @@ mod repeated_middle_insert_remove {
     fn radix_index_arena(bencher: Bencher<'_, '_>, len: usize) {
         let allocator = Allocator::new();
         let mut values = radix_with_values(&allocator, len);
-        let primary = values.primary_id(len / 2).unwrap();
+        let primary = values
+            .primary_iter_enumerated()
+            .nth(len / 2)
+            .map(|(id, _)| id)
+            .unwrap();
         bencher.counter(ItemsCount::new(1_usize)).bench_local(|| {
             let inserted = values.insert_sibling(
                 primary,

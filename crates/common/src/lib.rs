@@ -23,7 +23,9 @@ pub use btree_index_arena::BTreeIndexArena;
 pub use dense::{DenseCapacityError, DenseId, DenseIdGenerator, DenseMap, DenseStore};
 pub use ghost_cell::{GhostBox, GhostCell, GhostToken};
 pub use radix_index_arena::{
-    RadixId, RadixIdKey, RadixIdRemap, RadixIndexArena, RadixInsertResult, TypedRadixIndexArena,
+    DetachedRadixIds, DetachedRadixRangeIds, RadixBatchReservation, RadixId, RadixIdKey,
+    RadixIdRemap, RadixIds, RadixIndexArena, RadixInsertResult, RadixRange, SemanticIterEnumerated,
+    TypedRadixIndexArena,
 };
 pub use reference::Ref;
 pub use string_pool::StringPool;
