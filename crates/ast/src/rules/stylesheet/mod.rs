@@ -1,8 +1,8 @@
 //! Typed storage and topology for [`StyleSheet`].
 
 use rocketcss_common::{
-    Allocator, DenseId, DenseStore, RadixId, RadixIdKey, RadixSiblingSlotState,
-    TypedRadixIndexArena, define_dense_id,
+    Allocator, DenseId, DenseStore, RadixDirectRangeIterEnumerated, RadixId, RadixIdKey,
+    RadixRange, RadixRangeItem, RadixSiblingSlotState, TypedRadixIndexArena, define_dense_id,
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -294,6 +294,14 @@ pub struct RuleRecord<P> {
     declaration_block: Option<DeclarationBlockId<P>>,
     revision: u32,
     live: bool,
+    descendants: u32,
+}
+
+impl<P> RadixRangeItem for RuleRecord<P> {
+    #[inline]
+    fn descendants(&self) -> u32 {
+        self.descendants
+    }
 }
 
 impl<P> RuleRecord<P> {
@@ -356,6 +364,11 @@ impl<P> RuleRecord<P> {
     pub const fn is_live(&self) -> bool {
         self.live
     }
+
+    #[inline]
+    pub const fn descendants(&self) -> u32 {
+        self.descendants
+    }
 }
 
 /// Endpoints and ownership of one direct CSS rule list.
@@ -364,6 +377,7 @@ pub struct RuleList<P> {
     first: Option<RuleId<P>>,
     last: Option<RuleId<P>>,
     live_len: u32,
+    range: RadixRange<RuleRecord<P>>,
 }
 
 impl<P> Clone for RuleList<P> {
@@ -382,6 +396,7 @@ impl<P> std::fmt::Debug for RuleList<P> {
             .field("first", &self.first)
             .field("last", &self.last)
             .field("live_len", &self.live_len)
+            .field("range", &self.range)
             .finish()
     }
 }
@@ -393,6 +408,7 @@ impl<P> PartialEq for RuleList<P> {
             && self.first == other.first
             && self.last == other.last
             && self.live_len == other.live_len
+            && self.range == other.range
     }
 }
 
@@ -417,6 +433,11 @@ impl<P> RuleList<P> {
     #[inline]
     pub const fn live_len(self) -> u32 {
         self.live_len
+    }
+
+    #[inline]
+    pub const fn range(self) -> RadixRange<RuleRecord<P>> {
+        self.range
     }
 }
 
@@ -650,6 +671,14 @@ pub enum ValidationError<P> {
         actual: Option<RuleId<P>>,
     },
     InvalidSourceEndpoints,
+    InvalidRuleRange(RuleListId),
+    RootRuleRangeMismatch,
+    RuleRangeTopologyMismatch(RuleListId),
+    RuleDescendantsMismatch {
+        rule: RuleId<P>,
+        expected: u32,
+        actual: u32,
+    },
 }
 
 /// A stylesheet backed by source-ordered Radix storage.
@@ -685,6 +714,7 @@ pub struct StyleSheet<
     layer_context_ids: FxHashMap<LayerContextKey<R>, LayerContextId>,
     first_rule_in_source: Option<RuleId<R>>,
     last_rule_in_source: Option<RuleId<R>>,
+    rule_ranges_finalized: bool,
 }
 
 impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
@@ -702,6 +732,7 @@ impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
             first: None,
             last: None,
             live_len: 0,
+            range: RadixRange::empty(),
         });
         Self {
             allocator,
@@ -748,6 +779,7 @@ impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
             ),
             first_rule_in_source: None,
             last_rule_in_source: None,
+            rule_ranges_finalized: false,
         }
     }
 
@@ -1111,11 +1143,111 @@ impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
             .rule_lists
             .try_get(list)
             .ok_or(MutationError::<R>::UnknownRuleList(list))?;
+        let kind = if self.rule_ranges_finalized {
+            RuleListIterKind::Range(
+                self.rules
+                    .iter_direct_range_enumerated(list.range)
+                    .expect("a finalized rule-list range remains resolvable"),
+            )
+        } else {
+            RuleListIterKind::Topology {
+                rules: &self.rules,
+                next: list.first,
+            }
+        };
         Ok(RuleListIter {
-            rules: &self.rules,
-            next: list.first,
-            remaining: list.live_len,
+            kind,
+            remaining_live: list.live_len,
         })
+    }
+
+    /// Builds the preorder range projection after authored parsing completes.
+    ///
+    /// This deliberately runs once instead of updating every ancestor for each
+    /// parser append. Structural mutation keeps the finalized projection live.
+    #[doc(hidden)]
+    pub fn finalize_parsed_rule_ranges(&mut self) {
+        let root = self.stylesheet_root.root_rules;
+        self.finalize_rule_list_range(root);
+        self.rule_ranges_finalized = true;
+    }
+
+    fn finalize_rule_list_range(&mut self, list: RuleListId) -> RadixRange<RuleRecord<R>> {
+        let mut current = self
+            .rule_lists
+            .try_get(list)
+            .expect("a rule list being finalized remains resolvable")
+            .first;
+        let mut range = RadixRange::empty();
+        while let Some(id) = current {
+            let (child_list, next) = {
+                let rule = self
+                    .rules
+                    .get(id)
+                    .expect("a rule-list entry being finalized remains resolvable");
+                (rule.child_list, rule.next_sibling)
+            };
+            let child_range = child_list
+                .map(|children| self.finalize_rule_list_range(children))
+                .unwrap_or_else(RadixRange::empty);
+            self.rules
+                .get_mut(id)
+                .expect("a finalized rule remains resolvable")
+                .descendants = child_range.len();
+
+            let mut subtree = RadixRange::singleton(id);
+            subtree.extend(child_range);
+            range.extend(subtree);
+            current = next;
+        }
+        self.rule_lists
+            .try_get_mut(list)
+            .expect("a finalized rule list remains resolvable")
+            .range = range;
+        range
+    }
+
+    fn record_inserted_rule_span(
+        &mut self,
+        mut list: RuleListId,
+        source_anchor: Option<RuleId<R>>,
+        inserted: RuleId<R>,
+    ) {
+        loop {
+            let parent = {
+                let list_record = self.rule_lists.get_mut(list);
+                let range = list_record.range;
+                list_record.range = if range.is_empty() {
+                    RadixRange::singleton(inserted)
+                } else {
+                    RadixRange::new(
+                        range.start_id(),
+                        if source_anchor == Some(range.last_id()) {
+                            inserted
+                        } else {
+                            range.last_id()
+                        },
+                        range
+                            .len()
+                            .checked_add(1)
+                            .expect("rule range length exhausted"),
+                    )
+                };
+                list_record.parent
+            };
+            let Some(parent) = parent else {
+                break;
+            };
+            let parent_record = self
+                .rules
+                .get_mut(parent)
+                .expect("a range ancestor remains resolvable");
+            parent_record.descendants = parent_record
+                .descendants
+                .checked_add(1)
+                .expect("rule descendant span exhausted");
+            list = parent_record.parent_list;
+        }
     }
 
     /// Appends one authored rule to `list` in lexical parse order.
@@ -1126,6 +1258,7 @@ impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
         list: RuleListId,
         payload: R,
     ) -> Result<RuleId<R>, MutationError<R>> {
+        let ranges_finalized = self.rule_ranges_finalized;
         let (parent, previous_sibling) = self
             .rule_lists
             .try_get(list)
@@ -1147,6 +1280,7 @@ impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
             declaration_block: None,
             revision: 0,
             live: true,
+            descendants: 0,
         });
         if let Some(previous) = self.last_rule_in_source {
             self.rules
@@ -1167,6 +1301,9 @@ impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
         list_record.first.get_or_insert(id);
         list_record.last = Some(id);
         list_record.live_len += 1;
+        if ranges_finalized {
+            self.record_inserted_rule_span(list, self.rules[id].previous_in_source, id);
+        }
         Ok(id)
     }
 
@@ -1190,6 +1327,7 @@ impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
                 first: None,
                 last: None,
                 live_len: 0,
+                range: RadixRange::empty(),
             })
             .map_err(|_| MutationError::<R>::RuleListCapacityExhausted)?;
         self.rules
@@ -1424,29 +1562,49 @@ impl<'comp, D> Iterator for DeclarationOccurrenceIter<'comp, D> {
 
 impl<D> ExactSizeIterator for DeclarationOccurrenceIter<'_, D> {}
 
-/// Direct-sibling iterator backed only by the rule store and topology links.
+/// Direct-sibling iterator backed by the finalized range projection.
+///
+/// Manually assembled, not-yet-finalized ASTs retain a topology fallback so
+/// the low-level construction API remains usable outside the parser.
+enum RuleListIterKind<'comp, 'ast, R: Unpin> {
+    Range(RadixDirectRangeIterEnumerated<'comp, 'ast, RuleRecord<R>, RuleRecord<R>>),
+    Topology {
+        rules: &'comp RuleStore<'ast, R>,
+        next: Option<RuleId<R>>,
+    },
+}
+
 pub struct RuleListIter<'comp, 'ast, R: Unpin> {
-    rules: &'comp RuleStore<'ast, R>,
-    next: Option<RuleId<R>>,
-    remaining: u32,
+    kind: RuleListIterKind<'comp, 'ast, R>,
+    remaining_live: u32,
 }
 
 impl<'comp, 'ast, R: Unpin> Iterator for RuleListIter<'comp, 'ast, R> {
     type Item = (RuleId<R>, &'comp RuleRecord<R>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 {
+        if self.remaining_live == 0 {
             return None;
         }
-        let id = self.next?;
-        let rule = self.rules.get(id)?;
-        self.next = rule.next_sibling;
-        self.remaining -= 1;
-        Some((id, rule))
+        loop {
+            let (id, rule) = match &mut self.kind {
+                RuleListIterKind::Range(inner) => inner.next()?,
+                RuleListIterKind::Topology { rules, next } => {
+                    let id = (*next)?;
+                    let rule = rules.get(id)?;
+                    *next = rule.next_sibling;
+                    (id, rule)
+                }
+            };
+            if rule.live {
+                self.remaining_live -= 1;
+                return Some((id, rule));
+            }
+        }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.remaining as usize;
+        let remaining = self.remaining_live as usize;
         (remaining, Some(remaining))
     }
 }

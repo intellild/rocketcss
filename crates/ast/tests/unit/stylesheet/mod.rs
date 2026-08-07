@@ -104,6 +104,28 @@ fn validation_rejects_a_broken_mutual_link() {
 }
 
 #[test]
+fn validation_rejects_a_corrupt_descendant_span_before_direct_iteration() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<u8, (), ()>::new_in(&allocator);
+    let root = stylesheet.stylesheet_root().root_rules();
+    let parent = stylesheet.append_rule(root, 1).unwrap();
+    let children = stylesheet.create_child_list(parent).unwrap();
+    stylesheet.append_rule(children, 2).unwrap();
+    stylesheet.finalize_parsed_rule_ranges();
+
+    stylesheet.rule_mut(parent).unwrap().descendants = 2;
+
+    assert_eq!(
+        stylesheet.validate_ast(),
+        Err(ValidationError::<u8>::RuleDescendantsMismatch {
+            rule: parent,
+            expected: 1,
+            actual: 2,
+        })
+    );
+}
+
+#[test]
 fn child_list_is_owned_once() {
     let allocator = Allocator::new();
     let mut stylesheet = StyleSheet::<(), (), ()>::new_in(&allocator);
@@ -115,6 +137,126 @@ fn child_list_is_owned_once() {
         stylesheet.create_child_list(parent),
         Err(MutationError::<()>::ChildListAlreadyExists(parent))
     );
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
+fn finalized_rule_ranges_describe_nested_preorder() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<&str, (), ()>::new_in(&allocator);
+    let root = stylesheet.stylesheet_root().root_rules();
+    let a = stylesheet.append_rule(root, "a").unwrap();
+    let a_children = stylesheet.create_child_list(a).unwrap();
+    let a1 = stylesheet.append_rule(a_children, "a1").unwrap();
+    let a1_children = stylesheet.create_child_list(a1).unwrap();
+    let a11 = stylesheet.append_rule(a1_children, "a11").unwrap();
+    let a2 = stylesheet.append_rule(a_children, "a2").unwrap();
+    let empty_children = stylesheet.create_child_list(a2).unwrap();
+    let b = stylesheet.append_rule(root, "b").unwrap();
+
+    let topology_ids = stylesheet
+        .rules_in_list(a_children)
+        .unwrap()
+        .map(|(id, _)| id)
+        .collect::<std::vec::Vec<_>>();
+
+    stylesheet.finalize_parsed_rule_ranges();
+
+    assert_eq!(stylesheet.rule(a).unwrap().descendants(), 3);
+    assert_eq!(stylesheet.rule(a1).unwrap().descendants(), 1);
+    assert_eq!(stylesheet.rule_list(a1_children).unwrap().range().len(), 1);
+    assert_eq!(stylesheet.rule_list(a_children).unwrap().range().len(), 3);
+    assert!(
+        stylesheet
+            .rule_list(empty_children)
+            .unwrap()
+            .range()
+            .is_empty()
+    );
+    assert_eq!(stylesheet.rules_in_list(empty_children).unwrap().len(), 0);
+    let root_range = stylesheet.rule_list(root).unwrap().range();
+    assert_eq!(root_range.start_id(), a);
+    assert_eq!(root_range.last_id(), b);
+    assert_eq!(root_range.len(), 5);
+    assert_eq!(
+        stylesheet
+            .rules_in_list(a_children)
+            .unwrap()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        topology_ids
+    );
+    assert_eq!(
+        stylesheet
+            .rules_in_list(a1_children)
+            .unwrap()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [a11]
+    );
+
+    let a12 = stylesheet.insert_rule_after(a11, "a12").unwrap().id;
+    assert_eq!(stylesheet.rule(a1).unwrap().descendants(), 2);
+    assert_eq!(stylesheet.rule(a).unwrap().descendants(), 4);
+    assert_eq!(stylesheet.rule_list(a1_children).unwrap().range().len(), 2);
+    assert_eq!(stylesheet.rule_list(a_children).unwrap().range().len(), 4);
+    assert_eq!(stylesheet.rule_list(root).unwrap().range().len(), 6);
+    assert_eq!(
+        stylesheet
+            .rules_in_list(a1_children)
+            .unwrap()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [a11, a12]
+    );
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
+fn append_after_finalization_updates_the_range_projection() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<&str, (), ()>::new_in(&allocator);
+    let root = stylesheet.stylesheet_root().root_rules();
+    let parent = stylesheet.append_rule(root, "parent").unwrap();
+    let children = stylesheet.create_child_list(parent).unwrap();
+    stylesheet.finalize_parsed_rule_ranges();
+
+    let child = stylesheet.append_rule(children, "child").unwrap();
+
+    assert_eq!(stylesheet.rule(parent).unwrap().descendants(), 1);
+    assert_eq!(stylesheet.rule_list(children).unwrap().range().len(), 1);
+    let root_range = stylesheet.rule_list(root).unwrap().range();
+    assert_eq!(root_range.len(), 2);
+    assert_eq!(root_range.last_id(), child);
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
+fn mutation_preserves_physical_rule_ranges() {
+    let allocator = Allocator::new();
+    let mut stylesheet = StyleSheet::<u8, (), ()>::new_in(&allocator);
+    let root = stylesheet.stylesheet_root().root_rules();
+    let first = stylesheet.append_rule(root, 1).unwrap();
+    let last = stylesheet.append_rule(root, 2).unwrap();
+    stylesheet.finalize_parsed_rule_ranges();
+
+    let middle = stylesheet.insert_rule_after(first, 3).unwrap().id;
+    assert_eq!(stylesheet.rule_list(root).unwrap().range().len(), 3);
+    stylesheet.retire_rule(middle).unwrap();
+    assert_eq!(stylesheet.rule_list(root).unwrap().range().len(), 3);
+    assert_eq!(
+        stylesheet
+            .rules_in_list(root)
+            .unwrap()
+            .map(|(id, _)| id)
+            .collect::<std::vec::Vec<_>>(),
+        [first, last]
+    );
+
+    let new_last = stylesheet.insert_rule_after(last, 4).unwrap().id;
+    let root_range = stylesheet.rule_list(root).unwrap().range();
+    assert_eq!(root_range.len(), 4);
+    assert_eq!(root_range.last_id(), new_last);
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 

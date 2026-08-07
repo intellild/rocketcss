@@ -1251,6 +1251,7 @@ dependencies = [
  "hashbrown",
  "lightningcss",
  "mimalloc",
+ "rocketcss_ast",
  "rocketcss_codegen",
  "rocketcss_common",
  "rocketcss_nano",

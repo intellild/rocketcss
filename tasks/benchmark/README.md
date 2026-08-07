@@ -35,6 +35,13 @@ Run the code generator comparison with:
 cargo bench -p rocketcss_benchmark --bench codegen
 ```
 
+Compare finalized rule-list range traversal with the retained sibling topology
+for flat, deeply nested, and sparsely synthesized rule layouts with:
+
+```sh
+cargo bench -p rocketcss_benchmark --bench rule_list
+```
+
 Run the Bootstrap and Tailwind minifier comparison with:
 
 ```sh

@@ -10,6 +10,7 @@ divan             = { workspace = true }
 hashbrown         = { workspace = true }
 lightningcss      = { workspace = true }
 mimalloc          = { workspace = true }
+rocketcss_ast     = { workspace = true }
 rocketcss_codegen = { workspace = true }
 rocketcss_common  = { workspace = true }
 rocketcss_nano    = { workspace = true }
@@ -41,3 +42,7 @@ name    = "deduplicate"
 [[bench]]
 harness = false
 name    = "pipeline"
+
+[[bench]]
+harness = false
+name    = "rule_list"

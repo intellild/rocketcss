@@ -395,6 +395,30 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
 }
 
 #[test]
+fn error_recovery_finalizes_partial_rule_ranges() {
+    let allocator = Allocator::new();
+    let stylesheet = Compiler::new(&allocator)
+        .parse_stylesheet(
+            "@media screen{a{broken value;color:red}}b{}",
+            ParserOptions {
+                error_recovery: true,
+                ..ParserOptions::default()
+            },
+        )
+        .unwrap();
+    let root = stylesheet.stylesheet_root().root_rules();
+    let root_range = stylesheet.rule_list(root).unwrap().range();
+    let mut root_rules = stylesheet.rules_in_list(root).unwrap();
+    let media = root_rules.next().unwrap().0;
+    let following = root_rules.next().unwrap().0;
+
+    assert_eq!(root_range.len(), 3);
+    assert_eq!(root_range.last_id(), following);
+    assert_eq!(stylesheet.rule(media).unwrap().descendants(), 1);
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
+}
+
+#[test]
 fn rebalanced_local_gap_preserves_topology_and_effective_key_seeds() {
     let allocator = Allocator::new();
     let mut stylesheet = Compiler::new(&allocator)
@@ -446,6 +470,14 @@ fn rebalanced_local_gap_preserves_topology_and_effective_key_seeds() {
         CssHistorySegment::Isolated(tracked)
     );
     assert!(stylesheet.rule(tracked).is_some());
+    let source_ids = stylesheet
+        .rules_in_source_order()
+        .map(|(id, _)| id)
+        .collect::<std::vec::Vec<_>>();
+    let root_range = stylesheet.rule_list(root).unwrap().range();
+    assert_eq!(root_range.start_id(), source_ids[0]);
+    assert_eq!(root_range.last_id(), *source_ids.last().unwrap());
+    assert_eq!(root_range.len() as usize, source_ids.len());
     assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 

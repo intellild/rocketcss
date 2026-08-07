@@ -75,6 +75,7 @@ impl<'ast> Compiler<'ast> {
             0,
         )
         .map_err(|error| into_error(error, options.filename))?;
+        stylesheet.finalize_parsed_rule_ranges();
         Ok(stylesheet)
     }
 }

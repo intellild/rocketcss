@@ -142,6 +142,94 @@ impl<R: Unpin, D, K> StyleSheet<'_, R, D, K> {
             }
         }
 
+        if self.rule_ranges_finalized {
+            let expected_root_range = match (source_ids.first(), source_ids.last()) {
+                (Some(&start), Some(&last)) => RadixRange::new(
+                    start,
+                    last,
+                    u32::try_from(source_ids.len())
+                        .expect("a Radix arena has at most u32::MAX IDs"),
+                ),
+                (None, None) => RadixRange::empty(),
+                _ => unreachable!("source endpoints are either both present or both absent"),
+            };
+            if root.range != expected_root_range {
+                return Err(ValidationError::<R>::RootRuleRangeMismatch);
+            }
+
+            for (rule_id, rule) in self.rules.iter_enumerated() {
+                let expected = rule
+                    .child_list
+                    .map(|list| {
+                        self.rule_lists
+                            .try_get(list)
+                            .map(|list| list.range.len())
+                            .ok_or(ValidationError::<R>::MissingOwnedChildList {
+                                rule: rule_id,
+                                list,
+                            })
+                    })
+                    .transpose()?
+                    .unwrap_or(0);
+                if rule.descendants != expected {
+                    return Err(ValidationError::<R>::RuleDescendantsMismatch {
+                        rule: rule_id,
+                        expected,
+                        actual: rule.descendants,
+                    });
+                }
+            }
+
+            for (list_id, list) in self.rule_lists.iter_enumerated() {
+                let physical = self
+                    .rules
+                    .iter_range_enumerated(list.range)
+                    .ok_or(ValidationError::<R>::InvalidRuleRange(list_id))?
+                    .collect::<std::vec::Vec<_>>();
+                let mut direct = std::vec::Vec::new();
+                let mut offset = 0_usize;
+                while offset < physical.len() {
+                    let (id, rule) = physical[offset];
+                    direct.push((id, rule));
+                    let span = 1_usize
+                        .checked_add(rule.descendants as usize)
+                        .ok_or(ValidationError::<R>::RuleRangeTopologyMismatch(list_id))?;
+                    offset = offset
+                        .checked_add(span)
+                        .filter(|&next| next <= physical.len())
+                        .ok_or(ValidationError::<R>::RuleRangeTopologyMismatch(list_id))?;
+                }
+
+                let live_direct_ids = direct
+                    .iter()
+                    .filter_map(|(id, rule)| rule.live.then_some(*id))
+                    .collect::<std::vec::Vec<_>>();
+                let mut sibling_ids = std::vec::Vec::with_capacity(list.live_len as usize);
+                let mut current = list.first;
+                while let Some(id) = current {
+                    sibling_ids.push(id);
+                    current = self
+                        .rules
+                        .get(id)
+                        .expect("the sibling topology was validated above")
+                        .next_sibling;
+                }
+                if live_direct_ids != sibling_ids {
+                    return Err(ValidationError::<R>::RuleRangeTopologyMismatch(list_id));
+                }
+
+                let iterated_ids = self
+                    .rules
+                    .iter_direct_range_enumerated(list.range)
+                    .expect("the range boundary and descendant spans were validated above")
+                    .filter_map(|(id, rule)| rule.live.then_some(id))
+                    .collect::<std::vec::Vec<_>>();
+                if iterated_ids != sibling_ids {
+                    return Err(ValidationError::<R>::RuleRangeTopologyMismatch(list_id));
+                }
+            }
+        }
+
         for (rule_id, rule) in self.rules.iter_enumerated() {
             if rule.live && !visited.contains(&rule_id) {
                 return Err(ValidationError::<R>::LiveRuleIsNotInOneList(rule_id));

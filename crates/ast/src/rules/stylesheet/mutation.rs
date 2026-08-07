@@ -41,6 +41,7 @@ where
             declaration_block: None,
             revision: 0,
             live: true,
+            descendants: 0,
         };
         let result = match stylesheet
             .rules
@@ -108,6 +109,7 @@ where
         } else {
             stylesheet.last_rule_in_source = Some(result.id);
         }
+        stylesheet.record_inserted_rule_span(list, Some(source_anchor), result.id);
         Ok(result)
     }
 }
@@ -222,6 +224,9 @@ where
         &mut self,
         after: RuleId<R>,
     ) -> Result<RuleListEditor<'_, 'ast, R, D, K>, MutationError<R>> {
+        if !self.rule_ranges_finalized {
+            self.finalize_parsed_rule_ranges();
+        }
         let after_record = self
             .rules
             .get(after)
@@ -295,6 +300,13 @@ where
             list.parent = list.parent.map(|id| remap_rule_id(id, remaps));
             list.first = list.first.map(|id| remap_rule_id(id, remaps));
             list.last = list.last.map(|id| remap_rule_id(id, remaps));
+            if !list.range.is_empty() {
+                list.range = RadixRange::new(
+                    remap_rule_id(list.range.start_id(), remaps),
+                    remap_rule_id(list.range.last_id(), remaps),
+                    list.range.len(),
+                );
+            }
         }
 
         let rule_ids = self
@@ -662,6 +674,9 @@ impl<R: Unpin, D, K> StyleSheet<'_, R, D, K> {
     /// declaration block is retired in the same transaction, while its range
     /// continues to own the corresponding source-tape occurrences.
     pub fn retire_rule(&mut self, id: RuleId<R>) -> Result<RetiredRule<R>, MutationError<R>> {
+        if !self.rule_ranges_finalized {
+            self.finalize_parsed_rule_ranges();
+        }
         let rule = self
             .rules
             .get(id)
