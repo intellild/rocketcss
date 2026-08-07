@@ -2,9 +2,10 @@
 
 pub use crate::{
     Allocator, Atom, BTreeIndexArena, DenseId, DenseIdGenerator, DenseMap, DenseStore,
-    RadixCapacityError, RadixId, RadixIdKey, RadixIndexArena, RadixInsertError, RadixRange,
-    RadixRangePushError, RadixSiblingEntry, RadixSiblingRangeEntry, RadixSiblingSlotState,
-    RadixVacantEntry, StringPool, TypedRadixIndexArena,
+    RadixCapacityError, RadixDirectRangeIter, RadixDirectRangeIterEnumerated, RadixId, RadixIdKey,
+    RadixIndexArena, RadixInsertError, RadixRange, RadixRangeItem, RadixRangePushError,
+    RadixSiblingEntry, RadixSiblingRangeEntry, RadixSiblingSlotState, RadixVacantEntry, StringPool,
+    TypedRadixIndexArena,
     bit_vec::BitVec,
     boxed::Box,
     ghost_cell::{GhostBox, GhostCell, GhostToken},

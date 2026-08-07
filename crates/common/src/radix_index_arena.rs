@@ -191,6 +191,13 @@ pub struct RadixRange<T> {
     len: u32,
 }
 
+/// Describes the contiguous preorder subtree following one range item.
+pub trait RadixRangeItem {
+    /// Returns the number of contiguous items after this item that belong to
+    /// its subtree.
+    fn descendants(&self) -> u32;
+}
+
 impl<T> Clone for RadixRange<T> {
     #[inline]
     fn clone(&self) -> Self {
@@ -1530,6 +1537,37 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         Some(RadixRangeIterEnumerated { kind })
     }
 
+    /// Iterates only the direct items in one preorder semantic range.
+    ///
+    /// Descendant spans are skipped by the range cursor without resolving or
+    /// visiting each descendant. Unlike [`iter_range`](Self::iter_range), this
+    /// iterator does not pre-scan sibling ranges to validate their endpoint.
+    pub fn iter_direct_range(
+        &self,
+        range: RadixRange<M>,
+    ) -> Option<RadixDirectRangeIter<'_, 'arena, T, M>>
+    where
+        T: RadixRangeItem,
+    {
+        RadixDirectRangeIter::from_range(self, range)
+    }
+
+    /// Iterates typed IDs and direct items in one preorder semantic range.
+    ///
+    /// This has the same descendant-aware and no-pre-scan behavior as
+    /// [`iter_direct_range`](Self::iter_direct_range).
+    pub fn iter_direct_range_enumerated(
+        &self,
+        range: RadixRange<M>,
+    ) -> Option<RadixDirectRangeIterEnumerated<'_, 'arena, T, M>>
+    where
+        T: RadixRangeItem,
+    {
+        Some(RadixDirectRangeIterEnumerated {
+            inner: RadixDirectRangeIter::from_range(self, range)?,
+        })
+    }
+
     /// Mutably visits one valid semantic range without materializing its IDs.
     pub fn for_each_in_range_mut(
         &mut self,
@@ -1613,10 +1651,12 @@ impl<I: RadixIdKey> DetachedRadixRangeIds<I> {
 }
 
 /// Range-local cursor initialized directly from a [`RadixRange`]'s known
-/// first ID. Unlike whole-arena detached traversal, it needs neither the
-/// sorted sibling-group sidecar nor a binary search to resume at that ID.
+/// first ID. It locates the next sibling group once and advances from there;
+/// it never scans from the beginning of the range to resume at an ID.
 struct DetachedRadixRangeCursor {
     current: RadixRangeIdSegment,
+    next_group: usize,
+    last_id: Option<u32>,
 }
 
 enum RadixRangeIdSegment {
@@ -1639,6 +1679,8 @@ impl DetachedRadixRangeCursor {
         if range.is_empty() {
             return Some(Self {
                 current: RadixRangeIdSegment::Done,
+                next_group: 0,
+                last_id: None,
             });
         }
         let start_id = range.start_id();
@@ -1662,10 +1704,16 @@ impl DetachedRadixRangeCursor {
         id: I,
     ) -> Option<Self> {
         arena.get(id)?;
-        let current = if id.is_primary() {
-            RadixRangeIdSegment::Primary {
-                next: id.primary_index(),
-            }
+        let group_position = arena
+            .sibling_primary_indices
+            .partition_point(|&primary| (primary as usize) < id.primary_index());
+        let (current, next_group) = if id.is_primary() {
+            (
+                RadixRangeIdSegment::Primary {
+                    next: id.primary_index(),
+                },
+                group_position,
+            )
         } else {
             let primary_index = id.primary_index();
             let tree_index = arena.sibling_group_index(primary_index)?;
@@ -1673,13 +1721,20 @@ impl DetachedRadixRangeCursor {
                 arena.sibling_trees.get(tree_index)?,
                 id.sibling_key(),
             )?;
-            RadixRangeIdSegment::Siblings {
-                primary_index,
-                tree_index,
-                cursor,
-            }
+            (
+                RadixRangeIdSegment::Siblings {
+                    primary_index,
+                    tree_index,
+                    cursor,
+                },
+                group_position + 1,
+            )
         };
-        Some(Self { current })
+        Some(Self {
+            current,
+            next_group,
+            last_id: None,
+        })
     }
 
     #[inline]
@@ -1694,16 +1749,26 @@ impl DetachedRadixRangeCursor {
                     arena.primary.get(primary_index)?;
                     let id = I::from_primary_index(primary_index);
                     *next += 1;
-                    if !id.is_overflow()
-                        && let Some(tree_index) = arena.sibling_group_index(primary_index)
-                        && let Some(cursor) =
+                    self.last_id = Some(id.get());
+                    let has_sibling_group = !id.is_overflow()
+                        && arena
+                            .sibling_primary_indices
+                            .get(self.next_group)
+                            .is_some_and(|&primary| primary as usize == primary_index);
+                    if has_sibling_group {
+                        let tree_index = arena
+                            .sibling_group_index(primary_index)
+                            .expect("a traversal sibling primary has a stable tree index");
+                        self.next_group += 1;
+                        if let Some(cursor) =
                             RadixTreeKeyCursor::at_start(&arena.sibling_trees[tree_index])
-                    {
-                        self.current = RadixRangeIdSegment::Siblings {
-                            primary_index,
-                            tree_index,
-                            cursor,
-                        };
+                        {
+                            self.current = RadixRangeIdSegment::Siblings {
+                                primary_index,
+                                tree_index,
+                                cursor,
+                            };
+                        }
                     }
                     return Some(id);
                 }
@@ -1713,7 +1778,9 @@ impl DetachedRadixRangeCursor {
                     cursor,
                 } => {
                     if let Some(key) = cursor.next_key(&arena.sibling_trees[*tree_index]) {
-                        return Some(I::from_parts(*primary_index, key));
+                        let id = I::from_parts(*primary_index, key);
+                        self.last_id = Some(id.get());
+                        return Some(id);
                     }
                     let next = *primary_index + 1;
                     self.current = RadixRangeIdSegment::Primary { next };
@@ -1721,6 +1788,82 @@ impl DetachedRadixRangeCursor {
                 RadixRangeIdSegment::Done => return None,
             }
         }
+    }
+
+    /// Consumes up to `count` IDs using segment-level arithmetic. Returns
+    /// whether the complete count was available.
+    fn advance_by<T: Unpin, I: RadixIdKey>(
+        &mut self,
+        arena: &TypedRadixIndexArena<'_, T, I>,
+        mut count: u32,
+    ) -> bool {
+        while count != 0 {
+            match &mut self.current {
+                RadixRangeIdSegment::Primary { next } => {
+                    if arena.primary.get(*next).is_none() {
+                        self.current = RadixRangeIdSegment::Done;
+                        return false;
+                    }
+                    let group_primary = arena
+                        .sibling_primary_indices
+                        .get(self.next_group)
+                        .map(|&primary| primary as usize);
+                    let end = group_primary
+                        .map_or(arena.primary.len(), |primary| primary + 1)
+                        .min(arena.primary.len());
+                    let available = end.saturating_sub(*next);
+                    let take = available.min(count as usize);
+                    if take != 0 {
+                        let last = *next + take - 1;
+                        self.last_id = Some(I::from_primary_index(last).get());
+                        *next += take;
+                        count -= take as u32;
+                    }
+                    if *next != end {
+                        continue;
+                    }
+
+                    if group_primary.is_some_and(|primary| primary + 1 == end) {
+                        let primary_index = end - 1;
+                        let tree_index = arena
+                            .sibling_group_index(primary_index)
+                            .expect("a traversal sibling primary has a stable tree index");
+                        self.next_group += 1;
+                        if let Some(cursor) =
+                            RadixTreeKeyCursor::at_start(&arena.sibling_trees[tree_index])
+                        {
+                            self.current = RadixRangeIdSegment::Siblings {
+                                primary_index,
+                                tree_index,
+                                cursor,
+                            };
+                        } else {
+                            self.current = RadixRangeIdSegment::Primary { next: end };
+                        }
+                    } else {
+                        self.current = RadixRangeIdSegment::Done;
+                    }
+                }
+                RadixRangeIdSegment::Siblings {
+                    primary_index,
+                    tree_index,
+                    cursor,
+                } => {
+                    let (skipped, last_key) =
+                        cursor.advance_by(&arena.sibling_trees[*tree_index], count);
+                    if let Some(last_key) = last_key {
+                        self.last_id = Some(I::from_parts(*primary_index, last_key).get());
+                    }
+                    count -= skipped;
+                    if count != 0 {
+                        let next = *primary_index + 1;
+                        self.current = RadixRangeIdSegment::Primary { next };
+                    }
+                }
+                RadixRangeIdSegment::Done => return false,
+            }
+        }
+        true
     }
 }
 
@@ -1904,6 +2047,70 @@ impl RadixTreeKeyCursor {
                 .map_or(0, |leaf| leaf.occupied & low_mask);
         }
     }
+
+    /// Consumes sibling keys with one bitmap operation per crossed radix
+    /// branch instead of one operation per live sibling.
+    fn advance_by<T>(&mut self, tree: &RadixTree<'_, T>, mut count: u32) -> (u32, Option<u16>) {
+        let Some(root) = tree.root.as_deref() else {
+            return (0, None);
+        };
+        let requested = count;
+        let mut last_key = None;
+        while count != 0 {
+            if self.direct_pending {
+                self.direct_pending = false;
+                last_key = Some((self.branch << RADIX_BITS) as u16);
+                count -= 1;
+                continue;
+            }
+
+            let slots = self.slots.count_ones();
+            if slots != 0 {
+                if count >= slots {
+                    let low = u32::BITS - 1 - self.slots.leading_zeros();
+                    last_key = Some(((self.branch << RADIX_BITS) | low as usize) as u16);
+                    self.slots = 0;
+                    count -= slots;
+                    continue;
+                }
+
+                let low = nth_set_bit(self.slots, count - 1);
+                let after = u32::MAX.checked_shl(low + 1).unwrap_or(0);
+                self.slots &= after;
+                last_key = Some(((self.branch << RADIX_BITS) | low as usize) as u16);
+                count = 0;
+                continue;
+            }
+
+            let branch = self.branches.trailing_zeros() as usize;
+            if branch == u32::BITS as usize {
+                break;
+            }
+            self.branches &= self.branches - 1;
+            self.branch = branch;
+            let first_low = self.first_low.take().unwrap_or(0);
+            let branch_bit = 1_u32 << branch;
+            self.direct_pending = first_low == 0 && root.direct_occupied & branch_bit != 0;
+            let low_mask = if first_low <= 1 {
+                !1_u32
+            } else {
+                u32::MAX << first_low
+            };
+            self.slots = root.leaves[branch]
+                .as_deref()
+                .map_or(0, |leaf| leaf.occupied & low_mask);
+        }
+        (requested - count, last_key)
+    }
+}
+
+#[inline]
+fn nth_set_bit(mut bits: u32, mut nth: u32) -> u32 {
+    while nth != 0 {
+        bits &= bits - 1;
+        nth -= 1;
+    }
+    bits.trailing_zeros()
 }
 
 /// Iterator over IDs in one arena or [`RadixRange`].
@@ -2056,6 +2263,175 @@ impl<'tree, T: Unpin, M> Iterator for RadixRangeIterEnumerated<'tree, '_, T, M> 
 
 impl<T: Unpin, M> ExactSizeIterator for RadixRangeIterEnumerated<'_, '_, T, M> {}
 impl<T: Unpin, M> std::iter::FusedIterator for RadixRangeIterEnumerated<'_, '_, T, M> {}
+
+/// Iterator over direct values in a preorder [`RadixRange`].
+pub struct RadixDirectRangeIter<'tree, 'arena, T: Unpin, M> {
+    arena: &'tree TypedRadixIndexArena<'arena, T, RadixId<M>>,
+    cursor: DetachedRadixRangeCursor,
+    current: Option<RadixId<M>>,
+    next: Option<RadixId<M>>,
+    remaining_span: u32,
+    expected_last: Option<RadixId<M>>,
+}
+
+impl<'tree, 'arena, T: Unpin + RadixRangeItem, M> RadixDirectRangeIter<'tree, 'arena, T, M> {
+    fn from_range(
+        arena: &'tree TypedRadixIndexArena<'arena, T, RadixId<M>>,
+        range: RadixRange<M>,
+    ) -> Option<Self> {
+        if range.is_empty() {
+            return Some(Self {
+                arena,
+                cursor: DetachedRadixRangeCursor {
+                    current: RadixRangeIdSegment::Done,
+                    next_group: 0,
+                    last_id: None,
+                },
+                current: None,
+                next: None,
+                remaining_span: 0,
+                expected_last: None,
+            });
+        }
+
+        let mut cursor = DetachedRadixRangeCursor::at_id(arena, range.start_id())?;
+        let current = cursor.advance(arena)?;
+        let mut state = Self {
+            arena,
+            cursor,
+            current: Some(current),
+            next: None,
+            remaining_span: range.len() - 1,
+            expected_last: Some(range.last_id()),
+        };
+        state.prepare_next();
+        Some(state)
+    }
+
+    fn prepare_next(&mut self) {
+        let Some(current) = self.current else {
+            return;
+        };
+        let descendants = self
+            .arena
+            .get(current)
+            .expect("a direct-range cursor ID remains valid")
+            .descendants();
+        if descendants > self.remaining_span {
+            let available = self.remaining_span;
+            let advanced = self.cursor.advance_by(self.arena, available);
+            self.remaining_span = 0;
+            self.next = None;
+            self.check_endpoint(advanced);
+            debug_assert!(
+                false,
+                "RadixRangeItem descendant span exceeds its containing RadixRange"
+            );
+            return;
+        }
+
+        if descendants != 0 {
+            let advanced = self.cursor.advance_by(self.arena, descendants);
+            self.remaining_span -= descendants;
+            if !advanced {
+                self.remaining_span = 0;
+                self.next = None;
+                debug_assert!(advanced, "RadixRange ended before its descendant span");
+                return;
+            }
+        }
+
+        if self.remaining_span == 0 {
+            self.next = None;
+            self.check_endpoint(true);
+            return;
+        }
+
+        self.next = self.cursor.advance(self.arena);
+        self.remaining_span -= u32::from(self.next.is_some());
+        if self.next.is_none() {
+            self.remaining_span = 0;
+            debug_assert!(
+                self.next.is_some(),
+                "RadixRange ended before its declared span"
+            );
+        }
+    }
+
+    #[inline]
+    fn check_endpoint(&self, advanced: bool) {
+        debug_assert!(advanced, "RadixRange ended before its declared span");
+        debug_assert_eq!(
+            self.cursor.last_id,
+            self.expected_last.map(RadixId::get),
+            "RadixRange endpoint does not match its declared span"
+        );
+    }
+
+    fn next_id(&mut self) -> Option<RadixId<M>> {
+        let current = self.current?;
+        self.current = self.next.take();
+        if self.current.is_some() {
+            self.prepare_next();
+        }
+        Some(current)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let current = usize::from(self.current.is_some());
+        let upper = current + usize::from(self.next.is_some()) + self.remaining_span as usize;
+        (current, Some(upper))
+    }
+}
+
+impl<'tree, T: Unpin + RadixRangeItem, M> Iterator for RadixDirectRangeIter<'tree, '_, T, M> {
+    type Item = &'tree T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = self.next_id()?;
+        Some(
+            self.arena
+                .get(id)
+                .expect("a direct-range cursor ID remains valid"),
+        )
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        RadixDirectRangeIter::size_hint(self)
+    }
+}
+
+impl<T: Unpin + RadixRangeItem, M> std::iter::FusedIterator for RadixDirectRangeIter<'_, '_, T, M> {}
+
+/// Iterator over typed IDs and direct values in a preorder [`RadixRange`].
+pub struct RadixDirectRangeIterEnumerated<'tree, 'arena, T: Unpin, M> {
+    inner: RadixDirectRangeIter<'tree, 'arena, T, M>,
+}
+
+impl<'tree, T: Unpin + RadixRangeItem, M> Iterator
+    for RadixDirectRangeIterEnumerated<'tree, '_, T, M>
+{
+    type Item = (RadixId<M>, &'tree T);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = self.inner.next_id()?;
+        let value = self
+            .inner
+            .arena
+            .get(id)
+            .expect("a direct-range cursor ID remains valid");
+        Some((id, value))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.inner.size_hint()
+    }
+}
+
+impl<T: Unpin + RadixRangeItem, M> std::iter::FusedIterator
+    for RadixDirectRangeIterEnumerated<'_, '_, T, M>
+{
+}
 
 impl<T: Unpin, I: RadixIdKey> Index<I> for TypedRadixIndexArena<'_, T, I> {
     type Output = T;

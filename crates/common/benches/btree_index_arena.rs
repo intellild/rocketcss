@@ -2,16 +2,32 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 use divan::{Bencher, black_box, counter::ItemsCount};
-use rocketcss_common::{Allocator, BTreeIndexArena, RadixId, RadixIndexArena};
+use rocketcss_common::{
+    Allocator, BTreeIndexArena, RadixId, RadixIndexArena, RadixRange, RadixRangeItem,
+};
 use std::num::NonZeroU64;
 
 const SIZES: &[usize] = &[256, 4_096, 65_536];
 const RANDOM_ACCESS_COUNT: usize = 4_096;
 const SPARSE_INSERT_STRIDE: usize = 256;
 const SPARSE_SIBLING_KEY: u16 = 512;
+const DIRECT_RANGE_SIZES: &[usize] = &[1_024, 4_096, 16_384];
 
 type Payload = NonZeroU64;
 type LargePayload = [u64; 32];
+
+#[derive(Debug)]
+struct FlatNode {
+    descendants: u32,
+    checksum: u64,
+}
+
+impl RadixRangeItem for FlatNode {
+    #[inline]
+    fn descendants(&self) -> u32 {
+        self.descendants
+    }
+}
 
 fn main() {
     divan::main();
@@ -128,6 +144,129 @@ fn random_indices(len: usize) -> Vec<usize> {
             state as usize % len
         })
         .collect()
+}
+
+fn direct_range_arena(
+    allocator: &Allocator,
+    descendants: impl Fn(usize) -> u32,
+    len: usize,
+) -> (RadixIndexArena<'_, FlatNode>, RadixRange<FlatNode>) {
+    let mut values = RadixIndexArena::with_capacity_in(len, allocator);
+    let mut endpoints = None;
+    for index in 0..len {
+        let id = values.push_primary(FlatNode {
+            descendants: descendants(index),
+            checksum: index as u64,
+        });
+        endpoints = Some((endpoints.map_or(id, |(first, _)| first), id));
+    }
+    let (first, last) = endpoints.unwrap();
+    (values, RadixRange::new(first, last, len as u32))
+}
+
+fn direct_checksum(values: &RadixIndexArena<'_, FlatNode>, range: RadixRange<FlatNode>) -> u64 {
+    values
+        .iter_direct_range_enumerated(range)
+        .unwrap()
+        .fold(0_u64, |checksum, (id, node)| {
+            checksum.rotate_left(7) ^ u64::from(id.get()) ^ node.checksum
+        })
+}
+
+mod direct_range_iteration {
+    use super::*;
+
+    #[divan::bench(args = DIRECT_RANGE_SIZES)]
+    fn flat(bencher: Bencher<'_, '_>, len: usize) {
+        let allocator = Allocator::new();
+        let (values, range) = direct_range_arena(&allocator, |_| 0, len);
+        bencher
+            .counter(ItemsCount::new(len))
+            .bench_local(|| black_box(direct_checksum(black_box(&values), black_box(range))));
+    }
+
+    #[divan::bench(args = DIRECT_RANGE_SIZES)]
+    fn wide_tree(bencher: Bencher<'_, '_>, len: usize) {
+        const DIRECT_CHILDREN: usize = 16;
+        let subtree_len = len / DIRECT_CHILDREN;
+        let allocator = Allocator::new();
+        let (values, range) = direct_range_arena(
+            &allocator,
+            |index| {
+                if index.is_multiple_of(subtree_len) {
+                    (subtree_len - 1) as u32
+                } else {
+                    0
+                }
+            },
+            len,
+        );
+        bencher
+            .counter(ItemsCount::new(len))
+            .bench_local(|| black_box(direct_checksum(black_box(&values), black_box(range))));
+    }
+
+    #[divan::bench(args = DIRECT_RANGE_SIZES)]
+    fn deep_chain(bencher: Bencher<'_, '_>, len: usize) {
+        let allocator = Allocator::new();
+        let (values, range) = direct_range_arena(&allocator, |index| (len - index - 1) as u32, len);
+        bencher
+            .counter(ItemsCount::new(len))
+            .bench_local(|| black_box(direct_checksum(black_box(&values), black_box(range))));
+    }
+
+    #[divan::bench(args = DIRECT_RANGE_SIZES)]
+    fn primary_with_sparse_radix_siblings(bencher: Bencher<'_, '_>, len: usize) {
+        let allocator = Allocator::new();
+        let mut values = RadixIndexArena::with_capacity_in(len, &allocator);
+        let mut first = None;
+        let mut last = None;
+        for index in 0..len {
+            let id = values.push_primary(FlatNode {
+                descendants: 0,
+                checksum: index as u64,
+            });
+            first.get_or_insert(id);
+            last = Some(id);
+            if index.is_multiple_of(SPARSE_INSERT_STRIDE) {
+                values
+                    .sibling_entry(id)
+                    .unwrap()
+                    .try_insert(
+                        SPARSE_SIBLING_KEY,
+                        FlatNode {
+                            descendants: 0,
+                            checksum: !(index as u64),
+                        },
+                    )
+                    .unwrap();
+            }
+        }
+        let range = RadixRange::new(first.unwrap(), last.unwrap(), values.len() as u32);
+        bencher
+            .counter(ItemsCount::new(values.len()))
+            .bench_local(|| black_box(direct_checksum(black_box(&values), black_box(range))));
+    }
+
+    #[divan::bench(args = DIRECT_RANGE_SIZES)]
+    fn adjacent_lookahead(bencher: Bencher<'_, '_>, len: usize) {
+        let allocator = Allocator::new();
+        let (values, range) = direct_range_arena(&allocator, |_| 0, len);
+        bencher.counter(ItemsCount::new(len)).bench_local(|| {
+            let mut previous = 0_u32;
+            let mut checksum = 0_u64;
+            for (id, node) in black_box(&values)
+                .iter_direct_range_enumerated(black_box(range))
+                .unwrap()
+            {
+                checksum = checksum
+                    .rotate_left(7)
+                    .wrapping_add(u64::from(previous ^ id.get()) ^ node.checksum);
+                previous = id.get();
+            }
+            black_box(checksum)
+        });
+    }
 }
 
 mod build {
