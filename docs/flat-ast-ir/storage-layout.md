@@ -147,11 +147,21 @@ transient flat vector.
 
 ### Insertion
 
-A synthesized rule or block is inserted at its final semantic position with the
-arena's local sibling mechanism (`insert_between`/`insert_sibling`). The new
-node's ID sorts into the owning range; the range's `len` increments. No primary
-node moves, no later ID changes, and no list bookkeeping beyond the range
-update is needed.
+A synthesized rule or block is inserted through `entry_between`, which
+validates the semantic gap and retains its resolved sibling group and vacant
+key until `entry.try_insert(value)`. A sibling-only batch uses
+`range_entry_between` and `entry.try_push(values)` to produce one `RadixRange`
+through a bitmap vacancy cursor without allocating a temporary key list. Tail
+primary batches use the separate `push_primary_range` path. When a sibling key
+is already known, `sibling_entry` holds only the resolved radix tree, allocator,
+and local length state.
+
+Capacity is checked before a value or iterator is consumed. Failure returns the
+unwritten input with `RadixCapacityError`; retired tombstones remain used unless
+an AST plan explicitly proves references repaired and calls the reclaim API.
+Normal insertion never remaps an ID. An exhausted local interval is handed to
+the AST editor, which validates and applies a complete rebalance plan before
+publishing topology changes.
 
 ### Retirement
 

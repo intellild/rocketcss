@@ -1,6 +1,205 @@
 use super::*;
 
-impl<R, D, K> StyleSheet<'_, R, D, K>
+#[derive(Clone, Copy)]
+struct RuleListCursor<R> {
+    after: RuleId<R>,
+    direct_before: Option<RuleId<R>>,
+    source_anchor: RuleId<R>,
+    source_before: Option<RuleId<R>>,
+}
+
+/// A validated direct-rule editing context with a stable source-order cursor.
+pub struct RuleListEditor<'sheet, 'ast, R: Unpin, D, K> {
+    list: RuleListId,
+    parent: Option<RuleId<R>>,
+    cursor: RuleListCursor<R>,
+    stylesheet: &'sheet mut StyleSheet<'ast, R, D, K>,
+}
+
+impl<'sheet, 'ast, R, D, K> RuleListEditor<'sheet, 'ast, R, D, K>
+where
+    R: RuleIdReferences<R> + Unpin,
+    K: RuleIdReferences<R> + Copy + Eq + std::hash::Hash,
+{
+    /// Inserts one direct sibling through this prevalidated context.
+    pub fn try_insert(self, payload: R) -> Result<RadixInsertResult<RuleId<R>>, MutationError<R>> {
+        let Self {
+            list,
+            parent,
+            cursor,
+            stylesheet,
+        } = self;
+        let record = RuleRecord {
+            payload,
+            parent,
+            parent_list: list,
+            previous_sibling: Some(cursor.after),
+            next_sibling: cursor.direct_before,
+            previous_in_source: Some(cursor.source_anchor),
+            next_in_source: cursor.source_before,
+            child_list: None,
+            declaration_block: None,
+            revision: 0,
+            live: true,
+        };
+        let result = match stylesheet
+            .rules
+            .entry_between(cursor.source_anchor, cursor.source_before)
+        {
+            Some(entry) => match entry.try_insert(record) {
+                Ok(id) => RadixInsertResult {
+                    id,
+                    remaps: std::vec::Vec::new(),
+                },
+                Err(error) => rebalance_insert(
+                    &mut stylesheet.rules,
+                    cursor.source_anchor,
+                    cursor.source_before,
+                    error.value,
+                )
+                .map_err(|_| {
+                    MutationError::<R>::LocalRuleCapacityExhausted(cursor.source_anchor)
+                })?,
+            },
+            None => rebalance_insert(
+                &mut stylesheet.rules,
+                cursor.source_anchor,
+                cursor.source_before,
+                record,
+            )
+            .map_err(|_| MutationError::<R>::LocalRuleCapacityExhausted(cursor.source_anchor))?,
+        };
+        stylesheet.repair_rule_id_remaps(&result.remaps);
+
+        let after = remap_rule_id(cursor.after, &result.remaps);
+        let direct_before = cursor
+            .direct_before
+            .map(|id| remap_rule_id(id, &result.remaps));
+        let source_anchor = remap_rule_id(cursor.source_anchor, &result.remaps);
+        let source_before = cursor
+            .source_before
+            .map(|id| remap_rule_id(id, &result.remaps));
+        stylesheet
+            .rules
+            .get_mut(after)
+            .expect("the insertion transaction repaired the previous sibling")
+            .next_sibling = Some(result.id);
+        if let Some(before) = direct_before {
+            stylesheet
+                .rules
+                .get_mut(before)
+                .expect("the insertion transaction repaired the next sibling")
+                .previous_sibling = Some(result.id);
+        } else {
+            stylesheet.rule_lists.get_mut(list).last = Some(result.id);
+        }
+        stylesheet.rule_lists.get_mut(list).live_len += 1;
+        stylesheet
+            .rules
+            .get_mut(source_anchor)
+            .expect("the insertion transaction repaired the source anchor")
+            .next_in_source = Some(result.id);
+        if let Some(before) = source_before {
+            stylesheet
+                .rules
+                .get_mut(before)
+                .expect("the insertion transaction repaired the source successor")
+                .previous_in_source = Some(result.id);
+        } else {
+            stylesheet.last_rule_in_source = Some(result.id);
+        }
+        Ok(result)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DeclarationBlockCursor<R> {
+    after: DeclarationBlockId<R>,
+    before: Option<DeclarationBlockId<R>>,
+}
+
+/// A validated declaration-block editing context bound to its owner rule.
+pub struct DeclarationBlockEditor<'sheet, 'ast, R: Unpin, D, K> {
+    owner: RuleId<R>,
+    effective_key: EffectiveKeyId,
+    cursor: DeclarationBlockCursor<R>,
+    stylesheet: &'sheet mut StyleSheet<'ast, R, D, K>,
+}
+
+impl<'sheet, 'ast, R: Unpin, D, K> DeclarationBlockEditor<'sheet, 'ast, R, D, K> {
+    /// Inserts and binds the empty synthesized block through this context.
+    pub fn try_insert(self) -> Result<RadixInsertResult<DeclarationBlockId<R>>, MutationError<R>> {
+        let Self {
+            owner,
+            effective_key,
+            cursor,
+            stylesheet,
+        } = self;
+        let block = DeclarationBlock::<R> {
+            declarations: DeclarationList::Range(DeclarationRange {
+                start: stylesheet.declarations.len() as u32,
+                len: 0,
+            }),
+            owner: DeclarationBlockOwner::<R>::Rule(owner),
+            effective_key,
+            revision: 0,
+            live: true,
+        };
+        let result = match stylesheet
+            .declaration_blocks
+            .entry_between(cursor.after, cursor.before)
+        {
+            Some(entry) => match entry.try_insert(block) {
+                Ok(id) => RadixInsertResult {
+                    id,
+                    remaps: std::vec::Vec::new(),
+                },
+                Err(error) => rebalance_insert(
+                    &mut stylesheet.declaration_blocks,
+                    cursor.after,
+                    cursor.before,
+                    error.value,
+                )
+                .map_err(|_| {
+                    MutationError::<R>::LocalDeclarationBlockCapacityExhausted(cursor.after)
+                })?,
+            },
+            None => rebalance_insert(
+                &mut stylesheet.declaration_blocks,
+                cursor.after,
+                cursor.before,
+                block,
+            )
+            .map_err(|_| {
+                MutationError::<R>::LocalDeclarationBlockCapacityExhausted(cursor.after)
+            })?,
+        };
+        if !result.remaps.is_empty() {
+            let rule_ids = stylesheet
+                .rules
+                .iter_enumerated()
+                .map(|(id, _)| id)
+                .collect::<std::vec::Vec<_>>();
+            for rule in rule_ids {
+                let rule = stylesheet
+                    .rules
+                    .get_mut(rule)
+                    .expect("an enumerated rule remains resolvable");
+                rule.declaration_block = rule
+                    .declaration_block
+                    .map(|id| remap_declaration_block_id(id, &result.remaps));
+            }
+        }
+        stylesheet
+            .rules
+            .get_mut(owner)
+            .expect("the synthesized block owner was validated before commit")
+            .declaration_block = Some(result.id);
+        Ok(result)
+    }
+}
+
+impl<'ast, R, D, K> StyleSheet<'ast, R, D, K>
 where
     R: RuleIdReferences<R> + Unpin,
     K: RuleIdReferences<R> + Copy + Eq + std::hash::Hash,
@@ -15,6 +214,14 @@ where
         after: RuleId<R>,
         payload: R,
     ) -> Result<RadixInsertResult<RuleId<R>>, MutationError<R>> {
+        self.rule_list_editor_after(after)?.try_insert(payload)
+    }
+
+    /// Resolves all direct-sibling and source-order context for one insertion.
+    pub fn rule_list_editor_after(
+        &mut self,
+        after: RuleId<R>,
+    ) -> Result<RuleListEditor<'_, 'ast, R, D, K>, MutationError<R>> {
         let after_record = self
             .rules
             .get(after)
@@ -63,59 +270,17 @@ where
             }
             anchor = next;
         }
-        if !self.rules.can_insert_between(anchor, storage_before) {
-            return Err(MutationError::<R>::LocalRuleCapacityExhausted(anchor));
-        }
-
-        let result = self.rules.insert_between(
-            anchor,
-            storage_before,
-            RuleRecord {
-                payload,
-                parent,
-                parent_list: list,
-                previous_sibling: Some(after),
-                next_sibling: direct_before,
-                previous_in_source: Some(anchor),
-                next_in_source: storage_before,
-                child_list: None,
-                declaration_block: None,
-                revision: 0,
-                live: true,
+        Ok(RuleListEditor {
+            list,
+            parent,
+            cursor: RuleListCursor {
+                after,
+                direct_before,
+                source_anchor: anchor,
+                source_before: storage_before,
             },
-        );
-        self.repair_rule_id_remaps(&result.remaps);
-
-        let after = remap_rule_id(after, &result.remaps);
-        let direct_before = direct_before.map(|id| remap_rule_id(id, &result.remaps));
-        let anchor = remap_rule_id(anchor, &result.remaps);
-        let storage_before = storage_before.map(|id| remap_rule_id(id, &result.remaps));
-        self.rules
-            .get_mut(after)
-            .expect("the insertion transaction repaired the previous sibling")
-            .next_sibling = Some(result.id);
-        if let Some(before) = direct_before {
-            self.rules
-                .get_mut(before)
-                .expect("the insertion transaction repaired the next sibling")
-                .previous_sibling = Some(result.id);
-        } else {
-            self.rule_lists.get_mut(list).last = Some(result.id);
-        }
-        self.rule_lists.get_mut(list).live_len += 1;
-        self.rules
-            .get_mut(anchor)
-            .expect("the insertion transaction repaired the source anchor")
-            .next_in_source = Some(result.id);
-        if let Some(before) = storage_before {
-            self.rules
-                .get_mut(before)
-                .expect("the insertion transaction repaired the source successor")
-                .previous_in_source = Some(result.id);
-        } else {
-            self.last_rule_in_source = Some(result.id);
-        }
-        Ok(result)
+            stylesheet: self,
+        })
     }
 
     fn repair_rule_id_remaps(&mut self, remaps: &[RadixIdRemap<RuleId<R>>]) {
@@ -195,7 +360,7 @@ where
     }
 }
 
-impl<R: Unpin, D, K> StyleSheet<'_, R, D, K> {
+impl<'ast, R: Unpin, D, K> StyleSheet<'ast, R, D, K> {
     fn declaration_list_for_ids(
         &mut self,
         declarations: &[DeclarationId],
@@ -271,17 +436,23 @@ impl<R: Unpin, D, K> StyleSheet<'_, R, D, K> {
     /// Preflights the remaining fallible storage operations for a synthesized
     /// block before its owner rule is inserted.
     pub fn can_insert_declaration_block_between(
-        &self,
+        &mut self,
         after: DeclarationBlockId<R>,
         before: Option<DeclarationBlockId<R>>,
         declaration_count: usize,
     ) -> bool {
-        self.declaration_blocks.can_insert_between(after, before)
-            && self
-                .declarations
-                .len()
-                .checked_add(declaration_count)
-                .is_some_and(|len| len <= u32::MAX as usize)
+        if self
+            .declarations
+            .len()
+            .checked_add(declaration_count)
+            .is_none_or(|len| len > u32::MAX as usize)
+        {
+            return false;
+        }
+        self.declaration_blocks
+            .entry_between(after, before)
+            .is_some()
+            || build_rebalance_plan(&self.declaration_blocks, after, before).is_some()
     }
 
     /// Inserts a synthesized declaration block at its final semantic block ID
@@ -293,6 +464,18 @@ impl<R: Unpin, D, K> StyleSheet<'_, R, D, K> {
         owner: RuleId<R>,
         effective_key: EffectiveKeyId,
     ) -> Result<RadixInsertResult<DeclarationBlockId<R>>, MutationError<R>> {
+        self.declaration_block_editor(after, before, owner, effective_key)?
+            .try_insert()
+    }
+
+    /// Resolves the owner and source-order context for one synthesized block.
+    pub fn declaration_block_editor(
+        &mut self,
+        after: DeclarationBlockId<R>,
+        before: Option<DeclarationBlockId<R>>,
+        owner: RuleId<R>,
+        effective_key: EffectiveKeyId,
+    ) -> Result<DeclarationBlockEditor<'_, 'ast, R, D, K>, MutationError<R>> {
         let owner_record = self
             .rules
             .get(owner)
@@ -306,47 +489,12 @@ impl<R: Unpin, D, K> StyleSheet<'_, R, D, K> {
         if self.effective_keys.try_get(effective_key).is_none() {
             return Err(MutationError::<R>::UnknownEffectiveKey(effective_key));
         }
-        if !self.declaration_blocks.can_insert_between(after, before) {
-            return Err(MutationError::<R>::LocalDeclarationBlockCapacityExhausted(
-                after,
-            ));
-        }
-
-        let result = self.declaration_blocks.insert_between(
-            after,
-            before,
-            DeclarationBlock::<R> {
-                declarations: DeclarationList::Range(DeclarationRange {
-                    start: self.declarations.len() as u32,
-                    len: 0,
-                }),
-                owner: DeclarationBlockOwner::<R>::Rule(owner),
-                effective_key,
-                revision: 0,
-                live: true,
-            },
-        );
-        if !result.remaps.is_empty() {
-            let rule_ids = self
-                .rules
-                .iter_enumerated()
-                .map(|(id, _)| id)
-                .collect::<std::vec::Vec<_>>();
-            for rule in rule_ids {
-                let rule = self
-                    .rules
-                    .get_mut(rule)
-                    .expect("an enumerated rule remains resolvable");
-                rule.declaration_block = rule
-                    .declaration_block
-                    .map(|id| remap_declaration_block_id(id, &result.remaps));
-            }
-        }
-        self.rules
-            .get_mut(owner)
-            .expect("the synthesized block owner was validated before commit")
-            .declaration_block = Some(result.id);
-        Ok(result)
+        Ok(DeclarationBlockEditor {
+            owner,
+            effective_key,
+            cursor: DeclarationBlockCursor { after, before },
+            stylesheet: self,
+        })
     }
 }
 
@@ -674,6 +822,151 @@ impl<'ast> StyleSheet<'ast> {
     }
 }
 
+fn build_rebalance_plan<T: Unpin, I: RadixIdKey>(
+    arena: &TypedRadixIndexArena<'_, T, I>,
+    after: I,
+    before: Option<I>,
+) -> Option<RadixRebalancePlan<I>> {
+    const SIBLING_LIMIT: u16 = 1023;
+
+    if after.is_overflow() || arena.len() == u32::MAX as usize {
+        return None;
+    }
+    let mut neighbors = arena.ids();
+    while neighbors.next()? != after {}
+    if neighbors.next() != before {
+        return None;
+    }
+
+    let primary = I::from_primary_index(after.primary_index());
+    let mut live = std::vec::Vec::new();
+    let mut window = arena.ids().skip_while(|id| *id != primary);
+    if window.next()? != primary {
+        return None;
+    }
+    for id in window {
+        if id.primary_index() != primary.primary_index() || id.is_primary() {
+            break;
+        }
+        live.push(id);
+    }
+    let insertion_offset = live.partition_point(|id| id.sibling_key() <= after.sibling_key());
+    let final_len = live.len().checked_add(1)?;
+
+    let available = (1..=SIBLING_LIMIT)
+        .filter(|&key| {
+            arena.sibling_slot_state(primary, key) != Some(RadixSiblingSlotState::Retired)
+        })
+        .collect::<std::vec::Vec<_>>();
+    if final_len > available.len() {
+        return None;
+    }
+
+    let mut old_slots = live.into_iter().map(Some).collect::<std::vec::Vec<_>>();
+    old_slots.insert(insertion_offset, None);
+    let assignments = old_slots
+        .into_iter()
+        .enumerate()
+        .map(|(index, old)| {
+            let available_index = (index + 1) * available.len() / (final_len + 1);
+            RadixAssignment {
+                old,
+                new: I::from_parts(primary.primary_index(), available[available_index]),
+            }
+        })
+        .collect::<std::vec::Vec<_>>();
+    let remaps = assignments
+        .iter()
+        .filter_map(|assignment| {
+            assignment.old.and_then(|old| {
+                (old != assignment.new).then_some(RadixIdRemap {
+                    old,
+                    new: assignment.new,
+                })
+            })
+        })
+        .collect();
+    Some(RadixRebalancePlan {
+        window: RadixRebalanceWindow {
+            left_primary: primary,
+            right_primary: before.filter(|id| id.is_primary()),
+            insertion_offset: insertion_offset as u32,
+        },
+        assignments,
+        remaps,
+        replacement_ranges: std::vec::Vec::new(),
+    })
+}
+
+fn rebalance_insert<T: Unpin, I: RadixIdKey>(
+    arena: &mut TypedRadixIndexArena<'_, T, I>,
+    after: I,
+    before: Option<I>,
+    value: T,
+) -> Result<RadixInsertResult<I>, T> {
+    let Some(plan) = build_rebalance_plan(arena, after, before) else {
+        return Err(value);
+    };
+    debug_assert_eq!(
+        plan.window.insertion_offset as usize,
+        plan.assignments
+            .iter()
+            .position(|assignment| assignment.old.is_none())
+            .unwrap()
+    );
+    debug_assert!(
+        plan.window
+            .right_primary
+            .is_none_or(|right| right.primary_index() > plan.window.left_primary.primary_index())
+    );
+    debug_assert!(plan.replacement_ranges.is_empty());
+
+    let mut existing = std::vec::Vec::with_capacity(plan.assignments.len().saturating_sub(1));
+    for old in plan
+        .assignments
+        .iter()
+        .filter_map(|assignment| assignment.old)
+    {
+        existing.push(
+            arena
+                .remove_sibling(old)
+                .expect("a validated rebalance assignment names a live sibling"),
+        );
+    }
+
+    let mut existing = existing.into_iter();
+    let mut inserted = Some(value);
+    let inserted_id = plan
+        .assignments
+        .iter()
+        .find(|assignment| assignment.old.is_none())
+        .expect("one rebalance assignment is the insertion")
+        .new;
+    {
+        let mut entry = arena
+            .sibling_entry(plan.window.left_primary)
+            .expect("a validated rebalance window has a primary anchor");
+        for assignment in &plan.assignments {
+            let value = if assignment.old.is_some() {
+                existing
+                    .next()
+                    .expect("every old assignment has one removed value")
+            } else {
+                inserted.take().expect("the plan inserts exactly one value")
+            };
+            let id = entry
+                .try_insert(assignment.new.sibling_key(), value)
+                .unwrap_or_else(|_| panic!("a validated rebalance plan is fully applicable"));
+            debug_assert_eq!(id, assignment.new);
+        }
+    }
+    debug_assert!(existing.next().is_none());
+    Ok(RadixInsertResult {
+        id: inserted_id,
+        remaps: plan.remaps,
+    })
+}
+
 #[inline]
 fn remap_rule_id<P>(id: RuleId<P>, remaps: &[RadixIdRemap<RuleId<P>>]) -> RuleId<P> {
     remaps
@@ -691,4 +984,53 @@ fn remap_declaration_block_id<P>(
         .iter()
         .find_map(|remap| (remap.old == id).then_some(remap.new))
         .unwrap_or(id)
+}
+
+#[cfg(test)]
+mod rebalance_tests {
+    use super::*;
+    use rocketcss_common::{Allocator, RadixId, TypedRadixIndexArena};
+
+    #[test]
+    fn plan_failure_is_atomic_until_a_tombstone_is_explicitly_reclaimed() {
+        let allocator = Allocator::new();
+        let mut arena = TypedRadixIndexArena::<_, RadixId<u16>>::new_in(&allocator);
+        let primary = arena.push_primary(0);
+        let next_primary = arena.push_primary(20_000);
+        let mut retired = None;
+        {
+            let mut entry = arena.sibling_entry(primary).unwrap();
+            for key in 1..=1023 {
+                let id = entry.try_insert(key, key).unwrap();
+                if key == 500 {
+                    retired = Some(id);
+                }
+            }
+        }
+        let retired = retired.unwrap();
+        assert_eq!(arena.retire_sibling(retired), Some(500));
+        let before_ids = arena.ids().collect::<std::vec::Vec<_>>();
+        let before_values = arena.iter().copied().collect::<std::vec::Vec<_>>();
+        let before_len = arena.len();
+        let before = before_ids[1];
+
+        assert_eq!(
+            rebalance_insert(&mut arena, primary, Some(before), 9_999).unwrap_err(),
+            9_999
+        );
+        assert_eq!(arena.ids().collect::<std::vec::Vec<_>>(), before_ids);
+        assert_eq!(
+            arena.iter().copied().collect::<std::vec::Vec<_>>(),
+            before_values
+        );
+        assert_eq!(arena.len(), before_len);
+
+        assert!(arena.reclaim_retired_sibling(retired));
+        let result = rebalance_insert(&mut arena, primary, Some(before), 9_999).unwrap();
+        assert!(!result.remaps.is_empty());
+        assert_eq!(arena.get(next_primary), Some(&20_000));
+        let values = arena.iter().copied().collect::<std::vec::Vec<_>>();
+        assert_eq!(values[0..3], [0, 9_999, 1]);
+        assert_eq!(values.last(), Some(&20_000));
+    }
 }

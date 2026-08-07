@@ -1,12 +1,53 @@
 use super::{
     COMPACT_PRIMARY_CAPACITY, LOCAL_BITS, NO_SIBLING_GROUP, OVERFLOW_CAPACITY,
-    RadixAllocationCounts, RadixId, RadixIndexArena, RadixLeaf, RadixRange, RadixRoot,
-    SIBLING_MASK, TypedRadixIndexArena,
+    RadixAllocationCounts, RadixCapacityError, RadixId, RadixIdKey, RadixIndexArena, RadixLeaf,
+    RadixRange, RadixRoot, SIBLING_MASK, TypedRadixIndexArena,
 };
 use crate::Allocator;
 
 struct TestRuleMarker;
 type TestRuleId = RadixId<TestRuleMarker>;
+
+struct ShortExact<I> {
+    inner: I,
+    reported_len: usize,
+}
+
+impl<I> ShortExact<I> {
+    fn new(inner: I, reported_len: usize) -> Self {
+        Self {
+            inner,
+            reported_len,
+        }
+    }
+}
+
+impl<I: Iterator> Iterator for ShortExact<I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.reported_len, Some(self.reported_len))
+    }
+}
+
+impl<I: Iterator> ExactSizeIterator for ShortExact<I> {}
+
+fn insert_with_entry<T: Unpin, I: RadixIdKey>(
+    values: &mut TypedRadixIndexArena<'_, T, I>,
+    primary: I,
+    sibling_key: u16,
+    value: T,
+) -> I {
+    values
+        .sibling_entry(primary)
+        .expect("the primary has sibling capacity")
+        .try_insert(sibling_key, value)
+        .unwrap_or_else(|_| panic!("the sibling key has capacity"))
+}
 
 #[test]
 fn primary_ids_directly_address_parse_vector() {
@@ -35,10 +76,10 @@ fn siblings_use_direct_and_leaf_storage_and_iterate_by_key() {
     assert!(values.sibling_primary_indices.is_empty());
     assert!(values.sibling_trees.is_empty());
 
-    let high_branch = values.insert_sibling(first, 512, 3);
-    let low_branch = values.insert_sibling(first, 1, 1);
-    let next_leaf = values.insert_sibling(first, 32, 2);
-    values.insert_sibling(second, 1, 5);
+    let high_branch = insert_with_entry(&mut values, first, 512, 3);
+    let low_branch = insert_with_entry(&mut values, first, 1, 1);
+    let next_leaf = insert_with_entry(&mut values, first, 32, 2);
+    insert_with_entry(&mut values, second, 1, 5);
 
     assert_eq!(values.sibling_primary_indices.len(), 2);
     assert_eq!(values.sibling_trees.len(), 2);
@@ -60,7 +101,7 @@ fn first_level_direct_value_does_not_allocate_a_leaf() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
-    let direct = values.insert_sibling(primary, 512, 3);
+    let direct = insert_with_entry(&mut values, primary, 512, 3);
 
     assert_eq!(values.get(direct), Some(&3));
     assert_eq!(
@@ -81,7 +122,7 @@ fn nonzero_low_value_allocates_only_the_matching_leaf() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
-    values.insert_sibling(primary, 513, 4);
+    insert_with_entry(&mut values, primary, 513, 4);
 
     assert_eq!(
         values.sibling_trees[0].allocation_counts(),
@@ -102,8 +143,8 @@ fn direct_and_leaf_values_coexist_at_one_high_branch() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
-    let direct = values.insert_sibling(primary, 512, 2);
-    let leaf = values.insert_sibling(primary, 513, 3);
+    let direct = insert_with_entry(&mut values, primary, 512, 2);
+    let leaf = insert_with_entry(&mut values, primary, 513, 3);
 
     assert_eq!(values.get(direct), Some(&2));
     assert_eq!(values.get(leaf), Some(&3));
@@ -129,9 +170,9 @@ fn iteration_orders_low_boundary_keys_numerically() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
-    values.insert_sibling(primary, 511, 511);
-    values.insert_sibling(primary, 513, 513);
-    values.insert_sibling(primary, 512, 512);
+    insert_with_entry(&mut values, primary, 511, 511);
+    insert_with_entry(&mut values, primary, 513, 513);
+    insert_with_entry(&mut values, primary, 512, 512);
 
     assert_eq!(
         values
@@ -147,13 +188,13 @@ fn direct_and_leaf_mutation_paths_preserve_masks_and_reuse_rules() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
-    let direct = values.insert_sibling(primary, 512, 2);
-    let leaf = values.insert_sibling(primary, 513, 3);
+    let direct = insert_with_entry(&mut values, primary, 512, 2);
+    let leaf = insert_with_entry(&mut values, primary, 513, 3);
 
     *values.get_mut(direct).unwrap() = 20;
     *values.get_mut(leaf).unwrap() = 30;
     assert_eq!(values.remove_sibling(direct), Some(20));
-    let reused_direct = values.insert_sibling(primary, 512, 200);
+    let reused_direct = insert_with_entry(&mut values, primary, 512, 200);
     assert_eq!(reused_direct, direct);
     assert_eq!(values.get(reused_direct), Some(&200));
 
@@ -168,9 +209,9 @@ fn an_empty_leaf_does_not_hide_a_live_direct_value() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
-    let leaf = values.insert_sibling(primary, 513, 3);
+    let leaf = insert_with_entry(&mut values, primary, 513, 3);
     assert_eq!(values.retire_sibling(leaf), Some(3));
-    let direct = values.insert_sibling(primary, 512, 2);
+    let direct = insert_with_entry(&mut values, primary, 512, 2);
 
     let root = values.sibling_trees[0].root.as_ref().unwrap();
     assert_eq!(root.direct_occupied, 1 << 16);
@@ -181,99 +222,36 @@ fn an_empty_leaf_does_not_hide_a_live_direct_value() {
 
 #[test]
 fn retired_direct_id_remains_unavailable() {
-    use std::panic::AssertUnwindSafe;
-
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
-    let direct = values.insert_sibling(primary, 512, 2);
+    let direct = insert_with_entry(&mut values, primary, 512, 2);
     assert_eq!(values.retire_sibling(direct), Some(2));
     assert!(values.sibling_trees[0].is_used(512));
 
-    let duplicate =
-        std::panic::catch_unwind(AssertUnwindSafe(|| values.insert_sibling(primary, 512, 4)));
+    let duplicate = values.sibling_entry(primary).unwrap().try_insert(512, 4);
     assert!(duplicate.is_err());
+    assert_eq!(duplicate.unwrap_err().value, 4);
     assert_eq!(values.get(direct), None);
 }
 
 #[test]
-fn relabeling_restores_an_unchanged_direct_value() {
-    let allocator = Allocator::new();
-    let mut values = RadixIndexArena::new_in(&allocator);
-    let primary = values.push_primary(0);
-    for key in 1..=514 {
-        values.insert_sibling(primary, key, key);
-    }
-
-    let result = values.insert_between(
-        RadixId::<u16>::from_parts(0, 513),
-        Some(RadixId::<u16>::from_parts(0, 514)),
-        10_000,
-    );
-
-    assert_eq!(values.get(RadixId::<u16>::from_parts(0, 512)), Some(&512));
-    assert!(
-        result
-            .remaps
-            .iter()
-            .all(|remap| remap.old.sibling_key() != 512)
-    );
-    assert_eq!(values.get(result.id), Some(&10_000));
-}
-
-#[test]
-fn batch_reservation_relabels_one_group_once_for_multiple_insertions() {
+fn sibling_entry_reuses_one_resolved_group_for_multiple_insertions() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0_u16);
-    values.insert_sibling(primary, 1, 1);
-    values.insert_sibling(primary, 2, 2);
-    values.insert_sibling(primary, 3, 3);
 
-    let reservation = values
-        .reserve_sibling_positions(primary, &[1, 3])
-        .expect("one group has capacity for both terminal insertions");
-    assert!(!reservation.remaps.is_empty());
-    assert_eq!(reservation.reserved.len(), 2);
-    assert_eq!(values.get(reservation.reserved[0]), None);
-    assert_eq!(values.get(reservation.reserved[1]), None);
+    let (first, second) = {
+        let mut entry = values.sibling_entry(primary).unwrap();
+        (
+            entry.try_insert(128, 1).unwrap(),
+            entry.try_insert(512, 2).unwrap(),
+        )
+    };
 
-    values
-        .activate_reserved_sibling(reservation.reserved[0], 10)
-        .unwrap();
-    values
-        .activate_reserved_sibling(reservation.reserved[1], 20)
-        .unwrap();
-    assert_eq!(
-        values.iter().copied().collect::<std::vec::Vec<_>>(),
-        [0, 1, 10, 2, 20, 3]
-    );
-}
-
-#[test]
-fn relabeling_can_move_a_direct_value_into_a_leaf() {
-    let allocator = Allocator::new();
-    let mut values = RadixIndexArena::new_in(&allocator);
-    let primary = values.push_primary(0_u16);
-    for key in 1..=512 {
-        values.insert_sibling(primary, key, key);
-    }
-    let old_direct = RadixId::<u16>::from_parts(0, 512);
-
-    let result =
-        values.insert_between(RadixId::<u16>::from_parts(0, 511), Some(old_direct), 10_000);
-
-    let remap = result
-        .remaps
-        .iter()
-        .find(|remap| remap.old == old_direct)
-        .copied()
-        .expect("the direct value crosses into a leaf during relabeling");
-    assert_eq!(remap.new.sibling_key(), 514);
-    assert_eq!(values.get(old_direct), None);
-    assert_eq!(values.get(remap.new), Some(&512));
-    assert_eq!(values.get(result.id), Some(&10_000));
-    assert!(values.sibling_trees[0].root.as_ref().unwrap().direct[16].is_none());
+    assert_eq!(values.get(first), Some(&1));
+    assert_eq!(values.get(second), Some(&2));
+    assert_eq!(values.sibling_trees.len(), 1);
 }
 
 #[test]
@@ -293,7 +271,7 @@ fn retired_sibling_id_is_not_reused_by_normal_insertion() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(1);
-    let sibling = values.insert_sibling(primary, 17, 2);
+    let sibling = insert_with_entry(&mut values, primary, 17, 2);
 
     assert_eq!(values.retire_sibling(sibling), Some(2));
     assert_eq!(values.get(sibling), None);
@@ -304,7 +282,11 @@ fn retired_sibling_id_is_not_reused_by_normal_insertion() {
             .collect::<std::vec::Vec<_>>(),
         [1]
     );
-    let replacement = values.insert_between(primary, None, 3).id;
+    let replacement = values
+        .entry_between(primary, None)
+        .unwrap()
+        .try_insert(3)
+        .unwrap();
     assert_ne!(replacement, sibling);
     *values.get_mut(replacement).unwrap() = 4;
 
@@ -316,10 +298,10 @@ fn removed_non_ast_sibling_key_can_be_reused() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(1);
-    let sibling = values.insert_sibling(primary, 17, 2);
+    let sibling = insert_with_entry(&mut values, primary, 17, 2);
 
     assert_eq!(values.remove_sibling(sibling), Some(2));
-    let replacement = values.insert_sibling(primary, 17, 3);
+    let replacement = insert_with_entry(&mut values, primary, 17, 3);
 
     assert_eq!(replacement, sibling);
     assert_eq!(values.get(replacement), Some(&3));
@@ -331,10 +313,19 @@ fn sibling_capacity_can_be_preflighted_for_ast_overflow() {
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
     for key in 1..=SIBLING_MASK as u16 {
-        values.insert_sibling(primary, key, key);
+        insert_with_entry(&mut values, primary, key, key);
     }
 
-    assert!(!values.can_insert_sibling(primary));
+    let error = values
+        .sibling_entry(primary)
+        .unwrap()
+        .try_insert(1, u16::MAX)
+        .unwrap_err();
+    assert_eq!(
+        error.error,
+        RadixCapacityError::SiblingTreeExhausted { primary }
+    );
+    assert_eq!(error.value, u16::MAX);
     assert_eq!(values.len(), SIBLING_MASK as usize + 1);
 }
 
@@ -344,49 +335,58 @@ fn retired_id_exhaustion_selects_the_ast_overflow_path() {
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
     for key in 1..=SIBLING_MASK as u16 {
-        let id = values.insert_sibling(primary, key, key);
+        let id = insert_with_entry(&mut values, primary, key, key);
         assert_eq!(values.retire_sibling(id), Some(key));
     }
 
-    assert!(!values.can_insert_sibling(primary));
-    assert!(!values.can_insert_between(primary, None));
+    let error = values
+        .sibling_entry(primary)
+        .unwrap()
+        .try_insert(1, u16::MAX)
+        .unwrap_err();
+    assert_eq!(
+        error.error,
+        RadixCapacityError::SiblingTreeExhausted { primary }
+    );
+    assert_eq!(error.value, u16::MAX);
+    assert!(values.entry_between(primary, None).is_none());
     assert_eq!(values.iter().copied().collect::<std::vec::Vec<_>>(), [0]);
 }
 
 #[test]
-fn insert_between_relabels_only_one_local_sibling_group() {
+fn entry_between_rejects_a_gap_without_an_unused_key() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(0);
     let next_primary = values.push_primary(4);
-    let left = values.insert_sibling(primary, 1, 1);
-    let right = values.insert_sibling(primary, 2, 3);
-    let untouched = values.insert_sibling(next_primary, 512, 5);
+    let left = insert_with_entry(&mut values, primary, 1, 1);
+    let right = insert_with_entry(&mut values, primary, 2, 3);
+    let untouched = insert_with_entry(&mut values, next_primary, 512, 5);
 
-    let result = values.insert_between(left, Some(right), 2);
-
-    assert_eq!(result.remaps.len(), 1);
-    assert_eq!(result.remaps[0].old, right);
+    assert!(values.entry_between(left, Some(right)).is_none());
     assert_eq!(values.get(left), Some(&1));
-    assert_eq!(values.get(right), None);
+    assert_eq!(values.get(right), Some(&3));
     assert_eq!(values.get(untouched), Some(&5));
     assert_eq!(
         values.iter().copied().collect::<std::vec::Vec<_>>(),
-        [0, 1, 2, 3, 4, 5]
+        [0, 1, 3, 4, 5]
     );
 }
 
 #[test]
-fn insert_between_uses_a_gap_without_relabeling() {
+fn entry_between_inserts_without_relabeling() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let first = values.push_primary(0);
     let second = values.push_primary(2);
 
-    let result = values.insert_between(first, Some(second), 1);
+    let inserted = values
+        .entry_between(first, Some(second))
+        .unwrap()
+        .try_insert(1)
+        .unwrap();
 
-    assert!(result.remaps.is_empty());
-    assert_eq!(result.id.sibling_key(), 512);
+    assert_eq!(inserted.sibling_key(), 512);
     assert_eq!(
         values.iter().copied().collect::<std::vec::Vec<_>>(),
         [0, 1, 2]
@@ -421,16 +421,11 @@ fn randomized_local_edits_match_a_reference_sequence() {
             let after_index = random as usize % reference.len();
             let after = reference[after_index].0;
             let before = reference.get(after_index + 1).map(|(id, _)| *id);
-            let result = values.insert_between(after, before, next_value);
-            for remap in result.remaps {
-                let entry = reference
-                    .iter_mut()
-                    .find(|(id, _)| *id == remap.old)
-                    .expect("every remapped ID exists in the reference sequence");
-                entry.0 = remap.new;
+            if let Some(entry) = values.entry_between(after, before) {
+                let id = entry.try_insert(next_value).unwrap();
+                reference.insert(after_index + 1, (id, next_value));
+                next_value += 1;
             }
-            reference.insert(after_index + 1, (result.id, next_value));
-            next_value += 1;
         }
 
         assert_eq!(
@@ -479,7 +474,7 @@ fn authored_primary_overflow_preserves_ids_lookup_and_iteration_order() {
         [(last_compact, 0), (overflow, 1), (next_overflow, 2)]
     );
 
-    let boundary_sibling = values.insert_sibling(last_compact, 512, 9_u8);
+    let boundary_sibling = insert_with_entry(&mut values, last_compact, 512, 9_u8);
 
     assert!(!last_compact.is_overflow());
     assert!(overflow.is_primary());
@@ -518,9 +513,9 @@ fn authored_primary_overflow_preserves_ids_lookup_and_iteration_order() {
             .collect::<std::vec::Vec<_>>(),
         [0, 9, 1, 2]
     );
-    assert!(!values.can_insert_sibling(overflow));
-    assert!(!values.can_insert_sibling(next_overflow));
-    assert!(!values.can_insert_between(overflow, None));
+    assert!(values.sibling_entry(overflow).is_none());
+    assert!(values.sibling_entry(next_overflow).is_none());
+    assert!(values.entry_between(overflow, None).is_none());
 }
 
 #[test]
@@ -528,7 +523,7 @@ fn ids_resolve_their_own_storage_value() {
     let allocator = Allocator::new();
     let mut values = RadixIndexArena::new_in(&allocator);
     let primary = values.push_primary(1);
-    let sibling = values.insert_sibling(primary, 17, 2);
+    let sibling = insert_with_entry(&mut values, primary, 17, 2);
 
     assert_eq!(values[primary], 1);
     assert_eq!(values[sibling], 2);
@@ -544,7 +539,7 @@ fn typed_ids_isolate_stores_without_changing_layout() {
     let mut values = TypedRadixIndexArena::<_, TestRuleId>::with_capacity_in(2, &allocator);
     let first = values.push_primary(10);
     let second = values.push_primary(30);
-    let inserted = values.insert_sibling(first, 512, 20);
+    let inserted = insert_with_entry(&mut values, first, 512, 20);
 
     assert_eq!(first.get(), 0);
     assert!(first.is_primary());
@@ -561,8 +556,8 @@ fn semantic_id_cursor_crosses_primary_and_inserted_values() {
     let first = values.push_primary(10);
     let second = values.push_primary(30);
     let third = values.push_primary(50);
-    let after_first = values.insert_sibling(first, 512, 20);
-    let after_second = values.insert_sibling(second, 512, 40);
+    let after_first = insert_with_entry(&mut values, first, 512, 20);
+    let after_second = insert_with_entry(&mut values, second, 512, 40);
 
     assert_eq!(
         values.ids().collect::<std::vec::Vec<_>>(),
@@ -584,8 +579,8 @@ fn stable_group_sidecar_decouples_lookup_from_semantic_group_order() {
     let second = values.push_primary(30);
     let third = values.push_primary(50);
 
-    let after_third = values.insert_sibling(third, 512, 60);
-    let after_first = values.insert_sibling(first, 512, 20);
+    let after_third = insert_with_entry(&mut values, third, 512, 60);
+    let after_first = insert_with_entry(&mut values, first, 512, 20);
 
     assert_eq!(values.sibling_primary_indices.as_slice(), [0, 2]);
     assert_eq!(
@@ -615,7 +610,7 @@ fn mutable_enumerated_visit_needs_no_id_snapshot() {
     let mut values = TypedRadixIndexArena::<_, TestRuleId>::with_capacity_in(2, &allocator);
     let first = values.push_primary(10);
     let second = values.push_primary(30);
-    let inserted = values.insert_sibling(first, 512, 20);
+    let inserted = insert_with_entry(&mut values, first, 512, 20);
     let mut visited = std::vec::Vec::new();
 
     values.for_each_enumerated_mut(|id, value| {
@@ -637,8 +632,8 @@ fn enumerated_iterators_return_ids_in_storage_order() {
     let first = values.push_primary(10);
     let second = values.push_primary(30);
     let third = values.push_primary(50);
-    let inserted_after_first = values.insert_sibling(first, 512, 20);
-    let inserted_after_second = values.insert_sibling(second, 512, 40);
+    let inserted_after_first = insert_with_entry(&mut values, first, 512, 20);
+    let inserted_after_second = insert_with_entry(&mut values, second, 512, 40);
 
     assert_eq!(
         values
@@ -718,8 +713,58 @@ fn primary_range_slice_proves_contiguous_ranges_without_resolving_ids() {
     assert_eq!(enumerated.len(), 0);
 
     let stale = range;
-    values.insert_sibling(second, 512, 25);
+    insert_with_entry(&mut values, second, 512, 25);
     assert!(values.primary_slice_in_range(stale).is_none());
+    assert!(values.ids_in_range(stale).is_none());
+    assert!(values.detached_ids_in_range(stale).is_none());
+    assert!(values.iter_range(stale).is_none());
+    assert!(values.iter_range_enumerated(stale).is_none());
+
+    let before = values.iter().copied().collect::<std::vec::Vec<_>>();
+    assert!(
+        values
+            .for_each_in_range_mut(stale, |_, value| *value += 1)
+            .is_none()
+    );
+    assert_eq!(values.iter().copied().collect::<std::vec::Vec<_>>(), before);
+}
+
+#[test]
+fn primary_ranges_use_the_number_of_values_actually_pushed() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+
+    let empty = values.push_primary_range(ShortExact::new(std::iter::empty::<u8>(), 2));
+    assert!(empty.is_empty());
+
+    let range = values.push_primary_range(ShortExact::new([10].into_iter(), 2));
+    assert_eq!(range.len(), 1);
+    assert_eq!(
+        values
+            .iter_range(range)
+            .unwrap()
+            .copied()
+            .collect::<std::vec::Vec<_>>(),
+        [10]
+    );
+}
+
+#[test]
+fn primary_range_capacity_failure_preserves_the_iterator() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+    let first = values.push_primary(10);
+    values.len = u32::MAX;
+
+    let error = values.try_push_primary_range([20, 30]).unwrap_err();
+    assert_eq!(error.error, RadixCapacityError::ArenaExhausted);
+    assert_eq!(error.values.collect::<std::vec::Vec<_>>(), [20, 30]);
+    assert_eq!(
+        values.primary_iter().copied().collect::<std::vec::Vec<_>>(),
+        [10]
+    );
+    assert_eq!(values.get(first), Some(&10));
+    assert_eq!(values.len, u32::MAX);
 }
 
 #[test]
@@ -728,7 +773,7 @@ fn ranges_follow_semantic_order_across_siblings_and_primaries() {
     let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
     let first = values.push_primary(10);
     let second = values.push_primary(30);
-    let inserted = values.insert_sibling(first, 512, 20);
+    let inserted = insert_with_entry(&mut values, first, 512, 20);
     let range = RadixRange::new(first, second, 3);
 
     assert!(values.primary_slice_in_range(range).is_none());
@@ -772,7 +817,7 @@ fn a_sibling_after_the_last_primary_does_not_block_the_slice_fast_path() {
     let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
     let first = values.push_primary(10);
     let second = values.push_primary(20);
-    let after_second = values.insert_sibling(second, 512, 30);
+    let after_second = insert_with_entry(&mut values, second, 512, 30);
 
     let ending_at_primary = RadixRange::new(first, second, 2);
     assert_eq!(
@@ -799,9 +844,9 @@ fn bounded_range_cursor_resumes_at_a_sibling_and_retains_its_following_id() {
     let first = values.push_primary(10);
     let second = values.push_primary(40);
     let third = values.push_primary(70);
-    let after_first = values.insert_sibling(first, 256, 20);
-    let later_after_first = values.insert_sibling(first, 768, 30);
-    let after_second = values.insert_sibling(second, 512, 50);
+    let after_first = insert_with_entry(&mut values, first, 256, 20);
+    let later_after_first = insert_with_entry(&mut values, first, 768, 30);
+    let after_second = insert_with_entry(&mut values, second, 512, 50);
     let range = RadixRange::new(after_first, second, 3);
 
     let mut ids = values.ids_in_range(range).unwrap();
@@ -836,8 +881,9 @@ fn stable_batch_insertion_preserves_existing_ids_and_returns_one_range() {
     let first = values.push_primary(10);
     let second = values.push_primary(40);
 
-    assert!(values.can_insert_stable_range_between(first, Some(second), 2));
-    let inserted = values.insert_stable_range_between(first, Some(second), [20, 30]);
+    let entry = values.range_entry_between(first, Some(second)).unwrap();
+    assert!(entry.capacity() >= 2);
+    let inserted = entry.try_push([20, 30]).unwrap();
 
     assert_eq!(values.get(first), Some(&10));
     assert_eq!(values.get(second), Some(&40));
@@ -858,16 +904,55 @@ fn stable_batch_insertion_preserves_existing_ids_and_returns_one_range() {
 }
 
 #[test]
+fn stable_ranges_use_the_number_of_values_actually_inserted() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+    let first = values.push_primary(10);
+    let second = values.push_primary(40);
+
+    let empty = values
+        .range_entry_between(first, Some(second))
+        .unwrap()
+        .try_push(ShortExact::new(std::iter::empty::<i32>(), 1))
+        .unwrap_or_else(|_| panic!("the range has capacity"));
+    assert!(empty.is_empty());
+
+    let inserted = values
+        .range_entry_between(first, Some(second))
+        .unwrap()
+        .try_push(ShortExact::new([20].into_iter(), 2))
+        .unwrap_or_else(|_| panic!("the range has capacity"));
+    assert_eq!(inserted.len(), 1);
+    assert_eq!(
+        values
+            .iter_range(inserted)
+            .unwrap()
+            .copied()
+            .collect::<std::vec::Vec<_>>(),
+        [20]
+    );
+    assert_eq!(
+        values.iter().copied().collect::<std::vec::Vec<_>>(),
+        [10, 20, 40]
+    );
+}
+
+#[test]
 fn stable_batch_capacity_is_preflighted_for_the_complete_range() {
     let allocator = Allocator::new();
     let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
     let first = values.push_primary(10);
     let second = values.push_primary(50);
-    let boundary = values.insert_sibling(first, 3, 40);
+    let boundary = insert_with_entry(&mut values, first, 3, 40);
     let before_len = values.len();
 
-    assert!(values.can_insert_stable_range_between(first, Some(boundary), 2));
-    assert!(!values.can_insert_stable_range_between(first, Some(boundary), 3));
+    assert_eq!(
+        values
+            .range_entry_between(first, Some(boundary))
+            .unwrap()
+            .capacity(),
+        2
+    );
     assert_eq!(values.len(), before_len);
     assert_eq!(
         values.ids().collect::<std::vec::Vec<_>>(),
@@ -876,14 +961,149 @@ fn stable_batch_capacity_is_preflighted_for_the_complete_range() {
 }
 
 #[test]
-fn stable_batch_at_the_arena_tail_appends_primaries() {
+fn sibling_interval_exact_fill_succeeds_and_one_more_is_atomic() {
     let allocator = Allocator::new();
     let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
     let first = values.push_primary(10);
-    let inserted = values.insert_stable_range_between(first, None, [20, 30]);
+    let second = values.push_primary(50);
+    let boundary = insert_with_entry(&mut values, first, 3, 40);
 
-    assert!(inserted.start_id().is_primary());
-    assert_eq!(values.primary_iter().len(), 3);
+    let inserted = values
+        .range_entry_between(first, Some(boundary))
+        .unwrap()
+        .try_push([20, 30])
+        .unwrap();
+    assert_eq!(inserted.len(), 2);
+    assert_eq!(
+        values.iter().copied().collect::<std::vec::Vec<_>>(),
+        [10, 20, 30, 40, 50]
+    );
+
+    let before_ids = values.ids().collect::<std::vec::Vec<_>>();
+    let before_values = values.iter().copied().collect::<std::vec::Vec<_>>();
+    let before_len = values.len();
+    let error = values
+        .range_entry_between(inserted.last_id(), Some(boundary))
+        .unwrap()
+        .try_push([60])
+        .unwrap_err();
+    assert_eq!(
+        error.error,
+        RadixCapacityError::IntervalExhausted {
+            primary: first,
+            lower: 2,
+            upper: 3,
+            needed: 1,
+            available: 0,
+        }
+    );
+    assert_eq!(error.values.collect::<std::vec::Vec<_>>(), [60]);
+    assert_eq!(values.ids().collect::<std::vec::Vec<_>>(), before_ids);
+    assert_eq!(
+        values.iter().copied().collect::<std::vec::Vec<_>>(),
+        before_values
+    );
+    assert_eq!(values.len(), before_len);
+    assert_eq!(values.get(second), Some(&50));
+}
+
+#[test]
+fn retired_tombstones_count_against_interval_capacity() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+    let first = values.push_primary(10);
+    let boundary = insert_with_entry(&mut values, first, 3, 40);
+    let retired = insert_with_entry(&mut values, first, 2, 30);
+    assert_eq!(values.retire_sibling(retired), Some(30));
+
+    let before_ids = values.ids().collect::<std::vec::Vec<_>>();
+    let before_len = values.len();
+    let error = values
+        .range_entry_between(first, Some(boundary))
+        .unwrap()
+        .try_push([20, 25])
+        .unwrap_err();
+    assert_eq!(
+        error.error,
+        RadixCapacityError::IntervalExhausted {
+            primary: first,
+            lower: 0,
+            upper: 3,
+            needed: 2,
+            available: 1,
+        }
+    );
+    assert_eq!(error.values.collect::<std::vec::Vec<_>>(), [20, 25]);
+    assert_eq!(values.ids().collect::<std::vec::Vec<_>>(), before_ids);
+    assert_eq!(values.len(), before_len);
+    assert!(values.sibling_trees[0].is_used(2));
+
+    assert!(values.reclaim_retired_sibling(retired));
+    let inserted = values
+        .range_entry_between(first, Some(boundary))
+        .unwrap()
+        .try_push([20, 30])
+        .unwrap();
+    assert_eq!(inserted.len(), 2);
+    assert_eq!(
+        values.iter().copied().collect::<std::vec::Vec<_>>(),
+        [10, 20, 30, 40]
+    );
+}
+
+#[test]
+fn arena_exhaustion_returns_the_unwritten_value() {
+    let allocator = Allocator::new();
+    let mut values = RadixIndexArena::new_in(&allocator);
+    let primary = values.push_primary(10);
+    values.len = u32::MAX;
+    let before = values.iter().copied().collect::<std::vec::Vec<_>>();
+
+    let error = values
+        .sibling_entry(primary)
+        .unwrap()
+        .try_insert(1, 20)
+        .unwrap_err();
+    assert_eq!(error.error, RadixCapacityError::ArenaExhausted);
+    assert_eq!(error.value, 20);
+    assert_eq!(values.iter().copied().collect::<std::vec::Vec<_>>(), before);
+    assert_eq!(values.len, u32::MAX);
+}
+
+#[test]
+fn sibling_range_crosses_direct_and_leaf_slots_in_constant_time_steps() {
+    let allocator = Allocator::new();
+    let mut values = RadixIndexArena::new_in(&allocator);
+    let primary = values.push_primary(0);
+    let lower = insert_with_entry(&mut values, primary, 31, 31);
+    let upper = insert_with_entry(&mut values, primary, 34, 34);
+
+    let inserted = values
+        .range_entry_between(lower, Some(upper))
+        .unwrap()
+        .try_push([32, 33])
+        .unwrap();
+    assert_eq!(inserted.start_id().sibling_key(), 32);
+    assert_eq!(inserted.last_id().sibling_key(), 33);
+    assert_eq!(
+        values.iter().copied().collect::<std::vec::Vec<_>>(),
+        [0, 31, 32, 33, 34]
+    );
+}
+
+#[test]
+fn stable_batch_at_the_arena_tail_uses_siblings() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+    let first = values.push_primary(10);
+    let inserted = values
+        .range_entry_between(first, None)
+        .unwrap()
+        .try_push([20, 30])
+        .unwrap();
+
+    assert!(!inserted.start_id().is_primary());
+    assert_eq!(values.primary_iter().len(), 1);
     assert_eq!(
         values
             .iter_range(inserted)

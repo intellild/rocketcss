@@ -86,7 +86,13 @@ fn sparse_radix_with_ids(
     for (primary, id) in primary_ids.into_iter().enumerate() {
         ids.push(id);
         if primary.is_multiple_of(SPARSE_INSERT_STRIDE) {
-            ids.push(values.insert_sibling(id, SPARSE_SIBLING_KEY, inserted_payload(primary)));
+            ids.push(
+                values
+                    .sibling_entry(id)
+                    .unwrap()
+                    .try_insert(SPARSE_SIBLING_KEY, inserted_payload(primary))
+                    .unwrap(),
+            );
         }
     }
     (values, ids)
@@ -101,7 +107,11 @@ fn large_sparse_radix(
     for primary in 0..len {
         let id = values.push_primary(large_payload(primary));
         if primary.is_multiple_of(SPARSE_INSERT_STRIDE) {
-            values.insert_sibling(id, sibling_key, large_inserted_payload(primary));
+            values
+                .sibling_entry(id)
+                .unwrap()
+                .try_insert(sibling_key, large_inserted_payload(primary))
+                .unwrap();
         }
     }
     values
@@ -499,11 +509,11 @@ mod repeated_middle_insert_remove {
             .map(|(id, _)| id)
             .unwrap();
         bencher.counter(ItemsCount::new(1_usize)).bench_local(|| {
-            let inserted = values.insert_sibling(
-                primary,
-                SPARSE_SIBLING_KEY,
-                black_box(inserted_payload(len / 2)),
-            );
+            let inserted = values
+                .sibling_entry(primary)
+                .unwrap()
+                .try_insert(SPARSE_SIBLING_KEY, black_box(inserted_payload(len / 2)))
+                .unwrap();
             black_box(values.remove_sibling(inserted).unwrap())
         });
     }

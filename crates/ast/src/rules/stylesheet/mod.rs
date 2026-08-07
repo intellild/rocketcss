@@ -1,8 +1,8 @@
 //! Typed storage and topology for [`StyleSheet`].
 
 use rocketcss_common::{
-    Allocator, DenseId, DenseStore, RadixId, RadixIdRemap, RadixInsertResult, TypedRadixIndexArena,
-    define_dense_id,
+    Allocator, DenseId, DenseStore, RadixId, RadixIdKey, RadixSiblingSlotState,
+    TypedRadixIndexArena, define_dense_id,
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -17,6 +17,7 @@ mod validation;
 mod value;
 
 pub use effective_key::*;
+pub use mutation::{DeclarationBlockEditor, RuleListEditor};
 pub use rule::*;
 pub use traversal::*;
 pub use value::*;
@@ -29,6 +30,48 @@ pub type RuleId<P> = RadixId<RuleRecord<P>>;
 /// The type parameter is the rule payload, so `DeclarationBlockId<P>` can only
 /// index an arena storing `DeclarationBlock<P>`.
 pub type DeclarationBlockId<P> = RadixId<DeclarationBlock<P>>;
+
+/// One AST-owned ID change produced by an explicit rebalance plan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RadixIdRemap<I> {
+    pub old: I,
+    pub new: I,
+}
+
+/// The final ID and AST-owned remaps produced by one mutation transaction.
+#[derive(Debug)]
+pub struct RadixInsertResult<I> {
+    pub id: I,
+    pub remaps: std::vec::Vec<RadixIdRemap<I>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RadixRebalanceWindow<I> {
+    left_primary: I,
+    right_primary: Option<I>,
+    insertion_offset: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RadixAssignment<I> {
+    old: Option<I>,
+    new: I,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RadixReplacementRange<I> {
+    start: I,
+    last: I,
+    len: u32,
+}
+
+#[derive(Debug)]
+struct RadixRebalancePlan<I> {
+    window: RadixRebalanceWindow<I>,
+    assignments: std::vec::Vec<RadixAssignment<I>>,
+    remaps: std::vec::Vec<RadixIdRemap<I>>,
+    replacement_ranges: std::vec::Vec<RadixReplacementRange<I>>,
+}
 
 define_dense_id!(pub struct RuleListId);
 define_dense_id!(pub struct EffectiveKeyId);

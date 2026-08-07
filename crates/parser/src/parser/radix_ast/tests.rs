@@ -395,7 +395,7 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
 }
 
 #[test]
-fn local_relabel_repairs_topology_and_effective_key_seeds() {
+fn rebalanced_local_gap_preserves_topology_and_effective_key_seeds() {
     let allocator = Allocator::new();
     let mut stylesheet = Compiler::new(&allocator)
         .parse_stylesheet("a{}b{}", ParserOptions::default())
@@ -412,28 +412,41 @@ fn local_relabel_repairs_topology_and_effective_key_seeds() {
         .append_effective_key(CssEffectiveContext::isolated(first.id))
         .unwrap();
     let mut tracked = first.id;
-    let mut relabeled = false;
+    let mut inserted = 0;
 
     for _ in 0..16 {
-        let result = stylesheet
-            .insert_rule_after(
-                outer,
-                CssRule::NestedDeclarations(NestedDeclarationsRule { span: DUMMY_SP }),
-            )
-            .unwrap();
-        if let Some(remap) = result.remaps.iter().find(|remap| remap.old == tracked) {
-            tracked = remap.new;
-            relabeled = true;
+        match stylesheet.insert_rule_after(
+            outer,
+            CssRule::NestedDeclarations(NestedDeclarationsRule { span: DUMMY_SP }),
+        ) {
+            Ok(result) => {
+                if let Some(remap) = result.remaps.iter().find(|remap| remap.old == tracked) {
+                    tracked = remap.new;
+                }
+                inserted += 1;
+            }
+            Err(rocketcss_ast::StyleSheetMutationError::LocalRuleCapacityExhausted(_)) => break,
+            Err(error) => panic!("unexpected insertion error: {error:?}"),
         }
         assert_eq!(stylesheet.validate_ast(), Ok(()));
     }
 
-    assert!(relabeled);
+    assert!(inserted > 0);
+    let result = stylesheet
+        .insert_rule_after(
+            outer,
+            CssRule::NestedDeclarations(NestedDeclarationsRule { span: DUMMY_SP }),
+        )
+        .unwrap();
+    if let Some(remap) = result.remaps.iter().find(|remap| remap.old == tracked) {
+        tracked = remap.new;
+    }
     assert_eq!(
         stylesheet.effective_key(key).unwrap().history_segment(),
         CssHistorySegment::Isolated(tracked)
     );
     assert!(stylesheet.rule(tracked).is_some());
+    assert_eq!(stylesheet.validate_ast(), Ok(()));
 }
 
 #[test]

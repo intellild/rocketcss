@@ -11,7 +11,7 @@ use rocketcss_ast::{
     StyleRule, StyleSheet, StyleSheetMutationError as MutationError,
 };
 use rocketcss_common::{
-    Allocator, RadixIdRemap, RadixInsertResult,
+    Allocator,
     prelude::{HashMap, HashSet, Vec},
 };
 use std::{cmp::Reverse, collections::VecDeque};
@@ -94,14 +94,6 @@ impl<'arena, 'ast> SameSelectorCandidateList<'arena, 'ast> {
     fn is_empty(&self) -> bool {
         self.pending.is_empty()
     }
-
-    fn remap_blocks(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>]) {
-        for candidate in &mut self.pending {
-            candidate.remap_blocks(remaps);
-        }
-        self.queued.clear();
-        self.queued.extend(self.pending.iter().copied());
-    }
 }
 
 #[derive(Debug)]
@@ -138,19 +130,6 @@ impl<'arena, 'ast> PartialMergeCandidateList<'arena, 'ast> {
 
     fn is_empty(&self) -> bool {
         self.pending.is_empty()
-    }
-
-    fn remap_blocks(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>]) {
-        for Reverse(candidate) in self.pending.iter_mut() {
-            candidate.remap_blocks(remaps);
-        }
-        for index in (0..self.pending.len() / 2).rev() {
-            self.sift_down(index);
-        }
-        self.queued.clear();
-        for candidate in &self.pending {
-            self.queued.insert(candidate.0);
-        }
     }
 
     fn sift_up(&mut self, mut index: usize) {
@@ -305,7 +284,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         }
     }
 
-    #[cfg(test)]
     fn publish_all_blocks(
         &mut self,
         stylesheet: &StyleSheet<'ast>,
@@ -316,6 +294,17 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             }
             self.publish_block(stylesheet, block_id)?;
         }
+        Ok(())
+    }
+
+    fn rebuild_from_stylesheet(
+        &mut self,
+        stylesheet: &StyleSheet<'ast>,
+    ) -> Result<(), MutationError<'ast>> {
+        let mut rebuilt = Self::new_in(stylesheet, self.allocator);
+        rebuilt.publish_all_blocks(stylesheet)?;
+        rebuilt.finalize_published_blocks(&[]);
+        *self = rebuilt;
         Ok(())
     }
 
@@ -842,8 +831,14 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     selector_value,
                 }),
             };
-            let rule_result = match stylesheet.insert_rule_after(endpoints.left_rule, payload) {
-                Ok(result) => result,
+            let common = self
+                .scratch
+                .common
+                .iter()
+                .copied()
+                .collect::<std::vec::Vec<_>>();
+            let shared_rule = match stylesheet.insert_rule_after(endpoints.left_rule, payload) {
+                Ok(result) => result.id,
                 Err(
                     MutationError::<'ast>::LocalRuleCapacityExhausted(_)
                     | MutationError::<'ast>::PrimaryRuleCapacityExhausted,
@@ -853,21 +848,33 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 }
                 Err(error) => return Err(error),
             };
-            let left_rule = remap_rule_id(endpoints.left_rule, &rule_result.remaps);
-            let right_rule = remap_rule_id(endpoints.right_rule, &rule_result.remaps);
-            let shared_rule = rule_result.id;
+            let shared_rule_record = stylesheet
+                .rule(shared_rule)
+                .ok_or(MutationError::<'ast>::InvalidRuleTopology(shared_rule))?;
+            let left_rule = shared_rule_record
+                .previous_sibling()
+                .ok_or(MutationError::<'ast>::InvalidRuleTopology(shared_rule))?;
+            let right_rule = shared_rule_record
+                .next_sibling()
+                .ok_or(MutationError::<'ast>::InvalidRuleTopology(shared_rule))?;
             let block_result = stylesheet.insert_declaration_block_between(
                 candidate.left,
                 Some(before_block),
                 shared_rule,
                 shared_key,
             )?;
-            self.repair_block_remaps(&block_result);
-            let left_block = remap_block_id(candidate.left, &block_result.remaps);
-            let right_block = remap_block_id(candidate.right, &block_result.remaps);
             let shared_block = block_result.id;
+            let left_block = stylesheet
+                .rule(left_rule)
+                .and_then(|rule| rule.declaration_block())
+                .ok_or(MutationError::<'ast>::InvalidRuleTopology(left_rule))?;
+            let right_block = stylesheet
+                .rule(right_rule)
+                .and_then(|rule| rule.declaration_block())
+                .ok_or(MutationError::<'ast>::InvalidRuleTopology(right_rule))?;
+            self.rebuild_from_stylesheet(stylesheet)?;
 
-            for declaration in &self.scratch.common {
+            for declaration in &common {
                 let important = stylesheet
                     .declaration(declaration.left)
                     .ok_or(MutationError::<'ast>::UnknownDeclaration(declaration.left))?
@@ -892,8 +899,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     moved,
                 )?;
             }
-            self.insert_history_occurrence(shared_key, shared_block);
-
             let retain_right = self.declaration_ir.block_live_count(right_block) != 0
                 || stylesheet
                     .rule(right_rule)
@@ -1012,30 +1017,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         }
     }
 
-    fn repair_block_remaps(&mut self, result: &RadixInsertResult<DeclarationBlockId<'ast>>) {
-        if result.remaps.is_empty() {
-            return;
-        }
-        self.declaration_ir.repair_block_remaps(&result.remaps);
-        for block in &mut self.published_blocks {
-            block.block = remap_block_id(block.block, &result.remaps);
-            if let Some((previous, key, revision)) = block.previous_style_block {
-                block.previous_style_block =
-                    Some((remap_block_id(previous, &result.remaps), key, revision));
-            }
-        }
-        for history in self.histories.values_mut() {
-            for block in history {
-                *block = remap_block_id(*block, &result.remaps);
-            }
-        }
-        for edge in &mut self.direct_style_edges {
-            edge.remap_blocks(&result.remaps);
-        }
-        self.same_selector_candidates.remap_blocks(&result.remaps);
-        self.partial_merge_candidates.remap_blocks(&result.remaps);
-    }
-
     fn edge_candidate(
         &self,
         stylesheet: &StyleSheet<'ast>,
@@ -1071,13 +1052,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     }
 }
 
-impl<'ast> Candidate<'ast> {
-    fn remap_blocks(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>]) {
-        self.left = remap_block_id(self.left, remaps);
-        self.right = remap_block_id(self.right, remaps);
-    }
-}
-
 fn is_style_owner(payload: &CssRule<'_>) -> bool {
     matches!(payload, CssRule::Style(_) | CssRule::Nesting(_))
 }
@@ -1104,23 +1078,6 @@ fn first_block_after_rule_in_source<'ast>(
         current = record.next_in_source();
     }
     Err(MutationError::<'ast>::InvalidRuleTopology(left))
-}
-
-fn remap_rule_id<'ast>(id: RuleId<'ast>, remaps: &[RadixIdRemap<RuleId<'ast>>]) -> RuleId<'ast> {
-    remaps
-        .iter()
-        .find_map(|remap| (remap.old == id).then_some(remap.new))
-        .unwrap_or(id)
-}
-
-fn remap_block_id<'ast>(
-    id: DeclarationBlockId<'ast>,
-    remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>],
-) -> DeclarationBlockId<'ast> {
-    remaps
-        .iter()
-        .find_map(|remap| (remap.old == id).then_some(remap.new))
-        .unwrap_or(id)
 }
 
 fn validate_s1<'ast>(

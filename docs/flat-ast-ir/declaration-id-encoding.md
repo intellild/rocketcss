@@ -88,28 +88,19 @@ let property = declarations.push_primary(parsed_property);
 Structural insertion chooses a nonzero sibling key below a primary anchor:
 
 ```rust,ignore
-let inserted = declaration_blocks.insert_sibling(anchor, sibling_key, block);
+let inserted = declaration_blocks
+    .sibling_entry(anchor)
+    .expect("the primary is valid")
+    .try_insert(sibling_key, block)?;
 ```
 
-Keys should initially leave numeric gaps when multiple synthesized siblings
-may be inserted in one interval. Correctness does not depend on the heuristic.
-
-## Local relabel
-
-If no key exists between two sibling neighbors, relabel only the siblings
-under their shared primary. The store returns an exact remap:
-
-```rust,ignore
-struct RadixIdRemap {
-    old: RadixIndexId,
-    new: RadixIndexId,
-}
-```
-
-The transaction repairs every persistent reference to the relabeled IDs:
-declaration-block owners, rule parents, candidate endpoints, history links, and
-source-map or diagnostic references. Primary IDs never relabel. No later
-authored node moves because a local insertion exhausted its gaps.
+Keys initially leave numeric gaps when multiple synthesized siblings may be
+inserted in one interval. Normal sibling insertion never changes an existing
+ID. If an interval exhausts those gaps, the AST editor collects a finite
+primary-local window, validates a complete `RadixRebalancePlan`, applies all
+assignments, and repairs RuleList, source-order, declaration-block, payload,
+and effective-key references in one transaction. Nano rebuilds its derived
+scheduler indexes from the final AST instead of interpreting arena remaps.
 
 ## Capacity fallback
 
@@ -130,7 +121,7 @@ reject otherwise valid CSS at the compact boundaries.
 - Primary and sibling fields round-trip at minimum and maximum values.
 - Numeric base-ID ordering matches semantic iteration.
 - Multiple insertions between the same neighbors preserve order.
-- Local relabel repairs every persistent reference.
+- Normal insertion preserves IDs; only an AST rebalance plan produces remaps.
 - Sibling insertion sorts into its owning range without moving primaries.
 - Retirement leaves a tombstone and decrements its range's `len`.
 - Primary and sibling capacity overflow take the explicit fallback.

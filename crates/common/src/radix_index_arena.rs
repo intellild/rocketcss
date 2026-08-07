@@ -233,6 +233,11 @@ impl<T> RadixRange<T> {
 
     /// Creates a semantic range. A zero length is canonicalized to
     /// [`empty`](Self::empty).
+    ///
+    /// For a non-empty range, the caller must ensure that `start_id`,
+    /// `last_id`, and `len` describe the same contiguous semantic run. Arena
+    /// range APIs reject combinations that are inconsistent with the arena's
+    /// current semantic order.
     #[inline]
     pub fn new(start_id: RadixId<T>, last_id: RadixId<T>, len: u32) -> Self {
         if len == 0 {
@@ -428,115 +433,22 @@ impl<T> RadixIdKey for RadixId<T> {
 }
 
 struct RadixTree<'arena, T> {
+    allocator: &'arena Allocator,
     root: Option<ArenaBox<'arena, RadixRoot<'arena, T>>>,
+    used_len: u16,
     #[cfg(test)]
     allocations: RadixAllocationCounts,
 }
 
 impl<'arena, T> RadixTree<'arena, T> {
     #[inline]
-    fn new() -> Self {
+    fn new(allocator: &'arena Allocator) -> Self {
         Self {
+            allocator,
             root: None,
+            used_len: 0,
             #[cfg(test)]
             allocations: RadixAllocationCounts::default(),
-        }
-    }
-
-    fn insert(&mut self, allocator: &'arena Allocator, key: u16, value: T) {
-        debug_assert!(key != 0 && u32::from(key) <= SIBLING_MASK);
-        let (high, low) = radix_parts(key);
-        if self.root.is_none() {
-            self.root = Some(ArenaBox::new_in(RadixRoot::new(), allocator));
-            #[cfg(test)]
-            {
-                self.allocations.roots += 1;
-            }
-        }
-        let root = self
-            .root
-            .as_deref_mut()
-            .expect("radix tree always has a root");
-        if low == 0 {
-            let bit = 1_u32 << high;
-            assert_eq!(
-                root.direct_used & bit,
-                0,
-                "radix sibling key was already allocated"
-            );
-            root.direct[high] = Some(ArenaBox::new_in(value, allocator));
-            root.direct_occupied |= bit;
-            root.direct_used |= bit;
-            root.occupied_branches |= bit;
-            #[cfg(test)]
-            {
-                self.allocations.values += 1;
-            }
-        } else {
-            if root.leaves[high].is_none() {
-                root.leaves[high] = Some(ArenaBox::new_in(RadixLeaf::new(), allocator));
-                #[cfg(test)]
-                {
-                    self.allocations.leaves += 1;
-                }
-            }
-            let leaf = root.leaves[high]
-                .as_deref_mut()
-                .expect("nonzero-low radix key always has a leaf");
-            let bit = 1_u32 << low;
-            assert_eq!(
-                leaf.used & bit,
-                0,
-                "radix sibling key was already allocated"
-            );
-            leaf.values[low] = Some(ArenaBox::new_in(value, allocator));
-            leaf.occupied |= bit;
-            leaf.used |= bit;
-            root.occupied_branches |= 1_u32 << high;
-            #[cfg(test)]
-            {
-                self.allocations.values += 1;
-            }
-        }
-    }
-
-    fn restore(&mut self, allocator: &'arena Allocator, key: u16, value: T) {
-        let (high, low) = radix_parts(key);
-        let root = self
-            .root
-            .as_deref_mut()
-            .expect("a previously allocated key must have a radix root");
-        if low == 0 {
-            let bit = 1_u32 << high;
-            assert_ne!(
-                root.direct_used & bit,
-                0,
-                "restore requires an allocated key"
-            );
-            assert_eq!(
-                root.direct_occupied & bit,
-                0,
-                "restore requires a retired key"
-            );
-            assert!(root.direct[high].is_none(), "retired key must be empty");
-            root.direct[high] = Some(ArenaBox::new_in(value, allocator));
-            root.direct_occupied |= bit;
-            root.occupied_branches |= bit;
-        } else {
-            let leaf = root.leaves[high]
-                .as_deref_mut()
-                .expect("a previously allocated key must have a radix leaf");
-            let bit = 1_u32 << low;
-            assert_ne!(leaf.used & bit, 0, "restore requires an allocated key");
-            assert_eq!(leaf.occupied & bit, 0, "restore requires a retired key");
-            assert!(leaf.values[low].is_none(), "retired key must be empty");
-            leaf.values[low] = Some(ArenaBox::new_in(value, allocator));
-            leaf.occupied |= bit;
-            root.occupied_branches |= 1_u32 << high;
-        }
-        #[cfg(test)]
-        {
-            self.allocations.values += 1;
         }
     }
 
@@ -572,6 +484,7 @@ impl<'arena, T> RadixTree<'arena, T> {
             root.direct_occupied &= !bit;
             if reusable {
                 root.direct_used &= !bit;
+                self.used_len -= 1;
             }
             value
         } else {
@@ -581,6 +494,7 @@ impl<'arena, T> RadixTree<'arena, T> {
             leaf.occupied &= !bit;
             if reusable {
                 leaf.used &= !bit;
+                self.used_len -= 1;
             }
             value
         };
@@ -612,14 +526,25 @@ impl<'arena, T> RadixTree<'arena, T> {
         }
     }
 
-    fn live_keys(&self) -> std::vec::Vec<u16> {
-        let mut keys = std::vec::Vec::new();
-        if let Some(mut iter) = self.iter() {
-            while let Some((key, _)) = iter.next_enumerated() {
-                keys.push(key);
-            }
+    fn reclaim_retired(&mut self, key: u16) -> bool {
+        if self.get(key).is_some() || !self.is_used(key) {
+            return false;
         }
-        keys
+        let (high, low) = radix_parts(key);
+        let root = self
+            .root
+            .as_deref_mut()
+            .expect("a used sibling slot has a radix root");
+        if low == 0 {
+            root.direct_used &= !(1_u32 << high);
+        } else {
+            root.leaves[high]
+                .as_deref_mut()
+                .expect("a used leaf slot has a radix leaf")
+                .used &= !(1_u32 << low);
+        }
+        self.used_len -= 1;
+        true
     }
 
     fn for_each_enumerated_mut(&mut self, mut visit: impl FnMut(u16, &mut T)) {
@@ -642,28 +567,60 @@ impl<'arena, T> RadixTree<'arena, T> {
     }
 
     fn used_len(&self) -> usize {
+        usize::from(self.used_len)
+    }
+
+    #[inline]
+    fn used_slots(&self, branch: usize) -> u32 {
         let Some(root) = self.root.as_deref() else {
             return 0;
         };
-        root.direct_used.count_ones() as usize
-            + root
-                .leaves
-                .iter()
-                .flatten()
-                .map(|leaf| leaf.used.count_ones() as usize)
-                .sum::<usize>()
+        u32::from(root.direct_used & (1_u32 << branch) != 0)
+            | root.leaves[branch]
+                .as_deref()
+                .map_or(0, |leaf| leaf.used & !1)
     }
 
-    fn drain_live_retaining_ids(&mut self) -> std::vec::Vec<(u16, T)> {
-        let keys = self.live_keys();
-        keys.into_iter()
-            .map(|key| {
-                let value = self
-                    .take(key, false)
-                    .expect("a live radix key must contain a value");
-                (key, value)
-            })
-            .collect()
+    fn insert_unused(&mut self, key: u16, value: T) {
+        debug_assert!(key != 0 && u32::from(key) <= SIBLING_MASK);
+        debug_assert!(!self.is_used(key));
+        if self.root.is_none() {
+            self.root = Some(ArenaBox::new_in(RadixRoot::new(), self.allocator));
+            #[cfg(test)]
+            {
+                self.allocations.roots += 1;
+            }
+        }
+        let root = self.root.as_deref_mut().expect("radix tree has a root");
+        let (high, low) = radix_parts(key);
+        if low == 0 {
+            let bit = 1_u32 << high;
+            root.direct[high] = Some(ArenaBox::new_in(value, self.allocator));
+            root.direct_occupied |= bit;
+            root.direct_used |= bit;
+            root.occupied_branches |= bit;
+        } else {
+            if root.leaves[high].is_none() {
+                root.leaves[high] = Some(ArenaBox::new_in(RadixLeaf::new(), self.allocator));
+                #[cfg(test)]
+                {
+                    self.allocations.leaves += 1;
+                }
+            }
+            let leaf = root.leaves[high]
+                .as_deref_mut()
+                .expect("nonzero-low radix key has a leaf");
+            let bit = 1_u32 << low;
+            leaf.values[low] = Some(ArenaBox::new_in(value, self.allocator));
+            leaf.occupied |= bit;
+            leaf.used |= bit;
+            root.occupied_branches |= 1_u32 << high;
+        }
+        self.used_len += 1;
+        #[cfg(test)]
+        {
+            self.allocations.values += 1;
+        }
     }
 
     fn iter(&self) -> Option<RadixTreeIter<'_, 'arena, T>> {
@@ -731,29 +688,42 @@ struct RadixAllocationCounts {
     values: usize,
 }
 
-/// One ID change produced by a local sibling relabel.
+/// Capacity failures reported before a radix arena mutation writes anything.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RadixIdRemap<I> {
-    pub old: I,
-    pub new: I,
+pub enum RadixCapacityError<I> {
+    IntervalExhausted {
+        primary: I,
+        lower: u16,
+        upper: u16,
+        needed: u32,
+        available: u32,
+    },
+    SiblingTreeExhausted {
+        primary: I,
+    },
+    ArenaExhausted,
 }
 
-/// The result of inserting a value between two semantic neighbors.
+/// A failed single-value insertion together with the value not written.
 #[derive(Debug)]
-pub struct RadixInsertResult<I> {
-    pub id: I,
-    pub remaps: std::vec::Vec<RadixIdRemap<I>>,
+pub struct RadixInsertError<T, I> {
+    pub error: RadixCapacityError<I>,
+    pub value: T,
 }
 
-/// IDs reserved by one terminal sibling-group planning pass.
-///
-/// Reserved IDs do not contain values until the caller activates them with
-/// [`TypedRadixIndexArena::insert_sibling`]. Existing live siblings may be
-/// relabeled once to make every requested position representable.
+/// A failed range insertion together with the iterator not consumed.
 #[derive(Debug)]
-pub struct RadixBatchReservation<I> {
-    pub reserved: std::vec::Vec<I>,
-    pub remaps: std::vec::Vec<RadixIdRemap<I>>,
+pub struct RadixRangePushError<Values, I> {
+    pub error: RadixCapacityError<I>,
+    pub values: Values,
+}
+
+/// Storage state of one encoded sibling slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RadixSiblingSlotState {
+    Vacant,
+    Live,
+    Retired,
 }
 
 /// A sequence with a linear primary store and lazy radix-tree insertions.
@@ -793,6 +763,204 @@ pub struct TypedRadixIndexArena<'arena, T: Unpin, I: RadixIdKey> {
     sibling_trees: Vec<'arena, RadixTree<'arena, T>>,
     len: u32,
     id: PhantomData<fn(I) -> I>,
+}
+
+/// A validated primary anchor for one or more sibling insertions.
+///
+/// The arena resolves or creates the sibling group once. The resulting entry
+/// borrows only that radix tree and the arena's total-length counter, so
+/// repeated insertions do not inspect the arena sidecars again.
+pub struct RadixSiblingEntry<'tree, 'arena, T: Unpin, I: RadixIdKey> {
+    primary: I,
+    tree: &'tree mut RadixTree<'arena, T>,
+    arena_len: &'tree mut u32,
+}
+
+impl<'tree, 'arena, T: Unpin, I: RadixIdKey> RadixSiblingEntry<'tree, 'arena, T, I> {
+    #[inline]
+    fn is_used(&self, sibling_key: u16) -> bool {
+        self.tree.is_used(sibling_key)
+    }
+
+    /// Inserts one unused sibling key below this entry's primary anchor.
+    ///
+    /// The entry may be reused for additional insertions while it has
+    /// capacity. Callers must supply a key in `1..=1023` that has never been
+    /// allocated in this sibling group.
+    pub fn try_insert(&mut self, sibling_key: u16, value: T) -> Result<I, RadixInsertError<T, I>> {
+        debug_assert!(
+            sibling_key != 0 && u32::from(sibling_key) <= SIBLING_MASK,
+            "radix sibling key must be in 1..=1023"
+        );
+        if *self.arena_len == u32::MAX {
+            return Err(RadixInsertError {
+                error: RadixCapacityError::ArenaExhausted,
+                value,
+            });
+        }
+        if self.tree.used_len() == SIBLING_MASK as usize {
+            return Err(RadixInsertError {
+                error: RadixCapacityError::SiblingTreeExhausted {
+                    primary: self.primary,
+                },
+                value,
+            });
+        }
+        if self.is_used(sibling_key) {
+            return Err(RadixInsertError {
+                error: RadixCapacityError::IntervalExhausted {
+                    primary: self.primary,
+                    lower: sibling_key - 1,
+                    upper: sibling_key + 1,
+                    needed: 1,
+                    available: 0,
+                },
+                value,
+            });
+        }
+        self.tree.insert_unused(sibling_key, value);
+        *self.arena_len += 1;
+        Ok(I::from_parts(self.primary.primary_index(), sibling_key))
+    }
+}
+
+/// A validated vacant position between two current semantic neighbors.
+///
+/// The entry owns the resolved sibling group and encoded key, so insertion
+/// does not repeat neighbor validation or key lookup.
+pub struct RadixVacantEntry<'tree, 'arena, T: Unpin, I: RadixIdKey> {
+    sibling: RadixSiblingEntry<'tree, 'arena, T, I>,
+    sibling_key: u16,
+}
+
+impl<'tree, 'arena, T: Unpin, I: RadixIdKey> RadixVacantEntry<'tree, 'arena, T, I> {
+    /// Inserts the value into this vacant position.
+    pub fn try_insert(mut self, value: T) -> Result<I, RadixInsertError<T, I>> {
+        self.sibling.try_insert(self.sibling_key, value)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RadixVacancyCursor {
+    branch: u8,
+    free_slots: u32,
+}
+
+/// A sibling-only gap that can receive one semantic range.
+pub struct RadixSiblingRangeEntry<'tree, 'arena, T: Unpin, M> {
+    sibling: RadixSiblingEntry<'tree, 'arena, T, RadixId<M>>,
+    lower: u16,
+    upper: u16,
+    vacancy: RadixVacancyCursor,
+    capacity: u32,
+}
+
+impl<'tree, 'arena, T: Unpin, M> RadixSiblingRangeEntry<'tree, 'arena, T, M> {
+    /// Returns the number of values that fit in this gap without changing an
+    /// existing ID.
+    #[inline]
+    pub fn capacity(&self) -> u32 {
+        self.capacity
+    }
+
+    pub fn try_push<Values>(
+        mut self,
+        values: Values,
+    ) -> Result<RadixRange<M>, RadixRangePushError<Values::IntoIter, RadixId<M>>>
+    where
+        Values: IntoIterator<Item = T>,
+        Values::IntoIter: ExactSizeIterator,
+    {
+        let mut values = values.into_iter();
+        let needed = u32::try_from(values.len()).unwrap_or(u32::MAX);
+        if needed > self.capacity {
+            return Err(RadixRangePushError {
+                error: RadixCapacityError::IntervalExhausted {
+                    primary: self.sibling.primary,
+                    lower: self.lower,
+                    upper: self.upper,
+                    needed,
+                    available: self.capacity,
+                },
+                values,
+            });
+        }
+        if needed > u32::MAX - *self.sibling.arena_len {
+            return Err(RadixRangePushError {
+                error: RadixCapacityError::ArenaExhausted,
+                values,
+            });
+        }
+
+        let mut endpoints = None;
+        let mut inserted = 0_u32;
+        for _ in 0..needed {
+            let Some(value) = values.next() else { break };
+            let key = self
+                .vacancy
+                .next(&self.sibling, self.lower, self.upper)
+                .expect("range capacity was preflighted");
+            self.sibling.tree.insert_unused(key, value);
+            *self.sibling.arena_len += 1;
+            let id = RadixId::from_parts(self.sibling.primary.primary_index(), key);
+            endpoints = Some((endpoints.map_or(id, |(start, _)| start), id));
+            inserted += 1;
+        }
+        Ok(endpoints.map_or_else(RadixRange::empty, |(start, last)| {
+            RadixRange::new(start, last, inserted)
+        }))
+    }
+}
+
+impl RadixVacancyCursor {
+    #[inline]
+    fn free_slots_in_branch<T>(
+        tree: Option<&RadixTree<'_, T>>,
+        branch: usize,
+        lower: u16,
+        upper: u16,
+    ) -> u32 {
+        let branch_start = (branch * RADIX_SIZE) as u16;
+        if branch_start >= upper {
+            return 0;
+        }
+        let first = lower.saturating_add(1).saturating_sub(branch_start).min(32);
+        let end = upper.saturating_sub(branch_start).min(32);
+        let after_lower = u32::MAX.checked_shl(u32::from(first)).unwrap_or(0);
+        let before_upper = u32::MAX.checked_shr(u32::from(32 - end)).unwrap_or(0);
+        after_lower & before_upper & !tree.map_or(0, |tree| tree.used_slots(branch))
+    }
+
+    fn next<T: Unpin, I: RadixIdKey>(
+        &mut self,
+        sibling: &RadixSiblingEntry<'_, '_, T, I>,
+        lower: u16,
+        upper: u16,
+    ) -> Option<u16> {
+        loop {
+            if self.free_slots != 0 {
+                let low = self.free_slots.trailing_zeros() as u16;
+                self.free_slots &= self.free_slots - 1;
+                let branch = self.branch;
+                if self.free_slots == 0 {
+                    self.branch += 1;
+                }
+                return Some(u16::from(branch) * RADIX_SIZE as u16 + low);
+            }
+            let branch = usize::from(self.branch);
+            if branch >= RADIX_SIZE {
+                return None;
+            }
+            if (branch * RADIX_SIZE) as u16 >= upper {
+                return None;
+            }
+            self.free_slots =
+                Self::free_slots_in_branch(Some(&*sibling.tree), branch, lower, upper);
+            if self.free_slots == 0 {
+                self.branch += 1;
+            }
+        }
+    }
 }
 
 impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
@@ -899,258 +1067,63 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         id
     }
 
-    /// Inserts a rare sibling after a primary value.
+    /// Returns a cached insertion entry for `primary`, or `None` when the
+    /// primary is invalid.
     ///
-    /// Siblings are emitted in ascending `sibling_key` order. Key zero is
-    /// reserved for the primary value; valid sibling keys are `1..=1023`.
-    ///
-    /// # Panics
-    ///
-    /// Panics for a non-primary owner, an invalid or duplicate key, an unknown
-    /// primary ID, or `u32::MAX` total values.
-    pub fn insert_sibling(&mut self, primary: I, sibling_key: u16, value: T) -> I {
-        assert!(
-            primary.is_primary() && !primary.is_overflow(),
-            "sibling owner must be a compact primary ID"
-        );
-        assert!(
-            sibling_key != 0 && u32::from(sibling_key) <= SIBLING_MASK,
-            "radix sibling key must be in 1..=1023"
-        );
-        assert!(self.len < u32::MAX, "RadixIndexArena capacity exhausted");
-        let primary_index = primary.primary_index();
-        self.primary
-            .get(primary_index)
-            .expect("unknown primary radix ID");
+    /// This is the AST wrapper's preflight for choosing its overflow fallback
+    /// before moving a value into the compact store. Keeping the entry through
+    /// insertion avoids resolving the sibling group twice.
+    pub fn sibling_entry(&mut self, primary: I) -> Option<RadixSiblingEntry<'_, 'arena, T, I>> {
+        if primary.is_overflow()
+            || primary.sibling_key() != 0
+            || self.primary.get(primary.primary_index()).is_none()
+        {
+            return None;
+        }
+        Some(self.resolve_sibling_entry(primary.primary_index()))
+    }
+
+    /// Returns a validated vacant entry between two current semantic
+    /// neighbors without reusing any retired ID.
+    pub fn entry_between(
+        &mut self,
+        after: I,
+        before: Option<I>,
+    ) -> Option<RadixVacantEntry<'_, 'arena, T, I>> {
+        if self.len == u32::MAX {
+            return None;
+        }
+        let (primary_index, lower, upper) = self.insertion_point(after, before)?;
+        let sibling_key = self.unused_key_between(primary_index, lower, upper)?;
+        Some(RadixVacantEntry {
+            sibling: self.resolve_sibling_entry(primary_index),
+            sibling_key,
+        })
+    }
+
+    fn resolve_sibling_entry(
+        &mut self,
+        primary_index: usize,
+    ) -> RadixSiblingEntry<'_, 'arena, T, I> {
         let group_index = match self.sibling_group_index(primary_index) {
             Some(index) => index,
             None => {
-                let semantic_index = self.sibling_group_position(primary_index).unwrap_err();
+                let semantic_index = self
+                    .sibling_group_position(primary_index)
+                    .expect_err("a missing sibling group has no traversal entry");
                 self.sibling_primary_indices
                     .insert(semantic_index, primary_index as u32);
                 let index = self.sibling_trees.len();
-                self.sibling_trees.push(RadixTree::new());
+                self.sibling_trees.push(RadixTree::new(self.allocator));
                 self.sibling_group_indices[primary_index] = index as u32;
                 index
             }
         };
-        self.sibling_trees[group_index].insert(self.allocator, sibling_key, value);
-        self.len += 1;
-        I::from_parts(primary_index, sibling_key)
-    }
-
-    /// Returns whether another live sibling can be represented below `primary`.
-    ///
-    /// This is the AST wrapper's preflight for choosing its overflow fallback
-    /// before moving a value into the compact store.
-    pub fn can_insert_sibling(&self, primary: I) -> bool {
-        if !primary.is_primary()
-            || primary.is_overflow()
-            || self.primary.get(primary.primary_index()).is_none()
-        {
-            return false;
+        RadixSiblingEntry {
+            primary: I::from_primary_index(primary_index),
+            tree: &mut self.sibling_trees[group_index],
+            arena_len: &mut self.len,
         }
-        self.len < u32::MAX
-            && self
-                .sibling_group_index(primary.primary_index())
-                .and_then(|group| self.sibling_trees.get(group))
-                .is_none_or(|tree| tree.used_len() < SIBLING_MASK as usize)
-    }
-
-    /// Reserves several ordered positions below one compact primary anchor.
-    ///
-    /// `positions` are the zero-based positions of the reservations in the
-    /// final sibling sequence (the primary itself is not part of that
-    /// sequence). They must be strictly increasing. All current siblings fill
-    /// the remaining positions in their existing order.
-    ///
-    /// The sibling group is rebuilt at most once. Reservations do not occupy
-    /// the returned IDs, so callers may omit an activation when a tombstone is
-    /// reused instead. No other insertion may target this sibling group until
-    /// all desired reservations have either been activated or abandoned.
-    pub fn reserve_sibling_positions(
-        &mut self,
-        primary: I,
-        positions: &[usize],
-    ) -> Option<RadixBatchReservation<I>> {
-        if !primary.is_primary()
-            || primary.is_overflow()
-            || self.primary.get(primary.primary_index()).is_none()
-            || self
-                .len
-                .checked_add(u32::try_from(positions.len()).ok()?)
-                .is_none()
-        {
-            return None;
-        }
-        if positions.windows(2).any(|pair| pair[0] >= pair[1]) {
-            return None;
-        }
-
-        let primary_index = primary.primary_index();
-        let group = self.sibling_group_index(primary_index);
-        let live_keys = group
-            .and_then(|group| self.sibling_trees.get(group))
-            .map_or_else(std::vec::Vec::new, RadixTree::live_keys);
-        let final_len = live_keys.len().checked_add(positions.len())?;
-        if positions
-            .last()
-            .is_some_and(|&position| position >= final_len)
-            || final_len > SIBLING_MASK as usize
-        {
-            return None;
-        }
-
-        let tree = group.and_then(|group| self.sibling_trees.get(group));
-        let mut old_keys = live_keys.iter().copied();
-        let mut reservation_index = 0;
-        let mut slots = std::vec::Vec::with_capacity(final_len);
-        for index in 0..final_len {
-            if positions.get(reservation_index).copied() == Some(index) {
-                slots.push(None);
-                reservation_index += 1;
-            } else {
-                slots.push(Some(old_keys.next()?));
-            }
-        }
-        if old_keys.next().is_some() || reservation_index != positions.len() {
-            return None;
-        }
-
-        let mut assigned_keys = std::vec::Vec::with_capacity(final_len);
-        let mut previous = 0_u16;
-        for old_key in &slots {
-            let retained = old_key.filter(|&old_key| old_key > previous);
-            let unused = ((previous + 1)..=SIBLING_MASK as u16)
-                .find(|&candidate| tree.is_none_or(|tree| !tree.is_used(candidate)));
-            let key = match (retained, unused) {
-                (Some(retained), Some(unused)) => retained.min(unused),
-                (Some(retained), None) => retained,
-                (None, Some(unused)) => unused,
-                (None, None) => return None,
-            };
-            assigned_keys.push(key);
-            previous = key;
-        }
-
-        let mut reserved = std::vec::Vec::with_capacity(positions.len());
-        let mut remaps = std::vec::Vec::new();
-        for (&old_key, &assigned_key) in slots.iter().zip(&assigned_keys) {
-            match old_key {
-                Some(old_key) if old_key != assigned_key => remaps.push(RadixIdRemap {
-                    old: I::from_parts(primary_index, old_key),
-                    new: I::from_parts(primary_index, assigned_key),
-                }),
-                None => reserved.push(I::from_parts(primary_index, assigned_key)),
-                Some(_) => {}
-            }
-        }
-
-        if !remaps.is_empty() {
-            let group = group.expect("existing siblings own a sibling group");
-            let tree = &mut self.sibling_trees[group];
-            let entries = tree.drain_live_retaining_ids();
-            let mut entries = entries.into_iter();
-            for (&old_key, &assigned_key) in slots.iter().zip(&assigned_keys) {
-                let Some(old_key) = old_key else {
-                    continue;
-                };
-                let (entry_key, value) = entries
-                    .next()
-                    .expect("every existing sibling has one drained value");
-                debug_assert_eq!(entry_key, old_key);
-                if old_key == assigned_key {
-                    tree.restore(self.allocator, assigned_key, value);
-                } else {
-                    tree.insert(self.allocator, assigned_key, value);
-                }
-            }
-            debug_assert!(entries.next().is_none());
-        }
-
-        Some(RadixBatchReservation { reserved, remaps })
-    }
-
-    /// Activates one ID returned by [`reserve_sibling_positions`](Self::reserve_sibling_positions).
-    ///
-    /// Returns `None` if the ID is not a vacant compact sibling position.
-    pub fn activate_reserved_sibling(&mut self, id: I, value: T) -> Option<I> {
-        if id.is_primary() || id.is_overflow() || self.get(id).is_some() {
-            return None;
-        }
-        let primary = I::from_parts(id.primary_index(), 0);
-        self.can_insert_sibling(primary)
-            .then(|| self.insert_sibling(primary, id.sibling_key(), value))
-    }
-
-    /// Returns whether a compact ID can be assigned between two current
-    /// semantic neighbors without reusing any retired ID.
-    pub fn can_insert_between(&self, after: I, before: Option<I>) -> bool {
-        if self.len == u32::MAX {
-            return false;
-        }
-        let Some((primary_index, lower, upper, live_keys)) = self.insertion_point(after, before)
-        else {
-            return false;
-        };
-        if self
-            .unused_key_between(primary_index, lower, upper)
-            .is_some()
-        {
-            return true;
-        }
-        let Some(group) = self.sibling_group_index(primary_index) else {
-            return false;
-        };
-        let insertion_index = live_keys.partition_point(|key| *key <= lower);
-        Self::relabel_keys_for_insert(&self.sibling_trees[group], &live_keys, insertion_index)
-            .is_some()
-    }
-
-    /// Inserts a value between two current semantic neighbors.
-    ///
-    /// The new value is stored below `after`'s primary anchor. When no unused
-    /// encoded key remains in the interval, this method relabels only the live
-    /// siblings below that primary and returns every changed ID. Callers must
-    /// repair persistent references in the same transaction before publishing
-    /// the result.
-    ///
-    /// `before` is `None` only after the final value in the arena. This method
-    /// validates that `after` and `before` are current semantic neighbors.
-    ///
-    /// # Panics
-    ///
-    /// Panics for invalid/non-neighbor IDs or when compact IDs are exhausted.
-    /// AST wrappers must use [`can_insert_between`](Self::can_insert_between)
-    /// to select their non-panicking fallback or rejection path first.
-    pub fn insert_between(
-        &mut self,
-        after: I,
-        before: Option<I>,
-        value: T,
-    ) -> RadixInsertResult<I> {
-        assert!(self.len < u32::MAX, "RadixIndexArena capacity exhausted");
-        let (primary_index, lower, upper, live_keys) = self
-            .insertion_point(after, before)
-            .expect("after and before must be current base-ID semantic neighbors");
-
-        if let Some(key) = self.unused_key_between(primary_index, lower, upper) {
-            let primary = I::from_parts(primary_index, 0);
-            let id = self.insert_sibling(primary, key, value);
-            return RadixInsertResult {
-                id,
-                remaps: std::vec::Vec::new(),
-            };
-        }
-
-        let group = self
-            .sibling_group_index(primary_index)
-            .expect("a gapless interval requires an existing sibling group");
-        let insertion_index = live_keys.partition_point(|key| *key <= lower);
-        let assigned_keys =
-            Self::relabel_keys_for_insert(&self.sibling_trees[group], &live_keys, insertion_index)
-                .expect("RadixIndexArena local sibling ID space exhausted");
-        self.relabel_and_insert(primary_index, insertion_index, assigned_keys, value)
     }
 
     /// Removes an inserted sibling and makes its key reusable.
@@ -1183,6 +1156,49 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
             .take(id.sibling_key(), false)?;
         self.len -= 1;
         Some(value)
+    }
+
+    /// Reports whether one encoded sibling slot is vacant, live, or retained
+    /// as a non-reusable tombstone. This exposes storage facts without choosing
+    /// an AST rebalance policy.
+    pub fn sibling_slot_state(
+        &self,
+        primary: I,
+        sibling_key: u16,
+    ) -> Option<RadixSiblingSlotState> {
+        if !primary.is_primary()
+            || primary.is_overflow()
+            || sibling_key == 0
+            || u32::from(sibling_key) > SIBLING_MASK
+            || self.primary.get(primary.primary_index()).is_none()
+        {
+            return None;
+        }
+        let Some(group_index) = self.sibling_group_index(primary.primary_index()) else {
+            return Some(RadixSiblingSlotState::Vacant);
+        };
+        let tree = &self.sibling_trees[group_index];
+        Some(if tree.get(sibling_key).is_some() {
+            RadixSiblingSlotState::Live
+        } else if tree.is_used(sibling_key) {
+            RadixSiblingSlotState::Retired
+        } else {
+            RadixSiblingSlotState::Vacant
+        })
+    }
+
+    /// Explicitly makes one retired sibling slot reusable.
+    ///
+    /// Callers must first prove that every persistent reference to the retired
+    /// ID has been repaired. Normal insertion and retirement never call this
+    /// method implicitly.
+    pub fn reclaim_retired_sibling(&mut self, id: I) -> bool {
+        if id.is_primary() || id.is_overflow() {
+            return false;
+        }
+        self.sibling_group_index(id.primary_index())
+            .and_then(|group| self.sibling_trees.get_mut(group))
+            .is_some_and(|tree| tree.reclaim_retired(id.sibling_key()))
     }
 
     /// Resolves an ID to its value.
@@ -1316,15 +1332,12 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
             .binary_search(&(primary_index as u32))
     }
 
-    fn insertion_point(
-        &self,
-        after: I,
-        before: Option<I>,
-    ) -> Option<(usize, u16, u16, std::vec::Vec<u16>)> {
-        if after.is_overflow() || self.get(after).is_none() {
+    fn insertion_point(&self, after: I, before: Option<I>) -> Option<(usize, u16, u16)> {
+        if after.is_overflow() {
             return None;
         }
-        if before.is_some_and(|before| self.get(before).is_none()) {
+        let mut cursor = DetachedRadixRangeCursor::at_id(self, after)?;
+        if cursor.advance(self) != Some(after) || cursor.advance(self) != before {
             return None;
         }
 
@@ -1336,32 +1349,13 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
             {
                 before.sibling_key()
             }
-            Some(before)
-                if before.is_overflow()
-                    && before.overflow_index() == 0
-                    && primary_index + 1 == COMPACT_PRIMARY_CAPACITY =>
-            {
-                (SIBLING_MASK + 1) as u16
-            }
             Some(before) if before.is_primary() && before.primary_index() == primary_index + 1 => {
                 (SIBLING_MASK + 1) as u16
             }
-            None if self.primary.len() <= COMPACT_PRIMARY_CAPACITY
-                && primary_index + 1 == self.primary.len() =>
-            {
-                (SIBLING_MASK + 1) as u16
-            }
+            None => (SIBLING_MASK + 1) as u16,
             _ => return None,
         };
-
-        let live_keys = self
-            .sibling_group_index(primary_index)
-            .and_then(|group| self.sibling_trees.get(group))
-            .map_or_else(std::vec::Vec::new, RadixTree::live_keys);
-        let no_live_between = live_keys.iter().all(|&key| key <= lower || key >= upper);
-        let after_is_final =
-            upper != (SIBLING_MASK + 1) as u16 || live_keys.iter().all(|&key| key <= lower);
-        (no_live_between && after_is_final).then_some((primary_index, lower, upper, live_keys))
+        Some((primary_index, lower, upper))
     }
 
     fn unused_key_between(&self, primary_index: usize, lower: u16, upper: u16) -> Option<u16> {
@@ -1392,89 +1386,45 @@ impl<'arena, T: Unpin, I: RadixIdKey> TypedRadixIndexArena<'arena, T, I> {
         }
         None
     }
-
-    fn relabel_keys_for_insert(
-        tree: &RadixTree<'_, T>,
-        live_keys: &[u16],
-        insertion_index: usize,
-    ) -> Option<std::vec::Vec<u16>> {
-        let mut old_keys = live_keys
-            .iter()
-            .copied()
-            .map(Some)
-            .collect::<std::vec::Vec<_>>();
-        old_keys.insert(insertion_index, None);
-        let mut assigned_keys = std::vec::Vec::with_capacity(old_keys.len());
-        let mut previous = 0_u16;
-        for old_key in old_keys {
-            let retained = match old_key {
-                Some(old_key) if old_key > previous => Some(old_key),
-                _ => None,
-            };
-            let unused =
-                ((previous + 1)..=SIBLING_MASK as u16).find(|&candidate| !tree.is_used(candidate));
-            let key = match (retained, unused) {
-                (Some(retained), Some(unused)) => retained.min(unused),
-                (Some(retained), None) => retained,
-                (None, Some(unused)) => unused,
-                (None, None) => return None,
-            };
-            assigned_keys.push(key);
-            previous = key;
-        }
-        Some(assigned_keys)
-    }
-
-    fn relabel_and_insert(
-        &mut self,
-        primary_index: usize,
-        insertion_index: usize,
-        assigned_keys: std::vec::Vec<u16>,
-        value: T,
-    ) -> RadixInsertResult<I> {
-        let group = self
-            .sibling_group_index(primary_index)
-            .expect("relabeling requires an existing sibling group");
-        let tree = &mut self.sibling_trees[group];
-        let mut entries = tree.drain_live_retaining_ids();
-        entries.insert(insertion_index, (0, value));
-        let mut remaps = std::vec::Vec::with_capacity(entries.len().saturating_sub(1));
-        let mut inserted = None;
-        for (index, ((old_key, value), key)) in entries.into_iter().zip(assigned_keys).enumerate() {
-            if index != insertion_index && old_key == key {
-                tree.restore(self.allocator, key, value);
-            } else {
-                tree.insert(self.allocator, key, value);
-            }
-            let new = I::from_parts(primary_index, key);
-            if index == insertion_index {
-                inserted = Some(new);
-            } else if old_key != key {
-                remaps.push(RadixIdRemap {
-                    old: I::from_parts(primary_index, old_key),
-                    new,
-                });
-            }
-        }
-        self.len += 1;
-        RadixInsertResult {
-            id: inserted.expect("the inserted entry is part of the rebuilt sibling tree"),
-            remaps,
-        }
-    }
 }
 
 impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
-    /// Returns whether `len` additional primary values can be appended.
-    pub fn can_push_primary_range(&self, len: u32) -> bool {
-        self.len.checked_add(len).is_some()
+    /// Tries to append a batch of primary values without consuming it on
+    /// capacity failure.
+    pub fn try_push_primary_range<Values>(
+        &mut self,
+        values: Values,
+    ) -> Result<RadixRange<M>, RadixRangePushError<Values::IntoIter, RadixId<M>>>
+    where
+        Values: IntoIterator<Item = T>,
+        Values::IntoIter: ExactSizeIterator,
+    {
+        let values = values.into_iter();
+        let reported_len = u32::try_from(values.len()).unwrap_or(u32::MAX);
+        let has_capacity = self.len.checked_add(reported_len).is_some()
             && self
                 .primary
                 .len()
-                .checked_add(len as usize)
+                .checked_add(reported_len as usize)
                 .is_some_and(|primary_len| {
                     primary_len <= COMPACT_PRIMARY_CAPACITY + OVERFLOW_CAPACITY
-                })
+                });
+        if !has_capacity {
+            return Err(RadixRangePushError {
+                error: RadixCapacityError::ArenaExhausted,
+                values,
+            });
+        }
+        let mut endpoints = None;
+        let mut pushed = 0_u32;
+        for value in values {
+            let id = self.push_primary(value);
+            endpoints = Some((endpoints.map_or(id, |(start, _)| start), id));
+            pushed += 1;
+        }
+        Ok(endpoints.map_or_else(RadixRange::empty, |(start, last)| {
+            RadixRange::new(start, last, pushed)
+        }))
     }
 
     /// Appends a batch of primary values and returns their semantic range.
@@ -1483,20 +1433,10 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         Values: IntoIterator<Item = T>,
         Values::IntoIter: ExactSizeIterator,
     {
-        let values = values.into_iter();
-        let len = u32::try_from(values.len()).expect("Radix primary range length exceeds u32");
-        assert!(
-            self.can_push_primary_range(len),
-            "RadixIndexArena primary range capacity exhausted"
-        );
-        let mut endpoints = None;
-        for value in values {
-            let id = self.push_primary(value);
-            endpoints = Some((endpoints.map_or(id, |(start, _)| start), id));
+        match self.try_push_primary_range(values) {
+            Ok(range) => range,
+            Err(_) => panic!("RadixIndexArena primary range capacity exhausted"),
         }
-        endpoints.map_or_else(RadixRange::empty, |(start, last)| {
-            RadixRange::new(start, last, len)
-        })
     }
 
     /// Returns the IDs in `range`, or `None` when the complete range is not
@@ -1608,105 +1548,33 @@ impl<'arena, T: Unpin, M> TypedRadixIndexArena<'arena, T, RadixId<M>> {
         Some(())
     }
 
-    /// Preflights a stable batch insertion between current semantic neighbors.
-    /// Existing IDs are never relabeled.
-    pub fn can_insert_stable_range_between(
-        &self,
-        after: RadixId<M>,
-        before: Option<RadixId<M>>,
-        len: u32,
-    ) -> bool {
-        if len == 0 {
-            return self.insertion_gap_is_current(after, before);
-        }
-        if self.len.checked_add(len).is_none() {
-            return false;
-        }
-        if before.is_none() && self.insertion_gap_is_current(after, None) {
-            return self.can_push_primary_range(len);
-        }
-        let Some((primary_index, lower, upper, _)) = self.insertion_point(after, before) else {
-            return false;
-        };
-        self.stable_unused_keys_between(primary_index, lower, upper, len)
-            .is_some()
-    }
-
-    /// Inserts a stable batch between current semantic neighbors and returns
-    /// its contiguous semantic range. Existing IDs are not relabeled.
-    ///
-    /// # Panics
-    ///
-    /// Panics unless the full insertion passes
-    /// [`can_insert_stable_range_between`](Self::can_insert_stable_range_between).
-    pub fn insert_stable_range_between<Values>(
+    /// Returns an entry for inserting one semantic range between current
+    /// neighbors. Existing IDs are never relabeled.
+    pub fn range_entry_between(
         &mut self,
         after: RadixId<M>,
         before: Option<RadixId<M>>,
-        values: Values,
-    ) -> RadixRange<M>
-    where
-        Values: IntoIterator<Item = T>,
-        Values::IntoIter: ExactSizeIterator,
-    {
-        let values = values.into_iter();
-        let len = u32::try_from(values.len()).expect("Radix stable range length exceeds u32");
-        assert!(
-            self.can_insert_stable_range_between(after, before, len),
-            "RadixIndexArena stable range capacity exhausted"
-        );
-        if len == 0 {
-            return RadixRange::empty();
-        }
-
-        if before.is_none() && self.insertion_gap_is_current(after, None) {
-            return self.push_primary_range(values);
-        }
-
-        let (primary_index, lower, upper, _) = self
-            .insertion_point(after, before)
-            .expect("stable range endpoints were preflighted");
-        let keys = self
-            .stable_unused_keys_between(primary_index, lower, upper, len)
-            .expect("stable range key capacity was preflighted");
-        let primary = RadixId::from_parts(primary_index, 0);
-        let mut endpoints = None;
-        for (key, value) in keys.into_iter().zip(values) {
-            let id = self.insert_sibling(primary, key, value);
-            endpoints = Some((endpoints.map_or(id, |(start, _)| start), id));
-        }
-        let (start, last) = endpoints.expect("a non-empty batch has endpoints");
-        RadixRange::new(start, last, len)
-    }
-
-    fn stable_unused_keys_between(
-        &self,
-        primary_index: usize,
-        lower: u16,
-        upper: u16,
-        len: u32,
-    ) -> Option<std::vec::Vec<u16>> {
-        let needed = len as usize;
+    ) -> Option<RadixSiblingRangeEntry<'_, 'arena, T, M>> {
+        let (primary_index, lower, upper) = self.insertion_point(after, before)?;
         let tree = self
             .sibling_group_index(primary_index)
             .and_then(|group| self.sibling_trees.get(group));
-        let mut keys = std::vec::Vec::with_capacity(needed);
-        for key in lower + 1..upper {
-            if tree.is_none_or(|tree| !tree.is_used(key)) {
-                keys.push(key);
-                if keys.len() == needed {
-                    return Some(keys);
-                }
-            }
-        }
-        (needed == 0).then_some(keys)
-    }
-
-    fn insertion_gap_is_current(&self, after: RadixId<M>, before: Option<RadixId<M>>) -> bool {
-        let Some(mut cursor) = DetachedRadixIds::at_id(self, after) else {
-            return false;
-        };
-        cursor.advance(self) == Some(after) && cursor.advance(self) == before
+        let capacity = (usize::from(lower / RADIX_SIZE as u16)..RADIX_SIZE)
+            .map(|branch| {
+                RadixVacancyCursor::free_slots_in_branch(tree, branch, lower, upper).count_ones()
+            })
+            .sum::<u32>();
+        let capacity = capacity.min(u32::MAX - self.len);
+        Some(RadixSiblingRangeEntry {
+            capacity,
+            sibling: self.resolve_sibling_entry(primary_index),
+            lower,
+            upper,
+            vacancy: RadixVacancyCursor {
+                branch: (lower / RADIX_SIZE as u16) as u8,
+                free_slots: 0,
+            },
+        })
     }
 }
 
@@ -1773,7 +1641,20 @@ impl DetachedRadixRangeCursor {
                 current: RadixRangeIdSegment::Done,
             });
         }
-        Self::at_id(arena, range.start_id())
+        let start_id = range.start_id();
+        if arena.primary_slice_in_range(range).is_some() {
+            return Self::at_id(arena, start_id);
+        }
+
+        let mut validator = Self::at_id(arena, start_id)?;
+        let mut actual_last = None;
+        for _ in 0..range.len() {
+            actual_last = Some(validator.advance(arena)?);
+        }
+        if actual_last != Some(range.last_id()) {
+            return None;
+        }
+        Self::at_id(arena, start_id)
     }
 
     fn at_id<T: Unpin, I: RadixIdKey>(
@@ -1874,58 +1755,6 @@ impl DetachedRadixIds {
                 RadixIdSegment::Primary { next: 0, end }
             },
         }
-    }
-
-    fn at_id<T: Unpin, I: RadixIdKey>(
-        arena: &TypedRadixIndexArena<'_, T, I>,
-        id: I,
-    ) -> Option<Self> {
-        let primary_index = id.primary_index();
-        if id.is_overflow() {
-            arena.primary.get(primary_index)?;
-            return Some(Self {
-                next_primary: arena.primary.len(),
-                next_group: arena.sibling_primary_indices.len(),
-                current: RadixIdSegment::Primary {
-                    next: primary_index,
-                    end: arena.primary.len(),
-                },
-            });
-        }
-
-        arena.primary.get(primary_index)?;
-        let group_position = arena.sibling_group_position(primary_index);
-        if id.is_primary() {
-            let next_group = group_position.unwrap_or_else(|next_group| next_group);
-            let end = arena
-                .sibling_primary_indices
-                .get(next_group)
-                .map_or(arena.primary.len(), |&primary_index| {
-                    primary_index as usize + 1
-                });
-            return Some(Self {
-                next_primary: end,
-                next_group,
-                current: RadixIdSegment::Primary {
-                    next: primary_index,
-                    end,
-                },
-            });
-        }
-
-        let group = group_position.ok()?;
-        let tree_index = arena.sibling_group_index(primary_index)?;
-        let tree = &arena.sibling_trees[tree_index];
-        tree.get(id.sibling_key())?;
-        Some(Self {
-            next_primary: primary_index + 1,
-            next_group: group + 1,
-            current: RadixIdSegment::Siblings {
-                primary_index,
-                tree_index,
-                cursor: RadixTreeKeyCursor::from_key(tree, id.sibling_key())?,
-            },
-        })
     }
 
     #[inline]
