@@ -1,4 +1,4 @@
-//! Parser for the compiler-owned Radix AST.
+//! Parser for the compiler-owned persistent AST.
 
 #[cfg(test)]
 use rocketcss_ast::radix_ast::{
@@ -44,7 +44,7 @@ use at_rule::parse_group_at_rule;
 use style::parse_style_rule;
 
 impl<'ast> Compiler<'ast> {
-    /// Parses a stylesheet directly into the authoritative Radix stores.
+    /// Parses a stylesheet directly into the authoritative dense stores.
     pub(crate) fn parse_compilation(
         &mut self,
         source: &'ast str,
@@ -203,15 +203,13 @@ fn mutation_error<'ast>(
     use rocketcss_ast::radix_ast::ConcreteMutationError;
 
     let error = match error {
-        ConcreteMutationError::<'ast>::PrimaryRuleCapacityExhausted
-        | ConcreteMutationError::<'ast>::PrimaryDeclarationBlockCapacityExhausted
+        ConcreteMutationError::<'ast>::RuleCapacityExhausted
+        | ConcreteMutationError::<'ast>::DeclarationBlockCapacityExhausted
         | ConcreteMutationError::<'ast>::RuleListCapacityExhausted
         | ConcreteMutationError::<'ast>::EffectiveKeyCapacityExhausted
         | ConcreteMutationError::<'ast>::SelectorContextCapacityExhausted
         | ConcreteMutationError::<'ast>::DeclarationCapacityExhausted
-        | ConcreteMutationError::<'ast>::DeclarationOverflowCapacityExhausted
-        | ConcreteMutationError::<'ast>::LocalRuleCapacityExhausted(_)
-        | ConcreteMutationError::<'ast>::LocalDeclarationBlockCapacityExhausted(_) => {
+        | ConcreteMutationError::<'ast>::DeclarationOverflowCapacityExhausted => {
             ParserError::AstCapacityExceeded
         }
         ConcreteMutationError::<'ast>::UnknownRule(_)

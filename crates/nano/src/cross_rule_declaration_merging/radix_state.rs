@@ -1,4 +1,4 @@
-//! Incremental cross-rule scheduler over the compiler-owned Radix AST.
+//! Incremental cross-rule scheduler over the compiler-owned persistent AST.
 //!
 //! Declaration summaries are published at the end of each local block pass.
 //! Finalization consumes that publication tape plus the final context remap;
@@ -15,7 +15,7 @@ use rocketcss_ast::{
     },
 };
 use rocketcss_common::{
-    Allocator, RadixIdRemap, RadixInsertResult,
+    Allocator,
     prelude::{HashMap, HashSet, Vec},
 };
 use std::{cmp::Reverse, collections::VecDeque};
@@ -98,14 +98,6 @@ impl<'arena, 'ast> SameSelectorCandidateList<'arena, 'ast> {
     fn is_empty(&self) -> bool {
         self.pending.is_empty()
     }
-
-    fn remap_blocks(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>]) {
-        for candidate in &mut self.pending {
-            candidate.remap_blocks(remaps);
-        }
-        self.queued.clear();
-        self.queued.extend(self.pending.iter().copied());
-    }
 }
 
 #[derive(Debug)]
@@ -142,19 +134,6 @@ impl<'arena, 'ast> PartialMergeCandidateList<'arena, 'ast> {
 
     fn is_empty(&self) -> bool {
         self.pending.is_empty()
-    }
-
-    fn remap_blocks(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>]) {
-        for Reverse(candidate) in self.pending.iter_mut() {
-            candidate.remap_blocks(remaps);
-        }
-        for index in (0..self.pending.len() / 2).rev() {
-            self.sift_down(index);
-        }
-        self.queued.clear();
-        for candidate in &self.pending {
-            self.queued.insert(candidate.0);
-        }
     }
 
     fn sift_up(&mut self, mut index: usize) {
@@ -385,7 +364,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 self.published_blocks[index] = published;
             }
             self.published_block_count += 1;
-            if self.insert_history_occurrence(published.effective_key, published.block) {
+            if self.append_history_occurrence(published.effective_key, published.block) {
                 self.declaration_override_candidates
                     .push(published.effective_key);
             }
@@ -804,7 +783,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     shared_key
                 );
                 self.remove_history_occurrence(endpoints.left_key, candidate.left);
-                self.insert_history_occurrence(shared_key, candidate.left);
+                self.insert_history_occurrence(compilation, shared_key, candidate.left);
 
                 let retain_right = self.declaration_ir.block_live_count(candidate.right) != 0
                     || compilation
@@ -828,16 +807,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                 break;
             }
 
-            let before_block = first_block_after_rule_in_source(
-                compilation,
-                endpoints.left_rule,
-                endpoints.right_rule,
-            )?;
-            if !compilation.can_insert_declaration_block_between(
-                candidate.left,
-                Some(before_block),
-                self.scratch.common.len(),
-            ) {
+            if !compilation.can_insert_declaration_block(self.scratch.common.len()) {
                 stats.rejected_capacity += 1;
                 continue;
             }
@@ -858,28 +828,18 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             };
             let rule_result = match compilation.insert_rule_after(endpoints.left_rule, payload) {
                 Ok(result) => result,
-                Err(
-                    MutationError::<'ast>::LocalRuleCapacityExhausted(_)
-                    | MutationError::<'ast>::PrimaryRuleCapacityExhausted,
-                ) => {
+                Err(MutationError::<'ast>::RuleCapacityExhausted) => {
                     stats.rejected_capacity += 1;
                     continue;
                 }
                 Err(error) => return Err(error),
             };
-            let left_rule = remap_rule_id(endpoints.left_rule, &rule_result.remaps);
-            let right_rule = remap_rule_id(endpoints.right_rule, &rule_result.remaps);
-            let shared_rule = rule_result.id;
-            let block_result = compilation.insert_declaration_block_between(
-                candidate.left,
-                Some(before_block),
-                shared_rule,
-                shared_key,
-            )?;
-            self.repair_block_remaps(&block_result);
-            let left_block = remap_block_id(candidate.left, &block_result.remaps);
-            let right_block = remap_block_id(candidate.right, &block_result.remaps);
-            let shared_block = block_result.id;
+            let left_rule = endpoints.left_rule;
+            let right_rule = endpoints.right_rule;
+            let shared_rule = rule_result;
+            let shared_block = compilation.insert_declaration_block(shared_rule, shared_key)?;
+            let left_block = candidate.left;
+            let right_block = candidate.right;
 
             for declaration in &self.scratch.common {
                 let important = compilation
@@ -906,7 +866,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
                     moved,
                 )?;
             }
-            self.insert_history_occurrence(shared_key, shared_block);
+            self.insert_history_occurrence(compilation, shared_key, shared_block);
 
             let retain_right = self.declaration_ir.block_live_count(right_block) != 0
                 || compilation
@@ -950,7 +910,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         }
     }
 
-    fn insert_history_occurrence(
+    fn append_history_occurrence(
         &mut self,
         key: EffectiveKeyId,
         block: DeclarationBlockId<'ast>,
@@ -962,10 +922,39 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
             .histories
             .get_mut(&key)
             .expect("the history was inserted above");
-        let index = history.binary_search(&block).unwrap_or_else(|index| index);
-        if history.get(index) != Some(&block) {
-            history.insert(index, block);
+        if history.last() != Some(&block) {
+            history.push(block);
         }
+        history.len() == 2
+    }
+
+    fn insert_history_occurrence(
+        &mut self,
+        compilation: &Compilation<'ast>,
+        key: EffectiveKeyId,
+        block: DeclarationBlockId<'ast>,
+    ) -> bool {
+        if !self.histories.contains_key(&key) {
+            self.histories.insert(key, self.allocator.vec());
+        }
+        let history = self
+            .histories
+            .get_mut(&key)
+            .expect("the history was inserted above");
+        if history.contains(&block) {
+            return history.len() == 2;
+        }
+
+        let mut insertion_index = 0;
+        for (candidate, _) in compilation.declaration_blocks_in_source_order() {
+            if candidate == block {
+                break;
+            }
+            if history.contains(&candidate) {
+                insertion_index += 1;
+            }
+        }
+        history.insert(insertion_index, block);
         history.len() == 2
     }
 
@@ -1026,30 +1015,6 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         }
     }
 
-    fn repair_block_remaps(&mut self, result: &RadixInsertResult<DeclarationBlockId<'ast>>) {
-        if result.remaps.is_empty() {
-            return;
-        }
-        self.declaration_ir.repair_block_remaps(&result.remaps);
-        for block in &mut self.published_blocks {
-            block.block = remap_block_id(block.block, &result.remaps);
-            if let Some((previous, key, revision)) = block.previous_style_block {
-                block.previous_style_block =
-                    Some((remap_block_id(previous, &result.remaps), key, revision));
-            }
-        }
-        for history in self.histories.values_mut() {
-            for block in history {
-                *block = remap_block_id(*block, &result.remaps);
-            }
-        }
-        for edge in &mut self.direct_style_edges {
-            edge.remap_blocks(&result.remaps);
-        }
-        self.same_selector_candidates.remap_blocks(&result.remaps);
-        self.partial_merge_candidates.remap_blocks(&result.remaps);
-    }
-
     fn edge_candidate(
         &self,
         compilation: &Compilation<'ast>,
@@ -1085,59 +1050,11 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     }
 }
 
-impl<'ast> Candidate<'ast> {
-    fn remap_blocks(&mut self, remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>]) {
-        self.left = remap_block_id(self.left, remaps);
-        self.right = remap_block_id(self.right, remaps);
-    }
-}
-
 fn is_style_owner(payload: &CssRulePayload<'_>) -> bool {
     matches!(
         payload,
         CssRulePayload::Style(_) | CssRulePayload::Nesting(_)
     )
-}
-
-fn first_block_after_rule_in_source<'ast>(
-    compilation: &Compilation<'ast>,
-    left: RuleId<'ast>,
-    right: RuleId<'ast>,
-) -> Result<DeclarationBlockId<'ast>, MutationError<'ast>> {
-    let mut current = compilation
-        .rule(left)
-        .ok_or(MutationError::<'ast>::UnknownRule(left))?
-        .next_in_source();
-    while let Some(rule) = current {
-        let record = compilation
-            .rule(rule)
-            .ok_or(MutationError::<'ast>::InvalidRuleTopology(left))?;
-        if let Some(block) = record.declaration_block() {
-            return Ok(block);
-        }
-        if rule == right {
-            break;
-        }
-        current = record.next_in_source();
-    }
-    Err(MutationError::<'ast>::InvalidRuleTopology(left))
-}
-
-fn remap_rule_id<'ast>(id: RuleId<'ast>, remaps: &[RadixIdRemap<RuleId<'ast>>]) -> RuleId<'ast> {
-    remaps
-        .iter()
-        .find_map(|remap| (remap.old == id).then_some(remap.new))
-        .unwrap_or(id)
-}
-
-fn remap_block_id<'ast>(
-    id: DeclarationBlockId<'ast>,
-    remaps: &[RadixIdRemap<DeclarationBlockId<'ast>>],
-) -> DeclarationBlockId<'ast> {
-    remaps
-        .iter()
-        .find_map(|remap| (remap.old == id).then_some(remap.new))
-        .unwrap_or(id)
 }
 
 fn validate_s1<'ast>(

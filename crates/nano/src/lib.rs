@@ -32,7 +32,7 @@ pub fn minify<'ast, 'ghost>(
     options: MinifyOptions,
 ) -> MinifyStats {
     try_minify(compilation, token, options)
-        .expect("a parsed Radix compilation remains structurally valid while minifying")
+        .expect("a parsed compilation remains structurally valid while minifying")
 }
 
 /// Fallible entry point for structural transforms.

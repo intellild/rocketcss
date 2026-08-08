@@ -1,4 +1,4 @@
-//! Streaming serialization for the flat Radix AST.
+//! Streaming serialization for the persistent AST.
 
 use crate::{prelude::*, rules::NamedProperty};
 use rocketcss_ast::radix_ast::{
@@ -633,7 +633,7 @@ type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<CssRulePayload<
 
 fn next_visible_rule<'comp, 'ast>(
     compilation: &'comp Compilation<'ast>,
-    rules: &mut RuleListIter<'comp, 'ast, CssRulePayload<'ast>>,
+    rules: &mut RuleListIter<'comp, CssRulePayload<'ast>>,
 ) -> Option<VisibleRule<'comp, 'ast>> {
     for (id, rule) in rules {
         if let CssRulePayload::Style(style) = rule.payload() {

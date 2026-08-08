@@ -13,11 +13,11 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
         }
 
         let source_ids = self
-            .rules
-            .iter_enumerated()
+            .rules_in_source_order()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>();
-        if self.first_rule_in_source != source_ids.first().copied()
+        if source_ids.len() != self.rules.len()
+            || self.first_rule_in_source != source_ids.first().copied()
             || self.last_rule_in_source != source_ids.last().copied()
         {
             return Err(ValidationError::<R>::InvalidSourceEndpoints);
@@ -25,7 +25,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
         for (index, &rule_id) in source_ids.iter().enumerate() {
             let rule = self
                 .rules
-                .get(rule_id)
+                .try_get(rule_id)
                 .expect("an enumerated source ID remains resolvable");
             let expected_previous = index.checked_sub(1).map(|index| source_ids[index]);
             if rule.previous_in_source != expected_previous {
@@ -50,7 +50,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
             if let Some(parent) = list.parent {
                 let parent_record =
                     self.rules
-                        .get(parent)
+                        .try_get(parent)
                         .ok_or(ValidationError::<R>::MissingListParent {
                             list: list_id,
                             parent,
@@ -80,7 +80,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
             while let Some(rule_id) = current {
                 let rule = self
                     .rules
-                    .get(rule_id)
+                    .try_get(rule_id)
                     .ok_or(ValidationError::<R>::MissingRule(rule_id))?;
                 if !rule.live {
                     return Err(ValidationError::<R>::RetiredRuleInList {
@@ -162,7 +162,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
                 }
             }
             if let Some(block_id) = rule.declaration_block {
-                let block = self.declaration_blocks.get(block_id).ok_or(
+                let block = self.declaration_blocks.try_get(block_id).ok_or(
                     ValidationError::<R>::MissingOwnedDeclarationBlock {
                         rule: rule_id,
                         block: block_id,
@@ -231,7 +231,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
             let DeclarationBlockOwner::<R>::Rule(owner) = block.owner;
             let owner_record =
                 self.rules
-                    .get(owner)
+                    .try_get(owner)
                     .ok_or(ValidationError::<R>::MissingBlockOwner {
                         block: block_id,
                         owner,

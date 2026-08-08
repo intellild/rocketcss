@@ -11,11 +11,91 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+/// A stable typed index into a [`DenseStore`].
+///
+/// `T` is only a domain marker, so indexes for different record types cannot
+/// be mixed even though they share the same compact `u32` representation.
+/// `u32::MAX` remains reserved so `Option<DenseIndex<T>>` is also four bytes.
+#[repr(transparent)]
+pub struct DenseIndex<T> {
+    inner: NonMaxU32,
+    marker: PhantomData<fn() -> T>,
+}
+
+impl<T> DenseIndex<T> {
+    #[inline]
+    pub const fn index(self) -> usize {
+        self.inner.get() as usize
+    }
+}
+
+impl<T> Clone for DenseIndex<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for DenseIndex<T> {}
+
+impl<T> fmt::Debug for DenseIndex<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<T> PartialEq for DenseIndex<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl<T> Eq for DenseIndex<T> {}
+
+impl<T> PartialOrd for DenseIndex<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T> Ord for DenseIndex<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.inner.cmp(&other.inner)
+    }
+}
+
+impl<T> Hash for DenseIndex<T> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
+    }
+}
+
+impl<T> DenseId for DenseIndex<T> {
+    #[inline]
+    fn from_index(index: usize) -> Option<Self> {
+        let index = u32::try_from(index).ok()?;
+        Some(Self {
+            inner: NonMaxU32::new(index)?,
+            marker: PhantomData,
+        })
+    }
+
+    #[inline]
+    fn index(self) -> usize {
+        self.index()
+    }
+}
+
 /// The shared behavior implemented by domain-specific dense IDs.
 ///
-/// Implement IDs with [`define_dense_id!`] rather than implementing this
-/// trait manually. Its construction method is public only so the generated
-/// implementation can live in another crate.
+/// Use [`define_dense_id!`] for named ID domains and [`DenseIndex<T>`] when the
+/// stored record type itself identifies the domain. The construction method is
+/// public only so generated implementations can live in another crate.
 #[doc(hidden)]
 pub trait DenseId: Copy + Eq + Hash + fmt::Debug {
     #[doc(hidden)]
@@ -491,6 +571,20 @@ mod tests {
             (u32::MAX - 1) as usize
         );
         assert!(TestId::from_index(u32::MAX as usize).is_none());
+    }
+
+    #[test]
+    fn generic_dense_indexes_are_compact_and_type_directed() {
+        let mut store = DenseStore::<DenseIndex<&str>, _>::new();
+        let first = store.push("first");
+        let second = store.push("second");
+
+        assert_eq!(size_of::<DenseIndex<&str>>(), size_of::<u32>());
+        assert_eq!(size_of::<Option<DenseIndex<&str>>>(), size_of::<u32>());
+        assert_eq!(first.index(), 0);
+        assert_eq!(second.index(), 1);
+        assert_eq!(store[first], "first");
+        assert_eq!(store[second], "second");
     }
 
     #[test]

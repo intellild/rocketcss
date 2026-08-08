@@ -5,13 +5,11 @@ mod allocator_api;
 pub mod atom;
 pub mod bit_vec;
 pub mod boxed;
-pub mod btree_index_arena;
 pub mod dense;
 pub mod ghost_cell;
 pub mod hash_map;
 pub mod hash_set;
 pub mod prelude;
-pub mod radix_index_arena;
 pub mod raw_vec;
 pub mod reference;
 mod string_pool;
@@ -19,12 +17,8 @@ pub mod vec;
 pub mod wtf8;
 
 pub use atom::Atom;
-pub use btree_index_arena::BTreeIndexArena;
-pub use dense::{DenseCapacityError, DenseId, DenseIdGenerator, DenseMap, DenseStore};
+pub use dense::{DenseCapacityError, DenseId, DenseIdGenerator, DenseIndex, DenseMap, DenseStore};
 pub use ghost_cell::{GhostBox, GhostCell, GhostToken};
-pub use radix_index_arena::{
-    RadixId, RadixIdKey, RadixIdRemap, RadixIndexArena, RadixInsertResult, TypedRadixIndexArena,
-};
 pub use reference::Ref;
 pub use string_pool::StringPool;
 

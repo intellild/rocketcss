@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use rocketcss_ast::radix_ast::DeclarationRecord;
 use rocketcss_ast::{Declaration, PropertyId};
 use rocketcss_common::{
-    Allocator, RadixIdRemap,
+    Allocator,
     prelude::{HashMap, Vec},
 };
 use rustc_hash::FxHasher;
@@ -533,40 +533,4 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
             .get(&block)
             .map_or(PropertyBloom::default(), |summary| summary.property_bloom)
     }
-
-    pub(super) fn repair_block_remaps(
-        &mut self,
-        remaps: &[RadixIdRemap<rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>>],
-    ) {
-        if remaps.is_empty() {
-            return;
-        }
-        let block_capacity = self.blocks.len();
-        let blocks = std::mem::replace(
-            &mut self.blocks,
-            HashMap::with_capacity_in(block_capacity, self.allocator),
-        );
-        for (block, summary) in blocks {
-            self.blocks.insert(remap_block_id(block, remaps), summary);
-        }
-        let property_index_capacity = self.property_index.len();
-        let property_index = std::mem::replace(
-            &mut self.property_index,
-            HashMap::with_capacity_in(property_index_capacity, self.allocator),
-        );
-        for (block, index) in property_index {
-            self.property_index
-                .insert(remap_block_id(block, remaps), index);
-        }
-    }
-}
-
-fn remap_block_id<'ast>(
-    id: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-    remaps: &[RadixIdRemap<rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>>],
-) -> rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast> {
-    remaps
-        .iter()
-        .find_map(|remap| (remap.old == id).then_some(remap.new))
-        .unwrap_or(id)
 }

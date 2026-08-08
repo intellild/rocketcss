@@ -3,12 +3,12 @@ use super::*;
 impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     /// Returns the final live rule in `rule`'s lexical subtree.
     ///
-    /// Direct siblings are not necessarily adjacent in the global Radix
-    /// sequence because all descendants of the left sibling appear first.
+    /// Direct siblings are not necessarily adjacent in global source order
+    /// because all descendants of the left sibling appear first.
     pub fn subtree_tail(&self, rule: RuleId<R>) -> Option<RuleId<R>> {
         let mut current = rule;
         loop {
-            let record = self.rules.get(current)?;
+            let record = self.rules.try_get(current)?;
             if !record.live {
                 return None;
             }
@@ -30,7 +30,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     pub fn next_after_subtree(&self, rule: RuleId<R>) -> Option<RuleId<R>> {
         let mut current = rule;
         loop {
-            let record = self.rules.get(current)?;
+            let record = self.rules.try_get(current)?;
             if !record.live {
                 return None;
             }

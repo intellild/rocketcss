@@ -31,10 +31,10 @@ fn lexical_order_and_direct_topology_are_independent() {
         .append_declaration(block, "color:red", false)
         .unwrap();
 
-    assert_eq!(outer.primary_index(), 0);
-    assert_eq!(nested.primary_index(), 1);
-    assert_eq!(following.primary_index(), 2);
-    assert_eq!(block.primary_index(), 0);
+    assert_eq!(outer.index(), 0);
+    assert_eq!(nested.index(), 1);
+    assert_eq!(following.index(), 2);
+    assert_eq!(block.index(), 0);
     assert_eq!(declaration.index(), 0);
     assert_eq!(
         compilation
@@ -190,7 +190,7 @@ fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
 }
 
 #[test]
-fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
+fn synthesized_rule_and_block_keep_dense_ids_with_appended_declarations() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -211,13 +211,11 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
         .unwrap();
 
     let inserted_rule = compilation.insert_rule_after(left, 3).unwrap();
-    assert!(inserted_rule.remaps.is_empty());
     let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(right_block), inserted_rule.id, key)
+        .insert_declaration_block(inserted_rule, key)
         .unwrap();
-    assert!(inserted_block.remaps.is_empty());
     compilation
-        .append_declaration(inserted_block.id, 30, false)
+        .append_declaration(inserted_block, 30, false)
         .unwrap();
 
     assert_eq!(
@@ -235,7 +233,7 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
             .collect::<std::vec::Vec<_>>(),
         [
             DeclarationBlockOwner::<u8>::Rule(left),
-            DeclarationBlockOwner::<u8>::Rule(inserted_rule.id),
+            DeclarationBlockOwner::<u8>::Rule(inserted_rule),
             DeclarationBlockOwner::<u8>::Rule(right),
         ]
     );
@@ -263,11 +261,8 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
         .append_declaration(following_block, 20, false)
         .unwrap();
 
-    let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
-    let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = compilation.insert_rule_after(left, 3).unwrap();
+    let inserted_block = compilation.insert_declaration_block(inserted, key).unwrap();
     let second = compilation
         .append_declaration(inserted_block, 30, false)
         .unwrap();
@@ -323,11 +318,8 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
         .append_declaration(following_block, 20, false)
         .unwrap();
 
-    let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
-    let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = compilation.insert_rule_after(left, 3).unwrap();
+    let inserted_block = compilation.insert_declaration_block(inserted, key).unwrap();
     for value in [30, 31, 32] {
         compilation
             .append_declaration(inserted_block, value, false)
@@ -377,11 +369,8 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
     compilation
         .append_declaration(following_block, 20, false)
         .unwrap();
-    let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
-    let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = compilation.insert_rule_after(left, 3).unwrap();
+    let inserted_block = compilation.insert_declaration_block(inserted, key).unwrap();
     for value in [30, 31] {
         compilation
             .append_declaration(inserted_block, value, false)
@@ -468,11 +457,8 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     local4
         .append_declaration(following_block, 2, false)
         .unwrap();
-    let inserted = local4.insert_rule_after(left, 2).unwrap().id;
-    let inserted_block = local4
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = local4.insert_rule_after(left, 2).unwrap();
+    let inserted_block = local4.insert_declaration_block(inserted, key).unwrap();
     let second = local4.append_declaration(inserted_block, 3, false).unwrap();
     local4
         .merge_adjacent_rule_declaration_blocks(left, inserted)
@@ -523,11 +509,8 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     overflow
         .append_declaration(following_block, 4, false)
         .unwrap();
-    let inserted = overflow.insert_rule_after(left, 2).unwrap().id;
-    let inserted_block = overflow
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = overflow.insert_rule_after(left, 2).unwrap();
+    let inserted_block = overflow.insert_declaration_block(inserted, key).unwrap();
     for value in [5, 6, 7] {
         expected.push(
             overflow

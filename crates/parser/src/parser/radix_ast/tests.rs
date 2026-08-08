@@ -125,7 +125,7 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
         .rules_in_source_order()
         .map(|(id, rule)| {
             let kind = payload_kind(rule.payload());
-            (id.primary_index(), kind)
+            (id.index(), kind)
         })
         .collect::<std::vec::Vec<_>>();
     assert_eq!(
@@ -142,7 +142,7 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
         .declaration_blocks_in_source_order()
         .map(|(id, block)| {
             (
-                id.primary_index(),
+                id.index(),
                 block.owner(),
                 block.declarations().as_range().unwrap(),
             )
@@ -169,7 +169,7 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
     let root_ids = compilation
         .rules_in_list(root)
         .unwrap()
-        .map(|(id, _)| id.primary_index())
+        .map(|(id, _)| id.index())
         .collect::<std::vec::Vec<_>>();
     assert_eq!(root_ids, [0, 3]);
     let outer = compilation
@@ -178,7 +178,7 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
     let child_ids = compilation
         .rules_in_list(outer.child_list().unwrap())
         .unwrap()
-        .map(|(id, _)| id.primary_index())
+        .map(|(id, _)| id.index())
         .collect::<std::vec::Vec<_>>();
     assert_eq!(child_ids, [1, 2]);
     let outer_id = compilation.rules_in_list(root).unwrap().next().unwrap().0;
@@ -192,7 +192,7 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
     assert_eq!(
         compilation
             .next_after_subtree(outer_id)
-            .map(|id| id.primary_index()),
+            .map(|id| id.index()),
         Some(3)
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
@@ -357,15 +357,14 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
         )
         .unwrap();
 
-    assert!(inserted.id.sibling_key() > 0);
-    assert_eq!(inserted.id.primary_index(), old_tail.primary_index());
+    assert!(inserted.index() > following.index());
     assert_eq!(
         compilation
             .rules_in_list(root)
             .unwrap()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
-        [outer, inserted.id, following]
+        [outer, inserted, following]
     );
     assert_eq!(
         compilation
@@ -382,31 +381,31 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
                 .and_then(|mut rules| rules.next().map(|(id, _)| id))
                 .unwrap(),
             old_tail,
-            inserted.id,
+            inserted,
             following,
         ]
     );
     assert_eq!(
         compilation.rule(outer).unwrap().next_sibling(),
-        Some(inserted.id)
+        Some(inserted)
     );
     assert_eq!(
-        compilation.rule(inserted.id).unwrap().previous_sibling(),
+        compilation.rule(inserted).unwrap().previous_sibling(),
         Some(outer)
     );
     assert_eq!(
-        compilation.rule(inserted.id).unwrap().next_sibling(),
+        compilation.rule(inserted).unwrap().next_sibling(),
         Some(following)
     );
     assert_eq!(
         compilation.rule(following).unwrap().previous_sibling(),
-        Some(inserted.id)
+        Some(inserted)
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
 
 #[test]
-fn local_relabel_repairs_topology_and_effective_key_seeds() {
+fn dense_insertion_preserves_existing_ids_and_effective_key_seeds() {
     let allocator = Allocator::new();
     let mut compilation = Compiler::new(&allocator)
         .parse_compilation("a{}b{}", ParserOptions::default())
@@ -420,31 +419,24 @@ fn local_relabel_repairs_topology_and_effective_key_seeds() {
         )
         .unwrap();
     let key = compilation
-        .append_effective_key(ConcreteEffectiveContext::isolated(first.id))
+        .append_effective_key(ConcreteEffectiveContext::isolated(first))
         .unwrap();
-    let mut tracked = first.id;
-    let mut relabeled = false;
 
     for _ in 0..16 {
-        let result = compilation
+        compilation
             .insert_rule_after(
                 outer,
                 CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
             )
             .unwrap();
-        if let Some(remap) = result.remaps.iter().find(|remap| remap.old == tracked) {
-            tracked = remap.new;
-            relabeled = true;
-        }
         assert_eq!(compilation.validate_ast(), Ok(()));
     }
 
-    assert!(relabeled);
     assert_eq!(
         compilation.effective_key(key).unwrap().history_segment(),
-        ConcreteHistorySegment::Isolated(tracked)
+        ConcreteHistorySegment::Isolated(first)
     );
-    assert!(compilation.rule(tracked).is_some());
+    assert!(compilation.rule(first).is_some());
 }
 
 #[test]
@@ -481,11 +473,9 @@ fn insertion_skips_retired_source_tombstones() {
             first,
             CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
         )
-        .unwrap()
-        .id;
+        .unwrap();
 
-    assert_eq!(inserted.primary_index(), retired.primary_index());
-    assert!(inserted.sibling_key() > 0);
+    assert!(inserted.index() > last.index());
     assert_eq!(
         compilation
             .rules_in_source_order()
@@ -519,7 +509,7 @@ fn top_level_media_uses_preorder_and_direct_child_topology() {
         .collect::<std::vec::Vec<_>>();
     assert_eq!(
         ids.iter()
-            .map(|id| id.primary_index())
+            .map(|id| id.index())
             .collect::<std::vec::Vec<_>>(),
         [0, 1, 2]
     );

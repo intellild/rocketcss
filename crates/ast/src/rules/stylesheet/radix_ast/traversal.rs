@@ -1,6 +1,6 @@
 use super::*;
 
-/// Storage-neutral callbacks over the semantic Radix AST.
+/// Storage-neutral callbacks over the semantic AST.
 ///
 /// Traversal owns ordering. Callbacks receive typed IDs and may resolve any
 /// additional immutable data through `compilation` without depending on store
@@ -41,7 +41,7 @@ pub trait CompilationVisitor<'ast> {
     }
 }
 
-/// Mutable Radix traversal callbacks.
+/// Mutable AST traversal callbacks.
 ///
 /// The context deliberately exposes semantic replacement transactions rather
 /// than `&mut` store entries. A callback therefore cannot retain a reference

@@ -1,9 +1,6 @@
-//! Typed storage and topology for the compiler's persistent Radix AST.
+//! Typed dense storage and topology for the compiler's persistent AST.
 
-use rocketcss_common::{
-    Allocator, DenseId, DenseStore, RadixId, RadixIdRemap, RadixInsertResult, TypedRadixIndexArena,
-    define_dense_id,
-};
+use rocketcss_common::{Allocator, DenseId, DenseIndex, DenseStore, define_dense_id};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::hash::Hash;
@@ -21,12 +18,12 @@ pub use traversal::*;
 
 /// Stable identity of one rule in the [`RuleStore`]. The type parameter is the
 /// rule payload, so `RuleId<P>` can only index an arena storing `RuleRecord<P>`.
-pub type RuleId<P> = RadixId<RuleRecord<P>>;
+pub type RuleId<P> = DenseIndex<RuleRecord<P>>;
 
 /// Stable identity of one declaration block in the [`DeclarationBlockStore`].
 /// The type parameter is the rule payload, so `DeclarationBlockId<P>` can only
 /// index an arena storing `DeclarationBlockRecord<P>`.
-pub type DeclarationBlockId<P> = RadixId<DeclarationBlockRecord<P>>;
+pub type DeclarationBlockId<P> = DenseIndex<DeclarationBlockRecord<P>>;
 
 define_dense_id!(pub struct RuleListId);
 define_dense_id!(pub struct EffectiveKeyId);
@@ -38,31 +35,12 @@ define_dense_id!(pub struct ContextValueId);
 define_dense_id!(pub struct ContextPathId);
 define_dense_id!(pub struct LayerContextId);
 
-/// Repairs payload-local RuleIds after a rare Radix sibling relabel.
-#[doc(hidden)]
-pub trait RuleIdReferences<P> {
-    fn remap_rule_ids(&mut self, remaps: &[RadixIdRemap<RuleId<P>>]);
-}
+/// Rules in stable dense allocation order. Semantic order is owned by rule
+/// topology and the source-order links on each record.
+pub type RuleStore<P> = DenseStore<RuleId<P>, RuleRecord<P>>;
 
-macro_rules! impl_no_rule_id_references {
-    ($($type:ty),+ $(,)?) => {
-        $(
-            impl<P> RuleIdReferences<P> for $type {
-                #[inline]
-                fn remap_rule_ids(&mut self, _remaps: &[RadixIdRemap<RuleId<P>>]) {}
-            }
-        )+
-    };
-}
-
-impl_no_rule_id_references!((), u8, &str);
-
-/// Rules in lexical allocation order plus rare locally inserted siblings.
-pub type RuleStore<'ast, P> = TypedRadixIndexArena<'ast, RuleRecord<P>, RuleId<P>>;
-
-/// Declaration blocks in lexical allocation order plus synthesized blocks.
-pub type DeclarationBlockStore<'ast, P> =
-    TypedRadixIndexArena<'ast, DeclarationBlockRecord<P>, DeclarationBlockId<P>>;
+/// Declaration blocks in stable dense allocation order.
+pub type DeclarationBlockStore<P> = DenseStore<DeclarationBlockId<P>, DeclarationBlockRecord<P>>;
 
 /// Dense rule-list metadata. Lists own topology, not a second rule vector.
 pub type RuleListStore<P> = DenseStore<RuleListId, RuleList<P>>;
@@ -78,7 +56,7 @@ pub type DeclarationStore<P> = DenseStore<DeclarationId, DeclarationRecord<P>>;
 pub type DeclarationOverflowStore<'ast> =
     DenseStore<DeclarationOverflowId, crate::Vec<'ast, DeclarationId>>;
 
-/// Concrete compiler-owned Radix AST.
+/// Concrete compiler-owned AST.
 pub type Compilation<'ast> = RadixCompilation<
     'ast,
     CssRulePayload<'ast>,
@@ -101,7 +79,7 @@ pub type ConcreteMutationError<'ast> = MutationError<CssRulePayload<'ast>>;
 impl<'ast> ConcreteMutationError<'ast> {
     /// Erases the phantom-only arena lifetime so an error can be boxed without
     /// the compilation that produced it. The error never stores a rule payload:
-    /// every payload-local identity is a `u32` Radix ID with a
+    /// every payload-local identity is a `u32` dense ID with a
     /// `PhantomData<fn() -> T>` type parameter, so no borrowed data is
     /// discarded and the layout is identical across lifetimes.
     #[inline]
@@ -230,7 +208,7 @@ impl<P> DeclarationRecord<P> {
     }
 }
 
-/// The lightweight root of a Radix compilation.
+/// The lightweight root of a compilation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StyleSheet {
     root_rules: RuleListId,
@@ -456,8 +434,8 @@ impl<P> DeclarationBlockRecord<P> {
 /// Capacity or topology error raised before a structural mutation is visible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MutationError<P> {
-    PrimaryRuleCapacityExhausted,
-    PrimaryDeclarationBlockCapacityExhausted,
+    RuleCapacityExhausted,
+    DeclarationBlockCapacityExhausted,
     RuleListCapacityExhausted,
     EffectiveKeyCapacityExhausted,
     SelectorContextCapacityExhausted,
@@ -473,8 +451,6 @@ pub enum MutationError<P> {
     UnknownDeclarationOverflow(DeclarationOverflowId),
     UnknownDeclaration(DeclarationId),
     NonContiguousDeclarationRange(DeclarationBlockId<P>),
-    LocalRuleCapacityExhausted(RuleId<P>),
-    LocalDeclarationBlockCapacityExhausted(DeclarationBlockId<P>),
     InvalidRuleTopology(RuleId<P>),
     RuleHasChildren(RuleId<P>),
 }
@@ -620,9 +596,9 @@ pub struct RadixCompilation<'ast, R: Unpin, D, K> {
     allocator: &'ast Allocator,
     stylesheet: StyleSheet,
     license_comments: crate::Vec<'ast, &'ast str>,
-    rules: RuleStore<'ast, R>,
+    rules: RuleStore<R>,
     rule_lists: RuleListStore<R>,
-    declaration_blocks: DeclarationBlockStore<'ast, R>,
+    declaration_blocks: DeclarationBlockStore<R>,
     declarations: DeclarationStore<D>,
     declaration_overflows: DeclarationOverflowStore<'ast>,
     effective_keys: EffectiveKeyStore<K>,
@@ -662,12 +638,9 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             allocator,
             stylesheet: StyleSheet { root_rules },
             license_comments: allocator.vec(),
-            rules: RuleStore::with_capacity_in(capacity.rules, allocator),
+            rules: RuleStore::with_capacity(capacity.rules),
             rule_lists,
-            declaration_blocks: DeclarationBlockStore::with_capacity_in(
-                capacity.declaration_blocks,
-                allocator,
-            ),
+            declaration_blocks: DeclarationBlockStore::with_capacity(capacity.declaration_blocks),
             declarations: DeclarationStore::with_capacity(capacity.declarations),
             declaration_overflows: DeclarationOverflowStore::new(),
             effective_keys: EffectiveKeyStore::with_capacity(capacity.declaration_blocks),
@@ -733,12 +706,12 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 
     #[inline]
     pub fn rule(&self, id: RuleId<R>) -> Option<&RuleRecord<R>> {
-        self.rules.get(id)
+        self.rules.try_get(id)
     }
 
     #[inline]
     pub fn rule_mut(&mut self, id: RuleId<R>) -> Option<&mut RuleRecord<R>> {
-        self.rules.get_mut(id)
+        self.rules.try_get_mut(id)
     }
 
     #[inline]
@@ -751,7 +724,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         &self,
         id: DeclarationBlockId<R>,
     ) -> Option<&DeclarationBlockRecord<R>> {
-        self.declaration_blocks.get(id)
+        self.declaration_blocks.try_get(id)
     }
 
     #[inline]
@@ -759,7 +732,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         &mut self,
         id: DeclarationBlockId<R>,
     ) -> Option<&mut DeclarationBlockRecord<R>> {
-        self.declaration_blocks.get_mut(id)
+        self.declaration_blocks.try_get_mut(id)
     }
 
     #[doc(hidden)]
@@ -798,16 +771,21 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 
     /// Iterates authored and synthesized rules in global semantic order.
     #[inline]
-    pub fn rules_in_source_order(&self) -> impl Iterator<Item = (RuleId<R>, &RuleRecord<R>)> {
-        self.rules.iter_enumerated()
+    pub fn rules_in_source_order(&self) -> RuleSourceIter<'_, R> {
+        RuleSourceIter {
+            rules: &self.rules,
+            next: self.first_rule_in_source,
+            remaining: self.rules.len(),
+        }
     }
 
     /// Iterates authored and synthesized blocks in global semantic order.
     #[inline]
-    pub fn declaration_blocks_in_source_order(
-        &self,
-    ) -> impl Iterator<Item = (DeclarationBlockId<R>, &DeclarationBlockRecord<R>)> {
-        self.declaration_blocks.iter_enumerated()
+    pub fn declaration_blocks_in_source_order(&self) -> DeclarationBlockSourceIter<'_, R> {
+        DeclarationBlockSourceIter {
+            rules: self.rules_in_source_order(),
+            blocks: &self.declaration_blocks,
+        }
     }
 
     /// Iterates authored declarations in lexical source order.
@@ -825,7 +803,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     ) -> Result<DeclarationIter<'_, D>, MutationError<R>> {
         let declarations = self
             .declaration_blocks
-            .get(block)
+            .try_get(block)
             .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?
             .declarations;
         let kind = match declarations {
@@ -871,7 +849,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     ) -> Result<DeclarationOccurrenceIter<'_, D>, MutationError<R>> {
         let declarations = self
             .declaration_blocks
-            .get(block)
+            .try_get(block)
             .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?
             .declarations;
         let kind = match declarations {
@@ -917,7 +895,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     ) -> Result<DeclarationIdIter<'_>, MutationError<R>> {
         let block = self
             .declaration_blocks
-            .get(block)
+            .try_get(block)
             .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?;
         let kind = match block.declarations {
             DeclarationList::Range(range) => DeclarationIdIterKind::Range(
@@ -949,12 +927,12 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     ) -> Result<usize, MutationError<R>> {
         let declaration_list = self
             .declaration_blocks
-            .get(block)
+            .try_get(block)
             .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?
             .declarations;
         if !self
             .declaration_blocks
-            .get(block)
+            .try_get(block)
             .is_some_and(|record| record.live)
         {
             return Err(MutationError::<R>::UnknownDeclarationBlock(block));
@@ -1013,7 +991,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 u32::try_from(visited).expect("a block cannot contain u32::MAX declarations");
             let block = self
                 .declaration_blocks
-                .get_mut(block)
+                .try_get_mut(block)
                 .expect("the live block remains resolvable");
             block.revision = block.revision.wrapping_add(revision);
         }
@@ -1030,7 +1008,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     ) -> Result<DeclarationId, MutationError<R>> {
         let declaration_list = self
             .declaration_blocks
-            .get(block)
+            .try_get(block)
             .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?
             .declarations;
         match declaration_list {
@@ -1061,10 +1039,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     }
 
     /// Iterates direct siblings in one rule list without walking descendants.
-    pub fn rules_in_list(
-        &self,
-        list: RuleListId,
-    ) -> Result<RuleListIter<'_, 'ast, R>, MutationError<R>> {
+    pub fn rules_in_list(&self, list: RuleListId) -> Result<RuleListIter<'_, R>, MutationError<R>> {
         let list = self
             .rule_lists
             .try_get(list)
@@ -1089,26 +1064,25 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             .try_get(list)
             .map(|list| (list.parent, list.last))
             .ok_or(MutationError::<R>::UnknownRuleList(list))?;
-        if !self.rules.can_push_primary() {
-            return Err(MutationError::<R>::PrimaryRuleCapacityExhausted);
-        }
-
-        let id = self.rules.push_primary(RuleRecord {
-            payload,
-            parent,
-            parent_list: list,
-            previous_sibling,
-            next_sibling: None,
-            previous_in_source: self.last_rule_in_source,
-            next_in_source: None,
-            child_list: None,
-            declaration_block: None,
-            revision: 0,
-            live: true,
-        });
+        let id = self
+            .rules
+            .try_push(RuleRecord {
+                payload,
+                parent,
+                parent_list: list,
+                previous_sibling,
+                next_sibling: None,
+                previous_in_source: self.last_rule_in_source,
+                next_in_source: None,
+                child_list: None,
+                declaration_block: None,
+                revision: 0,
+                live: true,
+            })
+            .map_err(|_| MutationError::<R>::RuleCapacityExhausted)?;
         if let Some(previous) = self.last_rule_in_source {
             self.rules
-                .get_mut(previous)
+                .try_get_mut(previous)
                 .expect("the global source tail remains resolvable")
                 .next_in_source = Some(id);
         } else {
@@ -1117,7 +1091,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         self.last_rule_in_source = Some(id);
         if let Some(previous) = previous_sibling {
             self.rules
-                .get_mut(previous)
+                .try_get_mut(previous)
                 .expect("the list tail was validated when it was published")
                 .next_sibling = Some(id);
         }
@@ -1132,7 +1106,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     pub fn create_child_list(&mut self, parent: RuleId<R>) -> Result<RuleListId, MutationError<R>> {
         let parent_record = self
             .rules
-            .get(parent)
+            .try_get(parent)
             .ok_or(MutationError::<R>::UnknownRule(parent))?;
         if !parent_record.live {
             return Err(MutationError::<R>::RetiredRule(parent));
@@ -1151,7 +1125,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             })
             .map_err(|_| MutationError::<R>::RuleListCapacityExhausted)?;
         self.rules
-            .get_mut(parent)
+            .try_get_mut(parent)
             .expect("the parent was validated before allocating its child list")
             .child_list = Some(list);
         Ok(list)
@@ -1182,7 +1156,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let DeclarationBlockOwner::<R>::Rule(owner_rule) = owner;
         let owner_record = self
             .rules
-            .get(owner_rule)
+            .try_get(owner_rule)
             .ok_or(MutationError::<R>::UnknownRule(owner_rule))?;
         if !owner_record.live {
             return Err(MutationError::<R>::RetiredRule(owner_rule));
@@ -1195,12 +1169,9 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         if self.effective_keys.try_get(effective_key).is_none() {
             return Err(MutationError::<R>::UnknownEffectiveKey(effective_key));
         }
-        if !self.declaration_blocks.can_push_primary() {
-            return Err(MutationError::<R>::PrimaryDeclarationBlockCapacityExhausted);
-        }
         let block = self
             .declaration_blocks
-            .push_primary(DeclarationBlockRecord::<R> {
+            .try_push(DeclarationBlockRecord::<R> {
                 declarations: DeclarationList::Range(DeclarationRange {
                     start: self.declarations.len() as u32,
                     len: 0,
@@ -1209,9 +1180,10 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 effective_key,
                 revision: 0,
                 live: true,
-            });
+            })
+            .map_err(|_| MutationError::<R>::DeclarationBlockCapacityExhausted)?;
         self.rules
-            .get_mut(owner_rule)
+            .try_get_mut(owner_rule)
             .expect("the block owner was validated before allocation")
             .declaration_block = Some(block);
         Ok(block)
@@ -1230,7 +1202,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     ) -> Result<DeclarationId, MutationError<R>> {
         let range = self
             .declaration_blocks
-            .get(block)
+            .try_get(block)
             .ok_or(MutationError::<R>::UnknownDeclarationBlock(block))?
             .declarations
             .as_range()
@@ -1248,7 +1220,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             .map_err(|_| MutationError::<R>::DeclarationCapacityExhausted)?;
         let block = self
             .declaration_blocks
-            .get_mut(block)
+            .try_get_mut(block)
             .expect("the block was validated before appending its declaration");
         let DeclarationList::Range(range) = &mut block.declarations else {
             unreachable!("the declaration representation was validated before append")
@@ -1318,9 +1290,7 @@ impl<'comp, D> Iterator for DeclarationIter<'comp, D> {
     fn next(&mut self) -> Option<Self::Item> {
         match &mut self.kind {
             DeclarationIterKind::Range(records) => records.next(),
-            DeclarationIterKind::Indirect { ids, declarations } => {
-                Some(declarations.get(ids.next()?))
-            }
+            DeclarationIterKind::Indirect { ids, declarations } => Some(&declarations[ids.next()?]),
         }
     }
 
@@ -1367,7 +1337,7 @@ impl<'comp, D> Iterator for DeclarationOccurrenceIter<'comp, D> {
             }
             DeclarationOccurrenceIterKind::Indirect { ids, declarations } => {
                 let id = ids.next()?;
-                Some((id, declarations.get(id)))
+                Some((id, &declarations[id]))
             }
         }
     }
@@ -1384,14 +1354,14 @@ impl<'comp, D> Iterator for DeclarationOccurrenceIter<'comp, D> {
 
 impl<D> ExactSizeIterator for DeclarationOccurrenceIter<'_, D> {}
 
-/// Direct-sibling iterator backed only by the rule store and topology links.
-pub struct RuleListIter<'comp, 'ast, R: Unpin> {
-    rules: &'comp RuleStore<'ast, R>,
+/// Global source-order iterator backed by the explicit source topology.
+pub struct RuleSourceIter<'comp, R: Unpin> {
+    rules: &'comp RuleStore<R>,
     next: Option<RuleId<R>>,
-    remaining: u32,
+    remaining: usize,
 }
 
-impl<'comp, 'ast, R: Unpin> Iterator for RuleListIter<'comp, 'ast, R> {
+impl<'comp, R: Unpin> Iterator for RuleSourceIter<'comp, R> {
     type Item = (RuleId<R>, &'comp RuleRecord<R>);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1399,7 +1369,53 @@ impl<'comp, 'ast, R: Unpin> Iterator for RuleListIter<'comp, 'ast, R> {
             return None;
         }
         let id = self.next?;
-        let rule = self.rules.get(id)?;
+        let rule = self.rules.try_get(id)?;
+        self.next = rule.next_in_source;
+        self.remaining -= 1;
+        Some((id, rule))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.remaining))
+    }
+}
+
+/// Declaration blocks projected from the global rule source topology.
+pub struct DeclarationBlockSourceIter<'comp, R: Unpin> {
+    rules: RuleSourceIter<'comp, R>,
+    blocks: &'comp DeclarationBlockStore<R>,
+}
+
+impl<'comp, R: Unpin> Iterator for DeclarationBlockSourceIter<'comp, R> {
+    type Item = (DeclarationBlockId<R>, &'comp DeclarationBlockRecord<R>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (_, rule) in self.rules.by_ref() {
+            let Some(id) = rule.declaration_block else {
+                continue;
+            };
+            return self.blocks.try_get(id).map(|block| (id, block));
+        }
+        None
+    }
+}
+
+/// Direct-sibling iterator backed only by the rule store and topology links.
+pub struct RuleListIter<'comp, R: Unpin> {
+    rules: &'comp RuleStore<R>,
+    next: Option<RuleId<R>>,
+    remaining: u32,
+}
+
+impl<'comp, R: Unpin> Iterator for RuleListIter<'comp, R> {
+    type Item = (RuleId<R>, &'comp RuleRecord<R>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        let id = self.next?;
+        let rule = self.rules.try_get(id)?;
         self.next = rule.next_sibling;
         self.remaining -= 1;
         Some((id, rule))
@@ -1411,7 +1427,7 @@ impl<'comp, 'ast, R: Unpin> Iterator for RuleListIter<'comp, 'ast, R> {
     }
 }
 
-impl<R: Unpin> ExactSizeIterator for RuleListIter<'_, '_, R> {}
+impl<R: Unpin> ExactSizeIterator for RuleListIter<'_, R> {}
 
 #[cfg(test)]
 mod tests;

@@ -181,17 +181,6 @@ impl<P> EffectiveKeyData<P> {
     }
 }
 
-impl<P> RuleIdReferences<P> for EffectiveKeyData<P> {
-    fn remap_rule_ids(&mut self, remaps: &[RadixIdRemap<super::RuleId<P>>]) {
-        match &mut self.history_segment {
-            HistorySegment::Isolated(rule) => {
-                *rule = remap_id(*rule, remaps);
-            }
-            HistorySegment::StyleCascade => {}
-        }
-    }
-}
-
 /// Parser-local semantic context. It contains only compact IDs and can be
 /// copied through recursive descent without retaining AST borrows.
 pub struct EffectiveContext<P> {
@@ -503,10 +492,10 @@ impl<'ast> Compilation<'ast> {
 
         let mut current = self.first_rule_in_source;
         while let Some(id) = current {
-            let next = self.rules.get(id).and_then(|rule| rule.next_in_source);
+            let next = self.rules.try_get(id).and_then(|rule| rule.next_in_source);
             let rule = self
                 .rules
-                .get_mut(id)
+                .try_get_mut(id)
                 .expect("an enumerated selector owner remains resolvable");
             let selector = match rule.payload_mut() {
                 CssRulePayload::Style(payload) => Some(&mut payload.selector_value),
@@ -574,15 +563,18 @@ impl<'ast> Compilation<'ast> {
 
         let mut current = self.first_rule_in_source;
         while let Some(rule_id) = current {
-            let next = self.rules.get(rule_id).and_then(|rule| rule.next_in_source);
+            let next = self
+                .rules
+                .try_get(rule_id)
+                .and_then(|rule| rule.next_in_source);
             let block_id = self
                 .rules
-                .get(rule_id)
+                .try_get(rule_id)
                 .and_then(|rule| rule.declaration_block);
             if let Some(block_id) = block_id {
                 let block = self
                     .declaration_blocks
-                    .get_mut(block_id)
+                    .try_get_mut(block_id)
                     .expect("an enumerated declaration block remains resolvable");
                 if block.live {
                     block.effective_key = key_remaps[block.effective_key.index()];
@@ -725,15 +717,18 @@ impl<'ast> Compilation<'ast> {
 
         let mut current = self.first_rule_in_source;
         while let Some(rule_id) = current {
-            let next = self.rules.get(rule_id).and_then(|rule| rule.next_in_source);
+            let next = self
+                .rules
+                .try_get(rule_id)
+                .and_then(|rule| rule.next_in_source);
             let block_id = self
                 .rules
-                .get(rule_id)
+                .try_get(rule_id)
                 .and_then(|rule| rule.declaration_block);
             if let Some(block_id) = block_id {
                 let block = self
                     .declaration_blocks
-                    .get_mut(block_id)
+                    .try_get_mut(block_id)
                     .expect("an enumerated declaration block remains resolvable");
                 if block.live {
                     block.effective_key = key_remaps[block.effective_key.index()];
@@ -1286,16 +1281,6 @@ fn selector_value_fingerprint(
     vendor_prefix.hash(&mut hasher);
     selectors.hash(&mut hasher);
     hasher.finish()
-}
-
-fn remap_id<P>(
-    id: super::RuleId<P>,
-    remaps: &[RadixIdRemap<super::RuleId<P>>],
-) -> super::RuleId<P> {
-    remaps
-        .iter()
-        .find_map(|remap| (remap.old == id).then_some(remap.new))
-        .unwrap_or(id)
 }
 
 #[cfg(test)]

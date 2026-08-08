@@ -6,7 +6,7 @@ use crate::{
     TokenOrValue, Vec, VendorPrefix, ViewTransitionProperty,
 };
 
-use super::{DeclarationId, RadixIdRemap, RuleIdReferences, SelectorValueId};
+use super::{DeclarationId, SelectorValueId};
 
 /// One typed descriptor occurrence inside `@property`.
 #[derive(Debug, PartialEq)]
@@ -42,7 +42,7 @@ impl<'ast> DeclarationPayload<'ast> {
     }
 }
 
-/// Rule payloads stored by the compiler-owned Radix AST.
+/// Rule payloads stored by the compiler-owned AST.
 #[derive(Debug, PartialEq)]
 pub enum CssRulePayload<'ast> {
     Style(StyleRulePayload),
@@ -97,11 +97,6 @@ impl CssRulePayload<'_> {
                 | Self::NestedDeclarations(_)
         )
     }
-}
-
-impl<'ast> RuleIdReferences<CssRulePayload<'ast>> for CssRulePayload<'ast> {
-    #[inline]
-    fn remap_rule_ids(&mut self, _remaps: &[RadixIdRemap<super::RuleId<CssRulePayload<'ast>>>]) {}
 }
 
 #[derive(Debug, PartialEq)]

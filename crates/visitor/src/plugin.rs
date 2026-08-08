@@ -69,7 +69,7 @@ impl<'a, 'token, 'ghost> PluginContext<'a, 'token, 'ghost> {
     }
 }
 
-/// A plugin over the compiler-owned Radix [`Compilation`].
+/// A plugin over the compiler-owned [`Compilation`].
 pub trait Plugin<'a, 'ghost> {
     fn name(&self) -> &str;
 
@@ -183,7 +183,7 @@ impl fmt::Display for RadixTraversalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "invalid Radix AST during plugin traversal: {:?}",
+            "invalid AST during plugin traversal: {:?}",
             self.0
         )
     }

@@ -266,7 +266,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         let DeclarationPayload::Property(declaration) = self
             .compilation
             .declaration(id)
-            .expect("a Radix declaration sequence ID remains resolvable")
+            .expect("a dense declaration sequence ID remains resolvable")
             .payload()
         else {
             unreachable!("local declaration minification only receives property blocks")
@@ -279,7 +279,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
         self.compilation
             .property_declaration_mut(self.blocks[location.block()], id)
-            .expect("a Radix property declaration remains mutable")
+            .expect("a dense property declaration remains mutable")
             .0
     }
 
@@ -297,7 +297,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
         self.compilation
             .declaration(id)
-            .expect("a Radix declaration sequence ID remains resolvable")
+            .expect("a dense declaration sequence ID remains resolvable")
             .is_important()
     }
 
