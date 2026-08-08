@@ -819,6 +819,141 @@ fn direct_ranges_skip_descendants_across_radix_sibling_segments() {
 }
 
 #[test]
+fn direct_range_advancement_is_lazy_until_the_successor_is_requested() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+    let parent = values.push_primary(DirectNode::new("parent", 2));
+    let child = values.push_primary(DirectNode::new("child", 1));
+    let grandchild = values.push_primary(DirectNode::new("grandchild", 0));
+    let after = values.push_primary(DirectNode::new("after", 0));
+
+    let mut direct = values
+        .iter_direct_range(RadixRange::new(parent, after, 4))
+        .unwrap();
+    assert_eq!(values[parent].descendant_reads.get(), 0);
+    assert_eq!(values[child].descendant_reads.get(), 0);
+    assert_eq!(values[grandchild].descendant_reads.get(), 0);
+
+    assert_eq!(direct.next().map(|node| node.name), Some("parent"));
+    assert_eq!(values[parent].descendant_reads.get(), 1);
+    assert_eq!(values[child].descendant_reads.get(), 0);
+    assert_eq!(values[grandchild].descendant_reads.get(), 0);
+
+    assert_eq!(direct.next().map(|node| node.name), Some("after"));
+    assert_eq!(values[child].descendant_reads.get(), 0);
+    assert_eq!(values[grandchild].descendant_reads.get(), 0);
+    assert!(direct.next().is_none());
+}
+
+#[test]
+fn direct_range_descendants_cross_from_siblings_into_primary_storage() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+    let anchor = values.push_primary(DirectNode::new("anchor", 0));
+    let skipped_primary = values.push_primary(DirectNode::new("skipped primary", 0));
+    let after = values.push_primary(DirectNode::new("after", 0));
+    let parent = insert_with_entry(&mut values, anchor, 31, DirectNode::new("parent", 2));
+    let child = insert_with_entry(&mut values, anchor, 768, DirectNode::new("child", 0));
+
+    let range = RadixRange::new(parent, after, 4);
+    assert_eq!(
+        values
+            .iter_direct_range_enumerated(range)
+            .unwrap()
+            .map(|(id, node)| (id, node.name))
+            .collect::<std::vec::Vec<_>>(),
+        [(parent, "parent"), (after, "after")]
+    );
+    assert_eq!(values[child].descendant_reads.get(), 0);
+    assert_eq!(values[skipped_primary].descendant_reads.get(), 0);
+}
+
+#[test]
+fn direct_ranges_can_start_and_end_at_sibling_ids() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+    let first = values.push_primary(DirectNode::new("first", 0));
+    let second = values.push_primary(DirectNode::new("second", 0));
+    let first_sibling =
+        insert_with_entry(&mut values, first, 31, DirectNode::new("first sibling", 0));
+    let second_sibling = insert_with_entry(
+        &mut values,
+        first,
+        768,
+        DirectNode::new("second sibling", 0),
+    );
+    let tail_sibling =
+        insert_with_entry(&mut values, second, 512, DirectNode::new("tail sibling", 0));
+
+    assert_eq!(
+        values
+            .iter_direct_range_enumerated(RadixRange::new(first_sibling, second_sibling, 2))
+            .unwrap()
+            .map(|(id, node)| (id, node.name))
+            .collect::<std::vec::Vec<_>>(),
+        [
+            (first_sibling, "first sibling"),
+            (second_sibling, "second sibling"),
+        ]
+    );
+    assert_eq!(
+        values
+            .iter_direct_range_enumerated(RadixRange::new(first, tail_sibling, 5))
+            .unwrap()
+            .map(|(id, node)| (id, node.name))
+            .collect::<std::vec::Vec<_>>(),
+        [
+            (first, "first"),
+            (first_sibling, "first sibling"),
+            (second_sibling, "second sibling"),
+            (second, "second"),
+            (tail_sibling, "tail sibling"),
+        ]
+    );
+}
+
+#[test]
+fn direct_range_descendants_cross_multiple_primary_and_sibling_segments() {
+    let allocator = Allocator::new();
+    let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);
+    let parent = values.push_primary(DirectNode::new("parent", 5));
+    let middle = values.push_primary(DirectNode::new("middle", 0));
+    let later = values.push_primary(DirectNode::new("later", 0));
+    let tail = values.push_primary(DirectNode::new("tail", 0));
+    let after = values.push_primary(DirectNode::new("after", 0));
+    let first_sibling = insert_with_entry(
+        &mut values,
+        parent,
+        512,
+        DirectNode::new("first sibling", 0),
+    );
+    let second_sibling = insert_with_entry(
+        &mut values,
+        middle,
+        512,
+        DirectNode::new("second sibling", 0),
+    );
+
+    let range = RadixRange::new(parent, after, 7);
+    let values_only = values
+        .iter_direct_range(range)
+        .unwrap()
+        .map(|node| node.name)
+        .collect::<std::vec::Vec<_>>();
+    let enumerated = values
+        .iter_direct_range_enumerated(range)
+        .unwrap()
+        .map(|(id, node)| (id, node.name))
+        .collect::<std::vec::Vec<_>>();
+
+    assert_eq!(values_only, ["parent", "after"]);
+    assert_eq!(enumerated, [(parent, "parent"), (after, "after")]);
+    for skipped in [first_sibling, middle, second_sibling, later, tail] {
+        assert_eq!(values[skipped].descendant_reads.get(), 0);
+    }
+}
+
+#[test]
 fn direct_range_cursor_crosses_an_empty_retired_sibling_group() {
     let allocator = Allocator::new();
     let mut values = TypedRadixIndexArena::<_, TestRuleId>::new_in(&allocator);

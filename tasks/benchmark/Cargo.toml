@@ -46,3 +46,7 @@ name    = "pipeline"
 [[bench]]
 harness = false
 name    = "rule_list"
+
+[[bench]]
+harness = false
+name    = "radix_range"
