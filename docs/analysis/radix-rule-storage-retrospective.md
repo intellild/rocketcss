@@ -11,8 +11,9 @@ RocketCSS 中 `CssRuleList` 的主存储和遍历拓扑。
 最终，罕见插入的成本被转移到了每一次常规遍历上，而且原有 topology 并没有真正被
 range 取代，AST 同时维护了两套结构。
 
-对 CssRule 应恢复为：连续的稳定 ID 存储负责身份和局部性，紧凑的 rule-list topology
-负责语义顺序；插入集中在 reification 阶段，通过 append 或复用安全墓碑完成。
+相比之下，master 上的数组存储 + index 链表把稳定身份、物理存储和语义顺序分开，
+更符合 CssRule 的实际访问模式。后面的基准也说明，即使 topology 仍建立在
+`RadixArena` 上，仅使用 index 链接遍历就已经明显更快。
 
 ## 最初目标
 
@@ -60,42 +61,34 @@ CssRule 的真实访问模式主要是：
 `start_id + offset` 的需求。CSS 的 `:nth-child()` 描述 DOM，也与 AST 中第 N 条规则
 的随机访问无关。
 
-这与 declaration block 不同：声明列表确实可能存在 block 内位置访问，因此可以使用
-简单的连续 `DenseRange<I> { start, len }`。这不意味着 CssRuleList 也应使用同一种
-range 抽象。
+## 与 master 实现的对照
 
-## 被忽略的更简单方案
-
-我们把“在 `Vec` 中间插入会移动全部元素”当成核心约束，却没有充分利用另一种结构：
-
-- `DenseStore` 只 append，保持 `RuleId` 稳定；
-- 语义顺序由 list 中的 `next_sibling` 表示；
-- 新规则 append 到 store，随后只 splice topology；
-- Parser 产生的绝大多数 next ID 天然连续，仍有良好的局部性；
-- transform 已知插入位置，不需要从头寻找 sibling；
-- Nano 的主要分析在插入前完成一次线性读取。
-
-更符合实际 pipeline 的执行流是：
+我们把“在 `Vec` 中间插入会移动全部元素”当成核心约束，却忽略了 master 并不通过
+移动数组元素来表达插入后的语义顺序。它使用数组保存 record，以稳定整数 index 作为
+身份，再由 record 中的 index 链接表达 rule-list topology：
 
 ```text
 Parser
-  DenseStore push，源码 preorder、稳定 RuleId
+  按源码顺序向数组 push record
        ↓
-Persistent Scheduler
-  插入前对 DenseStore 做一次线性读取
+RuleId
+  稳定整数 index，明确 ID 可直接访问
        ↓
-ReificationPlan
-  汇总所有结构修改
+RuleList topology
+  record 中的 next index 表达语义顺序
        ↓
-一次性更新 AST
-  append / 复用已证明安全的墓碑，并 splice RuleList topology
-       ↓
-Codegen
-  按 RuleList 迭代器输出最终语义顺序
+遍历 / 插入
+  顺着 index 前进，插入只修改已知位置附近的链接
 ```
 
-这里不要求插入后物理存储仍保持完整的语义顺序。只要稳定 ID 和最终 topology 正确，
-就无需为罕见插入改变常规遍历的数据结构。
+因此，插入后的物理数组顺序不需要继续等于语义顺序。Parser 产生的绝大多数 next ID
+天然连续，常规遍历仍具有良好的局部性；少量插入只需要把新 record 放入数组中的可用
+位置，并修改已知位置附近的 index 链接。
+
+这不是经典的堆指针链表。master 的 record 连续存放，链接是紧凑整数 index，解析阶段
+又按源码顺序分配，所以多数 next index 指向相邻 record。它保留了数组的局部性，同时
+避免让少量插入改变所有常规遍历的表示。Radix 方案试图解决的问题，master 的数组 +
+index 链表实际上已经用更直接的方式解决了。
 
 ## 实现为何越来越复杂
 
@@ -157,8 +150,9 @@ cargo bench -p rocketcss_benchmark --bench radix_range -- \
 确实改善了原实现；但最常见的 flat traversal 仍慢约 2.6 倍，短 range/deep tree 场景
 慢约 6.4 倍。为了罕见插入让所有普通遍历承担这个成本，不符合负载比例。
 
-需要注意，这里的 topology benchmark 仍通过 `RadixArena::get` 读取节点。真正的
-`DenseStore` + topology 预计会更简单，至少不会比这个基线引入 Radix 解码成本。
+需要注意，这里的 topology benchmark 仍通过 `RadixArena::get` 读取节点。因此这组
+结果甚至没有包含 master 数组存储可能带来的额外简化；它只证明在相同底层容器上，
+index topology 已经比 direct range traversal 更适合这一负载。
 
 ## 火焰图和汇编揭示的成本
 
@@ -193,68 +187,7 @@ record 又连续存放。`next` 通常与 payload 位于同一 cache line，所�
 
 继续针对某一个 iterator hot path 做微优化，无法消除这些结构性成本。
 
-## 推荐的数据结构
-
-```text
-StyleSheet
-  rules: DenseStore<RuleId, RuleRecord>
-
-RuleList
-  first: Option<RuleId>
-  last: Option<RuleId>
-  len: u32
-
-RuleRecord
-  rule: CssRule
-  parent_list: RuleListId
-  next_sibling: Option<RuleId>
-  child_list: Option<RuleListId>
-  declaration_block: Option<DeclarationBlockId>
-  revision/live state as required
-```
-
-约束如下：
-
-- Parser 只按源码 preorder push；
-- 顺序遍历只能通过带状态的 iterator；
-- 随机访问只接受明确已知的 `RuleId`；
-- iterator 自身保留父 list 和 neighbor context，禁止从 list 头重复扫描；
-- mutation 通过已解析的 entry 执行，避免重复寻找和重复判断；
-- ReificationPlan 汇总插入后一次性应用；
-- 新节点优先复用已证明不会再被引用的墓碑，否则 append；
-- `last` 由 `RuleList` 明确保存，不能通过 ID 算术猜测；
-- AST 细节封装在 stylesheet/AST 模块，不泄漏给 compiler 和 transforms。
-
-`previous_sibling`、source-order links 等额外字段是否保留，应由实际调用点和 benchmark
-单独证明。Persistent Scheduler 与 ReificationPlan 已经可以携带上下文时，不应为了
-方便查询再增加反向链或重复索引。
-
-## 保留的正确方向
-
-本次失败不否定以下设计：
-
-- Parser 按源码顺序线性分配；
-- 使用 typed stable ID；
-- DeclarationBlock 与 EffectiveKey 一起保存在 AST；
-- Persistent Scheduler 一次线性读取；
-- ReificationPlan 集中应用结构修改；
-- 明确墓碑的所有权和安全复用时机；
-- 通过 AST iterator 封装遍历细节；
-- 用纯容器 benchmark 和火焰图验证抽象成本。
-
-这些方向应在更简单的 DenseStore + compact topology 上实现。
-
-## 后续决策
-
-1. 停止以 CssRule 场景为理由继续优化 Radix direct range iterator。
-2. 用同一组 flat/sparse/deep 数据构建 `DenseStore + next_sibling` benchmark。
-3. benchmark 必须区分 parse-time linear scan、transform neighbor traversal、插入和
-   codegen traversal，不能只看合成的随机访问。
-4. 若 DenseStore topology 结果符合预期，再渐进迁移 CssRule 存储；每一步保持 AST
-   行为和序列化结果不变。
-5. Declaration range 使用独立、简单的 dense range，不继承 Radix 的 sibling 语义。
-6. `RadixArena` 可以暂时作为 common 中的实验容器保留，但其去留应由独立使用场景
-   决定，不能再反向塑造 CSS AST。
-
-最终原则是：容器只解决存储问题，AST topology 表达 CSS 语义，scheduler/reification
-决定修改时机。不要再让一种 ID 编码同时承担这三层职责。
+放弃这个方向的核心原因不是某一个 iterator 尚未优化好，而是 RadixRange 把一个
+低频 mutation 问题变成了高频 traversal 成本，并且没有替代原有 topology。master 的
+数组 + index 链表已经把连续存储、稳定身份和可修改语义顺序分开；在 CssRule 的真实
+访问模式下，这个结构更简单，也与现有基准结果一致。
