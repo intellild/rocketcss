@@ -10,7 +10,7 @@ struct Rename<'a> {
 impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for Rename<'a> {
     fn visit_selector_value(
         &mut self,
-        _id: rocketcss_ast::radix_ast::SelectorValueId,
+        _id: rocketcss_ast::radix_ast::SelectorValueId<'a>,
         selectors: &mut SelectorList<'a>,
     ) {
         for selector in selectors {
@@ -185,7 +185,7 @@ impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for TombstoneProper
     fn visit_declaration(
         &mut self,
         block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'a>,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
+        declaration: rocketcss_ast::radix_ast::DeclarationId<'a>,
         cx: &mut rocketcss_ast::radix_ast::CompilationVisitMutContext<'_, 'a>,
     ) {
         cx.replace_property_declaration(block, declaration, Declaration::Tombstone)

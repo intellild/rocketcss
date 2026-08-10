@@ -3,7 +3,7 @@ use super::{at_rule::parse_group_at_rule, *};
 pub(super) fn parse_style_rule<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -73,7 +73,7 @@ pub(super) fn parse_mixed_style_contents<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
     owner_rule: ConcreteRuleId<'ast>,
-    effective_key: EffectiveKeyId,
+    effective_key: EffectiveKeyId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     mut active_segment: Option<(ConcreteRuleId<'ast>, ConcreteDeclarationBlockId<'ast>)>,
     options: &ParserOptions<'ast>,
@@ -213,7 +213,7 @@ pub(super) fn parse_mixed_style_contents<'ast>(
 pub(super) fn ensure_child_list<'ast>(
     compilation: &mut Compilation<'ast>,
     owner: ConcreteRuleId<'ast>,
-) -> Result<RuleListId, rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
+) -> Result<RuleListId<'ast>, rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
     if let Some(list) = compilation
         .rule(owner)
         .expect("the current style rule remains live")

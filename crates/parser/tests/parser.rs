@@ -15,7 +15,7 @@ fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<
 fn root_rule<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
     index: usize,
-) -> (RuleId<'ast>, &'tree RuleRecord<CssRulePayload<'ast>>) {
+) -> (RuleId<'ast>, &'tree RuleRecord<'ast, CssRulePayload<'ast>>) {
     let id = root_rule_ids(compilation)[index];
     (id, compilation.rule(id).unwrap())
 }

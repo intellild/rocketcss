@@ -52,8 +52,8 @@ fn main() {
     print_sizes!(
         rocketcss_common::boxed::Box<'static, u8>,
         rocketcss_common::vec::Vec<'static, u8>,
-        RuleRecord<CssRulePayload<'static>>,
-        DeclarationBlockRecord<CssRulePayload<'static>>,
+        RuleRecord<'static, CssRulePayload<'static>>,
+        DeclarationBlockRecord<'static, CssRulePayload<'static>>,
         DeclarationRecord<DeclarationPayload<'static>>,
         Declaration<'static>,
         PropertyId<'static>,

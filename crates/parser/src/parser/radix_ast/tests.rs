@@ -1,10 +1,10 @@
 use super::*;
 use crate::parser::ReplayCounters;
 
-fn selector_representative(
-    _compilation: &Compilation<'_>,
-    key: &ConcreteEffectiveKey<'_>,
-) -> Option<SelectorPathId> {
+fn selector_representative<'ast>(
+    _compilation: &Compilation<'ast>,
+    key: &ConcreteEffectiveKey<'ast>,
+) -> Option<SelectorPathId<'ast>> {
     key.selector_path()
 }
 
@@ -19,7 +19,7 @@ fn context_representative<'ast>(
 fn effective_key_for<'ast>(
     compilation: &Compilation<'ast>,
     rule: ConcreteRuleId<'ast>,
-) -> EffectiveKeyId {
+) -> EffectiveKeyId<'ast> {
     let block = compilation
         .rule(rule)
         .and_then(|record| record.declaration_block())
@@ -33,7 +33,7 @@ fn effective_key_for<'ast>(
 fn selector_path_for_rule<'ast>(
     compilation: &Compilation<'ast>,
     rule: ConcreteRuleId<'ast>,
-) -> Option<SelectorPathId> {
+) -> Option<SelectorPathId<'ast>> {
     compilation
         .effective_key(effective_key_for(compilation, rule))
         .and_then(|key| key.selector_path())
@@ -42,7 +42,7 @@ fn selector_path_for_rule<'ast>(
 fn selector_value_for_rule<'ast>(
     compilation: &Compilation<'ast>,
     rule: ConcreteRuleId<'ast>,
-) -> SelectorValueId {
+) -> SelectorValueId<'ast> {
     match compilation.rule(rule).unwrap().payload() {
         CssRulePayload::Style(payload) => payload.selector_value,
         CssRulePayload::Nesting(payload) => payload.selector_value,

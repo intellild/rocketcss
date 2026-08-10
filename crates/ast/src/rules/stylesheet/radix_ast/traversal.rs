@@ -9,7 +9,7 @@ pub trait CompilationVisitor<'ast> {
     fn visit_rule(
         &mut self,
         _id: ConcreteRuleId<'ast>,
-        _rule: &RuleRecord<CssRulePayload<'ast>>,
+        _rule: &RuleRecord<'ast, CssRulePayload<'ast>>,
         _compilation: &Compilation<'ast>,
     ) {
     }
@@ -17,7 +17,7 @@ pub trait CompilationVisitor<'ast> {
     fn visit_declaration_block(
         &mut self,
         _id: ConcreteDeclarationBlockId<'ast>,
-        _block: &DeclarationBlockRecord<CssRulePayload<'ast>>,
+        _block: &DeclarationBlockRecord<'ast, CssRulePayload<'ast>>,
         _compilation: &Compilation<'ast>,
     ) {
     }
@@ -25,7 +25,7 @@ pub trait CompilationVisitor<'ast> {
     fn visit_declaration(
         &mut self,
         _block: ConcreteDeclarationBlockId<'ast>,
-        _id: DeclarationId,
+        _id: DeclarationId<'ast>,
         _declaration: &DeclarationRecord<DeclarationPayload<'ast>>,
         _compilation: &Compilation<'ast>,
     ) {
@@ -34,7 +34,7 @@ pub trait CompilationVisitor<'ast> {
     fn visit_descriptor(
         &mut self,
         _block: ConcreteDeclarationBlockId<'ast>,
-        _id: DeclarationId,
+        _id: DeclarationId<'ast>,
         _descriptor: &DeclarationRecord<DeclarationPayload<'ast>>,
         _compilation: &Compilation<'ast>,
     ) {
@@ -49,7 +49,7 @@ pub trait CompilationVisitor<'ast> {
 pub trait CompilationVisitorMut<'ast> {
     fn visit_selector_value(
         &mut self,
-        _id: SelectorValueId,
+        _id: SelectorValueId<'ast>,
         _selectors: &mut crate::SelectorList<'ast>,
     ) {
     }
@@ -71,7 +71,7 @@ pub trait CompilationVisitorMut<'ast> {
     fn visit_declaration(
         &mut self,
         _block: ConcreteDeclarationBlockId<'ast>,
-        _id: DeclarationId,
+        _id: DeclarationId<'ast>,
         _cx: &mut CompilationVisitMutContext<'_, 'ast>,
     ) {
     }
@@ -79,7 +79,7 @@ pub trait CompilationVisitorMut<'ast> {
     fn visit_descriptor(
         &mut self,
         _block: ConcreteDeclarationBlockId<'ast>,
-        _id: DeclarationId,
+        _id: DeclarationId<'ast>,
         _cx: &mut CompilationVisitMutContext<'_, 'ast>,
     ) {
     }
@@ -100,7 +100,7 @@ impl<'comp, 'ast> CompilationVisitMutContext<'comp, 'ast> {
     pub fn replace_rule_selector_value(
         &mut self,
         rule: ConcreteRuleId<'ast>,
-        selector: SelectorValueId,
+        selector: SelectorValueId<'ast>,
     ) -> Result<bool, ConcreteMutationError<'ast>> {
         self.compilation.replace_rule_selector_value(rule, selector)
     }
@@ -109,7 +109,7 @@ impl<'comp, 'ast> CompilationVisitMutContext<'comp, 'ast> {
     pub fn replace_property_declaration(
         &mut self,
         block: ConcreteDeclarationBlockId<'ast>,
-        declaration: DeclarationId,
+        declaration: DeclarationId<'ast>,
         replacement: crate::Declaration<'ast>,
     ) -> Result<crate::Declaration<'ast>, ConcreteMutationError<'ast>> {
         if !matches!(
@@ -137,7 +137,7 @@ impl<'comp, 'ast> CompilationVisitMutContext<'comp, 'ast> {
         selectors: crate::SelectorList<'ast>,
         kind: SelectorFrameKind,
         vendor_prefix: crate::VendorPrefix,
-    ) -> Result<SelectorValueId, ConcreteMutationError<'ast>> {
+    ) -> Result<SelectorValueId<'ast>, ConcreteMutationError<'ast>> {
         self.compilation
             .intern_selector_value(selectors, kind, vendor_prefix)
     }

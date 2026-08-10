@@ -1,11 +1,11 @@
 use super::*;
 
-impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
+impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     /// Returns the final live rule in `rule`'s lexical subtree.
     ///
     /// Direct siblings are not necessarily adjacent in global source order
     /// because all descendants of the left sibling appear first.
-    pub fn subtree_tail(&self, rule: RuleId<R>) -> Option<RuleId<R>> {
+    pub fn subtree_tail(&self, rule: RuleId<'ast, R>) -> Option<RuleId<'ast, R>> {
         let mut current = rule;
         loop {
             let record = self.rules.try_get(current)?;
@@ -27,7 +27,7 @@ impl<R: Unpin, D, K> RadixCompilation<'_, R, D, K> {
     ///
     /// This may be a direct sibling, an ancestor's sibling, or `None` at the
     /// end of the stylesheet.
-    pub fn next_after_subtree(&self, rule: RuleId<R>) -> Option<RuleId<R>> {
+    pub fn next_after_subtree(&self, rule: RuleId<'ast, R>) -> Option<RuleId<'ast, R>> {
         let mut current = rule;
         loop {
             let record = self.rules.try_get(current)?;

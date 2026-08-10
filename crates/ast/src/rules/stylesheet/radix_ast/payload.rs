@@ -45,7 +45,7 @@ impl<'ast> DeclarationPayload<'ast> {
 /// Rule payloads stored by the compiler-owned AST.
 #[derive(Debug, PartialEq)]
 pub enum CssRulePayload<'ast> {
-    Style(StyleRulePayload),
+    Style(StyleRulePayload<'ast>),
     Media(MediaRulePayload<'ast>),
     Supports(SupportsRulePayload<'ast>),
     StartingStyle(StartingStyleRulePayload),
@@ -70,7 +70,7 @@ pub enum CssRulePayload<'ast> {
     Page(PageRulePayload<'ast>),
     PageMargin(PageMarginPayload),
     PageDeclarations(PageDeclarationsPayload),
-    Nesting(NestingRulePayload),
+    Nesting(NestingRulePayload<'ast>),
     FontFeatureValues(FontFeatureValuesRulePayload<'ast>),
     FontFeatureSubrule(FontFeatureSubrulePayload),
     Property(PropertyRulePayload<'ast>),
@@ -100,9 +100,9 @@ impl CssRulePayload<'_> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct StyleRulePayload {
+pub struct StyleRulePayload<'ast> {
     pub span: Span,
-    pub selector_value: SelectorValueId,
+    pub selector_value: SelectorValueId<'ast>,
     pub vendor_prefix: VendorPrefix,
 }
 
@@ -226,9 +226,9 @@ pub struct PageDeclarationsPayload {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct NestingRulePayload {
+pub struct NestingRulePayload<'ast> {
     pub span: Span,
-    pub selector_value: SelectorValueId,
+    pub selector_value: SelectorValueId<'ast>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -247,9 +247,9 @@ pub struct FontFeatureSubrulePayload {
 pub struct PropertyRulePayload<'ast> {
     pub span: Span,
     pub name: &'ast str,
-    pub syntax: Option<DeclarationId>,
-    pub inherits: Option<DeclarationId>,
-    pub initial_value: Option<DeclarationId>,
+    pub syntax: Option<DeclarationId<'ast>>,
+    pub inherits: Option<DeclarationId<'ast>>,
+    pub initial_value: Option<DeclarationId<'ast>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

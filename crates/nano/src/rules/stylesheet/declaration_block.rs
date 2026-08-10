@@ -254,7 +254,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         blocks: &[RadixDeclarationBlockId<'ast>],
         compilation: &Compilation<'ast>,
         location: DeclarationLocation,
-    ) -> RadixDeclarationId {
+    ) -> RadixDeclarationId<'ast> {
         compilation
             .declaration_id_at_in_block(blocks[location.block()], location.declaration())
             .expect("the declaration location was validated against the block length")

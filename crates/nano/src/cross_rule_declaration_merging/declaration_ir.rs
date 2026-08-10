@@ -15,12 +15,12 @@ pub(super) enum CompactPropertyKey {
 }
 
 #[derive(Debug)]
-pub(super) struct DeclarationIrClassifier<'arena, 'ast> {
-    custom_property_ids: HashMap<'arena, &'ast str, u32>,
+pub(super) struct DeclarationIrClassifier<'scratch, 'ast> {
+    custom_property_ids: HashMap<'scratch, &'ast str, u32>,
 }
 
-impl<'arena, 'ast> DeclarationIrClassifier<'arena, 'ast> {
-    pub(super) fn new_in(allocator: &'arena Allocator) -> Self {
+impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
+    pub(super) fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
             custom_property_ids: HashMap::new_in(allocator),
         }
@@ -242,12 +242,12 @@ fn movement_domain(property_id: PropertyId<'_>) -> Option<MovementDomain> {
 }
 
 #[derive(Debug)]
-struct PropertyIndex<'arena> {
-    by_property: HashMap<'arena, CompactPropertyKey, Vec<'arena, IndexedDeclaration>>,
+struct PropertyIndex<'scratch, 'ast> {
+    by_property: HashMap<'scratch, CompactPropertyKey, Vec<'scratch, IndexedDeclaration<'ast>>>,
 }
 
-impl<'arena> PropertyIndex<'arena> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+impl<'scratch> PropertyIndex<'scratch, '_> {
+    fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
             by_property: HashMap::new_in(allocator),
         }
@@ -255,24 +255,24 @@ impl<'arena> PropertyIndex<'arena> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct IndexedDeclaration {
-    pub(super) declaration: rocketcss_ast::radix_ast::DeclarationId,
+pub(super) struct IndexedDeclaration<'ast> {
+    pub(super) declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
     pub(super) order: usize,
 }
 
-pub(super) struct DeclarationIrStore<'arena, 'ast> {
-    allocator: &'arena Allocator,
-    classifier: DeclarationIrClassifier<'arena, 'ast>,
-    occurrences: Vec<'arena, Option<DeclarationOccurrenceIr>>,
+pub(super) struct DeclarationIrStore<'scratch, 'ast> {
+    allocator: &'scratch Allocator,
+    classifier: DeclarationIrClassifier<'scratch, 'ast>,
+    occurrences: Vec<'scratch, Option<DeclarationOccurrenceIr>>,
     blocks: HashMap<
-        'arena,
+        'scratch,
         rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
         DeclarationBlockIr,
     >,
     property_index: HashMap<
-        'arena,
+        'scratch,
         rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        PropertyIndex<'arena>,
+        PropertyIndex<'scratch, 'ast>,
     >,
 }
 
@@ -289,9 +289,9 @@ struct DeclarationBlockIr {
     property_bloom: PropertyBloom,
 }
 
-impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
+impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
     pub(super) fn new_in(
-        allocator: &'arena Allocator,
+        allocator: &'scratch Allocator,
         declaration_capacity: usize,
         block_capacity: usize,
     ) -> Self {
@@ -330,11 +330,11 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
 
     fn publish_occurrence(
         &mut self,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
+        declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
         record: &DeclarationRecord<rocketcss_ast::radix_ast::DeclarationPayload<'ast>>,
         order: usize,
         summary: &mut DeclarationBlockIr,
-        property_index: &mut PropertyIndex<'arena>,
+        property_index: &mut PropertyIndex<'scratch, 'ast>,
     ) {
         let (property_key, movement_domain, live) = match record.payload() {
             rocketcss_ast::radix_ast::DeclarationPayload::Property(value) => {
@@ -381,7 +381,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
         &mut self,
         compilation: &rocketcss_ast::Compilation<'ast>,
         block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
+        declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
     ) -> Result<(), rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
         let record = compilation.declaration(declaration).ok_or(
             rocketcss_ast::radix_ast::MutationError::UnknownDeclaration(declaration),
@@ -464,7 +464,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
 
     pub(super) fn occurrence(
         &self,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
+        declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
     ) -> Option<&DeclarationOccurrenceIr> {
         self.occurrences.get(declaration.index())?.as_ref()
     }
@@ -473,7 +473,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
         &self,
         compilation: &rocketcss_ast::Compilation<'ast>,
         block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        output: &mut Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
+        output: &mut Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
     ) -> Result<(), rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
         output.clear();
         for declaration in compilation.declaration_ids_in_block(block)? {
@@ -491,7 +491,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
         &self,
         block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
         key: CompactPropertyKey,
-    ) -> Option<&[IndexedDeclaration]> {
+    ) -> Option<&[IndexedDeclaration<'ast>]> {
         self.property_index
             .get(&block)
             .and_then(|index| index.by_property.get(&key))
@@ -501,7 +501,7 @@ impl<'arena, 'ast> DeclarationIrStore<'arena, 'ast> {
     pub(super) fn mark_dead(
         &mut self,
         block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
+        declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
     ) {
         let occurrence = self.occurrences[declaration.index()]
             .as_mut()

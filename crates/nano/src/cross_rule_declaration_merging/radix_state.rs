@@ -23,12 +23,12 @@ use std::{cmp::Reverse, collections::VecDeque};
 use super::declaration_ir::{CompactPropertyKey, DeclarationIrStore, MovementDomain};
 use super::partial_selector::materialize_selector_union;
 
-pub(crate) struct CrossRuleBuilder<'arena, 'ast> {
-    state: CrossRuleState<'arena, 'ast>,
+pub(crate) struct CrossRuleBuilder<'scratch, 'ast> {
+    state: CrossRuleState<'scratch, 'ast>,
 }
 
-impl<'arena, 'ast> CrossRuleBuilder<'arena, 'ast> {
-    pub(super) fn new(compilation: &Compilation<'ast>, allocator: &'arena Allocator) -> Self {
+impl<'scratch, 'ast> CrossRuleBuilder<'scratch, 'ast> {
+    pub(super) fn new(compilation: &Compilation<'ast>, allocator: &'scratch Allocator) -> Self {
         Self {
             state: CrossRuleState::new_in(compilation, allocator),
         }
@@ -42,13 +42,13 @@ impl<'arena, 'ast> CrossRuleBuilder<'arena, 'ast> {
         self.state.publish_block(compilation, block)
     }
 
-    pub(super) fn finalize(&mut self, key_remaps: &[EffectiveKeyId]) {
+    pub(super) fn finalize(&mut self, key_remaps: &[EffectiveKeyId<'ast>]) {
         self.state.finalize_published_blocks(key_remaps);
     }
 }
 
-pub(super) fn stabilize_with_builder<'arena, 'ast>(
-    mut builder: CrossRuleBuilder<'arena, 'ast>,
+pub(super) fn stabilize_with_builder<'scratch, 'ast>(
+    mut builder: CrossRuleBuilder<'scratch, 'ast>,
     compilation: &mut Compilation<'ast>,
     preserve_selector_compatibility: bool,
 ) -> Result<(), MutationError<'ast>> {
@@ -70,13 +70,13 @@ struct Candidate<'ast> {
 }
 
 #[derive(Debug)]
-struct SameSelectorCandidateList<'arena, 'ast> {
+struct SameSelectorCandidateList<'scratch, 'ast> {
     pending: VecDeque<Candidate<'ast>>,
-    queued: HashSet<'arena, Candidate<'ast>>,
+    queued: HashSet<'scratch, Candidate<'ast>>,
 }
 
-impl<'arena, 'ast> SameSelectorCandidateList<'arena, 'ast> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+impl<'scratch, 'ast> SameSelectorCandidateList<'scratch, 'ast> {
+    fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
             pending: VecDeque::new(),
             queued: HashSet::new_in(allocator),
@@ -101,13 +101,13 @@ impl<'arena, 'ast> SameSelectorCandidateList<'arena, 'ast> {
 }
 
 #[derive(Debug)]
-struct PartialMergeCandidateList<'arena, 'ast> {
-    pending: Vec<'arena, Reverse<Candidate<'ast>>>,
-    queued: HashSet<'arena, Candidate<'ast>>,
+struct PartialMergeCandidateList<'scratch, 'ast> {
+    pending: Vec<'scratch, Reverse<Candidate<'ast>>>,
+    queued: HashSet<'scratch, Candidate<'ast>>,
 }
 
-impl<'arena, 'ast> PartialMergeCandidateList<'arena, 'ast> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+impl<'scratch, 'ast> PartialMergeCandidateList<'scratch, 'ast> {
+    fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
             pending: allocator.vec(),
             queued: HashSet::new_in(allocator),
@@ -178,26 +178,26 @@ impl<'arena, 'ast> PartialMergeCandidateList<'arena, 'ast> {
 }
 
 #[derive(Debug)]
-struct DeclarationOverrideCandidateList<'arena> {
-    pending: VecDeque<EffectiveKeyId>,
-    queued: HashSet<'arena, EffectiveKeyId>,
+struct DeclarationOverrideCandidateList<'scratch, 'ast> {
+    pending: VecDeque<EffectiveKeyId<'ast>>,
+    queued: HashSet<'scratch, EffectiveKeyId<'ast>>,
 }
 
-impl<'arena> DeclarationOverrideCandidateList<'arena> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+impl<'scratch, 'ast> DeclarationOverrideCandidateList<'scratch, 'ast> {
+    fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
             pending: VecDeque::new(),
             queued: HashSet::new_in(allocator),
         }
     }
 
-    fn push(&mut self, key: EffectiveKeyId) {
+    fn push(&mut self, key: EffectiveKeyId<'ast>) {
         if self.queued.insert(key) {
             self.pending.push_back(key);
         }
     }
 
-    fn pop(&mut self) -> Option<EffectiveKeyId> {
+    fn pop(&mut self) -> Option<EffectiveKeyId<'ast>> {
         let key = self.pending.pop_front()?;
         self.queued.remove(&key);
         Some(key)
@@ -209,28 +209,28 @@ impl<'arena> DeclarationOverrideCandidateList<'arena> {
 }
 
 #[derive(Debug)]
-struct MinifyScratch<'arena, 'ast> {
-    history: Vec<'arena, DeclarationBlockId<'ast>>,
-    left_declarations: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    right_declarations: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    left_residual: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    right_residual: Vec<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    common: Vec<'arena, CommonDeclaration>,
-    matched_right: HashSet<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    matched_left: HashSet<'arena, rocketcss_ast::radix_ast::DeclarationId>,
-    affected_blocks: HashSet<'arena, DeclarationBlockId<'ast>>,
+struct MinifyScratch<'scratch, 'ast> {
+    history: Vec<'scratch, DeclarationBlockId<'ast>>,
+    left_declarations: Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
+    right_declarations: Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
+    left_residual: Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
+    right_residual: Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
+    common: Vec<'scratch, CommonDeclaration<'ast>>,
+    matched_right: HashSet<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
+    matched_left: HashSet<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
+    affected_blocks: HashSet<'scratch, DeclarationBlockId<'ast>>,
     previous_by_property: HashMap<
-        'arena,
+        'scratch,
         CompactPropertyKey,
         (
             DeclarationBlockId<'ast>,
-            rocketcss_ast::radix_ast::DeclarationId,
+            rocketcss_ast::radix_ast::DeclarationId<'ast>,
         ),
     >,
 }
 
-impl<'arena, 'ast> MinifyScratch<'arena, 'ast> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+impl<'scratch, 'ast> MinifyScratch<'scratch, 'ast> {
+    fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
             history: allocator.vec(),
             left_declarations: allocator.vec(),
@@ -249,28 +249,28 @@ impl<'arena, 'ast> MinifyScratch<'arena, 'ast> {
 #[derive(Clone, Copy, Debug)]
 struct PublishedBlock<'ast> {
     block: DeclarationBlockId<'ast>,
-    effective_key: EffectiveKeyId,
+    effective_key: EffectiveKeyId<'ast>,
     revision: u32,
-    previous_style_block: Option<(DeclarationBlockId<'ast>, EffectiveKeyId, u32)>,
+    previous_style_block: Option<(DeclarationBlockId<'ast>, EffectiveKeyId<'ast>, u32)>,
 }
 
-struct CrossRuleState<'arena, 'ast> {
-    allocator: &'arena Allocator,
-    declaration_ir: DeclarationIrStore<'arena, 'ast>,
+struct CrossRuleState<'scratch, 'ast> {
+    allocator: &'scratch Allocator,
+    declaration_ir: DeclarationIrStore<'scratch, 'ast>,
     // The authored common case is one occurrence per key. Keep that one ID
     // inline in the arena vector and grow it only when S2 needs a history.
-    histories: HashMap<'arena, EffectiveKeyId, Vec<'arena, DeclarationBlockId<'ast>>>,
-    published_blocks: Vec<'arena, PublishedBlock<'ast>>,
-    direct_style_edges: Vec<'arena, Candidate<'ast>>,
-    same_selector_candidates: SameSelectorCandidateList<'arena, 'ast>,
-    declaration_override_candidates: DeclarationOverrideCandidateList<'arena>,
-    partial_merge_candidates: PartialMergeCandidateList<'arena, 'ast>,
-    scratch: MinifyScratch<'arena, 'ast>,
+    histories: HashMap<'scratch, EffectiveKeyId<'ast>, Vec<'scratch, DeclarationBlockId<'ast>>>,
+    published_blocks: Vec<'scratch, PublishedBlock<'ast>>,
+    direct_style_edges: Vec<'scratch, Candidate<'ast>>,
+    same_selector_candidates: SameSelectorCandidateList<'scratch, 'ast>,
+    declaration_override_candidates: DeclarationOverrideCandidateList<'scratch, 'ast>,
+    partial_merge_candidates: PartialMergeCandidateList<'scratch, 'ast>,
+    scratch: MinifyScratch<'scratch, 'ast>,
     published_block_count: usize,
 }
 
-impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
-    fn new_in(compilation: &Compilation<'ast>, allocator: &'arena Allocator) -> Self {
+impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
+    fn new_in(compilation: &Compilation<'ast>, allocator: &'scratch Allocator) -> Self {
         let declaration_capacity = compilation.declarations_in_source_order().len();
         let block_capacity = compilation.declaration_block_count();
         Self {
@@ -351,7 +351,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         Ok(())
     }
 
-    fn finalize_published_blocks(&mut self, key_remaps: &[EffectiveKeyId]) {
+    fn finalize_published_blocks(&mut self, key_remaps: &[EffectiveKeyId<'ast>]) {
         self.published_block_count = 0;
         for index in 0..self.published_blocks.len() {
             let mut published = self.published_blocks[index];
@@ -423,13 +423,13 @@ struct SchedulerStats {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct CommonDeclaration {
-    left: rocketcss_ast::radix_ast::DeclarationId,
-    right: rocketcss_ast::radix_ast::DeclarationId,
+struct CommonDeclaration<'ast> {
+    left: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+    right: rocketcss_ast::radix_ast::DeclarationId<'ast>,
     right_order: usize,
 }
 
-impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
+impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
     fn run(
         &mut self,
         compilation: &mut Compilation<'ast>,
@@ -898,7 +898,11 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
         Ok(stats)
     }
 
-    fn remove_history_occurrence(&mut self, key: EffectiveKeyId, block: DeclarationBlockId<'ast>) {
+    fn remove_history_occurrence(
+        &mut self,
+        key: EffectiveKeyId<'ast>,
+        block: DeclarationBlockId<'ast>,
+    ) {
         let remove_key = if let Some(history) = self.histories.get_mut(&key) {
             history.retain(|candidate| *candidate != block);
             history.is_empty()
@@ -912,7 +916,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
 
     fn append_history_occurrence(
         &mut self,
-        key: EffectiveKeyId,
+        key: EffectiveKeyId<'ast>,
         block: DeclarationBlockId<'ast>,
     ) -> bool {
         if !self.histories.contains_key(&key) {
@@ -931,7 +935,7 @@ impl<'arena, 'ast> CrossRuleState<'arena, 'ast> {
     fn insert_history_occurrence(
         &mut self,
         compilation: &Compilation<'ast>,
-        key: EffectiveKeyId,
+        key: EffectiveKeyId<'ast>,
         block: DeclarationBlockId<'ast>,
     ) -> bool {
         if !self.histories.contains_key(&key) {
@@ -1060,7 +1064,7 @@ fn is_style_owner(payload: &CssRulePayload<'_>) -> bool {
 fn validate_s1<'ast>(
     compilation: &Compilation<'ast>,
     candidate: Candidate<'ast>,
-) -> Option<(RuleId<'ast>, RuleId<'ast>, EffectiveKeyId)> {
+) -> Option<(RuleId<'ast>, RuleId<'ast>, EffectiveKeyId<'ast>)> {
     let left_block = compilation.declaration_block(candidate.left)?;
     let right_block = compilation.declaration_block(candidate.right)?;
     if !left_block.is_live()
@@ -1086,10 +1090,10 @@ fn validate_s1<'ast>(
     Some((left, right, left_block.effective_key()))
 }
 
-fn declarations_are_exactly_equal(
-    compilation: &Compilation<'_>,
-    left: rocketcss_ast::radix_ast::DeclarationId,
-    right: rocketcss_ast::radix_ast::DeclarationId,
+fn declarations_are_exactly_equal<'ast>(
+    compilation: &Compilation<'ast>,
+    left: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+    right: rocketcss_ast::radix_ast::DeclarationId<'ast>,
 ) -> bool {
     let Some(left) = compilation.declaration(left) else {
         return false;
@@ -1104,10 +1108,10 @@ fn declarations_are_exactly_equal(
 struct RadixS3Endpoints<'ast> {
     left_rule: RuleId<'ast>,
     right_rule: RuleId<'ast>,
-    left_key: EffectiveKeyId,
-    right_key: EffectiveKeyId,
-    left_selector: rocketcss_ast::radix_ast::SelectorValueId,
-    right_selector: rocketcss_ast::radix_ast::SelectorValueId,
+    left_key: EffectiveKeyId<'ast>,
+    right_key: EffectiveKeyId<'ast>,
+    left_selector: rocketcss_ast::radix_ast::SelectorValueId<'ast>,
+    right_selector: rocketcss_ast::radix_ast::SelectorValueId<'ast>,
     selector_kind: rocketcss_ast::radix_ast::SelectorFrameKind,
     vendor_prefix: rocketcss_ast::VendorPrefix,
     span: Span,
@@ -1168,10 +1172,10 @@ fn validate_s3<'ast>(
     })
 }
 
-fn declarations_have_equal_effect(
-    compilation: &Compilation<'_>,
-    left: rocketcss_ast::radix_ast::DeclarationId,
-    right: rocketcss_ast::radix_ast::DeclarationId,
+fn declarations_have_equal_effect<'ast>(
+    compilation: &Compilation<'ast>,
+    left: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+    right: rocketcss_ast::radix_ast::DeclarationId<'ast>,
 ) -> bool {
     let Some(left) = compilation.declaration(left) else {
         return false;
@@ -1190,10 +1194,10 @@ fn declarations_have_equal_effect(
     }
 }
 
-fn has_opaque_domain_conflict(
-    declaration_ir: &DeclarationIrStore<'_, '_>,
+fn has_opaque_domain_conflict<'ast>(
+    declaration_ir: &DeclarationIrStore<'_, 'ast>,
     domain: MovementDomain,
-    declarations: &[rocketcss_ast::radix_ast::DeclarationId],
+    declarations: &[rocketcss_ast::radix_ast::DeclarationId<'ast>],
 ) -> bool {
     declarations.iter().any(|declaration| {
         let Some(occurrence) = declaration_ir.occurrence(*declaration) else {
@@ -1206,11 +1210,11 @@ fn has_opaque_domain_conflict(
     })
 }
 
-fn radix_partial_movement_is_safe(
-    common: &[CommonDeclaration],
-    left_residual: &[rocketcss_ast::radix_ast::DeclarationId],
-    right_residual: &[rocketcss_ast::radix_ast::DeclarationId],
-    declaration_ir: &DeclarationIrStore<'_, '_>,
+fn radix_partial_movement_is_safe<'ast>(
+    common: &[CommonDeclaration<'ast>],
+    left_residual: &[rocketcss_ast::radix_ast::DeclarationId<'ast>],
+    right_residual: &[rocketcss_ast::radix_ast::DeclarationId<'ast>],
+    declaration_ir: &DeclarationIrStore<'_, 'ast>,
 ) -> bool {
     if left_residual.is_empty() && right_residual.is_empty() {
         if common.iter().any(|common| {
@@ -1247,9 +1251,9 @@ fn radix_partial_movement_is_safe(
     radix_common_effect_order_is_safe(common, declaration_ir)
 }
 
-fn radix_common_effect_order_is_safe(
-    common: &[CommonDeclaration],
-    declaration_ir: &DeclarationIrStore<'_, '_>,
+fn radix_common_effect_order_is_safe<'ast>(
+    common: &[CommonDeclaration<'ast>],
+    declaration_ir: &DeclarationIrStore<'_, 'ast>,
 ) -> bool {
     for left in 0..common.len() {
         for right in left + 1..common.len() {

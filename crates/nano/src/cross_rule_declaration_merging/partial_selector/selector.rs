@@ -62,15 +62,15 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct SelectorCompatibility<'arena, 'ast> {
+struct SelectorCompatibility<'scratch, 'ast> {
     features: SelectorSyntaxFeatures,
-    pseudo_classes: HashSet<'arena, Discriminant<PseudoClass<'ast>>>,
-    pseudo_elements: HashSet<'arena, Discriminant<PseudoElement<'ast>>>,
+    pseudo_classes: HashSet<'scratch, Discriminant<PseudoClass<'ast>>>,
+    pseudo_elements: HashSet<'scratch, Discriminant<PseudoElement<'ast>>>,
     prefixes: VendorPrefix,
 }
 
-impl<'arena, 'ast> SelectorCompatibility<'arena, 'ast> {
-    fn new_in(allocator: &'arena Allocator) -> Self {
+impl<'scratch, 'ast> SelectorCompatibility<'scratch, 'ast> {
+    fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
             features: SelectorSyntaxFeatures::default(),
             pseudo_classes: HashSet::new_in(allocator),
@@ -80,18 +80,18 @@ impl<'arena, 'ast> SelectorCompatibility<'arena, 'ast> {
     }
 }
 
-fn selector_compatibility<'arena, 'ast>(
+fn selector_compatibility<'scratch, 'ast>(
     selectors: &SelectorList<'ast>,
-    allocator: &'arena Allocator,
-) -> Option<SelectorCompatibility<'arena, 'ast>> {
+    allocator: &'scratch Allocator,
+) -> Option<SelectorCompatibility<'scratch, 'ast>> {
     let mut compatibility = SelectorCompatibility::new_in(allocator);
     observe_selector_list_compatibility(selectors, &mut compatibility)?;
     Some(compatibility)
 }
 
-fn observe_selector_list_compatibility<'arena, 'ast>(
+fn observe_selector_list_compatibility<'scratch, 'ast>(
     selectors: &SelectorList<'ast>,
-    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
+    compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
 ) -> Option<()> {
     for selector in selectors {
         match selector {
@@ -107,9 +107,9 @@ fn observe_selector_list_compatibility<'arena, 'ast>(
     Some(())
 }
 
-fn observe_selector_component_compatibility<'arena, 'ast>(
+fn observe_selector_component_compatibility<'scratch, 'ast>(
     component: &SelectorComponent<'ast>,
-    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
+    compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
 ) -> Option<()> {
     use SelectorComponent as Component;
     use SelectorSyntaxFeatures as Feature;
@@ -228,9 +228,9 @@ fn observe_selector_component_compatibility<'arena, 'ast>(
     Some(())
 }
 
-fn observe_selector_compatibility<'arena, 'ast>(
+fn observe_selector_compatibility<'scratch, 'ast>(
     selector: &Selector<'ast>,
-    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
+    compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
 ) -> Option<()> {
     let Selector::Parsed(components) = selector else {
         return matches!(selector, Selector::Tombstone).then_some(());
@@ -241,10 +241,10 @@ fn observe_selector_compatibility<'arena, 'ast>(
     Some(())
 }
 
-fn observe_attribute_compatibility<'arena, 'ast>(
+fn observe_attribute_compatibility<'scratch, 'ast>(
     operator: AttrSelectorOperator,
     case_sensitivity: ParsedCaseSensitivity,
-    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
+    compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
 ) {
     use SelectorSyntaxFeatures as Feature;
 
@@ -261,9 +261,9 @@ fn observe_attribute_compatibility<'arena, 'ast>(
     }
 }
 
-fn observe_pseudo_class_compatibility<'arena, 'ast>(
+fn observe_pseudo_class_compatibility<'scratch, 'ast>(
     value: &PseudoClass<'ast>,
-    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
+    compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
 ) -> Option<()> {
     use PseudoClass as Pseudo;
 
@@ -285,9 +285,9 @@ fn observe_pseudo_class_compatibility<'arena, 'ast>(
     Some(())
 }
 
-fn observe_pseudo_element_compatibility<'arena, 'ast>(
+fn observe_pseudo_element_compatibility<'scratch, 'ast>(
     value: &PseudoElement<'ast>,
-    compatibility: &mut SelectorCompatibility<'arena, 'ast>,
+    compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
 ) -> Option<()> {
     use PseudoElement as Pseudo;
 

@@ -54,7 +54,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_rule_list<'ghost, PrinterT: PrinterTrait>(
         &self,
-        list: RuleListId,
+        list: RuleListId<'ast>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -88,7 +88,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
     fn write_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
         id: RuleId<'ast>,
-        rule: &RuleRecord<CssRulePayload<'ast>>,
+        rule: &RuleRecord<'ast, CssRulePayload<'ast>>,
         dest: &mut PrinterT,
         last_semicolon: LastSemicolon,
         cx: &ToCssContext<'_, '_, 'ghost>,
@@ -287,7 +287,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_style_body<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'ast>>,
+        rule: &RuleRecord<'ast, CssRulePayload<'ast>>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -322,7 +322,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_child_rule_block<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'_>>,
+        rule: &RuleRecord<'ast, CssRulePayload<'ast>>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -337,7 +337,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_property_block<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'ast>>,
+        rule: &RuleRecord<'ast, CssRulePayload<'ast>>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -457,7 +457,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn write_page_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
-        rule: &RuleRecord<CssRulePayload<'ast>>,
+        rule: &RuleRecord<'ast, CssRulePayload<'ast>>,
         payload: &PageRulePayload<'_>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
@@ -556,7 +556,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
     fn write_property_rule<'ghost, PrinterT: PrinterTrait>(
         &self,
         _id: RuleId<'ast>,
-        payload: &PropertyRulePayload<'_>,
+        payload: &PropertyRulePayload<'ast>,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
@@ -609,7 +609,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn property_descriptor(
         &self,
-        id: rocketcss_ast::radix_ast::DeclarationId,
+        id: rocketcss_ast::radix_ast::DeclarationId<'ast>,
     ) -> &PropertyRuleDescriptor<'_> {
         let record = self
             .declaration(id)
@@ -629,11 +629,11 @@ impl<'ast> RadixWriter<'_, 'ast> {
     }
 }
 
-type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<CssRulePayload<'ast>>);
+type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<'ast, CssRulePayload<'ast>>);
 
 fn next_visible_rule<'comp, 'ast>(
     compilation: &'comp Compilation<'ast>,
-    rules: &mut RuleListIter<'comp, CssRulePayload<'ast>>,
+    rules: &mut RuleListIter<'ast, 'comp, CssRulePayload<'ast>>,
 ) -> Option<VisibleRule<'comp, 'ast>> {
     for (id, rule) in rules {
         if let CssRulePayload::Style(style) = rule.payload() {

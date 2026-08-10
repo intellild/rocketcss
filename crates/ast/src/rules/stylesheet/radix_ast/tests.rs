@@ -4,13 +4,22 @@ use super::*;
 
 #[test]
 fn typed_ids_keep_compact_optional_layout() {
-    assert_eq!(size_of::<RuleId<&str>>(), size_of::<u32>());
-    assert_eq!(size_of::<Option<RuleId<&str>>>(), size_of::<u32>());
-    assert_eq!(size_of::<DeclarationBlockId<&str>>(), size_of::<u32>());
+    assert_eq!(size_of::<RuleId<'_, &str>>(), size_of::<u32>());
+    assert_eq!(size_of::<Option<RuleId<'_, &str>>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationBlockId<'_, &str>>(), size_of::<u32>());
     assert_eq!(
-        size_of::<Option<DeclarationBlockId<&str>>>(),
+        size_of::<Option<DeclarationBlockId<'_, &str>>>(),
         size_of::<u32>()
     );
+    assert_eq!(size_of::<RuleListId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<EffectiveKeyId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationOverflowId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<SelectorValueId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<SelectorPathId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<ContextValueId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<ContextPathId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<LayerContextId<'_>>(), size_of::<u32>());
 }
 
 #[test]
@@ -99,7 +108,7 @@ fn validation_rejects_a_broken_mutual_link() {
 
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::<u8>::RuleHasWrongPrevious {
+        Err(ValidationError::RuleHasWrongPrevious {
             rule: second,
             expected: Some(first),
         })
@@ -134,7 +143,7 @@ fn validation_rejects_a_child_list_owned_by_another_rule() {
 
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::<()>::ChildListHasWrongParent {
+        Err(ValidationError::ChildListHasWrongParent {
             rule: other,
             list: children,
             actual: Some(parent),

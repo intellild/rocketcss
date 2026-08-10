@@ -17,7 +17,7 @@ pub mod vec;
 pub mod wtf8;
 
 pub use atom::Atom;
-pub use dense::{DenseCapacityError, DenseId, DenseIdGenerator, DenseIndex, DenseMap, DenseStore};
+pub use dense::{DenseCapacityError, DenseId, DenseIdRange, DenseMap, DenseStore};
 pub use ghost_cell::{GhostBox, GhostCell, GhostToken};
 pub use reference::Ref;
 pub use string_pool::StringPool;
