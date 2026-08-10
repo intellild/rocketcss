@@ -213,7 +213,7 @@ pub(super) fn parse_mixed_style_contents<'ast>(
 pub(super) fn ensure_child_list<'ast>(
     compilation: &mut Compilation<'ast>,
     owner: ConcreteRuleId<'ast>,
-) -> Result<RuleListId<'ast>, rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
+) -> Result<RuleListId<'ast>, rocketcss_ast::ConcreteMutationError<'ast>> {
     if let Some(list) = compilation
         .rule(owner)
         .expect("the current style rule remains live")

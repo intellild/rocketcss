@@ -40,7 +40,7 @@ pub fn try_minify<'ast, 'ghost>(
     compilation: &mut Compilation<'ast>,
     token: &mut GhostToken<'ghost>,
     options: MinifyOptions,
-) -> Result<MinifyStats, radix_ast::ConcreteMutationError<'ast>> {
+) -> Result<MinifyStats, ConcreteMutationError<'ast>> {
     let allocator = Allocator::new();
     let cx = MinifyContext::new(options, &allocator);
     let declaration_blocks = rules::DeclarationBlockMinifier::new(&allocator);
@@ -59,9 +59,9 @@ pub fn try_minify<'ast, 'ghost>(
 
     let mut current = compilation.first_rule_in_source();
     while let Some(rule_id) = current {
-        let rule = compilation.rule(rule_id).ok_or(
-            radix_ast::ConcreteMutationError::<'ast>::UnknownRule(rule_id),
-        )?;
+        let rule = compilation
+            .rule(rule_id)
+            .ok_or(ConcreteMutationError::<'ast>::UnknownRule(rule_id))?;
         current = rule.next_in_source();
         if !rule.is_live() {
             continue;
@@ -76,8 +76,7 @@ pub fn try_minify<'ast, 'ghost>(
         };
         compilation.for_each_declaration_mut(block_id, |_, record| {
             if property_block {
-                let rocketcss_ast::radix_ast::DeclarationPayload::Property(declaration) =
-                    record.payload_mut()
+                let rocketcss_ast::DeclarationPayload::Property(declaration) = record.payload_mut()
                 else {
                     unreachable!("a property rule owns only property declarations")
                 };
@@ -119,11 +118,11 @@ pub fn try_minify<'ast, 'ghost>(
 }
 
 fn minify_rule_payload<'ast, 'ghost>(
-    payload: &mut radix_ast::CssRulePayload<'ast>,
+    payload: &mut CssRulePayload<'ast>,
     minifier: &mut Minifier<'ast, '_>,
     cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
 ) {
-    use radix_ast::CssRulePayload;
+    use CssRulePayload;
 
     match payload {
         CssRulePayload::Media(payload) => payload.query.visit_mut(minifier, cx),
@@ -173,11 +172,11 @@ fn minify_rule_payload<'ast, 'ghost>(
 }
 
 fn minify_descriptor<'ast, 'ghost>(
-    descriptor: &mut radix_ast::DeclarationPayload<'ast>,
+    descriptor: &mut DeclarationPayload<'ast>,
     minifier: &mut Minifier<'ast, '_>,
     cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
 ) {
-    use radix_ast::{DeclarationPayload, PropertyRuleDescriptor};
+    use {DeclarationPayload, PropertyRuleDescriptor};
 
     match descriptor {
         DeclarationPayload::Property(declaration) => declaration.visit_mut(minifier, cx),

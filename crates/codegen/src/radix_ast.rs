@@ -1,7 +1,7 @@
 //! Streaming serialization for the persistent AST.
 
 use crate::{prelude::*, rules::NamedProperty};
-use rocketcss_ast::radix_ast::{
+use rocketcss_ast::{
     Compilation, ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId,
     CssRulePayload, DeclarationPayload, FontFeatureSubrulePayload, PageRulePayload,
     PropertyRuleDescriptor, PropertyRulePayload, RuleListId, RuleListIter, RuleRecord,
@@ -609,7 +609,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 
     fn property_descriptor(
         &self,
-        id: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+        id: rocketcss_ast::DeclarationId<'ast>,
     ) -> &PropertyRuleDescriptor<'_> {
         let record = self
             .declaration(id)

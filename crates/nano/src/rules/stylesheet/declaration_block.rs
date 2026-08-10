@@ -1,11 +1,8 @@
 use crate::MinifyContext;
 use rocketcss_ast::{
-    CSSWideOr, Columns, CssColor, Declaration, EqIgnoringTombstones, Margin, Padding, PropertyId,
-    VendorPrefix, Visit, VisitContext, Visitor,
-    radix_ast::{
-        Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
-        DeclarationId as RadixDeclarationId, DeclarationPayload,
-    },
+    CSSWideOr, Columns, Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
+    CssColor, Declaration, DeclarationId as RadixDeclarationId, DeclarationPayload,
+    EqIgnoringTombstones, Margin, Padding, PropertyId, VendorPrefix, Visit, VisitContext, Visitor,
 };
 use rocketcss_common::{
     GhostToken,

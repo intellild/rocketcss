@@ -64,7 +64,7 @@ fn run_with_error_recovery(source: &str) -> String {
     })
 }
 
-fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
+fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteRuleId<'ast> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .expect("the root rule list remains valid")
@@ -75,7 +75,7 @@ fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRu
 
 fn first_declaration_block_id<'ast>(
     compilation: &Compilation<'ast>,
-) -> radix_ast::ConcreteDeclarationBlockId<'ast> {
+) -> ConcreteDeclarationBlockId<'ast> {
     compilation
         .rule(first_rule_id(compilation))
         .and_then(|rule| rule.declaration_block())
@@ -89,7 +89,7 @@ fn first_property_declaration<'tree, 'ast>(
         .declarations_in_block(first_declaration_block_id(compilation))
         .expect("the first declaration block remains valid")
         .find_map(|declaration| match declaration.payload() {
-            radix_ast::DeclarationPayload::Property(declaration) => Some(declaration),
+            DeclarationPayload::Property(declaration) => Some(declaration),
             _ => None,
         })
         .expect("expected a property declaration")

@@ -1,6 +1,6 @@
 use rocketcss_visitor::prelude::*;
 
-use rocketcss_ast::radix_ast::{
+use rocketcss_ast::{
     Compilation, CompilationVisitMutContext, CompilationVisitor, CompilationVisitorMut,
     ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId, CssRulePayload,
     DeclarationBlockOwner, DeclarationId, DeclarationPayload, DeclarationRecord, RuleRecord,
@@ -45,7 +45,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
     fn visit_declaration_block(
         &mut self,
         _id: DeclarationBlockId<'a>,
-        _block: &rocketcss_ast::radix_ast::DeclarationBlockRecord<CssRulePayload<'a>>,
+        _block: &rocketcss_ast::DeclarationBlockRecord<CssRulePayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
         self.events.push(StructuralEvent::DeclarationBlock);

@@ -6,13 +6,10 @@
 //! authoritative in the AST rather than being reconstructed into Nano records.
 
 use rocketcss_ast::{
-    Declaration, EqIgnoringTombstones, Span,
-    radix_ast::{
-        Compilation, ConcreteDeclarationBlockId as DeclarationBlockId,
-        ConcreteMutationError as MutationError, ConcreteRuleId as RuleId, CssRulePayload,
-        DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, NestingRulePayload,
-        StyleRulePayload,
-    },
+    Compilation, ConcreteDeclarationBlockId as DeclarationBlockId,
+    ConcreteMutationError as MutationError, ConcreteRuleId as RuleId, CssRulePayload, Declaration,
+    DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, EqIgnoringTombstones,
+    NestingRulePayload, Span, StyleRulePayload,
 };
 use rocketcss_common::{
     Allocator,
@@ -211,21 +208,18 @@ impl<'scratch, 'ast> DeclarationOverrideCandidateList<'scratch, 'ast> {
 #[derive(Debug)]
 struct MinifyScratch<'scratch, 'ast> {
     history: Vec<'scratch, DeclarationBlockId<'ast>>,
-    left_declarations: Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
-    right_declarations: Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
-    left_residual: Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
-    right_residual: Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
+    left_declarations: Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
+    right_declarations: Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
+    left_residual: Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
+    right_residual: Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
     common: Vec<'scratch, CommonDeclaration<'ast>>,
-    matched_right: HashSet<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
-    matched_left: HashSet<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
+    matched_right: HashSet<'scratch, rocketcss_ast::DeclarationId<'ast>>,
+    matched_left: HashSet<'scratch, rocketcss_ast::DeclarationId<'ast>>,
     affected_blocks: HashSet<'scratch, DeclarationBlockId<'ast>>,
     previous_by_property: HashMap<
         'scratch,
         CompactPropertyKey,
-        (
-            DeclarationBlockId<'ast>,
-            rocketcss_ast::radix_ast::DeclarationId<'ast>,
-        ),
+        (DeclarationBlockId<'ast>, rocketcss_ast::DeclarationId<'ast>),
     >,
 }
 
@@ -424,8 +418,8 @@ struct SchedulerStats {
 
 #[derive(Clone, Copy, Debug)]
 struct CommonDeclaration<'ast> {
-    left: rocketcss_ast::radix_ast::DeclarationId<'ast>,
-    right: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+    left: rocketcss_ast::DeclarationId<'ast>,
+    right: rocketcss_ast::DeclarationId<'ast>,
     right_order: usize,
 }
 
@@ -812,14 +806,14 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 continue;
             }
             let payload = match endpoints.selector_kind {
-                rocketcss_ast::radix_ast::SelectorFrameKind::Style => {
+                rocketcss_ast::SelectorFrameKind::Style => {
                     CssRulePayload::Style(StyleRulePayload {
                         span: endpoints.span,
                         selector_value,
                         vendor_prefix: endpoints.vendor_prefix,
                     })
                 }
-                rocketcss_ast::radix_ast::SelectorFrameKind::Nesting => {
+                rocketcss_ast::SelectorFrameKind::Nesting => {
                     CssRulePayload::Nesting(NestingRulePayload {
                         span: endpoints.span,
                         selector_value,
@@ -1092,8 +1086,8 @@ fn validate_s1<'ast>(
 
 fn declarations_are_exactly_equal<'ast>(
     compilation: &Compilation<'ast>,
-    left: rocketcss_ast::radix_ast::DeclarationId<'ast>,
-    right: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+    left: rocketcss_ast::DeclarationId<'ast>,
+    right: rocketcss_ast::DeclarationId<'ast>,
 ) -> bool {
     let Some(left) = compilation.declaration(left) else {
         return false;
@@ -1110,9 +1104,9 @@ struct RadixS3Endpoints<'ast> {
     right_rule: RuleId<'ast>,
     left_key: EffectiveKeyId<'ast>,
     right_key: EffectiveKeyId<'ast>,
-    left_selector: rocketcss_ast::radix_ast::SelectorValueId<'ast>,
-    right_selector: rocketcss_ast::radix_ast::SelectorValueId<'ast>,
-    selector_kind: rocketcss_ast::radix_ast::SelectorFrameKind,
+    left_selector: rocketcss_ast::SelectorValueId<'ast>,
+    right_selector: rocketcss_ast::SelectorValueId<'ast>,
+    selector_kind: rocketcss_ast::SelectorFrameKind,
     vendor_prefix: rocketcss_ast::VendorPrefix,
     span: Span,
 }
@@ -1174,8 +1168,8 @@ fn validate_s3<'ast>(
 
 fn declarations_have_equal_effect<'ast>(
     compilation: &Compilation<'ast>,
-    left: rocketcss_ast::radix_ast::DeclarationId<'ast>,
-    right: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+    left: rocketcss_ast::DeclarationId<'ast>,
+    right: rocketcss_ast::DeclarationId<'ast>,
 ) -> bool {
     let Some(left) = compilation.declaration(left) else {
         return false;
@@ -1197,7 +1191,7 @@ fn declarations_have_equal_effect<'ast>(
 fn has_opaque_domain_conflict<'ast>(
     declaration_ir: &DeclarationIrStore<'_, 'ast>,
     domain: MovementDomain,
-    declarations: &[rocketcss_ast::radix_ast::DeclarationId<'ast>],
+    declarations: &[rocketcss_ast::DeclarationId<'ast>],
 ) -> bool {
     declarations.iter().any(|declaration| {
         let Some(occurrence) = declaration_ir.occurrence(*declaration) else {
@@ -1212,8 +1206,8 @@ fn has_opaque_domain_conflict<'ast>(
 
 fn radix_partial_movement_is_safe<'ast>(
     common: &[CommonDeclaration<'ast>],
-    left_residual: &[rocketcss_ast::radix_ast::DeclarationId<'ast>],
-    right_residual: &[rocketcss_ast::radix_ast::DeclarationId<'ast>],
+    left_residual: &[rocketcss_ast::DeclarationId<'ast>],
+    right_residual: &[rocketcss_ast::DeclarationId<'ast>],
     declaration_ir: &DeclarationIrStore<'_, 'ast>,
 ) -> bool {
     if left_residual.is_empty() && right_residual.is_empty() {
@@ -1785,7 +1779,7 @@ mod tests {
                     .any(|(_, block)| block.is_live()
                         && matches!(
                             block.declarations(),
-                            rocketcss_ast::radix_ast::DeclarationList::Local4(_)
+                            rocketcss_ast::DeclarationList::Local4(_)
                         ))
             );
             let actual = compilation
@@ -1829,7 +1823,7 @@ mod tests {
                     .any(|(_, block)| block.is_live()
                         && matches!(
                             block.declarations(),
-                            rocketcss_ast::radix_ast::DeclarationList::Overflow(_)
+                            rocketcss_ast::DeclarationList::Overflow(_)
                         ))
             );
             let actual = compilation

@@ -1,11 +1,11 @@
 //! Parser for the compiler-owned persistent AST.
 
 #[cfg(test)]
-use rocketcss_ast::radix_ast::{
+use rocketcss_ast::{
     CascadeOrigin, CascadePhase, ConcreteEffectiveKey, ConcreteHistorySegment, SelectorPathId,
     SelectorValueId,
 };
-use rocketcss_ast::radix_ast::{
+use rocketcss_ast::{
     Compilation, CompilationCapacity, ConcreteDeclarationBlockId, ConcreteEffectiveContext,
     ConcreteRuleId, ContainerRulePayload, CounterStyleRulePayload, CssRulePayload,
     DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, FontFaceRulePayload,
@@ -198,9 +198,9 @@ fn parse_rule_list<'ast>(
 
 fn mutation_error<'ast>(
     input: &Compiler<'ast>,
-    error: rocketcss_ast::radix_ast::ConcreteMutationError<'ast>,
+    error: rocketcss_ast::ConcreteMutationError<'ast>,
 ) -> ParseError<'ast, ParserError<'ast>> {
-    use rocketcss_ast::radix_ast::ConcreteMutationError;
+    use rocketcss_ast::ConcreteMutationError;
 
     let error = match error {
         ConcreteMutationError::<'ast>::RuleCapacityExhausted

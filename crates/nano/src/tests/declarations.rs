@@ -71,7 +71,7 @@ fn removes_exact_duplicate_declarations_within_one_block() {
         );
         assert!(matches!(
             declarations[0].payload(),
-            radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+            DeclarationPayload::Property(Declaration::Tombstone)
         ));
         assert_eq!(stats.declarations_removed, 1);
 
@@ -195,7 +195,7 @@ fn s2_requires_exactly_equal_conditional_contexts() {
         let blocks = stylesheet
             .declaration_blocks_in_source_order()
             .filter(|(_, block)| {
-                let radix_ast::DeclarationBlockOwner::Rule(owner) = block.owner();
+                let DeclarationBlockOwner::Rule(owner) = block.owner();
                 stylesheet.rule(owner).is_some_and(|rule| rule.is_live())
             })
             .collect::<std::vec::Vec<_>>();
@@ -208,7 +208,7 @@ fn s2_requires_exactly_equal_conditional_contexts() {
                 .next()
                 .unwrap()
                 .payload(),
-            radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+            DeclarationPayload::Property(Declaration::Tombstone)
         ));
         assert!(!matches!(
             stylesheet
@@ -217,7 +217,7 @@ fn s2_requires_exactly_equal_conditional_contexts() {
                 .next()
                 .unwrap()
                 .payload(),
-            radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+            DeclarationPayload::Property(Declaration::Tombstone)
         ));
     });
 }

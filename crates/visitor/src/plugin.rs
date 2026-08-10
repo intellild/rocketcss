@@ -4,10 +4,7 @@ use std::{
     fmt,
 };
 
-use rocketcss_ast::{
-    Compilation,
-    radix_ast::{CompilationVisitorMut, ConcreteMutationError},
-};
+use rocketcss_ast::{Compilation, CompilationVisitorMut, ConcreteMutationError};
 use rocketcss_common::{Allocator, GhostToken};
 use rustc_hash::FxHashMap;
 

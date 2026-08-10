@@ -11,7 +11,7 @@ fn parse_stylesheet<'a, 'ghost>(
     parse(source, allocator, token, ParserOptions::default()).unwrap()
 }
 
-fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRuleId<'ast> {
+fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteRuleId<'ast> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .unwrap()
@@ -20,9 +20,7 @@ fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> radix_ast::ConcreteRu
         .0
 }
 
-fn first_block_id<'ast>(
-    compilation: &Compilation<'ast>,
-) -> radix_ast::ConcreteDeclarationBlockId<'ast> {
+fn first_block_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteDeclarationBlockId<'ast> {
     compilation
         .rule(first_rule_id(compilation))
         .and_then(|rule| rule.declaration_block())
@@ -31,15 +29,13 @@ fn first_block_id<'ast>(
 
 fn property_declarations<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
-    block: radix_ast::ConcreteDeclarationBlockId<'ast>,
+    block: ConcreteDeclarationBlockId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
     compilation
         .declarations_in_block(block)
         .unwrap()
         .filter_map(|record| match record.payload() {
-            radix_ast::DeclarationPayload::Property(declaration) => {
-                Some((declaration, record.is_important()))
-            }
+            DeclarationPayload::Property(declaration) => Some((declaration, record.is_important())),
             _ => None,
         })
         .collect()
@@ -190,7 +186,7 @@ fn supports_conditions_preserve_source_order_deterministically() {
 
         for _ in 0..32 {
             let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
-            let radix_ast::CssRulePayload::Supports(rule) = stylesheet
+            let CssRulePayload::Supports(rule) = stylesheet
                 .rule(first_rule_id(&stylesheet))
                 .unwrap()
                 .payload()
@@ -225,7 +221,7 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
             &allocator,
             &mut token,
         );
-        let radix_ast::CssRulePayload::Media(rule) = stylesheet
+        let CssRulePayload::Media(rule) = stylesheet
             .rule(first_rule_id(&stylesheet))
             .unwrap()
             .payload()
@@ -284,7 +280,7 @@ fn pseudo_classes_are_debuggable_and_serializable() {
             ".foo:first-child{color:red}",
         ] {
             let stylesheet = parse_stylesheet(source, &allocator, &mut token);
-            let radix_ast::CssRulePayload::Style(style) = stylesheet
+            let CssRulePayload::Style(style) = stylesheet
                 .rule(first_rule_id(&stylesheet))
                 .unwrap()
                 .payload()
@@ -382,7 +378,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
             .rules_in_list(stylesheet.stylesheet().root_rules())
             .unwrap()
         {
-            let radix_ast::CssRulePayload::Style(_) = rule.payload() else {
+            let CssRulePayload::Style(_) = rule.payload() else {
                 panic!("expected style rule")
             };
             let layer_list = rule.child_list().expect("expected nested layer list");
@@ -391,7 +387,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
                 .unwrap()
                 .next()
                 .unwrap();
-            let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
+            let CssRulePayload::LayerBlock(_) = layer.payload() else {
                 panic!("expected nested layer block")
             };
             let layer_children = layer.child_list().expect("expected layer contents");
@@ -403,7 +399,7 @@ fn preserves_nested_layer_structure_until_lifting_is_implemented() {
                     .unwrap()
                     .1
                     .payload(),
-                radix_ast::CssRulePayload::NestedDeclarations(_)
+                CssRulePayload::NestedDeclarations(_)
             ));
         }
         assert_eq!(
@@ -1272,7 +1268,7 @@ fn preserves_property_rules_inside_layer_blocks() {
         const SOURCE: &str = "@layer base{@property --radialprogress{syntax:\"<percentage>\";inherits:true;initial-value:0%}}";
         let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         let layer = stylesheet.rule(first_rule_id(&stylesheet)).unwrap();
-        let radix_ast::CssRulePayload::LayerBlock(_) = layer.payload() else {
+        let CssRulePayload::LayerBlock(_) = layer.payload() else {
             panic!("expected layer block")
         };
         assert!(matches!(
@@ -1283,7 +1279,7 @@ fn preserves_property_rules_inside_layer_blocks() {
                 .unwrap()
                 .1
                 .payload(),
-            radix_ast::CssRulePayload::Property(_)
+            CssRulePayload::Property(_)
         ));
         assert_eq!(
             stylesheet

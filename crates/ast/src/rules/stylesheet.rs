@@ -2,8 +2,8 @@ use crate::*;
 
 use bitflags::bitflags;
 
-pub mod radix_ast;
-pub use radix_ast::{Compilation, DeclarationPayload};
+mod compilation;
+pub use compilation::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MediaList<'a> {

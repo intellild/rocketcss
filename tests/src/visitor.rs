@@ -1,4 +1,4 @@
-use rocketcss_ast::{Atom, Selector, SelectorComponent, radix_ast::CompilationVisitorMut};
+use rocketcss_ast::{Atom, CompilationVisitorMut, Selector, SelectorComponent};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::Allocator;
 use rocketcss_parser::{Compiler, ParserOptions};
@@ -13,7 +13,7 @@ struct RenameClass<'a> {
 impl<'a> CompilationVisitorMut<'a> for RenameClass<'a> {
     fn visit_selector_value(
         &mut self,
-        _id: rocketcss_ast::radix_ast::SelectorValueId,
+        _id: rocketcss_ast::SelectorValueId,
         selectors: &mut rocketcss_ast::SelectorList<'a>,
     ) {
         for selector in selectors {

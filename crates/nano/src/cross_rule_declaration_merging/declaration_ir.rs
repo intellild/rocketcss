@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use rocketcss_ast::radix_ast::DeclarationRecord;
+use rocketcss_ast::DeclarationRecord;
 use rocketcss_ast::{Declaration, PropertyId};
 use rocketcss_common::{
     Allocator,
@@ -256,7 +256,7 @@ impl<'scratch> PropertyIndex<'scratch, '_> {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct IndexedDeclaration<'ast> {
-    pub(super) declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+    pub(super) declaration: rocketcss_ast::DeclarationId<'ast>,
     pub(super) order: usize,
 }
 
@@ -264,14 +264,10 @@ pub(super) struct DeclarationIrStore<'scratch, 'ast> {
     allocator: &'scratch Allocator,
     classifier: DeclarationIrClassifier<'scratch, 'ast>,
     occurrences: Vec<'scratch, Option<DeclarationOccurrenceIr>>,
-    blocks: HashMap<
-        'scratch,
-        rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        DeclarationBlockIr,
-    >,
+    blocks: HashMap<'scratch, rocketcss_ast::ConcreteDeclarationBlockId<'ast>, DeclarationBlockIr>,
     property_index: HashMap<
         'scratch,
-        rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
+        rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
         PropertyIndex<'scratch, 'ast>,
     >,
 }
@@ -307,8 +303,8 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
     pub(super) fn freeze_block(
         &mut self,
         compilation: &rocketcss_ast::Compilation<'ast>,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-    ) -> Result<(), rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+    ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
         let mut summary = DeclarationBlockIr::default();
         let mut property_index = PropertyIndex::new_in(self.allocator);
         for (order, (declaration, record)) in compilation
@@ -330,14 +326,14 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     fn publish_occurrence(
         &mut self,
-        declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
-        record: &DeclarationRecord<rocketcss_ast::radix_ast::DeclarationPayload<'ast>>,
+        declaration: rocketcss_ast::DeclarationId<'ast>,
+        record: &DeclarationRecord<rocketcss_ast::DeclarationPayload<'ast>>,
         order: usize,
         summary: &mut DeclarationBlockIr,
         property_index: &mut PropertyIndex<'scratch, 'ast>,
     ) {
         let (property_key, movement_domain, live) = match record.payload() {
-            rocketcss_ast::radix_ast::DeclarationPayload::Property(value) => {
+            rocketcss_ast::DeclarationPayload::Property(value) => {
                 let live = !matches!(value, Declaration::Tombstone);
                 let property_key = live
                     .then(|| self.classifier.property_key(value, record.is_important()))
@@ -347,11 +343,11 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
                     .flatten();
                 (property_key, movement_domain, live)
             }
-            rocketcss_ast::radix_ast::DeclarationPayload::FontFace(_)
-            | rocketcss_ast::radix_ast::DeclarationPayload::FontPaletteValues(_)
-            | rocketcss_ast::radix_ast::DeclarationPayload::ViewTransition(_)
-            | rocketcss_ast::radix_ast::DeclarationPayload::FontFeature(_)
-            | rocketcss_ast::radix_ast::DeclarationPayload::PropertyRule(_) => (None, None, true),
+            rocketcss_ast::DeclarationPayload::FontFace(_)
+            | rocketcss_ast::DeclarationPayload::FontPaletteValues(_)
+            | rocketcss_ast::DeclarationPayload::ViewTransition(_)
+            | rocketcss_ast::DeclarationPayload::FontFeature(_)
+            | rocketcss_ast::DeclarationPayload::PropertyRule(_) => (None, None, true),
         };
         if live {
             summary.live_count = summary
@@ -380,11 +376,11 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
     pub(super) fn publish_synthesized_declaration(
         &mut self,
         compilation: &rocketcss_ast::Compilation<'ast>,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
-    ) -> Result<(), rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+        declaration: rocketcss_ast::DeclarationId<'ast>,
+    ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
         let record = compilation.declaration(declaration).ok_or(
-            rocketcss_ast::radix_ast::MutationError::UnknownDeclaration(declaration),
+            rocketcss_ast::MutationError::UnknownDeclaration(declaration),
         )?;
         let order = compilation.declaration_ids_in_block(block)?.len() - 1;
         let mut summary = self.blocks.get(&block).copied().unwrap_or_default();
@@ -438,8 +434,8 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn compose(
         &mut self,
-        left: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        right: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
+        left: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+        right: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
     ) {
         let left_id = left;
         let right_id = right;
@@ -464,7 +460,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn occurrence(
         &self,
-        declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+        declaration: rocketcss_ast::DeclarationId<'ast>,
     ) -> Option<&DeclarationOccurrenceIr> {
         self.occurrences.get(declaration.index())?.as_ref()
     }
@@ -472,9 +468,9 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
     pub(super) fn live_declarations(
         &self,
         compilation: &rocketcss_ast::Compilation<'ast>,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        output: &mut Vec<'scratch, rocketcss_ast::radix_ast::DeclarationId<'ast>>,
-    ) -> Result<(), rocketcss_ast::radix_ast::ConcreteMutationError<'ast>> {
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+        output: &mut Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
+    ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
         output.clear();
         for declaration in compilation.declaration_ids_in_block(block)? {
             if self
@@ -489,7 +485,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn property_candidates(
         &self,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
         key: CompactPropertyKey,
     ) -> Option<&[IndexedDeclaration<'ast>]> {
         self.property_index
@@ -500,8 +496,8 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn mark_dead(
         &mut self,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
-        declaration: rocketcss_ast::radix_ast::DeclarationId<'ast>,
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+        declaration: rocketcss_ast::DeclarationId<'ast>,
     ) {
         let occurrence = self.occurrences[declaration.index()]
             .as_mut()
@@ -518,7 +514,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn block_live_count(
         &self,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
     ) -> u32 {
         self.blocks
             .get(&block)
@@ -527,7 +523,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn property_bloom(
         &self,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'ast>,
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
     ) -> PropertyBloom {
         self.blocks
             .get(&block)
