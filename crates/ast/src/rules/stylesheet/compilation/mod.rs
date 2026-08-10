@@ -1549,7 +1549,11 @@ impl<'ast, 'comp, R: Unpin> Iterator for DeclarationBlockSourceIter<'ast, 'comp,
             let Some(id) = rule.declaration_block else {
                 continue;
             };
-            return self.blocks.try_get(id).map(|block| (id, block));
+            let block = self
+                .blocks
+                .try_get(id)
+                .expect("a rule declaration block remains resolvable");
+            return Some((id, block));
         }
         None
     }
