@@ -223,6 +223,7 @@ fn mutation_error<'ast>(
         | ConcreteMutationError::<'ast>::UnknownDeclaration(_)
         | ConcreteMutationError::<'ast>::NonContiguousDeclarationRange(_)
         | ConcreteMutationError::<'ast>::InvalidRuleTopology(_)
+        | ConcreteMutationError::<'ast>::InvalidSourceTopology
         | ConcreteMutationError::<'ast>::RuleHasChildren(_) => ParserError::InvalidRule,
     };
     input.new_custom_error(error)

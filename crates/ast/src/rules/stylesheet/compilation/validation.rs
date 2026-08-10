@@ -43,6 +43,18 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                     actual: rule.next_in_source,
                 });
             }
+            if let Some(next) = expected_next {
+                let next_record = self
+                    .rules
+                    .try_get(next)
+                    .expect("an enumerated source successor remains resolvable");
+                if rule.source_order_id >= next_record.source_order_id {
+                    return Err(ValidationError::InvalidSourceOrder {
+                        previous: rule_id,
+                        next,
+                    });
+                }
+            }
         }
 
         let mut visited = FxHashSet::default();

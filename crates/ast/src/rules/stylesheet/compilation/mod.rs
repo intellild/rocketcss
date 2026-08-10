@@ -54,6 +54,16 @@ pub type ContextValueId<'ast> = DenseId<'ast, ContextValueDomain>;
 pub type ContextPathId<'ast> = DenseId<'ast, ContextPathDomain>;
 pub type LayerContextId<'ast> = DenseId<'ast, LayerContextDomain>;
 
+/// Compilation-local label whose ordering matches semantic source order.
+///
+/// Unlike [`RuleId`], this is not a storage identity. Local insertions allocate a
+/// label between their source neighbors, and the compilation may relabel every
+/// rule when a local gap is exhausted. AST references therefore continue to use
+/// stable dense IDs while order-sensitive passes can compare this compact key.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SourceOrderId(u64);
+
 /// Rules in stable dense allocation order. Semantic order is owned by rule
 /// topology and the source-order links on each record.
 pub type RuleStore<'ast, P> = DenseStore<'ast, RuleRecord<'ast, P>, RuleRecord<'ast, P>>;
@@ -246,6 +256,7 @@ impl<'ast> StyleSheet<'ast> {
 #[derive(Debug, PartialEq, Eq)]
 pub struct RuleRecord<'ast, P> {
     payload: P,
+    source_order_id: SourceOrderId,
     parent: Option<RuleId<'ast, P>>,
     parent_list: RuleListId<'ast>,
     previous_sibling: Option<RuleId<'ast, P>>,
@@ -267,6 +278,11 @@ impl<'ast, P> RuleRecord<'ast, P> {
     #[inline]
     pub fn payload_mut(&mut self) -> &mut P {
         &mut self.payload
+    }
+
+    #[inline]
+    pub const fn source_order_id(&self) -> SourceOrderId {
+        self.source_order_id
     }
 
     #[inline]
@@ -473,6 +489,7 @@ pub enum MutationError<'ast, P> {
     UnknownDeclaration(DeclarationId<'ast>),
     NonContiguousDeclarationRange(DeclarationBlockId<'ast, P>),
     InvalidRuleTopology(RuleId<'ast, P>),
+    InvalidSourceTopology,
     RuleHasChildren(RuleId<'ast, P>),
 }
 
@@ -609,6 +626,10 @@ pub enum ValidationError<'ast, P> {
         expected: Option<RuleId<'ast, P>>,
         actual: Option<RuleId<'ast, P>>,
     },
+    InvalidSourceOrder {
+        previous: RuleId<'ast, P>,
+        next: RuleId<'ast, P>,
+    },
     InvalidSourceEndpoints,
 }
 
@@ -640,6 +661,8 @@ pub struct RadixCompilation<'ast, R: Unpin, D, K> {
 }
 
 impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
+    const SOURCE_ORDER_STRIDE: u64 = 1_u64 << 32;
+
     /// Creates an empty compilation with one root rule list.
     pub fn new_in(allocator: &'ast Allocator) -> Self {
         Self::with_capacity_in(allocator, CompilationCapacity::default())
@@ -813,6 +836,17 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             rules: self.rules_in_source_order(),
             blocks: &self.declaration_blocks,
         }
+    }
+
+    /// Returns the semantic source-order label of a declaration block through
+    /// its owning rule.
+    #[inline]
+    pub fn declaration_block_source_order_id(
+        &self,
+        block: DeclarationBlockId<'ast, R>,
+    ) -> Option<SourceOrderId> {
+        let DeclarationBlockOwner::Rule(owner) = self.declaration_blocks.try_get(block)?.owner;
+        self.rules.try_get(owner).map(RuleRecord::source_order_id)
     }
 
     /// Iterates authored declarations in lexical source order.
@@ -1089,10 +1123,15 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             .try_get(list)
             .map(|list| (list.parent, list.last))
             .ok_or(MutationError::UnknownRuleList(list))?;
+        if !self.rules.has_capacity_for(1) {
+            return Err(MutationError::RuleCapacityExhausted);
+        }
+        let source_order_id = self.source_order_id_between(self.last_rule_in_source, None)?;
         let id = self
             .rules
             .try_push(RuleRecord {
                 payload,
+                source_order_id,
                 parent,
                 parent_list: list,
                 previous_sibling,
@@ -1125,6 +1164,93 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         list_record.last = Some(id);
         list_record.live_len += 1;
         Ok(id)
+    }
+
+    fn source_order_id_between(
+        &mut self,
+        previous: Option<RuleId<'ast, R>>,
+        next: Option<RuleId<'ast, R>>,
+    ) -> Result<SourceOrderId, MutationError<'ast, R>> {
+        if let Some(id) = self.source_order_id_between_without_relabel(previous, next)? {
+            return Ok(id);
+        }
+        self.relabel_source_order_ids()?;
+        self.source_order_id_between_without_relabel(previous, next)?
+            .ok_or_else(|| {
+                MutationError::InvalidRuleTopology(
+                    previous
+                        .or(next)
+                        .expect("a nonempty source chain has an insertion neighbor"),
+                )
+            })
+    }
+
+    fn source_order_id_between_without_relabel(
+        &self,
+        previous: Option<RuleId<'ast, R>>,
+        next: Option<RuleId<'ast, R>>,
+    ) -> Result<Option<SourceOrderId>, MutationError<'ast, R>> {
+        let previous_order = previous
+            .map(|id| {
+                self.rules
+                    .try_get(id)
+                    .map(RuleRecord::source_order_id)
+                    .ok_or(MutationError::InvalidRuleTopology(id))
+            })
+            .transpose()?;
+        let next_order = next
+            .map(|id| {
+                self.rules
+                    .try_get(id)
+                    .map(RuleRecord::source_order_id)
+                    .ok_or(MutationError::InvalidRuleTopology(id))
+            })
+            .transpose()?;
+        let order =
+            match (previous_order, next_order) {
+                (None, None) => Some(Self::SOURCE_ORDER_STRIDE),
+                (Some(previous), None) => previous
+                    .0
+                    .checked_add(Self::SOURCE_ORDER_STRIDE)
+                    .or_else(|| {
+                        let gap = u64::MAX - previous.0;
+                        (gap > 1).then_some(previous.0 + gap / 2)
+                    }),
+                (None, Some(next)) => (next.0 > 1).then_some(next.0 / 2),
+                (Some(previous), Some(next)) if previous < next && previous.0 + 1 < next.0 => {
+                    Some(previous.0 + (next.0 - previous.0) / 2)
+                }
+                (Some(previous), Some(next)) if previous < next => None,
+                (Some(_), Some(_)) => {
+                    return Err(MutationError::InvalidRuleTopology(
+                        previous.expect("the invalid pair has a previous rule"),
+                    ));
+                }
+            };
+        Ok(order.map(SourceOrderId))
+    }
+
+    fn relabel_source_order_ids(&mut self) -> Result<(), MutationError<'ast, R>> {
+        let step = u64::MAX / (self.rules.len() as u64 + 1);
+        let mut current = self.first_rule_in_source;
+        let mut ordinal = 1_u64;
+        while let Some(id) = current {
+            let next = self
+                .rules
+                .try_get(id)
+                .ok_or(MutationError::InvalidRuleTopology(id))?
+                .next_in_source;
+            self.rules
+                .try_get_mut(id)
+                .expect("the source rule was resolved above")
+                .source_order_id = SourceOrderId(step * ordinal);
+            ordinal += 1;
+            current = next;
+        }
+        if ordinal - 1 != self.rules.len() as u64 {
+            return Err(MutationError::InvalidSourceTopology);
+        }
+        Ok(())
     }
 
     /// Creates the one direct child list owned by `parent`.

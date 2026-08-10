@@ -20,6 +20,7 @@ fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<ContextValueId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<ContextPathId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<LayerContextId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<SourceOrderId>(), size_of::<u64>());
 }
 
 #[test]
@@ -111,6 +112,26 @@ fn validation_rejects_a_broken_mutual_link() {
         Err(ValidationError::RuleHasWrongPrevious {
             rule: second,
             expected: Some(first),
+        })
+    );
+}
+
+#[test]
+fn validation_rejects_non_monotonic_source_order_ids() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let first = compilation.append_rule(root, 1).unwrap();
+    let second = compilation.append_rule(root, 2).unwrap();
+
+    let first_order = compilation.rule(first).unwrap().source_order_id();
+    compilation.rule_mut(second).unwrap().source_order_id = first_order;
+
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::InvalidSourceOrder {
+            previous: first,
+            next: second,
         })
     );
 }
@@ -246,7 +267,37 @@ fn synthesized_rule_and_block_keep_dense_ids_with_appended_declarations() {
             DeclarationBlockOwner::<u8>::Rule(right),
         ]
     );
+    assert!(inserted_rule > right);
+    assert!(
+        compilation.rule(left).unwrap().source_order_id()
+            < compilation.rule(inserted_rule).unwrap().source_order_id()
+    );
+    assert!(
+        compilation.rule(inserted_rule).unwrap().source_order_id()
+            < compilation.rule(right).unwrap().source_order_id()
+    );
     assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn repeated_local_insertions_relabel_source_order_without_remapping_dense_ids() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let left = compilation.append_rule(root, 0).unwrap();
+    let right = compilation.append_rule(root, u8::MAX).unwrap();
+
+    let inserted = (1..=40)
+        .map(|payload| compilation.insert_rule_after(left, payload).unwrap())
+        .collect::<std::vec::Vec<_>>();
+
+    assert!(inserted.iter().all(|id| id.index() > right.index()));
+    assert_eq!(compilation.validate_ast(), Ok(()));
+    let source_order = compilation
+        .rules_in_source_order()
+        .map(|(_, rule)| rule.source_order_id())
+        .collect::<std::vec::Vec<_>>();
+    assert!(source_order.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[test]

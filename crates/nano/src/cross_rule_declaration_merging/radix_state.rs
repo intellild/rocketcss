@@ -942,16 +942,16 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
         if history.contains(&block) {
             return history.len() == 2;
         }
-
-        let mut insertion_index = 0;
-        for (candidate, _) in compilation.declaration_blocks_in_source_order() {
-            if candidate == block {
-                break;
-            }
-            if history.contains(&candidate) {
-                insertion_index += 1;
-            }
-        }
+        let source_order_id = compilation
+            .declaration_block_source_order_id(block)
+            .expect("a history occurrence has a source-order label");
+        let insertion_index = history
+            .binary_search_by_key(&source_order_id, |candidate| {
+                compilation
+                    .declaration_block_source_order_id(*candidate)
+                    .expect("an existing history occurrence has a source-order label")
+            })
+            .unwrap_or_else(|index| index);
         history.insert(insertion_index, block);
         history.len() == 2
     }
@@ -1587,12 +1587,16 @@ mod tests {
                 compilation.declarations_in_source_order().count(),
                 authored_declarations + 1
             );
-            assert!(
-                state
-                    .histories
-                    .values()
-                    .all(|history| { history.windows(2).all(|pair| pair[0] < pair[1]) })
-            );
+            assert!(state.histories.values().all(|history| {
+                history.windows(2).all(|pair| {
+                    compilation
+                        .declaration_block_source_order_id(pair[0])
+                        .unwrap()
+                        < compilation
+                            .declaration_block_source_order_id(pair[1])
+                            .unwrap()
+                })
+            }));
             let actual = compilation
                 .to_css_string(
                     PrinterOptions { prettify: false },

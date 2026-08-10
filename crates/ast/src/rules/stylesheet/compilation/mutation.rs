@@ -56,10 +56,15 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             }
             anchor = next;
         }
+        if !self.rules.has_capacity_for(1) {
+            return Err(MutationError::RuleCapacityExhausted);
+        }
+        let source_order_id = self.source_order_id_between(Some(anchor), storage_before)?;
         let inserted = self
             .rules
             .try_push(RuleRecord {
                 payload,
+                source_order_id,
                 parent,
                 parent_list: list,
                 previous_sibling: Some(after),
