@@ -130,14 +130,14 @@ CssRule 提供真实需要的随机访问能力，却为不需要的 offset 语�
 `RadixArena` 上的 direct range traversal 与 topology link traversal。每个节点均为 16
 字节，构建过程不计时，规模提高到 16K–262K 以减少纳秒级噪音。
 
-| 场景 | Range 中位数 | Topology 中位数 | 结果 |
-| --- | ---: | ---: | ---: |
-| flat 65,536 | 120.0 µs | 46.26 µs | Range 慢 2.59× |
-| flat 262,144 | 480.1 µs | 184.5 µs | Range 慢 2.60× |
-| sparse sibling 65,536 | 122.6 µs | 108.1 µs | Range 慢 13.4% |
-| sparse sibling 262,144 | 486.5 µs | 434.7 µs | Range 慢 11.9% |
-| deep 16,384 | 74.70 µs | 11.47 µs | Range 慢 6.51× |
-| deep 65,536 | 301.4 µs | 47.41 µs | Range 慢 6.36× |
+| 场景                   | Range 中位数 | Topology 中位数 |           结果 |
+| ---------------------- | -----------: | --------------: | -------------: |
+| flat 65,536            |     120.0 µs |        46.26 µs | Range 慢 2.59× |
+| flat 262,144           |     480.1 µs |        184.5 µs | Range 慢 2.60× |
+| sparse sibling 65,536  |     122.6 µs |        108.1 µs | Range 慢 13.4% |
+| sparse sibling 262,144 |     486.5 µs |        434.7 µs | Range 慢 11.9% |
+| deep 16,384            |     74.70 µs |        11.47 µs | Range 慢 6.51× |
+| deep 65,536            |     301.4 µs |        47.41 µs | Range 慢 6.36× |
 
 命令：
 
