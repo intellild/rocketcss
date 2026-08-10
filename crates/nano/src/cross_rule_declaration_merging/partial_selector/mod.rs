@@ -1,4 +1,4 @@
-//! Selector-union compatibility and materialization shared by Radix S3.
+//! Selector-union compatibility and materialization shared by S3.
 
 mod selector;
 

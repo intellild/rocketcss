@@ -1,11 +1,8 @@
 use crate::MinifyContext;
 use rocketcss_ast::{
-    CSSWideOr, Columns, CssColor, Declaration, EqIgnoringTombstones, Margin, Padding, PropertyId,
-    VendorPrefix, Visit, VisitContext, Visitor,
-    radix_ast::{
-        Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
-        DeclarationId as RadixDeclarationId, DeclarationPayload,
-    },
+    CSSWideOr, Columns, Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
+    CssColor, Declaration, DeclarationId as RadixDeclarationId, DeclarationPayload,
+    EqIgnoringTombstones, Margin, Padding, PropertyId, VendorPrefix, Visit, VisitContext, Visitor,
 };
 use rocketcss_common::{
     GhostToken,
@@ -254,7 +251,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         blocks: &[RadixDeclarationBlockId<'ast>],
         compilation: &Compilation<'ast>,
         location: DeclarationLocation,
-    ) -> RadixDeclarationId {
+    ) -> RadixDeclarationId<'ast> {
         compilation
             .declaration_id_at_in_block(blocks[location.block()], location.declaration())
             .expect("the declaration location was validated against the block length")
@@ -266,7 +263,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         let DeclarationPayload::Property(declaration) = self
             .compilation
             .declaration(id)
-            .expect("a Radix declaration sequence ID remains resolvable")
+            .expect("a dense declaration sequence ID remains resolvable")
             .payload()
         else {
             unreachable!("local declaration minification only receives property blocks")
@@ -279,7 +276,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
         self.compilation
             .property_declaration_mut(self.blocks[location.block()], id)
-            .expect("a Radix property declaration remains mutable")
+            .expect("a dense property declaration remains mutable")
             .0
     }
 
@@ -297,7 +294,7 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
         let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
         self.compilation
             .declaration(id)
-            .expect("a Radix declaration sequence ID remains resolvable")
+            .expect("a dense declaration sequence ID remains resolvable")
             .is_important()
     }
 

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rocketcss_ast::radix_ast::CssRulePayload;
+use rocketcss_ast::CssRulePayload;
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::Allocator;
 use rocketcss_nano::{MinifyOptions, minify};

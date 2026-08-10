@@ -1,6 +1,4 @@
-use rocketcss_ast::radix_ast::{
-    ConcreteRuleId as RuleId, CssRulePayload, DeclarationPayload, RuleRecord,
-};
+use rocketcss_ast::{ConcreteRuleId as RuleId, CssRulePayload, DeclarationPayload, RuleRecord};
 use rocketcss_parser::parse;
 use rocketcss_parser::prelude::*;
 
@@ -15,7 +13,7 @@ fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<
 fn root_rule<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
     index: usize,
-) -> (RuleId<'ast>, &'tree RuleRecord<CssRulePayload<'ast>>) {
+) -> (RuleId<'ast>, &'tree RuleRecord<'ast, CssRulePayload<'ast>>) {
     let id = root_rule_ids(compilation)[index];
     (id, compilation.rule(id).unwrap())
 }
@@ -2011,7 +2009,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         assert!(matches!(
             sheet.declaration(property.syntax.unwrap()).unwrap().payload(),
             DeclarationPayload::PropertyRule(
-                rocketcss_ast::radix_ast::PropertyRuleDescriptor::Syntax(syntax)
+                rocketcss_ast::PropertyRuleDescriptor::Syntax(syntax)
             ) if matches!(&**syntax, SyntaxString::Components(_))
         ));
         assert!(matches!(
@@ -2019,9 +2017,9 @@ fn parses_property_view_transition_palette_and_nest_rules() {
                 .declaration(property.inherits.unwrap())
                 .unwrap()
                 .payload(),
-            DeclarationPayload::PropertyRule(
-                rocketcss_ast::radix_ast::PropertyRuleDescriptor::Inherits(false)
-            )
+            DeclarationPayload::PropertyRule(rocketcss_ast::PropertyRuleDescriptor::Inherits(
+                false
+            ))
         ));
         assert_eq!(
             sheet
@@ -2129,9 +2127,7 @@ fn parses_property_initial_value_edge_cases_losslessly() {
                 .declaration(ordered.inherits.unwrap())
                 .unwrap()
                 .payload(),
-            DeclarationPayload::PropertyRule(
-                rocketcss_ast::radix_ast::PropertyRuleDescriptor::Inherits(true)
-            )
+            DeclarationPayload::PropertyRule(rocketcss_ast::PropertyRuleDescriptor::Inherits(true))
         ));
         assert!(ordered.initial_value.is_some());
     })

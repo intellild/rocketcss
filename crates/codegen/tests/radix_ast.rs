@@ -1,4 +1,4 @@
-use rocketcss_ast::radix_ast::CssRulePayload;
+use rocketcss_ast::CssRulePayload;
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_parser::{Compiler, ParserOptions};

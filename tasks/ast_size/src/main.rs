@@ -3,12 +3,12 @@ use std::{
     mem::{align_of, size_of},
 };
 
-use rocketcss_ast::radix_ast::{
+use rocketcss_ast::*;
+use rocketcss_ast::{
     CssRulePayload, DeclarationBlockRecord, DeclarationPayload, DeclarationRecord, KeyframePayload,
     NestedDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
     RuleRecord, ViewportRulePayload,
 };
-use rocketcss_ast::*;
 use rocketcss_common::{boxed::Box, vec::Vec};
 
 macro_rules! print_sizes {
@@ -52,8 +52,8 @@ fn main() {
     print_sizes!(
         rocketcss_common::boxed::Box<'static, u8>,
         rocketcss_common::vec::Vec<'static, u8>,
-        RuleRecord<CssRulePayload<'static>>,
-        DeclarationBlockRecord<CssRulePayload<'static>>,
+        RuleRecord<'static, CssRulePayload<'static>>,
+        DeclarationBlockRecord<'static, CssRulePayload<'static>>,
         DeclarationRecord<DeclarationPayload<'static>>,
         Declaration<'static>,
         PropertyId<'static>,

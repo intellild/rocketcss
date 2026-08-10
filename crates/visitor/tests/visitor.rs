@@ -1,6 +1,6 @@
 use rocketcss_visitor::prelude::*;
 
-use rocketcss_ast::radix_ast::{
+use rocketcss_ast::{
     Compilation, CompilationVisitMutContext, CompilationVisitor, CompilationVisitorMut,
     ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId, CssRulePayload,
     DeclarationBlockOwner, DeclarationId, DeclarationPayload, DeclarationRecord, RuleRecord,
@@ -36,7 +36,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
     fn visit_rule(
         &mut self,
         _id: RuleId<'a>,
-        _rule: &RuleRecord<CssRulePayload<'a>>,
+        _rule: &RuleRecord<'a, CssRulePayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
         self.events.push(StructuralEvent::Rule);
@@ -45,7 +45,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
     fn visit_declaration_block(
         &mut self,
         _id: DeclarationBlockId<'a>,
-        _block: &rocketcss_ast::radix_ast::DeclarationBlockRecord<CssRulePayload<'a>>,
+        _block: &rocketcss_ast::DeclarationBlockRecord<CssRulePayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
         self.events.push(StructuralEvent::DeclarationBlock);
@@ -54,7 +54,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
     fn visit_declaration(
         &mut self,
         _block: DeclarationBlockId<'a>,
-        _id: DeclarationId,
+        _id: DeclarationId<'a>,
         _declaration: &DeclarationRecord<DeclarationPayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
@@ -64,7 +64,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
     fn visit_descriptor(
         &mut self,
         _block: DeclarationBlockId<'a>,
-        _id: DeclarationId,
+        _id: DeclarationId<'a>,
         _descriptor: &DeclarationRecord<DeclarationPayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
@@ -105,7 +105,7 @@ fn radix_traversal_uses_lexical_rule_and_declaration_order() {
 
 struct RadixRewrite<'a> {
     first_rule: RuleId<'a>,
-    replacement_selector: SelectorValueId,
+    replacement_selector: SelectorValueId<'a>,
     selector_replaced: bool,
     declaration_replaced: bool,
 }
@@ -122,7 +122,7 @@ impl<'a> CompilationVisitorMut<'a> for RadixRewrite<'a> {
     fn visit_declaration(
         &mut self,
         block: DeclarationBlockId<'a>,
-        id: DeclarationId,
+        id: DeclarationId<'a>,
         cx: &mut CompilationVisitMutContext<'_, 'a>,
     ) {
         let owner = cx.compilation().declaration_block(block).unwrap().owner();

@@ -4,13 +4,23 @@ use super::*;
 
 #[test]
 fn typed_ids_keep_compact_optional_layout() {
-    assert_eq!(size_of::<RuleId<&str>>(), size_of::<u32>());
-    assert_eq!(size_of::<Option<RuleId<&str>>>(), size_of::<u32>());
-    assert_eq!(size_of::<DeclarationBlockId<&str>>(), size_of::<u32>());
+    assert_eq!(size_of::<RuleId<'_, &str>>(), size_of::<u32>());
+    assert_eq!(size_of::<Option<RuleId<'_, &str>>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationBlockId<'_, &str>>(), size_of::<u32>());
     assert_eq!(
-        size_of::<Option<DeclarationBlockId<&str>>>(),
+        size_of::<Option<DeclarationBlockId<'_, &str>>>(),
         size_of::<u32>()
     );
+    assert_eq!(size_of::<RuleListId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<EffectiveKeyId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationOverflowId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<SelectorValueId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<SelectorPathId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<ContextValueId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<ContextPathId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<LayerContextId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<SourceOrderId>(), size_of::<u64>());
 }
 
 #[test]
@@ -31,10 +41,10 @@ fn lexical_order_and_direct_topology_are_independent() {
         .append_declaration(block, "color:red", false)
         .unwrap();
 
-    assert_eq!(outer.primary_index(), 0);
-    assert_eq!(nested.primary_index(), 1);
-    assert_eq!(following.primary_index(), 2);
-    assert_eq!(block.primary_index(), 0);
+    assert_eq!(outer.index(), 0);
+    assert_eq!(nested.index(), 1);
+    assert_eq!(following.index(), 2);
+    assert_eq!(block.index(), 0);
     assert_eq!(declaration.index(), 0);
     assert_eq!(
         compilation
@@ -99,9 +109,29 @@ fn validation_rejects_a_broken_mutual_link() {
 
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::<u8>::RuleHasWrongPrevious {
+        Err(ValidationError::RuleHasWrongPrevious {
             rule: second,
             expected: Some(first),
+        })
+    );
+}
+
+#[test]
+fn validation_rejects_non_monotonic_source_order_ids() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let first = compilation.append_rule(root, 1).unwrap();
+    let second = compilation.append_rule(root, 2).unwrap();
+
+    let first_order = compilation.rule(first).unwrap().source_order_id();
+    compilation.rule_mut(second).unwrap().source_order_id = first_order;
+
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::InvalidSourceOrder {
+            previous: first,
+            next: second,
         })
     );
 }
@@ -134,7 +164,7 @@ fn validation_rejects_a_child_list_owned_by_another_rule() {
 
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::<()>::ChildListHasWrongParent {
+        Err(ValidationError::ChildListHasWrongParent {
             rule: other,
             list: children,
             actual: Some(parent),
@@ -190,7 +220,7 @@ fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
 }
 
 #[test]
-fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
+fn synthesized_rule_and_block_keep_dense_ids_with_appended_declarations() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -211,13 +241,11 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
         .unwrap();
 
     let inserted_rule = compilation.insert_rule_after(left, 3).unwrap();
-    assert!(inserted_rule.remaps.is_empty());
     let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(right_block), inserted_rule.id, key)
+        .insert_declaration_block(inserted_rule, key)
         .unwrap();
-    assert!(inserted_block.remaps.is_empty());
     compilation
-        .append_declaration(inserted_block.id, 30, false)
+        .append_declaration(inserted_block, 30, false)
         .unwrap();
 
     assert_eq!(
@@ -235,11 +263,41 @@ fn synthesized_rule_and_block_use_final_radix_ids_with_appended_declarations() {
             .collect::<std::vec::Vec<_>>(),
         [
             DeclarationBlockOwner::<u8>::Rule(left),
-            DeclarationBlockOwner::<u8>::Rule(inserted_rule.id),
+            DeclarationBlockOwner::<u8>::Rule(inserted_rule),
             DeclarationBlockOwner::<u8>::Rule(right),
         ]
     );
+    assert!(inserted_rule > right);
+    assert!(
+        compilation.rule(left).unwrap().source_order_id()
+            < compilation.rule(inserted_rule).unwrap().source_order_id()
+    );
+    assert!(
+        compilation.rule(inserted_rule).unwrap().source_order_id()
+            < compilation.rule(right).unwrap().source_order_id()
+    );
     assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn repeated_local_insertions_relabel_source_order_without_remapping_dense_ids() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let left = compilation.append_rule(root, 0).unwrap();
+    let right = compilation.append_rule(root, u8::MAX).unwrap();
+
+    let inserted = (1..=40)
+        .map(|payload| compilation.insert_rule_after(left, payload).unwrap())
+        .collect::<std::vec::Vec<_>>();
+
+    assert!(inserted.iter().all(|id| id.index() > right.index()));
+    assert_eq!(compilation.validate_ast(), Ok(()));
+    let source_order = compilation
+        .rules_in_source_order()
+        .map(|(_, rule)| rule.source_order_id())
+        .collect::<std::vec::Vec<_>>();
+    assert!(source_order.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[test]
@@ -263,11 +321,8 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
         .append_declaration(following_block, 20, false)
         .unwrap();
 
-    let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
-    let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = compilation.insert_rule_after(left, 3).unwrap();
+    let inserted_block = compilation.insert_declaration_block(inserted, key).unwrap();
     let second = compilation
         .append_declaration(inserted_block, 30, false)
         .unwrap();
@@ -323,11 +378,8 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
         .append_declaration(following_block, 20, false)
         .unwrap();
 
-    let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
-    let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = compilation.insert_rule_after(left, 3).unwrap();
+    let inserted_block = compilation.insert_declaration_block(inserted, key).unwrap();
     for value in [30, 31, 32] {
         compilation
             .append_declaration(inserted_block, value, false)
@@ -377,11 +429,8 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
     compilation
         .append_declaration(following_block, 20, false)
         .unwrap();
-    let inserted = compilation.insert_rule_after(left, 3).unwrap().id;
-    let inserted_block = compilation
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = compilation.insert_rule_after(left, 3).unwrap();
+    let inserted_block = compilation.insert_declaration_block(inserted, key).unwrap();
     for value in [30, 31] {
         compilation
             .append_declaration(inserted_block, value, false)
@@ -468,11 +517,8 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     local4
         .append_declaration(following_block, 2, false)
         .unwrap();
-    let inserted = local4.insert_rule_after(left, 2).unwrap().id;
-    let inserted_block = local4
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = local4.insert_rule_after(left, 2).unwrap();
+    let inserted_block = local4.insert_declaration_block(inserted, key).unwrap();
     let second = local4.append_declaration(inserted_block, 3, false).unwrap();
     local4
         .merge_adjacent_rule_declaration_blocks(left, inserted)
@@ -523,11 +569,8 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
     overflow
         .append_declaration(following_block, 4, false)
         .unwrap();
-    let inserted = overflow.insert_rule_after(left, 2).unwrap().id;
-    let inserted_block = overflow
-        .insert_declaration_block_between(left_block, Some(following_block), inserted, key)
-        .unwrap()
-        .id;
+    let inserted = overflow.insert_rule_after(left, 2).unwrap();
+    let inserted_block = overflow.insert_declaration_block(inserted, key).unwrap();
     for value in [5, 6, 7] {
         expected.push(
             overflow

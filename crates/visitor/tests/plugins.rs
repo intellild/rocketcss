@@ -7,10 +7,10 @@ struct Rename<'a> {
     to: Atom<'a>,
 }
 
-impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for Rename<'a> {
+impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for Rename<'a> {
     fn visit_selector_value(
         &mut self,
-        _id: rocketcss_ast::radix_ast::SelectorValueId,
+        _id: rocketcss_ast::SelectorValueId<'a>,
         selectors: &mut SelectorList<'a>,
     ) {
         for selector in selectors {
@@ -93,7 +93,7 @@ fn plugins_run_in_registration_order_and_share_context() {
             .unwrap()
             .next()
             .unwrap();
-        let rocketcss_ast::radix_ast::CssRulePayload::Style(rule) = rule.payload() else {
+        let rocketcss_ast::CssRulePayload::Style(rule) = rule.payload() else {
             panic!("expected style rule")
         };
         let selectors = sheet
@@ -181,12 +181,12 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordRadixPlugin {
 
 struct TombstoneProperties;
 
-impl<'a> rocketcss_ast::radix_ast::CompilationVisitorMut<'a> for TombstoneProperties {
+impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for TombstoneProperties {
     fn visit_declaration(
         &mut self,
-        block: rocketcss_ast::radix_ast::ConcreteDeclarationBlockId<'a>,
-        declaration: rocketcss_ast::radix_ast::DeclarationId,
-        cx: &mut rocketcss_ast::radix_ast::CompilationVisitMutContext<'_, 'a>,
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'a>,
+        declaration: rocketcss_ast::DeclarationId<'a>,
+        cx: &mut rocketcss_ast::CompilationVisitMutContext<'_, 'a>,
     ) {
         cx.replace_property_declaration(block, declaration, Declaration::Tombstone)
             .unwrap();
@@ -232,7 +232,7 @@ fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
                 .next()
                 .unwrap()
                 .payload(),
-            rocketcss_ast::radix_ast::DeclarationPayload::Property(Declaration::Tombstone)
+            rocketcss_ast::DeclarationPayload::Property(Declaration::Tombstone)
         ));
         assert_eq!(compilation.validate_ast(), Ok(()));
     });

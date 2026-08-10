@@ -1,11 +1,11 @@
-//! Parser for the compiler-owned Radix AST.
+//! Parser for the compiler-owned persistent AST.
 
 #[cfg(test)]
-use rocketcss_ast::radix_ast::{
+use rocketcss_ast::{
     CascadeOrigin, CascadePhase, ConcreteEffectiveKey, ConcreteHistorySegment, SelectorPathId,
     SelectorValueId,
 };
-use rocketcss_ast::radix_ast::{
+use rocketcss_ast::{
     Compilation, CompilationCapacity, ConcreteDeclarationBlockId, ConcreteEffectiveContext,
     ConcreteRuleId, ContainerRulePayload, CounterStyleRulePayload, CssRulePayload,
     DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, FontFaceRulePayload,
@@ -44,7 +44,7 @@ use at_rule::parse_group_at_rule;
 use style::parse_style_rule;
 
 impl<'ast> Compiler<'ast> {
-    /// Parses a stylesheet directly into the authoritative Radix stores.
+    /// Parses a stylesheet directly into the authoritative dense stores.
     pub(crate) fn parse_compilation(
         &mut self,
         source: &'ast str,
@@ -117,7 +117,7 @@ enum TopLevelState {
 fn parse_rule_list<'ast>(
     input: &mut Compiler<'ast>,
     compilation: &mut Compilation<'ast>,
-    list: RuleListId,
+    list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -198,20 +198,18 @@ fn parse_rule_list<'ast>(
 
 fn mutation_error<'ast>(
     input: &Compiler<'ast>,
-    error: rocketcss_ast::radix_ast::ConcreteMutationError<'ast>,
+    error: rocketcss_ast::ConcreteMutationError<'ast>,
 ) -> ParseError<'ast, ParserError<'ast>> {
-    use rocketcss_ast::radix_ast::ConcreteMutationError;
+    use rocketcss_ast::ConcreteMutationError;
 
     let error = match error {
-        ConcreteMutationError::<'ast>::PrimaryRuleCapacityExhausted
-        | ConcreteMutationError::<'ast>::PrimaryDeclarationBlockCapacityExhausted
+        ConcreteMutationError::<'ast>::RuleCapacityExhausted
+        | ConcreteMutationError::<'ast>::DeclarationBlockCapacityExhausted
         | ConcreteMutationError::<'ast>::RuleListCapacityExhausted
         | ConcreteMutationError::<'ast>::EffectiveKeyCapacityExhausted
         | ConcreteMutationError::<'ast>::SelectorContextCapacityExhausted
         | ConcreteMutationError::<'ast>::DeclarationCapacityExhausted
-        | ConcreteMutationError::<'ast>::DeclarationOverflowCapacityExhausted
-        | ConcreteMutationError::<'ast>::LocalRuleCapacityExhausted(_)
-        | ConcreteMutationError::<'ast>::LocalDeclarationBlockCapacityExhausted(_) => {
+        | ConcreteMutationError::<'ast>::DeclarationOverflowCapacityExhausted => {
             ParserError::AstCapacityExceeded
         }
         ConcreteMutationError::<'ast>::UnknownRule(_)
@@ -225,6 +223,7 @@ fn mutation_error<'ast>(
         | ConcreteMutationError::<'ast>::UnknownDeclaration(_)
         | ConcreteMutationError::<'ast>::NonContiguousDeclarationRange(_)
         | ConcreteMutationError::<'ast>::InvalidRuleTopology(_)
+        | ConcreteMutationError::<'ast>::InvalidSourceTopology
         | ConcreteMutationError::<'ast>::RuleHasChildren(_) => ParserError::InvalidRule,
     };
     input.new_custom_error(error)

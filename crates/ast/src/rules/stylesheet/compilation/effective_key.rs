@@ -1,6 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use rocketcss_common::{Allocator, DenseId};
+use rocketcss_common::Allocator;
 use rustc_hash::FxHasher;
 
 use crate::VendorPrefix;
@@ -45,21 +45,21 @@ pub enum CascadePhase {
     AuthorNormalAndImportant,
 }
 
-pub enum HistorySegment<P> {
+pub enum HistorySegment<'ast, P> {
     StyleCascade,
-    Isolated(super::RuleId<P>),
+    Isolated(super::RuleId<'ast, P>),
 }
 
-impl<P> Clone for HistorySegment<P> {
+impl<P> Clone for HistorySegment<'_, P> {
     #[inline]
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<P> Copy for HistorySegment<P> {}
+impl<P> Copy for HistorySegment<'_, P> {}
 
-impl<P> std::fmt::Debug for HistorySegment<P> {
+impl<P> std::fmt::Debug for HistorySegment<'_, P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::StyleCascade => f.write_str("StyleCascade"),
@@ -68,7 +68,7 @@ impl<P> std::fmt::Debug for HistorySegment<P> {
     }
 }
 
-impl<P> PartialEq for HistorySegment<P> {
+impl<P> PartialEq for HistorySegment<'_, P> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -79,9 +79,9 @@ impl<P> PartialEq for HistorySegment<P> {
     }
 }
 
-impl<P> Eq for HistorySegment<P> {}
+impl<P> Eq for HistorySegment<'_, P> {}
 
-impl<P> Hash for HistorySegment<P> {
+impl<P> Hash for HistorySegment<'_, P> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
@@ -92,25 +92,25 @@ impl<P> Hash for HistorySegment<P> {
 }
 
 /// Exact selector and cascade context stored by every declaration block.
-pub struct EffectiveKeyData<P> {
-    selector_path: Option<SelectorPathId>,
-    context_path: Option<ContextPathId>,
-    layer: Option<LayerContextId>,
+pub struct EffectiveKeyData<'ast, P> {
+    selector_path: Option<SelectorPathId<'ast>>,
+    context_path: Option<ContextPathId<'ast>>,
+    layer: Option<LayerContextId<'ast>>,
     origin: CascadeOrigin,
     cascade_phase: CascadePhase,
-    history_segment: HistorySegment<P>,
+    history_segment: HistorySegment<'ast, P>,
 }
 
-impl<P> Clone for EffectiveKeyData<P> {
+impl<P> Clone for EffectiveKeyData<'_, P> {
     #[inline]
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<P> Copy for EffectiveKeyData<P> {}
+impl<P> Copy for EffectiveKeyData<'_, P> {}
 
-impl<P> std::fmt::Debug for EffectiveKeyData<P> {
+impl<P> std::fmt::Debug for EffectiveKeyData<'_, P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EffectiveKeyData")
             .field("selector_path", &self.selector_path)
@@ -123,7 +123,7 @@ impl<P> std::fmt::Debug for EffectiveKeyData<P> {
     }
 }
 
-impl<P> PartialEq for EffectiveKeyData<P> {
+impl<P> PartialEq for EffectiveKeyData<'_, P> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.selector_path == other.selector_path
@@ -135,9 +135,9 @@ impl<P> PartialEq for EffectiveKeyData<P> {
     }
 }
 
-impl<P> Eq for EffectiveKeyData<P> {}
+impl<P> Eq for EffectiveKeyData<'_, P> {}
 
-impl<P> Hash for EffectiveKeyData<P> {
+impl<P> Hash for EffectiveKeyData<'_, P> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.selector_path.hash(state);
@@ -149,19 +149,19 @@ impl<P> Hash for EffectiveKeyData<P> {
     }
 }
 
-impl<P> EffectiveKeyData<P> {
+impl<'ast, P> EffectiveKeyData<'ast, P> {
     #[inline]
-    pub const fn selector_path(self) -> Option<SelectorPathId> {
+    pub const fn selector_path(self) -> Option<SelectorPathId<'ast>> {
         self.selector_path
     }
 
     #[inline]
-    pub const fn context_path(self) -> Option<ContextPathId> {
+    pub const fn context_path(self) -> Option<ContextPathId<'ast>> {
         self.context_path
     }
 
     #[inline]
-    pub const fn layer(self) -> Option<LayerContextId> {
+    pub const fn layer(self) -> Option<LayerContextId<'ast>> {
         self.layer
     }
 
@@ -176,44 +176,33 @@ impl<P> EffectiveKeyData<P> {
     }
 
     #[inline]
-    pub const fn history_segment(self) -> HistorySegment<P> {
+    pub const fn history_segment(self) -> HistorySegment<'ast, P> {
         self.history_segment
-    }
-}
-
-impl<P> RuleIdReferences<P> for EffectiveKeyData<P> {
-    fn remap_rule_ids(&mut self, remaps: &[RadixIdRemap<super::RuleId<P>>]) {
-        match &mut self.history_segment {
-            HistorySegment::Isolated(rule) => {
-                *rule = remap_id(*rule, remaps);
-            }
-            HistorySegment::StyleCascade => {}
-        }
     }
 }
 
 /// Parser-local semantic context. It contains only compact IDs and can be
 /// copied through recursive descent without retaining AST borrows.
-pub struct EffectiveContext<P> {
-    style_rule: Option<super::RuleId<P>>,
-    selector_path: Option<SelectorPathId>,
-    context_path: Option<ContextPathId>,
-    layer: Option<LayerContextId>,
+pub struct EffectiveContext<'ast, P> {
+    style_rule: Option<super::RuleId<'ast, P>>,
+    selector_path: Option<SelectorPathId<'ast>>,
+    context_path: Option<ContextPathId<'ast>>,
+    layer: Option<LayerContextId<'ast>>,
     origin: CascadeOrigin,
     cascade_phase: CascadePhase,
-    history_segment: HistorySegment<P>,
+    history_segment: HistorySegment<'ast, P>,
 }
 
-impl<P> Clone for EffectiveContext<P> {
+impl<P> Clone for EffectiveContext<'_, P> {
     #[inline]
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<P> Copy for EffectiveContext<P> {}
+impl<P> Copy for EffectiveContext<'_, P> {}
 
-impl<P> std::fmt::Debug for EffectiveContext<P> {
+impl<P> std::fmt::Debug for EffectiveContext<'_, P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EffectiveContext")
             .field("style_rule", &self.style_rule)
@@ -227,7 +216,7 @@ impl<P> std::fmt::Debug for EffectiveContext<P> {
     }
 }
 
-impl<P> PartialEq for EffectiveContext<P> {
+impl<P> PartialEq for EffectiveContext<'_, P> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.style_rule == other.style_rule
@@ -240,9 +229,9 @@ impl<P> PartialEq for EffectiveContext<P> {
     }
 }
 
-impl<P> Eq for EffectiveContext<P> {}
+impl<P> Eq for EffectiveContext<'_, P> {}
 
-impl<P> Default for EffectiveContext<P> {
+impl<P> Default for EffectiveContext<'_, P> {
     fn default() -> Self {
         Self {
             style_rule: None,
@@ -256,29 +245,29 @@ impl<P> Default for EffectiveContext<P> {
     }
 }
 
-impl<P> EffectiveContext<P> {
+impl<'ast, P> EffectiveContext<'ast, P> {
     #[inline]
-    pub const fn style_rule(self) -> Option<super::RuleId<P>> {
+    pub const fn style_rule(self) -> Option<super::RuleId<'ast, P>> {
         self.style_rule
     }
 
     #[inline]
-    pub const fn selector_path(self) -> Option<SelectorPathId> {
+    pub const fn selector_path(self) -> Option<SelectorPathId<'ast>> {
         self.selector_path
     }
 
     #[inline]
-    pub const fn context_path(self) -> Option<ContextPathId> {
+    pub const fn context_path(self) -> Option<ContextPathId<'ast>> {
         self.context_path
     }
 
     #[inline]
-    pub const fn layer(self) -> Option<LayerContextId> {
+    pub const fn layer(self) -> Option<LayerContextId<'ast>> {
         self.layer
     }
 
     #[inline]
-    pub const fn effective_key(self) -> EffectiveKeyData<P> {
+    pub const fn effective_key(self) -> EffectiveKeyData<'ast, P> {
         EffectiveKeyData {
             selector_path: self.selector_path,
             context_path: self.context_path,
@@ -290,7 +279,7 @@ impl<P> EffectiveContext<P> {
     }
 
     #[inline]
-    pub const fn isolated(rule: super::RuleId<P>) -> EffectiveKeyData<P> {
+    pub const fn isolated(rule: super::RuleId<'ast, P>) -> EffectiveKeyData<'ast, P> {
         EffectiveKeyData {
             selector_path: None,
             context_path: None,
@@ -328,78 +317,78 @@ impl<'ast> SelectorValueRecord<'ast> {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct SelectorPathKey {
-    parent: Option<SelectorPathId>,
-    value: SelectorValueId,
+pub(crate) struct SelectorPathKey<'ast> {
+    parent: Option<SelectorPathId<'ast>>,
+    value: SelectorValueId<'ast>,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct SelectorPathRecord {
-    pub(super) parent: Option<SelectorPathId>,
-    pub(super) value: SelectorValueId,
+pub(crate) struct SelectorPathRecord<'ast> {
+    pub(super) parent: Option<SelectorPathId<'ast>>,
+    pub(super) value: SelectorValueId<'ast>,
     pub(super) fingerprint: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ContextValueRecord<P> {
-    pub(super) representative: super::RuleId<P>,
+pub(crate) struct ContextValueRecord<'ast, P> {
+    pub(super) representative: super::RuleId<'ast, P>,
     pub(super) fingerprint: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ContextValueState<P> {
-    pub(super) id: ContextValueId,
-    pub(super) representative: super::RuleId<P>,
+pub(crate) struct ContextValueState<'ast, P> {
+    pub(super) id: ContextValueId<'ast>,
+    pub(super) representative: super::RuleId<'ast, P>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct ContextPathKey {
-    parent: Option<ContextPathId>,
-    value: ContextValueId,
+pub(crate) struct ContextPathKey<'ast> {
+    parent: Option<ContextPathId<'ast>>,
+    value: ContextValueId<'ast>,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ContextPathRecord {
-    pub(super) parent: Option<ContextPathId>,
-    pub(super) value: ContextValueId,
+pub(crate) struct ContextPathRecord<'ast> {
+    pub(super) parent: Option<ContextPathId<'ast>>,
+    pub(super) value: ContextValueId<'ast>,
     pub(super) fingerprint: u64,
 }
 
 /// The result of refreshing wrapper identities, including the remap needed by
 /// a transient consumer that published block metadata before the refresh.
 #[doc(hidden)]
-pub struct ContextIdentityRepair<'scratch> {
+pub struct ContextIdentityRepair<'scratch, 'ast> {
     changed: bool,
-    effective_key_remaps: rocketcss_common::vec::Vec<'scratch, EffectiveKeyId>,
+    effective_key_remaps: rocketcss_common::vec::Vec<'scratch, EffectiveKeyId<'ast>>,
 }
 
-impl ContextIdentityRepair<'_> {
+impl<'ast> ContextIdentityRepair<'_, 'ast> {
     #[inline]
     pub const fn changed(&self) -> bool {
         self.changed
     }
 
     #[inline]
-    pub fn effective_key_remaps(&self) -> &[EffectiveKeyId] {
+    pub fn effective_key_remaps(&self) -> &[EffectiveKeyId<'ast>] {
         &self.effective_key_remaps
     }
 }
 
-pub(crate) struct LayerContextKey<P> {
-    pub(super) parent: Option<LayerContextId>,
-    pub(super) occurrence: super::RuleId<P>,
+pub(crate) struct LayerContextKey<'ast, P> {
+    pub(super) parent: Option<LayerContextId<'ast>>,
+    pub(super) occurrence: super::RuleId<'ast, P>,
 }
 
-impl<P> Clone for LayerContextKey<P> {
+impl<P> Clone for LayerContextKey<'_, P> {
     #[inline]
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<P> Copy for LayerContextKey<P> {}
+impl<P> Copy for LayerContextKey<'_, P> {}
 
-impl<P> std::fmt::Debug for LayerContextKey<P> {
+impl<P> std::fmt::Debug for LayerContextKey<'_, P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LayerContextKey")
             .field("parent", &self.parent)
@@ -408,16 +397,16 @@ impl<P> std::fmt::Debug for LayerContextKey<P> {
     }
 }
 
-impl<P> PartialEq for LayerContextKey<P> {
+impl<P> PartialEq for LayerContextKey<'_, P> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.parent == other.parent && self.occurrence == other.occurrence
     }
 }
 
-impl<P> Eq for LayerContextKey<P> {}
+impl<P> Eq for LayerContextKey<'_, P> {}
 
-impl<P> Hash for LayerContextKey<P> {
+impl<P> Hash for LayerContextKey<'_, P> {
     #[inline]
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.parent.hash(state);
@@ -426,9 +415,9 @@ impl<P> Hash for LayerContextKey<P> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct LayerContextRecord<P> {
-    pub(super) parent: Option<LayerContextId>,
-    pub(super) occurrence: super::RuleId<P>,
+pub(crate) struct LayerContextRecord<'ast, P> {
+    pub(super) parent: Option<LayerContextId<'ast>>,
+    pub(super) occurrence: super::RuleId<'ast, P>,
 }
 
 impl<'ast> Compilation<'ast> {
@@ -442,7 +431,7 @@ impl<'ast> Compilation<'ast> {
     #[doc(hidden)]
     pub fn transform_selector_values(
         &mut self,
-        mut transform: impl FnMut(SelectorValueId, &mut crate::SelectorList<'ast>),
+        mut transform: impl FnMut(SelectorValueId<'ast>, &mut crate::SelectorList<'ast>),
     ) {
         let allocator = self.allocator;
         self.transform_selector_values_in(allocator, &mut transform);
@@ -454,12 +443,10 @@ impl<'ast> Compilation<'ast> {
     pub fn transform_selector_values_in(
         &mut self,
         allocator: &Allocator,
-        mut transform: impl FnMut(SelectorValueId, &mut crate::SelectorList<'ast>),
+        mut transform: impl FnMut(SelectorValueId<'ast>, &mut crate::SelectorList<'ast>),
     ) -> bool {
         let mut changed = false;
-        for (index, value) in self.selector_values.iter_mut().enumerate() {
-            let id = SelectorValueId::from_index(index)
-                .expect("an existing selector value has a representable dense ID");
+        for (id, value) in self.selector_values.iter_enumerated_mut() {
             let previous_fingerprint = value.fingerprint;
             transform(id, &mut value.selectors);
             value.fingerprint =
@@ -503,10 +490,10 @@ impl<'ast> Compilation<'ast> {
 
         let mut current = self.first_rule_in_source;
         while let Some(id) = current {
-            let next = self.rules.get(id).and_then(|rule| rule.next_in_source);
+            let next = self.rules.try_get(id).and_then(|rule| rule.next_in_source);
             let rule = self
                 .rules
-                .get_mut(id)
+                .try_get_mut(id)
                 .expect("an enumerated selector owner remains resolvable");
             let selector = match rule.payload_mut() {
                 CssRulePayload::Style(payload) => Some(&mut payload.selector_value),
@@ -525,8 +512,10 @@ impl<'ast> Compilation<'ast> {
         self.selector_path_ids.clear();
         self.root_selector_paths.fill(None);
         for index in 0..self.selector_paths.len() {
-            let id = SelectorPathId::from_index(index)
-                .expect("an existing selector path has a representable dense ID");
+            let id = self
+                .selector_paths
+                .id_at_offset(0, index)
+                .expect("an existing selector path has a store-owned dense ID");
             debug_assert_eq!(id.index(), path_remaps.len());
             let record = self.selector_paths[id];
             let parent = record.parent.map(|parent| path_remaps[parent.index()]);
@@ -560,8 +549,10 @@ impl<'ast> Compilation<'ast> {
             rocketcss_common::vec::Vec::with_capacity_in(self.effective_keys.len(), allocator);
         self.effective_key_ids.clear();
         for index in 0..self.effective_keys.len() {
-            let id = EffectiveKeyId::from_index(index)
-                .expect("an existing effective key has a representable dense ID");
+            let id = self
+                .effective_keys
+                .id_at_offset(0, index)
+                .expect("an existing effective key has a store-owned dense ID");
             debug_assert_eq!(id.index(), key_remaps.len());
             let key = &mut self.effective_keys[id];
             key.selector_path = key.selector_path.map(|path| path_remaps[path.index()]);
@@ -574,15 +565,18 @@ impl<'ast> Compilation<'ast> {
 
         let mut current = self.first_rule_in_source;
         while let Some(rule_id) = current {
-            let next = self.rules.get(rule_id).and_then(|rule| rule.next_in_source);
+            let next = self
+                .rules
+                .try_get(rule_id)
+                .and_then(|rule| rule.next_in_source);
             let block_id = self
                 .rules
-                .get(rule_id)
+                .try_get(rule_id)
                 .and_then(|rule| rule.declaration_block);
             if let Some(block_id) = block_id {
                 let block = self
                     .declaration_blocks
-                    .get_mut(block_id)
+                    .try_get_mut(block_id)
                     .expect("an enumerated declaration block remains resolvable");
                 if block.live {
                     block.effective_key = key_remaps[block.effective_key.index()];
@@ -624,11 +618,13 @@ impl<'ast> Compilation<'ast> {
     pub fn refresh_context_value_identities_with_remaps<'scratch>(
         &mut self,
         allocator: &'scratch Allocator,
-    ) -> Result<ContextIdentityRepair<'scratch>, MutationError<'ast>> {
+    ) -> Result<ContextIdentityRepair<'scratch, 'ast>, MutationError<'ast>> {
         let mut changed = false;
         for index in 0..self.context_values.len() {
-            let id = ContextValueId::from_index(index)
-                .expect("an existing context value has a representable dense ID");
+            let id = self
+                .context_values
+                .id_at_offset(0, index)
+                .expect("an existing context value has a store-owned dense ID");
             let representative = self.context_values[id].representative;
             let kind = self
                 .context_frame_kind(representative)
@@ -647,8 +643,10 @@ impl<'ast> Compilation<'ast> {
             rocketcss_common::vec::Vec::with_capacity_in(self.context_values.len(), allocator);
         self.context_value_buckets.clear();
         for index in 0..self.context_values.len() {
-            let id = ContextValueId::from_index(index)
-                .expect("an existing context value has a representable dense ID");
+            let id = self
+                .context_values
+                .id_at_offset(0, index)
+                .expect("an existing context value has a store-owned dense ID");
             debug_assert_eq!(id.index(), value_remaps.len());
             let representative = self.context_values[id].representative;
             let kind = self
@@ -684,8 +682,10 @@ impl<'ast> Compilation<'ast> {
             rocketcss_common::vec::Vec::with_capacity_in(self.context_paths.len(), allocator);
         self.context_path_ids.clear();
         for index in 0..self.context_paths.len() {
-            let id = ContextPathId::from_index(index)
-                .expect("an existing context path has a representable dense ID");
+            let id = self
+                .context_paths
+                .id_at_offset(0, index)
+                .expect("an existing context path has a store-owned dense ID");
             debug_assert_eq!(id.index(), path_remaps.len());
             let record = self.context_paths[id];
             let parent = record.parent.map(|parent| path_remaps[parent.index()]);
@@ -711,8 +711,10 @@ impl<'ast> Compilation<'ast> {
             rocketcss_common::vec::Vec::with_capacity_in(self.effective_keys.len(), allocator);
         self.effective_key_ids.clear();
         for index in 0..self.effective_keys.len() {
-            let id = EffectiveKeyId::from_index(index)
-                .expect("an existing effective key has a representable dense ID");
+            let id = self
+                .effective_keys
+                .id_at_offset(0, index)
+                .expect("an existing effective key has a store-owned dense ID");
             debug_assert_eq!(id.index(), key_remaps.len());
             let key = &mut self.effective_keys[id];
             key.context_path = key.context_path.map(|path| path_remaps[path.index()]);
@@ -725,15 +727,18 @@ impl<'ast> Compilation<'ast> {
 
         let mut current = self.first_rule_in_source;
         while let Some(rule_id) = current {
-            let next = self.rules.get(rule_id).and_then(|rule| rule.next_in_source);
+            let next = self
+                .rules
+                .try_get(rule_id)
+                .and_then(|rule| rule.next_in_source);
             let block_id = self
                 .rules
-                .get(rule_id)
+                .try_get(rule_id)
                 .and_then(|rule| rule.declaration_block);
             if let Some(block_id) = block_id {
                 let block = self
                     .declaration_blocks
-                    .get_mut(block_id)
+                    .try_get_mut(block_id)
                     .expect("an enumerated declaration block remains resolvable");
                 if block.live {
                     block.effective_key = key_remaps[block.effective_key.index()];
@@ -750,9 +755,9 @@ impl<'ast> Compilation<'ast> {
 
     pub fn enter_selector_context(
         &mut self,
-        context: EffectiveContext<CssRulePayload<'ast>>,
+        context: EffectiveContext<'ast, CssRulePayload<'ast>>,
         rule: RuleId<'ast>,
-    ) -> Result<EffectiveContext<CssRulePayload<'ast>>, MutationError<'ast>> {
+    ) -> Result<EffectiveContext<'ast, CssRulePayload<'ast>>, MutationError<'ast>> {
         let value = match self
             .rule(rule)
             .ok_or(MutationError::UnknownRule(rule))?
@@ -772,9 +777,9 @@ impl<'ast> Compilation<'ast> {
 
     pub fn enter_wrapper_context(
         &mut self,
-        context: EffectiveContext<CssRulePayload<'ast>>,
+        context: EffectiveContext<'ast, CssRulePayload<'ast>>,
         rule: RuleId<'ast>,
-    ) -> Result<EffectiveContext<CssRulePayload<'ast>>, MutationError<'ast>> {
+    ) -> Result<EffectiveContext<'ast, CssRulePayload<'ast>>, MutationError<'ast>> {
         if matches!(
             self.rule(rule).map(RuleRecord::payload),
             Some(CssRulePayload::LayerBlock(_))
@@ -835,27 +840,27 @@ impl<'ast> Compilation<'ast> {
 
     pub fn selector_path_record(
         &self,
-        id: SelectorPathId,
-    ) -> Option<(Option<SelectorPathId>, SelectorValueId)> {
+        id: SelectorPathId<'ast>,
+    ) -> Option<(Option<SelectorPathId<'ast>>, SelectorValueId<'ast>)> {
         self.selector_paths
             .try_get(id)
             .map(|record| (record.parent, record.value))
     }
 
-    pub fn selector_value(&self, id: SelectorValueId) -> Option<&SelectorValueRecord<'ast>> {
+    pub fn selector_value(&self, id: SelectorValueId<'ast>) -> Option<&SelectorValueRecord<'ast>> {
         self.selector_values.try_get(id)
     }
 
     pub fn context_path_record(
         &self,
-        id: ContextPathId,
-    ) -> Option<(Option<ContextPathId>, ContextValueId)> {
+        id: ContextPathId<'ast>,
+    ) -> Option<(Option<ContextPathId<'ast>>, ContextValueId<'ast>)> {
         self.context_paths
             .try_get(id)
             .map(|record| (record.parent, record.value))
     }
 
-    pub fn context_value_representative(&self, id: ContextValueId) -> Option<RuleId<'ast>> {
+    pub fn context_value_representative(&self, id: ContextValueId<'ast>) -> Option<RuleId<'ast>> {
         self.context_values
             .try_get(id)
             .map(|record| record.representative)
@@ -863,8 +868,8 @@ impl<'ast> Compilation<'ast> {
 
     pub fn layer_context_record(
         &self,
-        id: LayerContextId,
-    ) -> Option<(Option<LayerContextId>, RuleId<'ast>)> {
+        id: LayerContextId<'ast>,
+    ) -> Option<(Option<LayerContextId<'ast>>, RuleId<'ast>)> {
         self.layer_contexts
             .try_get(id)
             .map(|record| (record.parent, record.occurrence))
@@ -877,7 +882,7 @@ impl<'ast> Compilation<'ast> {
     pub fn replace_rule_selector_value(
         &mut self,
         rule: RuleId<'ast>,
-        new_value: SelectorValueId,
+        new_value: SelectorValueId<'ast>,
     ) -> Result<bool, MutationError<'ast>> {
         let allocator = self.allocator;
         self.replace_rule_selector_value_in(rule, new_value, allocator)
@@ -889,7 +894,7 @@ impl<'ast> Compilation<'ast> {
     pub fn replace_rule_selector_value_in(
         &mut self,
         rule: RuleId<'ast>,
-        new_value: SelectorValueId,
+        new_value: SelectorValueId<'ast>,
         allocator: &Allocator,
     ) -> Result<bool, MutationError<'ast>> {
         let record = self.rule(rule).ok_or(MutationError::UnknownRule(rule))?;
@@ -1006,9 +1011,13 @@ impl<'ast> Compilation<'ast> {
 
     fn replace_selector_path_in(
         &mut self,
-        path: SelectorPathId,
-        remaps: &mut rocketcss_common::hash_map::HashMap<'_, SelectorPathId, SelectorPathId>,
-    ) -> Result<SelectorPathId, MutationError<'ast>> {
+        path: SelectorPathId<'ast>,
+        remaps: &mut rocketcss_common::hash_map::HashMap<
+            '_,
+            SelectorPathId<'ast>,
+            SelectorPathId<'ast>,
+        >,
+    ) -> Result<SelectorPathId<'ast>, MutationError<'ast>> {
         if let Some(&replacement) = remaps.get(&path) {
             return Ok(replacement);
         }
@@ -1041,10 +1050,10 @@ impl<'ast> Compilation<'ast> {
     /// to match exactly; it never models at-rule equivalence.
     pub fn intern_selector_union_effective_key(
         &mut self,
-        left: EffectiveKeyId,
-        right: EffectiveKeyId,
-        selector: SelectorValueId,
-    ) -> Result<Option<EffectiveKeyId>, MutationError<'ast>> {
+        left: EffectiveKeyId<'ast>,
+        right: EffectiveKeyId<'ast>,
+        selector: SelectorValueId<'ast>,
+    ) -> Result<Option<EffectiveKeyId<'ast>>, MutationError<'ast>> {
         if self.selector_values.try_get(selector).is_none() {
             return Err(MutationError::SelectorContextCapacityExhausted);
         }
@@ -1088,7 +1097,7 @@ impl<'ast> Compilation<'ast> {
         selectors: crate::SelectorList<'ast>,
         kind: SelectorFrameKind,
         vendor_prefix: VendorPrefix,
-    ) -> Result<SelectorValueId, MutationError<'ast>> {
+    ) -> Result<SelectorValueId<'ast>, MutationError<'ast>> {
         let fingerprint = selector_value_fingerprint(&selectors, kind, vendor_prefix);
         self.intern_selector_value_with_fingerprint(selectors, kind, vendor_prefix, fingerprint)
     }
@@ -1099,7 +1108,7 @@ impl<'ast> Compilation<'ast> {
         kind: SelectorFrameKind,
         vendor_prefix: VendorPrefix,
         fingerprint: u64,
-    ) -> Result<SelectorValueId, MutationError<'ast>> {
+    ) -> Result<SelectorValueId<'ast>, MutationError<'ast>> {
         if let Some(bucket) = self.selector_value_buckets.get(&fingerprint)
             && let Some(&id) = bucket.iter().find(|&&id| {
                 let value = &self.selector_values[id];
@@ -1130,9 +1139,9 @@ impl<'ast> Compilation<'ast> {
 
     fn intern_selector_path(
         &mut self,
-        parent: Option<SelectorPathId>,
-        value: SelectorValueId,
-    ) -> Result<SelectorPathId, MutationError<'ast>> {
+        parent: Option<SelectorPathId<'ast>>,
+        value: SelectorValueId<'ast>,
+    ) -> Result<SelectorPathId<'ast>, MutationError<'ast>> {
         let key = SelectorPathKey { parent, value };
         if parent.is_none() {
             if let Some(id) = self.root_selector_paths[value.index()] {
@@ -1165,7 +1174,7 @@ impl<'ast> Compilation<'ast> {
     fn intern_context_value(
         &mut self,
         rule: RuleId<'ast>,
-    ) -> Result<ContextValueId, MutationError<'ast>> {
+    ) -> Result<ContextValueId<'ast>, MutationError<'ast>> {
         let kind = self
             .context_frame_kind(rule)
             .ok_or(MutationError::InvalidRuleTopology(rule))?;
@@ -1286,16 +1295,6 @@ fn selector_value_fingerprint(
     vendor_prefix.hash(&mut hasher);
     selectors.hash(&mut hasher);
     hasher.finish()
-}
-
-fn remap_id<P>(
-    id: super::RuleId<P>,
-    remaps: &[RadixIdRemap<super::RuleId<P>>],
-) -> super::RuleId<P> {
-    remaps
-        .iter()
-        .find_map(|remap| (remap.old == id).then_some(remap.new))
-        .unwrap_or(id)
 }
 
 #[cfg(test)]
