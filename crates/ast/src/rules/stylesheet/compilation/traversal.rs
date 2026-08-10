@@ -224,9 +224,8 @@ impl<'ast> Compilation<'ast> {
                     &mut CompilationVisitMutContext { compilation: self },
                 );
             }
-            let declaration_count = self.declaration_ids_in_block(block_id)?.len();
-            for index in 0..declaration_count {
-                let declaration_id = self.declaration_id_at_in_block(block_id, index)?;
+            let mut declaration_cursor = self.declaration_cursor(block_id)?;
+            while let Some(declaration_id) = self.next_declaration_id(&mut declaration_cursor)? {
                 if property_block {
                     visitor.visit_declaration(
                         block_id,

@@ -14,13 +14,49 @@ fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<RuleListId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<EffectiveKeyId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<DeclarationId<'_>>(), size_of::<u32>());
-    assert_eq!(size_of::<DeclarationOverflowId<'_>>(), size_of::<u32>());
+    assert_eq!(size_of::<DeclarationSegmentId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<SelectorValueId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<SelectorPathId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<ContextValueId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<ContextPathId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<LayerContextId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<SourceOrderId>(), size_of::<u64>());
+}
+
+fn declaration_segment_ranges<'ast, R: Unpin, D, K>(
+    compilation: &RadixCompilation<'ast, R, D, K>,
+    block: DeclarationBlockId<'ast, R>,
+) -> std::vec::Vec<DeclarationRange> {
+    let mut ranges = std::vec::Vec::new();
+    let mut current = compilation
+        .declaration_block(block)
+        .unwrap()
+        .first_declaration_segment;
+    while let Some(segment) = current {
+        let segment = compilation.declaration_segments.try_get(segment).unwrap();
+        ranges.push(segment.range);
+        current = segment.next;
+    }
+    ranges
+}
+
+fn append_test_block<'ast>(
+    compilation: &mut RadixCompilation<'ast, u8, u8, &'static str>,
+    root: RuleListId<'ast>,
+    key: EffectiveKeyId<'ast>,
+    rule_payload: u8,
+    declarations: &[u8],
+) -> (RuleId<'ast, u8>, DeclarationBlockId<'ast, u8>) {
+    let rule = compilation.append_rule(root, rule_payload).unwrap();
+    let block = compilation
+        .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
+        .unwrap();
+    for &payload in declarations {
+        compilation
+            .append_declaration(block, payload, false)
+            .unwrap();
+    }
+    (rule, block)
 }
 
 #[test]
@@ -132,6 +168,231 @@ fn validation_rejects_non_monotonic_source_order_ids() {
         Err(ValidationError::InvalidSourceOrder {
             previous: first,
             next: second,
+        })
+    );
+}
+
+#[test]
+fn declaration_block_source_iteration_skips_an_unresolved_block() {
+    let allocator = Allocator::new();
+    let mut foreign = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let foreign_root = foreign.stylesheet().root_rules();
+    let foreign_key = foreign.append_effective_key("foreign").unwrap();
+    append_test_block(&mut foreign, foreign_root, foreign_key, 0, &[0]);
+    let (_, unresolved) = append_test_block(&mut foreign, foreign_root, foreign_key, 1, &[1]);
+
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("target").unwrap();
+    let broken_rule = compilation.append_rule(root, 0).unwrap();
+    let (_, valid_block) = append_test_block(&mut compilation, root, key, 1, &[1]);
+    compilation.rule_mut(broken_rule).unwrap().declaration_block = Some(unresolved);
+
+    assert_eq!(
+        compilation
+            .declaration_blocks_in_source_order()
+            .map(|(block, _)| block)
+            .collect::<std::vec::Vec<_>>(),
+        [valid_block]
+    );
+}
+
+#[test]
+fn validation_rejects_a_declaration_segment_cycle() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
+    let segment = compilation
+        .declaration_block(block)
+        .unwrap()
+        .first_declaration_segment
+        .unwrap();
+    compilation.declaration_segments.get_mut(segment).next = Some(segment);
+
+    assert!(matches!(
+        compilation.declaration_ids_in_block(block),
+        Err(MutationError::NonContiguousDeclarationRange(error_block))
+            if error_block == block
+    ));
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::DeclarationSegmentCycle { block, segment })
+    );
+}
+
+#[test]
+fn validation_rejects_a_dangling_declaration_segment() {
+    let allocator = Allocator::new();
+    let mut foreign = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let foreign_root = foreign.stylesheet().root_rules();
+    let foreign_key = foreign.append_effective_key("foreign").unwrap();
+    append_test_block(&mut foreign, foreign_root, foreign_key, 0, &[0]);
+    let (_, foreign_block) = append_test_block(&mut foreign, foreign_root, foreign_key, 1, &[1]);
+    let dangling = foreign
+        .declaration_block(foreign_block)
+        .unwrap()
+        .first_declaration_segment
+        .unwrap();
+
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("target").unwrap();
+    let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
+    let segment = compilation
+        .declaration_block(block)
+        .unwrap()
+        .first_declaration_segment
+        .unwrap();
+    compilation.declaration_segments.get_mut(segment).next = Some(dangling);
+
+    assert!(matches!(
+        compilation.declaration_ids_in_block(block),
+        Err(MutationError::UnknownDeclarationSegment(error_segment))
+            if error_segment == dangling
+    ));
+    let mut visited = 0;
+    assert!(matches!(
+        compilation.for_each_declaration_mut(block, |_, _| visited += 1),
+        Err(MutationError::UnknownDeclarationSegment(error_segment))
+            if error_segment == dangling
+    ));
+    assert_eq!(visited, 0);
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::InvalidDeclarationSegment {
+            block,
+            segment: dangling,
+        })
+    );
+}
+
+#[test]
+fn validation_rejects_invalid_segment_range_count_and_endpoints() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
+    let segment = compilation
+        .declaration_block(block)
+        .unwrap()
+        .first_declaration_segment
+        .unwrap();
+    compilation.declaration_segments.get_mut(segment).range.len = 0;
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::InvalidDeclarationRange {
+            block,
+            range: DeclarationRange { start: 0, len: 0 },
+        })
+    );
+
+    compilation.declaration_segments.get_mut(segment).range.len = 1;
+    compilation
+        .declaration_block_mut(block)
+        .unwrap()
+        .declaration_count = 2;
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::DeclarationSegmentCountMismatch {
+            block,
+            expected: 2,
+            actual: 1,
+        })
+    );
+
+    let block_record = compilation.declaration_block_mut(block).unwrap();
+    block_record.declaration_count = 1;
+    block_record.last_declaration_segment = None;
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::InvalidDeclarationSegmentEndpoints { block })
+    );
+}
+
+#[test]
+fn validation_rejects_adjacent_segments_and_shared_ownership() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let (_, left_block) = append_test_block(&mut compilation, root, key, 0, &[0]);
+    let (_, right_block) = append_test_block(&mut compilation, root, key, 1, &[1]);
+    let left_segment = compilation
+        .declaration_block(left_block)
+        .unwrap()
+        .first_declaration_segment
+        .unwrap();
+    let right_segment = compilation
+        .declaration_block(right_block)
+        .unwrap()
+        .first_declaration_segment
+        .unwrap();
+    compilation.declaration_segments.get_mut(left_segment).next = Some(right_segment);
+    let left_record = compilation.declaration_block_mut(left_block).unwrap();
+    left_record.last_declaration_segment = Some(right_segment);
+    left_record.declaration_count = 2;
+    let right_record = compilation.declaration_block_mut(right_block).unwrap();
+    right_record.first_declaration_segment = None;
+    right_record.last_declaration_segment = None;
+    right_record.declaration_count = 0;
+
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::AdjacentDeclarationSegments {
+            block: left_block,
+            previous: left_segment,
+            next: right_segment,
+        })
+    );
+
+    compilation.declaration_segments.get_mut(left_segment).next = None;
+    let left_record = compilation.declaration_block_mut(left_block).unwrap();
+    left_record.last_declaration_segment = Some(left_segment);
+    left_record.declaration_count = 1;
+    let right_record = compilation.declaration_block_mut(right_block).unwrap();
+    right_record.first_declaration_segment = Some(left_segment);
+    right_record.last_declaration_segment = Some(left_segment);
+    right_record.declaration_count = 1;
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::DuplicateDeclarationSegmentOwner {
+            segment: left_segment,
+            first: left_block,
+            second: right_block,
+        })
+    );
+}
+
+#[test]
+fn validation_rejects_duplicate_declaration_ownership_across_distinct_segments() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let (_, left_block) = append_test_block(&mut compilation, root, key, 0, &[0]);
+    let (_, right_block) = append_test_block(&mut compilation, root, key, 1, &[]);
+    let duplicate_segment = compilation
+        .declaration_segments
+        .try_push(DeclarationSegment {
+            range: DeclarationRange { start: 0, len: 1 },
+            next: None,
+        })
+        .unwrap();
+    let right_record = compilation.declaration_block_mut(right_block).unwrap();
+    right_record.first_declaration_segment = Some(duplicate_segment);
+    right_record.last_declaration_segment = Some(duplicate_segment);
+    right_record.declaration_count = 1;
+    let declaration = compilation.declarations.ids().next().unwrap();
+
+    assert_eq!(
+        compilation.validate_ast(),
+        Err(ValidationError::DuplicateDeclarationOwner {
+            declaration,
+            first: left_block,
+            second: right_block,
         })
     );
 }
@@ -301,7 +562,7 @@ fn repeated_local_insertions_relabel_source_order_without_remapping_dense_ids() 
 }
 
 #[test]
-fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
+fn noncontiguous_small_merge_links_segments_without_copying_declarations() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -330,13 +591,18 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
 
-    assert!(matches!(
-        compilation
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Local4(_)
-    ));
+    assert_eq!(
+        declaration_segment_ranges(&compilation, inserted_block).len(),
+        2
+    );
+    let mut ids = compilation
+        .declaration_ids_in_block(inserted_block)
+        .unwrap();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids.next(), Some(first));
+    assert_eq!(ids.len(), 1);
+    assert_eq!(ids.next(), Some(second));
+    assert_eq!(ids.len(), 0);
     assert_eq!(
         compilation
             .declaration_ids_in_block(inserted_block)
@@ -356,7 +622,7 @@ fn noncontiguous_small_merge_uses_local4_without_copying_declarations() {
 }
 
 #[test]
-fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() {
+fn noncontiguous_large_merge_links_segments_without_copying_declarations() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -389,13 +655,10 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
 
-    assert!(matches!(
-        compilation
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Overflow(_)
-    ));
+    assert_eq!(
+        declaration_segment_ranges(&compilation, inserted_block).len(),
+        2
+    );
     assert_eq!(
         compilation
             .declarations_in_block(inserted_block)
@@ -408,7 +671,7 @@ fn noncontiguous_large_merge_uses_arena_overflow_without_copying_declarations() 
 }
 
 #[test]
-fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
+fn transformed_append_extends_the_noncontiguous_tail_segment() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -439,25 +702,25 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
     compilation
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert!(matches!(
-        compilation
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Local4(_)
-    ));
+    assert_eq!(
+        declaration_segment_ranges(&compilation, inserted_block)
+            .iter()
+            .map(|range| range.len())
+            .collect::<std::vec::Vec<_>>(),
+        [2, 2]
+    );
 
     compilation
         .append_transformed_declaration(inserted_block, 32, false)
         .unwrap();
 
-    assert!(matches!(
-        compilation
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Overflow(_)
-    ));
+    assert_eq!(
+        declaration_segment_ranges(&compilation, inserted_block)
+            .iter()
+            .map(|range| range.len())
+            .collect::<std::vec::Vec<_>>(),
+        [2, 3]
+    );
     assert_eq!(
         compilation
             .declarations_in_block(inserted_block)
@@ -470,7 +733,7 @@ fn fifth_local_declaration_promotes_the_complete_sequence_to_overflow() {
 }
 
 #[test]
-fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
+fn streaming_declaration_mutation_preserves_single_and_multi_segment_order() {
     let allocator = Allocator::new();
 
     let mut range = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
@@ -502,36 +765,37 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         [11, 12, 13]
     );
 
-    let mut local4 = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = local4.stylesheet().root_rules();
-    let key = local4.append_effective_key("local4").unwrap();
-    let left = local4.append_rule(root, 0).unwrap();
-    let left_block = local4
+    let mut small_split = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = small_split.stylesheet().root_rules();
+    let key = small_split.append_effective_key("small-split").unwrap();
+    let left = small_split.append_rule(root, 0).unwrap();
+    let left_block = small_split
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
-    let first = local4.append_declaration(left_block, 1, false).unwrap();
-    let following = local4.append_rule(root, 1).unwrap();
-    let following_block = local4
+    let first = small_split
+        .append_declaration(left_block, 1, false)
+        .unwrap();
+    let following = small_split.append_rule(root, 1).unwrap();
+    let following_block = small_split
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
-    local4
+    small_split
         .append_declaration(following_block, 2, false)
         .unwrap();
-    let inserted = local4.insert_rule_after(left, 2).unwrap();
-    let inserted_block = local4.insert_declaration_block(inserted, key).unwrap();
-    let second = local4.append_declaration(inserted_block, 3, false).unwrap();
-    local4
+    let inserted = small_split.insert_rule_after(left, 2).unwrap();
+    let inserted_block = small_split.insert_declaration_block(inserted, key).unwrap();
+    let second = small_split
+        .append_declaration(inserted_block, 3, false)
+        .unwrap();
+    small_split
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert!(matches!(
-        local4
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Local4(_)
-    ));
+    assert_eq!(
+        declaration_segment_ranges(&small_split, inserted_block).len(),
+        2
+    );
     visited.clear();
-    local4
+    small_split
         .for_each_declaration_mut(inserted_block, |id, record| {
             visited.push(id);
             *record.payload_mut() += 10;
@@ -539,7 +803,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         .unwrap();
     assert_eq!(visited, [first, second]);
     assert_eq!(
-        local4
+        small_split
             .declarations_in_block(inserted_block)
             .unwrap()
             .map(|record| *record.payload())
@@ -547,49 +811,46 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         [11, 13]
     );
 
-    let mut overflow = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = overflow.stylesheet().root_rules();
-    let key = overflow.append_effective_key("overflow").unwrap();
-    let left = overflow.append_rule(root, 0).unwrap();
-    let left_block = overflow
+    let mut large_split = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = large_split.stylesheet().root_rules();
+    let key = large_split.append_effective_key("large-split").unwrap();
+    let left = large_split.append_rule(root, 0).unwrap();
+    let left_block = large_split
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(left), key)
         .unwrap();
     let mut expected = std::vec::Vec::new();
     for value in [1, 2, 3] {
         expected.push(
-            overflow
+            large_split
                 .append_declaration(left_block, value, false)
                 .unwrap(),
         );
     }
-    let following = overflow.append_rule(root, 1).unwrap();
-    let following_block = overflow
+    let following = large_split.append_rule(root, 1).unwrap();
+    let following_block = large_split
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(following), key)
         .unwrap();
-    overflow
+    large_split
         .append_declaration(following_block, 4, false)
         .unwrap();
-    let inserted = overflow.insert_rule_after(left, 2).unwrap();
-    let inserted_block = overflow.insert_declaration_block(inserted, key).unwrap();
+    let inserted = large_split.insert_rule_after(left, 2).unwrap();
+    let inserted_block = large_split.insert_declaration_block(inserted, key).unwrap();
     for value in [5, 6, 7] {
         expected.push(
-            overflow
+            large_split
                 .append_declaration(inserted_block, value, false)
                 .unwrap(),
         );
     }
-    overflow
+    large_split
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert!(matches!(
-        overflow
-            .declaration_block(inserted_block)
-            .unwrap()
-            .declarations(),
-        DeclarationList::Overflow(_)
-    ));
+    assert_eq!(
+        declaration_segment_ranges(&large_split, inserted_block).len(),
+        2
+    );
     visited.clear();
-    overflow
+    large_split
         .for_each_declaration_mut(inserted_block, |id, record| {
             visited.push(id);
             *record.payload_mut() += 10;
@@ -597,7 +858,7 @@ fn streaming_declaration_mutation_preserves_range_local4_and_overflow_order() {
         .unwrap();
     assert_eq!(visited, expected);
     assert_eq!(
-        overflow
+        large_split
             .declarations_in_block(inserted_block)
             .unwrap()
             .map(|record| *record.payload())

@@ -68,11 +68,21 @@ fn effective_key_seed<'ast>(
 fn declaration_ranges(compilation: &Compilation<'_>) -> std::vec::Vec<(u32, u32)> {
     compilation
         .declaration_blocks_in_source_order()
-        .map(|(_, block)| {
-            let range = block.declarations().as_range().unwrap();
-            (range.start(), range.len())
-        })
+        .map(|(block, _)| declaration_range(compilation, block))
         .collect()
+}
+
+fn declaration_range<'ast>(
+    compilation: &Compilation<'ast>,
+    block: ConcreteDeclarationBlockId<'ast>,
+) -> (u32, u32) {
+    let ids = compilation
+        .declaration_ids_in_block(block)
+        .unwrap()
+        .map(|id| id.index() as u32)
+        .collect::<std::vec::Vec<_>>();
+    assert!(ids.windows(2).all(|pair| pair[0] + 1 == pair[1]));
+    (ids.first().copied().unwrap_or(0), ids.len() as u32)
 }
 
 fn payload_kind(payload: &CssRulePayload<'_>) -> &'static str {
@@ -144,19 +154,19 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
             (
                 id.index(),
                 block.owner(),
-                block.declarations().as_range().unwrap(),
+                declaration_range(&compilation, id),
             )
         })
         .collect::<std::vec::Vec<_>>();
     assert_eq!(blocks.len(), 4);
     assert_eq!(blocks[0].0, 0);
-    assert_eq!((blocks[0].2.start(), blocks[0].2.len()), (0, 1));
+    assert_eq!(blocks[0].2, (0, 1));
     assert_eq!(blocks[1].0, 1);
-    assert_eq!((blocks[1].2.start(), blocks[1].2.len()), (1, 1));
+    assert_eq!(blocks[1].2, (1, 1));
     assert_eq!(blocks[2].0, 2);
-    assert_eq!((blocks[2].2.start(), blocks[2].2.len()), (2, 1));
+    assert_eq!(blocks[2].2, (2, 1));
     assert_eq!(blocks[3].0, 3);
-    assert_eq!((blocks[3].2.start(), blocks[3].2.len()), (3, 1));
+    assert_eq!(blocks[3].2, (3, 1));
     assert_eq!(
         compilation
             .declarations_in_source_order()
@@ -684,7 +694,7 @@ fn supports_wrappers_share_group_topology_without_losing_style_context() {
         None
     );
 
-    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 0), (1, 1), (2, 1)]);
+    assert_eq!(declaration_ranges(&radix), [(0, 1), (0, 0), (1, 1), (2, 1)]);
     assert_eq!(radix.validate_ast(), Ok(()));
 }
 
@@ -716,7 +726,7 @@ fn starting_style_uses_explicit_source_order_segments() {
 
     assert_eq!(
         declaration_ranges(&radix),
-        [(0, 1), (1, 0), (1, 1), (2, 1), (3, 1)]
+        [(0, 1), (0, 0), (1, 1), (2, 1), (3, 1)]
     );
     assert_eq!(radix.validate_ast(), Ok(()));
 }
@@ -779,7 +789,7 @@ fn layer_statement_and_blocks_keep_distinct_topology() {
         rules[4].0
     );
 
-    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 0), (1, 1), (2, 1)]);
+    assert_eq!(declaration_ranges(&radix), [(0, 1), (0, 0), (1, 1), (2, 1)]);
     assert_eq!(radix.validate_ast(), Ok(()));
 }
 
@@ -843,7 +853,7 @@ fn nested_group_wrappers_preserve_the_full_parent_context_chain() {
 
     assert_eq!(
         declaration_ranges(&radix),
-        [(0, 1), (1, 0), (1, 1), (2, 1), (3, 1)]
+        [(0, 1), (0, 0), (1, 1), (2, 1), (3, 1)]
     );
     assert_eq!(radix.validate_ast(), Ok(()));
 }
@@ -920,10 +930,7 @@ fn declaration_owner_rules_share_one_lexical_property_tape() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_range(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 2), (3, 1), (4, 2), (6, 1)]
     );
@@ -964,10 +971,7 @@ fn font_face_descriptors_are_typed_occurrences_in_the_global_tape() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_range(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 3), (4, 1)]
     );
@@ -1009,10 +1013,7 @@ fn palette_and_view_transition_descriptors_keep_typed_source_order() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_range(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 3), (4, 2), (6, 1)]
     );
@@ -1162,10 +1163,7 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_range(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 1), (2, 2), (4, 1)]
     );
@@ -1202,12 +1200,9 @@ fn page_margin_rules_split_parent_declaration_ranges() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_range(&radix, block))
             .collect::<std::vec::Vec<_>>(),
-        [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 0)]
+        [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (0, 0)]
     );
 
     let page = rules[1].0;
@@ -1362,10 +1357,7 @@ fn font_feature_subrules_and_declarations_are_flattened() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_range(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 2), (2, 1)]
     );
@@ -1669,6 +1661,12 @@ fn capacity_estimates_cover_benchmark_corpora() {
             "declarations exceed capacity estimate ({} > {})",
             compilation.declarations_in_source_order().count(),
             capacity.declarations
+        );
+        assert!(
+            compilation.declaration_segment_count() <= capacity.declaration_segments,
+            "declaration segments exceed capacity estimate ({} > {})",
+            compilation.declaration_segment_count(),
+            capacity.declaration_segments
         );
         assert!(
             compilation.selector_value_count() <= capacity.selectors,

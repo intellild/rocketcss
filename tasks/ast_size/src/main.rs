@@ -5,9 +5,9 @@ use std::{
 
 use rocketcss_ast::*;
 use rocketcss_ast::{
-    CssRulePayload, DeclarationBlockRecord, DeclarationPayload, DeclarationRecord, KeyframePayload,
-    NestedDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
-    RuleRecord, ViewportRulePayload,
+    CssRulePayload, DeclarationBlockRecord, DeclarationPayload, DeclarationRecord,
+    DeclarationSegment, KeyframePayload, NestedDeclarationsPayload, PageMarginPayload,
+    PageRulePayload, PositionTryRulePayload, RuleRecord, ViewportRulePayload,
 };
 use rocketcss_common::{boxed::Box, vec::Vec};
 
@@ -54,6 +54,7 @@ fn main() {
         rocketcss_common::vec::Vec<'static, u8>,
         RuleRecord<'static, CssRulePayload<'static>>,
         DeclarationBlockRecord<'static, CssRulePayload<'static>>,
+        DeclarationSegment<'static>,
         DeclarationRecord<DeclarationPayload<'static>>,
         Declaration<'static>,
         PropertyId<'static>,

@@ -100,6 +100,7 @@ pub fn compilation_capacity(source_len: usize) -> CompilationCapacity {
         rule_lists: source_len / 512,
         declaration_blocks: rules,
         declarations: source_len / 44,
+        declaration_segments: rules,
         selectors: source_len / 100,
         contexts: source_len / 512,
     }
@@ -209,7 +210,7 @@ fn mutation_error<'ast>(
         | ConcreteMutationError::<'ast>::EffectiveKeyCapacityExhausted
         | ConcreteMutationError::<'ast>::SelectorContextCapacityExhausted
         | ConcreteMutationError::<'ast>::DeclarationCapacityExhausted
-        | ConcreteMutationError::<'ast>::DeclarationOverflowCapacityExhausted => {
+        | ConcreteMutationError::<'ast>::DeclarationSegmentCapacityExhausted => {
             ParserError::AstCapacityExceeded
         }
         ConcreteMutationError::<'ast>::UnknownRule(_)
@@ -219,7 +220,7 @@ fn mutation_error<'ast>(
         | ConcreteMutationError::<'ast>::ChildListAlreadyExists(_)
         | ConcreteMutationError::<'ast>::DeclarationBlockAlreadyExists(_)
         | ConcreteMutationError::<'ast>::UnknownDeclarationBlock(_)
-        | ConcreteMutationError::<'ast>::UnknownDeclarationOverflow(_)
+        | ConcreteMutationError::<'ast>::UnknownDeclarationSegment(_)
         | ConcreteMutationError::<'ast>::UnknownDeclaration(_)
         | ConcreteMutationError::<'ast>::NonContiguousDeclarationRange(_)
         | ConcreteMutationError::<'ast>::InvalidRuleTopology(_)

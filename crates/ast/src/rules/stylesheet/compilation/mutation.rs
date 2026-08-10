@@ -107,41 +107,12 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 }
 
 impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
-    fn declaration_list_for_ids(
-        &mut self,
-        declarations: &[DeclarationId<'ast>],
-    ) -> Result<DeclarationList<'ast>, MutationError<'ast, R>> {
-        let contiguous = declarations
-            .windows(2)
-            .all(|pair| pair[0].index() + 1 == pair[1].index());
-        if contiguous {
-            let start = declarations.first().map_or(0, |id| id.index() as u32);
-            return Ok(DeclarationList::Range(DeclarationRange {
-                start,
-                len: declarations.len() as u32,
-            }));
-        }
-        if let Some(local) = LocalPropertySet::from_ids(declarations) {
-            return Ok(DeclarationList::Local4(local));
-        }
-        let mut overflow = self.allocator.vec();
-        for &declaration in declarations {
-            overflow.push(declaration);
-        }
-        let overflow = self
-            .declaration_overflows
-            .try_push(overflow)
-            .map_err(|_| MutationError::DeclarationOverflowCapacityExhausted)?;
-        Ok(DeclarationList::Overflow(overflow))
-    }
-
-    /// Appends a transformed declaration to any live block representation.
+    /// Appends a transformed declaration to any live block segment chain.
     ///
     /// Authored parsing continues to use `append_declaration`, which rejects a
     /// range closed by nested syntax. This transaction is for synthesized
-    /// declarations: it retains a contiguous range when possible, uses
-    /// `Local4` for a small non-contiguous sequence, and atomically promotes a
-    /// fifth local occurrence to the arena-backed complete overflow list.
+    /// declarations: it extends the tail range when possible and otherwise
+    /// appends one non-contiguous range segment.
     pub fn append_transformed_declaration(
         &mut self,
         block: DeclarationBlockId<'ast, R>,
@@ -155,36 +126,78 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         if !block_record.live {
             return Err(MutationError::UnknownDeclarationBlock(block));
         }
+        let first_segment = block_record.first_declaration_segment;
+        let last_segment = block_record.last_declaration_segment;
+        let declaration_count = block_record.declaration_count;
         let revision = block_record.revision.wrapping_add(1);
-        let mut declarations = self
-            .declaration_ids_in_block(block)?
-            .collect::<std::vec::Vec<_>>();
+        if first_segment.is_none() != last_segment.is_none()
+            || (first_segment.is_none() != (declaration_count == 0))
+        {
+            return Err(MutationError::NonContiguousDeclarationRange(block));
+        }
         if !self.declarations.has_capacity_for(1) {
             return Err(MutationError::DeclarationCapacityExhausted);
         }
         let new_index = self.declarations.len();
-        let remains_contiguous = declarations
-            .last()
-            .is_none_or(|last| last.index().checked_add(1) == Some(new_index));
-        if !remains_contiguous
-            && declarations.len() >= 4
-            && !self.declaration_overflows.has_capacity_for(1)
-        {
-            return Err(MutationError::DeclarationOverflowCapacityExhausted);
+        let extends_tail = if let Some(last_segment) = last_segment {
+            let segment = self
+                .declaration_segments
+                .try_get(last_segment)
+                .ok_or(MutationError::UnknownDeclarationSegment(last_segment))?;
+            if segment.next.is_some() {
+                return Err(MutationError::NonContiguousDeclarationRange(block));
+            }
+            segment.range.start as usize + segment.range.len as usize == new_index
+        } else {
+            false
+        };
+        if !extends_tail && !self.declaration_segments.has_capacity_for(1) {
+            return Err(MutationError::DeclarationSegmentCapacityExhausted);
         }
         let inserted = self
             .declarations
             .push(DeclarationRecord { payload, important });
-        declarations.push(inserted);
-        let representation = self
-            .declaration_list_for_ids(&declarations)
-            .unwrap_or_else(|_| unreachable!("all representation capacity was preflighted"));
-        let block = self
+        if extends_tail {
+            self.declaration_segments
+                .try_get_mut(last_segment.expect("an extended tail exists"))
+                .expect("the transformed tail segment was validated")
+                .range
+                .len += 1;
+        } else {
+            let segment = self
+                .declaration_segments
+                .try_push(DeclarationSegment {
+                    range: DeclarationRange {
+                        start: new_index as u32,
+                        len: 1,
+                    },
+                    next: None,
+                })
+                .unwrap_or_else(|_| unreachable!("segment capacity was preflighted"));
+            if let Some(last_segment) = last_segment {
+                self.declaration_segments
+                    .try_get_mut(last_segment)
+                    .expect("the transformed tail segment was validated")
+                    .next = Some(segment);
+            } else {
+                self.declaration_blocks
+                    .try_get_mut(block)
+                    .expect("the transformed declaration owner was validated")
+                    .first_declaration_segment = Some(segment);
+            }
+            self.declaration_blocks
+                .try_get_mut(block)
+                .expect("the transformed declaration owner was validated")
+                .last_declaration_segment = Some(segment);
+        }
+        let block_record = self
             .declaration_blocks
             .try_get_mut(block)
             .expect("the transformed declaration owner was validated");
-        block.declarations = representation;
-        block.revision = revision;
+        block_record.declaration_count = declaration_count
+            .checked_add(1)
+            .expect("a block cannot contain u32::MAX declarations");
+        block_record.revision = revision;
         Ok(inserted)
     }
 
@@ -193,6 +206,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     pub fn can_insert_declaration_block(&self, declaration_count: usize) -> bool {
         self.declaration_blocks.has_capacity_for(1)
             && self.declarations.has_capacity_for(declaration_count)
+            && (declaration_count == 0 || self.declaration_segments.has_capacity_for(1))
     }
 
     /// Inserts a synthesized declaration block at its final semantic block ID
@@ -218,10 +232,9 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let block = self
             .declaration_blocks
             .try_push(DeclarationBlockRecord {
-                declarations: DeclarationList::Range(DeclarationRange {
-                    start: self.declarations.len() as u32,
-                    len: 0,
-                }),
+                first_declaration_segment: None,
+                last_declaration_segment: None,
+                declaration_count: 0,
                 owner: DeclarationBlockOwner::Rule(owner),
                 effective_key,
                 revision: 0,
@@ -253,10 +266,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             return Err(MutationError::UnknownDeclarationBlock(block));
         }
         let revision = block_record.revision.wrapping_add(1);
-        if !self
-            .declaration_ids_in_block(block)?
-            .any(|candidate| candidate == declaration)
-        {
+        if !self.declaration_chain_contains(block, block_record, declaration)? {
             return Err(MutationError::UnknownDeclaration(declaration));
         }
         let record = self
@@ -346,9 +356,13 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             return Err(MutationError::InvalidRuleTopology(left));
         }
         let effective_key = left_block.effective_key;
-        let mut merged_declarations = self
-            .declaration_ids_in_block(left_block_id)?
-            .collect::<std::vec::Vec<_>>();
+        let mut block_chains = std::vec::Vec::new();
+        block_chains.push((
+            left_block_id,
+            left_block.first_declaration_segment,
+            left_block.last_declaration_segment,
+            left_block.declaration_count,
+        ));
         for &bridge in &bridge_blocks {
             let bridge_block = self
                 .declaration_blocks
@@ -357,27 +371,110 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             if bridge_block.live {
                 return Err(MutationError::InvalidRuleTopology(left));
             }
-            merged_declarations.extend(self.declaration_ids_in_block(bridge)?);
+            block_chains.push((
+                bridge,
+                bridge_block.first_declaration_segment,
+                bridge_block.last_declaration_segment,
+                bridge_block.declaration_count,
+            ));
         }
-        merged_declarations.extend(self.declaration_ids_in_block(right_block_id)?);
-        let merged_declaration_list = self.declaration_list_for_ids(&merged_declarations)?;
+        block_chains.push((
+            right_block_id,
+            right_block.first_declaration_segment,
+            right_block.last_declaration_segment,
+            right_block.declaration_count,
+        ));
+
+        let mut joins = std::vec::Vec::new();
+        let mut merged_first = None;
+        let mut merged_last = None;
+        let mut merged_last_range: Option<DeclarationRange> = None;
+        let mut merged_count = 0_u32;
+        for &(block_id, first, last, count) in &block_chains {
+            if count == 0 {
+                if first.is_some() || last.is_some() {
+                    return Err(MutationError::NonContiguousDeclarationRange(block_id));
+                }
+                continue;
+            }
+            let (Some(first), Some(last)) = (first, last) else {
+                return Err(MutationError::NonContiguousDeclarationRange(block_id));
+            };
+            let first_record = *self
+                .declaration_segments
+                .try_get(first)
+                .ok_or(MutationError::UnknownDeclarationSegment(first))?;
+            let last_record = *self
+                .declaration_segments
+                .try_get(last)
+                .ok_or(MutationError::UnknownDeclarationSegment(last))?;
+            if first_record.range.is_empty()
+                || last_record.range.is_empty()
+                || last_record.next.is_some()
+            {
+                return Err(MutationError::NonContiguousDeclarationRange(block_id));
+            }
+            merged_count = merged_count
+                .checked_add(count)
+                .ok_or(MutationError::NonContiguousDeclarationRange(block_id))?;
+            let Some(previous_last) = merged_last else {
+                merged_first = Some(first);
+                merged_last = Some(last);
+                merged_last_range = Some(last_record.range);
+                continue;
+            };
+            let previous_range =
+                merged_last_range.expect("a merged tail always has a simulated range");
+            let previous_end = previous_range.start as usize + previous_range.len as usize;
+            if previous_end == first_record.range.start as usize {
+                let merged_len = previous_range
+                    .len
+                    .checked_add(first_record.range.len)
+                    .ok_or(MutationError::NonContiguousDeclarationRange(block_id))?;
+                joins.push((previous_last, first_record.next, Some(merged_len)));
+                if first == last {
+                    merged_last_range = Some(DeclarationRange {
+                        start: previous_range.start,
+                        len: merged_len,
+                    });
+                } else {
+                    merged_last = Some(last);
+                    merged_last_range = Some(last_record.range);
+                }
+            } else {
+                joins.push((previous_last, Some(first), None));
+                merged_last = Some(last);
+                merged_last_range = Some(last_record.range);
+            }
+        }
 
         self.retire_rule(left)?;
-        self.declaration_blocks
-            .try_get_mut(left_block_id)
-            .expect("the retired block remains a source tombstone")
-            .declarations = DeclarationList::Range(DeclarationRange { start: 0, len: 0 });
-        for bridge in bridge_blocks {
-            self.declaration_blocks
-                .try_get_mut(bridge)
-                .expect("a validated bridge block remains a source tombstone")
-                .declarations = DeclarationList::Range(DeclarationRange { start: 0, len: 0 });
+        for (tail, next, merged_len) in joins {
+            let tail_record = self
+                .declaration_segments
+                .try_get_mut(tail)
+                .expect("all segment joins were validated before commit");
+            tail_record.next = next;
+            if let Some(merged_len) = merged_len {
+                tail_record.range.len = merged_len;
+            }
+        }
+        for &(retired_block, _, _, _) in &block_chains[..block_chains.len().saturating_sub(1)] {
+            let retired_block = self
+                .declaration_blocks
+                .try_get_mut(retired_block)
+                .expect("a validated retired block remains a source tombstone");
+            retired_block.first_declaration_segment = None;
+            retired_block.last_declaration_segment = None;
+            retired_block.declaration_count = 0;
         }
         let retained_block = self
             .declaration_blocks
             .try_get_mut(right_block_id)
             .expect("the retained block was validated before commit");
-        retained_block.declarations = merged_declaration_list;
+        retained_block.first_declaration_segment = merged_first;
+        retained_block.last_declaration_segment = merged_last;
+        retained_block.declaration_count = merged_count;
         retained_block.revision = retained_block.revision.wrapping_add(1);
         let retained_rule = self
             .rules
@@ -526,10 +623,7 @@ impl<'ast> Compilation<'ast> {
             return Err(ConcreteMutationError::UnknownDeclarationBlock(block));
         }
         let revision = block_record.revision.wrapping_add(1);
-        if !self
-            .declaration_ids_in_block(block)?
-            .any(|candidate| candidate == declaration_id)
-        {
+        if !self.declaration_chain_contains(block, block_record, declaration_id)? {
             return Err(ConcreteMutationError::UnknownDeclaration(declaration_id));
         }
         let declaration = self

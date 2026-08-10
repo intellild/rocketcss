@@ -32,7 +32,7 @@ pub enum EffectiveKeyDomain {}
 #[doc(hidden)]
 pub enum DeclarationDomain {}
 #[doc(hidden)]
-pub enum DeclarationOverflowDomain {}
+pub enum DeclarationSegmentDomain {}
 #[doc(hidden)]
 pub enum SelectorValueDomain {}
 #[doc(hidden)]
@@ -47,7 +47,7 @@ pub enum LayerContextDomain {}
 pub type RuleListId<'ast> = DenseId<'ast, RuleListDomain>;
 pub type EffectiveKeyId<'ast> = DenseId<'ast, EffectiveKeyDomain>;
 pub type DeclarationId<'ast> = DenseId<'ast, DeclarationDomain>;
-pub type DeclarationOverflowId<'ast> = DenseId<'ast, DeclarationOverflowDomain>;
+pub type DeclarationSegmentId<'ast> = DenseId<'ast, DeclarationSegmentDomain>;
 pub type SelectorValueId<'ast> = DenseId<'ast, SelectorValueDomain>;
 pub type SelectorPathId<'ast> = DenseId<'ast, SelectorPathDomain>;
 pub type ContextValueId<'ast> = DenseId<'ast, ContextValueDomain>;
@@ -81,10 +81,9 @@ pub type EffectiveKeyStore<'ast, P> = DenseStore<'ast, EffectiveKeyDomain, P>;
 /// Authored declarations in lexical source order.
 pub type DeclarationStore<'ast, P> = DenseStore<'ast, DeclarationDomain, DeclarationRecord<P>>;
 
-/// Arena-backed complete declaration sequences used when a block no longer
-/// maps to one contiguous authored range.
-pub type DeclarationOverflowStore<'ast> =
-    DenseStore<'ast, DeclarationOverflowDomain, crate::Vec<'ast, DeclarationId<'ast>>>;
+/// Non-contiguous declaration ranges linked in semantic block order.
+pub type DeclarationSegmentStore<'ast> =
+    DenseStore<'ast, DeclarationSegmentDomain, DeclarationSegment<'ast>>;
 
 /// Concrete compiler-owned AST.
 pub type Compilation<'ast> = RadixCompilation<
@@ -138,6 +137,7 @@ pub struct CompilationCapacity {
     pub rule_lists: usize,
     pub declaration_blocks: usize,
     pub declarations: usize,
+    pub declaration_segments: usize,
     pub selectors: usize,
     pub contexts: usize,
 }
@@ -166,53 +166,12 @@ impl DeclarationRange {
     }
 }
 
-/// Up to four declaration occurrences stored directly in a block record.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct LocalPropertySet<'ast> {
-    declarations: [Option<DeclarationId<'ast>>; 4],
-    len: u8,
-}
-
-impl<'ast> LocalPropertySet<'ast> {
-    fn from_ids(ids: &[DeclarationId<'ast>]) -> Option<Self> {
-        if ids.len() > 4 {
-            return None;
-        }
-        let mut declarations = [None; 4];
-        declarations[..ids.len()]
-            .iter_mut()
-            .zip(ids.iter().copied())
-            .for_each(|(slot, id)| *slot = Some(id));
-        Some(Self {
-            declarations,
-            len: ids.len() as u8,
-        })
-    }
-
-    #[inline]
-    pub fn iter(&self) -> impl ExactSizeIterator<Item = DeclarationId<'ast>> + '_ {
-        self.declarations[..usize::from(self.len)]
-            .iter()
-            .map(|id| id.expect("Local4 entries before len are initialized"))
-    }
-}
-
-/// Ordered declaration representation owned by one syntax position.
+/// One contiguous declaration run in a block's semantic segment chain.
+#[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DeclarationList<'ast> {
-    Range(DeclarationRange),
-    Local4(LocalPropertySet<'ast>),
-    Overflow(DeclarationOverflowId<'ast>),
-}
-
-impl DeclarationList<'_> {
-    #[inline]
-    pub const fn as_range(self) -> Option<DeclarationRange> {
-        match self {
-            Self::Range(range) => Some(range),
-            Self::Local4(_) | Self::Overflow(_) => None,
-        }
-    }
+pub struct DeclarationSegment<'ast> {
+    range: DeclarationRange,
+    next: Option<DeclarationSegmentId<'ast>>,
 }
 
 /// One authored declaration occurrence and its cascade importance.
@@ -431,10 +390,12 @@ impl<P> PartialEq for DeclarationBlockOwner<'_, P> {
 
 impl<P> Eq for DeclarationBlockOwner<'_, P> {}
 
-/// A declaration-list handle plus its persistent AST identity.
+/// A declaration segment chain plus its persistent AST identity.
 #[derive(Debug, PartialEq, Eq)]
 pub struct DeclarationBlockRecord<'ast, P> {
-    declarations: DeclarationList<'ast>,
+    first_declaration_segment: Option<DeclarationSegmentId<'ast>>,
+    last_declaration_segment: Option<DeclarationSegmentId<'ast>>,
+    declaration_count: u32,
     owner: DeclarationBlockOwner<'ast, P>,
     effective_key: EffectiveKeyId<'ast>,
     revision: u32,
@@ -443,8 +404,13 @@ pub struct DeclarationBlockRecord<'ast, P> {
 
 impl<'ast, P> DeclarationBlockRecord<'ast, P> {
     #[inline]
-    pub const fn declarations(&self) -> DeclarationList<'ast> {
-        self.declarations
+    pub const fn declaration_count(&self) -> u32 {
+        self.declaration_count
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.declaration_count == 0
     }
 
     #[inline]
@@ -477,7 +443,7 @@ pub enum MutationError<'ast, P> {
     EffectiveKeyCapacityExhausted,
     SelectorContextCapacityExhausted,
     DeclarationCapacityExhausted,
-    DeclarationOverflowCapacityExhausted,
+    DeclarationSegmentCapacityExhausted,
     UnknownRule(RuleId<'ast, P>),
     UnknownRuleList(RuleListId<'ast>),
     UnknownEffectiveKey(EffectiveKeyId<'ast>),
@@ -485,7 +451,7 @@ pub enum MutationError<'ast, P> {
     ChildListAlreadyExists(RuleId<'ast, P>),
     DeclarationBlockAlreadyExists(RuleId<'ast, P>),
     UnknownDeclarationBlock(DeclarationBlockId<'ast, P>),
-    UnknownDeclarationOverflow(DeclarationOverflowId<'ast>),
+    UnknownDeclarationSegment(DeclarationSegmentId<'ast>),
     UnknownDeclaration(DeclarationId<'ast>),
     NonContiguousDeclarationRange(DeclarationBlockId<'ast, P>),
     InvalidRuleTopology(RuleId<'ast, P>),
@@ -594,9 +560,31 @@ pub enum ValidationError<'ast, P> {
         block: DeclarationBlockId<'ast, P>,
         range: DeclarationRange,
     },
-    InvalidDeclarationOverflow {
+    InvalidDeclarationSegment {
         block: DeclarationBlockId<'ast, P>,
-        overflow: DeclarationOverflowId<'ast>,
+        segment: DeclarationSegmentId<'ast>,
+    },
+    InvalidDeclarationSegmentEndpoints {
+        block: DeclarationBlockId<'ast, P>,
+    },
+    DeclarationSegmentCycle {
+        block: DeclarationBlockId<'ast, P>,
+        segment: DeclarationSegmentId<'ast>,
+    },
+    DeclarationSegmentCountMismatch {
+        block: DeclarationBlockId<'ast, P>,
+        expected: u32,
+        actual: u32,
+    },
+    AdjacentDeclarationSegments {
+        block: DeclarationBlockId<'ast, P>,
+        previous: DeclarationSegmentId<'ast>,
+        next: DeclarationSegmentId<'ast>,
+    },
+    DuplicateDeclarationSegmentOwner {
+        segment: DeclarationSegmentId<'ast>,
+        first: DeclarationBlockId<'ast, P>,
+        second: DeclarationBlockId<'ast, P>,
     },
     InvalidDeclarationReference {
         block: DeclarationBlockId<'ast, P>,
@@ -606,11 +594,6 @@ pub enum ValidationError<'ast, P> {
         declaration: DeclarationId<'ast>,
         first: DeclarationBlockId<'ast, P>,
         second: DeclarationBlockId<'ast, P>,
-    },
-    DeclarationRangeStartsOutOfOrder {
-        block: DeclarationBlockId<'ast, P>,
-        expected: u32,
-        actual: u32,
     },
     UnownedDeclarations {
         expected: u32,
@@ -642,7 +625,7 @@ pub struct RadixCompilation<'ast, R: Unpin, D, K> {
     rule_lists: RuleListStore<'ast, R>,
     declaration_blocks: DeclarationBlockStore<'ast, R>,
     declarations: DeclarationStore<'ast, D>,
-    declaration_overflows: DeclarationOverflowStore<'ast>,
+    declaration_segments: DeclarationSegmentStore<'ast>,
     effective_keys: EffectiveKeyStore<'ast, K>,
     effective_key_ids: FxHashMap<K, EffectiveKeyId<'ast>>,
     selector_values: DenseStore<'ast, SelectorValueDomain, SelectorValueRecord<'ast>>,
@@ -689,7 +672,12 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 capacity.declaration_blocks,
             ),
             declarations: DeclarationStore::with_capacity_in(allocator, capacity.declarations),
-            declaration_overflows: DeclarationOverflowStore::new_in(allocator),
+            declaration_segments: DeclarationSegmentStore::with_capacity_in(
+                allocator,
+                capacity
+                    .declaration_segments
+                    .max(capacity.declaration_blocks),
+            ),
             effective_keys: EffectiveKeyStore::with_capacity_in(
                 allocator,
                 capacity.declaration_blocks,
@@ -793,6 +781,12 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 
     #[doc(hidden)]
     #[inline]
+    pub fn declaration_segment_count(&self) -> usize {
+        self.declaration_segments.len()
+    }
+
+    #[doc(hidden)]
+    #[inline]
     pub fn rule_list_count(&self) -> usize {
         self.rule_lists.len()
     }
@@ -862,42 +856,10 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         &self,
         block: DeclarationBlockId<'ast, R>,
     ) -> Result<DeclarationIter<'ast, '_, D>, MutationError<'ast, R>> {
-        let declarations = self
-            .declaration_blocks
-            .try_get(block)
-            .ok_or(MutationError::UnknownDeclarationBlock(block))?
-            .declarations;
-        let kind = match declarations {
-            DeclarationList::Range(range) => {
-                let start = range.start as usize;
-                let end = start + range.len as usize;
-                let records = self
-                    .declarations
-                    .as_slice()
-                    .get(start..end)
-                    .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
-                DeclarationIterKind::Range(records.iter())
-            }
-            DeclarationList::Local4(local) => DeclarationIterKind::Indirect {
-                ids: DeclarationIdIter {
-                    kind: DeclarationIdIterKind::Local4 { local, index: 0 },
-                },
-                declarations: &self.declarations,
-            },
-            DeclarationList::Overflow(overflow) => {
-                let ids = self
-                    .declaration_overflows
-                    .try_get(overflow)
-                    .ok_or(MutationError::UnknownDeclarationOverflow(overflow))?;
-                DeclarationIterKind::Indirect {
-                    ids: DeclarationIdIter {
-                        kind: DeclarationIdIterKind::Overflow(ids.iter()),
-                    },
-                    declarations: &self.declarations,
-                }
-            }
-        };
-        Ok(DeclarationIter { kind })
+        Ok(DeclarationIter {
+            ids: self.declaration_ids_in_block(block)?,
+            declarations: &self.declarations,
+        })
     }
 
     /// Iterates the typed declaration IDs and records owned by `block`.
@@ -908,74 +870,37 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         &self,
         block: DeclarationBlockId<'ast, R>,
     ) -> Result<DeclarationOccurrenceIter<'ast, '_, D>, MutationError<'ast, R>> {
-        let declarations = self
-            .declaration_blocks
-            .try_get(block)
-            .ok_or(MutationError::UnknownDeclarationBlock(block))?
-            .declarations;
-        let kind = match declarations {
-            DeclarationList::Range(range) => {
-                let start = range.start as usize;
-                let end = start + range.len as usize;
-                let records = self
-                    .declarations
-                    .as_slice()
-                    .get(start..end)
-                    .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
-                DeclarationOccurrenceIterKind::Range {
-                    ids: self
-                        .declarations
-                        .ids_in_range(start, range.len as usize)
-                        .ok_or(MutationError::NonContiguousDeclarationRange(block))?,
-                    records: records.iter(),
-                }
-            }
-            DeclarationList::Local4(local) => DeclarationOccurrenceIterKind::Indirect {
-                ids: DeclarationIdIter {
-                    kind: DeclarationIdIterKind::Local4 { local, index: 0 },
-                },
-                declarations: &self.declarations,
-            },
-            DeclarationList::Overflow(overflow) => {
-                let ids = self
-                    .declaration_overflows
-                    .try_get(overflow)
-                    .ok_or(MutationError::UnknownDeclarationOverflow(overflow))?;
-                DeclarationOccurrenceIterKind::Indirect {
-                    ids: DeclarationIdIter {
-                        kind: DeclarationIdIterKind::Overflow(ids.iter()),
-                    },
-                    declarations: &self.declarations,
-                }
-            }
-        };
-        Ok(DeclarationOccurrenceIter { kind })
+        Ok(DeclarationOccurrenceIter {
+            ids: self.declaration_ids_in_block(block)?,
+            declarations: &self.declarations,
+        })
     }
 
     /// Iterates only declaration identities for one block representation.
     pub fn declaration_ids_in_block(
         &self,
         block: DeclarationBlockId<'ast, R>,
-    ) -> Result<DeclarationIdIter<'ast, '_>, MutationError<'ast, R>> {
+    ) -> Result<DeclarationIdIter<'ast, '_, D>, MutationError<'ast, R>> {
         let block_record = self
             .declaration_blocks
             .try_get(block)
             .ok_or(MutationError::UnknownDeclarationBlock(block))?;
-        let kind = match block_record.declarations {
-            DeclarationList::Range(range) => DeclarationIdIterKind::Range(
+        let start = self.validate_declaration_chain(block, block_record)?;
+        Ok(DeclarationIdIter {
+            segments: &self.declaration_segments,
+            declarations: &self.declarations,
+            next_segment: start.next_segment,
+            current_range: start.range.map(|range| {
                 self.declarations
                     .ids_in_range(range.start as usize, range.len as usize)
-                    .ok_or(MutationError::NonContiguousDeclarationRange(block))?,
-            ),
-            DeclarationList::Local4(local) => DeclarationIdIterKind::Local4 { local, index: 0 },
-            DeclarationList::Overflow(overflow) => DeclarationIdIterKind::Overflow(
-                self.declaration_overflows
-                    .try_get(overflow)
-                    .ok_or(MutationError::UnknownDeclarationOverflow(overflow))?
-                    .iter(),
-            ),
-        };
-        Ok(DeclarationIdIter { kind })
+                    .expect("the declaration chain was validated above")
+            }),
+            remaining: block_record.declaration_count as usize,
+            segment_budget: self
+                .declaration_segments
+                .len()
+                .saturating_sub(usize::from(start.range.is_some())),
+        })
     }
 
     /// Visits declaration records in the semantic order owned by `block`.
@@ -991,59 +916,44 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         block: DeclarationBlockId<'ast, R>,
         mut visit: impl FnMut(DeclarationId<'ast>, &mut DeclarationRecord<D>),
     ) -> Result<usize, MutationError<'ast, R>> {
-        let declaration_list = self
+        let block_record = self
             .declaration_blocks
             .try_get(block)
-            .ok_or(MutationError::UnknownDeclarationBlock(block))?
-            .declarations;
-        if !self
-            .declaration_blocks
-            .try_get(block)
-            .is_some_and(|record| record.live)
-        {
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        if !block_record.live {
             return Err(MutationError::UnknownDeclarationBlock(block));
         }
+        let start = self.validate_declaration_chain(block, block_record)?;
 
         let mut visited = 0usize;
-        match declaration_list {
-            DeclarationList::Range(range) => {
-                let start = range.start as usize;
-                let records = self
-                    .declarations
-                    .iter_enumerated_range_mut(start, range.len as usize)
-                    .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
-                for (declaration, record) in records {
-                    visit(declaration, record);
-                    visited += 1;
+        let expected = block_record.declaration_count as usize;
+        let mut current_range = start.range;
+        let mut next_segment = start.next_segment;
+        while let Some(range) = current_range {
+            let records = self
+                .declarations
+                .iter_enumerated_range_mut(range.start as usize, range.len as usize)
+                .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
+            for (declaration, record) in records {
+                if visited == expected {
+                    return Err(MutationError::NonContiguousDeclarationRange(block));
                 }
+                visit(declaration, record);
+                visited += 1;
             }
-            DeclarationList::Local4(local) => {
-                for declaration in local.iter() {
-                    let record = self
-                        .declarations
-                        .try_get_mut(declaration)
-                        .ok_or(MutationError::UnknownDeclaration(declaration))?;
-                    visit(declaration, record);
-                    visited += 1;
-                }
-            }
-            DeclarationList::Overflow(overflow) => {
-                let ids = self
-                    .declaration_overflows
-                    .try_get(overflow)
-                    .ok_or(MutationError::UnknownDeclarationOverflow(overflow))?;
-                // The overflow ID tape and the declaration store are
-                // independent fields, so the ID slice can stay borrowed while
-                // the corresponding declaration records are mutated.
-                for &declaration in ids.iter() {
-                    let record = self
-                        .declarations
-                        .try_get_mut(declaration)
-                        .ok_or(MutationError::UnknownDeclaration(declaration))?;
-                    visit(declaration, record);
-                    visited += 1;
-                }
-            }
+            let Some(segment_id) = next_segment else {
+                break;
+            };
+            let segment = *self
+                .declaration_segments
+                .try_get(segment_id)
+                .expect("the declaration chain was validated above");
+            current_range = Some(segment.range);
+            next_segment = segment.next;
+        }
+
+        if visited != expected {
+            return Err(MutationError::NonContiguousDeclarationRange(block));
         }
 
         if visited != 0 {
@@ -1064,34 +974,227 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     pub fn declaration_id_at_in_block(
         &self,
         block: DeclarationBlockId<'ast, R>,
-        index: usize,
+        mut index: usize,
     ) -> Result<DeclarationId<'ast>, MutationError<'ast, R>> {
-        let declaration_list = self
+        let block_record = self
             .declaration_blocks
             .try_get(block)
-            .ok_or(MutationError::UnknownDeclarationBlock(block))?
-            .declarations;
-        match declaration_list {
-            DeclarationList::Range(range) => {
-                if index >= range.len as usize {
-                    return Err(MutationError::NonContiguousDeclarationRange(block));
-                }
-                self.declarations
-                    .id_at_offset(range.start as usize, index)
-                    .ok_or(MutationError::NonContiguousDeclarationRange(block))
-            }
-            DeclarationList::Local4(local) => local
-                .iter()
-                .nth(index)
-                .ok_or(MutationError::NonContiguousDeclarationRange(block)),
-            DeclarationList::Overflow(overflow) => self
-                .declaration_overflows
-                .try_get(overflow)
-                .ok_or(MutationError::UnknownDeclarationOverflow(overflow))?
-                .get(index)
-                .copied()
-                .ok_or(MutationError::NonContiguousDeclarationRange(block)),
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        if index >= block_record.declaration_count as usize {
+            return Err(MutationError::NonContiguousDeclarationRange(block));
         }
+        let start = self.validate_declaration_chain(block, block_record)?;
+        let mut current_range = start.range;
+        let mut next_segment = start.next_segment;
+        while let Some(range) = current_range {
+            if index < range.len as usize {
+                return self
+                    .declarations
+                    .id_at_offset(range.start as usize, index)
+                    .ok_or(MutationError::NonContiguousDeclarationRange(block));
+            }
+            index -= range.len as usize;
+            let segment_id =
+                next_segment.ok_or(MutationError::NonContiguousDeclarationRange(block))?;
+            let segment = self
+                .declaration_segments
+                .try_get(segment_id)
+                .expect("the declaration chain was validated above");
+            current_range = Some(segment.range);
+            next_segment = segment.next;
+        }
+        Err(MutationError::NonContiguousDeclarationRange(block))
+    }
+
+    fn declaration_cursor(
+        &self,
+        block: DeclarationBlockId<'ast, R>,
+    ) -> Result<DeclarationCursor<'ast, R>, MutationError<'ast, R>> {
+        let block_record = self
+            .declaration_blocks
+            .try_get(block)
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        let start = self.validate_declaration_chain(block, block_record)?;
+        Ok(DeclarationCursor {
+            block,
+            next_segment: start.next_segment,
+            current_range: start.range,
+            offset: 0,
+            remaining: block_record.declaration_count,
+            segment_budget: self
+                .declaration_segments
+                .len()
+                .saturating_sub(usize::from(start.range.is_some())),
+        })
+    }
+
+    fn next_declaration_id(
+        &self,
+        cursor: &mut DeclarationCursor<'ast, R>,
+    ) -> Result<Option<DeclarationId<'ast>>, MutationError<'ast, R>> {
+        if cursor.remaining == 0 {
+            return Ok(None);
+        }
+        loop {
+            if let Some(range) = cursor.current_range
+                && cursor.offset < range.len
+            {
+                let declaration = self
+                    .declarations
+                    .id_at_offset(range.start as usize, cursor.offset as usize)
+                    .ok_or(MutationError::NonContiguousDeclarationRange(cursor.block))?;
+                cursor.offset += 1;
+                cursor.remaining -= 1;
+                return Ok(Some(declaration));
+            }
+            if cursor.segment_budget == 0 {
+                return Err(MutationError::NonContiguousDeclarationRange(cursor.block));
+            }
+            let segment_id = cursor
+                .next_segment
+                .ok_or(MutationError::NonContiguousDeclarationRange(cursor.block))?;
+            let segment = self
+                .declaration_segments
+                .try_get(segment_id)
+                .ok_or(MutationError::UnknownDeclarationSegment(segment_id))?;
+            cursor.segment_budget -= 1;
+            cursor.current_range = Some(segment.range);
+            cursor.offset = 0;
+            cursor.next_segment = segment.next;
+        }
+    }
+
+    fn validate_declaration_chain(
+        &self,
+        block: DeclarationBlockId<'ast, R>,
+        block_record: &DeclarationBlockRecord<'ast, R>,
+    ) -> Result<ValidatedDeclarationChainStart<'ast>, MutationError<'ast, R>> {
+        let expected = block_record.declaration_count as usize;
+        let invalid_endpoints = if expected == 0 {
+            block_record.first_declaration_segment.is_some()
+                || block_record.last_declaration_segment.is_some()
+        } else {
+            block_record.first_declaration_segment.is_none()
+                || block_record.last_declaration_segment.is_none()
+        };
+        if invalid_endpoints {
+            return Err(MutationError::NonContiguousDeclarationRange(block));
+        }
+
+        let empty_start = ValidatedDeclarationChainStart {
+            range: None,
+            next_segment: None,
+        };
+        if expected == 0 {
+            return Ok(empty_start);
+        }
+
+        let first = block_record
+            .first_declaration_segment
+            .expect("non-empty declaration chain endpoints were checked above");
+        let last = block_record
+            .last_declaration_segment
+            .expect("non-empty declaration chain endpoints were checked above");
+        let first_segment = self
+            .declaration_segments
+            .try_get(first)
+            .ok_or(MutationError::UnknownDeclarationSegment(first))?;
+        if first == last {
+            if let Some(next) = first_segment.next {
+                self.declaration_segments
+                    .try_get(next)
+                    .ok_or(MutationError::UnknownDeclarationSegment(next))?;
+                return Err(MutationError::NonContiguousDeclarationRange(block));
+            }
+            if first_segment.range.is_empty()
+                || first_segment.range.len as usize != expected
+                || self
+                    .declarations
+                    .ids_in_range(
+                        first_segment.range.start as usize,
+                        first_segment.range.len as usize,
+                    )
+                    .is_none()
+            {
+                return Err(MutationError::NonContiguousDeclarationRange(block));
+            }
+            return Ok(ValidatedDeclarationChainStart {
+                range: Some(first_segment.range),
+                next_segment: None,
+            });
+        }
+
+        let mut current = block_record.first_declaration_segment;
+        let mut last = None;
+        let mut actual = 0usize;
+        let mut segment_budget = self.declaration_segments.len();
+        let mut start = empty_start;
+        while let Some(segment_id) = current {
+            let segment = self
+                .declaration_segments
+                .try_get(segment_id)
+                .ok_or(MutationError::UnknownDeclarationSegment(segment_id))?;
+            if segment_budget == 0 {
+                return Err(MutationError::NonContiguousDeclarationRange(block));
+            }
+            if segment.range.is_empty()
+                || self
+                    .declarations
+                    .ids_in_range(segment.range.start as usize, segment.range.len as usize)
+                    .is_none()
+            {
+                return Err(MutationError::NonContiguousDeclarationRange(block));
+            }
+            actual = actual
+                .checked_add(segment.range.len as usize)
+                .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
+            if actual > expected {
+                return Err(MutationError::NonContiguousDeclarationRange(block));
+            }
+            if last.is_none() {
+                start.range = Some(segment.range);
+                start.next_segment = segment.next;
+            }
+            segment_budget -= 1;
+            last = Some(segment_id);
+            current = segment.next;
+        }
+
+        if actual != expected || last != block_record.last_declaration_segment {
+            return Err(MutationError::NonContiguousDeclarationRange(block));
+        }
+        Ok(start)
+    }
+
+    fn declaration_chain_contains(
+        &self,
+        block: DeclarationBlockId<'ast, R>,
+        block_record: &DeclarationBlockRecord<'ast, R>,
+        declaration: DeclarationId<'ast>,
+    ) -> Result<bool, MutationError<'ast, R>> {
+        let target = declaration.index();
+        let mut current = block_record.first_declaration_segment;
+        let mut segment_budget = self.declaration_segments.len();
+        while let Some(segment_id) = current {
+            let segment = self
+                .declaration_segments
+                .try_get(segment_id)
+                .ok_or(MutationError::UnknownDeclarationSegment(segment_id))?;
+            if segment_budget == 0 {
+                return Err(MutationError::NonContiguousDeclarationRange(block));
+            }
+            let end = segment
+                .range
+                .start
+                .checked_add(segment.range.len)
+                .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
+            if target >= segment.range.start as usize && target < end as usize {
+                return Ok(true);
+            }
+            segment_budget -= 1;
+            current = segment.next;
+        }
+        Ok(false)
     }
 
     /// Iterates direct siblings in one rule list without walking descendants.
@@ -1327,10 +1430,9 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let block = self
             .declaration_blocks
             .try_push(DeclarationBlockRecord {
-                declarations: DeclarationList::Range(DeclarationRange {
-                    start: self.declarations.len() as u32,
-                    len: 0,
-                }),
+                first_declaration_segment: None,
+                last_declaration_segment: None,
+                declaration_count: 0,
                 owner,
                 effective_key,
                 revision: 0,
@@ -1355,86 +1457,137 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         payload: D,
         important: bool,
     ) -> Result<DeclarationId<'ast>, MutationError<'ast, R>> {
-        let range = self
+        let block_record = self
             .declaration_blocks
             .try_get(block)
-            .ok_or(MutationError::UnknownDeclarationBlock(block))?
-            .declarations
-            .as_range()
-            .ok_or(MutationError::NonContiguousDeclarationRange(block))?;
-        if range.start as usize + range.len as usize != self.declarations.len() {
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        if !block_record.live {
+            return Err(MutationError::UnknownDeclarationBlock(block));
+        }
+        let last_segment = block_record.last_declaration_segment;
+        if let Some(last_segment) = last_segment {
+            let segment = self
+                .declaration_segments
+                .try_get(last_segment)
+                .ok_or(MutationError::UnknownDeclarationSegment(last_segment))?;
+            if segment.next.is_some()
+                || segment.range.start as usize + segment.range.len as usize
+                    != self.declarations.len()
+            {
+                return Err(MutationError::NonContiguousDeclarationRange(block));
+            }
+        } else if block_record.first_declaration_segment.is_some()
+            || block_record.declaration_count != 0
+        {
             return Err(MutationError::NonContiguousDeclarationRange(block));
         }
+        if !self.declarations.has_capacity_for(1) {
+            return Err(MutationError::DeclarationCapacityExhausted);
+        }
+        if last_segment.is_none() && !self.declaration_segments.has_capacity_for(1) {
+            return Err(MutationError::DeclarationSegmentCapacityExhausted);
+        }
+        let declaration_index = self.declarations.len();
         let declaration = self
             .declarations
             .try_push(DeclarationRecord { payload, important })
             .map_err(|_| MutationError::DeclarationCapacityExhausted)?;
-        let block = self
-            .declaration_blocks
+        if let Some(last_segment) = last_segment {
+            self.declaration_segments
+                .try_get_mut(last_segment)
+                .expect("the authored tail segment was validated before append")
+                .range
+                .len += 1;
+        } else {
+            let segment = self
+                .declaration_segments
+                .try_push(DeclarationSegment {
+                    range: DeclarationRange {
+                        start: declaration_index as u32,
+                        len: 1,
+                    },
+                    next: None,
+                })
+                .unwrap_or_else(|_| unreachable!("segment capacity was preflighted"));
+            let block_record = self
+                .declaration_blocks
+                .try_get_mut(block)
+                .expect("the authored block was validated before append");
+            block_record.first_declaration_segment = Some(segment);
+            block_record.last_declaration_segment = Some(segment);
+        }
+        self.declaration_blocks
             .try_get_mut(block)
-            .expect("the block was validated before appending its declaration");
-        let DeclarationList::Range(range) = &mut block.declarations else {
-            unreachable!("the declaration representation was validated before append")
-        };
-        range.len += 1;
+            .expect("the authored block was validated before append")
+            .declaration_count += 1;
         Ok(declaration)
     }
 }
 
-/// Ordered declaration identities resolved from one block representation.
-pub struct DeclarationIdIter<'ast, 'comp> {
-    kind: DeclarationIdIterKind<'ast, 'comp>,
+#[derive(Clone, Copy)]
+struct DeclarationCursor<'ast, R> {
+    block: DeclarationBlockId<'ast, R>,
+    next_segment: Option<DeclarationSegmentId<'ast>>,
+    current_range: Option<DeclarationRange>,
+    offset: u32,
+    remaining: u32,
+    segment_budget: usize,
 }
 
-enum DeclarationIdIterKind<'ast, 'comp> {
-    Range(DenseIdRange<'ast, DeclarationDomain>),
-    Local4 {
-        local: LocalPropertySet<'ast>,
-        index: u8,
-    },
-    Overflow(std::slice::Iter<'comp, DeclarationId<'ast>>),
+#[derive(Clone, Copy)]
+struct ValidatedDeclarationChainStart<'ast> {
+    range: Option<DeclarationRange>,
+    next_segment: Option<DeclarationSegmentId<'ast>>,
 }
 
-impl<'ast> Iterator for DeclarationIdIter<'ast, '_> {
+/// Ordered declaration identities resolved from one block's segment chain.
+pub struct DeclarationIdIter<'ast, 'comp, D> {
+    segments: &'comp DeclarationSegmentStore<'ast>,
+    declarations: &'comp DeclarationStore<'ast, D>,
+    next_segment: Option<DeclarationSegmentId<'ast>>,
+    current_range: Option<DenseIdRange<'ast, DeclarationDomain>>,
+    remaining: usize,
+    segment_budget: usize,
+}
+
+impl<'ast, D> Iterator for DeclarationIdIter<'ast, '_, D> {
     type Item = DeclarationId<'ast>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.kind {
-            DeclarationIdIterKind::Range(range) => range.next(),
-            DeclarationIdIterKind::Local4 { local, index } => {
-                let declaration = local.declarations.get(usize::from(*index))?.as_ref()?;
-                *index += 1;
-                Some(*declaration)
+        loop {
+            if let Some(declaration) = self.current_range.as_mut().and_then(Iterator::next) {
+                self.remaining = self.remaining.saturating_sub(1);
+                return Some(declaration);
             }
-            DeclarationIdIterKind::Overflow(ids) => ids.next().copied(),
+            if self.segment_budget == 0 {
+                self.remaining = 0;
+                return None;
+            }
+            let segment_id = self.next_segment?;
+            let segment = self.segments.try_get(segment_id)?;
+            self.segment_budget -= 1;
+            self.next_segment = segment.next;
+            self.current_range = self
+                .declarations
+                .ids_in_range(segment.range.start as usize, segment.range.len as usize);
+            if self.current_range.is_none() {
+                self.remaining = 0;
+                return None;
+            }
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = match &self.kind {
-            DeclarationIdIterKind::Range(range) => range.len(),
-            DeclarationIdIterKind::Local4 { local, index } => {
-                usize::from(local.len.saturating_sub(*index))
-            }
-            DeclarationIdIterKind::Overflow(ids) => ids.len(),
-        };
-        (len, Some(len))
+        (self.remaining, Some(self.remaining))
     }
 }
 
-impl ExactSizeIterator for DeclarationIdIter<'_, '_> {}
+impl<D> ExactSizeIterator for DeclarationIdIter<'_, '_, D> {}
 
 /// Ordered declaration payloads resolved from one block representation.
 pub struct DeclarationIter<'ast, 'comp, D> {
-    kind: DeclarationIterKind<'ast, 'comp, D>,
-}
-
-enum DeclarationIterKind<'ast, 'comp, D> {
-    Range(std::slice::Iter<'comp, DeclarationRecord<D>>),
-    Indirect {
-        ids: DeclarationIdIter<'ast, 'comp>,
-        declarations: &'comp DeclarationStore<'ast, D>,
-    },
+    ids: DeclarationIdIter<'ast, 'comp, D>,
+    declarations: &'comp DeclarationStore<'ast, D>,
 }
 
 impl<'ast, 'comp, D> Iterator for DeclarationIter<'ast, 'comp, D> {
@@ -1442,19 +1595,12 @@ impl<'ast, 'comp, D> Iterator for DeclarationIter<'ast, 'comp, D> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.kind {
-            DeclarationIterKind::Range(records) => records.next(),
-            DeclarationIterKind::Indirect { ids, declarations } => Some(&declarations[ids.next()?]),
-        }
+        self.declarations.try_get(self.ids.next()?)
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = match &self.kind {
-            DeclarationIterKind::Range(records) => records.len(),
-            DeclarationIterKind::Indirect { ids, .. } => ids.len(),
-        };
-        (len, Some(len))
+        self.ids.size_hint()
     }
 }
 
@@ -1462,18 +1608,8 @@ impl<D> ExactSizeIterator for DeclarationIter<'_, '_, D> {}
 
 /// Ordered declaration identities and payloads resolved from one block.
 pub struct DeclarationOccurrenceIter<'ast, 'comp, D> {
-    kind: DeclarationOccurrenceIterKind<'ast, 'comp, D>,
-}
-
-enum DeclarationOccurrenceIterKind<'ast, 'comp, D> {
-    Range {
-        ids: DenseIdRange<'ast, DeclarationDomain>,
-        records: std::slice::Iter<'comp, DeclarationRecord<D>>,
-    },
-    Indirect {
-        ids: DeclarationIdIter<'ast, 'comp>,
-        declarations: &'comp DeclarationStore<'ast, D>,
-    },
+    ids: DeclarationIdIter<'ast, 'comp, D>,
+    declarations: &'comp DeclarationStore<'ast, D>,
 }
 
 impl<'ast, 'comp, D> Iterator for DeclarationOccurrenceIter<'ast, 'comp, D> {
@@ -1481,26 +1617,13 @@ impl<'ast, 'comp, D> Iterator for DeclarationOccurrenceIter<'ast, 'comp, D> {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.kind {
-            DeclarationOccurrenceIterKind::Range { ids, records } => {
-                let record = records.next()?;
-                let id = ids.next()?;
-                Some((id, record))
-            }
-            DeclarationOccurrenceIterKind::Indirect { ids, declarations } => {
-                let id = ids.next()?;
-                Some((id, &declarations[id]))
-            }
-        }
+        let id = self.ids.next()?;
+        Some((id, self.declarations.try_get(id)?))
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = match &self.kind {
-            DeclarationOccurrenceIterKind::Range { records, .. } => records.len(),
-            DeclarationOccurrenceIterKind::Indirect { ids, .. } => ids.len(),
-        };
-        (len, Some(len))
+        self.ids.size_hint()
     }
 }
 
@@ -1549,10 +1672,9 @@ impl<'ast, 'comp, R: Unpin> Iterator for DeclarationBlockSourceIter<'ast, 'comp,
             let Some(id) = rule.declaration_block else {
                 continue;
             };
-            let block = self
-                .blocks
-                .try_get(id)
-                .expect("a rule declaration block remains resolvable");
+            let Some(block) = self.blocks.try_get(id) else {
+                continue;
+            };
             return Some((id, block));
         }
         None
