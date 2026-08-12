@@ -1,8 +1,9 @@
 use crate::MinifyContext;
 use rocketcss_ast::{
     CSSWideOr, Columns, Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
-    CssColor, Declaration, DeclarationId as RadixDeclarationId, DeclarationPayload,
-    EqIgnoringTombstones, Margin, Padding, PropertyId, VendorPrefix, Visit, VisitContext, Visitor,
+    CssColor, Declaration, DeclarationBlockMutationScope, DeclarationPayload, EqIgnoringTombstones,
+    Margin, Padding, PropertyId, ScopedDeclarationHandle, VendorPrefix, Visit, VisitContext,
+    Visitor,
 };
 use rocketcss_common::{
     GhostToken,
@@ -210,26 +211,32 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-struct DeclarationSequence<'sequence, 'ast> {
-    blocks: &'sequence [RadixDeclarationBlockId<'ast>],
-    compilation: &'sequence mut Compilation<'ast>,
+struct DeclarationSequence<'scope, 'scratch, 'ast> {
+    declarations: Vec<'scratch, ScopedDeclarationHandle<'scope, 'ast>>,
+    scope: DeclarationBlockMutationScope<'scope, 'ast>,
 }
 
-impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
+impl<'scope, 'scratch, 'ast> DeclarationSequence<'scope, 'scratch, 'ast> {
     #[inline]
     fn radix(
-        blocks: &'sequence [RadixDeclarationBlockId<'ast>],
-        compilation: &'sequence mut Compilation<'ast>,
+        scope: DeclarationBlockMutationScope<'scope, 'ast>,
+        allocator: &'scratch Allocator,
     ) -> Self {
+        let mut declarations = allocator.vec();
+        declarations.extend(
+            scope
+                .declaration_handles()
+                .expect("the declaration block scope remains valid"),
+        );
         Self {
-            blocks,
-            compilation,
+            declarations,
+            scope,
         }
     }
 
     #[inline]
     fn block_count(&self) -> usize {
-        self.blocks.len()
+        1
     }
 
     #[inline]
@@ -241,29 +248,26 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn block_len(&self, index: usize) -> usize {
-        self.compilation
-            .declaration_occurrences_in_block(self.blocks[index])
-            .map_or(0, |declarations| declarations.len())
+        debug_assert_eq!(index, 0);
+        self.declarations.len()
     }
 
     #[inline]
-    fn radix_declaration_id(
-        blocks: &[RadixDeclarationBlockId<'ast>],
-        compilation: &Compilation<'ast>,
+    fn declaration_handle(
+        &self,
         location: DeclarationLocation,
-    ) -> RadixDeclarationId<'ast> {
-        compilation
-            .declaration_id_at_in_block(blocks[location.block()], location.declaration())
-            .expect("the declaration location was validated against the block length")
+    ) -> ScopedDeclarationHandle<'scope, 'ast> {
+        debug_assert_eq!(location.block(), 0);
+        self.declarations[location.declaration()]
     }
 
     #[inline]
     fn declaration(&self, location: DeclarationLocation) -> &Declaration<'ast> {
-        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
+        let handle = self.declaration_handle(location);
         let DeclarationPayload::Property(declaration) = self
-            .compilation
-            .declaration(id)
-            .expect("a dense declaration sequence ID remains resolvable")
+            .scope
+            .declaration(handle)
+            .expect("a scoped declaration handle remains resolvable")
             .payload()
         else {
             unreachable!("local declaration minification only receives property blocks")
@@ -273,10 +277,10 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
-        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
-        self.compilation
-            .property_declaration_mut(self.blocks[location.block()], id)
-            .expect("a dense property declaration remains mutable")
+        let handle = self.declaration_handle(location);
+        self.scope
+            .property_declaration_mut(handle)
+            .expect("a scoped property declaration remains mutable")
             .0
     }
 
@@ -291,16 +295,16 @@ impl<'sequence, 'ast> DeclarationSequence<'sequence, 'ast> {
 
     #[inline]
     fn is_important(&self, location: DeclarationLocation) -> bool {
-        let id = Self::radix_declaration_id(self.blocks, self.compilation, location);
-        self.compilation
-            .declaration(id)
-            .expect("a dense declaration sequence ID remains resolvable")
+        let handle = self.declaration_handle(location);
+        self.scope
+            .declaration(handle)
+            .expect("a scoped declaration handle remains resolvable")
             .is_important()
     }
 
     #[inline]
     fn allocator(&self, _location: DeclarationLocation) -> &'ast Allocator {
-        self.compilation.allocator()
+        self.scope.allocator()
     }
 }
 
@@ -321,17 +325,19 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         block: RadixDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
-        let blocks = [block];
-        let mut sequence = DeclarationSequence::radix(&blocks, compilation);
-        if sequence.block_len(0) < 2 {
-            return;
-        }
-        self.minify_non_trivial(&mut sequence, cx);
+        compilation
+            .with_declaration_block_mutations(block, |scope| {
+                let mut sequence = DeclarationSequence::radix(scope, cx.allocator());
+                if sequence.block_len(0) >= 2 {
+                    self.minify_non_trivial(&mut sequence, cx);
+                }
+            })
+            .expect("the scheduled declaration block remains live");
     }
 
     fn minify_non_trivial(
         &mut self,
-        sequence: &mut DeclarationSequence<'_, 'ast>,
+        sequence: &mut DeclarationSequence<'_, '_, 'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         if !sequence.locations_fit() {
@@ -439,7 +445,7 @@ fn vendor_prefix_index(prefix: VendorPrefix) -> Option<usize> {
 }
 
 fn deduplicate_declarations<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     ir: &mut DeclarationIr<'scratch, 'ast>,
     cx: &mut MinifyContext<'scratch>,
 ) where
@@ -477,7 +483,7 @@ enum ColumnsProperty {
 }
 
 fn process_columns_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
     ir: &mut DeclarationIr<'scratch, 'ast>,
@@ -578,7 +584,7 @@ fn can_override_columns_longhands(declaration: &Declaration<'_>) -> bool {
 }
 
 fn fold_columns_override(
-    sequence: &mut DeclarationSequence<'_, '_>,
+    sequence: &mut DeclarationSequence<'_, '_, '_>,
     shorthand: DeclarationLocation,
     longhand: DeclarationLocation,
     prefix: VendorPrefix,
@@ -612,7 +618,7 @@ fn fold_columns_override(
 }
 
 fn merge_columns_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     width: DeclarationLocation,
     count: DeclarationLocation,
     prefix: VendorPrefix,
@@ -678,7 +684,7 @@ where
 }
 
 fn deduplicate_exact_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
     declarations: &mut DeclarationMap<'scratch, 'ast>,
@@ -713,7 +719,7 @@ where
 }
 
 fn process_box_declaration<'scratch, 'ast>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
     ir: &mut DeclarationIr<'scratch, 'ast>,
@@ -839,7 +845,7 @@ fn can_override_box_longhands(declaration: &Declaration<'_>, _family: BoxFamily)
 }
 
 fn fold_box_side_override(
-    sequence: &mut DeclarationSequence<'_, '_>,
+    sequence: &mut DeclarationSequence<'_, '_, '_>,
     shorthand: DeclarationLocation,
     longhand: DeclarationLocation,
     family: BoxFamily,
@@ -899,7 +905,7 @@ fn fold_box_side_override(
 }
 
 fn merge_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     locations: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,
@@ -954,7 +960,7 @@ where
 }
 
 fn css_wide_box_longhands(
-    sequence: &DeclarationSequence<'_, '_>,
+    sequence: &DeclarationSequence<'_, '_, '_>,
     locations: [DeclarationLocation; 4],
 ) -> Option<rocketcss_ast::CSSWideKeyword> {
     let Declaration::CSSWide(_, keyword) = sequence.declaration(locations[0]) else {
@@ -972,7 +978,7 @@ fn css_wide_box_longhands(
 }
 
 fn merge_typed_box_longhands<'ast, 'cx>(
-    sequence: &mut DeclarationSequence<'_, 'ast>,
+    sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     [top, right, bottom, left]: [DeclarationLocation; 4],
     family: BoxFamily,
     cx: &mut MinifyContext<'cx>,

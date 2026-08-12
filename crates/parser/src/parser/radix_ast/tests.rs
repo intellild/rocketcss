@@ -65,14 +65,24 @@ fn effective_key_seed<'ast>(
         .unwrap()
 }
 
-fn declaration_ranges(compilation: &Compilation<'_>) -> std::vec::Vec<(u32, u32)> {
+fn declaration_chain_layouts(compilation: &Compilation<'_>) -> std::vec::Vec<(u32, u32)> {
     compilation
         .declaration_blocks_in_source_order()
-        .map(|(_, block)| {
-            let range = block.declarations().as_range().unwrap();
-            (range.start(), range.len())
-        })
+        .map(|(block, _)| declaration_chain_layout(compilation, block))
         .collect()
+}
+
+fn declaration_chain_layout<'ast>(
+    compilation: &Compilation<'ast>,
+    block: ConcreteDeclarationBlockId<'ast>,
+) -> (u32, u32) {
+    let ids = compilation
+        .declaration_ids_in_block(block)
+        .unwrap()
+        .map(|id| id.index() as u32)
+        .collect::<std::vec::Vec<_>>();
+    assert!(ids.windows(2).all(|pair| pair[0] + 1 == pair[1]));
+    (ids.first().copied().unwrap_or(0), ids.len() as u32)
 }
 
 fn payload_kind(payload: &CssRulePayload<'_>) -> &'static str {
@@ -144,19 +154,19 @@ fn allocates_nested_rules_and_blocks_in_lexical_order() {
             (
                 id.index(),
                 block.owner(),
-                block.declarations().as_range().unwrap(),
+                declaration_chain_layout(&compilation, id),
             )
         })
         .collect::<std::vec::Vec<_>>();
     assert_eq!(blocks.len(), 4);
     assert_eq!(blocks[0].0, 0);
-    assert_eq!((blocks[0].2.start(), blocks[0].2.len()), (0, 1));
+    assert_eq!(blocks[0].2, (0, 1));
     assert_eq!(blocks[1].0, 1);
-    assert_eq!((blocks[1].2.start(), blocks[1].2.len()), (1, 1));
+    assert_eq!(blocks[1].2, (1, 1));
     assert_eq!(blocks[2].0, 2);
-    assert_eq!((blocks[2].2.start(), blocks[2].2.len()), (2, 1));
+    assert_eq!(blocks[2].2, (2, 1));
     assert_eq!(blocks[3].0, 3);
-    assert_eq!((blocks[3].2.start(), blocks[3].2.len()), (3, 1));
+    assert_eq!(blocks[3].2, (3, 1));
     assert_eq!(
         compilation
             .declarations_in_source_order()
@@ -325,7 +335,10 @@ fn radix_style_subset_preserves_semantic_blocks() {
         .parse_compilation(source, options)
         .unwrap();
 
-    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 2), (3, 1), (4, 1)]);
+    assert_eq!(
+        declaration_chain_layouts(&radix),
+        [(0, 1), (1, 2), (3, 1), (4, 1)]
+    );
     assert!(
         radix
             .declarations_in_source_order()
@@ -560,7 +573,7 @@ fn top_level_media_uses_preorder_and_direct_child_topology() {
 }
 
 #[test]
-fn media_inside_style_splits_ranges_and_preserves_context() {
+fn media_inside_style_splits_declaration_blocks_and_preserves_context() {
     let allocator = Allocator::new();
     let source = "a{color:red;@media (width>1px){color:blue;& b{margin:0}padding:1px}color:green}";
     let options = ParserOptions::default();
@@ -619,7 +632,7 @@ fn media_inside_style_splits_ranges_and_preserves_context() {
     assert_eq!(outer_after_seed, outer_seed);
 
     assert_eq!(
-        declaration_ranges(&radix),
+        declaration_chain_layouts(&radix),
         [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1)]
     );
     assert_eq!(radix.validate_ast(), Ok(()));
@@ -684,7 +697,10 @@ fn supports_wrappers_share_group_topology_without_losing_style_context() {
         None
     );
 
-    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 0), (1, 1), (2, 1)]);
+    assert_eq!(
+        declaration_chain_layouts(&radix),
+        [(0, 1), (0, 0), (1, 1), (2, 1)]
+    );
     assert_eq!(radix.validate_ast(), Ok(()));
 }
 
@@ -715,8 +731,8 @@ fn starting_style_uses_explicit_source_order_segments() {
     );
 
     assert_eq!(
-        declaration_ranges(&radix),
-        [(0, 1), (1, 0), (1, 1), (2, 1), (3, 1)]
+        declaration_chain_layouts(&radix),
+        [(0, 1), (0, 0), (1, 1), (2, 1), (3, 1)]
     );
     assert_eq!(radix.validate_ast(), Ok(()));
 }
@@ -779,7 +795,10 @@ fn layer_statement_and_blocks_keep_distinct_topology() {
         rules[4].0
     );
 
-    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 0), (1, 1), (2, 1)]);
+    assert_eq!(
+        declaration_chain_layouts(&radix),
+        [(0, 1), (0, 0), (1, 1), (2, 1)]
+    );
     assert_eq!(radix.validate_ast(), Ok(()));
 }
 
@@ -842,8 +861,8 @@ fn nested_group_wrappers_preserve_the_full_parent_context_chain() {
     assert_eq!(context_representative(&radix, seed), Some(scope));
 
     assert_eq!(
-        declaration_ranges(&radix),
-        [(0, 1), (1, 0), (1, 1), (2, 1), (3, 1)]
+        declaration_chain_layouts(&radix),
+        [(0, 1), (0, 0), (1, 1), (2, 1), (3, 1)]
     );
     assert_eq!(radix.validate_ast(), Ok(()));
 }
@@ -884,7 +903,7 @@ fn unknown_at_rules_remain_opaque_and_lossless() {
     assert!(radix.rule(ids[2]).unwrap().child_list().is_none());
     assert_eq!(radix.rule(ids[2]).unwrap().parent(), Some(ids[1]));
 
-    assert_eq!(declaration_ranges(&radix), [(0, 1), (1, 1)]);
+    assert_eq!(declaration_chain_layouts(&radix), [(0, 1), (1, 1)]);
     assert_eq!(radix.validate_ast(), Ok(()));
 }
 
@@ -920,10 +939,7 @@ fn declaration_owner_rules_share_one_lexical_property_tape() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_chain_layout(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 2), (3, 1), (4, 2), (6, 1)]
     );
@@ -964,10 +980,7 @@ fn font_face_descriptors_are_typed_occurrences_in_the_global_tape() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_chain_layout(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 3), (4, 1)]
     );
@@ -1009,10 +1022,7 @@ fn palette_and_view_transition_descriptors_keep_typed_source_order() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_chain_layout(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 3), (4, 2), (6, 1)]
     );
@@ -1162,10 +1172,7 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_chain_layout(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 1), (2, 2), (4, 1)]
     );
@@ -1173,7 +1180,7 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
 }
 
 #[test]
-fn page_margin_rules_split_parent_declaration_ranges() {
+fn page_margin_rules_split_parent_declaration_blocks() {
     let allocator = Allocator::new();
     let source = "a{color:red}@page invoice:left{size:A4;@top-left{content:'x'}margin:0;@bottom-right{content:counter(page)}color:red}b{}";
     let options = ParserOptions::default();
@@ -1202,12 +1209,9 @@ fn page_margin_rules_split_parent_declaration_ranges() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_chain_layout(&radix, block))
             .collect::<std::vec::Vec<_>>(),
-        [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (6, 0)]
+        [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (0, 0)]
     );
 
     let page = rules[1].0;
@@ -1323,7 +1327,10 @@ fn nest_rule_has_its_own_selector_owner_and_inherited_context() {
     );
     assert_eq!(context_representative(&radix, media_seed), Some(media));
 
-    assert_eq!(declaration_ranges(&radix), [(0, 0), (0, 1), (1, 1), (2, 1)]);
+    assert_eq!(
+        declaration_chain_layouts(&radix),
+        [(0, 0), (0, 1), (1, 1), (2, 1)]
+    );
     assert_eq!(radix.validate_ast(), Ok(()));
 }
 
@@ -1362,10 +1369,7 @@ fn font_feature_subrules_and_declarations_are_flattened() {
     assert_eq!(
         radix
             .declaration_blocks_in_source_order()
-            .map(|(_, block)| {
-                let range = block.declarations().as_range().unwrap();
-                (range.start(), range.len())
-            })
+            .map(|(block, _)| declaration_chain_layout(&radix, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 2), (2, 1)]
     );

@@ -307,12 +307,12 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
     ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
         let mut summary = DeclarationBlockIr::default();
         let mut property_index = PropertyIndex::new_in(self.allocator);
-        for (order, (declaration, record)) in compilation
+        for (order, (occurrence, record)) in compilation
             .declaration_occurrences_in_block(block)?
             .enumerate()
         {
             self.publish_occurrence(
-                declaration,
+                occurrence.declaration(),
                 record,
                 order,
                 &mut summary,
@@ -327,7 +327,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
     fn publish_occurrence(
         &mut self,
         declaration: rocketcss_ast::DeclarationId<'ast>,
-        record: &DeclarationRecord<rocketcss_ast::DeclarationPayload<'ast>>,
+        record: &DeclarationRecord<'ast, rocketcss_ast::DeclarationPayload<'ast>>,
         order: usize,
         summary: &mut DeclarationBlockIr,
         property_index: &mut PropertyIndex<'scratch, 'ast>,

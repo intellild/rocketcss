@@ -47,6 +47,14 @@ macro_rules! print_property_sizes {
 }
 
 fn main() {
+    assert!(
+        size_of::<DeclarationRecord<'static, DeclarationPayload<'static>>>() <= 56,
+        "direct declaration links must not grow the production declaration record"
+    );
+    assert!(
+        size_of::<DeclarationBlockRecord<'static, CssRulePayload<'static>>>() <= 28,
+        "direct declaration links must not grow the production declaration block record"
+    );
     println!("{:<56} {:>4} {:>5}", "type", "size", "align");
     println!("{}", "-".repeat(68));
     print_sizes!(
@@ -54,7 +62,9 @@ fn main() {
         rocketcss_common::vec::Vec<'static, u8>,
         RuleRecord<'static, CssRulePayload<'static>>,
         DeclarationBlockRecord<'static, CssRulePayload<'static>>,
-        DeclarationRecord<DeclarationPayload<'static>>,
+        DeclarationRecord<'static, DeclarationPayload<'static>>,
+        DeclarationRecord<'static, u8>,
+        ScopedDeclarationHandle<'static, 'static>,
         Declaration<'static>,
         PropertyId<'static>,
         TokenOrValue<'static>,

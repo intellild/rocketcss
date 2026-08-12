@@ -192,44 +192,35 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         }
         let mut declaration_owners = vec![None; self.declarations.len()];
         for (block_id, block) in self.declaration_blocks.iter_enumerated() {
-            let declarations = match block.declarations {
-                DeclarationList::Range(range) => {
-                    if range.start as usize + range.len as usize > self.declarations.len() {
-                        return Err(ValidationError::InvalidDeclarationRange {
-                            block: block_id,
-                            range,
-                        });
-                    }
-                    DeclarationIdIter {
-                        kind: DeclarationIdIterKind::Range(
-                            self.declarations
-                                .ids_in_range(range.start as usize, range.len as usize)
-                                .expect("the declaration range was bounds checked"),
-                        ),
-                    }
-                }
-                DeclarationList::Local4(local) => DeclarationIdIter {
-                    kind: DeclarationIdIterKind::Local4 { local, index: 0 },
-                },
-                DeclarationList::Overflow(overflow) => DeclarationIdIter {
-                    kind: DeclarationIdIterKind::Overflow(
-                        self.declaration_overflows
-                            .try_get(overflow)
-                            .ok_or(ValidationError::InvalidDeclarationOverflow {
-                                block: block_id,
-                                overflow,
-                            })?
-                            .iter(),
-                    ),
-                },
-            };
-            for declaration in declarations {
-                let Some(owner) = declaration_owners.get_mut(declaration.index()) else {
-                    return Err(ValidationError::InvalidDeclarationReference {
+            if (block.declaration_count == 0)
+                != (block.first_declaration.is_none() && block.last_declaration.is_none())
+                || block.first_declaration.is_none() != block.last_declaration.is_none()
+            {
+                return Err(ValidationError::InvalidDeclarationEndpoints { block: block_id });
+            }
+            let mut current = block.first_declaration;
+            let mut actual_last = None;
+            let mut actual_count = 0_u32;
+            let mut visited_declarations = FxHashSet::default();
+            while let Some(declaration) = current {
+                if !visited_declarations.insert(declaration) {
+                    return Err(ValidationError::DeclarationCycle {
                         block: block_id,
                         declaration,
                     });
-                };
+                }
+                let record = self.declarations.try_get(declaration).ok_or(
+                    ValidationError::InvalidDeclarationReference {
+                        block: block_id,
+                        declaration,
+                    },
+                )?;
+                let owner = declaration_owners.get_mut(declaration.index()).ok_or(
+                    ValidationError::InvalidDeclarationReference {
+                        block: block_id,
+                        declaration,
+                    },
+                )?;
                 if let Some(first) = *owner {
                     return Err(ValidationError::DuplicateDeclarationOwner {
                         declaration,
@@ -238,6 +229,29 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                     });
                 }
                 *owner = Some(block_id);
+                actual_count = actual_count.checked_add(1).ok_or(
+                    ValidationError::DeclarationCountMismatch {
+                        block: block_id,
+                        expected: block.declaration_count,
+                        actual: u32::MAX,
+                    },
+                )?;
+                actual_last = Some(declaration);
+                current = record.next_in_block;
+            }
+            if actual_last != block.last_declaration {
+                return Err(ValidationError::DeclarationLastMismatch {
+                    block: block_id,
+                    expected: block.last_declaration,
+                    actual: actual_last,
+                });
+            }
+            if actual_count != block.declaration_count {
+                return Err(ValidationError::DeclarationCountMismatch {
+                    block: block_id,
+                    expected: block.declaration_count,
+                    actual: actual_count,
+                });
             }
             if !block.live {
                 continue;

@@ -208,8 +208,7 @@ fn mutation_error<'ast>(
         | ConcreteMutationError::<'ast>::RuleListCapacityExhausted
         | ConcreteMutationError::<'ast>::EffectiveKeyCapacityExhausted
         | ConcreteMutationError::<'ast>::SelectorContextCapacityExhausted
-        | ConcreteMutationError::<'ast>::DeclarationCapacityExhausted
-        | ConcreteMutationError::<'ast>::DeclarationOverflowCapacityExhausted => {
+        | ConcreteMutationError::<'ast>::DeclarationCapacityExhausted => {
             ParserError::AstCapacityExceeded
         }
         ConcreteMutationError::<'ast>::UnknownRule(_)
@@ -219,9 +218,10 @@ fn mutation_error<'ast>(
         | ConcreteMutationError::<'ast>::ChildListAlreadyExists(_)
         | ConcreteMutationError::<'ast>::DeclarationBlockAlreadyExists(_)
         | ConcreteMutationError::<'ast>::UnknownDeclarationBlock(_)
-        | ConcreteMutationError::<'ast>::UnknownDeclarationOverflow(_)
         | ConcreteMutationError::<'ast>::UnknownDeclaration(_)
-        | ConcreteMutationError::<'ast>::NonContiguousDeclarationRange(_)
+        | ConcreteMutationError::<'ast>::InvalidDeclarationChain(_)
+        | ConcreteMutationError::<'ast>::AuthoredDeclarationBlockClosed(_)
+        | ConcreteMutationError::<'ast>::DeclarationIndexOutOfBounds { .. }
         | ConcreteMutationError::<'ast>::InvalidRuleTopology(_)
         | ConcreteMutationError::<'ast>::InvalidSourceTopology
         | ConcreteMutationError::<'ast>::RuleHasChildren(_) => ParserError::InvalidRule,

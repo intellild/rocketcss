@@ -171,7 +171,7 @@ fn prunes_exact_effects_across_non_adjacent_blocks_in_one_history() {
 }
 
 #[test]
-fn parent_declaration_segments_share_an_s2_history() {
+fn parent_declaration_blocks_share_an_s2_history() {
     assert_eq!(
         run(".parent{color:red;.child{x:1}color:red}"),
         ".parent{.child{x:1}color:red}"

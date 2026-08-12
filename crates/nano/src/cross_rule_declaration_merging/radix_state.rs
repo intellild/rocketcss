@@ -213,6 +213,7 @@ struct MinifyScratch<'scratch, 'ast> {
     left_residual: Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
     right_residual: Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
     common: Vec<'scratch, CommonDeclaration<'ast>>,
+    block_declarations: Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
     matched_right: HashSet<'scratch, rocketcss_ast::DeclarationId<'ast>>,
     matched_left: HashSet<'scratch, rocketcss_ast::DeclarationId<'ast>>,
     affected_blocks: HashSet<'scratch, DeclarationBlockId<'ast>>,
@@ -232,6 +233,7 @@ impl<'scratch, 'ast> MinifyScratch<'scratch, 'ast> {
             left_residual: allocator.vec(),
             right_residual: allocator.vec(),
             common: allocator.vec(),
+            block_declarations: allocator.vec(),
             matched_right: HashSet::new_in(allocator),
             matched_left: HashSet::new_in(allocator),
             affected_blocks: HashSet::new_in(allocator),
@@ -457,7 +459,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     /// Terminal S5 boundary for the currently implemented exact-only model.
     ///
-    /// S1-S3 commit `Range`/`Local4`/`Overflow` representations atomically.
+    /// S1-S3 commit declaration segment chains atomically.
     /// Complex partially-live effects return `NoChange`, so there is no S4
     /// deferred plan to materialize yet. Consuming `self` tears down every
     /// merge-only queue, history, summary, and revision sidecar. Debug builds
@@ -528,9 +530,12 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
             self.scratch.affected_blocks.clear();
             self.scratch.previous_by_property.clear();
             for &block in &self.scratch.history {
-                let declaration_count = compilation.declaration_ids_in_block(block)?.len();
-                for index in 0..declaration_count {
-                    let declaration = compilation.declaration_id_at_in_block(block, index)?;
+                self.scratch.block_declarations.clear();
+                self.scratch
+                    .block_declarations
+                    .extend(compilation.declaration_ids_in_block(block)?);
+                for index in 0..self.scratch.block_declarations.len() {
+                    let declaration = self.scratch.block_declarations[index];
                     let Some(property_key) = self
                         .declaration_ir
                         .occurrence(declaration)
@@ -1350,7 +1355,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_declaration_segments_join_history_without_becoming_style_edges() {
+    fn nested_declaration_blocks_join_history_without_becoming_style_edges() {
         let allocator = Allocator::new();
         let compilation = Compiler::new(&allocator)
             .parse_test_compilation(
@@ -1765,7 +1770,7 @@ mod tests {
     }
 
     #[test]
-    fn s1_after_s3_commits_a_noncontiguous_local4_representation() {
+    fn s1_after_s3_commits_a_noncontiguous_declaration_chain() {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
@@ -1780,11 +1785,17 @@ mod tests {
             assert!(
                 compilation
                     .declaration_blocks_in_source_order()
-                    .any(|(_, block)| block.is_live()
-                        && matches!(
-                            block.declarations(),
-                            rocketcss_ast::DeclarationList::Local4(_)
-                        ))
+                    .any(|(block_id, block)| {
+                        if !block.is_live() {
+                            return false;
+                        }
+                        let declarations = compilation
+                            .declaration_ids_in_block(block_id)
+                            .unwrap()
+                            .map(|id| id.index())
+                            .collect::<std::vec::Vec<_>>();
+                        declarations.windows(2).any(|pair| pair[0] + 1 != pair[1])
+                    })
             );
             let actual = compilation
                 .to_css_string(
@@ -1806,7 +1817,7 @@ mod tests {
     }
 
     #[test]
-    fn s1_after_s3_commits_a_complete_arena_overflow_representation() {
+    fn s1_after_s3_preserves_a_large_noncontiguous_declaration_chain() {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
@@ -1824,11 +1835,18 @@ mod tests {
             assert!(
                 compilation
                     .declaration_blocks_in_source_order()
-                    .any(|(_, block)| block.is_live()
-                        && matches!(
-                            block.declarations(),
-                            rocketcss_ast::DeclarationList::Overflow(_)
-                        ))
+                    .any(|(block_id, block)| {
+                        if !block.is_live() {
+                            return false;
+                        }
+                        let declarations = compilation
+                            .declaration_ids_in_block(block_id)
+                            .unwrap()
+                            .map(|id| id.index())
+                            .collect::<std::vec::Vec<_>>();
+                        declarations.len() > 4
+                            && declarations.windows(2).any(|pair| pair[0] + 1 != pair[1])
+                    })
             );
             let actual = compilation
                 .to_css_string(
