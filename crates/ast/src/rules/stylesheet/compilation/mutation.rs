@@ -109,9 +109,9 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     /// Appends a transformed declaration to any live block chain.
     ///
-    /// Authored parsing continues to use `append_declaration`, which rejects a
-    /// range closed by nested syntax. This transaction is for synthesized
-    /// declarations and therefore does not require physical store contiguity.
+    /// Authored parsing continues to use `append_declaration`, whose nonempty
+    /// append frontier is closed by nested syntax. This transaction is for
+    /// synthesized declarations and therefore ignores allocation adjacency.
     pub fn append_transformed_declaration(
         &mut self,
         block: DeclarationBlockId<'ast, R>,
@@ -130,7 +130,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let declaration_count = block_record.declaration_count;
         let revision = block_record.revision.wrapping_add(1);
         if first.is_none() != last.is_none() || (first.is_none() != (declaration_count == 0)) {
-            return Err(MutationError::NonContiguousDeclarationRange(block));
+            return Err(MutationError::InvalidDeclarationChain(block));
         }
         if let Some(last) = last
             && self
@@ -140,7 +140,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 .next_in_block
                 .is_some()
         {
-            return Err(MutationError::NonContiguousDeclarationRange(block));
+            return Err(MutationError::InvalidDeclarationChain(block));
         }
         if !self.declarations.has_capacity_for(1) {
             return Err(MutationError::DeclarationCapacityExhausted);
@@ -284,12 +284,12 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         Ok((&mut declaration_record.payload, important))
     }
 
-    /// Folds one direct leaf rule's declaration range into its right sibling
+    /// Folds one direct leaf rule's declaration chain into its right sibling
     /// and retires the left rule in the same transaction.
     ///
     /// Semantic callers must additionally decide whether these rule kinds are
     /// mergeable. This storage transaction proves adjacency, equal AST-owned
-    /// EffectiveKeys, unique block ownership, and contiguous ranges before it
+    /// EffectiveKeys, unique block ownership, and valid chain endpoints before it
     /// publishes any mutation. Retired source-chain blocks between the live
     /// endpoints are absorbed as well; semantic callers are responsible for
     /// retiring those owners only after all of their occurrences are dead.
@@ -395,12 +395,12 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         for &(block_id, first, last, count) in &block_chains {
             if count == 0 {
                 if first.is_some() || last.is_some() {
-                    return Err(MutationError::NonContiguousDeclarationRange(block_id));
+                    return Err(MutationError::InvalidDeclarationChain(block_id));
                 }
                 continue;
             }
             let (Some(first), Some(last)) = (first, last) else {
-                return Err(MutationError::NonContiguousDeclarationRange(block_id));
+                return Err(MutationError::InvalidDeclarationChain(block_id));
             };
             self.declarations
                 .try_get(first)
@@ -410,11 +410,11 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 .try_get(last)
                 .ok_or(MutationError::UnknownDeclaration(last))?;
             if last_record.next_in_block.is_some() {
-                return Err(MutationError::NonContiguousDeclarationRange(block_id));
+                return Err(MutationError::InvalidDeclarationChain(block_id));
             }
             merged_count = merged_count
                 .checked_add(count)
-                .ok_or(MutationError::NonContiguousDeclarationRange(block_id))?;
+                .ok_or(MutationError::InvalidDeclarationChain(block_id))?;
             let Some(previous_last) = merged_last else {
                 merged_first = Some(first);
                 merged_last = Some(last);
@@ -469,8 +469,8 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     /// Unlinks one live leaf rule while retaining its source-chain tombstone.
     ///
     /// Parsed primary IDs and inserted sibling IDs are never reused. The
-    /// declaration block is retired in the same transaction, while its range
-    /// continues to own the corresponding source-tape occurrences.
+    /// declaration block is retired in the same transaction, while its chain
+    /// continues to own the corresponding declaration occurrences.
     pub fn retire_rule(
         &mut self,
         id: RuleId<'ast, R>,

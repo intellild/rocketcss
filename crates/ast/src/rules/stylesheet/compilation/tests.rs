@@ -730,28 +730,28 @@ fn transformed_append_extends_the_noncontiguous_direct_chain() {
 fn streaming_declaration_mutation_preserves_direct_chain_order() {
     let allocator = Allocator::new();
 
-    let mut range = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = range.stylesheet().root_rules();
-    let key = range.append_effective_key("range").unwrap();
-    let rule = range.append_rule(root, 0).unwrap();
-    let block = range
+    let mut contiguous = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = contiguous.stylesheet().root_rules();
+    let key = contiguous.append_effective_key("contiguous").unwrap();
+    let rule = contiguous.append_rule(root, 0).unwrap();
+    let block = contiguous
         .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(rule), key)
         .unwrap();
-    let range_ids = [
-        range.append_declaration(block, 1, false).unwrap(),
-        range.append_declaration(block, 2, false).unwrap(),
-        range.append_declaration(block, 3, false).unwrap(),
+    let contiguous_ids = [
+        contiguous.append_declaration(block, 1, false).unwrap(),
+        contiguous.append_declaration(block, 2, false).unwrap(),
+        contiguous.append_declaration(block, 3, false).unwrap(),
     ];
     let mut visited = std::vec::Vec::new();
-    range
+    contiguous
         .for_each_declaration_mut(block, |id, record| {
             visited.push(id);
             *record.payload_mut() += 10;
         })
         .unwrap();
-    assert_eq!(visited, range_ids);
+    assert_eq!(visited, contiguous_ids);
     assert_eq!(
-        range
+        contiguous
             .declarations_in_block(block)
             .unwrap()
             .map(|record| *record.payload())
@@ -872,7 +872,7 @@ fn a_rule_owns_at_most_one_declaration_block() {
 }
 
 #[test]
-fn a_declaration_range_cannot_cross_a_nested_allocation() {
+fn a_nonempty_authored_block_cannot_reopen_after_another_declaration_allocation() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<(), &str, ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -894,9 +894,44 @@ fn a_declaration_range_cannot_cross_a_nested_allocation() {
 
     assert_eq!(
         compilation.append_declaration(outer_block, "after", false),
-        Err(MutationError::<()>::NonContiguousDeclarationRange(
+        Err(MutationError::<()>::AuthoredDeclarationBlockClosed(
             outer_block
         ))
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn an_empty_authored_block_starts_at_the_current_declaration_store_tail() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<(), &str, ()>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let outer = compilation.append_rule(root, ()).unwrap();
+    let key = compilation.append_effective_key(()).unwrap();
+    let outer_block = compilation
+        .append_declaration_block(DeclarationBlockOwner::<()>::Rule(outer), key)
+        .unwrap();
+    let children = compilation.create_child_list(outer).unwrap();
+    let nested = compilation.append_rule(children, ()).unwrap();
+    let nested_block = compilation
+        .append_declaration_block(DeclarationBlockOwner::<()>::Rule(nested), key)
+        .unwrap();
+    let nested_declaration = compilation
+        .append_declaration(nested_block, "nested", false)
+        .unwrap();
+
+    let outer_declaration = compilation
+        .append_declaration(outer_block, "outer", false)
+        .unwrap();
+
+    assert!(nested_declaration.index() < outer_declaration.index());
+    assert_eq!(
+        compilation
+            .declarations_in_block(outer_block)
+            .unwrap()
+            .map(|declaration| *declaration.payload())
+            .collect::<std::vec::Vec<_>>(),
+        ["outer"]
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
 }

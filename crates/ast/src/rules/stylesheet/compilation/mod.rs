@@ -474,7 +474,12 @@ pub enum MutationError<'ast, P> {
     DeclarationBlockAlreadyExists(RuleId<'ast, P>),
     UnknownDeclarationBlock(DeclarationBlockId<'ast, P>),
     UnknownDeclaration(DeclarationId<'ast>),
-    NonContiguousDeclarationRange(DeclarationBlockId<'ast, P>),
+    InvalidDeclarationChain(DeclarationBlockId<'ast, P>),
+    AuthoredDeclarationBlockClosed(DeclarationBlockId<'ast, P>),
+    DeclarationIndexOutOfBounds {
+        block: DeclarationBlockId<'ast, P>,
+        index: usize,
+    },
     InvalidRuleTopology(RuleId<'ast, P>),
     InvalidSourceTopology,
     RuleHasChildren(RuleId<'ast, P>),
@@ -913,7 +918,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let expected = block_record.declaration_count as usize;
         let mut visited = 0usize;
         while visited < expected {
-            let declaration = next.ok_or(MutationError::NonContiguousDeclarationRange(block))?;
+            let declaration = next.ok_or(MutationError::InvalidDeclarationChain(block))?;
             let record = self
                 .declarations
                 .try_get_mut(declaration)
@@ -923,7 +928,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             visited += 1;
         }
         if next.is_some() {
-            return Err(MutationError::NonContiguousDeclarationRange(block));
+            return Err(MutationError::InvalidDeclarationChain(block));
         }
 
         if visited != 0 {
@@ -951,11 +956,11 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             .try_get(block)
             .ok_or(MutationError::UnknownDeclarationBlock(block))?;
         if index >= block_record.declaration_count as usize {
-            return Err(MutationError::NonContiguousDeclarationRange(block));
+            return Err(MutationError::DeclarationIndexOutOfBounds { block, index });
         }
         let mut current = block_record.first_declaration;
         while index != 0 {
-            let declaration = current.ok_or(MutationError::NonContiguousDeclarationRange(block))?;
+            let declaration = current.ok_or(MutationError::InvalidDeclarationChain(block))?;
             current = self
                 .declarations
                 .try_get(declaration)
@@ -963,7 +968,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 .next_in_block;
             index -= 1;
         }
-        current.ok_or(MutationError::NonContiguousDeclarationRange(block))
+        current.ok_or(MutationError::InvalidDeclarationChain(block))
     }
 
     fn declaration_cursor(
@@ -991,7 +996,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         }
         let declaration = cursor
             .next
-            .ok_or(MutationError::NonContiguousDeclarationRange(cursor.block))?;
+            .ok_or(MutationError::InvalidDeclarationChain(cursor.block))?;
         let record = self
             .declarations
             .try_get(declaration)
@@ -1024,7 +1029,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             block_record.first_declaration.is_none() || block_record.last_declaration.is_none()
         };
         if invalid_endpoints {
-            return Err(MutationError::NonContiguousDeclarationRange(block));
+            return Err(MutationError::InvalidDeclarationChain(block));
         }
         Ok((block_record.first_declaration, expected))
     }
@@ -1039,7 +1044,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let mut remaining = block_record.declaration_count;
         while let Some(current_id) = current {
             if remaining == 0 {
-                return Err(MutationError::NonContiguousDeclarationRange(block));
+                return Err(MutationError::InvalidDeclarationChain(block));
             }
             if current_id == declaration {
                 return Ok(true);
@@ -1052,7 +1057,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             remaining -= 1;
         }
         if remaining != 0 {
-            return Err(MutationError::NonContiguousDeclarationRange(block));
+            return Err(MutationError::InvalidDeclarationChain(block));
         }
         Ok(false)
     }
@@ -1308,9 +1313,10 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 
     /// Appends one declaration occurrence to the active end of `block`.
     ///
-    /// Descendant declarations close an ancestor's range. Continuing that
-    /// older range is rejected so the parser must first allocate a distinct
-    /// `NestedDeclarations` syntax position.
+    /// Once another declaration is allocated after a nonempty authored block,
+    /// that block's append frontier is closed. The parser must allocate a
+    /// distinct `NestedDeclarations` syntax position before continuing. An
+    /// empty block has no frontier and may start at the current store tail.
     pub fn append_declaration(
         &mut self,
         block: DeclarationBlockId<'ast, R>,
@@ -1328,15 +1334,18 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let last = block_record.last_declaration;
         let declaration_count = block_record.declaration_count;
         if first.is_none() != last.is_none() || (first.is_none() != (declaration_count == 0)) {
-            return Err(MutationError::NonContiguousDeclarationRange(block));
+            return Err(MutationError::InvalidDeclarationChain(block));
         }
         if let Some(last) = last {
             let record = self
                 .declarations
                 .try_get(last)
                 .ok_or(MutationError::UnknownDeclaration(last))?;
-            if record.next_in_block.is_some() || last.index() + 1 != self.declarations.len() {
-                return Err(MutationError::NonContiguousDeclarationRange(block));
+            if record.next_in_block.is_some() {
+                return Err(MutationError::InvalidDeclarationChain(block));
+            }
+            if last.index() + 1 != self.declarations.len() {
+                return Err(MutationError::AuthoredDeclarationBlockClosed(block));
             }
         }
         if !self.declarations.has_capacity_for(1) {
