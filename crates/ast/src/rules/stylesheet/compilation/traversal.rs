@@ -26,7 +26,7 @@ pub trait CompilationVisitor<'ast> {
         &mut self,
         _block: ConcreteDeclarationBlockId<'ast>,
         _id: DeclarationId<'ast>,
-        _declaration: &DeclarationRecord<DeclarationPayload<'ast>>,
+        _declaration: &DeclarationRecord<'ast, DeclarationPayload<'ast>>,
         _compilation: &Compilation<'ast>,
     ) {
     }
@@ -35,7 +35,7 @@ pub trait CompilationVisitor<'ast> {
         &mut self,
         _block: ConcreteDeclarationBlockId<'ast>,
         _id: DeclarationId<'ast>,
-        _descriptor: &DeclarationRecord<DeclarationPayload<'ast>>,
+        _descriptor: &DeclarationRecord<'ast, DeclarationPayload<'ast>>,
         _compilation: &Compilation<'ast>,
     ) {
     }
@@ -168,7 +168,8 @@ impl<'ast> Compilation<'ast> {
             if property_block {
                 visitor.visit_declaration_block(block_id, block, self);
             }
-            for (declaration_id, declaration) in self.declaration_occurrences_in_block(block_id)? {
+            for (occurrence, declaration) in self.declaration_occurrences_in_block(block_id)? {
+                let declaration_id = occurrence.declaration();
                 if property_block {
                     visitor.visit_declaration(block_id, declaration_id, declaration, self);
                 } else {

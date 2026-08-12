@@ -1663,12 +1663,6 @@ fn capacity_estimates_cover_benchmark_corpora() {
             capacity.declarations
         );
         assert!(
-            compilation.declaration_segment_count() <= capacity.declaration_segments,
-            "declaration segments exceed capacity estimate ({} > {})",
-            compilation.declaration_segment_count(),
-            capacity.declaration_segments
-        );
-        assert!(
             compilation.selector_value_count() <= capacity.selectors,
             "selector values exceed capacity estimate ({} > {})",
             compilation.selector_value_count(),

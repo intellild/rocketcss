@@ -1,8 +1,9 @@
 use crate::MinifyContext;
 use rocketcss_ast::{
     CSSWideOr, Columns, Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
-    CssColor, Declaration, DeclarationId as RadixDeclarationId, DeclarationPayload,
-    EqIgnoringTombstones, Margin, Padding, PropertyId, VendorPrefix, Visit, VisitContext, Visitor,
+    CssColor, Declaration, DeclarationBlockMutationScope, DeclarationPayload, EqIgnoringTombstones,
+    Margin, Padding, PropertyId, ScopedDeclarationHandle, VendorPrefix, Visit, VisitContext,
+    Visitor,
 };
 use rocketcss_common::{
     GhostToken,
@@ -210,42 +211,32 @@ impl<'a> BoxFamilyIr<'a> {
     }
 }
 
-struct DeclarationSequence<'sequence, 'scratch, 'ast> {
-    blocks: &'sequence [RadixDeclarationBlockId<'ast>],
-    block_offsets: Vec<'scratch, usize>,
-    declarations: Vec<'scratch, RadixDeclarationId<'ast>>,
-    compilation: &'sequence mut Compilation<'ast>,
+struct DeclarationSequence<'scope, 'scratch, 'ast> {
+    declarations: Vec<'scratch, ScopedDeclarationHandle<'scope, 'ast>>,
+    scope: DeclarationBlockMutationScope<'scope, 'ast>,
 }
 
-impl<'sequence, 'scratch, 'ast> DeclarationSequence<'sequence, 'scratch, 'ast> {
+impl<'scope, 'scratch, 'ast> DeclarationSequence<'scope, 'scratch, 'ast> {
     #[inline]
     fn radix(
-        blocks: &'sequence [RadixDeclarationBlockId<'ast>],
-        compilation: &'sequence mut Compilation<'ast>,
+        scope: DeclarationBlockMutationScope<'scope, 'ast>,
         allocator: &'scratch Allocator,
     ) -> Self {
-        let mut block_offsets = allocator.vec();
         let mut declarations = allocator.vec();
-        for &block in blocks {
-            block_offsets.push(declarations.len());
-            declarations.extend(
-                compilation
-                    .declaration_ids_in_block(block)
-                    .expect("the declaration block sequence remains valid"),
-            );
-        }
-        block_offsets.push(declarations.len());
+        declarations.extend(
+            scope
+                .declaration_handles()
+                .expect("the declaration block scope remains valid"),
+        );
         Self {
-            blocks,
-            block_offsets,
             declarations,
-            compilation,
+            scope,
         }
     }
 
     #[inline]
     fn block_count(&self) -> usize {
-        self.blocks.len()
+        1
     }
 
     #[inline]
@@ -257,21 +248,26 @@ impl<'sequence, 'scratch, 'ast> DeclarationSequence<'sequence, 'scratch, 'ast> {
 
     #[inline]
     fn block_len(&self, index: usize) -> usize {
-        self.block_offsets[index + 1] - self.block_offsets[index]
+        debug_assert_eq!(index, 0);
+        self.declarations.len()
     }
 
     #[inline]
-    fn radix_declaration_id(&self, location: DeclarationLocation) -> RadixDeclarationId<'ast> {
-        self.declarations[self.block_offsets[location.block()] + location.declaration()]
+    fn declaration_handle(
+        &self,
+        location: DeclarationLocation,
+    ) -> ScopedDeclarationHandle<'scope, 'ast> {
+        debug_assert_eq!(location.block(), 0);
+        self.declarations[location.declaration()]
     }
 
     #[inline]
     fn declaration(&self, location: DeclarationLocation) -> &Declaration<'ast> {
-        let id = self.radix_declaration_id(location);
+        let handle = self.declaration_handle(location);
         let DeclarationPayload::Property(declaration) = self
-            .compilation
-            .declaration(id)
-            .expect("a dense declaration sequence ID remains resolvable")
+            .scope
+            .declaration(handle)
+            .expect("a scoped declaration handle remains resolvable")
             .payload()
         else {
             unreachable!("local declaration minification only receives property blocks")
@@ -281,10 +277,10 @@ impl<'sequence, 'scratch, 'ast> DeclarationSequence<'sequence, 'scratch, 'ast> {
 
     #[inline]
     fn declaration_mut(&mut self, location: DeclarationLocation) -> &mut Declaration<'ast> {
-        let id = self.radix_declaration_id(location);
-        self.compilation
-            .property_declaration_mut(self.blocks[location.block()], id)
-            .expect("a dense property declaration remains mutable")
+        let handle = self.declaration_handle(location);
+        self.scope
+            .property_declaration_mut(handle)
+            .expect("a scoped property declaration remains mutable")
             .0
     }
 
@@ -299,16 +295,16 @@ impl<'sequence, 'scratch, 'ast> DeclarationSequence<'sequence, 'scratch, 'ast> {
 
     #[inline]
     fn is_important(&self, location: DeclarationLocation) -> bool {
-        let id = self.radix_declaration_id(location);
-        self.compilation
-            .declaration(id)
-            .expect("a dense declaration sequence ID remains resolvable")
+        let handle = self.declaration_handle(location);
+        self.scope
+            .declaration(handle)
+            .expect("a scoped declaration handle remains resolvable")
             .is_important()
     }
 
     #[inline]
     fn allocator(&self, _location: DeclarationLocation) -> &'ast Allocator {
-        self.compilation.allocator()
+        self.scope.allocator()
     }
 }
 
@@ -329,12 +325,14 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
         block: RadixDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
-        let blocks = [block];
-        let mut sequence = DeclarationSequence::radix(&blocks, compilation, cx.allocator());
-        if sequence.block_len(0) < 2 {
-            return;
-        }
-        self.minify_non_trivial(&mut sequence, cx);
+        compilation
+            .with_declaration_block_mutations(block, |scope| {
+                let mut sequence = DeclarationSequence::radix(scope, cx.allocator());
+                if sequence.block_len(0) >= 2 {
+                    self.minify_non_trivial(&mut sequence, cx);
+                }
+            })
+            .expect("the scheduled declaration block remains live");
     }
 
     fn minify_non_trivial(

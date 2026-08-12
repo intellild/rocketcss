@@ -55,7 +55,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
         &mut self,
         _block: DeclarationBlockId<'a>,
         _id: DeclarationId<'a>,
-        _declaration: &DeclarationRecord<DeclarationPayload<'a>>,
+        _declaration: &DeclarationRecord<'a, DeclarationPayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
         self.events.push(StructuralEvent::Declaration);
@@ -65,7 +65,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
         &mut self,
         _block: DeclarationBlockId<'a>,
         _id: DeclarationId<'a>,
-        _descriptor: &DeclarationRecord<DeclarationPayload<'a>>,
+        _descriptor: &DeclarationRecord<'a, DeclarationPayload<'a>>,
         _compilation: &Compilation<'a>,
     ) {
         self.events.push(StructuralEvent::Descriptor);

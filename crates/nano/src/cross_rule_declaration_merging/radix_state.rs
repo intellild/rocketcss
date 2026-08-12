@@ -1355,7 +1355,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_declaration_segments_join_history_without_becoming_style_edges() {
+    fn nested_declaration_blocks_join_history_without_becoming_style_edges() {
         let allocator = Allocator::new();
         let compilation = Compiler::new(&allocator)
             .parse_test_compilation(
@@ -1770,7 +1770,7 @@ mod tests {
     }
 
     #[test]
-    fn s1_after_s3_commits_a_noncontiguous_segment_chain() {
+    fn s1_after_s3_commits_a_noncontiguous_declaration_chain() {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();
@@ -1817,7 +1817,7 @@ mod tests {
     }
 
     #[test]
-    fn s1_after_s3_preserves_a_large_noncontiguous_segment_chain() {
+    fn s1_after_s3_preserves_a_large_noncontiguous_declaration_chain() {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();

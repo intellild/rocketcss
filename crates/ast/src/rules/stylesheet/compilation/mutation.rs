@@ -107,12 +107,11 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 }
 
 impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
-    /// Appends a transformed declaration to any live block segment chain.
+    /// Appends a transformed declaration to any live block chain.
     ///
     /// Authored parsing continues to use `append_declaration`, which rejects a
     /// range closed by nested syntax. This transaction is for synthesized
-    /// declarations: it extends the tail range when possible and otherwise
-    /// appends one non-contiguous range segment.
+    /// declarations and therefore does not require physical store contiguity.
     pub fn append_transformed_declaration(
         &mut self,
         block: DeclarationBlockId<'ast, R>,
@@ -126,69 +125,41 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         if !block_record.live {
             return Err(MutationError::UnknownDeclarationBlock(block));
         }
-        let first_segment = block_record.first_declaration_segment;
-        let last_segment = block_record.last_declaration_segment;
+        let first = block_record.first_declaration;
+        let last = block_record.last_declaration;
         let declaration_count = block_record.declaration_count;
         let revision = block_record.revision.wrapping_add(1);
-        if first_segment.is_none() != last_segment.is_none()
-            || (first_segment.is_none() != (declaration_count == 0))
+        if first.is_none() != last.is_none() || (first.is_none() != (declaration_count == 0)) {
+            return Err(MutationError::NonContiguousDeclarationRange(block));
+        }
+        if let Some(last) = last
+            && self
+                .declarations
+                .try_get(last)
+                .ok_or(MutationError::UnknownDeclaration(last))?
+                .next_in_block
+                .is_some()
         {
             return Err(MutationError::NonContiguousDeclarationRange(block));
         }
         if !self.declarations.has_capacity_for(1) {
             return Err(MutationError::DeclarationCapacityExhausted);
         }
-        let new_index = self.declarations.len();
-        let extends_tail = if let Some(last_segment) = last_segment {
-            let segment = self
-                .declaration_segments
-                .try_get(last_segment)
-                .ok_or(MutationError::UnknownDeclarationSegment(last_segment))?;
-            if segment.next.is_some() {
-                return Err(MutationError::NonContiguousDeclarationRange(block));
-            }
-            segment.range.start as usize + segment.range.len as usize == new_index
+        let inserted = self.declarations.push(DeclarationRecord {
+            payload,
+            next_in_block: None,
+            important,
+        });
+        if let Some(last) = last {
+            self.declarations
+                .try_get_mut(last)
+                .expect("the transformed tail was validated")
+                .next_in_block = Some(inserted);
         } else {
-            false
-        };
-        if !extends_tail && !self.declaration_segments.has_capacity_for(1) {
-            return Err(MutationError::DeclarationSegmentCapacityExhausted);
-        }
-        let inserted = self
-            .declarations
-            .push(DeclarationRecord { payload, important });
-        if extends_tail {
-            self.declaration_segments
-                .try_get_mut(last_segment.expect("an extended tail exists"))
-                .expect("the transformed tail segment was validated")
-                .range
-                .len += 1;
-        } else {
-            let segment = self
-                .declaration_segments
-                .try_push(DeclarationSegment {
-                    range: DeclarationRange {
-                        start: new_index as u32,
-                        len: 1,
-                    },
-                    next: None,
-                })
-                .unwrap_or_else(|_| unreachable!("segment capacity was preflighted"));
-            if let Some(last_segment) = last_segment {
-                self.declaration_segments
-                    .try_get_mut(last_segment)
-                    .expect("the transformed tail segment was validated")
-                    .next = Some(segment);
-            } else {
-                self.declaration_blocks
-                    .try_get_mut(block)
-                    .expect("the transformed declaration owner was validated")
-                    .first_declaration_segment = Some(segment);
-            }
             self.declaration_blocks
                 .try_get_mut(block)
                 .expect("the transformed declaration owner was validated")
-                .last_declaration_segment = Some(segment);
+                .first_declaration = Some(inserted);
         }
         let block_record = self
             .declaration_blocks
@@ -197,6 +168,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         block_record.declaration_count = declaration_count
             .checked_add(1)
             .expect("a block cannot contain u32::MAX declarations");
+        block_record.last_declaration = Some(inserted);
         block_record.revision = revision;
         Ok(inserted)
     }
@@ -206,7 +178,6 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     pub fn can_insert_declaration_block(&self, declaration_count: usize) -> bool {
         self.declaration_blocks.has_capacity_for(1)
             && self.declarations.has_capacity_for(declaration_count)
-            && (declaration_count == 0 || self.declaration_segments.has_capacity_for(1))
     }
 
     /// Inserts a synthesized declaration block at its final semantic block ID
@@ -232,8 +203,8 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let block = self
             .declaration_blocks
             .try_push(DeclarationBlockRecord {
-                first_declaration_segment: None,
-                last_declaration_segment: None,
+                first_declaration: None,
+                last_declaration: None,
                 declaration_count: 0,
                 owner: DeclarationBlockOwner::Rule(owner),
                 effective_key,
@@ -279,6 +250,38 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             .expect("the declaration owner was validated before commit")
             .revision = revision;
         Ok(previous)
+    }
+
+    /// Mutates an iterator-created occurrence without rescanning membership.
+    ///
+    /// The token's block must remain live. Merging into that same retained
+    /// block preserves the token because declaration chains only grow; retiring
+    /// its block invalidates the token.
+    #[doc(hidden)]
+    pub fn validated_declaration_mut(
+        &mut self,
+        occurrence: DeclarationOccurrence<'ast, R>,
+    ) -> Result<(&mut D, bool), MutationError<'ast, R>> {
+        let block = occurrence.block;
+        let declaration = occurrence.declaration;
+        let block_record = self
+            .declaration_blocks
+            .try_get(block)
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        if !block_record.live {
+            return Err(MutationError::UnknownDeclarationBlock(block));
+        }
+        let revision = block_record.revision.wrapping_add(1);
+        let declaration_record = self
+            .declarations
+            .try_get_mut(declaration)
+            .ok_or(MutationError::UnknownDeclaration(declaration))?;
+        let important = declaration_record.important;
+        self.declaration_blocks
+            .try_get_mut(block)
+            .expect("the validated occurrence block remains resolvable")
+            .revision = revision;
+        Ok((&mut declaration_record.payload, important))
     }
 
     /// Folds one direct leaf rule's declaration range into its right sibling
@@ -359,8 +362,8 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let mut block_chains = std::vec::Vec::new();
         block_chains.push((
             left_block_id,
-            left_block.first_declaration_segment,
-            left_block.last_declaration_segment,
+            left_block.first_declaration,
+            left_block.last_declaration,
             left_block.declaration_count,
         ));
         for &bridge in &bridge_blocks {
@@ -373,22 +376,21 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             }
             block_chains.push((
                 bridge,
-                bridge_block.first_declaration_segment,
-                bridge_block.last_declaration_segment,
+                bridge_block.first_declaration,
+                bridge_block.last_declaration,
                 bridge_block.declaration_count,
             ));
         }
         block_chains.push((
             right_block_id,
-            right_block.first_declaration_segment,
-            right_block.last_declaration_segment,
+            right_block.first_declaration,
+            right_block.last_declaration,
             right_block.declaration_count,
         ));
 
         let mut joins = std::vec::Vec::new();
         let mut merged_first = None;
         let mut merged_last = None;
-        let mut merged_last_range: Option<DeclarationRange> = None;
         let mut merged_count = 0_u32;
         for &(block_id, first, last, count) in &block_chains {
             if count == 0 {
@@ -400,18 +402,14 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             let (Some(first), Some(last)) = (first, last) else {
                 return Err(MutationError::NonContiguousDeclarationRange(block_id));
             };
-            let first_record = *self
-                .declaration_segments
+            self.declarations
                 .try_get(first)
-                .ok_or(MutationError::UnknownDeclarationSegment(first))?;
-            let last_record = *self
-                .declaration_segments
+                .ok_or(MutationError::UnknownDeclaration(first))?;
+            let last_record = self
+                .declarations
                 .try_get(last)
-                .ok_or(MutationError::UnknownDeclarationSegment(last))?;
-            if first_record.range.is_empty()
-                || last_record.range.is_empty()
-                || last_record.next.is_some()
-            {
+                .ok_or(MutationError::UnknownDeclaration(last))?;
+            if last_record.next_in_block.is_some() {
                 return Err(MutationError::NonContiguousDeclarationRange(block_id));
             }
             merged_count = merged_count
@@ -420,60 +418,37 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             let Some(previous_last) = merged_last else {
                 merged_first = Some(first);
                 merged_last = Some(last);
-                merged_last_range = Some(last_record.range);
                 continue;
             };
-            let previous_range =
-                merged_last_range.expect("a merged tail always has a simulated range");
-            let previous_end = previous_range.start as usize + previous_range.len as usize;
-            if previous_end == first_record.range.start as usize {
-                let merged_len = previous_range
-                    .len
-                    .checked_add(first_record.range.len)
-                    .ok_or(MutationError::NonContiguousDeclarationRange(block_id))?;
-                joins.push((previous_last, first_record.next, Some(merged_len)));
-                if first == last {
-                    merged_last_range = Some(DeclarationRange {
-                        start: previous_range.start,
-                        len: merged_len,
-                    });
-                } else {
-                    merged_last = Some(last);
-                    merged_last_range = Some(last_record.range);
-                }
-            } else {
-                joins.push((previous_last, Some(first), None));
-                merged_last = Some(last);
-                merged_last_range = Some(last_record.range);
-            }
+            joins.push((previous_last, first));
+            merged_last = Some(last);
         }
 
         self.retire_rule(left)?;
-        for (tail, next, merged_len) in joins {
+        for (tail, next) in joins {
             let tail_record = self
-                .declaration_segments
+                .declarations
                 .try_get_mut(tail)
-                .expect("all segment joins were validated before commit");
-            tail_record.next = next;
-            if let Some(merged_len) = merged_len {
-                tail_record.range.len = merged_len;
-            }
+                .expect("all declaration joins were validated before commit");
+            tail_record.next_in_block = Some(next);
         }
         for &(retired_block, _, _, _) in &block_chains[..block_chains.len().saturating_sub(1)] {
             let retired_block = self
                 .declaration_blocks
                 .try_get_mut(retired_block)
                 .expect("a validated retired block remains a source tombstone");
-            retired_block.first_declaration_segment = None;
-            retired_block.last_declaration_segment = None;
+            retired_block.first_declaration = None;
+            retired_block.last_declaration = None;
             retired_block.declaration_count = 0;
+            retired_block.live = false;
+            retired_block.revision = retired_block.revision.wrapping_add(1);
         }
         let retained_block = self
             .declaration_blocks
             .try_get_mut(right_block_id)
             .expect("the retained block was validated before commit");
-        retained_block.first_declaration_segment = merged_first;
-        retained_block.last_declaration_segment = merged_last;
+        retained_block.first_declaration = merged_first;
+        retained_block.last_declaration = merged_last;
         retained_block.declaration_count = merged_count;
         retained_block.revision = retained_block.revision.wrapping_add(1);
         let retained_rule = self
@@ -588,6 +563,45 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 }
 
 impl<'ast> Compilation<'ast> {
+    /// Runs non-structural mutations through compact handles branded to one
+    /// live declaration block. The higher-ranked scope prevents handles from
+    /// escaping the callback.
+    ///
+    /// ```compile_fail
+    /// use rocketcss_ast::{
+    ///     Compilation, ConcreteDeclarationBlockId, ScopedDeclarationHandle,
+    /// };
+    ///
+    /// fn escape<'ast>(
+    ///     compilation: &mut Compilation<'ast>,
+    ///     block: ConcreteDeclarationBlockId<'ast>,
+    /// ) -> ScopedDeclarationHandle<'static, 'ast> {
+    ///     compilation
+    ///         .with_declaration_block_mutations(block, |scope| {
+    ///             scope.declaration_handles().unwrap().next().unwrap()
+    ///         })
+    ///         .unwrap()
+    /// }
+    /// ```
+    pub fn with_declaration_block_mutations<T>(
+        &mut self,
+        block: ConcreteDeclarationBlockId<'ast>,
+        mutate: impl for<'scope> FnOnce(DeclarationBlockMutationScope<'scope, 'ast>) -> T,
+    ) -> Result<T, ConcreteMutationError<'ast>> {
+        let block_record = self
+            .declaration_blocks
+            .try_get(block)
+            .ok_or(ConcreteMutationError::UnknownDeclarationBlock(block))?;
+        if !block_record.live {
+            return Err(ConcreteMutationError::UnknownDeclarationBlock(block));
+        }
+        self.declaration_chain_start_from_record(block, block_record)?;
+        Ok(mutate(DeclarationBlockMutationScope {
+            compilation: self,
+            block,
+        }))
+    }
+
     /// Runs a scoped, non-structural transform over one live rule payload.
     #[doc(hidden)]
     pub fn transform_rule_payload(
@@ -638,6 +652,17 @@ impl<'ast> Compilation<'ast> {
         Ok((&mut declaration.payload, important))
     }
 
+    /// Resolves an iterator-created occurrence without rescanning block
+    /// membership. Structural mutations preserve tokens for the retained block
+    /// and invalidate tokens whose block has been retired.
+    #[doc(hidden)]
+    pub fn validated_declaration_occurrence_mut(
+        &mut self,
+        occurrence: ConcreteDeclarationOccurrence<'ast>,
+    ) -> Result<(&mut DeclarationPayload<'ast>, bool), ConcreteMutationError<'ast>> {
+        self.validated_declaration_mut(occurrence)
+    }
+
     /// Resolves one property declaration through its owning block for a
     /// scoped, in-place local transform.
     ///
@@ -654,5 +679,63 @@ impl<'ast> Compilation<'ast> {
             return Err(ConcreteMutationError::UnknownDeclaration(declaration_id));
         };
         Ok((payload, important))
+    }
+
+    /// Mutates a property through an iterator-created occurrence token.
+    pub fn validated_property_declaration_mut(
+        &mut self,
+        occurrence: ConcreteDeclarationOccurrence<'ast>,
+    ) -> Result<(&mut crate::Declaration<'ast>, bool), ConcreteMutationError<'ast>> {
+        let declaration_id = occurrence.declaration;
+        let (payload, important) = self.validated_declaration_occurrence_mut(occurrence)?;
+        let DeclarationPayload::Property(payload) = payload else {
+            return Err(ConcreteMutationError::UnknownDeclaration(declaration_id));
+        };
+        Ok((payload, important))
+    }
+}
+
+impl<'scope, 'ast> DeclarationBlockMutationScope<'scope, 'ast> {
+    /// Iterates compact handles for this scope's block in semantic order.
+    pub fn declaration_handles(
+        &self,
+    ) -> Result<
+        impl ExactSizeIterator<Item = ScopedDeclarationHandle<'scope, 'ast>> + '_,
+        ConcreteMutationError<'ast>,
+    > {
+        Ok(self
+            .compilation
+            .declaration_ids_in_block(self.block)?
+            .map(|declaration| ScopedDeclarationHandle {
+                declaration,
+                marker: std::marker::PhantomData,
+            }))
+    }
+
+    /// Resolves one handle for immutable inspection.
+    #[inline]
+    pub fn declaration(
+        &self,
+        handle: ScopedDeclarationHandle<'scope, 'ast>,
+    ) -> Option<&DeclarationRecord<'ast, DeclarationPayload<'ast>>> {
+        self.compilation.declaration(handle.declaration)
+    }
+
+    /// Mutates one property declaration without rescanning membership.
+    #[inline]
+    pub fn property_declaration_mut(
+        &mut self,
+        handle: ScopedDeclarationHandle<'scope, 'ast>,
+    ) -> Result<(&mut crate::Declaration<'ast>, bool), ConcreteMutationError<'ast>> {
+        self.compilation
+            .validated_property_declaration_mut(DeclarationOccurrence {
+                block: self.block,
+                declaration: handle.declaration,
+            })
+    }
+
+    #[inline]
+    pub fn allocator(&self) -> &'ast Allocator {
+        self.compilation.allocator()
     }
 }

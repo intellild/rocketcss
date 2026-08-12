@@ -191,109 +191,63 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             }
         }
         let mut declaration_owners = vec![None; self.declarations.len()];
-        let mut segment_owners = vec![None; self.declaration_segments.len()];
         for (block_id, block) in self.declaration_blocks.iter_enumerated() {
             if (block.declaration_count == 0)
-                != (block.first_declaration_segment.is_none()
-                    && block.last_declaration_segment.is_none())
-                || block.first_declaration_segment.is_none()
-                    != block.last_declaration_segment.is_none()
+                != (block.first_declaration.is_none() && block.last_declaration.is_none())
+                || block.first_declaration.is_none() != block.last_declaration.is_none()
             {
-                return Err(ValidationError::InvalidDeclarationSegmentEndpoints {
-                    block: block_id,
-                });
+                return Err(ValidationError::InvalidDeclarationEndpoints { block: block_id });
             }
-            let mut current = block.first_declaration_segment;
+            let mut current = block.first_declaration;
             let mut actual_last = None;
             let mut actual_count = 0_u32;
-            let mut previous_segment: Option<DeclarationSegmentId<'ast>> = None;
-            let mut previous_range: Option<DeclarationRange> = None;
-            let mut visited_segments = FxHashSet::default();
-            while let Some(segment_id) = current {
-                if !visited_segments.insert(segment_id) {
-                    return Err(ValidationError::DeclarationSegmentCycle {
+            let mut visited_declarations = FxHashSet::default();
+            while let Some(declaration) = current {
+                if !visited_declarations.insert(declaration) {
+                    return Err(ValidationError::DeclarationCycle {
                         block: block_id,
-                        segment: segment_id,
+                        declaration,
                     });
                 }
-                let segment = self.declaration_segments.try_get(segment_id).ok_or(
-                    ValidationError::InvalidDeclarationSegment {
+                let record = self.declarations.try_get(declaration).ok_or(
+                    ValidationError::InvalidDeclarationReference {
                         block: block_id,
-                        segment: segment_id,
+                        declaration,
                     },
                 )?;
-                let owner = segment_owners.get_mut(segment_id.index()).ok_or(
-                    ValidationError::InvalidDeclarationSegment {
+                let owner = declaration_owners.get_mut(declaration.index()).ok_or(
+                    ValidationError::InvalidDeclarationReference {
                         block: block_id,
-                        segment: segment_id,
+                        declaration,
                     },
                 )?;
                 if let Some(first) = *owner {
-                    return Err(ValidationError::DuplicateDeclarationSegmentOwner {
-                        segment: segment_id,
+                    return Err(ValidationError::DuplicateDeclarationOwner {
+                        declaration,
                         first,
                         second: block_id,
                     });
                 }
                 *owner = Some(block_id);
-                let range = segment.range;
-                let range_end = (range.start as usize).checked_add(range.len as usize);
-                if range.is_empty() || range_end.is_none_or(|end| end > self.declarations.len()) {
-                    return Err(ValidationError::InvalidDeclarationRange {
-                        block: block_id,
-                        range,
-                    });
-                }
-                if let (Some(previous_segment), Some(previous_range)) =
-                    (previous_segment, previous_range)
-                    && previous_range.start as usize + previous_range.len as usize
-                        == range.start as usize
-                {
-                    return Err(ValidationError::AdjacentDeclarationSegments {
-                        block: block_id,
-                        previous: previous_segment,
-                        next: segment_id,
-                    });
-                }
-                actual_count = actual_count.checked_add(range.len).ok_or(
-                    ValidationError::DeclarationSegmentCountMismatch {
+                actual_count = actual_count.checked_add(1).ok_or(
+                    ValidationError::DeclarationCountMismatch {
                         block: block_id,
                         expected: block.declaration_count,
                         actual: u32::MAX,
                     },
                 )?;
-                let declarations = self
-                    .declarations
-                    .ids_in_range(range.start as usize, range.len as usize)
-                    .expect("the declaration segment range was bounds checked");
-                for declaration in declarations {
-                    let owner = declaration_owners.get_mut(declaration.index()).ok_or(
-                        ValidationError::InvalidDeclarationReference {
-                            block: block_id,
-                            declaration,
-                        },
-                    )?;
-                    if let Some(first) = *owner {
-                        return Err(ValidationError::DuplicateDeclarationOwner {
-                            declaration,
-                            first,
-                            second: block_id,
-                        });
-                    }
-                    *owner = Some(block_id);
-                }
-                previous_segment = Some(segment_id);
-                previous_range = Some(range);
-                actual_last = Some(segment_id);
-                current = segment.next;
+                actual_last = Some(declaration);
+                current = record.next_in_block;
             }
-            if actual_last != block.last_declaration_segment {
-                return Err(ValidationError::InvalidDeclarationSegmentEndpoints {
+            if actual_last != block.last_declaration {
+                return Err(ValidationError::DeclarationLastMismatch {
                     block: block_id,
+                    expected: block.last_declaration,
+                    actual: actual_last,
                 });
             }
             if actual_count != block.declaration_count {
-                return Err(ValidationError::DeclarationSegmentCountMismatch {
+                return Err(ValidationError::DeclarationCountMismatch {
                     block: block_id,
                     expected: block.declaration_count,
                     actual: actual_count,

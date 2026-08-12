@@ -14,30 +14,18 @@ fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<RuleListId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<EffectiveKeyId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<DeclarationId<'_>>(), size_of::<u32>());
-    assert_eq!(size_of::<DeclarationSegmentId<'_>>(), size_of::<u32>());
+    assert_eq!(
+        size_of::<ScopedDeclarationHandle<'static, 'static>>(),
+        size_of::<u32>()
+    );
     assert_eq!(size_of::<SelectorValueId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<SelectorPathId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<ContextValueId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<ContextPathId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<LayerContextId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<SourceOrderId>(), size_of::<u64>());
-}
-
-fn declaration_segment_ranges<'ast, R: Unpin, D, K>(
-    compilation: &RadixCompilation<'ast, R, D, K>,
-    block: DeclarationBlockId<'ast, R>,
-) -> std::vec::Vec<DeclarationRange> {
-    let mut ranges = std::vec::Vec::new();
-    let mut current = compilation
-        .declaration_block(block)
-        .unwrap()
-        .first_declaration_segment;
-    while let Some(segment) = current {
-        let segment = compilation.declaration_segments.try_get(segment).unwrap();
-        ranges.push(segment.range);
-        current = segment.next;
-    }
-    ranges
+    assert!(size_of::<DeclarationRecord<'static, DeclarationPayload<'static>>>() <= 56);
+    assert!(size_of::<DeclarationBlockRecord<'static, CssRulePayload<'static>>>() <= 28);
 }
 
 fn append_test_block<'ast>(
@@ -134,6 +122,95 @@ fn lexical_order_and_direct_topology_are_independent() {
 }
 
 #[test]
+fn direct_declaration_endpoints_iterators_and_links_agree() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let (_, empty) = append_test_block(&mut compilation, root, key, 0, &[]);
+    let (_, block) = append_test_block(&mut compilation, root, key, 1, &[10, 20, 30]);
+
+    let empty_record = compilation.declaration_block(empty).unwrap();
+    assert_eq!(empty_record.first_declaration, None);
+    assert_eq!(empty_record.last_declaration, None);
+    assert_eq!(empty_record.declaration_count(), 0);
+
+    let ids = compilation
+        .declaration_ids_in_block(block)
+        .unwrap()
+        .collect::<std::vec::Vec<_>>();
+    let occurrences = compilation
+        .declaration_occurrences_in_block(block)
+        .unwrap()
+        .map(|(occurrence, record)| (occurrence.declaration(), *record.payload()))
+        .collect::<std::vec::Vec<_>>();
+    assert_eq!(occurrences, [(ids[0], 10), (ids[1], 20), (ids[2], 30)]);
+    assert_eq!(
+        compilation.declarations.get(ids[0]).next_in_block,
+        Some(ids[1])
+    );
+    assert_eq!(
+        compilation.declarations.get(ids[1]).next_in_block,
+        Some(ids[2])
+    );
+    assert_eq!(compilation.declarations.get(ids[2]).next_in_block, None);
+    let block_record = compilation.declaration_block(block).unwrap();
+    assert_eq!(block_record.first_declaration, Some(ids[0]));
+    assert_eq!(block_record.last_declaration, Some(ids[2]));
+    assert_eq!(block_record.declaration_count(), 3);
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn occurrence_tokens_preserve_retained_members_and_reject_retired_blocks() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let (left, left_block) = append_test_block(&mut compilation, root, key, 0, &[10]);
+    let (right, right_block) = append_test_block(&mut compilation, root, key, 1, &[20]);
+    let left_occurrence = compilation
+        .declaration_occurrences_in_block(left_block)
+        .unwrap()
+        .next()
+        .unwrap()
+        .0;
+    let right_occurrence = compilation
+        .declaration_occurrences_in_block(right_block)
+        .unwrap()
+        .next()
+        .unwrap()
+        .0;
+
+    assert_eq!(
+        compilation.replace_declaration(right_block, left_occurrence.declaration(), 11),
+        Err(MutationError::UnknownDeclaration(
+            left_occurrence.declaration()
+        ))
+    );
+    compilation
+        .merge_adjacent_rule_declaration_blocks(left, right)
+        .unwrap();
+    assert_eq!(
+        compilation.validated_declaration_mut(left_occurrence),
+        Err(MutationError::UnknownDeclarationBlock(left_block))
+    );
+    *compilation
+        .validated_declaration_mut(right_occurrence)
+        .unwrap()
+        .0 = 21;
+    assert_eq!(
+        compilation
+            .declarations_in_block(right_block)
+            .unwrap()
+            .map(|record| *record.payload())
+            .collect::<std::vec::Vec<_>>(),
+        [10, 21]
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
 fn validation_rejects_a_broken_mutual_link() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
@@ -198,32 +275,27 @@ fn declaration_block_source_iteration_skips_an_unresolved_block() {
 }
 
 #[test]
-fn validation_rejects_a_declaration_segment_cycle() {
+fn validation_rejects_a_declaration_cycle() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
-    let segment = compilation
+    let declaration = compilation
         .declaration_block(block)
         .unwrap()
-        .first_declaration_segment
+        .first_declaration
         .unwrap();
-    compilation.declaration_segments.get_mut(segment).next = Some(segment);
+    compilation.declarations.get_mut(declaration).next_in_block = Some(declaration);
 
-    assert!(matches!(
-        compilation.declaration_ids_in_block(block),
-        Err(MutationError::NonContiguousDeclarationRange(error_block))
-            if error_block == block
-    ));
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::DeclarationSegmentCycle { block, segment })
+        Err(ValidationError::DeclarationCycle { block, declaration })
     );
 }
 
 #[test]
-fn validation_rejects_a_dangling_declaration_segment() {
+fn validation_rejects_a_dangling_declaration_link() {
     let allocator = Allocator::new();
     let mut foreign = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let foreign_root = foreign.stylesheet().root_rules();
@@ -233,70 +305,44 @@ fn validation_rejects_a_dangling_declaration_segment() {
     let dangling = foreign
         .declaration_block(foreign_block)
         .unwrap()
-        .first_declaration_segment
+        .first_declaration
         .unwrap();
 
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("target").unwrap();
     let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
-    let segment = compilation
+    let declaration = compilation
         .declaration_block(block)
         .unwrap()
-        .first_declaration_segment
+        .first_declaration
         .unwrap();
-    compilation.declaration_segments.get_mut(segment).next = Some(dangling);
+    compilation.declarations.get_mut(declaration).next_in_block = Some(dangling);
 
-    assert!(matches!(
-        compilation.declaration_ids_in_block(block),
-        Err(MutationError::UnknownDeclarationSegment(error_segment))
-            if error_segment == dangling
-    ));
-    let mut visited = 0;
-    assert!(matches!(
-        compilation.for_each_declaration_mut(block, |_, _| visited += 1),
-        Err(MutationError::UnknownDeclarationSegment(error_segment))
-            if error_segment == dangling
-    ));
-    assert_eq!(visited, 0);
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::InvalidDeclarationSegment {
+        Err(ValidationError::InvalidDeclarationReference {
             block,
-            segment: dangling,
+            declaration: dangling,
         })
     );
 }
 
 #[test]
-fn validation_rejects_invalid_segment_range_count_and_endpoints() {
+fn validation_rejects_declaration_count_and_endpoint_mismatches() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
-    let segment = compilation
-        .declaration_block(block)
-        .unwrap()
-        .first_declaration_segment
-        .unwrap();
-    compilation.declaration_segments.get_mut(segment).range.len = 0;
-    assert_eq!(
-        compilation.validate_ast(),
-        Err(ValidationError::InvalidDeclarationRange {
-            block,
-            range: DeclarationRange { start: 0, len: 0 },
-        })
-    );
 
-    compilation.declaration_segments.get_mut(segment).range.len = 1;
     compilation
         .declaration_block_mut(block)
         .unwrap()
         .declaration_count = 2;
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::DeclarationSegmentCountMismatch {
+        Err(ValidationError::DeclarationCountMismatch {
             block,
             expected: 2,
             actual: 1,
@@ -305,92 +351,57 @@ fn validation_rejects_invalid_segment_range_count_and_endpoints() {
 
     let block_record = compilation.declaration_block_mut(block).unwrap();
     block_record.declaration_count = 1;
-    block_record.last_declaration_segment = None;
+    block_record.last_declaration = None;
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::InvalidDeclarationSegmentEndpoints { block })
+        Err(ValidationError::InvalidDeclarationEndpoints { block })
     );
 }
 
 #[test]
-fn validation_rejects_adjacent_segments_and_shared_ownership() {
+fn validation_rejects_last_mismatch_and_duplicate_declaration_ownership() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
-    let (_, left_block) = append_test_block(&mut compilation, root, key, 0, &[0]);
-    let (_, right_block) = append_test_block(&mut compilation, root, key, 1, &[1]);
-    let left_segment = compilation
+    let (_, left_block) = append_test_block(&mut compilation, root, key, 0, &[0, 1]);
+    let (_, right_block) = append_test_block(&mut compilation, root, key, 1, &[]);
+    let left_first = compilation
         .declaration_block(left_block)
         .unwrap()
-        .first_declaration_segment
+        .first_declaration
         .unwrap();
-    let right_segment = compilation
-        .declaration_block(right_block)
+
+    compilation
+        .declaration_block_mut(left_block)
         .unwrap()
-        .first_declaration_segment
-        .unwrap();
-    compilation.declaration_segments.get_mut(left_segment).next = Some(right_segment);
-    let left_record = compilation.declaration_block_mut(left_block).unwrap();
-    left_record.last_declaration_segment = Some(right_segment);
-    left_record.declaration_count = 2;
-    let right_record = compilation.declaration_block_mut(right_block).unwrap();
-    right_record.first_declaration_segment = None;
-    right_record.last_declaration_segment = None;
-    right_record.declaration_count = 0;
-
+        .last_declaration = Some(left_first);
     assert_eq!(
         compilation.validate_ast(),
-        Err(ValidationError::AdjacentDeclarationSegments {
+        Err(ValidationError::DeclarationLastMismatch {
             block: left_block,
-            previous: left_segment,
-            next: right_segment,
+            expected: Some(left_first),
+            actual: compilation.declarations.get(left_first).next_in_block,
         })
     );
 
-    compilation.declaration_segments.get_mut(left_segment).next = None;
-    let left_record = compilation.declaration_block_mut(left_block).unwrap();
-    left_record.last_declaration_segment = Some(left_segment);
-    left_record.declaration_count = 1;
-    let right_record = compilation.declaration_block_mut(right_block).unwrap();
-    right_record.first_declaration_segment = Some(left_segment);
-    right_record.last_declaration_segment = Some(left_segment);
-    right_record.declaration_count = 1;
-    assert_eq!(
-        compilation.validate_ast(),
-        Err(ValidationError::DuplicateDeclarationSegmentOwner {
-            segment: left_segment,
-            first: left_block,
-            second: right_block,
-        })
-    );
-}
-
-#[test]
-fn validation_rejects_duplicate_declaration_ownership_across_distinct_segments() {
-    let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
-    let root = compilation.stylesheet().root_rules();
-    let key = compilation.append_effective_key("same").unwrap();
-    let (_, left_block) = append_test_block(&mut compilation, root, key, 0, &[0]);
-    let (_, right_block) = append_test_block(&mut compilation, root, key, 1, &[]);
-    let duplicate_segment = compilation
-        .declaration_segments
-        .try_push(DeclarationSegment {
-            range: DeclarationRange { start: 0, len: 1 },
-            next: None,
-        })
+    let left_last = compilation
+        .declarations
+        .get(left_first)
+        .next_in_block
         .unwrap();
-    let right_record = compilation.declaration_block_mut(right_block).unwrap();
-    right_record.first_declaration_segment = Some(duplicate_segment);
-    right_record.last_declaration_segment = Some(duplicate_segment);
-    right_record.declaration_count = 1;
-    let declaration = compilation.declarations.ids().next().unwrap();
-
+    compilation
+        .declaration_block_mut(left_block)
+        .unwrap()
+        .last_declaration = Some(left_last);
+    let right = compilation.declaration_block_mut(right_block).unwrap();
+    right.first_declaration = Some(left_first);
+    right.last_declaration = Some(left_last);
+    right.declaration_count = 2;
     assert_eq!(
         compilation.validate_ast(),
         Err(ValidationError::DuplicateDeclarationOwner {
-            declaration,
+            declaration: left_first,
             first: left_block,
             second: right_block,
         })
@@ -562,7 +573,7 @@ fn repeated_local_insertions_relabel_source_order_without_remapping_dense_ids() 
 }
 
 #[test]
-fn noncontiguous_small_merge_links_segments_without_copying_declarations() {
+fn noncontiguous_small_merge_links_declarations_without_copying_payloads() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -591,10 +602,6 @@ fn noncontiguous_small_merge_links_segments_without_copying_declarations() {
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
 
-    assert_eq!(
-        declaration_segment_ranges(&compilation, inserted_block).len(),
-        2
-    );
     let mut ids = compilation
         .declaration_ids_in_block(inserted_block)
         .unwrap();
@@ -622,7 +629,7 @@ fn noncontiguous_small_merge_links_segments_without_copying_declarations() {
 }
 
 #[test]
-fn noncontiguous_large_merge_links_segments_without_copying_declarations() {
+fn noncontiguous_large_merge_links_declarations_without_copying_payloads() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -656,10 +663,6 @@ fn noncontiguous_large_merge_links_segments_without_copying_declarations() {
         .unwrap();
 
     assert_eq!(
-        declaration_segment_ranges(&compilation, inserted_block).len(),
-        2
-    );
-    assert_eq!(
         compilation
             .declarations_in_block(inserted_block)
             .unwrap()
@@ -671,7 +674,7 @@ fn noncontiguous_large_merge_links_segments_without_copying_declarations() {
 }
 
 #[test]
-fn transformed_append_extends_the_noncontiguous_tail_segment() {
+fn transformed_append_extends_the_noncontiguous_direct_chain() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
@@ -702,24 +705,15 @@ fn transformed_append_extends_the_noncontiguous_tail_segment() {
     compilation
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert_eq!(
-        declaration_segment_ranges(&compilation, inserted_block)
-            .iter()
-            .map(|range| range.len())
-            .collect::<std::vec::Vec<_>>(),
-        [2, 2]
-    );
-
-    compilation
+    let appended = compilation
         .append_transformed_declaration(inserted_block, 32, false)
         .unwrap();
-
     assert_eq!(
-        declaration_segment_ranges(&compilation, inserted_block)
-            .iter()
-            .map(|range| range.len())
-            .collect::<std::vec::Vec<_>>(),
-        [2, 3]
+        compilation
+            .declaration_block(inserted_block)
+            .unwrap()
+            .last_declaration,
+        Some(appended)
     );
     assert_eq!(
         compilation
@@ -733,7 +727,7 @@ fn transformed_append_extends_the_noncontiguous_tail_segment() {
 }
 
 #[test]
-fn streaming_declaration_mutation_preserves_single_and_multi_segment_order() {
+fn streaming_declaration_mutation_preserves_direct_chain_order() {
     let allocator = Allocator::new();
 
     let mut range = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
@@ -790,10 +784,6 @@ fn streaming_declaration_mutation_preserves_single_and_multi_segment_order() {
     small_split
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert_eq!(
-        declaration_segment_ranges(&small_split, inserted_block).len(),
-        2
-    );
     visited.clear();
     small_split
         .for_each_declaration_mut(inserted_block, |id, record| {
@@ -845,10 +835,6 @@ fn streaming_declaration_mutation_preserves_single_and_multi_segment_order() {
     large_split
         .merge_adjacent_rule_declaration_blocks(left, inserted)
         .unwrap();
-    assert_eq!(
-        declaration_segment_ranges(&large_split, inserted_block).len(),
-        2
-    );
     visited.clear();
     large_split
         .for_each_declaration_mut(inserted_block, |id, record| {
