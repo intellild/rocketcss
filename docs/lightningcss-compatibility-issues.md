@@ -472,13 +472,13 @@ normalize it during an explicitly enabled transform or minification pass.
 ### [#338: Handle a leading UTF-8 BOM](https://github.com/parcel-bundler/lightningcss/issues/338)
 
 - Category: CSS encoding preprocessing.
-- Status: a leading U+FEFF is not skipped. It can make a leading `@import`
-  fail or become part of an unintended type selector.
+- Status: a leading U+FEFF is skipped before tokenization, so a leading
+  `@import` remains an at-rule rather than becoming part of a selector.
 - Current preservation: an interior U+FEFF remains identifier content, which
   is correct and must not be changed by global trimming.
-- Guardrail: ignore only the UTF-8 signature at input offset zero, define how
-  original byte spans relate to logical line and column locations, and do not
-  claim UTF-16/32 decoding support for the public `&str` parser API.
+- Guardrail: original byte spans retain the three-byte signature offset while
+  logical line and column locations begin after it. The public `&str` parser
+  API does not claim UTF-16/32 decoding support.
 
 ### [#347: Preserve legacy `@nest` while reporting it](https://github.com/parcel-bundler/lightningcss/issues/347)
 
