@@ -75,6 +75,26 @@ fn tokenizes_css_syntax_tokens_without_values() {
 }
 
 #[test]
+fn skips_only_a_leading_utf8_bom() {
+    let source = "\u{feff}a \u{feff}b";
+    let mut tokenizer = Tokenizer::new(source);
+
+    assert_eq!(
+        tokenizer.current_source_location(),
+        SourceLocation { line: 0, column: 1 }
+    );
+
+    let first = tokenizer.next().unwrap();
+    assert_eq!(first, TokenAndSpan::new(Token::Ident, Span::new(3, 4)));
+    assert_eq!(source_text(source, first.span), "a");
+
+    assert_eq!(next_kind(&mut tokenizer), Ok(Token::WhiteSpace));
+    let interior = tokenizer.next().unwrap();
+    assert_eq!(interior.token, Token::Ident);
+    assert_eq!(source_text(source, interior.span), "\u{feff}b");
+}
+
+#[test]
 fn records_complete_spans_for_deferred_value_parsing() {
     let source = r#"plain fo\6f  "b\61 r" url(a\20 b) 12px"#;
     let tokens = tokenize(source);

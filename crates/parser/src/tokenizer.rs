@@ -208,10 +208,15 @@ impl<'a> Tokenizer<'a> {
             u32::try_from(input.len()).is_ok(),
             "CSS input exceeds the maximum supported length"
         );
+        let initial_position = if input.starts_with('\u{feff}') {
+            '\u{feff}'.len_utf8()
+        } else {
+            0
+        };
         Tokenizer {
             input,
-            position: 0,
-            current_line_start_position: 0,
+            position: initial_position,
+            current_line_start_position: initial_position,
             current_line_number: 0,
         }
     }
