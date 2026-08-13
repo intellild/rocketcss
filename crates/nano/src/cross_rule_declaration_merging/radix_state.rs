@@ -892,6 +892,9 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 let Some(left_ir) = self.declaration_ir.occurrence(left) else {
                     continue;
                 };
+                if !left_ir.is_exact_match_candidate() {
+                    continue;
+                }
                 let Some(property_key) = left_ir.property_key else {
                     continue;
                 };
@@ -918,6 +921,10 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                         let right_order = indexed.order;
                         if self.scratch.matched_right.contains(&right)
                             || !self.scratch.right_declarations.contains(&right)
+                            || self
+                                .declaration_ir
+                                .occurrence(right)
+                                .is_none_or(|right| !right.is_exact_match_candidate())
                             || !declarations_have_equal_effect(compilation, left, right)
                         {
                             continue;
@@ -937,10 +944,10 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                     for (right_order, &right) in self.scratch.right_declarations.iter().enumerate()
                     {
                         if self.scratch.matched_right.contains(&right)
-                            || self
-                                .declaration_ir
-                                .occurrence(right)
-                                .is_none_or(|right| right.property_key != Some(property_key))
+                            || self.declaration_ir.occurrence(right).is_none_or(|right| {
+                                !right.is_exact_match_candidate()
+                                    || right.property_key != Some(property_key)
+                            })
                             || !declarations_have_equal_effect(compilation, left, right)
                         {
                             continue;

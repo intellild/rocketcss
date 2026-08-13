@@ -312,6 +312,11 @@ impl DeclarationOccurrenceIr<'_> {
     }
 
     #[inline]
+    pub(super) const fn is_exact_match_candidate(self) -> bool {
+        self.is_live() && self.is_fully_live() && self.property_key.is_some()
+    }
+
+    #[inline]
     pub(super) const fn live_effects(self) -> u8 {
         self.live_effects
     }
@@ -571,7 +576,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         for declaration in compilation.declaration_ids_in_block(block)? {
             if self
                 .occurrence(declaration)
-                .is_some_and(|occurrence| occurrence.is_live() && occurrence.is_fully_live())
+                .is_some_and(|occurrence| occurrence.is_live())
             {
                 output.push(declaration);
             }
