@@ -727,6 +727,194 @@ fn transformed_append_extends_the_noncontiguous_direct_chain() {
 }
 
 #[test]
+fn declaration_sequence_replacement_preserves_position_and_importance() {
+    #[derive(Debug, PartialEq, Eq)]
+    struct NonClone(&'static str);
+
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, NonClone, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let rule = compilation.append_rule(root, 1).unwrap();
+    let block = compilation
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(rule), key)
+        .unwrap();
+    let first = compilation
+        .append_declaration(block, NonClone("first"), false)
+        .unwrap();
+    let middle = compilation
+        .append_declaration(block, NonClone("middle"), false)
+        .unwrap();
+    let last = compilation
+        .append_declaration(block, NonClone("last"), false)
+        .unwrap();
+
+    let revision = compilation.declaration_block(block).unwrap().revision();
+    compilation
+        .rewrite_declaration_with_sequence(
+            block,
+            middle,
+            2,
+            NonClone("placeholder"),
+            |original, important| {
+                assert_eq!(original, NonClone("middle"));
+                assert!(!important);
+                vec![
+                    (NonClone("middle-a"), true),
+                    (NonClone("middle-b"), true),
+                    (NonClone("middle-c"), true),
+                ]
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        compilation.declaration_block(block).unwrap().revision(),
+        revision.wrapping_add(1)
+    );
+    let ids = compilation
+        .declaration_ids_in_block(block)
+        .unwrap()
+        .collect::<std::vec::Vec<_>>();
+    assert_eq!(ids[0], first);
+    assert_eq!(ids[1], middle);
+    assert_eq!(ids[4], last);
+    assert_eq!(
+        compilation
+            .declarations_in_block(block)
+            .unwrap()
+            .map(|record| (record.payload().0, record.is_important()))
+            .collect::<std::vec::Vec<_>>(),
+        [
+            ("first", false),
+            ("middle-a", true),
+            ("middle-b", true),
+            ("middle-c", true),
+            ("last", false),
+        ]
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn declaration_sequence_replacement_updates_first_and_last_origins() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let rule = compilation.append_rule(root, 1).unwrap();
+    let block = compilation
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(rule), key)
+        .unwrap();
+    let first = compilation.append_declaration(block, 1, false).unwrap();
+    let last = compilation.append_declaration(block, 2, false).unwrap();
+
+    compilation
+        .replace_declaration_with_sequence(block, first, vec![(10, false), (11, false)])
+        .unwrap();
+    compilation
+        .replace_declaration_with_sequence(block, last, vec![(20, true), (21, true)])
+        .unwrap();
+    compilation
+        .replace_declaration_with_sequence(block, last, vec![(22, false)])
+        .unwrap();
+
+    assert_eq!(
+        compilation
+            .declarations_in_block(block)
+            .unwrap()
+            .map(|record| (*record.payload(), record.is_important()))
+            .collect::<std::vec::Vec<_>>(),
+        [(10, false), (11, false), (22, false), (21, true)]
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn declaration_sequence_rewrite_is_atomic_on_capacity_failure() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, String, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let rule = compilation.append_rule(root, 1).unwrap();
+    let block = compilation
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(rule), key)
+        .unwrap();
+    let declaration = compilation
+        .append_declaration(block, String::from("authored"), true)
+        .unwrap();
+    let revision = compilation.declaration_block(block).unwrap().revision();
+
+    assert_eq!(
+        compilation.rewrite_declaration_with_sequence(
+            block,
+            declaration,
+            usize::MAX,
+            String::from("placeholder"),
+            |_, _| unreachable!("capacity failure must happen before payload transfer"),
+        ),
+        Err(MutationError::<u8>::DeclarationCapacityExhausted)
+    );
+    let record = compilation.declaration(declaration).unwrap();
+    assert_eq!(record.payload(), "authored");
+    assert!(record.is_important());
+    assert_eq!(
+        compilation.declaration_block(block).unwrap().revision(),
+        revision
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn declaration_sequence_replacement_preserves_nested_block_ownership() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, &'static str, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let outer = compilation.append_rule(root, 1).unwrap();
+    let outer_block = compilation
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(outer), key)
+        .unwrap();
+    let outer_origin = compilation
+        .append_declaration(outer_block, "outer", false)
+        .unwrap();
+    let children = compilation.create_child_list(outer).unwrap();
+    let nested = compilation.append_rule(children, 2).unwrap();
+    let nested_block = compilation
+        .append_declaration_block(DeclarationBlockOwner::<u8>::Rule(nested), key)
+        .unwrap();
+    compilation
+        .append_declaration(nested_block, "nested", true)
+        .unwrap();
+
+    compilation
+        .replace_declaration_with_sequence(
+            outer_block,
+            outer_origin,
+            vec![("outer-a", false), ("outer-b", false)],
+        )
+        .unwrap();
+
+    assert_eq!(
+        compilation
+            .declarations_in_block(outer_block)
+            .unwrap()
+            .map(|record| *record.payload())
+            .collect::<std::vec::Vec<_>>(),
+        ["outer-a", "outer-b"]
+    );
+    assert_eq!(
+        compilation
+            .declarations_in_block(nested_block)
+            .unwrap()
+            .map(|record| (*record.payload(), record.is_important()))
+            .collect::<std::vec::Vec<_>>(),
+        [("nested", true)]
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
 fn streaming_declaration_mutation_preserves_direct_chain_order() {
     let allocator = Allocator::new();
 

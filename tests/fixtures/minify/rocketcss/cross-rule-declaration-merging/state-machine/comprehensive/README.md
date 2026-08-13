@@ -62,7 +62,7 @@ each `crdm-NNN` layer back to its focused fixture.
 
 | Layer | Focused fixture | Status |
 | --- | --- | --- |
-| 001 | `declarations/does-not-drop-live-components-of-a-partially-overridden-shorthand` | deferred |
+| 001 | `declarations/does-not-drop-live-components-of-a-partially-overridden-shorthand` | active |
 | 002 | `declarations/keeps-case-distinct-custom-properties` | active |
 | 003 | `declarations/keeps-fallback-and-importance-chains` | active |
 | 004 | `declarations/keeps-logical-and-physical-properties-when-direction-is-not-proven` | active |
@@ -84,7 +84,7 @@ each `crdm-NNN` layer back to its focused fixture.
 | 020 | `review-findings/ast-ownership/imports-an-existing-previous-merged-chain-on-a-second-minify` | active |
 | 021 | `review-findings/ast-ownership/keeps-overlapping-candidate-rule-ids-stable-across-insertion` | active |
 | 022 | `review-findings/ast-ownership/mutates-a-shared-block-handle-without-leaving-a-live-alias` | active |
-| 023 | `review-findings/ast-ownership/preserves-importance-and-order-when-one-occurrence-becomes-many` | deferred |
+| 023 | `review-findings/ast-ownership/preserves-importance-and-order-when-one-occurrence-becomes-many` | active |
 | 024 | `review-findings/ast-ownership/s1-emits-a-retired-left-rule-exactly-once` | active |
 | 025 | `review-findings/ast-ownership/synthesized-rules-survive-the-minify-scratch-allocator` | active |
 | 026 | `review-findings/ast-ownership/transfers-a-non-clone-custom-declaration-into-the-shared-rule` | active |

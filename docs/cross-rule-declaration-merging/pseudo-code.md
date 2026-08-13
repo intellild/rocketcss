@@ -37,16 +37,14 @@ fn finish_declaration_run(
         history_segment: compilation.current_history_segment(),
     });
 
-    compilation.declaration_blocks.push_primary(DeclarationBlock {
-        owner: compilation.current_declaration_owner(),
-        declarations: DeclarationList::Range(DeclarationRange {
-            offset: start.index(),
-            len: compilation.declarations.next_id().index() - start.index(),
-        }),
-        effective_key: key,
-        revision: 0,
-        flags: DeclarationBlockFlags::empty(),
-    })
+    let block = compilation.append_declaration_block(
+        compilation.current_declaration_owner(),
+        key,
+    );
+    // Authored declarations were appended directly to this block's linked
+    // declaration chain. `start` remains the stable first origin.
+    debug_assert_eq!(compilation.first_declaration(block), Some(start));
+    block
 }
 ```
 
@@ -723,32 +721,40 @@ fn plan_s4_work_item(
     item: S4PlanItem,
     state: &mut MergeState,
 ) -> S4PlanResult {
-    let old = state.ast_plan.snapshot(item);
-    let replacement = choose_lossless_ast_representation_for_item(item, state)
-        .expect("committed effect state is losslessly reifiable");
-
-    state.ast_plan.replace(item, replacement);
-    state.ast_plan.record_dependency_revisions(item, state);
-
-    S4PlanResult {
-        invalidated_dependencies:
-            dependencies_invalidated_by_plan_change(old, replacement, state),
+    let occurrence = state.effects[item.origin];
+    if !occurrence.is_partially_live_box_shorthand() {
+        return S4PlanResult::NoPlan;
     }
+    state.ast_plan.replace(item, AstDeclarationPlan {
+        origin: item.origin,
+        owner: occurrence.owner,
+        block_revision: state.ast.block_revision(occurrence.owner),
+        effect_revision: occurrence.effect_revision,
+        important: state.ast.is_important(item.origin),
+        kind: MaterializeBoxLonghands {
+            family: occurrence.box_family(),
+            live_effects: occurrence.live_effects(),
+        },
+    });
+    S4PlanResult::Planned
 }
 ```
 
 ## S5 terminal commit and cleanup
 
 ```rust,ignore
-fn finish_ast_commit(state: &mut MergeState) {
+fn finish_ast_commit(state: MergeState, ast: &mut Compilation) {
     assert_semantic_fixed_point(state);
     assert_ast_plan_complete(state);
-
-    apply_planned_declarations_and_importance(state);
-    finish_planned_removals(state);
-    optionally_compact_tombstones(state);
-    clear_merge_only_storage_and_revisions(state);
-    state.committed = true;
+    validate_all_plan_revisions(state, ast);
+    ast.preflight_additional_declarations(state.ast_plan.additional_count());
+    for plan in state.ast_plan {
+        ast.rewrite_declaration_with_sequence(plan.owner, plan.origin, |origin| {
+            materialize_box_longhands(origin, plan.live_effects)
+        });
+    }
+    debug_assert!(ast.validate_ast().is_ok());
+    // Consuming state drops merge-only storage and revisions.
 }
 ```
 

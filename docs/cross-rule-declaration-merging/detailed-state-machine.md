@@ -260,9 +260,10 @@ membership into one synthetic occurrence.
 
 `blocks` is a pass-local ordered sequence, not a second AST and not a
 requirement to copy declaration payloads when S1 concatenates two sequences.
-The committed AST stores the complete ordered declaration IDs directly as a
-coalesced `Range`, `Local4`, or arena-backed `Overflow` list. There is no
-`previous_merged` field or owner chain.
+The committed AST stores declaration IDs in a direct linked chain owned by one
+`DeclarationBlockRecord`. S1 links the left chain before the retained right
+chain and rewrites the IR owner for every moved occurrence. There is no
+`Range`, `Local4`, `Overflow`, `previous_merged`, or owner chain.
 
 S1 updates the sequence aggregate and commits the chosen declaration-list
 representation in one transaction. S2 updates `live_effect_count` when effect
@@ -520,13 +521,16 @@ Every logically empty adjacency endpoint must already have been unlinked and
 its newly exposed edges classified when its final live effect disappeared. S4
 is therefore a verifier and planner, not a late graph mutation pass.
 
-For each non-empty retained declaration sequence, the plan also records:
+For each partially live typed shorthand, the plan records:
 
-- the final AST output owner;
-- retained authored shorthand and ordered fallback occurrences;
-- S4's chosen typed representation for partially live virtual effects;
-- any proven equivalent and profitable recombination; and
-- synthesized rules, selectors, source positions, and combined origins.
+- its stable authored declaration origin and current AST output owner;
+- the owner block revision and effect revision;
+- the authored importance bit; and
+- the physical box family and top/right/bottom/left live-effect mask.
+
+All-live and opaque origins remain in place without a plan. Fully dead origins
+are tombstoned by the S2 commit that proved them dead. S4 does not select a
+declaration-list storage representation or an insertion position.
 
 An S2 history remains an analysis index over occurrences in one or more
 sequences. It never merges those sequences or selects a common owner. S4
@@ -547,12 +551,13 @@ representation choices.
 
 S5 applies that plan without making new semantic choices:
 
-1. writes planned declarations and importance bits to active AST output owners;
-2. materializes planned typed longhand replacements;
-3. verifies synthesized rules/selectors already occupy their final Radix
-   positions;
-4. finishes planned removals and optionally compacts tombstones; and
-5. clears merge-only references, revisions, and retired-storage ownership.
+1. validates every plan's owner, block revision, effect revision, and
+   importance;
+2. sums and preflights all additional declaration capacity;
+3. atomically replaces each origin with its ordered typed longhands;
+4. verifies synthesized rules/selectors already occupy final Radix positions;
+5. validates the resulting AST; and
+6. consumes plans, histories, queues, and revision sidecars.
 
 S5 is a one-way commit. It must preserve the exact semantic effect sequence and
 must not create new S1-S4 work. After it completes, code generation uses only

@@ -11,163 +11,90 @@
 
 ## Responsibility
 
-S5 is the one-way terminal boundary after the S1-S4 fixed point. In the target
-Radix AST it is not a mandatory fresh-store rebuild and does not restore
-semantic order. Authored primary nodes and synthesized sibling nodes already
-occupy their final positions.
+S5 is the one-way boundary after the S1-S4 fixed point. Rules, blocks,
+EffectiveKeys, and synthesized S3 nodes already occupy their final AST
+positions. S5 only validates and commits deferred declaration representations,
+then consumes all merge-only sidecars.
 
-S5:
-
-- materializes any declaration representation deferred by S4;
-- finishes planned unlink/removal not already committed locally;
-- verifies topology, owners, EffectiveKeys, and Radix order;
-- clears histories, summaries, queue membership, revisions, and retired
-  pass-local relationships; and
-- optionally compacts tombstones/overflow lists when measurement justifies it.
-
-S5 makes no semantic, selector-union, movement, compatibility, or profitability
+S5 makes no liveness, selector, movement, compatibility, or profitability
 decision.
 
-For the current exact-only implementation, every declaration representation is
-already committed atomically by S1-S3 and the S4 plan set is empty. S5 therefore
-consumes the scheduler state, validates the committed AST in debug builds, and
-drops all merge-only sidecars. It performs no production whole-AST walk or
-fresh-store rebuild.
-
-## Input state
+## Preconditions
 
 ```text
-S1-S4 scheduler fixed point       = true
-all history generations consumed = true
-all S4 plans complete/current     = true
-all synthesized AST IDs final     = true
-state.committed                   = false
+same-selector queue empty
+declaration-history queue empty
+partial-factor queue empty
+dirty_s4_plan_items empty
+every plan dependency revision current
+all additional declaration capacity available
 ```
 
-If a plan is incomplete or stale, S5 does not partially finalize. The affected
-S4 item or semantic dependency is re-enqueued.
+All plans are validated before the first mutation. S5 verifies:
 
-## Visibility before S5
+- the owner block is live and its revision matches the snapshot;
+- the declaration origin still belongs to that owner;
+- the effect revision and live mask are current;
+- the origin's importance matches the plan; and
+- the declaration store can allocate the sum of all additional records.
 
-The live Radix AST already contains committed S1-S3 structural changes:
+If validation or capacity preflight fails, no plan is committed.
 
-- synthesized S3 rules/blocks are addressable at final IDs;
-- locally retired endpoints are absent from live topology;
-- block-owned EffectiveKeys are current; and
-- affected histories/edges have reached a fixed point.
+## Declaration-chain transaction
 
-The AST may still contain tombstoned declarations, retired storage needed by a
-deferred plan, or a declaration block whose final representation is pending.
+`RadixCompilation::rewrite_declaration_with_sequence` replaces one origin with
+a nonempty ordered sequence. It:
 
-## Declaration commit states
+1. validates the complete owning chain and origin membership;
+2. preflights count overflow and all additional records;
+3. transfers the non-`Clone` authored payload to an infallible rewrite
+   callback;
+4. reuses the origin ID for the first replacement;
+5. links the replacement tail to the origin's former successor;
+6. updates first/last/count as required; and
+7. advances the block revision once.
 
-For each S4 plan:
+For a partial `margin` or `padding` shorthand, the callback moves only the live
+top/right/bottom/left values into typed longhands and copies the authored
+importance bit to every emitted declaration.
 
-| Plan           | S5 action                                                        |
-| -------------- | ---------------------------------------------------------------- |
-| `ReuseOrigins` | Point at/coalesce an exact range or copy origins in exact order. |
-| `Materialize`  | Build the listed typed declarations and importance bits.         |
-| `Mixed`        | Interleave retained origins and typed replacements exactly.      |
-| Empty          | Store an empty list; owner may remain for children.              |
+The transaction works for first, middle, and last origins and for declaration
+chains that became non-contiguous after structural merging. Capacity failure
+leaves payloads, links, importance, counts, and revisions unchanged.
 
-The final block chooses `Range`, `Local4`, or complete `Overflow` according to
-S4. S5 never lets a compact range absorb a foreign live declaration.
-
-## Structural cleanup
-
-Planned removals are applied post-order so child ownership remains valid. A
-retired rule ID is not reused. Sparse sibling groups may remain allocated until
-the compiler arena is dropped; removing every empty Radix page is optional and
-must not slow the common pass.
-
-Local topology after cleanup must satisfy:
-
-- first/last list endpoints resolve;
-- previous/next links are mutual;
-- every live child names the correct parent/list;
-- no live edge skips a retained barrier; and
-- every live rule-owned block points back to that owner.
-
-## Optional compaction
-
-Compaction is not required for correctness or ordering. It may:
-
-- remove declaration tombstones;
-- shrink oversized overflow lists;
-- discard empty sparse sibling groups from lookup sidecars; or
-- merge other pass-local slack.
-
-Do not renumber primary IDs. A local sibling relabel is allowed only through the
-normal exact-remap transaction. Measure codegen, memory, and compaction cost
-before enabling any cleanup globally.
-
-## Examples
-
-### Pruned declaration
-
-```css
-a {
-  color: red;
-  color: blue;
-}
-```
-
-S2 proves `color:red` dead and S4 chooses the retained origin. S5 materializes
-or points at:
-
-```css
-a {
-  color: blue;
-}
-```
-
-### Example 2: committing an S1 owner
-
-For adjacent equal-selector rules, S1 has already selected the right rule as
-live owner and unlinked the left endpoint. S5 finishes the chosen declaration
-list and drops the retired relationship. No `previous_merged` chain remains for
-codegen.
-
-### Synthesized-rule commit
-
-S3 has already inserted:
-
-```css
-a,
-b {
-  color: red;
-}
-```
-
-at its final sibling ID. S5 only completes its declaration representation and
-verifies topology; it neither repositions the rule nor recalculates selectors.
-
-## Ownership and storage output
-
-Every retained declaration sequence has exactly one live AST owner. Retired S1
-shells and `previous_merged` adapters are absent from codegen-visible topology.
-Synthesized S3 nodes retain the IDs assigned during their atomic commit.
-
-## Output state
+## Terminal flow
 
 ```text
-live Radix AST exactly represents stable effects
-every live block has one owner and current EffectiveKey
-all pending declaration plans committed
-all work queues and histories dropped
-no merge-only relationship observable by codegen
-state.committed = true
+validate every S4 snapshot
+       ↓
+sum and preflight declaration growth
+       ↓
+rewrite each origin through the declaration-chain transaction
+       ↓
+debug validate_ast()
+       ↓
+drop histories, queues, revisions, and plans
+       ↓
+rerun local declaration representation only for dirty blocks
 ```
 
-Codegen traverses ordinary rule topology and Radix store segments. It does not
-read Nano state or make declaration-effect decisions.
+The final local representation pass is outside semantic stabilization. It may
+recombine already equivalent physical longhands but cannot enqueue S1-S4 work.
 
-## Invariants
+## Output state and invariants
+
+```text
+ordinary Radix AST losslessly represents stable effects
+every live declaration block has one owner and current EffectiveKey
+all deferred plans are committed
+all merge-only state is consumed
+codegen reads no Nano sidecars
+```
 
 - S5 starts only at the complete fixed point.
-- S5 makes no new semantic or profitability choice.
-- Synthesized allocation IDs already equal final semantic positions.
-- Primary IDs remain stable.
-- Cleanup creates no new S1-S4 work.
-- Optional compaction is byte-equivalent to uncompacted output.
-- Running minify again is idempotent.
+- Primary declaration origins remain stable for the first replacement.
+- Generated declarations stay at the authored origin position.
+- Every generated declaration preserves importance.
+- S5 creates no new S1-S4 work.
+- `Compilation::validate_ast()` succeeds after commit.
+- Running minify again is byte-idempotent.

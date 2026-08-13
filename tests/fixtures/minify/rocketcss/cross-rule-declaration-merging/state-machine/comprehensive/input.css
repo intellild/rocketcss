@@ -1,4 +1,4 @@
-/* declarations/does-not-drop-live-components-of-a-partially-overridden-shorthand (currently unsupported) */
+/* declarations/does-not-drop-live-components-of-a-partially-overridden-shorthand */
 @layer crdm-001{a{margin:1px}a{margin-left:2px}}
 /* declarations/keeps-case-distinct-custom-properties */
 @layer crdm-002{a{--x:red}a{--X:blue}}
@@ -42,7 +42,7 @@
 @layer crdm-021{a{x:1}b{x:1;y:2}c{y:2}}
 /* review-findings/ast-ownership/mutates-a-shared-block-handle-without-leaving-a-live-alias */
 @layer crdm-022{a{x:1}a{y:2}b{y:2}a{x:3}}
-/* review-findings/ast-ownership/preserves-importance-and-order-when-one-occurrence-becomes-many (currently unsupported) */
+/* review-findings/ast-ownership/preserves-importance-and-order-when-one-occurrence-becomes-many */
 @layer crdm-023{a{margin:1px!important;color:red}.middle{display:block}a{margin-left:2px!important;color:blue}}
 /* review-findings/ast-ownership/s1-emits-a-retired-left-rule-exactly-once */
 @layer crdm-024{a{x:1}a{y:2}}

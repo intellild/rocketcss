@@ -107,7 +107,6 @@ fn keeps_existing_token_storage() {
 }
 
 #[test]
-#[ignore = "cross-block relational effect reification requires S4"]
 fn runs_box_ir_across_adjacent_blocks() {
     assert_eq!(
         run("a{margin-top:1px;margin-right:2px}a{margin-bottom:3px;margin-left:4px}"),
@@ -120,10 +119,30 @@ fn runs_box_ir_across_adjacent_blocks() {
 }
 
 #[test]
+fn cross_rule_box_ir_respects_options_importance_and_opaque_barriers() {
+    let mut disabled = MinifyOptions::default();
+    disabled.flags.remove(Options::MERGE_ADJACENT_RULES);
+    assert_eq!(
+        run_with_options("a{padding:1px}a{padding-left:2px}", disabled),
+        "a{padding:1px}a{padding-left:2px}"
+    );
+    assert_eq!(
+        run("a{margin:1px!important}.x{display:block}a{margin-left:2px}"),
+        "a{margin:1px !important}.x{display:block}a{margin-left:2px}"
+    );
+    assert_eq!(
+        run(
+            "a{margin:1px}.x{display:block}a{margin-left:var(--x)}.y{display:block}a{margin-left:2px}"
+        ),
+        "a{margin:1px}.x{display:block}a{margin-left:var(--x)}.y{display:block}a{margin-left:2px}"
+    );
+}
+
+#[test]
 fn s2_preserves_the_position_of_a_longhand_folded_into_a_shorthand() {
     assert_eq!(
         run(".a{margin:1px}div{margin-left:3px}.a{margin-left:2px}"),
-        ".a{margin:1px}div{margin-left:3px}.a{margin-left:2px}"
+        ".a{margin-top:1px;margin-right:1px;margin-bottom:1px}div{margin-left:3px}.a{margin-left:2px}"
     );
 }
 

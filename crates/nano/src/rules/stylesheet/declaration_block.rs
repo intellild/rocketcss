@@ -10,6 +10,8 @@ use rocketcss_common::{
     prelude::{AdaptiveHashMap, Allocator, Vec},
 };
 
+use crate::rules::layout::{BoxFamily, BoxProperty, box_property};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct UnknownDeclarationKey<'a> {
     property_id: PropertyId<'a>,
@@ -133,29 +135,6 @@ impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
             location,
         )
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum BoxFamily {
-    Margin,
-    Padding,
-}
-
-impl BoxFamily {
-    const COUNT: usize = 2;
-
-    #[inline]
-    const fn index(self) -> usize {
-        self as usize
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum BoxProperty {
-    Shorthand(BoxFamily),
-    Longhand(BoxFamily, usize),
-    Barrier(BoxFamily),
-    BarrierAll,
 }
 
 #[derive(Debug)]
@@ -782,58 +761,6 @@ where
             }
             false
         }
-    }
-}
-
-#[inline]
-fn box_property(declaration: &Declaration<'_>) -> Option<BoxProperty> {
-    let property_id = match declaration {
-        Declaration::Margin(..) => return Some(BoxProperty::Shorthand(BoxFamily::Margin)),
-        Declaration::MarginTop(..) => return Some(BoxProperty::Longhand(BoxFamily::Margin, 0)),
-        Declaration::MarginRight(..) => return Some(BoxProperty::Longhand(BoxFamily::Margin, 1)),
-        Declaration::MarginBottom(..) => {
-            return Some(BoxProperty::Longhand(BoxFamily::Margin, 2));
-        }
-        Declaration::MarginLeft(..) => return Some(BoxProperty::Longhand(BoxFamily::Margin, 3)),
-        Declaration::Padding(..) => return Some(BoxProperty::Shorthand(BoxFamily::Padding)),
-        Declaration::PaddingTop(..) => return Some(BoxProperty::Longhand(BoxFamily::Padding, 0)),
-        Declaration::PaddingRight(..) => {
-            return Some(BoxProperty::Longhand(BoxFamily::Padding, 1));
-        }
-        Declaration::PaddingBottom(..) => {
-            return Some(BoxProperty::Longhand(BoxFamily::Padding, 2));
-        }
-        Declaration::PaddingLeft(..) => return Some(BoxProperty::Longhand(BoxFamily::Padding, 3)),
-        Declaration::All(..) => return Some(BoxProperty::BarrierAll),
-        Declaration::CSSWide(property_id, _) => &**property_id,
-        Declaration::Unparsed(value) => &*value.property_id,
-        _ => return None,
-    };
-    match property_id {
-        PropertyId::Margin => Some(BoxProperty::Shorthand(BoxFamily::Margin)),
-        PropertyId::MarginTop => Some(BoxProperty::Longhand(BoxFamily::Margin, 0)),
-        PropertyId::MarginRight => Some(BoxProperty::Longhand(BoxFamily::Margin, 1)),
-        PropertyId::MarginBottom => Some(BoxProperty::Longhand(BoxFamily::Margin, 2)),
-        PropertyId::MarginLeft => Some(BoxProperty::Longhand(BoxFamily::Margin, 3)),
-        PropertyId::MarginBlockStart
-        | PropertyId::MarginBlockEnd
-        | PropertyId::MarginInlineStart
-        | PropertyId::MarginInlineEnd
-        | PropertyId::MarginBlock
-        | PropertyId::MarginInline => Some(BoxProperty::Barrier(BoxFamily::Margin)),
-        PropertyId::Padding => Some(BoxProperty::Shorthand(BoxFamily::Padding)),
-        PropertyId::PaddingTop => Some(BoxProperty::Longhand(BoxFamily::Padding, 0)),
-        PropertyId::PaddingRight => Some(BoxProperty::Longhand(BoxFamily::Padding, 1)),
-        PropertyId::PaddingBottom => Some(BoxProperty::Longhand(BoxFamily::Padding, 2)),
-        PropertyId::PaddingLeft => Some(BoxProperty::Longhand(BoxFamily::Padding, 3)),
-        PropertyId::PaddingBlockStart
-        | PropertyId::PaddingBlockEnd
-        | PropertyId::PaddingInlineStart
-        | PropertyId::PaddingInlineEnd
-        | PropertyId::PaddingBlock
-        | PropertyId::PaddingInline => Some(BoxProperty::Barrier(BoxFamily::Padding)),
-        PropertyId::All => Some(BoxProperty::BarrierAll),
-        _ => None,
     }
 }
 

@@ -98,6 +98,14 @@ const CROSS_RULE_IR_CASES: &[CrossRuleIrCase] = &[
         name: "unparsed_barriers",
         source: "a{display:table-cell flow;color:red;width:1px}b{display:table-cell flow;color:red;height:2px}",
     },
+    CrossRuleIrCase {
+        name: "box_s1_recombine",
+        source: "a{margin-top:1px;margin-right:2px}a{margin-bottom:3px;margin-left:4px}",
+    },
+    CrossRuleIrCase {
+        name: "box_s4_reification",
+        source: "a{margin:1px!important;color:red}.middle{display:block}a{margin-left:2px!important;color:blue}",
+    },
 ];
 
 /// Owns a parsed stylesheet together with the allocator that backs its arena

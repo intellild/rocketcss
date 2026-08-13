@@ -11,200 +11,117 @@
 
 ## Responsibility
 
-S4 chooses a lossless CSS declaration representation for effect states already
-proven by S1-S3. It does not discover new effect liveness, selector unions,
-movement, or cascade relationships.
+S4 chooses a lossless declaration representation for effect liveness already
+proved by S2. It does not decide liveness, selector unions, movement safety, or
+topology.
 
-Under the Radix AST design, S4 is not a complete-AST reification planner.
-Rules/blocks already have stable IDs and final semantic positions, and S3 has
-already inserted synthesized nodes. S4 plans only representations that could
-not be committed immediately.
-
-S4 answers:
-
-- which authored declaration origins can remain unchanged;
-- which fully dead origins can be omitted;
-- whether partially live shorthand effects require typed longhands;
-- how retained fallback/opaque origins interleave with replacements;
-- which output block owns the resulting declaration list; and
-- whether a block uses a source range, `Local4`, or complete overflow list.
-
-## Input state
-
-S4 work may run when one block/sequence's current dependencies are stable. It
-participates in the scheduler because changing a representation cost or owner
-revision may invalidate an S3 profitability snapshot.
+The current AST stores declarations as linked chains owned directly by
+`DeclarationBlockRecord`. Rules and blocks already have stable IDs and final
+semantic positions, so S4 never chooses a `Range`, `Local4`, `Overflow`, or a
+new insertion position. The authored declaration origin is the insertion
+position.
 
 ```text
-S1/S2/S3 effect decision is committed
-all source origins remain available
-current block/sequence revisions are known
-selector/wrapper topology is already final for the local edit
+S2 updates typed live-effect masks
+       ↓
+partially live box shorthand enters dirty_s4_plan_items
+       ↓
+S1-S3 queues reach a fixed point
+       ↓
+S4 snapshots owner/block/effect revisions
+       ↓
+S5 replaces the shorthand at its origin
 ```
 
-### Rule retention states
+## Supported effect domain
 
-| State                             | S4 action                                               |
-| --------------------------------- | ------------------------------------------------------- |
-| Live effects                      | Retain current AST owner.                               |
-| Empty effects with retained child | Retain rule shell and subtree.                          |
-| Logically empty                   | Record terminal unlink/removal if not already unlinked. |
-| Known no match                    | Record removal of the complete subtree.                 |
-| Opaque barrier                    | Retain; do not infer emptiness.                         |
-| Empty supported conditional       | Record post-order removal.                              |
+The first implemented relational domain is typed physical `margin` and
+`padding`:
 
-Topology may already exclude a logically retired endpoint from live adjacency.
-S4 must not expose edges late; the S1-S3 commit that caused emptiness performs
-the local unlink and queue insertion.
+- shorthand effects use a four-bit top/right/bottom/left mask;
+- physical longhands use the corresponding single bit;
+- normal and important declarations use independent histories;
+- logical properties, `all`, CSS-wide forms, variables, unparsed values, and
+  nested-declaration boundaries clear the relevant proof history; and
+- other property families retain the existing exact-only behavior.
 
-### Declaration input states
+These barriers produce `NoChange`; S4 never converts an opaque occurrence into
+a typed declaration.
 
-| State                        | Available representation                                     |
-| ---------------------------- | ------------------------------------------------------------ |
-| All effects of origin live   | Reuse authored origin.                                       |
-| All effects dead             | Omit origin.                                                 |
-| Partial typed shorthand live | Reuse an exact equivalent sequence or emit proven longhands. |
-| Ordered fallback chain       | Preserve order unless a target proof permits removal.        |
-| Opaque/recovered occurrence  | Reuse authored origin.                                       |
-| Synthesized exact effects    | Materialize typed declarations.                              |
-
-If S2 returned `NoChange`, S4 cannot turn the same relationship into an
-optimization. Representation planning does not prove liveness.
-
-### Synthesized-rule input state
-
-Every committed S3 rule supplies its final `RuleId`, `DeclarationBlockId`,
-validated selector union, EffectiveKey, common effect sequence, selector-arm
-origins, declaration origins, and owning rule list/segment. S4 does not rerun
-the partition or choose an insertion position.
-
-## Declaration plan
+## Plan state
 
 ```rust,ignore
-enum AstDeclarationPlan<'ast> {
-    ReuseOrigins(SmallVec<[DeclarationOccurrenceId; 4]>),
-    Materialize(TypedDeclarationPlan<'ast>),
-    Mixed {
-        retained_origins: SmallVec<[DeclarationOccurrenceId; 4]>,
-        replacements: SmallVec<[TypedDeclarationPlan<'ast>; 4]>,
+enum AstDeclarationPlanKind {
+    MaterializeBoxLonghands {
+        family: BoxFamily,
+        live_effects: u8,
     },
 }
+
+struct AstDeclarationPlan<'ast> {
+    origin: DeclarationId<'ast>,
+    owner: DeclarationBlockId<'ast>,
+    block_revision: u32,
+    effect_revision: u32,
+    important: bool,
+    kind: AstDeclarationPlanKind,
+}
 ```
 
-The plan also names its current `DeclarationBlockId`, owner revision, effect-IR
-revision, and required declaration-list representation. It does not contain a
-semantic insertion position: the block ID already encodes that position.
+`dirty_s4_plan_items` is deduplicated by declaration origin. A queued item may
+become fully dead before S4 runs; such an item is discarded because S2 already
+tombstoned it. An all-live origin is reused and needs no deferred plan.
 
-## Sequence representation states
+For a partially live typed shorthand, S4 records the live mask and current
+dependencies. It does not extract values or allocate AST declarations. Values
+remain owned by the authored shorthand until terminal commit.
 
-Choose the smallest lossless option:
+## Representation follow-up
 
-1. retain/coalesce an exact consecutive authored `Range`;
-2. use `Local4` for at most four small local/synthesized declarations whose
-   sub-IDs fit the low two property bits; or
-3. allocate a complete ordered `Overflow` list.
+S1 concatenation and S5 one-to-many replacement can expose new block-local
+shorthand opportunities. Those owner blocks are recorded in a deduplicated
+representation-dirty list. After S5, the existing local declaration minifier
+runs only for those blocks. This can recombine four adjacent live physical
+longhands while preserving non-adjacent authored origins.
 
-A range must never include a live declaration owned by a nested or neighboring
-block. `Overflow` contains the complete sequence, not only the nonconsecutive
-suffix.
-
-Representation choice may consider output size only among already proven
-equivalent choices.
-
-## Direct versus deferred commit
-
-When the representation is already known during S1-S3, commit it in that
-stage's atomic AST transaction and mark S4 complete for the block. Otherwise
-store one deferred plan in pass-local block state. S5 materializes it after the
-fixed point.
-
-This avoids a second AST graph while keeping fallible/complex representation
-work outside partially committed mutations.
-
-### Current implementation boundary
-
-The implemented S2 removes only completely identical obsolete declaration
-occurrences, and S3 moves only complete equal declarations. Those cases always
-know their final `Range`, `Local4`, or complete `Overflow` representation during
-the S1-S3 transaction. Therefore the current dirty-S4 set is empty by
-construction. Partially live shorthand/effect work remains `NoChange`; it must
-introduce the deferred S4 plan described here before that broader semantic
-optimization can commit.
-
-## Examples
-
-### Example 1: exact pruning
+For example:
 
 ```css
-a {
-  color: red;
-  color: blue;
-}
+a { margin-top: 1px; margin-right: 2px }
+a { margin-bottom: 3px; margin-left: 4px }
 ```
 
-S2 marks the first occurrence dead. S4 chooses
-`ReuseOrigins([color:blue])`; the block can retain a compact range or materialize
-the one live origin.
-
-### Example 2: reusing an S1 sequence
-
-S1 selects the right rule as the live owner of the left-then-right declaration
-sequence. If both authored ranges remain exact and consecutive, S4 coalesces
-them. Otherwise it chooses one complete overflow sequence without changing
-their AST occurrence order.
-
-### Example 3: partially live shorthand
+S1 first creates one declaration chain. The block-local follow-up then emits:
 
 ```css
-a {
-  margin: 1px;
-  margin-left: 2px;
-}
+a { margin: 1px 2px 3px 4px }
 ```
 
-If the effect resolver proves only three shorthand components remain live, S4
-either retains an exactly equivalent authored sequence or materializes the
-three proven longhands plus the authored `margin-left` in exact order.
-
-### Example 4: ordered fallback chain
-
-When multiple authored values form a compatibility fallback chain, S4 retains
-their origin order unless S2 already proved an occurrence dead for the active
-target policy. Representation planning never sorts or deduplicates fallbacks.
-
-### Example 5: synthesized S3 block
+For a non-adjacent partial override, the earlier shorthand remains at its
+original rule and S4 plans only its surviving longhands:
 
 ```css
-a {
-  color: red;
-  margin: 0;
-}
-b {
-  color: red;
-  padding: 0;
-}
+.a { margin: 1px }
+.middle { display: block }
+.a { margin-left: 2px }
 ```
 
-S3 has already inserted the `a,b` rule/block at its Radix position. S4 chooses
-the declaration list for its `color:red` effect; it does not choose where the
-rule goes.
+becomes:
 
-## Completion condition
+```css
+.a { margin-top: 1px; margin-right: 1px; margin-bottom: 1px }
+.middle { display: block }
+.a { margin-left: 2px }
+```
 
-S4 is complete when every retained non-empty effect sequence has a current
-lossless representation and every pending removal has a current owner/topology
-revision.
+## Completion and invariants
 
-Any plan revision change enqueues affected dependencies before terminal commit.
-An inability to produce a lossless plan means S2 or S3 accepted invalid state;
-S4 must not guess.
+S4 is complete when its dirty queue is empty and every stored plan has current
+owner, block, effect, and importance snapshots.
 
-## Invariants
-
-- S4 never changes semantic liveness.
-- Every retained fallback and opaque origin preserves exact order.
-- Every typed replacement comes from proven effects.
-- Every plan is keyed by AST IDs and current revisions.
-- No plan contains `SemanticOrderKey` or synthesized insertion position.
-- S4 does not rebuild rules, declaration blocks, or EffectiveKeys.
-- S5 can apply a complete plan without making semantic choices.
+- S4 never changes semantic liveness or AST topology.
+- Every replacement is typed and derived from the authored shorthand.
+- Replacement order is top, right, bottom, left.
+- Fallback and opaque occurrence order remains unchanged.
+- No plan stores a semantic insertion position.
+- S5 can apply every plan without a semantic or profitability decision.
