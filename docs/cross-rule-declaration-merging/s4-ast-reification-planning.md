@@ -87,31 +87,53 @@ longhands while preserving non-adjacent authored origins.
 For example:
 
 ```css
-a { margin-top: 1px; margin-right: 2px }
-a { margin-bottom: 3px; margin-left: 4px }
+a {
+  margin-top: 1px;
+  margin-right: 2px;
+}
+a {
+  margin-bottom: 3px;
+  margin-left: 4px;
+}
 ```
 
 S1 first creates one declaration chain. The block-local follow-up then emits:
 
 ```css
-a { margin: 1px 2px 3px 4px }
+a {
+  margin: 1px 2px 3px 4px;
+}
 ```
 
 For a non-adjacent partial override, the earlier shorthand remains at its
 original rule and S4 plans only its surviving longhands:
 
 ```css
-.a { margin: 1px }
-.middle { display: block }
-.a { margin-left: 2px }
+.a {
+  margin: 1px;
+}
+.middle {
+  display: block;
+}
+.a {
+  margin-left: 2px;
+}
 ```
 
 becomes:
 
 ```css
-.a { margin-top: 1px; margin-right: 1px; margin-bottom: 1px }
-.middle { display: block }
-.a { margin-left: 2px }
+.a {
+  margin-top: 1px;
+  margin-right: 1px;
+  margin-bottom: 1px;
+}
+.middle {
+  display: block;
+}
+.a {
+  margin-left: 2px;
+}
 ```
 
 ## Completion and invariants
