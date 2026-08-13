@@ -139,6 +139,26 @@ fn cross_rule_box_ir_respects_options_importance_and_opaque_barriers() {
 }
 
 #[test]
+fn cross_rule_box_ir_treats_opaque_shorthands_as_materialization_barriers() {
+    assert_eq!(
+        run("a{margin:inherit}.x{display:block}a{margin-left:2px}"),
+        "a{margin:inherit}.x{display:block}a{margin-left:2px}"
+    );
+    assert_eq!(
+        run("a{padding:unset}.x{display:block}a{padding-top:2px}"),
+        "a{padding:unset}.x{display:block}a{padding-top:2px}"
+    );
+    assert_eq!(
+        run("a{margin:var(--m)}.x{display:block}a{margin-right:2px}"),
+        "a{margin:var(--m)}.x{display:block}a{margin-right:2px}"
+    );
+    assert_eq!(
+        run("a{padding:var(--p)}.x{display:block}a{padding-bottom:2px}"),
+        "a{padding:var(--p)}.x{display:block}a{padding-bottom:2px}"
+    );
+}
+
+#[test]
 fn s2_preserves_the_position_of_a_longhand_folded_into_a_shorthand() {
     assert_eq!(
         run(".a{margin:1px}div{margin-left:3px}.a{margin-left:2px}"),

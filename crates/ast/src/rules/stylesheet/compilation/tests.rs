@@ -843,24 +843,57 @@ fn declaration_sequence_rewrite_is_atomic_on_capacity_failure() {
     let declaration = compilation
         .append_declaration(block, String::from("authored"), true)
         .unwrap();
-    let revision = compilation.declaration_block(block).unwrap().revision();
-
-    assert_eq!(
-        compilation.rewrite_declaration_with_sequence(
-            block,
-            declaration,
-            usize::MAX,
-            String::from("placeholder"),
-            |_, _| unreachable!("capacity failure must happen before payload transfer"),
-        ),
-        Err(MutationError::<u8>::DeclarationCapacityExhausted)
+    let block_before = compilation.declaration_block(block).unwrap();
+    let endpoints_before = (
+        block_before.first_declaration,
+        block_before.last_declaration,
+        block_before.declaration_count(),
     );
+    let revision = block_before.revision();
+    let chain_before = compilation
+        .declaration_ids_in_block(block)
+        .unwrap()
+        .collect::<std::vec::Vec<_>>();
+    let next_before = compilation.declaration(declaration).unwrap().next_in_block;
+    let callback_executed = std::cell::Cell::new(false);
+
+    for additional in [u32::MAX as usize, usize::MAX] {
+        assert_eq!(
+            compilation.rewrite_declaration_with_sequence(
+                block,
+                declaration,
+                additional,
+                String::from("placeholder"),
+                |_, _| {
+                    callback_executed.set(true);
+                    unreachable!("capacity failure must happen before payload transfer")
+                },
+            ),
+            Err(MutationError::<u8>::DeclarationCapacityExhausted)
+        );
+        assert!(!callback_executed.get());
+    }
+
     let record = compilation.declaration(declaration).unwrap();
     assert_eq!(record.payload(), "authored");
     assert!(record.is_important());
+    assert_eq!(record.next_in_block, next_before);
+    let block_after = compilation.declaration_block(block).unwrap();
     assert_eq!(
-        compilation.declaration_block(block).unwrap().revision(),
-        revision
+        (
+            block_after.first_declaration,
+            block_after.last_declaration,
+            block_after.declaration_count(),
+        ),
+        endpoints_before
+    );
+    assert_eq!(block_after.revision(), revision);
+    assert_eq!(
+        compilation
+            .declaration_ids_in_block(block)
+            .unwrap()
+            .collect::<std::vec::Vec<_>>(),
+        chain_before
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
 }
