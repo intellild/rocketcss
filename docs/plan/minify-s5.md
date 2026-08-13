@@ -19,13 +19,13 @@ partially live `margin` and `padding` shorthands:
 - `AstDeclarationPlan` snapshots owner, block revision, effect revision,
   importance, family, and live-effect mask in
   `crates/nano/src/cross_rule_declaration_merging/radix_state.rs`;
-- `CrossRuleState::finish` validates those snapshots, preflights aggregate
+- `CrossRuleState::commit_s5` validates those snapshots, preflights aggregate
   declaration growth, and applies every plan;
 - `RadixCompilation::rewrite_declaration_with_sequence` in
   `crates/ast/src/rules/stylesheet/compilation/mutation.rs` preserves the
   authored origin ID and supports non-contiguous declaration chains; and
 - `crates/nano/src/lib.rs` reruns block-local representation minification for
-  the deduplicated dirty blocks returned by `finish`.
+  the deduplicated dirty blocks returned by `commit_s5`.
 
 S5 therefore should harden and make this boundary explicit rather than add a
 second reification path.

@@ -162,13 +162,13 @@
       "test": "should add extra spaces when converting rgb (3)",
       "input": "h1{background:rgb(1,2,3)url(bar.png)}",
       "expected": "h1{background:#010203 url(bar.png)}",
-      "rocketcssSkip": "rgb-in-gradient spacing policy differs"
+      "rocketcssSkip": "background shorthand color/resource normalization and separator spacing not implemented"
     },
     {
       "test": "should save extra spaces when converting hex",
       "input": "h1{background:#F0FFFF url(bar.png)}",
       "expected": "h1{background:azure url(bar.png)}",
-      "rocketcssSkip": "rgb-in-gradient spacing policy differs"
+      "rocketcssSkip": "background shorthand color/resource normalization and separator spacing not implemented"
     },
     {
       "test": "should passthrough css variables named as a color",

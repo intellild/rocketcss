@@ -157,6 +157,18 @@ async function readRocketcssSkips(output) {
   return skipsByFile;
 }
 
+function countRocketcssSkips(skipsByFile) {
+  return [...skipsByFile.values()].reduce(
+    (total, skipsByCase) =>
+      total +
+      [...skipsByCase.values()].reduce(
+        (fileTotal, reasons) => fileTotal + reasons.length,
+        0,
+      ),
+    0,
+  );
+}
+
 async function main() {
   const rawArguments = process.argv.slice(2);
   if (
@@ -179,6 +191,7 @@ async function main() {
   }
   const revision = await gitRevision(options.cssnano);
   const existingRocketcssSkips = await readRocketcssSkips(options.output);
+  const previousRocketcssSkips = countRocketcssSkips(existingRocketcssSkips);
 
   const packages = (await readdir(packagesRoot, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
@@ -190,7 +203,6 @@ async function main() {
 
   let totalCases = 0;
   let totalFiles = 0;
-  let preservedRocketcssSkips = 0;
   for (const packageName of packages) {
     for (const testDirName of ["test", "tests", "__tests__"]) {
       const testRoot = path.join(packagesRoot, packageName, testDirName);
@@ -227,7 +239,6 @@ async function main() {
           const reason = reasons?.shift();
           if (reason) {
             recordedCase.rocketcssSkip = reason;
-            preservedRocketcssSkips += 1;
           }
         }
         await writeFile(
@@ -252,19 +263,11 @@ async function main() {
       `\nrecorded ${totalCases} cases from ${totalFiles} test files -> ${path.relative(REPOSITORY_ROOT, options.output)}`,
     ),
   );
-  const previousRocketcssSkips = [...existingRocketcssSkips.values()].reduce(
-    (total, skipsByCase) =>
-      total +
-      [...skipsByCase.values()].reduce(
-        (fileTotal, reasons) => fileTotal + reasons.length,
-        0,
-      ),
-    0,
-  );
-  if (preservedRocketcssSkips !== previousRocketcssSkips) {
+  const staleRocketcssSkips = countRocketcssSkips(existingRocketcssSkips);
+  if (staleRocketcssSkips > 0) {
     console.log(
       chalk.yellow(
-        `${previousRocketcssSkips - preservedRocketcssSkips} rocketcssSkip annotations no longer match a recorded case; audit the refreshed corpus`,
+        `${staleRocketcssSkips} of ${previousRocketcssSkips} rocketcssSkip annotations no longer match a recorded case; audit the refreshed corpus`,
       ),
     );
   }

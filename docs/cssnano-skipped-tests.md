@@ -53,9 +53,7 @@ silently changing coverage.
 ## Verification
 
 ```sh
-pnpm upstream-tests status \
-  --lightningcss /data00/home/jinzhixin/rstack/lightningcss \
-  --cssnano /data00/home/jinzhixin/rstack/cssnano
+pnpm upstream-tests status
 cargo test -p rocketcss_tests --test fixtures minifies_static_fixtures
 cargo test -p rocketcss_tests --test fixtures minifies_dynamic_fixtures
 ```

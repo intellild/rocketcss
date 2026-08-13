@@ -361,7 +361,7 @@
       "test": "should clamp opacity to 1 maximum",
       "input": "h1{opacity:150;opacity:15;opacity:1.5}",
       "expected": "h1{opacity:1;opacity:1;opacity:1}",
-      "rocketcssSkip": "broken decimal tokens are preserved instead of repaired"
+      "rocketcssSkip": "opacity clamping not implemented"
     },
     {
       "test": "should clamp opacity to 0 minimum",

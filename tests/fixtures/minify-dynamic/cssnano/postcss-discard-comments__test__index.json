@@ -230,7 +230,7 @@
       "input": "@page{body{font-size:1em}}",
       "expected": "@page{body{font-size:1em}}",
       "passthrough": true,
-      "rocketcssSkip": "comment discard/retention is outside typed property coverage"
+      "rocketcssSkip": "parser rejects nested qualified rules in @page"
     },
     {
       "test": "should work with single line comments",
