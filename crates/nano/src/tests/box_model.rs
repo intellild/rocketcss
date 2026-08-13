@@ -184,6 +184,73 @@ fn s2_preserves_parent_declaration_positions_around_a_nested_rule() {
     );
 }
 
+#[test]
+fn s5_materializes_every_partial_box_live_side_count() {
+    assert_eq!(
+        run(
+            ".a{margin:1px 2px 3px 4px}.x{display:block}.a{margin-right:5px;margin-bottom:6px;margin-left:7px}"
+        ),
+        ".a{margin-top:1px}.x{display:block}.a{margin-right:5px;margin-bottom:6px;margin-left:7px}"
+    );
+    assert_eq!(
+        run(".a{margin:1px 2px 3px 4px}.x{display:block}.a{margin-bottom:6px;margin-left:7px}"),
+        ".a{margin-top:1px;margin-right:2px}.x{display:block}.a{margin-bottom:6px;margin-left:7px}"
+    );
+    assert_eq!(
+        run(".a{margin:1px 2px 3px 4px}.x{display:block}.a{margin-left:7px}"),
+        ".a{margin-top:1px;margin-right:2px;margin-bottom:3px}.x{display:block}.a{margin-left:7px}"
+    );
+    assert_eq!(
+        run(
+            ".a{padding:1px 2px 3px 4px}.x{display:block}.a{padding-right:5px;padding-bottom:6px;padding-left:7px}"
+        ),
+        ".a{padding-top:1px}.x{display:block}.a{padding-right:5px;padding-bottom:6px;padding-left:7px}"
+    );
+    assert_eq!(
+        run(".a{padding:1px 2px 3px 4px}.x{display:block}.a{padding-bottom:6px;padding-left:7px}"),
+        ".a{padding-top:1px;padding-right:2px}.x{display:block}.a{padding-bottom:6px;padding-left:7px}"
+    );
+    assert_eq!(
+        run(".a{padding:1px 2px 3px 4px}.x{display:block}.a{padding-left:7px}"),
+        ".a{padding-top:1px;padding-right:2px;padding-bottom:3px}.x{display:block}.a{padding-left:7px}"
+    );
+}
+
+#[test]
+fn s5_preserves_origin_position_importance_and_noncontiguous_links() {
+    assert_eq!(
+        run(".a{color:red;margin:1px;background:blue}.x{display:block}.a{margin-left:2px}"),
+        ".a{color:red;margin-top:1px;margin-right:1px;margin-bottom:1px;background:#00f}.x{display:block}.a{margin-left:2px}"
+    );
+    assert_eq!(
+        run(".a{padding:1px!important}.x{display:block}.a{padding-left:2px!important}"),
+        ".a{padding-top:1px !important;padding-right:1px !important;padding-bottom:1px !important}.x{display:block}.a{padding-left:2px !important}"
+    );
+    assert_eq!(
+        run(
+            "a{width:1px;color:red}b{color:red}a,b{padding:1px}.x{display:block}a,b{padding-left:2px}"
+        ),
+        "a{width:1px}a,b{color:red;padding-top:1px;padding-right:1px;padding-bottom:1px}.x{display:block}a,b{padding-left:2px}"
+    );
+}
+
+#[test]
+fn s5_output_is_byte_idempotent_after_reparse() {
+    let source = ".a{margin:1px;color:red}.b{color:red}.a{margin-left:2px;padding:3px}.x{display:block}.a{padding-top:4px}";
+    let once = run(source);
+    let twice = run(&once);
+
+    assert_eq!(twice, once);
+
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut compilation =
+            parse(source, &allocator, &mut token, ParserOptions::default()).unwrap();
+        minify(&mut compilation, &mut token, MinifyOptions::default());
+        assert_eq!(compilation.validate_ast(), Ok(()));
+    });
+}
+
 fn unparsed_value_storage<'a>(
     stylesheet: &Compilation<'a>,
 ) -> (*const TokenOrValue<'a>, *const Token<'a>) {

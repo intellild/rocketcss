@@ -21,7 +21,12 @@ state-machine regressions. Its `state-machine/comprehensive/` fixture also
 records Lightning CSS and cssnano output next to RocketCSS's expected output so
 the three tools' current coverage can be compared directly.
 
-The current minifier emphasizes simple, in-place transforms within one AST
-node. Fixtures that still require cross-rule/declaration analysis, replacement
-AST allocation, or unsupported value transforms are kept for future work and
-skipped by `tests/src/minify.rs` rather than deleted.
+All copied fixtures supported by the current pipeline run by default. Precise
+static gaps remain visible in `tests/src/minify.rs`; dynamic CSSNano cases keep
+their skip reasons beside each case in `minify-dynamic/cssnano/*.json`.
+
+The 2026-08-13 audit runs 35 of 53 CSSNano static pairs and 15 of 32 Lightning
+CSS static pairs. It also runs 1239 of 2105 recorded CSSNano dynamic cases,
+with one upstream-disabled case and 865 explicit RocketCSS gaps. S5-specific
+guards cover CSSNano declaration deduplication and Lightning selector merging
+so a future broad skip cannot silently disable those groups.

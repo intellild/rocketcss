@@ -5,12 +5,14 @@
     {
       "test": "should remove unused prefixed namespace",
       "input": "@namespace svg url(http://www.w3.org/2000/svg);a{color:blue}",
-      "expected": "a{color:blue}"
+      "expected": "a{color:blue}",
+      "rocketcssSkip": "unused at-rule removal not implemented"
     },
     {
       "test": "should remove invalid namespace",
       "input": "@namespace",
-      "expected": ""
+      "expected": "",
+      "rocketcssSkip": "unused at-rule removal not implemented"
     },
     {
       "test": "shouldn't remove default namespace",

@@ -10,12 +10,14 @@
     {
       "test": "should sort selectors",
       "input": "h1,h10,H2,h7{color:red}",
-      "expected": "H2,h1,h10,h7{color:red}"
+      "expected": "H2,h1,h10,h7{color:red}",
+      "rocketcssSkip": "selector sorting not implemented"
     },
     {
       "test": "should keep comments in the selector",
       "input": ".newbackbtn,/*.searchall,*/.calNav{padding:5px;}",
-      "expected": "/*.searchall,*/.calNav,.newbackbtn{padding:5px;}"
+      "expected": "/*.searchall,*/.calNav,.newbackbtn{padding:5px;}",
+      "rocketcssSkip": "comment-in-selector handling differs"
     },
     {
       "test": "should keep comments in the selector (2)",
@@ -30,7 +32,8 @@
     {
       "test": "should keep comments in the selector (4)",
       "input": ":is(/*a*/.x/*b*/,/*c*/.y/*d*/), :is(.x,.y),{padding:5px;}",
-      "expected": ":is(/*a*/.x/*b*/,/*c*/.y/*d*/){padding:5px;}"
+      "expected": ":is(/*a*/.x/*b*/,/*c*/.y/*d*/){padding:5px;}",
+      "rocketcssSkip": "comment-in-selector handling differs"
     }
   ]
 }

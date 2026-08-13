@@ -293,8 +293,21 @@ async function localFixtureSummary() {
   const skipFunction = harnessSource.slice(
     harnessSource.indexOf("fn still_requires_unsupported_transform"),
   );
+  const unsupportedCasesStart = skipFunction.indexOf(
+    "let unsupported_cases = [",
+  );
+  const unsupportedCasesEnd = skipFunction.indexOf("];", unsupportedCasesStart);
+  if (unsupportedCasesStart === -1 || unsupportedCasesEnd === -1) {
+    throw new Error("could not locate the static minify unsupported-case list");
+  }
+  const unsupportedCasesSource = skipFunction.slice(
+    unsupportedCasesStart,
+    unsupportedCasesEnd,
+  );
   const skippedPatterns = [
-    ...skipFunction.matchAll(/"(\/(?:cssnano|lightningcss)\/[^"\n]+\/)"/g),
+    ...unsupportedCasesSource.matchAll(
+      /"(\/(?:cssnano|lightningcss)\/[^"\n]+\/)"/g,
+    ),
   ].map((match) => match[1]);
   const summary = {};
   for (const project of PROJECTS) {

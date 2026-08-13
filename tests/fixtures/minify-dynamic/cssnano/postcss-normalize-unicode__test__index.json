@@ -55,19 +55,22 @@
       "test": "should pass through css variables",
       "input": "@font-face{font-family:test;unicode-range:var(--caseInsensitive)}*{font-family:test}",
       "expected": "@font-face{font-family:test;unicode-range:var(--caseInsensitive)}*{font-family:test}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "parser: unicode-range var()"
     },
     {
       "test": "should pass through env variables",
       "input": "@font-face{font-family:test;unicode-range:env(foo-bar)}*{font-family:test}",
       "expected": "@font-face{font-family:test;unicode-range:env(foo-bar)}*{font-family:test}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "parser: unicode-range env()"
     },
     {
       "test": "should pass through initial",
       "input": "@font-face{font-family:test;unicode-range:initial}*{font-family:test}",
       "expected": "@font-face{font-family:test;unicode-range:initial}*{font-family:test}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "parser: unicode-range initial"
     },
     {
       "test": "should pass through unknown property",

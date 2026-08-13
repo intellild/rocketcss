@@ -15,7 +15,8 @@
     {
       "test": "should merge based on declarations, with a different property order",
       "input": "h1{color:red;line-height:1.5;font-size:2em}h2{font-size:2em;color:red;line-height:1.5}",
-      "expected": "h1,h2{color:red;line-height:1.5;font-size:2em}"
+      "expected": "h1,h2{color:red;line-height:1.5;font-size:2em}",
+      "rocketcssSkip": "declaration reordering is not part of the current movement proof"
     },
     {
       "test": "should merge based on selectors",
@@ -45,24 +46,28 @@
     {
       "test": "should merge in media queries (3)",
       "input": "@media print{h1{color:red;text-decoration:none}h2{text-decoration:none}}h3{text-decoration:none}",
-      "expected": "@media print{h1{color:red}h1,h2{text-decoration:none}}h3{text-decoration:none}"
+      "expected": "@media print{h1{color:red}h1,h2{text-decoration:none}}h3{text-decoration:none}",
+      "rocketcssSkip": "S3 intentionally skips declarations stored as unparsed values"
     },
     {
       "test": "should merge in media queries (4)",
       "input": "h3{text-decoration:none}@media print{h1{color:red;text-decoration:none}h2{text-decoration:none}}",
-      "expected": "h3{text-decoration:none}@media print{h1{color:red}h1,h2{text-decoration:none}}"
+      "expected": "h3{text-decoration:none}@media print{h1{color:red}h1,h2{text-decoration:none}}",
+      "rocketcssSkip": "S3 intentionally skips declarations stored as unparsed values"
     },
     {
       "test": "should not merge across media queries",
       "input": "@media screen and (max-width:480px){h1{display:block}}@media screen and (min-width:480px){h2{display:block}}",
       "expected": "@media screen and (max-width:480px){h1{display:block}}@media screen and (min-width:480px){h2{display:block}}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline converts media-query lengths"
     },
     {
       "test": "should not merge across media queries (2)",
       "input": "@media screen and (max-width:200px){h1{color:red}}@media screen and (min-width:480px){h1{display:block}}",
       "expected": "@media screen and (max-width:200px){h1{color:red}}@media screen and (min-width:480px){h1{display:block}}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline converts media-query lengths"
     },
     {
       "test": "should not merge across keyframes",
@@ -80,7 +85,8 @@
       "test": "should not merge across keyframes (3)",
       "input": "#foo {-webkit-animation-name:some-animation;-moz-animation-name:some-animation;-o-animation-name:some-animation;animation-name:some-animation}@-webkit-keyframes some-animation{100%{-webkit-transform:scale(2);transform:scale(2)}}@-moz-keyframes some-animation{100%{-moz-transform:scale(2);transform:scale(2)}}@-o-keyframes some-animation {100%{-o-transform:scale(2);transform:scale(2)}}@keyframes some-animation {100%{-webkit-transform:scale(2);-moz-transform:scale(2);-o-transform:scale(2);transform:scale(2)}}",
       "expected": "#foo {-webkit-animation-name:some-animation;-moz-animation-name:some-animation;-o-animation-name:some-animation;animation-name:some-animation}@-webkit-keyframes some-animation{100%{-webkit-transform:scale(2);transform:scale(2)}}@-moz-keyframes some-animation{100%{-moz-transform:scale(2);transform:scale(2)}}@-o-keyframes some-animation {100%{-o-transform:scale(2);transform:scale(2)}}@keyframes some-animation {100%{-webkit-transform:scale(2);-moz-transform:scale(2);-o-transform:scale(2);transform:scale(2)}}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline normalizes 100% keyframes to `to`"
     },
     {
       "test": "should not merge in different contexts",
@@ -98,7 +104,8 @@
       "test": "should not merge across container queries",
       "input": "@container (min-width: 200px) {\n  .mobile {\n     display: none;\n  }\n}\n@container (max-width: 100px) {\n  .notMobile {\n     display: none;\n  }\n}",
       "expected": "@container (min-width: 200px) {\n  .mobile {\n     display: none;\n  }\n}\n@container (max-width: 100px) {\n  .notMobile {\n     display: none;\n  }\n}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline converts container-query lengths"
     },
     {
       "test": "should perform partial merging of selectors",
@@ -108,12 +115,14 @@
     {
       "test": "should perform partial merging of selectors (2)",
       "input": "h1{color:red}h2{color:red;text-decoration:underline}h3{color:green;text-decoration:underline}",
-      "expected": "h1,h2{color:red}h2,h3{text-decoration:underline}h3{color:green}"
+      "expected": "h1,h2{color:red}h2,h3{text-decoration:underline}h3{color:green}",
+      "rocketcssSkip": "S3 intentionally skips declarations stored as unparsed values"
     },
     {
       "test": "should perform partial merging of selectors (3)",
       "input": "h1{color:red;text-decoration:underline}h2{text-decoration:underline;color:green}h3{font-weight:bold;color:green}",
-      "expected": "h1{color:red}h1,h2{text-decoration:underline}h2,h3{color:green}h3{font-weight:bold}"
+      "expected": "h1{color:red}h1,h2{text-decoration:underline}h2,h3{color:green}h3{font-weight:bold}",
+      "rocketcssSkip": "pipeline normalizes font-weight keywords"
     },
     {
       "test": "should perform partial merging of selectors (4)",
@@ -123,7 +132,8 @@
     {
       "test": "should perform partial merging of selectors (5)",
       "input": "h1{color:red;font-weight:bold}h2{font-weight:bold}h3{text-decoration:none}",
-      "expected": "h1{color:red}h1,h2{font-weight:bold}h3{text-decoration:none}"
+      "expected": "h1{color:red}h1,h2{font-weight:bold}h3{text-decoration:none}",
+      "rocketcssSkip": "pipeline normalizes font-weight keywords"
     },
     {
       "test": "should perform partial merging of selectors (6)",
@@ -144,7 +154,8 @@
       "test": "should not merge over-eagerly (cssnano#36 [case 3])",
       "input": ".foobam{font-family:serif;display:block}.barim{display:block;line-height:1}.bazaz{font-size:3em;font-family:serif}",
       "expected": ".foobam{font-family:serif;display:block}.barim{display:block;line-height:1}.bazaz{font-size:3em;font-family:serif}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "cssnano profitability policy is not part of the current design"
     },
     {
       "test": "should not merge over-eagerly (cssnano#36 [case 4])",
@@ -154,18 +165,21 @@
     {
       "test": "should merge multiple values (cssnano#49)",
       "input": "h1{border:1px solid red;background-color:red;background-position:50% 100%}h1{border:1px solid red;background-color:red}h1{border:1px solid red}",
-      "expected": "h1{border:1px solid red;background-color:red;background-position:50% 100%}"
+      "expected": "h1{border:1px solid red;background-color:red;background-position:50% 100%}",
+      "rocketcssSkip": "equal-value retirement preserves a different declaration occurrence order"
     },
     {
       "test": "should perform partial merging of selectors in the opposite direction",
       "input": "h1{color:black}h2{color:black;font-weight:bold}h3{color:black;font-weight:bold}",
-      "expected": "h1{color:black}h2,h3{color:black;font-weight:bold}"
+      "expected": "h1{color:black}h2,h3{color:black;font-weight:bold}",
+      "rocketcssSkip": "pipeline normalizes font-weight keywords"
     },
     {
       "test": "should not perform partial merging of selectors if the output would be longer",
       "input": ".test0{color:red;border:none;margin:0}.longlonglonglong{color:green;border:none;margin:0}",
       "expected": ".test0{color:red;border:none;margin:0}.longlonglonglong{color:green;border:none;margin:0}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "profitability thresholds are a deferred design choice"
     },
     {
       "test": "should merge vendor prefixed selectors when vendors are the same",
@@ -188,7 +202,8 @@
       "test": "should not merge mixed vendor prefixes (2)",
       "input": "input[type=range] { -webkit-appearance: none !important; } input[type=range]::-webkit-slider-runnable-track { height: 2px; width: 100px; background: red; border: none; } input[type=range]::-webkit-slider-thumb { -webkit-appearance: none !important; border: none; width: 10px; height: 10px; background: red; } input[type=range]::-moz-range-thumb { border: none; width: 10px; height: 10px; background: red; }",
       "expected": "input[type=range] { -webkit-appearance: none !important; } input[type=range]::-webkit-slider-runnable-track { height: 2px; width: 100px; background: red; border: none; } input[type=range]::-webkit-slider-thumb { -webkit-appearance: none !important; border: none; width: 10px; height: 10px; background: red; } input[type=range]::-moz-range-thumb { border: none; width: 10px; height: 10px; background: red; }",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline converts absolute lengths"
     },
     {
       "test": "should not merge mixed vendor prefixed and non-vendor prefixed",
@@ -199,17 +214,20 @@
     {
       "test": "should merge text-* properties",
       "input": "h1{color:red;text-align:right;text-decoration:underline}h2{text-align:right;text-decoration:underline}",
-      "expected": "h1{color:red}h1,h2{text-align:right;text-decoration:underline}"
+      "expected": "h1{color:red}h1,h2{text-align:right;text-decoration:underline}",
+      "rocketcssSkip": "S3 intentionally skips declarations stored as unparsed values"
     },
     {
       "test": "should merge text-* properties (2)",
       "input": "h1{color:red;text-align:right;text-decoration:underline}h2{text-align:right;text-decoration:underline;color:green}",
-      "expected": "h1{color:red}h1,h2{text-align:right;text-decoration:underline}h2{color:green}"
+      "expected": "h1{color:red}h1,h2{text-align:right;text-decoration:underline}h2{color:green}",
+      "rocketcssSkip": "S3 intentionally skips declarations stored as unparsed values"
     },
     {
       "test": "should merge text-* properties (3)",
       "input": "h1{background:white;color:red;text-align:right;text-decoration:underline}h2{text-align:right;text-decoration:underline;color:red}",
-      "expected": "h1{background:white}h1,h2{color:red;text-align:right;text-decoration:underline}"
+      "expected": "h1{background:white}h1,h2{color:red;text-align:right;text-decoration:underline}",
+      "rocketcssSkip": "S3 intentionally skips declarations stored as unparsed values"
     },
     {
       "test": "should merge text-* properties (4)",
@@ -219,13 +237,15 @@
     {
       "test": "should merge text-* properties (5)",
       "input": "h1{text-align:left;text-transform:small-caps}h2{text-align:right;text-transform:small-caps}",
-      "expected": "h1{text-align:left}h1,h2{text-transform:small-caps}h2{text-align:right}"
+      "expected": "h1{text-align:left}h1,h2{text-transform:small-caps}h2{text-align:right}",
+      "rocketcssSkip": "S3 intentionally skips declarations stored as unparsed values"
     },
     {
       "test": "should not incorrectly extract transform properties",
       "input": "@keyframes a {0%{transform-origin:right bottom;transform:rotate(-90deg);opacity:0}100%{transform-origin:right bottom;transform:rotate(0);opacity:1}}",
       "expected": "@keyframes a {0%{transform-origin:right bottom;transform:rotate(-90deg);opacity:0}100%{transform-origin:right bottom;transform:rotate(0);opacity:1}}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline normalizes 100% keyframes to `to`"
     },
     {
       "test": "should not incorrectly extract background properties",
@@ -237,24 +257,28 @@
       "test": "should not incorrectly extract margin properties",
       "input": "h2{margin-bottom:20px}h1{margin:10px;margin-bottom:20px}",
       "expected": "h2{margin-bottom:20px}h1{margin:10px;margin-bottom:20px}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline folds typed margin overrides before cross-rule analysis"
     },
     {
       "test": "should not incorrectly extract margin properties (2)",
       "input": "h2{color:red;margin-bottom:20px}h1{color:red;margin:10px;margin-bottom:20px}",
-      "expected": "h2{margin-bottom:20px}h2,h1{color:red}h1{margin:10px;margin-bottom:20px}"
+      "expected": "h2{margin-bottom:20px}h2,h1{color:red}h1{margin:10px;margin-bottom:20px}",
+      "rocketcssSkip": "pipeline folds typed margin overrides before cross-rule analysis"
     },
     {
       "test": "should not incorrectly extract margin properties (3)",
       "input": "h2{margin:0;margin-bottom:20px}h1{margin:0;margin-top:20px}",
       "expected": "h2{margin:0;margin-bottom:20px}h1{margin:0;margin-top:20px}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline folds typed margin overrides before cross-rule analysis"
     },
     {
       "test": "should not incorrectly extract margin properties (4)",
       "input": "h2{margin:0}h1{margin-top:20px;margin:0}",
       "expected": "h2{margin:0}h1{margin-top:20px;margin:0}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline folds typed margin overrides before cross-rule analysis"
     },
     {
       "test": "should not incorrectly extract border properties",
@@ -265,7 +289,8 @@
     {
       "test": "should not incorrectly extract flex properties",
       "input": ".a { place-content: center; justify-content: start; } .b { justify-content: start; place-content: center; }",
-      "expected": ".a { place-content: center; } .a,.b { justify-content: start; } .b { place-content: center; }"
+      "expected": ".a { place-content: center; } .a,.b { justify-content: start; } .b { place-content: center; }",
+      "rocketcssSkip": "requires S3 selector factoring"
     },
     {
       "test": "should not incorrectly extract display properties",
@@ -276,48 +301,57 @@
     {
       "test": "should handle selector hacks",
       "input": ".classA{*zoom:1}.classB{box-sizing:border-box;position:relative;min-height:100%}.classC{box-sizing:border-box;position:relative}.classD{box-sizing:border-box;position:relative}",
-      "expected": ".classA{*zoom:1}.classB{min-height:100%}.classB,.classC,.classD{box-sizing:border-box;position:relative}"
+      "expected": ".classA{*zoom:1}.classB{min-height:100%}.classB,.classC,.classD{box-sizing:border-box;position:relative}",
+      "rocketcssSkip": "parser: legacy star-property hack"
     },
     {
       "test": "should handle empty rulesets",
       "input": "h1{h2{}h3{}}",
-      "expected": "h1{h2,h3{}}"
+      "expected": "h1{h2,h3{}}",
+      "rocketcssSkip": "requires S3 selector factoring"
     },
     {
       "test": "should not throw on charset declarations",
       "input": "@charset \"utf-8\";@charset \"utf-8\";@charset \"utf-8\";h1{}h2{}",
-      "expected": "@charset \"utf-8\";@charset \"utf-8\";@charset \"utf-8\";h1,h2{}"
+      "expected": "@charset \"utf-8\";@charset \"utf-8\";@charset \"utf-8\";h1,h2{}",
+      "rocketcssSkip": "requires S3 selector factoring"
     },
     {
       "test": "should not throw on comment nodes",
       "input": ".navbar-soft .navbar-nav > .active > a{color:#fff;background-color:#303030}.navbar-soft .navbar-nav > .open > a{color:#fff;background-color:rgba(48,48,48,0.8)}/* caret */.navbar-soft .navbar-nav > .dropdown > a .caret{border-top-color:#777;border-bottom-color:#777}",
       "expected": ".navbar-soft .navbar-nav > .active > a{color:#fff;background-color:#303030}.navbar-soft .navbar-nav > .open > a{color:#fff;background-color:rgba(48,48,48,0.8)}/* caret */.navbar-soft .navbar-nav > .dropdown > a .caret{border-top-color:#777;border-bottom-color:#777}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "comment removal and color normalization make the plugin-only expectation diverge"
     },
     {
       "test": "should not throw on comment nodes (2)",
       "input": "h1{color:black;background:blue/*test*/}h2{background:blue}",
-      "expected": "h1{color:black/*test*/}h1,h2{background:blue}"
+      "expected": "h1{color:black/*test*/}h1,h2{background:blue}",
+      "rocketcssSkip": "comment removal and color normalization make the plugin-only expectation diverge"
     },
     {
       "test": "should not be responsible for deduping declarations when merging",
       "input": "h1{display:block;display:block}h2{display:block;display:block}",
-      "expected": "h1,h2{display:block;display:block}"
+      "expected": "h1,h2{display:block;display:block}",
+      "rocketcssSkip": "the full pipeline deduplicates declarations before rule merging"
     },
     {
       "test": "should not be responsible for deduping selectors when merging",
       "input": "h1,h2{display:block}h2,h1{display:block}",
-      "expected": "h1,h2,h2,h1{display:block}"
+      "expected": "h1,h2,h2,h1{display:block}",
+      "rocketcssSkip": "the design canonicalizes synthesized selector unions immediately"
     },
     {
       "test": "should not merge across font face rules",
       "input": ".one, .two, .three { font-family: \"lorem\"; font-weight: normal; } .four { font-family: \"lorem\", serif; font-weight: normal; }.five { font-family: \"lorem\"; font-weight: normal; } @font-face { font-family: \"lorem\"; font-weight: normal; src: url(/assets/lorem.eot); src: url(/assets/lorem.eot?#iefix) format(\"embedded-opentype\"), url(/assets/lorem.woff) format(\"woff\"), url(/assets/lorem.ttf) format(\"truetype\"); }",
-      "expected": ".one, .two, .three { font-family: \"lorem\"; font-weight: normal; } .four { font-family: \"lorem\", serif; }.four,.five { font-weight: normal; }.five { font-family: \"lorem\"; } @font-face { font-family: \"lorem\"; font-weight: normal; src: url(/assets/lorem.eot); src: url(/assets/lorem.eot?#iefix) format(\"embedded-opentype\"), url(/assets/lorem.woff) format(\"woff\"), url(/assets/lorem.ttf) format(\"truetype\"); }"
+      "expected": ".one, .two, .three { font-family: \"lorem\"; font-weight: normal; } .four { font-family: \"lorem\", serif; }.four,.five { font-weight: normal; }.five { font-family: \"lorem\"; } @font-face { font-family: \"lorem\"; font-weight: normal; src: url(/assets/lorem.eot); src: url(/assets/lorem.eot?#iefix) format(\"embedded-opentype\"), url(/assets/lorem.woff) format(\"woff\"), url(/assets/lorem.ttf) format(\"truetype\"); }",
+      "rocketcssSkip": "font normalization and candidate selection differ in the full pipeline"
     },
     {
       "test": "should not merge across font face rules (2)",
       "input": ".foo { font-weight: normal; } .bar { font-family: \"my-font\"; font-weight: normal; } @font-face { font-family: \"my-font\"; font-weight: normal; src: url(\"my-font.ttf\"); }",
-      "expected": ".foo,.bar { font-weight: normal; } .bar { font-family: \"my-font\"; } @font-face { font-family: \"my-font\"; font-weight: normal; src: url(\"my-font.ttf\"); }"
+      "expected": ".foo,.bar { font-weight: normal; } .bar { font-family: \"my-font\"; } @font-face { font-family: \"my-font\"; font-weight: normal; src: url(\"my-font.ttf\"); }",
+      "rocketcssSkip": "font normalization and candidate selection differ in the full pipeline"
     },
     {
       "test": "should not merge conflicting rules",
@@ -328,7 +362,8 @@
     {
       "test": "should merge properties with vendor prefixes",
       "input": ".a{-webkit-transform: translateX(-50%) translateY(-50%) rotate(-90deg);-webkit-overflow-scrolling: touch}.b{-webkit-transform: translateX(-50%) translateY(-50%) rotate(-90deg);}",
-      "expected": ".a{-webkit-overflow-scrolling: touch}.a,.b{-webkit-transform: translateX(-50%) translateY(-50%) rotate(-90deg);}"
+      "expected": ".a{-webkit-overflow-scrolling: touch}.a,.b{-webkit-transform: translateX(-50%) translateY(-50%) rotate(-90deg);}",
+      "rocketcssSkip": "an unknown adjacent property prevents a typed movement proof"
     },
     {
       "test": "should respect property order and do nothing",
@@ -345,7 +380,8 @@
     {
       "test": "should respect property order and do nothing (3)",
       "input": ".fb-col-md-6 { color: red; border-color:blue; flex: 0 0 auto; flex-basis: 50%; } .fb-col-md-7 { color: red; border-color:blue; flex: 0 0 auto; flex-basis: 58.3%; }",
-      "expected": ".fb-col-md-6 { flex: 0 0 auto; flex-basis: 50%; } .fb-col-md-6,.fb-col-md-7 { color: red; border-color:blue; } .fb-col-md-7 { flex: 0 0 auto; flex-basis: 58.3%; }"
+      "expected": ".fb-col-md-6 { flex: 0 0 auto; flex-basis: 50%; } .fb-col-md-6,.fb-col-md-7 { color: red; border-color:blue; } .fb-col-md-7 { flex: 0 0 auto; flex-basis: 58.3%; }",
+      "rocketcssSkip": "flex shorthand fallback dependencies are not modeled"
     },
     {
       "test": "should respect property order and do nothing (4) (cssnano#160)",
@@ -385,7 +421,8 @@
     {
       "test": "should merge ::placeholder selectors when supported",
       "input": "::placeholder{color:blue}h1{color:blue}",
-      "expected": "::placeholder,h1{color:blue}"
+      "expected": "::placeholder,h1{color:blue}",
+      "rocketcssSkip": "requires S3 selector factoring"
     },
     {
       "test": "should not merge ::placeholder selectors based on Browserslist config [legacy] env",
@@ -408,17 +445,20 @@
     {
       "test": "should merge ::placeholder selectors based on Browserslist config [modern] env",
       "input": "::placeholder{color:blue}h1{color:blue}",
-      "expected": "::placeholder,h1{color:blue}"
+      "expected": "::placeholder,h1{color:blue}",
+      "rocketcssSkip": "requires S3 selector factoring"
     },
     {
       "test": "should merge ::placeholder selectors based on Browserslist config [modern] env using webpack file path",
       "input": "::placeholder{color:blue}h1{color:blue}",
-      "expected": "::placeholder,h1{color:blue}"
+      "expected": "::placeholder,h1{color:blue}",
+      "rocketcssSkip": "requires S3 selector factoring"
     },
     {
       "test": "should merge ::placeholder selectors based on Browserslist config [modern] env using custom path",
       "input": "::placeholder{color:blue}h1{color:blue}",
-      "expected": "::placeholder,h1{color:blue}"
+      "expected": "::placeholder,h1{color:blue}",
+      "rocketcssSkip": "requires S3 selector factoring"
     },
     {
       "test": "should not merge general sibling combinators",

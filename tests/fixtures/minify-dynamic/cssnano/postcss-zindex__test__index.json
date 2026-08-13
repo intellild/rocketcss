@@ -5,32 +5,38 @@
     {
       "test": "should optimise large z-index values",
       "input": "h1{z-index:9999}",
-      "expected": "h1{z-index:1}"
+      "expected": "h1{z-index:1}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should optimise large z-index values (2)",
       "input": "h1{Z-INDEX:9999}",
-      "expected": "h1{Z-INDEX:1}"
+      "expected": "h1{Z-INDEX:1}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should optimise multiple ascending z-index values",
       "input": "h1{z-index:150}h2{z-index:350}h3{z-index:600}",
-      "expected": "h1{z-index:1}h2{z-index:2}h3{z-index:3}"
+      "expected": "h1{z-index:1}h2{z-index:2}h3{z-index:3}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should optimise multiple descending z-index values",
       "input": "h1{z-index:600}h2{z-index:350}h3{z-index:150}",
-      "expected": "h1{z-index:3}h2{z-index:2}h3{z-index:1}"
+      "expected": "h1{z-index:3}h2{z-index:2}h3{z-index:1}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should optimise multiple unsorted z-index values",
       "input": "h1{z-index:5}h2{z-index:500}h3{z-index:40}h4{z-index:2}",
-      "expected": "h1{z-index:2}h2{z-index:4}h3{z-index:3}h4{z-index:1}"
+      "expected": "h1{z-index:2}h2{z-index:4}h3{z-index:3}h4{z-index:1}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should optimise !important z-index values",
       "input": "h1{z-index:1337!important}h2{z-index:9001!important}",
-      "expected": "h1{z-index:1!important}h2{z-index:2!important}"
+      "expected": "h1{z-index:1!important}h2{z-index:2!important}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should not optimise negative z-index values",
@@ -40,7 +46,8 @@
     {
       "test": "should not convert 0 values",
       "input": "h1{z-index:0}h2{z-index:10}",
-      "expected": "h1{z-index:0}h2{z-index:1}"
+      "expected": "h1{z-index:0}h2{z-index:1}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should not mangle inherit",
@@ -51,13 +58,15 @@
     {
       "test": "should not mangle auto",
       "input": "h1{z-index:auto}h2{z-index:2000}",
-      "expected": "h1{z-index:auto}h2{z-index:1}"
+      "expected": "h1{z-index:auto}h2{z-index:1}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should pass through when it doesn't find a z-index value",
       "input": "h1{color:#000;font-weight:bold}",
       "expected": "h1{color:#000;font-weight:bold}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "z-index rebasing not implemented"
     },
     {
       "test": "should abort early if any negative z-indices were found",
@@ -68,7 +77,8 @@
     {
       "test": "should accept a starting index",
       "input": ".a{z-index:20}",
-      "expected": ".a{z-index:15}"
+      "expected": ".a{z-index:15}",
+      "rocketcssSkip": "z-index rebasing not implemented"
     }
   ]
 }

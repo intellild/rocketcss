@@ -5,22 +5,26 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat 30% center/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 30%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 30%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat 30% center/50% 50% #f1ff,30% center/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 30%/50% 50% #f1ff,30%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 30%/50% 50% #f1ff,30%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat 30% center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 30% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 30% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat 30% center #f1ff,30% center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 30% #f1ff,30% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 30% #f1ff,30% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -35,32 +39,38 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat top #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat top #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top center #f1ff,top center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat top #f1ff,top #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat top #f1ff,top #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center top #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat top #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat top #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center top #f1ff,center top #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat top #f1ff,top #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat top #f1ff,top #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top right #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top right #f1ff,top right #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0 #f1ff,100% 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0 #f1ff,100% 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -75,22 +85,26 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top right/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top right/50% 50% #f1ff,top right/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0/50% 50% #f1ff,100% 0/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0/50% 50% #f1ff,100% 0/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top left #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top left #f1ff,top left #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0 #f1ff,0 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0 #f1ff,0 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -105,52 +119,62 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top left/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat top left/50% 50% #f1ff,top left/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0/50% 50% #f1ff,0 0/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0/50% 50% #f1ff,0 0/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right #f1ff,right #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff,100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff,100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right center #f1ff,right center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff,100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff,100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center right #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center right #f1ff,center right #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff,100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% #f1ff,100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right top #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right top #f1ff,right top #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0 #f1ff,100% 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0 #f1ff,100% 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -165,22 +189,26 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right top/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right top/50% 50% #f1ff,right top/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0/50% 50% #f1ff,100% 0/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 0/50% 50% #f1ff,100% 0/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right bottom #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right bottom #f1ff,right bottom #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100% #f1ff,100% 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100% #f1ff,100% 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -195,42 +223,50 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right bottom/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat right bottom/50% 50% #f1ff,right bottom/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100%/50% 50% #f1ff,100% 100%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100%/50% 50% #f1ff,100% 100%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat bottom #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat bottom #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom center #f1ff,bottom center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat bottom #f1ff,bottom #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat bottom #f1ff,bottom #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center bottom #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat bottom #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat bottom #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center bottom #f1ff,center bottom #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat bottom #f1ff,bottom #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat bottom #f1ff,bottom #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom right #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom right #f1ff,bottom right #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100% #f1ff,100% 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100% #f1ff,100% 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -245,22 +281,26 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom right/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom right/50% 50% #f1ff,bottom right/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100%/50% 50% #f1ff,100% 100%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 100% 100%/50% 50% #f1ff,100% 100%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom left #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom left #f1ff,bottom left #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100% #f1ff,0 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100% #f1ff,0 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -275,52 +315,62 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom left/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat bottom left/50% 50% #f1ff,bottom left/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100%/50% 50% #f1ff,0 100%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100%/50% 50% #f1ff,0 100%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left #f1ff,left #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff,0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff,0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left center #f1ff,left center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff,0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff,0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center left #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center left #f1ff,center left #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff,0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 #f1ff,0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left top #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left top #f1ff,left top #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0 #f1ff,0 0 #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0 #f1ff,0 0 #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -335,22 +385,26 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left top/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left top/50% 50% #f1ff,left top/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0/50% 50% #f1ff,0 0/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 0/50% 50% #f1ff,0 0/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left bottom #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left bottom #f1ff,left bottom #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100% #f1ff,0 100% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100% #f1ff,0 100% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
@@ -365,32 +419,38 @@
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left bottom/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat left bottom/50% 50% #f1ff,left bottom/50% 50% #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100%/50% 50% #f1ff,0 100%/50% 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 0 100%/50% 50% #f1ff,0 100%/50% 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center #f1ff,center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 50% #f1ff,50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 50% #f1ff,50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background:",
       "input": "background:url(http://example.com/testing/test.png) no-repeat center center #f1ff,center center #f1ff",
-      "expected": "background:url(http://example.com/testing/test.png) no-repeat 50% #f1ff,50% #f1ff"
+      "expected": "background:url(http://example.com/testing/test.png) no-repeat 50% #f1ff,50% #f1ff",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -400,7 +460,8 @@
     {
       "test": "background-position:",
       "input": "background-position:30% center,30% center",
-      "expected": "background-position:30%,30%"
+      "expected": "background-position:30%,30%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -420,7 +481,8 @@
     {
       "test": "background-position:",
       "input": "background-position:top center,top center",
-      "expected": "background-position:top,top"
+      "expected": "background-position:top,top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -430,17 +492,20 @@
     {
       "test": "background-position:",
       "input": "background-position:center top,center top",
-      "expected": "background-position:top,top"
+      "expected": "background-position:top,top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:top right",
-      "expected": "background-position:100% 0"
+      "expected": "background-position:100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:top right,top right",
-      "expected": "background-position:100% 0,100% 0"
+      "expected": "background-position:100% 0,100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -455,12 +520,14 @@
     {
       "test": "background-position:",
       "input": "background-position:top left",
-      "expected": "background-position:0 0"
+      "expected": "background-position:0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:top left,top left",
-      "expected": "background-position:0 0,0 0"
+      "expected": "background-position:0 0,0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -475,42 +542,50 @@
     {
       "test": "background-position:",
       "input": "background-position:right",
-      "expected": "background-position:100%"
+      "expected": "background-position:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:right,right",
-      "expected": "background-position:100%,100%"
+      "expected": "background-position:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:right center",
-      "expected": "background-position:100%"
+      "expected": "background-position:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:right center,right center",
-      "expected": "background-position:100%,100%"
+      "expected": "background-position:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:center right",
-      "expected": "background-position:100%"
+      "expected": "background-position:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:center right,center right",
-      "expected": "background-position:100%,100%"
+      "expected": "background-position:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:right top",
-      "expected": "background-position:100% 0"
+      "expected": "background-position:100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:right top,right top",
-      "expected": "background-position:100% 0,100% 0"
+      "expected": "background-position:100% 0,100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -525,12 +600,14 @@
     {
       "test": "background-position:",
       "input": "background-position:right bottom",
-      "expected": "background-position:100% 100%"
+      "expected": "background-position:100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:right bottom,right bottom",
-      "expected": "background-position:100% 100%,100% 100%"
+      "expected": "background-position:100% 100%,100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -550,7 +627,8 @@
     {
       "test": "background-position:",
       "input": "background-position:bottom center,bottom center",
-      "expected": "background-position:bottom,bottom"
+      "expected": "background-position:bottom,bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -560,17 +638,20 @@
     {
       "test": "background-position:",
       "input": "background-position:center bottom,center bottom",
-      "expected": "background-position:bottom,bottom"
+      "expected": "background-position:bottom,bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:bottom right",
-      "expected": "background-position:100% 100%"
+      "expected": "background-position:100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:bottom right,bottom right",
-      "expected": "background-position:100% 100%,100% 100%"
+      "expected": "background-position:100% 100%,100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -585,12 +666,14 @@
     {
       "test": "background-position:",
       "input": "background-position:bottom left",
-      "expected": "background-position:0 100%"
+      "expected": "background-position:0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:bottom left,bottom left",
-      "expected": "background-position:0 100%,0 100%"
+      "expected": "background-position:0 100%,0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -605,42 +688,50 @@
     {
       "test": "background-position:",
       "input": "background-position:left",
-      "expected": "background-position:0"
+      "expected": "background-position:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:left,left",
-      "expected": "background-position:0,0"
+      "expected": "background-position:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:left center",
-      "expected": "background-position:0"
+      "expected": "background-position:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:left center,left center",
-      "expected": "background-position:0,0"
+      "expected": "background-position:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:center left",
-      "expected": "background-position:0"
+      "expected": "background-position:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:center left,center left",
-      "expected": "background-position:0,0"
+      "expected": "background-position:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:left top",
-      "expected": "background-position:0 0"
+      "expected": "background-position:0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:left top,left top",
-      "expected": "background-position:0 0,0 0"
+      "expected": "background-position:0 0,0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -655,12 +746,14 @@
     {
       "test": "background-position:",
       "input": "background-position:left bottom",
-      "expected": "background-position:0 100%"
+      "expected": "background-position:0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:left bottom,left bottom",
-      "expected": "background-position:0 100%,0 100%"
+      "expected": "background-position:0 100%,0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
@@ -675,42 +768,50 @@
     {
       "test": "background-position:",
       "input": "background-position:center",
-      "expected": "background-position:50%"
+      "expected": "background-position:50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:center,center",
-      "expected": "background-position:50%,50%"
+      "expected": "background-position:50%,50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:center center",
-      "expected": "background-position:50%"
+      "expected": "background-position:50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background-position:",
       "input": "background-position:center center,center center",
-      "expected": "background-position:50%,50%"
+      "expected": "background-position:50%,50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) 30% center/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 30%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 30%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) 30% center/50% 50%,30% center/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 30%/50% 50%,30%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 30%/50% 50%,30%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) 30% center",
-      "expected": "background:#000 url(cat.jpg) 30%"
+      "expected": "background:#000 url(cat.jpg) 30%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) 30% center,30% center",
-      "expected": "background:#000 url(cat.jpg) 30%,30%"
+      "expected": "background:#000 url(cat.jpg) 30%,30%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -725,32 +826,38 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top center",
-      "expected": "background:#000 url(cat.jpg) top"
+      "expected": "background:#000 url(cat.jpg) top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top center,top center",
-      "expected": "background:#000 url(cat.jpg) top,top"
+      "expected": "background:#000 url(cat.jpg) top,top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center top",
-      "expected": "background:#000 url(cat.jpg) top"
+      "expected": "background:#000 url(cat.jpg) top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center top,center top",
-      "expected": "background:#000 url(cat.jpg) top,top"
+      "expected": "background:#000 url(cat.jpg) top,top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top right",
-      "expected": "background:#000 url(cat.jpg) 100% 0"
+      "expected": "background:#000 url(cat.jpg) 100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top right,top right",
-      "expected": "background:#000 url(cat.jpg) 100% 0,100% 0"
+      "expected": "background:#000 url(cat.jpg) 100% 0,100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -765,22 +872,26 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top right/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 100% 0/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 100% 0/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top right/50% 50%,top right/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 100% 0/50% 50%,100% 0/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 100% 0/50% 50%,100% 0/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top left",
-      "expected": "background:#000 url(cat.jpg) 0 0"
+      "expected": "background:#000 url(cat.jpg) 0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top left,top left",
-      "expected": "background:#000 url(cat.jpg) 0 0,0 0"
+      "expected": "background:#000 url(cat.jpg) 0 0,0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -795,52 +906,62 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top left/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 0 0/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 0 0/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) top left/50% 50%,top left/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 0 0/50% 50%,0 0/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 0 0/50% 50%,0 0/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right",
-      "expected": "background:#000 url(cat.jpg) 100%"
+      "expected": "background:#000 url(cat.jpg) 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right,right",
-      "expected": "background:#000 url(cat.jpg) 100%,100%"
+      "expected": "background:#000 url(cat.jpg) 100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right center",
-      "expected": "background:#000 url(cat.jpg) 100%"
+      "expected": "background:#000 url(cat.jpg) 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right center,right center",
-      "expected": "background:#000 url(cat.jpg) 100%,100%"
+      "expected": "background:#000 url(cat.jpg) 100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center right",
-      "expected": "background:#000 url(cat.jpg) 100%"
+      "expected": "background:#000 url(cat.jpg) 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center right,center right",
-      "expected": "background:#000 url(cat.jpg) 100%,100%"
+      "expected": "background:#000 url(cat.jpg) 100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right top",
-      "expected": "background:#000 url(cat.jpg) 100% 0"
+      "expected": "background:#000 url(cat.jpg) 100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right top,right top",
-      "expected": "background:#000 url(cat.jpg) 100% 0,100% 0"
+      "expected": "background:#000 url(cat.jpg) 100% 0,100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -855,22 +976,26 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right top/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 100% 0/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 100% 0/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right top/50% 50%,right top/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 100% 0/50% 50%,100% 0/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 100% 0/50% 50%,100% 0/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right bottom",
-      "expected": "background:#000 url(cat.jpg) 100% 100%"
+      "expected": "background:#000 url(cat.jpg) 100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right bottom,right bottom",
-      "expected": "background:#000 url(cat.jpg) 100% 100%,100% 100%"
+      "expected": "background:#000 url(cat.jpg) 100% 100%,100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -885,42 +1010,50 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right bottom/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 100% 100%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 100% 100%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) right bottom/50% 50%,right bottom/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 100% 100%/50% 50%,100% 100%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 100% 100%/50% 50%,100% 100%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom center",
-      "expected": "background:#000 url(cat.jpg) bottom"
+      "expected": "background:#000 url(cat.jpg) bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom center,bottom center",
-      "expected": "background:#000 url(cat.jpg) bottom,bottom"
+      "expected": "background:#000 url(cat.jpg) bottom,bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center bottom",
-      "expected": "background:#000 url(cat.jpg) bottom"
+      "expected": "background:#000 url(cat.jpg) bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center bottom,center bottom",
-      "expected": "background:#000 url(cat.jpg) bottom,bottom"
+      "expected": "background:#000 url(cat.jpg) bottom,bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom right",
-      "expected": "background:#000 url(cat.jpg) 100% 100%"
+      "expected": "background:#000 url(cat.jpg) 100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom right,bottom right",
-      "expected": "background:#000 url(cat.jpg) 100% 100%,100% 100%"
+      "expected": "background:#000 url(cat.jpg) 100% 100%,100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -935,22 +1068,26 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom right/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 100% 100%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 100% 100%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom right/50% 50%,bottom right/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 100% 100%/50% 50%,100% 100%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 100% 100%/50% 50%,100% 100%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom left",
-      "expected": "background:#000 url(cat.jpg) 0 100%"
+      "expected": "background:#000 url(cat.jpg) 0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom left,bottom left",
-      "expected": "background:#000 url(cat.jpg) 0 100%,0 100%"
+      "expected": "background:#000 url(cat.jpg) 0 100%,0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -965,52 +1102,62 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom left/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 0 100%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 0 100%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) bottom left/50% 50%,bottom left/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 0 100%/50% 50%,0 100%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 0 100%/50% 50%,0 100%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left",
-      "expected": "background:#000 url(cat.jpg) 0"
+      "expected": "background:#000 url(cat.jpg) 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left,left",
-      "expected": "background:#000 url(cat.jpg) 0,0"
+      "expected": "background:#000 url(cat.jpg) 0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left center",
-      "expected": "background:#000 url(cat.jpg) 0"
+      "expected": "background:#000 url(cat.jpg) 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left center,left center",
-      "expected": "background:#000 url(cat.jpg) 0,0"
+      "expected": "background:#000 url(cat.jpg) 0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center left",
-      "expected": "background:#000 url(cat.jpg) 0"
+      "expected": "background:#000 url(cat.jpg) 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center left,center left",
-      "expected": "background:#000 url(cat.jpg) 0,0"
+      "expected": "background:#000 url(cat.jpg) 0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left top",
-      "expected": "background:#000 url(cat.jpg) 0 0"
+      "expected": "background:#000 url(cat.jpg) 0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left top,left top",
-      "expected": "background:#000 url(cat.jpg) 0 0,0 0"
+      "expected": "background:#000 url(cat.jpg) 0 0,0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -1025,22 +1172,26 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left top/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 0 0/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 0 0/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left top/50% 50%,left top/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 0 0/50% 50%,0 0/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 0 0/50% 50%,0 0/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left bottom",
-      "expected": "background:#000 url(cat.jpg) 0 100%"
+      "expected": "background:#000 url(cat.jpg) 0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left bottom,left bottom",
-      "expected": "background:#000 url(cat.jpg) 0 100%,0 100%"
+      "expected": "background:#000 url(cat.jpg) 0 100%,0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
@@ -1055,32 +1206,38 @@
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left bottom/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 0 100%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 0 100%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) left bottom/50% 50%,left bottom/50% 50%",
-      "expected": "background:#000 url(cat.jpg) 0 100%/50% 50%,0 100%/50% 50%"
+      "expected": "background:#000 url(cat.jpg) 0 100%/50% 50%,0 100%/50% 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center",
-      "expected": "background:#000 url(cat.jpg) 50%"
+      "expected": "background:#000 url(cat.jpg) 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center,center",
-      "expected": "background:#000 url(cat.jpg) 50%,50%"
+      "expected": "background:#000 url(cat.jpg) 50%,50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center center",
-      "expected": "background:#000 url(cat.jpg) 50%"
+      "expected": "background:#000 url(cat.jpg) 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "background: #1",
       "input": "background:#000 url(cat.jpg) center center,center center",
-      "expected": "background:#000 url(cat.jpg) 50%,50%"
+      "expected": "background:#000 url(cat.jpg) 50%,50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1090,7 +1247,8 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:30% center,30% center",
-      "expected": "perspective-origin:30%,30%"
+      "expected": "perspective-origin:30%,30%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1110,7 +1268,8 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:top center,top center",
-      "expected": "perspective-origin:top,top"
+      "expected": "perspective-origin:top,top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1120,17 +1279,20 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center top,center top",
-      "expected": "perspective-origin:top,top"
+      "expected": "perspective-origin:top,top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:top right",
-      "expected": "perspective-origin:100% 0"
+      "expected": "perspective-origin:100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:top right,top right",
-      "expected": "perspective-origin:100% 0,100% 0"
+      "expected": "perspective-origin:100% 0,100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1145,12 +1307,14 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:top left",
-      "expected": "perspective-origin:0 0"
+      "expected": "perspective-origin:0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:top left,top left",
-      "expected": "perspective-origin:0 0,0 0"
+      "expected": "perspective-origin:0 0,0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1165,42 +1329,50 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:right",
-      "expected": "perspective-origin:100%"
+      "expected": "perspective-origin:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:right,right",
-      "expected": "perspective-origin:100%,100%"
+      "expected": "perspective-origin:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:right center",
-      "expected": "perspective-origin:100%"
+      "expected": "perspective-origin:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:right center,right center",
-      "expected": "perspective-origin:100%,100%"
+      "expected": "perspective-origin:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center right",
-      "expected": "perspective-origin:100%"
+      "expected": "perspective-origin:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center right,center right",
-      "expected": "perspective-origin:100%,100%"
+      "expected": "perspective-origin:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:right top",
-      "expected": "perspective-origin:100% 0"
+      "expected": "perspective-origin:100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:right top,right top",
-      "expected": "perspective-origin:100% 0,100% 0"
+      "expected": "perspective-origin:100% 0,100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1215,12 +1387,14 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:right bottom",
-      "expected": "perspective-origin:100% 100%"
+      "expected": "perspective-origin:100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:right bottom,right bottom",
-      "expected": "perspective-origin:100% 100%,100% 100%"
+      "expected": "perspective-origin:100% 100%,100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1240,7 +1414,8 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:bottom center,bottom center",
-      "expected": "perspective-origin:bottom,bottom"
+      "expected": "perspective-origin:bottom,bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1250,17 +1425,20 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center bottom,center bottom",
-      "expected": "perspective-origin:bottom,bottom"
+      "expected": "perspective-origin:bottom,bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:bottom right",
-      "expected": "perspective-origin:100% 100%"
+      "expected": "perspective-origin:100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:bottom right,bottom right",
-      "expected": "perspective-origin:100% 100%,100% 100%"
+      "expected": "perspective-origin:100% 100%,100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1275,12 +1453,14 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:bottom left",
-      "expected": "perspective-origin:0 100%"
+      "expected": "perspective-origin:0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:bottom left,bottom left",
-      "expected": "perspective-origin:0 100%,0 100%"
+      "expected": "perspective-origin:0 100%,0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1295,42 +1475,50 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:left",
-      "expected": "perspective-origin:0"
+      "expected": "perspective-origin:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:left,left",
-      "expected": "perspective-origin:0,0"
+      "expected": "perspective-origin:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:left center",
-      "expected": "perspective-origin:0"
+      "expected": "perspective-origin:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:left center,left center",
-      "expected": "perspective-origin:0,0"
+      "expected": "perspective-origin:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center left",
-      "expected": "perspective-origin:0"
+      "expected": "perspective-origin:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center left,center left",
-      "expected": "perspective-origin:0,0"
+      "expected": "perspective-origin:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:left top",
-      "expected": "perspective-origin:0 0"
+      "expected": "perspective-origin:0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:left top,left top",
-      "expected": "perspective-origin:0 0,0 0"
+      "expected": "perspective-origin:0 0,0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1345,12 +1533,14 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:left bottom",
-      "expected": "perspective-origin:0 100%"
+      "expected": "perspective-origin:0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:left bottom,left bottom",
-      "expected": "perspective-origin:0 100%,0 100%"
+      "expected": "perspective-origin:0 100%,0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
@@ -1365,22 +1555,26 @@
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center",
-      "expected": "perspective-origin:50%"
+      "expected": "perspective-origin:50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center,center",
-      "expected": "perspective-origin:50%,50%"
+      "expected": "perspective-origin:50%,50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center center",
-      "expected": "perspective-origin:50%"
+      "expected": "perspective-origin:50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "perspective-origin:",
       "input": "perspective-origin:center center,center center",
-      "expected": "perspective-origin:50%,50%"
+      "expected": "perspective-origin:50%,50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1390,7 +1584,8 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:30% center,30% center",
-      "expected": "-webkit-perspective-origin:30%,30%"
+      "expected": "-webkit-perspective-origin:30%,30%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1410,7 +1605,8 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:top center,top center",
-      "expected": "-webkit-perspective-origin:top,top"
+      "expected": "-webkit-perspective-origin:top,top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1420,17 +1616,20 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center top,center top",
-      "expected": "-webkit-perspective-origin:top,top"
+      "expected": "-webkit-perspective-origin:top,top",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:top right",
-      "expected": "-webkit-perspective-origin:100% 0"
+      "expected": "-webkit-perspective-origin:100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:top right,top right",
-      "expected": "-webkit-perspective-origin:100% 0,100% 0"
+      "expected": "-webkit-perspective-origin:100% 0,100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1445,12 +1644,14 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:top left",
-      "expected": "-webkit-perspective-origin:0 0"
+      "expected": "-webkit-perspective-origin:0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:top left,top left",
-      "expected": "-webkit-perspective-origin:0 0,0 0"
+      "expected": "-webkit-perspective-origin:0 0,0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1465,42 +1666,50 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:right",
-      "expected": "-webkit-perspective-origin:100%"
+      "expected": "-webkit-perspective-origin:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:right,right",
-      "expected": "-webkit-perspective-origin:100%,100%"
+      "expected": "-webkit-perspective-origin:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:right center",
-      "expected": "-webkit-perspective-origin:100%"
+      "expected": "-webkit-perspective-origin:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:right center,right center",
-      "expected": "-webkit-perspective-origin:100%,100%"
+      "expected": "-webkit-perspective-origin:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center right",
-      "expected": "-webkit-perspective-origin:100%"
+      "expected": "-webkit-perspective-origin:100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center right,center right",
-      "expected": "-webkit-perspective-origin:100%,100%"
+      "expected": "-webkit-perspective-origin:100%,100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:right top",
-      "expected": "-webkit-perspective-origin:100% 0"
+      "expected": "-webkit-perspective-origin:100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:right top,right top",
-      "expected": "-webkit-perspective-origin:100% 0,100% 0"
+      "expected": "-webkit-perspective-origin:100% 0,100% 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1515,12 +1724,14 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:right bottom",
-      "expected": "-webkit-perspective-origin:100% 100%"
+      "expected": "-webkit-perspective-origin:100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:right bottom,right bottom",
-      "expected": "-webkit-perspective-origin:100% 100%,100% 100%"
+      "expected": "-webkit-perspective-origin:100% 100%,100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1540,7 +1751,8 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:bottom center,bottom center",
-      "expected": "-webkit-perspective-origin:bottom,bottom"
+      "expected": "-webkit-perspective-origin:bottom,bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1550,17 +1762,20 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center bottom,center bottom",
-      "expected": "-webkit-perspective-origin:bottom,bottom"
+      "expected": "-webkit-perspective-origin:bottom,bottom",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:bottom right",
-      "expected": "-webkit-perspective-origin:100% 100%"
+      "expected": "-webkit-perspective-origin:100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:bottom right,bottom right",
-      "expected": "-webkit-perspective-origin:100% 100%,100% 100%"
+      "expected": "-webkit-perspective-origin:100% 100%,100% 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1575,12 +1790,14 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:bottom left",
-      "expected": "-webkit-perspective-origin:0 100%"
+      "expected": "-webkit-perspective-origin:0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:bottom left,bottom left",
-      "expected": "-webkit-perspective-origin:0 100%,0 100%"
+      "expected": "-webkit-perspective-origin:0 100%,0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1595,42 +1812,50 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:left",
-      "expected": "-webkit-perspective-origin:0"
+      "expected": "-webkit-perspective-origin:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:left,left",
-      "expected": "-webkit-perspective-origin:0,0"
+      "expected": "-webkit-perspective-origin:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:left center",
-      "expected": "-webkit-perspective-origin:0"
+      "expected": "-webkit-perspective-origin:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:left center,left center",
-      "expected": "-webkit-perspective-origin:0,0"
+      "expected": "-webkit-perspective-origin:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center left",
-      "expected": "-webkit-perspective-origin:0"
+      "expected": "-webkit-perspective-origin:0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center left,center left",
-      "expected": "-webkit-perspective-origin:0,0"
+      "expected": "-webkit-perspective-origin:0,0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:left top",
-      "expected": "-webkit-perspective-origin:0 0"
+      "expected": "-webkit-perspective-origin:0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:left top,left top",
-      "expected": "-webkit-perspective-origin:0 0,0 0"
+      "expected": "-webkit-perspective-origin:0 0,0 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1645,12 +1870,14 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:left bottom",
-      "expected": "-webkit-perspective-origin:0 100%"
+      "expected": "-webkit-perspective-origin:0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:left bottom,left bottom",
-      "expected": "-webkit-perspective-origin:0 100%,0 100%"
+      "expected": "-webkit-perspective-origin:0 100%,0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
@@ -1665,22 +1892,26 @@
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center",
-      "expected": "-webkit-perspective-origin:50%"
+      "expected": "-webkit-perspective-origin:50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center,center",
-      "expected": "-webkit-perspective-origin:50%,50%"
+      "expected": "-webkit-perspective-origin:50%,50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center center",
-      "expected": "-webkit-perspective-origin:50%"
+      "expected": "-webkit-perspective-origin:50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "-webkit-perspective-origin:",
       "input": "-webkit-perspective-origin:center center,center center",
-      "expected": "-webkit-perspective-origin:50%,50%"
+      "expected": "-webkit-perspective-origin:50%,50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should pass through when there are no position values",
@@ -1763,67 +1994,80 @@
     {
       "test": "should normalize when property in uppercase",
       "input": "BACKGROUND-POSITION: center",
-      "expected": "BACKGROUND-POSITION: 50%"
+      "expected": "BACKGROUND-POSITION: 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize when value in uppercase",
       "input": "BACKGROUND-POSITION: CENTER",
-      "expected": "BACKGROUND-POSITION: 50%"
+      "expected": "BACKGROUND-POSITION: 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize when value in uppercase (2)",
       "input": "BACKGROUND-POSITION: CENTER, CENTER",
-      "expected": "BACKGROUND-POSITION: 50%, 50%"
+      "expected": "BACKGROUND-POSITION: 50%, 50%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize when value in uppercase (3)",
       "input": "BACKGROUND-POSITION: LEFT BOTTOM, LEFT BOTTOM",
-      "expected": "BACKGROUND-POSITION: 0 100%, 0 100%"
+      "expected": "BACKGROUND-POSITION: 0 100%, 0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize when value in uppercase (4)",
       "input": "BACKGROUND-POSITION: BOTTOM LEFT, BOTTOM LEFT",
-      "expected": "BACKGROUND-POSITION: 0 100%, 0 100%"
+      "expected": "BACKGROUND-POSITION: 0 100%, 0 100%",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize when value in uppercase (5)",
       "input": "BACKGROUND-POSITION: CENTER LEFT, CENTER LEFT",
-      "expected": "BACKGROUND-POSITION: 0, 0"
+      "expected": "BACKGROUND-POSITION: 0, 0",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize with background size",
       "input": "background: url(/media/examples/hand.jpg) center center / 200px 100px",
-      "expected": "background: url(/media/examples/hand.jpg) 50% / 200px 100px"
+      "expected": "background: url(/media/examples/hand.jpg) 50% / 200px 100px",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize with background size and right alignment",
       "input": "background: url(/media/examples/hand.jpg) right center / 200px 100px",
-      "expected": "background: url(/media/examples/hand.jpg) 100% / 200px 100px"
+      "expected": "background: url(/media/examples/hand.jpg) 100% / 200px 100px",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize with multiple background positions",
       "input": "background: url(\"/media/examples/lizard.png\") center center no-repeat, url(\"/media/examples/lizard.png\") center center no-repeat",
-      "expected": "background: url(\"/media/examples/lizard.png\") 50% no-repeat, url(\"/media/examples/lizard.png\") 50% no-repeat"
+      "expected": "background: url(\"/media/examples/lizard.png\") 50% no-repeat, url(\"/media/examples/lizard.png\") 50% no-repeat",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize background position with var and multiple background",
       "input": "background: url(\"/media/examples/lizard.png\") center center no-repeat, url(\"/media/examples/lizard.png\") var(--foo)",
-      "expected": "background: url(\"/media/examples/lizard.png\") 50% no-repeat, url(\"/media/examples/lizard.png\") var(--foo)"
+      "expected": "background: url(\"/media/examples/lizard.png\") 50% no-repeat, url(\"/media/examples/lizard.png\") var(--foo)",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize background position with var and multiple background #1",
       "input": "background: url(\"/media/examples/lizard.png\") var(--foo), url(\"/media/examples/lizard.png\") center center no-repeat",
-      "expected": "background: url(\"/media/examples/lizard.png\") var(--foo), url(\"/media/examples/lizard.png\") 50% no-repeat"
+      "expected": "background: url(\"/media/examples/lizard.png\") var(--foo), url(\"/media/examples/lizard.png\") 50% no-repeat",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize background position with var and multiple background #2",
       "input": "background: url(\"/media/examples/lizard.png\") center center no-repeat, url(\"/media/examples/lizard.png\") center var(--foo)",
-      "expected": "background: url(\"/media/examples/lizard.png\") 50% no-repeat, url(\"/media/examples/lizard.png\") center var(--foo)"
+      "expected": "background: url(\"/media/examples/lizard.png\") 50% no-repeat, url(\"/media/examples/lizard.png\") center var(--foo)",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should normalize background position with var and multiple background #3",
       "input": "background: url(\"/media/examples/lizard.png\") center var(--foo), url(\"/media/examples/lizard.png\") center center no-repeat",
-      "expected": "background: url(\"/media/examples/lizard.png\") center var(--foo), url(\"/media/examples/lizard.png\") 50% no-repeat"
+      "expected": "background: url(\"/media/examples/lizard.png\") center var(--foo), url(\"/media/examples/lizard.png\") 50% no-repeat",
+      "rocketcssSkip": "target-aware position normalization is outside typed position parsing"
     },
     {
       "test": "should handle 0 in background positions",

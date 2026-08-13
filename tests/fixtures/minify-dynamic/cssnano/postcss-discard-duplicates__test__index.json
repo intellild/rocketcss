@@ -5,7 +5,8 @@
     {
       "test": "should remove duplicate rules",
       "input": "h1{font-weight:bold}h1{font-weight:bold}",
-      "expected": "h1{font-weight:bold}"
+      "expected": "h1{font-weight:bold}",
+      "rocketcssSkip": "pipeline converts font-weight"
     },
     {
       "test": "should remove duplicate rules (2)",
@@ -15,27 +16,32 @@
     {
       "test": "should remove duplicate rules (3)",
       "input": "h1 { font-weight: bold }\nh1{font-weight:bold}",
-      "expected": "h1{font-weight:bold}"
+      "expected": "h1{font-weight:bold}",
+      "rocketcssSkip": "pipeline converts font-weight"
     },
     {
       "test": "should remove duplicate declarations",
       "input": "h1{font-weight:bold;font-weight:bold}",
-      "expected": "h1{font-weight:bold}"
+      "expected": "h1{font-weight:bold}",
+      "rocketcssSkip": "pipeline converts font-weight"
     },
     {
       "test": "should remove duplicate declarations, with comments",
       "input": "h1{/*test*/font-weight:bold}h1{/*test*/font-weight:bold}",
-      "expected": "h1{/*test*/font-weight:bold}"
+      "expected": "h1{/*test*/font-weight:bold}",
+      "rocketcssSkip": "pipeline converts font-weight"
     },
     {
       "test": "should remove duplicate @rules",
       "input": "@charset \"utf-8\";@charset \"utf-8\";",
-      "expected": "@charset \"utf-8\";"
+      "expected": "@charset \"utf-8\";",
+      "rocketcssSkip": "parser: @charset"
     },
     {
       "test": "should remove duplicate @rules (2)",
       "input": "@charset \"utf-8\";@charset \"hello!\";@charset \"utf-8\";",
-      "expected": "@charset \"hello!\";@charset \"utf-8\";"
+      "expected": "@charset \"hello!\";@charset \"utf-8\";",
+      "rocketcssSkip": "parser: @charset"
     },
     {
       "test": "should remove duplicates inside @media queries",
@@ -45,13 +51,15 @@
     {
       "test": "should remove duplicate @media queries",
       "input": "@media print{h1{display:block}}@media print{h1{display:block}}",
-      "expected": "@media print{h1{display:block}}"
+      "expected": "@media print{h1{display:block}}",
+      "rocketcssSkip": "cross-rule dedup not implemented"
     },
     {
       "test": "should not mangle same keyframe rules but with different vendors",
       "input": "@-webkit-keyframes flash{0%,50%,100%{opacity:1}25%,75%{opacity:0}}@keyframes flash{0%,50%,100%{opacity:1}25%,75%{opacity:0}}",
       "expected": "@-webkit-keyframes flash{0%,50%,100%{opacity:1}25%,75%{opacity:0}}@keyframes flash{0%,50%,100%{opacity:1}25%,75%{opacity:0}}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline normalizes 100% to `to`"
     },
     {
       "test": "should not merge across keyframes",
@@ -68,7 +76,8 @@
     {
       "test": "should remove declarations before rules",
       "input": "h1{font-weight:bold;font-weight:bold}h1{font-weight:bold}",
-      "expected": "h1{font-weight:bold}"
+      "expected": "h1{font-weight:bold}",
+      "rocketcssSkip": "pipeline converts font-weight"
     },
     {
       "test": "should not deduplicate comments",
@@ -85,7 +94,8 @@
       "test": "should not remove declarations when selectors are different",
       "input": "h1{font-weight:bold}h2{font-weight:bold}",
       "expected": "h1{font-weight:bold}h2{font-weight:bold}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline converts font-weight"
     },
     {
       "test": "should not remove across contexts",
@@ -97,13 +107,15 @@
       "test": "should not be responsible for normalising selectors",
       "input": "h1,h2{font-weight:bold}h2,h1{font-weight:bold}",
       "expected": "h1,h2{font-weight:bold}h2,h1{font-weight:bold}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline converts font-weight"
     },
     {
       "test": "should not be responsible for normalising declarations",
       "input": "h1{margin:10px 0 10px 0;margin:10px 0}",
       "expected": "h1{margin:10px 0 10px 0;margin:10px 0}",
-      "passthrough": true
+      "passthrough": true,
+      "rocketcssSkip": "pipeline merges equivalent declarations"
     },
     {
       "test": "should remove duplicate rules and declarations",
@@ -113,12 +125,14 @@
     {
       "test": "should remove differently ordered duplicates",
       "input": "h1{color:black;font-size:12px}h1{font-size:12px;color:black}",
-      "expected": "h1{font-size:12px;color:black}"
+      "expected": "h1{font-size:12px;color:black}",
+      "rocketcssSkip": "reordered-declaration dedup not implemented"
     },
     {
       "test": "should remove partial duplicates",
       "input": "h1{color:red;background:blue}h1{color:red}",
-      "expected": "h1{background:blue}h1{color:red}"
+      "expected": "h1{background:blue}h1{color:red}",
+      "rocketcssSkip": "partial dedup not implemented"
     },
     {
       "test": "should preserve browser hacks (1)",

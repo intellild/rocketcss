@@ -5,22 +5,26 @@
     {
       "test": "cursor: initial => cursor: auto (uppercase property and value)",
       "input": "CURSOR: INITIAL",
-      "expected": "CURSOR: auto"
+      "expected": "CURSOR: auto",
+      "rocketcssSkip": "initial-value substitution not implemented"
     },
     {
       "test": "z-index: initial => z-index: auto (uppercase property and value)",
       "input": "Z-INDEX: INITIAL",
-      "expected": "Z-INDEX: auto"
+      "expected": "Z-INDEX: auto",
+      "rocketcssSkip": "initial-value substitution not implemented"
     },
     {
       "test": "border-block-color: currentColor => border-block-color: initial",
       "input": "border-block-color: currentColor",
-      "expected": "border-block-color: initial"
+      "expected": "border-block-color: initial",
+      "rocketcssSkip": "initial-value substitution not implemented"
     },
     {
       "test": "BORDER-BLOCK-COLOR: CURRENTCOLOR => border-block-color: initial (uppercase property and value)",
       "input": "BORDER-BLOCK-COLOR: CURRENTCOLOR",
-      "expected": "BORDER-BLOCK-COLOR: initial"
+      "expected": "BORDER-BLOCK-COLOR: initial",
+      "rocketcssSkip": "initial-value substitution not implemented"
     },
     {
       "test": "should pass through when an initial value is longer",
@@ -49,12 +53,14 @@
     {
       "test": "min-width auto tests",
       "input": "h1{min-width:initial}",
-      "expected": "h1{min-width:auto}"
+      "expected": "h1{min-width:auto}",
+      "rocketcssSkip": "initial-value substitution not implemented"
     },
     {
       "test": "min-height auto tests",
       "input": "h1{min-height:initial}",
-      "expected": "h1{min-height:auto}"
+      "expected": "h1{min-height:auto}",
+      "rocketcssSkip": "initial-value substitution not implemented"
     },
     {
       "test": "preserve no-repeat mask-repeat",
@@ -65,7 +71,8 @@
     {
       "test": "transform initial mask-repeat to repeat",
       "input": "div{mask-repeat:initial}",
-      "expected": "div{mask-repeat:repeat}"
+      "expected": "div{mask-repeat:repeat}",
+      "rocketcssSkip": "initial-value substitution not implemented"
     },
     {
       "test": "preserve transform-box",
