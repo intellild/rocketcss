@@ -45,7 +45,7 @@ fn minifies_enabled_s2_only_cross_rule_fixtures() {
             fixture_count += 1;
         }
     }
-    assert_eq!(fixture_count, 5);
+    assert_eq!(fixture_count, 7);
 }
 
 #[test]
@@ -212,12 +212,10 @@ fn still_requires_unsupported_transform(input: &Path) -> bool {
         "/lightningcss/rules/merge-layer/",
         "/lightningcss/rules/merge-media/",
         "/lightningcss/rules/merge-selectors/",
-        "/rocketcss/cross-rule-declaration-merging/declarations/does-not-drop-live-components-of-a-partially-overridden-shorthand/",
         "/rocketcss/cross-rule-declaration-merging/real-world/does-not-expand-bootstrap-modal-selectors/",
         "/rocketcss/cross-rule-declaration-merging/real-world/does-not-expand-tailwind-screen-reader-utilities/",
         "/rocketcss/cross-rule-declaration-merging/real-world/merges-bootstrap-focus-visible-sibling-selectors/",
         "/rocketcss/cross-rule-declaration-merging/real-world/merges-tailwind-matching-webkit-details-marker-selectors/",
-        "/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/preserves-importance-and-order-when-one-occurrence-becomes-many/",
     ];
     unsupported_cases
         .into_iter()
@@ -258,6 +256,8 @@ fn is_enabled_s2_only_cross_rule_fixture(path: &str) -> bool {
         "/rocketcss/cross-rule-declaration-merging/declarations/keeps-fallback-and-importance-chains/",
         "/rocketcss/cross-rule-declaration-merging/declarations/keeps-logical-and-physical-properties-when-direction-is-not-proven/",
         "/rocketcss/cross-rule-declaration-merging/declarations/treats-revert-values-conservatively/",
+        "/rocketcss/cross-rule-declaration-merging/declarations/does-not-drop-live-components-of-a-partially-overridden-shorthand/",
+        "/rocketcss/cross-rule-declaration-merging/review-findings/ast-ownership/preserves-importance-and-order-when-one-occurrence-becomes-many/",
     ]
     .into_iter()
     .any(|pattern| path.contains(pattern))

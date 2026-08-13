@@ -111,6 +111,85 @@ fixtures was byte-identical to the pre-refactor S3 branch.
 
 ## Deferred optimization candidates
 
+### S4 effect-tracking fast paths
+
+Status: optimization candidates identified after the first typed physical
+`margin`/`padding` S4 implementation.
+
+At PR #67 head `9a94b1e`, CodSpeed reported an overall minify degradation of
+3.02% against `master`:
+
+| Workload  | `master` |  PR head | Change |
+| --------- | -------: | -------: | -----: |
+| Bootstrap |  48.8 ms |  50.2 ms | -2.90% |
+| Tailwind  | 141.8 ms | 146.5 ms | -3.15% |
+
+Local release medians reproduced the direction: Bootstrap moved from 19.71 ms
+to 20.33 ms, while Tailwind moved from 55.98 ms to 59.56 ms. The local
+Tailwind magnitude is noisy and should not replace CodSpeed's same-runner
+comparison. A small `perf` sample attributed 7.49% of the PR runtime to
+`CrossRuleState::run`, versus 5.23% on `master`; treat those percentages as
+hotspot direction rather than a precise A/B result.
+
+The current common path is:
+
+```text
+publish every declaration occurrence
+  compute exact property and movement keys
+       ↓
+  classify typed box declarations and opaque barriers
+       ↓
+  store owner, expansion, live mask, and effect revision
+       ↓
+S2 dispatches every live occurrence by EffectExpansion
+       ↓
+partially live typed shorthand enters the S4 dirty queue
+```
+
+The following candidates should be benchmarked as isolated commits, in this
+order.
+
+1. **Classify box effects once.** `publish_occurrence` first calls
+   `typed_box_property`; when that returns `None`, it calls `box_property`,
+   which repeats the typed dispatch before checking unparsed barriers. Expose a
+   typed-first classifier with a fallback that inspects only barrier-capable
+   unparsed declarations. Keep dispatch based on `Declaration` and
+   `PropertyId` variants rather than property-name strings.
+2. **Move S4-only state to a sparse sidecar.** `DeclarationOccurrenceIr` grew
+   from 20 to 28 bytes, a 40% increase for every occurrence. The Tailwind
+   benchmark contains about 64,000 property occurrences but only about 2,600
+   physical box/all occurrences. Keep the exact-declaration record compact and
+   allocate owner, expansion, live-mask, and effect-revision state only for box
+   relationships that can participate in S4. Verify whether owner is needed
+   independently before moving it; S1 composition and debug validation must
+   still resolve the current block without scanning the AST.
+3. **Skip box bookkeeping for box-free histories.** The existing block summary
+   records typed box effects, but S2 still clears and dispatches through the
+   box-effect state for every candidate history. Add a history-level fast path
+   that retains the previous exact-only loop when no participating block can
+   affect box relationships. The summary must include relevant unparsed,
+   logical, `all`, CSS-wide, and nested-boundary barriers; a summary that marks
+   only typed shorthands and longhands is not sufficient.
+4. **Avoid rewriting owners for unrelated occurrences.** S1 composition
+   currently updates the owner of every declaration in the retired chain. If
+   only sparse box-effect records retain per-occurrence owners, composition can
+   update the declarations that may produce an S4 plan, or resolve ownership
+   through a compact block-remap structure. Measure repeated same-selector runs
+   because repeatedly walking growing chains can dominate synthetic inputs.
+5. **Initialize S4 scheduling state lazily.** Allocate the dirty queue,
+   deduplication state, declaration plans, and representation-dirty tracking
+   only after the first partial typed shorthand or box-sensitive S1 commit. A
+   queued revision/flag on the sparse effect record may replace the declaration
+   ID hash set. This is lower priority because empty vectors and hash sets do
+   not allocate backing storage.
+
+Each candidate must preserve typed dispatch, normal/important separation,
+barrier behavior, authored declaration origins, and the terminal-only S5
+commit. Run the defensive S4 fixtures and the full cross-rule declaration
+merging suite before comparing Bootstrap and Tailwind on CodSpeed. Do not land
+multiple candidates in one benchmark commit; otherwise a regression in one
+fast path can hide a win in another.
+
 ### Selector storage granularity
 
 The target design requires canonical selector value IDs for effective-key

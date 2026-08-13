@@ -8,6 +8,10 @@ use rocketcss_common::{
 };
 use rustc_hash::FxHasher;
 
+use crate::rules::layout::{
+    ALL_BOX_SIDES, BoxFamily, BoxProperty, box_property, typed_box_property,
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) enum CompactPropertyKey {
     Known(u32),
@@ -263,7 +267,7 @@ pub(super) struct IndexedDeclaration<'ast> {
 pub(super) struct DeclarationIrStore<'scratch, 'ast> {
     allocator: &'scratch Allocator,
     classifier: DeclarationIrClassifier<'scratch, 'ast>,
-    occurrences: Vec<'scratch, Option<DeclarationOccurrenceIr>>,
+    occurrences: Vec<'scratch, Option<DeclarationOccurrenceIr<'ast>>>,
     blocks: HashMap<'scratch, rocketcss_ast::ConcreteDeclarationBlockId<'ast>, DeclarationBlockIr>,
     property_index: HashMap<
         'scratch,
@@ -273,16 +277,61 @@ pub(super) struct DeclarationIrStore<'scratch, 'ast> {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct DeclarationOccurrenceIr {
+pub(super) struct DeclarationOccurrenceIr<'ast> {
     pub(super) property_key: Option<CompactPropertyKey>,
     pub(super) movement_domain: Option<MovementDomain>,
-    pub(super) live: bool,
+    pub(super) owner: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+    pub(super) expansion: EffectExpansion,
+    live_effects: u8,
+    effect_revision: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EffectExpansion {
+    Exact,
+    BoxShorthand(BoxFamily),
+    BoxLonghand(BoxFamily, u8),
+    Barrier(Option<BoxFamily>),
+    Opaque,
+}
+
+impl DeclarationOccurrenceIr<'_> {
+    #[inline]
+    pub(super) const fn is_live(self) -> bool {
+        self.live_effects != 0
+    }
+
+    #[inline]
+    pub(super) const fn is_fully_live(self) -> bool {
+        match self.expansion {
+            EffectExpansion::BoxShorthand(_) => self.live_effects == ALL_BOX_SIDES,
+            EffectExpansion::BoxLonghand(_, mask) => self.live_effects == mask,
+            EffectExpansion::Exact | EffectExpansion::Opaque => self.live_effects == 1,
+            EffectExpansion::Barrier(_) => true,
+        }
+    }
+
+    #[inline]
+    pub(super) const fn is_exact_match_candidate(self) -> bool {
+        self.is_live() && self.is_fully_live() && self.property_key.is_some()
+    }
+
+    #[inline]
+    pub(super) const fn live_effects(self) -> u8 {
+        self.live_effects
+    }
+
+    #[inline]
+    pub(super) const fn effect_revision(self) -> u32 {
+        self.effect_revision
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 struct DeclarationBlockIr {
     live_count: u32,
     property_bloom: PropertyBloom,
+    has_box_effects: bool,
 }
 
 impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
@@ -312,6 +361,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
             .enumerate()
         {
             self.publish_occurrence(
+                block,
                 occurrence.declaration(),
                 record,
                 order,
@@ -326,13 +376,14 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     fn publish_occurrence(
         &mut self,
+        owner: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
         declaration: rocketcss_ast::DeclarationId<'ast>,
         record: &DeclarationRecord<'ast, rocketcss_ast::DeclarationPayload<'ast>>,
         order: usize,
         summary: &mut DeclarationBlockIr,
         property_index: &mut PropertyIndex<'scratch, 'ast>,
     ) {
-        let (property_key, movement_domain, live) = match record.payload() {
+        let (property_key, movement_domain, expansion, live_effects) = match record.payload() {
             rocketcss_ast::DeclarationPayload::Property(value) => {
                 let live = !matches!(value, Declaration::Tombstone);
                 let property_key = live
@@ -341,20 +392,54 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
                 let movement_domain = live
                     .then(|| self.classifier.movement_domain(value))
                     .flatten();
-                (property_key, movement_domain, live)
+                let expansion = if !live {
+                    EffectExpansion::Opaque
+                } else {
+                    match typed_box_property(value) {
+                        Some(BoxProperty::Shorthand(family)) => {
+                            EffectExpansion::BoxShorthand(family)
+                        }
+                        Some(BoxProperty::Longhand(family, side)) => {
+                            EffectExpansion::BoxLonghand(family, 1 << side)
+                        }
+                        Some(BoxProperty::Barrier(_) | BoxProperty::BarrierAll) => {
+                            unreachable!("typed box declarations are never barriers")
+                        }
+                        None => box_property(value).map_or(EffectExpansion::Exact, |property| {
+                            EffectExpansion::Barrier(property.family())
+                        }),
+                    }
+                };
+                let live_effects = if !live {
+                    0
+                } else {
+                    match expansion {
+                        EffectExpansion::BoxShorthand(_) => ALL_BOX_SIDES,
+                        EffectExpansion::BoxLonghand(_, mask) => mask,
+                        EffectExpansion::Exact | EffectExpansion::Opaque => 1,
+                        EffectExpansion::Barrier(_) => 1,
+                    }
+                };
+                (property_key, movement_domain, expansion, live_effects)
             }
             rocketcss_ast::DeclarationPayload::FontFace(_)
             | rocketcss_ast::DeclarationPayload::FontPaletteValues(_)
             | rocketcss_ast::DeclarationPayload::ViewTransition(_)
             | rocketcss_ast::DeclarationPayload::FontFeature(_)
-            | rocketcss_ast::DeclarationPayload::PropertyRule(_) => (None, None, true),
+            | rocketcss_ast::DeclarationPayload::PropertyRule(_) => {
+                (None, None, EffectExpansion::Opaque, 1)
+            }
         };
-        if live {
+        if live_effects != 0 {
             summary.live_count = summary
                 .live_count
                 .checked_add(1)
                 .expect("declaration count exceeds u32::MAX");
         }
+        summary.has_box_effects |= matches!(
+            expansion,
+            EffectExpansion::BoxShorthand(_) | EffectExpansion::BoxLonghand(_, _)
+        );
         if let Some(key) = property_key {
             summary.property_bloom.insert(key);
             property_index
@@ -369,7 +454,10 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         self.occurrences[declaration.index()] = Some(DeclarationOccurrenceIr {
             property_key,
             movement_domain,
-            live,
+            owner,
+            expansion,
+            live_effects,
+            effect_revision: 0,
         });
     }
 
@@ -389,6 +477,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
             .remove(&block)
             .unwrap_or_else(|| PropertyIndex::new_in(self.allocator));
         self.publish_occurrence(
+            block,
             declaration,
             record,
             order,
@@ -419,7 +508,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         self.occurrences
             .iter()
             .flatten()
-            .filter(|occurrence| occurrence.live)
+            .filter(|occurrence| occurrence.is_live())
             .count()
     }
 
@@ -434,9 +523,10 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn compose(
         &mut self,
+        compilation: &rocketcss_ast::Compilation<'ast>,
         left: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
         right: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
-    ) {
+    ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
         let left_id = left;
         let right_id = right;
         let left = self
@@ -452,16 +542,27 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
             .checked_add(left.live_count)
             .expect("declaration count exceeds u32::MAX");
         right.property_bloom.union_with(left.property_bloom);
+        right.has_box_effects |= left.has_box_effects;
         // The merged sequence may contain a non-contiguous bridge. Its index
         // is therefore rebuilt lazily by the linear fallback after S1.
         self.property_index.remove(&left_id);
         self.property_index.remove(&right_id);
+        for declaration in compilation.declaration_ids_in_block(right_id)? {
+            if let Some(occurrence) = self
+                .occurrences
+                .get_mut(declaration.index())
+                .and_then(Option::as_mut)
+            {
+                occurrence.owner = right_id;
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn occurrence(
         &self,
         declaration: rocketcss_ast::DeclarationId<'ast>,
-    ) -> Option<&DeclarationOccurrenceIr> {
+    ) -> Option<&DeclarationOccurrenceIr<'ast>> {
         self.occurrences.get(declaration.index())?.as_ref()
     }
 
@@ -475,7 +576,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         for declaration in compilation.declaration_ids_in_block(block)? {
             if self
                 .occurrence(declaration)
-                .is_some_and(|occurrence| occurrence.live)
+                .is_some_and(|occurrence| occurrence.is_live())
             {
                 output.push(declaration);
             }
@@ -499,17 +600,32 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
         declaration: rocketcss_ast::DeclarationId<'ast>,
     ) {
+        self.mark_effects_dead(block, declaration, u8::MAX);
+    }
+
+    pub(super) fn mark_effects_dead(
+        &mut self,
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+        declaration: rocketcss_ast::DeclarationId<'ast>,
+        effects: u8,
+    ) -> bool {
         let occurrence = self.occurrences[declaration.index()]
             .as_mut()
             .expect("an authored declaration has initialized IR");
-        if !occurrence.live {
-            return;
+        debug_assert_eq!(occurrence.owner, block);
+        let previous = occurrence.live_effects;
+        occurrence.live_effects &= !effects;
+        if occurrence.live_effects == previous {
+            return false;
         }
-        occurrence.live = false;
-        self.blocks
-            .get_mut(&block)
-            .expect("a live block has initialized IR")
-            .live_count -= 1;
+        occurrence.effect_revision = occurrence.effect_revision.wrapping_add(1);
+        if occurrence.live_effects == 0 {
+            self.blocks
+                .get_mut(&block)
+                .expect("a live block has initialized IR")
+                .live_count -= 1;
+        }
+        true
     }
 
     pub(super) fn block_live_count(
@@ -528,5 +644,14 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         self.blocks
             .get(&block)
             .map_or(PropertyBloom::default(), |summary| summary.property_bloom)
+    }
+
+    pub(super) fn block_has_box_effects(
+        &self,
+        block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+    ) -> bool {
+        self.blocks
+            .get(&block)
+            .is_some_and(|summary| summary.has_box_effects)
     }
 }

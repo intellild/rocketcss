@@ -107,6 +107,193 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
 }
 
 impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
+    /// Returns whether a terminal transform can allocate `additional`
+    /// declaration records without publishing a partial mutation.
+    #[inline]
+    pub fn can_insert_transformed_declarations(&self, additional: usize) -> bool {
+        self.declarations.has_capacity_for(additional)
+    }
+
+    /// Replaces one declaration at its exact chain position with a nonempty
+    /// sequence and bumps the owning block revision once.
+    ///
+    /// Membership, topology, count overflow, and capacity are validated before
+    /// any payload or link is changed. The original declaration ID is reused
+    /// for the first replacement, which keeps authored positions stable and
+    /// permits non-`Clone` payloads to move through the transaction.
+    pub fn replace_declaration_with_sequence(
+        &mut self,
+        block: DeclarationBlockId<'ast, R>,
+        declaration: DeclarationId<'ast>,
+        replacements: std::vec::Vec<(D, bool)>,
+    ) -> Result<D, MutationError<'ast, R>> {
+        let block_record = self
+            .declaration_blocks
+            .try_get(block)
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        if !block_record.live {
+            return Err(MutationError::UnknownDeclarationBlock(block));
+        }
+        if replacements.is_empty() {
+            return Err(MutationError::InvalidDeclarationChain(block));
+        }
+
+        let first = block_record.first_declaration;
+        let last = block_record.last_declaration;
+        let declaration_count = block_record.declaration_count;
+        let revision = block_record.revision.wrapping_add(1);
+        let additional = replacements.len() - 1;
+        let additional_u32 =
+            u32::try_from(additional).map_err(|_| MutationError::InvalidDeclarationChain(block))?;
+        let new_count = declaration_count
+            .checked_add(additional_u32)
+            .ok_or(MutationError::InvalidDeclarationChain(block))?;
+
+        let mut current = first;
+        let mut remaining = declaration_count;
+        let mut found_successor = None;
+        let mut observed_last = None;
+        while let Some(current_id) = current {
+            if remaining == 0 {
+                return Err(MutationError::InvalidDeclarationChain(block));
+            }
+            let record = self
+                .declarations
+                .try_get(current_id)
+                .ok_or(MutationError::UnknownDeclaration(current_id))?;
+            if current_id == declaration {
+                found_successor = Some(record.next_in_block);
+            }
+            observed_last = Some(current_id);
+            current = record.next_in_block;
+            remaining -= 1;
+        }
+        if remaining != 0 || observed_last != last {
+            return Err(MutationError::InvalidDeclarationChain(block));
+        }
+        let successor = found_successor.ok_or(MutationError::UnknownDeclaration(declaration))?;
+        if !self.declarations.has_capacity_for(additional) {
+            return Err(MutationError::DeclarationCapacityExhausted);
+        }
+
+        let mut replacements = replacements.into_iter();
+        let (first_payload, first_important) = replacements
+            .next()
+            .expect("a nonempty replacement sequence was validated");
+        let original = {
+            let record = self
+                .declarations
+                .try_get_mut(declaration)
+                .expect("the replacement origin was validated before commit");
+            record.important = first_important;
+            std::mem::replace(&mut record.payload, first_payload)
+        };
+
+        let mut tail = declaration;
+        for (payload, important) in replacements {
+            let inserted = self.declarations.push(DeclarationRecord {
+                payload,
+                next_in_block: None,
+                important,
+            });
+            self.declarations
+                .try_get_mut(tail)
+                .expect("a committed replacement tail remains resolvable")
+                .next_in_block = Some(inserted);
+            tail = inserted;
+        }
+        self.declarations
+            .try_get_mut(tail)
+            .expect("the final replacement tail remains resolvable")
+            .next_in_block = successor;
+
+        let block_record = self
+            .declaration_blocks
+            .try_get_mut(block)
+            .expect("the replacement owner was validated before commit");
+        block_record.declaration_count = new_count;
+        if last == Some(declaration) {
+            block_record.last_declaration = Some(tail);
+        }
+        block_record.revision = revision;
+        Ok(original)
+    }
+
+    /// Rewrites a non-`Clone` payload into a sequence after one complete
+    /// validation and capacity preflight.
+    ///
+    /// `placeholder` exists only while `rewrite` owns the original payload.
+    /// The callback is infallible and must return exactly `additional + 1`
+    /// records. The final block revision advances once, regardless of the
+    /// number of declarations emitted.
+    pub fn rewrite_declaration_with_sequence(
+        &mut self,
+        block: DeclarationBlockId<'ast, R>,
+        declaration: DeclarationId<'ast>,
+        additional: usize,
+        placeholder: D,
+        rewrite: impl FnOnce(D, bool) -> std::vec::Vec<(D, bool)>,
+    ) -> Result<(), MutationError<'ast, R>> {
+        let block_record = self
+            .declaration_blocks
+            .try_get(block)
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        if !block_record.live {
+            return Err(MutationError::UnknownDeclarationBlock(block));
+        }
+        let mut current = block_record.first_declaration;
+        let mut remaining = block_record.declaration_count;
+        let mut contains_origin = false;
+        let mut observed_last = None;
+        while let Some(current_id) = current {
+            if remaining == 0 {
+                return Err(MutationError::InvalidDeclarationChain(block));
+            }
+            let record = self
+                .declarations
+                .try_get(current_id)
+                .ok_or(MutationError::UnknownDeclaration(current_id))?;
+            contains_origin |= current_id == declaration;
+            observed_last = Some(current_id);
+            current = record.next_in_block;
+            remaining -= 1;
+        }
+        if remaining != 0 || observed_last != block_record.last_declaration {
+            return Err(MutationError::InvalidDeclarationChain(block));
+        }
+        if !contains_origin {
+            return Err(MutationError::UnknownDeclaration(declaration));
+        }
+        let final_revision = block_record.revision.wrapping_add(1);
+        if !self.declarations.has_capacity_for(additional) {
+            return Err(MutationError::DeclarationCapacityExhausted);
+        }
+        let important = self
+            .declarations
+            .try_get(declaration)
+            .ok_or(MutationError::UnknownDeclaration(declaration))?
+            .important;
+
+        let original = self.replace_declaration(block, declaration, placeholder)?;
+        let replacements = rewrite(original, important);
+        assert_eq!(
+            replacements.len(),
+            additional + 1,
+            "a declaration rewrite must emit its preflighted sequence length"
+        );
+        if self
+            .replace_declaration_with_sequence(block, declaration, replacements)
+            .is_err()
+        {
+            unreachable!("a preflighted declaration rewrite cannot fail during commit");
+        }
+        self.declaration_blocks
+            .try_get_mut(block)
+            .expect("the rewrite owner remains live through terminal commit")
+            .revision = final_revision;
+        Ok(())
+    }
+
     /// Appends a transformed declaration to any live block chain.
     ///
     /// Authored parsing continues to use `append_declaration`, whose nonempty

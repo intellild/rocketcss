@@ -107,12 +107,25 @@ pub fn try_minify<'ast, 'ghost>(
         let preserve_selector_compatibility = minifier
             .cx
             .is_enabled(Options::PRESERVE_SELECTOR_COMPATIBILITY, OptionsOp::Any);
-        cross_rule_declaration_merging::stabilize_cross_rule_builder(
-            builder,
-            compilation,
-            preserve_selector_compatibility,
-            context_repair.effective_key_remaps(),
-        )?;
+        let representation_dirty_blocks =
+            cross_rule_declaration_merging::stabilize_cross_rule_builder(
+                builder,
+                compilation,
+                preserve_selector_compatibility,
+                context_repair.effective_key_remaps(),
+            )?;
+        for block in representation_dirty_blocks {
+            if compilation
+                .declaration_block(block)
+                .is_some_and(DeclarationBlockRecord::is_live)
+            {
+                minifier.declaration_blocks.minify_compilation_block(
+                    compilation,
+                    block,
+                    &mut minifier.cx,
+                );
+            }
+        }
     }
     Ok(minifier.cx.stats())
 }

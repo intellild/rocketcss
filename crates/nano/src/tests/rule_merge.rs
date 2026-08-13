@@ -338,6 +338,47 @@ fn partial_factoring_imports_s1_history_and_is_idempotent() {
 }
 
 #[test]
+fn partial_factoring_keeps_partially_live_shorthands_as_residuals() {
+    assert_eq!(
+        run(".a{margin:1px}.b{margin:1px}.a{margin-left:2px}"),
+        ".a{margin-top:1px;margin-right:1px;margin-bottom:1px}.b{margin:1px}.a{margin-left:2px}"
+    );
+
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let mut stylesheet = parse(
+            ".a{margin:1px;color:red}.b{color:red}.a{margin-left:2px}",
+            &allocator,
+            &mut token,
+            ParserOptions::default(),
+        )
+        .unwrap();
+
+        minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let once = stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap();
+        let second_stats = minify(&mut stylesheet, &mut token, MinifyOptions::default());
+        let twice = stylesheet
+            .to_css_string(
+                PrinterOptions { prettify: false },
+                &ToCssContext::new(&token),
+            )
+            .unwrap();
+
+        assert_eq!(
+            once,
+            ".a{margin-top:1px;margin-right:1px;margin-bottom:1px}.a,.b{color:red}.a{margin-left:2px}"
+        );
+        assert_eq!(twice, once);
+        assert_eq!(second_stats.declarations_removed, 0);
+    });
+}
+
+#[test]
 fn respects_nested_content_as_a_forward_merge_barrier() {
     assert_eq!(
         run(".a{color:red;& .child{display:block}}.a{color:blue}"),

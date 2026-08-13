@@ -17,7 +17,11 @@ use rocketcss_common::{
 };
 use std::{cmp::Reverse, collections::VecDeque};
 
-use super::declaration_ir::{CompactPropertyKey, DeclarationIrStore, MovementDomain};
+use crate::rules::layout::{ALL_BOX_SIDES, BoxFamily, materialize_box_longhands};
+
+use super::declaration_ir::{
+    CompactPropertyKey, DeclarationIrStore, EffectExpansion, MovementDomain,
+};
 use super::partial_selector::materialize_selector_union;
 
 pub(crate) struct CrossRuleBuilder<'scratch, 'ast> {
@@ -48,12 +52,11 @@ pub(super) fn stabilize_with_builder<'scratch, 'ast>(
     mut builder: CrossRuleBuilder<'scratch, 'ast>,
     compilation: &mut Compilation<'ast>,
     preserve_selector_compatibility: bool,
-) -> Result<(), MutationError<'ast>> {
+) -> Result<std::vec::Vec<DeclarationBlockId<'ast>>, MutationError<'ast>> {
     builder
         .state
         .run(compilation, preserve_selector_compatibility)?;
-    builder.state.finish(compilation);
-    Ok(())
+    builder.state.finish(compilation)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -180,6 +183,52 @@ struct DeclarationOverrideCandidateList<'scratch, 'ast> {
     queued: HashSet<'scratch, EffectiveKeyId<'ast>>,
 }
 
+#[derive(Debug)]
+struct S4PlanItemList<'scratch, 'ast> {
+    pending: VecDeque<rocketcss_ast::DeclarationId<'ast>>,
+    queued: HashSet<'scratch, rocketcss_ast::DeclarationId<'ast>>,
+}
+
+impl<'scratch, 'ast> S4PlanItemList<'scratch, 'ast> {
+    fn new_in(allocator: &'scratch Allocator) -> Self {
+        Self {
+            pending: VecDeque::new(),
+            queued: HashSet::new_in(allocator),
+        }
+    }
+
+    fn push(&mut self, declaration: rocketcss_ast::DeclarationId<'ast>) {
+        if self.queued.insert(declaration) {
+            self.pending.push_back(declaration);
+        }
+    }
+
+    fn pop(&mut self) -> Option<rocketcss_ast::DeclarationId<'ast>> {
+        let declaration = self.pending.pop_front()?;
+        self.queued.remove(&declaration);
+        Some(declaration)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.pending.is_empty()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum AstDeclarationPlanKind {
+    MaterializeBoxLonghands { family: BoxFamily, live_effects: u8 },
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AstDeclarationPlan<'ast> {
+    origin: rocketcss_ast::DeclarationId<'ast>,
+    owner: DeclarationBlockId<'ast>,
+    block_revision: u32,
+    effect_revision: u32,
+    important: bool,
+    kind: AstDeclarationPlanKind,
+}
+
 impl<'scratch, 'ast> DeclarationOverrideCandidateList<'scratch, 'ast> {
     fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
@@ -222,6 +271,8 @@ struct MinifyScratch<'scratch, 'ast> {
         CompactPropertyKey,
         (DeclarationBlockId<'ast>, rocketcss_ast::DeclarationId<'ast>),
     >,
+    previous_box_effects:
+        [Option<(DeclarationBlockId<'ast>, rocketcss_ast::DeclarationId<'ast>)>; 16],
 }
 
 impl<'scratch, 'ast> MinifyScratch<'scratch, 'ast> {
@@ -238,7 +289,28 @@ impl<'scratch, 'ast> MinifyScratch<'scratch, 'ast> {
             matched_left: HashSet::new_in(allocator),
             affected_blocks: HashSet::new_in(allocator),
             previous_by_property: HashMap::new_in(allocator),
+            previous_box_effects: [None; 16],
         }
+    }
+}
+
+#[inline]
+fn box_effect_slot(family: BoxFamily, important: bool, side: usize) -> usize {
+    usize::from(important) * BoxFamily::COUNT * 4 + family.index() * 4 + side
+}
+
+fn clear_box_effect_history<'ast>(
+    history: &mut [Option<(DeclarationBlockId<'ast>, rocketcss_ast::DeclarationId<'ast>)>; 16],
+    family: Option<BoxFamily>,
+) {
+    if let Some(family) = family {
+        for important in [false, true] {
+            for side in 0..4 {
+                history[box_effect_slot(family, important, side)] = None;
+            }
+        }
+    } else {
+        history.fill(None);
     }
 }
 
@@ -261,6 +333,10 @@ struct CrossRuleState<'scratch, 'ast> {
     same_selector_candidates: SameSelectorCandidateList<'scratch, 'ast>,
     declaration_override_candidates: DeclarationOverrideCandidateList<'scratch, 'ast>,
     partial_merge_candidates: PartialMergeCandidateList<'scratch, 'ast>,
+    dirty_s4_plan_items: S4PlanItemList<'scratch, 'ast>,
+    declaration_plans: Vec<'scratch, AstDeclarationPlan<'ast>>,
+    representation_dirty_blocks: Vec<'scratch, DeclarationBlockId<'ast>>,
+    representation_dirty_set: HashSet<'scratch, DeclarationBlockId<'ast>>,
     scratch: MinifyScratch<'scratch, 'ast>,
     published_block_count: usize,
 }
@@ -282,6 +358,10 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
             same_selector_candidates: SameSelectorCandidateList::new_in(allocator),
             declaration_override_candidates: DeclarationOverrideCandidateList::new_in(allocator),
             partial_merge_candidates: PartialMergeCandidateList::new_in(allocator),
+            dirty_s4_plan_items: S4PlanItemList::new_in(allocator),
+            declaration_plans: allocator.vec(),
+            representation_dirty_blocks: allocator.vec(),
+            representation_dirty_set: HashSet::new_in(allocator),
             scratch: MinifyScratch::new_in(allocator),
             published_block_count: 0,
         }
@@ -434,7 +514,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
         let mut stats = SchedulerStats::default();
         loop {
             stats.s1_commits += self.run_s1(compilation)?;
-            let s2 = self.run_s2_exact(compilation)?;
+            let s2 = self.run_s2(compilation)?;
             stats.s2.declarations_removed += s2.declarations_removed;
             stats.s2.empty_rules_retired += s2.empty_rules_retired;
             if !self.same_selector_candidates.is_empty() {
@@ -452,24 +532,122 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 && self.declaration_override_candidates.is_empty()
                 && self.partial_merge_candidates.is_empty()
             {
+                self.run_s4(compilation)?;
                 return Ok(stats);
             }
         }
     }
 
-    /// Terminal S5 boundary for the currently implemented exact-only model.
-    ///
-    /// S1-S3 commit declaration segment chains atomically.
-    /// Complex partially-live effects return `NoChange`, so there is no S4
-    /// deferred plan to materialize yet. Consuming `self` tears down every
-    /// merge-only queue, history, summary, and revision sidecar. Debug builds
-    /// also prove that the committed AST is structurally complete.
-    fn finish(self, _compilation: &Compilation<'ast>) {
+    fn run_s4(&mut self, compilation: &Compilation<'ast>) -> Result<(), MutationError<'ast>> {
+        while let Some(origin) = self.dirty_s4_plan_items.pop() {
+            let Some(occurrence) = self.declaration_ir.occurrence(origin).copied() else {
+                continue;
+            };
+            let EffectExpansion::BoxShorthand(family) = occurrence.expansion else {
+                continue;
+            };
+            let live_effects = occurrence.live_effects();
+            if live_effects == 0 || live_effects == ALL_BOX_SIDES {
+                continue;
+            }
+            let block = compilation.declaration_block(occurrence.owner).ok_or(
+                MutationError::<'ast>::UnknownDeclarationBlock(occurrence.owner),
+            )?;
+            let record = compilation
+                .declaration(origin)
+                .ok_or(MutationError::<'ast>::UnknownDeclaration(origin))?;
+            self.declaration_plans.push(AstDeclarationPlan {
+                origin,
+                owner: occurrence.owner,
+                block_revision: block.revision(),
+                effect_revision: occurrence.effect_revision(),
+                important: record.is_important(),
+                kind: AstDeclarationPlanKind::MaterializeBoxLonghands {
+                    family,
+                    live_effects,
+                },
+            });
+            self.mark_representation_dirty(occurrence.owner);
+        }
+        Ok(())
+    }
+
+    /// Terminal S5 boundary. All representation choices have already been
+    /// made by S4; this method only validates, preflights, and commits them.
+    fn finish(
+        self,
+        compilation: &mut Compilation<'ast>,
+    ) -> Result<std::vec::Vec<DeclarationBlockId<'ast>>, MutationError<'ast>> {
         debug_assert!(self.same_selector_candidates.is_empty());
         debug_assert!(self.declaration_override_candidates.is_empty());
         debug_assert!(self.partial_merge_candidates.is_empty());
+        debug_assert!(self.dirty_s4_plan_items.is_empty());
+
+        let mut additional = 0_usize;
+        for plan in &self.declaration_plans {
+            let block = compilation
+                .declaration_block(plan.owner)
+                .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(plan.owner))?;
+            if !block.is_live() || block.revision() != plan.block_revision {
+                return Err(MutationError::<'ast>::UnknownDeclarationBlock(plan.owner));
+            }
+            let occurrence = self
+                .declaration_ir
+                .occurrence(plan.origin)
+                .copied()
+                .ok_or(MutationError::<'ast>::UnknownDeclaration(plan.origin))?;
+            if occurrence.owner != plan.owner
+                || occurrence.effect_revision() != plan.effect_revision
+            {
+                return Err(MutationError::<'ast>::UnknownDeclaration(plan.origin));
+            }
+            let record = compilation
+                .declaration(plan.origin)
+                .ok_or(MutationError::<'ast>::UnknownDeclaration(plan.origin))?;
+            if record.is_important() != plan.important {
+                return Err(MutationError::<'ast>::UnknownDeclaration(plan.origin));
+            }
+            let AstDeclarationPlanKind::MaterializeBoxLonghands { live_effects, .. } = plan.kind;
+            additional = additional
+                .checked_add(live_effects.count_ones() as usize - 1)
+                .ok_or(MutationError::<'ast>::DeclarationCapacityExhausted)?;
+        }
+        if !compilation.can_insert_transformed_declarations(additional) {
+            return Err(MutationError::<'ast>::DeclarationCapacityExhausted);
+        }
+
+        for plan in &self.declaration_plans {
+            let AstDeclarationPlanKind::MaterializeBoxLonghands {
+                family,
+                live_effects,
+            } = plan.kind;
+            let additional = live_effects.count_ones() as usize - 1;
+            compilation.rewrite_declaration_with_sequence(
+                plan.owner,
+                plan.origin,
+                additional,
+                DeclarationPayload::Property(Declaration::Tombstone),
+                |original, important| {
+                    let DeclarationPayload::Property(original) = original else {
+                        unreachable!("an S4 box plan owns a property declaration")
+                    };
+                    materialize_box_longhands(original, family, live_effects)
+                        .expect("S4 validated a typed box shorthand before terminal commit")
+                        .into_iter()
+                        .map(|declaration| (DeclarationPayload::Property(declaration), important))
+                        .collect()
+                },
+            )?;
+        }
         #[cfg(debug_assertions)]
-        debug_assert_eq!(_compilation.validate_ast(), Ok(()));
+        debug_assert_eq!(compilation.validate_ast(), Ok(()));
+        Ok(self.representation_dirty_blocks.iter().copied().collect())
+    }
+
+    fn mark_representation_dirty(&mut self, block: DeclarationBlockId<'ast>) {
+        if self.representation_dirty_set.insert(block) {
+            self.representation_dirty_blocks.push(block);
+        }
     }
 
     fn run_s1(
@@ -484,8 +662,17 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
             let merged =
                 compilation.merge_adjacent_rule_declaration_blocks(left_rule, right_rule)?;
             debug_assert_eq!(merged.effective_key, key);
-            self.declaration_ir
-                .compose(merged.retired_block, merged.retained_block);
+            self.declaration_ir.compose(
+                compilation,
+                merged.retired_block,
+                merged.retained_block,
+            )?;
+            if self
+                .declaration_ir
+                .block_has_box_effects(merged.retained_block)
+            {
+                self.mark_representation_dirty(merged.retained_block);
+            }
             let history = self
                 .histories
                 .get_mut(&key)
@@ -516,7 +703,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
         Ok(commits)
     }
 
-    fn run_s2_exact(
+    fn run_s2(
         &mut self,
         compilation: &mut Compilation<'ast>,
     ) -> Result<S2Stats, MutationError<'ast>> {
@@ -529,37 +716,111 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
             self.scratch.history.extend(history.iter().copied());
             self.scratch.affected_blocks.clear();
             self.scratch.previous_by_property.clear();
+            self.scratch.previous_box_effects.fill(None);
             for &block in &self.scratch.history {
+                let block_record = compilation
+                    .declaration_block(block)
+                    .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(block))?;
+                let DeclarationBlockOwner::Rule(owner) = block_record.owner();
+                if compilation
+                    .rule(owner)
+                    .is_none_or(|rule| !is_style_owner(rule.payload()))
+                {
+                    self.scratch.previous_box_effects.fill(None);
+                }
                 self.scratch.block_declarations.clear();
                 self.scratch
                     .block_declarations
                     .extend(compilation.declaration_ids_in_block(block)?);
                 for index in 0..self.scratch.block_declarations.len() {
                     let declaration = self.scratch.block_declarations[index];
-                    let Some(property_key) = self
-                        .declaration_ir
-                        .occurrence(declaration)
-                        .filter(|occurrence| occurrence.live)
-                        .and_then(|occurrence| occurrence.property_key)
+                    let Some(occurrence) = self.declaration_ir.occurrence(declaration).copied()
                     else {
                         continue;
                     };
-                    if let Some(&(previous_block, previous)) =
-                        self.scratch.previous_by_property.get(&property_key)
-                        && declarations_are_exactly_equal(compilation, previous, declaration)
-                    {
-                        compilation.replace_declaration(
-                            previous_block,
-                            previous,
-                            DeclarationPayload::Property(Declaration::Tombstone),
-                        )?;
-                        self.declaration_ir.mark_dead(previous_block, previous);
-                        self.scratch.affected_blocks.insert(previous_block);
-                        stats.declarations_removed += 1;
+                    if !occurrence.is_live() {
+                        continue;
                     }
-                    self.scratch
-                        .previous_by_property
-                        .insert(property_key, (block, declaration));
+                    debug_assert_eq!(occurrence.owner, block);
+                    let important = compilation
+                        .declaration(declaration)
+                        .ok_or(MutationError::<'ast>::UnknownDeclaration(declaration))?
+                        .is_important();
+                    match occurrence.expansion {
+                        EffectExpansion::Barrier(family) => {
+                            clear_box_effect_history(
+                                &mut self.scratch.previous_box_effects,
+                                family,
+                            );
+                        }
+                        EffectExpansion::BoxShorthand(family)
+                        | EffectExpansion::BoxLonghand(family, _) => {
+                            let live_effects = occurrence.live_effects();
+                            for side in 0..4 {
+                                let effect = 1 << side;
+                                if live_effects & effect == 0 {
+                                    continue;
+                                }
+                                let slot = box_effect_slot(family, important, side);
+                                if let Some((previous_block, previous)) =
+                                    self.scratch.previous_box_effects[slot]
+                                    && self.declaration_ir.mark_effects_dead(
+                                        previous_block,
+                                        previous,
+                                        effect,
+                                    )
+                                {
+                                    let updated = self
+                                        .declaration_ir
+                                        .occurrence(previous)
+                                        .copied()
+                                        .expect("an S2 effect remains published");
+                                    if !updated.is_live() {
+                                        compilation.replace_declaration(
+                                            previous_block,
+                                            previous,
+                                            DeclarationPayload::Property(Declaration::Tombstone),
+                                        )?;
+                                        self.scratch.affected_blocks.insert(previous_block);
+                                        stats.declarations_removed += 1;
+                                    } else if matches!(
+                                        updated.expansion,
+                                        EffectExpansion::BoxShorthand(_)
+                                    ) && !updated.is_fully_live()
+                                    {
+                                        self.dirty_s4_plan_items.push(previous);
+                                    }
+                                }
+                                self.scratch.previous_box_effects[slot] =
+                                    Some((block, declaration));
+                            }
+                        }
+                        EffectExpansion::Exact | EffectExpansion::Opaque => {
+                            let Some(property_key) = occurrence.property_key else {
+                                continue;
+                            };
+                            if let Some(&(previous_block, previous)) =
+                                self.scratch.previous_by_property.get(&property_key)
+                                && declarations_are_exactly_equal(
+                                    compilation,
+                                    previous,
+                                    declaration,
+                                )
+                            {
+                                compilation.replace_declaration(
+                                    previous_block,
+                                    previous,
+                                    DeclarationPayload::Property(Declaration::Tombstone),
+                                )?;
+                                self.declaration_ir.mark_dead(previous_block, previous);
+                                self.scratch.affected_blocks.insert(previous_block);
+                                stats.declarations_removed += 1;
+                            }
+                            self.scratch
+                                .previous_by_property
+                                .insert(property_key, (block, declaration));
+                        }
+                    }
                 }
             }
 
@@ -631,6 +892,9 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 let Some(left_ir) = self.declaration_ir.occurrence(left) else {
                     continue;
                 };
+                if !left_ir.is_exact_match_candidate() {
+                    continue;
+                }
                 let Some(property_key) = left_ir.property_key else {
                     continue;
                 };
@@ -657,6 +921,10 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                         let right_order = indexed.order;
                         if self.scratch.matched_right.contains(&right)
                             || !self.scratch.right_declarations.contains(&right)
+                            || self
+                                .declaration_ir
+                                .occurrence(right)
+                                .is_none_or(|right| !right.is_exact_match_candidate())
                             || !declarations_have_equal_effect(compilation, left, right)
                         {
                             continue;
@@ -676,10 +944,10 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                     for (right_order, &right) in self.scratch.right_declarations.iter().enumerate()
                     {
                         if self.scratch.matched_right.contains(&right)
-                            || self
-                                .declaration_ir
-                                .occurrence(right)
-                                .is_none_or(|right| right.property_key != Some(property_key))
+                            || self.declaration_ir.occurrence(right).is_none_or(|right| {
+                                !right.is_exact_match_candidate()
+                                    || right.property_key != Some(property_key)
+                            })
                             || !declarations_have_equal_effect(compilation, left, right)
                         {
                             continue;
@@ -1419,7 +1687,7 @@ mod tests {
             .unwrap();
         let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
 
-        let stats = state.run_s2_exact(&mut compilation).unwrap();
+        let stats = state.run_s2(&mut compilation).unwrap();
         assert_eq!(
             stats,
             S2Stats {
@@ -1458,7 +1726,7 @@ mod tests {
             .unwrap();
         let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
 
-        let stats = state.run_s2_exact(&mut compilation).unwrap();
+        let stats = state.run_s2(&mut compilation).unwrap();
         assert_eq!(stats.declarations_removed, 1);
         assert_eq!(stats.empty_rules_retired, 1);
         assert_eq!(
@@ -1483,7 +1751,7 @@ mod tests {
         let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
 
         assert_eq!(state.run_s1(&mut compilation).unwrap(), 0);
-        let s2 = state.run_s2_exact(&mut compilation).unwrap();
+        let s2 = state.run_s2(&mut compilation).unwrap();
         assert_eq!(s2.empty_rules_retired, 1);
         assert_eq!(state.run_s1(&mut compilation).unwrap(), 1);
 
@@ -1511,10 +1779,7 @@ mod tests {
             .unwrap();
         let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
 
-        assert_eq!(
-            state.run_s2_exact(&mut compilation).unwrap(),
-            S2Stats::default()
-        );
+        assert_eq!(state.run_s2(&mut compilation).unwrap(), S2Stats::default());
         assert_eq!(compilation.validate_ast(), Ok(()));
     }
 

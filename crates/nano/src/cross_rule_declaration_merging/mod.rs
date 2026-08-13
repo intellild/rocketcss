@@ -24,7 +24,10 @@ pub(crate) fn stabilize_cross_rule_builder<'scratch, 'ast>(
     compilation: &mut rocketcss_ast::Compilation<'ast>,
     preserve_selector_compatibility: bool,
     key_remaps: &[rocketcss_ast::EffectiveKeyId<'ast>],
-) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
+) -> Result<
+    std::vec::Vec<rocketcss_ast::ConcreteDeclarationBlockId<'ast>>,
+    rocketcss_ast::ConcreteMutationError<'ast>,
+> {
     builder.finalize(key_remaps);
     radix_state::stabilize_with_builder(builder, compilation, preserve_selector_compatibility)
 }
