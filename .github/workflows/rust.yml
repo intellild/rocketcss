@@ -24,10 +24,8 @@ jobs:
           cache: pnpm
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
-      - name: Check TOML formatting
-        run: pnpm format-ci:toml
       - name: Check Prettier formatting
-        run: pnpm format-ci:prettier
+        run: pnpm format-ci
       - name: Check generated visitor code
         run: |
           cargo run -p rocketcss_ast_tools
