@@ -4,16 +4,14 @@
   "private": true,
   "packageManager": "pnpm@11.7.0",
   "scripts": {
-    "format-ci:prettier": "prettier --check .",
-    "format-ci:toml": "taplo format --check",
-    "format:prettier": "prettier --write .",
-    "format:toml": "taplo format",
+    "format-ci": "prettier --check .",
+    "format": "prettier --write .",
     "parser-test-corpus": "pnpm --filter @rocketcss/sync-upstream-css-tests generate-parser-corpus",
     "record-dynamic-cases": "pnpm --filter @rocketcss/sync-upstream-css-tests record-dynamic-cases",
     "upstream-tests": "pnpm --filter @rocketcss/sync-upstream-css-tests upstream-tests"
   },
   "devDependencies": {
-    "@taplo/cli": "^0.7.0",
-    "prettier": "^3.6.2"
+    "prettier": "^3.6.2",
+    "prettier-plugin-toml": "^2.0.6"
   }
 }

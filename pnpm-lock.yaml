@@ -7,12 +7,12 @@ settings:
 importers:
   .:
     devDependencies:
-      "@taplo/cli":
-        specifier: ^0.7.0
-        version: 0.7.0
       prettier:
         specifier: ^3.6.2
         version: 3.9.5
+      prettier-plugin-toml:
+        specifier: ^2.0.6
+        version: 2.0.6(prettier@3.9.5)
 
   .agents/skills/sync-upstream-css-tests:
     dependencies:
@@ -21,12 +21,26 @@ importers:
         version: 8.8.5
 
 packages:
-  "@taplo/cli@0.7.0":
+  "@taplo/core@0.2.0":
     resolution:
       {
-        integrity: sha512-Ck3zFhQhIhi02Hl6T4ZmJsXdnJE+wXcJz5f8klxd4keRYgenMnip3JDPMGDRLbnC/2iGd8P0sBIQqI3KxfVjBg==,
+        integrity: sha512-r8bl54Zj1In3QLkiW/ex694bVzpPJ9EhwqT9xkcUVODnVUGirdB1JTsmiIv0o1uwqZiwhi8xNnTOQBRQCpizrQ==,
       }
-    hasBin: true
+
+  "@taplo/lib@0.5.0":
+    resolution:
+      {
+        integrity: sha512-+xIqpQXJco3T+VGaTTwmhxLa51qpkQxCjRwezjFZgr+l21ExlywJFcDfTrNmL6lG6tqb0h8GyJKO3UPGPtSCWg==,
+      }
+
+  prettier-plugin-toml@2.0.6:
+    resolution:
+      {
+        integrity: sha512-12N/wBuHa9jd/KVy9pRP20NMKxQfQLMseQCt66lIbLaPLItvGUcSIryE1eZZMJ7loSws6Ig3M2Elc2EreNh76w==,
+      }
+    engines: { node: ">=16.0.0" }
+    peerDependencies:
+      prettier: ^3.0.3
 
   prettier@3.9.5:
     resolution:
@@ -45,7 +59,16 @@ packages:
     hasBin: true
 
 snapshots:
-  "@taplo/cli@0.7.0": {}
+  "@taplo/core@0.2.0": {}
+
+  "@taplo/lib@0.5.0":
+    dependencies:
+      "@taplo/core": 0.2.0
+
+  prettier-plugin-toml@2.0.6(prettier@3.9.5):
+    dependencies:
+      "@taplo/lib": 0.5.0
+      prettier: 3.9.5
 
   prettier@3.9.5: {}
 

@@ -6,3 +6,6 @@ tests/upstream-sources/
 
 # Benchmark inputs preserve their upstream formatting.
 tasks/benchmark/files/
+
+# Cargo owns this generated lockfile's formatting.
+Cargo.lock
