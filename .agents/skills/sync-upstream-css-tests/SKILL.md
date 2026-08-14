@@ -69,9 +69,10 @@ which also captures cases built from runtime data files the snapshot omits
 (the log marks files with `stubbed requires` when that happens).
 
 `../../../tests/src/minify_dynamic.rs` expands and runs the recorded cases at
-test time. Cases RocketCSS cannot handle yet stay in the specs and are skipped
-explicitly in `still_requires_unsupported_transform`, mirroring the static
-skip list.
+test time. Cases RocketCSS cannot handle yet stay in the specs with a precise
+`rocketcssSkip` reason beside the input and expectation. The recorder preserves
+those annotations by case identity when refreshing the specs; audit new or
+changed cases instead of restoring broad plugin-level skip matchers.
 
 ## Parser corpus
 

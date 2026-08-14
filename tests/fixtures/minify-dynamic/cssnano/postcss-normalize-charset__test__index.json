@@ -5,22 +5,26 @@
     {
       "test": "should add a charset if a file contains non-ascii",
       "input": "a{content:\"©\"}",
-      "expected": "@charset \"utf-8\";\na{content:\"©\"}"
+      "expected": "@charset \"utf-8\";\na{content:\"©\"}",
+      "rocketcssSkip": "@charset insertion not implemented"
     },
     {
       "test": "should move up first existing charset",
       "input": "b{жизнь:калька}@charset \"windows-1251\";a{content:\"©\"}",
-      "expected": "@charset \"windows-1251\";b{жизнь:калька}a{content:\"©\"}"
+      "expected": "@charset \"windows-1251\";b{жизнь:калька}a{content:\"©\"}",
+      "rocketcssSkip": "@charset reordering not implemented"
     },
     {
       "test": "should remove extra charset rules",
       "input": "a{content:\"©\"}@charset \"utf-8\";@charset \"windows-1251\";",
-      "expected": "@charset \"utf-8\";\na{content:\"©\"}"
+      "expected": "@charset \"utf-8\";\na{content:\"©\"}",
+      "rocketcssSkip": "@charset dedup not implemented"
     },
     {
       "test": "should remove all charset rules if a file doesn't contain non-ascii",
       "input": "a{content:\"c\"}@charset \"utf-8\";@charset \"windows-1251\";",
-      "expected": "a{content:\"c\"}"
+      "expected": "a{content:\"c\"}",
+      "rocketcssSkip": "@charset removal not implemented"
     },
     {
       "test": "should not add a charset with add set to false",
@@ -31,7 +35,8 @@
     {
       "test": "add on",
       "input": "a{content:\"©\"}",
-      "expected": "@charset \"utf-8\";\na{content:\"©\"}"
+      "expected": "@charset \"utf-8\";\na{content:\"©\"}",
+      "rocketcssSkip": "@charset insertion not implemented"
     },
     {
       "test": "add off",

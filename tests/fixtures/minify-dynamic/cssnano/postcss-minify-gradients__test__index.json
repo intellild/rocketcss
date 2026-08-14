@@ -5,62 +5,74 @@
     {
       "test": "linear: should convert \"to top\" to 0deg",
       "input": "background:linear-gradient(to top,#ffe500,#121)",
-      "expected": "background:linear-gradient(0deg,#ffe500,#121)"
+      "expected": "background:linear-gradient(0deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should convert \"to top\" to 0deg (uppercase property and value)",
       "input": "BACKGROUND:LINEAR-GRADIENT(TO TOP,#ffe500,#121)",
-      "expected": "BACKGROUND:LINEAR-GRADIENT(0deg,#ffe500,#121)"
+      "expected": "BACKGROUND:LINEAR-GRADIENT(0deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should convert \"to right\" to 90deg",
       "input": "background:linear-gradient(to right,#ffe500,#121)",
-      "expected": "background:linear-gradient(90deg,#ffe500,#121)"
+      "expected": "background:linear-gradient(90deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should convert \"to right\" to 90deg (uppercase property and value)",
       "input": "BACKGROUND:LINEAR-GRADIENT(TO RIGHT,#FFE500,#121)",
-      "expected": "BACKGROUND:LINEAR-GRADIENT(90deg,#FFE500,#121)"
+      "expected": "BACKGROUND:LINEAR-GRADIENT(90deg,#FFE500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should convert \"to bottom\" to 180deg",
       "input": "background:linear-gradient(to bottom,#ffe500,#121)",
-      "expected": "background:linear-gradient(180deg,#ffe500,#121)"
+      "expected": "background:linear-gradient(180deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should convert \"to left\" to 270deg",
       "input": "background:linear-gradient(to left,#ffe500,#121)",
-      "expected": "background:linear-gradient(270deg,#ffe500,#121)"
+      "expected": "background:linear-gradient(270deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should convert \"to top\" to 0deg (with a solid colour)",
       "input": "background:#ffe500 linear-gradient(to top,#ffe500,#121)",
-      "expected": "background:#ffe500 linear-gradient(0deg,#ffe500,#121)"
+      "expected": "background:#ffe500 linear-gradient(0deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-linear: should convert \"to top\" to 0deg",
       "input": "background:repeating-linear-gradient(to top,#ffe500,#121)",
-      "expected": "background:repeating-linear-gradient(0deg,#ffe500,#121)"
+      "expected": "background:repeating-linear-gradient(0deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-linear: should convert \"to top\" to 0deg (uppercase)",
       "input": "background:REPEATING-LINEAR-GRADIENT(TO TOP,#ffe500,#121)",
-      "expected": "background:REPEATING-LINEAR-GRADIENT(0deg,#ffe500,#121)"
+      "expected": "background:REPEATING-LINEAR-GRADIENT(0deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-linear: should convert \"to right\" to 90deg",
       "input": "background:repeating-linear-gradient(to right,#ffe500,#121)",
-      "expected": "background:repeating-linear-gradient(90deg,#ffe500,#121)"
+      "expected": "background:repeating-linear-gradient(90deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-linear: should convert \"to bottom\" to 180deg",
       "input": "background:repeating-linear-gradient(to bottom,#ffe500,#121)",
-      "expected": "background:repeating-linear-gradient(180deg,#ffe500,#121)"
+      "expected": "background:repeating-linear-gradient(180deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-linear: should convert \"to left\" to 270deg",
       "input": "background:repeating-linear-gradient(to left,#ffe500,#121)",
-      "expected": "background:repeating-linear-gradient(270deg,#ffe500,#121)"
+      "expected": "background:repeating-linear-gradient(270deg,#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-linear: should not remove necessary zero start length",
@@ -83,17 +95,20 @@
     {
       "test": "linear: should reduce length values if they are the same",
       "input": "background:linear-gradient(45deg,#ffe500 50%,#121 50%)",
-      "expected": "background:linear-gradient(45deg,#ffe500 50%,#121 0)"
+      "expected": "background:linear-gradient(45deg,#ffe500 50%,#121 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should reduce length values if they are the same (uppercase)",
       "input": "background:LINEAR-GRADIENT(45DEG,#FFE500 50%,#121 50%)",
-      "expected": "background:LINEAR-GRADIENT(45DEG,#FFE500 50%,#121 0)"
+      "expected": "background:LINEAR-GRADIENT(45DEG,#FFE500 50%,#121 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should reduce length values if they are less",
       "input": "background:linear-gradient(45deg,#ffe500 50%,#121 25%)",
-      "expected": "background:linear-gradient(45deg,#ffe500 50%,#121 0)"
+      "expected": "background:linear-gradient(45deg,#ffe500 50%,#121 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "linear: should not reduce length values with different units",
@@ -104,22 +119,26 @@
     {
       "test": "linear: should remove the (unnecessary) start/end length values",
       "input": "background:linear-gradient(#ffe500 0%,#121 100%)",
-      "expected": "background:linear-gradient(#ffe500,#121)"
+      "expected": "background:linear-gradient(#ffe500,#121)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-radial: should reduce length values if they are the same",
       "input": "background:repeating-radial-gradient(#121,#121 5px,#ffe500 5px,#ffe500 10px)",
-      "expected": "background:repeating-radial-gradient(#121,#121 5px,#ffe500 0,#ffe500 10px)"
+      "expected": "background:repeating-radial-gradient(#121,#121 5px,#ffe500 0,#ffe500 10px)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-radial: should reduce length values if they are the same (uppercase property and value)",
       "input": "BACKGROUND:REPEATING-RADIAL-GRADIENT(#121,#121 5PX,#FFE500 5PX,#FFE500 10PX)",
-      "expected": "BACKGROUND:REPEATING-RADIAL-GRADIENT(#121,#121 5PX,#FFE500 0,#FFE500 10PX)"
+      "expected": "BACKGROUND:REPEATING-RADIAL-GRADIENT(#121,#121 5PX,#FFE500 0,#FFE500 10PX)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "repeating-radial: should reduce length values if they are the same (last is zero)",
       "input": "BACKGROUND:REPEATING-RADIAL-GRADIENT(#121,#121 5PX,#FFE500 5PX,#FFE500 0)",
-      "expected": "BACKGROUND:REPEATING-RADIAL-GRADIENT(#121,#121 5PX,#FFE500 0,#FFE500 0)"
+      "expected": "BACKGROUND:REPEATING-RADIAL-GRADIENT(#121,#121 5PX,#FFE500 0,#FFE500 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "radial: should correctly account for \"at\"",
@@ -136,12 +155,14 @@
     {
       "test": "radial: should correctly account for \"at\" (2)",
       "input": "background:radial-gradient(at 50% 0%,rgba(74,74,74,.15),transparent 40%, red 40%);",
-      "expected": "background:radial-gradient(at 50% 0%,rgba(74,74,74,.15),transparent 40%, red 0);"
+      "expected": "background:radial-gradient(at 50% 0%,rgba(74,74,74,.15),transparent 40%, red 0);",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "radial: should correctly account for \"at\" (2) (uppercase)",
       "input": "background:radial-gradient(AT 50% 0%,RGBA(74,74,74,.15),TRANSPARENT 40%, RED 40%);",
-      "expected": "background:radial-gradient(AT 50% 0%,RGBA(74,74,74,.15),TRANSPARENT 40%, RED 0);"
+      "expected": "background:radial-gradient(AT 50% 0%,RGBA(74,74,74,.15),TRANSPARENT 40%, RED 0);",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "radial: should correctly account with prefix \"-webkit\" (1)",
@@ -166,12 +187,14 @@
     {
       "test": "radial: should correctly account with prefix \"-webkit\" (2)",
       "input": "background: -webkit-radial-gradient(center, 30% 30%, white 20%, black 10%)",
-      "expected": "background: -webkit-radial-gradient(center, 30% 30%, white 20%, black 0)"
+      "expected": "background: -webkit-radial-gradient(center, 30% 30%, white 20%, black 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "radial: should correctly account with prefix \"-webkit\" (2) (uppercase)",
       "input": "background: -WEBKIT-RADIAL-GRADIENT(CENTER, 30% 30%, WHITE 20%, BLACK 10%)",
-      "expected": "background: -WEBKIT-RADIAL-GRADIENT(CENTER, 30% 30%, WHITE 20%, BLACK 0)"
+      "expected": "background: -WEBKIT-RADIAL-GRADIENT(CENTER, 30% 30%, WHITE 20%, BLACK 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "radial: should correctly account with prefix \"-webkit\" (3)",
@@ -181,12 +204,14 @@
     {
       "test": "radial: should correctly account with prefix \"-webkit\" (4)",
       "input": "background: -webkit-radial-gradient(white 50%, black 40%)",
-      "expected": "background: -webkit-radial-gradient(white 50%, black 0)"
+      "expected": "background: -webkit-radial-gradient(white 50%, black 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "radial: should correctly account with prefix \"-webkit\" (4) (uppercase)",
       "input": "background: -WEBKIT-RADIAL-GRADIENT(WHITE 50%, BLACK 40%)",
-      "expected": "background: -WEBKIT-RADIAL-GRADIENT(WHITE 50%, BLACK 0)"
+      "expected": "background: -WEBKIT-RADIAL-GRADIENT(WHITE 50%, BLACK 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "radial: should correctly account with prefix \"-webkit\" (4) with px (uppercase)",
@@ -206,17 +231,20 @@
     {
       "test": "should not mangle floating point numbers",
       "input": "background:linear-gradient(#fff,#fff 2em,#ccc 2em,#ccc 2.1em,#fff 2.1em)",
-      "expected": "background:linear-gradient(#fff,#fff 2em,#ccc 0,#ccc 2.1em,#fff 0)"
+      "expected": "background:linear-gradient(#fff,#fff 2em,#ccc 0,#ccc 2.1em,#fff 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "should not mangle floating point numbers (uppercase)",
       "input": "background:LINEAR-GRADIENT(#FFF,#FFF 2EM,#CCC 2EM,#CCC 2.1EM,#FFF 2.1EM)",
-      "expected": "background:LINEAR-GRADIENT(#FFF,#FFF 2EM,#CCC 0,#CCC 2.1EM,#FFF 0)"
+      "expected": "background:LINEAR-GRADIENT(#FFF,#FFF 2EM,#CCC 0,#CCC 2.1EM,#FFF 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "should not mangle floating point numbers 1 (uppercase)",
       "input": "background:lInEaR-gRaDiEnT(#fFf,#fFf 2Em,#cCc 2eM,#cCc 2.1eM,#fFf 2.1EM)",
-      "expected": "background:lInEaR-gRaDiEnT(#fFf,#fFf 2Em,#cCc 0,#cCc 2.1eM,#fFf 0)"
+      "expected": "background:lInEaR-gRaDiEnT(#fFf,#fFf 2Em,#cCc 0,#cCc 2.1eM,#fFf 0)",
+      "rocketcssSkip": "gradient transform normalization is outside typed property coverage"
     },
     {
       "test": "should not remove the trailing zero if it is the last stop",

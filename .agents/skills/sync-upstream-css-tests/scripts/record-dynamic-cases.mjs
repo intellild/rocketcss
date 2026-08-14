@@ -120,6 +120,55 @@ async function gitRevision(root) {
   return null;
 }
 
+function caseIdentity(recordedCase) {
+  return JSON.stringify([
+    recordedCase.test,
+    recordedCase.input,
+    recordedCase.expected,
+    recordedCase.passthrough === true,
+    recordedCase.upstreamSkip === true,
+  ]);
+}
+
+async function readRocketcssSkips(output) {
+  const skipsByFile = new Map();
+  if (!existsSync(output)) {
+    return skipsByFile;
+  }
+  for (const outputName of await readdir(output)) {
+    if (!outputName.endsWith(".json")) {
+      continue;
+    }
+    const spec = JSON.parse(
+      await readFile(path.join(output, outputName), "utf8"),
+    );
+    const skipsByCase = new Map();
+    for (const recordedCase of spec.cases ?? []) {
+      if (typeof recordedCase.rocketcssSkip !== "string") {
+        continue;
+      }
+      const identity = caseIdentity(recordedCase);
+      const reasons = skipsByCase.get(identity) ?? [];
+      reasons.push(recordedCase.rocketcssSkip);
+      skipsByCase.set(identity, reasons);
+    }
+    skipsByFile.set(outputName, skipsByCase);
+  }
+  return skipsByFile;
+}
+
+function countRocketcssSkips(skipsByFile) {
+  return [...skipsByFile.values()].reduce(
+    (total, skipsByCase) =>
+      total +
+      [...skipsByCase.values()].reduce(
+        (fileTotal, reasons) => fileTotal + reasons.length,
+        0,
+      ),
+    0,
+  );
+}
+
 async function main() {
   const rawArguments = process.argv.slice(2);
   if (
@@ -141,6 +190,8 @@ async function main() {
     );
   }
   const revision = await gitRevision(options.cssnano);
+  const existingRocketcssSkips = await readRocketcssSkips(options.output);
+  const previousRocketcssSkips = countRocketcssSkips(existingRocketcssSkips);
 
   const packages = (await readdir(packagesRoot, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
@@ -182,6 +233,14 @@ async function main() {
           .split(path.sep)
           .join("__")
           .replace(/\.[cm]?js$/, ".json");
+        const skipsByCase = existingRocketcssSkips.get(outputName);
+        for (const recordedCase of recorder.cases) {
+          const reasons = skipsByCase?.get(caseIdentity(recordedCase));
+          const reason = reasons?.shift();
+          if (reason) {
+            recordedCase.rocketcssSkip = reason;
+          }
+        }
         await writeFile(
           path.join(options.output, outputName),
           `${JSON.stringify(spec, null, 2)}\n`,
@@ -204,6 +263,14 @@ async function main() {
       `\nrecorded ${totalCases} cases from ${totalFiles} test files -> ${path.relative(REPOSITORY_ROOT, options.output)}`,
     ),
   );
+  const staleRocketcssSkips = countRocketcssSkips(existingRocketcssSkips);
+  if (staleRocketcssSkips > 0) {
+    console.log(
+      chalk.yellow(
+        `${staleRocketcssSkips} of ${previousRocketcssSkips} rocketcssSkip annotations no longer match a recorded case; audit the refreshed corpus`,
+      ),
+    );
+  }
 }
 
 // Stub `node:test` and `util/testHelpers.js`, execute the file in a vm

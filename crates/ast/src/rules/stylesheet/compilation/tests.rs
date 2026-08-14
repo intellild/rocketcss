@@ -899,6 +899,83 @@ fn declaration_sequence_rewrite_is_atomic_on_capacity_failure() {
 }
 
 #[test]
+fn declaration_rewrite_preflight_validates_every_origin_without_mutation() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let (_, block) = append_test_block(&mut compilation, root, key, 1, &[10, 20, 30]);
+    let (_, other_block) = append_test_block(&mut compilation, root, key, 2, &[40]);
+    let origins = compilation
+        .declaration_ids_in_block(block)
+        .unwrap()
+        .collect::<std::vec::Vec<_>>();
+    let other_origin = compilation
+        .declaration_ids_in_block(other_block)
+        .unwrap()
+        .next()
+        .unwrap();
+    let revision = compilation.declaration_block(block).unwrap().revision();
+    let before = compilation
+        .declarations_in_block(block)
+        .unwrap()
+        .map(|record| (*record.payload(), record.is_important()))
+        .collect::<std::vec::Vec<_>>();
+
+    for &origin in &origins {
+        assert_eq!(
+            compilation.validate_declaration_rewrite(block, origin, 2),
+            Ok(())
+        );
+    }
+    assert_eq!(
+        compilation.validate_declaration_rewrite(block, other_origin, 0),
+        Err(MutationError::UnknownDeclaration(other_origin))
+    );
+
+    assert_eq!(
+        compilation
+            .declarations_in_block(block)
+            .unwrap()
+            .map(|record| (*record.payload(), record.is_important()))
+            .collect::<std::vec::Vec<_>>(),
+        before
+    );
+    assert_eq!(
+        compilation.declaration_block(block).unwrap().revision(),
+        revision
+    );
+    assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn declaration_rewrite_preflight_rejects_a_truncated_chain() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let key = compilation.append_effective_key("same").unwrap();
+    let (_, block) = append_test_block(&mut compilation, root, key, 1, &[10, 20, 30]);
+    let origins = compilation
+        .declaration_ids_in_block(block)
+        .unwrap()
+        .collect::<std::vec::Vec<_>>();
+    compilation.declarations.get_mut(origins[1]).next_in_block = None;
+
+    assert_eq!(
+        compilation.validate_declaration_rewrite(block, origins[0], 0),
+        Err(MutationError::InvalidDeclarationChain(block))
+    );
+    assert_eq!(
+        compilation
+            .declaration_block(block)
+            .unwrap()
+            .declaration_count(),
+        3
+    );
+    assert_eq!(*compilation.declaration(origins[0]).unwrap().payload(), 10);
+}
+
+#[test]
 fn declaration_sequence_replacement_preserves_nested_block_ownership() {
     let allocator = Allocator::new();
     let mut compilation = RadixCompilation::<u8, &'static str, &'static str>::new_in(&allocator);

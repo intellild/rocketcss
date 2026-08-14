@@ -56,7 +56,7 @@ pub(super) fn stabilize_with_builder<'scratch, 'ast>(
     builder
         .state
         .run(compilation, preserve_selector_compatibility)?;
-    builder.state.finish(compilation)
+    builder.state.commit_s5(compilation)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -533,9 +533,26 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 && self.partial_merge_candidates.is_empty()
             {
                 self.run_s4(compilation)?;
+                self.assert_semantic_fixed_point();
                 return Ok(stats);
             }
         }
+    }
+
+    #[inline]
+    fn is_semantic_fixed_point(&self) -> bool {
+        self.same_selector_candidates.is_empty()
+            && self.declaration_override_candidates.is_empty()
+            && self.partial_merge_candidates.is_empty()
+            && self.dirty_s4_plan_items.is_empty()
+    }
+
+    #[inline]
+    fn assert_semantic_fixed_point(&self) {
+        assert!(
+            self.is_semantic_fixed_point(),
+            "S5 requires every S1-S4 work queue to be drained"
+        );
     }
 
     fn run_s4(&mut self, compilation: &Compilation<'ast>) -> Result<(), MutationError<'ast>> {
@@ -574,17 +591,21 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     /// Terminal S5 boundary. All representation choices have already been
     /// made by S4; this method only validates, preflights, and commits them.
-    fn finish(
+    fn commit_s5(
         self,
         compilation: &mut Compilation<'ast>,
     ) -> Result<std::vec::Vec<DeclarationBlockId<'ast>>, MutationError<'ast>> {
-        debug_assert!(self.same_selector_candidates.is_empty());
-        debug_assert!(self.declaration_override_candidates.is_empty());
-        debug_assert!(self.partial_merge_candidates.is_empty());
-        debug_assert!(self.dirty_s4_plan_items.is_empty());
+        self.assert_semantic_fixed_point();
 
         let mut additional = 0_usize;
+        let mut origins: HashSet<'scratch, rocketcss_ast::DeclarationId<'ast>> =
+            HashSet::new_in(self.allocator);
+        let mut additional_by_block: HashMap<'scratch, DeclarationBlockId<'ast>, usize> =
+            HashMap::new_in(self.allocator);
         for plan in &self.declaration_plans {
+            if !origins.insert(plan.origin) {
+                return Err(MutationError::<'ast>::UnknownDeclaration(plan.origin));
+            }
             let block = compilation
                 .declaration_block(plan.owner)
                 .ok_or(MutationError::<'ast>::UnknownDeclarationBlock(plan.owner))?;
@@ -601,16 +622,51 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
             {
                 return Err(MutationError::<'ast>::UnknownDeclaration(plan.origin));
             }
+            let AstDeclarationPlanKind::MaterializeBoxLonghands {
+                family,
+                live_effects,
+            } = plan.kind;
+            if occurrence.expansion != EffectExpansion::BoxShorthand(family)
+                || occurrence.live_effects() != live_effects
+                || live_effects == 0
+                || live_effects == ALL_BOX_SIDES
+                || live_effects & !ALL_BOX_SIDES != 0
+            {
+                return Err(MutationError::<'ast>::UnknownDeclaration(plan.origin));
+            }
             let record = compilation
                 .declaration(plan.origin)
                 .ok_or(MutationError::<'ast>::UnknownDeclaration(plan.origin))?;
             if record.is_important() != plan.important {
                 return Err(MutationError::<'ast>::UnknownDeclaration(plan.origin));
             }
-            let AstDeclarationPlanKind::MaterializeBoxLonghands { live_effects, .. } = plan.kind;
-            additional = additional
-                .checked_add(live_effects.count_ones() as usize - 1)
+            let matching_payload = matches!(
+                (family, record.payload()),
+                (
+                    BoxFamily::Margin,
+                    DeclarationPayload::Property(Declaration::Margin(_))
+                ) | (
+                    BoxFamily::Padding,
+                    DeclarationPayload::Property(Declaration::Padding(_))
+                )
+            );
+            if !matching_payload {
+                return Err(MutationError::<'ast>::UnknownDeclaration(plan.origin));
+            }
+            let plan_additional = (live_effects.count_ones() as usize)
+                .checked_sub(1)
                 .ok_or(MutationError::<'ast>::DeclarationCapacityExhausted)?;
+            additional = additional
+                .checked_add(plan_additional)
+                .ok_or(MutationError::<'ast>::DeclarationCapacityExhausted)?;
+            let block_additional = additional_by_block
+                .get(&plan.owner)
+                .copied()
+                .unwrap_or(0_usize)
+                .checked_add(plan_additional)
+                .ok_or(MutationError::<'ast>::DeclarationCapacityExhausted)?;
+            compilation.validate_declaration_rewrite(plan.owner, plan.origin, block_additional)?;
+            additional_by_block.insert(plan.owner, block_additional);
         }
         if !compilation.can_insert_transformed_declarations(additional) {
             return Err(MutationError::<'ast>::DeclarationCapacityExhausted);
@@ -622,7 +678,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 live_effects,
             } = plan.kind;
             let additional = live_effects.count_ones() as usize - 1;
-            compilation.rewrite_declaration_with_sequence(
+            let result = compilation.rewrite_declaration_with_sequence(
                 plan.owner,
                 plan.origin,
                 additional,
@@ -637,10 +693,11 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                         .map(|declaration| (DeclarationPayload::Property(declaration), important))
                         .collect()
                 },
-            )?;
+            );
+            if result.is_err() {
+                unreachable!("a fully preflighted S5 declaration plan cannot fail during commit");
+            }
         }
-        #[cfg(debug_assertions)]
-        debug_assert_eq!(compilation.validate_ast(), Ok(()));
         Ok(self.representation_dirty_blocks.iter().copied().collect())
     }
 
@@ -2161,6 +2218,205 @@ mod tests {
                 rejected_capacity: 0,
             }
         );
+        assert_eq!(compilation.validate_ast(), Ok(()));
+    }
+
+    #[test]
+    fn s5_accepts_a_no_plan_fixed_point() {
+        let allocator = Allocator::new();
+        let mut compilation = Compiler::new(&allocator)
+            .parse_test_compilation("a{color:red}", ParserOptions::default())
+            .unwrap();
+        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+
+        state.run(&mut compilation, true).unwrap();
+        assert!(state.is_semantic_fixed_point());
+        assert!(state.declaration_plans.is_empty());
+        assert!(state.commit_s5(&mut compilation).unwrap().is_empty());
+        assert_eq!(compilation.validate_ast(), Ok(()));
+    }
+
+    #[test]
+    fn s5_commits_two_typed_plans_in_one_block_and_deduplicates_dirty_output() {
+        let allocator = Allocator::new();
+        let mut compilation = Compiler::new(&allocator)
+            .parse_test_compilation(
+                ".a{margin:1px;padding:2px}.x{display:block}.a{margin-left:3px;padding-top:4px}",
+                ParserOptions::default(),
+            )
+            .unwrap();
+        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+
+        state.run(&mut compilation, true).unwrap();
+        assert_eq!(state.declaration_plans.len(), 2);
+        let owner = state.declaration_plans[0].owner;
+        assert!(
+            state
+                .declaration_plans
+                .iter()
+                .all(|plan| plan.owner == owner)
+        );
+        let dirty = state.commit_s5(&mut compilation).unwrap();
+
+        assert_eq!(dirty, [owner]);
+        let declarations = compilation
+            .declarations_in_block(owner)
+            .unwrap()
+            .map(|record| record.payload())
+            .collect::<std::vec::Vec<_>>();
+        assert_eq!(declarations.len(), 6);
+        assert!(matches!(
+            declarations.as_slice(),
+            [
+                DeclarationPayload::Property(Declaration::MarginTop(_)),
+                DeclarationPayload::Property(Declaration::MarginRight(_)),
+                DeclarationPayload::Property(Declaration::MarginBottom(_)),
+                DeclarationPayload::Property(Declaration::PaddingRight(_)),
+                DeclarationPayload::Property(Declaration::PaddingBottom(_)),
+                DeclarationPayload::Property(Declaration::PaddingLeft(_)),
+            ]
+        ));
+        assert_eq!(compilation.validate_ast(), Ok(()));
+    }
+
+    #[test]
+    fn s5_rejects_duplicate_origins_before_committing() {
+        let allocator = Allocator::new();
+        let mut compilation = Compiler::new(&allocator)
+            .parse_test_compilation(
+                ".a{margin:1px}.x{display:block}.a{margin-left:2px}",
+                ParserOptions::default(),
+            )
+            .unwrap();
+        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+
+        state.run(&mut compilation, true).unwrap();
+        let plan = state.declaration_plans[0];
+        state.declaration_plans.push(plan);
+        let revision = compilation
+            .declaration_block(plan.owner)
+            .unwrap()
+            .revision();
+
+        assert_eq!(
+            state.commit_s5(&mut compilation),
+            Err(MutationError::UnknownDeclaration(plan.origin))
+        );
+        assert!(matches!(
+            compilation.declaration(plan.origin).unwrap().payload(),
+            DeclarationPayload::Property(Declaration::Margin(_))
+        ));
+        assert_eq!(
+            compilation
+                .declaration_block(plan.owner)
+                .unwrap()
+                .revision(),
+            revision
+        );
+        assert_eq!(compilation.validate_ast(), Ok(()));
+    }
+
+    #[test]
+    fn s5_batch_preflight_rejects_the_last_invalid_plan_atomically() {
+        let allocator = Allocator::new();
+        let mut compilation = Compiler::new(&allocator)
+            .parse_test_compilation(
+                ".a{margin:1px;padding:2px}.x{display:block}.a{margin-left:3px;padding-top:4px}",
+                ParserOptions::default(),
+            )
+            .unwrap();
+        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+
+        state.run(&mut compilation, true).unwrap();
+        assert_eq!(state.declaration_plans.len(), 2);
+        let first = state.declaration_plans[0];
+        let last = state.declaration_plans.last_mut().unwrap();
+        let AstDeclarationPlanKind::MaterializeBoxLonghands { live_effects, .. } = &mut last.kind;
+        *live_effects = 0;
+        let revision = compilation
+            .declaration_block(first.owner)
+            .unwrap()
+            .revision();
+
+        assert!(state.commit_s5(&mut compilation).is_err());
+        assert!(matches!(
+            compilation.declaration(first.origin).unwrap().payload(),
+            DeclarationPayload::Property(Declaration::Margin(_))
+        ));
+        assert_eq!(
+            compilation
+                .declaration_block(first.owner)
+                .unwrap()
+                .revision(),
+            revision
+        );
+        assert_eq!(compilation.validate_ast(), Ok(()));
+    }
+
+    #[test]
+    fn s5_rejects_every_stale_or_mismatched_plan_snapshot() {
+        for mismatch in 0..4 {
+            let allocator = Allocator::new();
+            let mut compilation = Compiler::new(&allocator)
+                .parse_test_compilation(
+                    ".a{margin:1px}.x{display:block}.a{margin-left:2px}",
+                    ParserOptions::default(),
+                )
+                .unwrap();
+            let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+
+            state.run(&mut compilation, true).unwrap();
+            let plan = &mut state.declaration_plans[0];
+            let origin = plan.origin;
+            let owner = plan.owner;
+            let revision = compilation.declaration_block(owner).unwrap().revision();
+            match mismatch {
+                0 => plan.block_revision = plan.block_revision.wrapping_add(1),
+                1 => plan.effect_revision = plan.effect_revision.wrapping_add(1),
+                2 => plan.important = !plan.important,
+                3 => {
+                    let AstDeclarationPlanKind::MaterializeBoxLonghands { family, .. } =
+                        &mut plan.kind;
+                    *family = BoxFamily::Padding;
+                }
+                _ => unreachable!(),
+            }
+
+            assert!(state.commit_s5(&mut compilation).is_err());
+            assert!(matches!(
+                compilation.declaration(origin).unwrap().payload(),
+                DeclarationPayload::Property(Declaration::Margin(_))
+            ));
+            assert_eq!(
+                compilation.declaration_block(owner).unwrap().revision(),
+                revision
+            );
+            assert_eq!(compilation.validate_ast(), Ok(()));
+        }
+    }
+
+    #[test]
+    fn s5_commits_plans_from_separate_blocks_in_dirty_order() {
+        let allocator = Allocator::new();
+        let mut compilation = Compiler::new(&allocator)
+            .parse_test_compilation(
+                ".a{margin:1px}.b{padding:2px}.x{display:block}.a{margin-left:3px}.b{padding-top:4px}",
+                ParserOptions::default(),
+            )
+            .unwrap();
+        let mut state = CrossRuleState::from_compilation(&compilation).unwrap();
+
+        state.run(&mut compilation, true).unwrap();
+        assert_eq!(state.declaration_plans.len(), 2);
+        let planned_owners = state
+            .declaration_plans
+            .iter()
+            .map(|plan| plan.owner)
+            .collect::<std::vec::Vec<_>>();
+        assert_ne!(planned_owners[0], planned_owners[1]);
+
+        let dirty = state.commit_s5(&mut compilation).unwrap();
+        assert_eq!(dirty, planned_owners);
         assert_eq!(compilation.validate_ast(), Ok(()));
     }
 }

@@ -87,22 +87,26 @@
     {
       "test": "display: table-cell flow => display: table-cell",
       "input": "display:table-cell flow",
-      "expected": "display:table-cell"
+      "expected": "display:table-cell",
+      "rocketcssSkip": "invalid display value repair is out of scope"
     },
     {
       "test": "display: table-caption flow => display: table-caption",
       "input": "display:table-caption flow",
-      "expected": "display:table-caption"
+      "expected": "display:table-caption",
+      "rocketcssSkip": "invalid display value repair is out of scope"
     },
     {
       "test": "display: ruby-base flow => display: ruby-base",
       "input": "display:ruby-base flow",
-      "expected": "display:ruby-base"
+      "expected": "display:ruby-base",
+      "rocketcssSkip": "invalid display value repair is out of scope"
     },
     {
       "test": "display: ruby-text flow => display: ruby-text",
       "input": "display:ruby-text flow",
-      "expected": "display:ruby-text"
+      "expected": "display:ruby-text",
+      "rocketcssSkip": "invalid display value repair is out of scope"
     },
     {
       "test": "display: block flow => display: block (uppercase property and values)",

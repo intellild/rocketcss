@@ -127,6 +127,8 @@ pub fn try_minify<'ast, 'ghost>(
             }
         }
     }
+    #[cfg(debug_assertions)]
+    debug_assert_eq!(compilation.validate_ast(), Ok(()));
     Ok(minifier.cx.stats())
 }
 

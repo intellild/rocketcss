@@ -11,12 +11,14 @@
     {
       "test": "should transform single quotes to double quotes by default",
       "input": "p:after{content:''}",
-      "expected": "p:after{content:\"\"}"
+      "expected": "p:after{content:\"\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should transform double quotes to single quotes via an option",
       "input": "p:after{content:\"\"}",
-      "expected": "p:after{content:''}"
+      "expected": "p:after{content:''}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should keep single quotes inside a double quoted string intact",
@@ -33,12 +35,14 @@
     {
       "test": "should transform escaped single quotation marks if possible",
       "input": "p:after{content:'\\'string\\' is intact'}",
-      "expected": "p:after{content:\"'string' is intact\"}"
+      "expected": "p:after{content:\"'string' is intact\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should transform escaped double quotation marks if possible",
       "input": "p:after{content:\"\\\"string\\\" is intact\"}",
-      "expected": "p:after{content:'\"string\" is intact'}"
+      "expected": "p:after{content:'\"string\" is intact'}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should not transform quotation marks when mixed",
@@ -55,62 +59,74 @@
     {
       "test": "should transform escaped single quotation marks when mixed",
       "input": "p:after{content:'\\'string\\' is \\\"intact\\\"'}",
-      "expected": "p:after{content:'\\'string\\' is \"intact\"'}"
+      "expected": "p:after{content:'\\'string\\' is \"intact\"'}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should transform escaped double quotation marks when mixed",
       "input": "p:after{content:\"\\'string\\' is \\\"intact\\\"\"}",
-      "expected": "p:after{content:\"'string' is \\\"intact\\\"\"}"
+      "expected": "p:after{content:\"'string' is \\\"intact\\\"\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with the attr function",
       "input": "p:after{content:'(' attr(href) ')'}",
-      "expected": "p:after{content:\"(\" attr(href) \")\"}"
+      "expected": "p:after{content:\"(\" attr(href) \")\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should join multiple line strings",
       "input": "p:after{content:\" > this is some really\\\n                     long text which is broken\\\n                     over several lines.\"}",
-      "expected": "p:after{content:\" > this is some really                     long text which is broken                     over several lines.\"}"
+      "expected": "p:after{content:\" > this is some really                     long text which is broken                     over several lines.\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with quotes",
       "input": "q{quotes:'«' \"»\"}",
-      "expected": "q{quotes:\"«\" \"»\"}"
+      "expected": "q{quotes:\"«\" \"»\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with language overrides",
       "input": "p{font-language-override:'DAN'}",
-      "expected": "p{font-language-override:\"DAN\"}"
+      "expected": "p{font-language-override:\"DAN\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with css grids",
       "input": "p{grid-template:'a a a' \"b b b\"}",
-      "expected": "p{grid-template:\"a a a\" \"b b b\"}"
+      "expected": "p{grid-template:\"a a a\" \"b b b\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with css grids (2)",
       "input": "p{grid-template-areas:'a a a' \"b b b\"}",
-      "expected": "p{grid-template-areas:\"a a a\" \"b b b\"}"
+      "expected": "p{grid-template-areas:\"a a a\" \"b b b\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with list styles",
       "input": "ul{list-style-type:'-'}",
-      "expected": "ul{list-style-type:\"-\"}"
+      "expected": "ul{list-style-type:\"-\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with text emphasis styles",
       "input": "p{text-emphasis-style:'\\25B2'}",
-      "expected": "p{text-emphasis-style:\"\\25B2\"}"
+      "expected": "p{text-emphasis-style:\"\\25B2\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with text overflow",
       "input": "p{text-overflow:'…' '…'}",
-      "expected": "p{text-overflow:\"…\" \"…\"}"
+      "expected": "p{text-overflow:\"…\" \"…\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with font",
       "input": "p{font:1em/1.5 'slab serif'}",
-      "expected": "p{font:1em/1.5 \"slab serif\"}"
+      "expected": "p{font:1em/1.5 \"slab serif\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with font family",
@@ -120,7 +136,8 @@
     {
       "test": "should work with font feature settings",
       "input": "p{font-feature-settings:'frac'}",
-      "expected": "p{font-feature-settings:\"frac\"}"
+      "expected": "p{font-feature-settings:\"frac\"}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work with web fonts",
@@ -130,12 +147,14 @@
     {
       "test": "should remove unnecessary backslashes in urls",
       "input": "p{background:url('http://example.com/foo\\'bar.jpg')}",
-      "expected": "p{background:url(\"http://example.com/foo'bar.jpg\")}"
+      "expected": "p{background:url(\"http://example.com/foo'bar.jpg\")}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should remove unnecessary backslashes in urls #1",
       "input": "p{background:url(\"http://example.com/foo\\\"bar.jpg\")}",
-      "expected": "p{background:url('http://example.com/foo\"bar.jpg')}"
+      "expected": "p{background:url('http://example.com/foo\"bar.jpg')}",
+      "rocketcssSkip": "string quote/escape normalization is outside typed property coverage"
     },
     {
       "test": "should work in attribute selectors",

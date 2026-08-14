@@ -9,6 +9,7 @@
     "format:prettier": "prettier --write .",
     "format:toml": "taplo format",
     "parser-test-corpus": "pnpm --filter @rocketcss/sync-upstream-css-tests generate-parser-corpus",
+    "record-dynamic-cases": "pnpm --filter @rocketcss/sync-upstream-css-tests record-dynamic-cases",
     "upstream-tests": "pnpm --filter @rocketcss/sync-upstream-css-tests upstream-tests"
   },
   "devDependencies": {
