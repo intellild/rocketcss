@@ -190,20 +190,21 @@ impl Minify for Ratio {
         if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
             reduce_ratio(self, cx);
         }
-        if let Self::Fraction(numerator, denominator) = *self
+        if let Some(denominator) = self.denominator
             && denominator == 1.0
             && cx.is_enabled(Options::CONVERT_RATIOS, OptionsOp::And)
         {
-            *self = Self::Number(numerator);
+            self.denominator = None;
             cx.record_value_normalized();
         }
     }
 }
 
 fn reduce_ratio(ratio: &mut Ratio, cx: &mut MinifyContext) {
-    let Ratio::Fraction(numerator, denominator) = *ratio else {
+    let Some(denominator) = ratio.denominator else {
         return;
     };
+    let numerator = ratio.numerator;
     if numerator <= 0.0 || denominator <= 0.0 {
         return;
     }
@@ -232,7 +233,8 @@ fn reduce_ratio(ratio: &mut Ratio, cx: &mut MinifyContext) {
     if reduced_left == numerator && reduced_right == denominator {
         return;
     }
-    *ratio = Ratio::Fraction(reduced_left, reduced_right);
+    ratio.numerator = reduced_left;
+    ratio.denominator = Some(reduced_right);
     cx.record_value_normalized();
 }
 

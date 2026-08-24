@@ -171,14 +171,12 @@ impl<'ghost> ToCss<'ghost> for Ratio {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Number(numerator) => serialize_number(*numerator, dest),
-            Self::Fraction(numerator, denominator) => {
-                serialize_number(*numerator, dest)?;
-                dest.write_char('/')?;
-                serialize_number(*denominator, dest)
-            }
+        serialize_number(self.numerator, dest)?;
+        if let Some(denominator) = self.denominator {
+            dest.write_char('/')?;
+            serialize_number(denominator, dest)?;
         }
+        Ok(())
     }
 }
 

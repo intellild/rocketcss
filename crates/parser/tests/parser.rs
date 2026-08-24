@@ -1341,7 +1341,10 @@ fn parses_typed_sizing_and_overflow_values() {
             declarations[1],
             Declaration::AspectRatio(AspectRatio {
                 auto: true,
-                ratio: Some(Ratio::Fraction(2.0, 3.0)),
+                ratio: Some(Ratio {
+                    denominator: Some(3.0),
+                    numerator: 2.0,
+                }),
             })
         ));
         assert!(matches!(
