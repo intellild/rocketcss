@@ -902,54 +902,90 @@ impl<'ghost> ToCss<'ghost> for AnimationRange<'_> {
     }
 }
 
+const ANIMATION_NAME_TIMING_FUNCTION: u8 = 1 << 0;
+const ANIMATION_NAME_ITERATION_COUNT: u8 = 1 << 1;
+const ANIMATION_NAME_DIRECTION: u8 = 1 << 2;
+const ANIMATION_NAME_FILL_MODE: u8 = 1 << 3;
+const ANIMATION_NAME_PLAY_STATE: u8 = 1 << 4;
+
+fn animation_name_keyword_flags(name: &AnimationName<'_>) -> u8 {
+    let name = match name {
+        AnimationName::Ident(name) | AnimationName::String(name) => *name,
+        AnimationName::None => return 0,
+    };
+    rocketcss_ast::match_ignore_ascii_case!(
+        name,
+        "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end" =>
+            ANIMATION_NAME_TIMING_FUNCTION,
+        "infinite" => ANIMATION_NAME_ITERATION_COUNT,
+        "normal" | "reverse" | "alternate" | "alternate-reverse" => ANIMATION_NAME_DIRECTION,
+        "forwards" | "backwards" | "both" => ANIMATION_NAME_FILL_MODE,
+        "running" | "paused" => ANIMATION_NAME_PLAY_STATE,
+        _ => 0,
+    )
+}
+
 impl<'ghost> ToCss<'ghost> for Animation<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        // Components print in their stored order: authored order after
-        // parsing, canonical order after the ORDER_VALUES minify pass, which
-        // also moves a name colliding with a keyword class behind that class.
-        for (index, component) in self.components.iter().enumerate() {
-            if index > 0 {
+        let name_flags = animation_name_keyword_flags(&self.name);
+        let name_is_none = matches!(&*self.name, AnimationName::None);
+        let mut wrote_value = false;
+        macro_rules! write_value {
+            ($value:expr) => {{
+                if wrote_value {
+                    dest.write_char(' ')?;
+                }
+                $value.to_css(dest, _cx)?;
+                wrote_value = true;
+            }};
+        }
+
+        if !matches!(self.duration, Time::Seconds(0.0) | Time::Milliseconds(0.0))
+            || !matches!(self.delay, Time::Seconds(0.0) | Time::Milliseconds(0.0))
+        {
+            write_value!(self.duration);
+        }
+        if !self.timing_function.is_ease() || name_flags & ANIMATION_NAME_TIMING_FUNCTION != 0 {
+            write_value!(self.timing_function);
+        }
+        if !matches!(self.delay, Time::Seconds(0.0) | Time::Milliseconds(0.0)) {
+            write_value!(self.delay);
+        }
+        if !matches!(self.iteration_count, AnimationIterationCount::Number(1.0))
+            || name_flags & ANIMATION_NAME_ITERATION_COUNT != 0
+        {
+            write_value!(self.iteration_count);
+        }
+        if !matches!(self.direction, AnimationDirection::Normal)
+            || name_flags & ANIMATION_NAME_DIRECTION != 0
+        {
+            write_value!(self.direction);
+        }
+        if !matches!(self.fill_mode, AnimationFillMode::None)
+            || name_flags & ANIMATION_NAME_FILL_MODE != 0
+        {
+            write_value!(self.fill_mode);
+        }
+        if !matches!(self.play_state, AnimationPlayState::Running)
+            || name_flags & ANIMATION_NAME_PLAY_STATE != 0
+        {
+            write_value!(self.play_state);
+        }
+
+        if !name_is_none || !wrote_value {
+            write_value!(self.name);
+        }
+        if !matches!(&*self.timeline, AnimationTimeline::Auto) {
+            if wrote_value {
                 dest.write_char(' ')?;
             }
-            // A quoted name colliding with a keyword class must stay quoted
-            // unless the class appears before it; unquoted it would reparse
-            // into the class slot.
-            if let AnimationComponent::Name(name) = component
-                && let AnimationName::String(value) = &**name
-                && name.keyword_class().is_some_and(|class| {
-                    !self.components[..index]
-                        .iter()
-                        .any(|component| component.keyword_class() == Some(class))
-                })
-            {
-                serialize_string(value, dest)?;
-                continue;
-            }
-            component.to_css(dest, _cx)?;
+            self.timeline.to_css(dest, _cx)?;
         }
         Ok(())
-    }
-}
-
-impl<'ghost> ToCss<'ghost> for AnimationComponent<'_> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        match self {
-            Self::Name(value) => value.to_css(dest, _cx),
-            Self::Duration(value) | Self::Delay(value) => value.to_css(dest, _cx),
-            Self::TimingFunction(value) => value.to_css(dest, _cx),
-            Self::IterationCount(value) => value.to_css(dest, _cx),
-            Self::Direction(value) => value.to_css(dest, _cx),
-            Self::FillMode(value) => value.to_css(dest, _cx),
-            Self::PlayState(value) => value.to_css(dest, _cx),
-        }
     }
 }
 

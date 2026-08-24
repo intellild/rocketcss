@@ -37,8 +37,6 @@ pub enum AstType {
     ViewTimeline,
     AnimationRange,
     Animation,
-    AnimationComponent,
-    AnimationKeywordClass,
     CharsetRule,
     NamespaceRule,
     CustomMediaRule,

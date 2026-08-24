@@ -12,6 +12,22 @@ pub enum EasingFunction {
     Steps { count: i32, position: StepPosition },
 }
 
+impl EasingFunction {
+    /// Returns whether this easing function is equivalent to the `ease` keyword.
+    pub fn is_ease(&self) -> bool {
+        matches!(
+            self,
+            Self::Ease
+                | Self::CubicBezier {
+                    x1: 0.25,
+                    x2: 0.25,
+                    y1: 0.1,
+                    y2: 1.0,
+                }
+        )
+    }
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum StepPosition {
     Start,

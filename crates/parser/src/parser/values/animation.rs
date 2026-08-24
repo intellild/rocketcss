@@ -222,72 +222,94 @@ impl<'i> Parse<'i> for AnimationName<'i> {
 impl<'i> Parse<'i> for Animation<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let allocator = input.allocator();
-        let mut components = allocator.vec();
-        let mut duration_claimed = false;
-        let mut timing_function_claimed = false;
-        let mut delay_claimed = false;
-        let mut iteration_count_claimed = false;
-        let mut direction_claimed = false;
-        let mut fill_mode_claimed = false;
-        let mut play_state_claimed = false;
-        let mut name_claimed = false;
+        let mut name = None;
+        let mut duration = None;
+        let mut timing_function = None;
+        let mut iteration_count = None;
+        let mut direction = None;
+        let mut play_state = None;
+        let mut delay = None;
+        let mut fill_mode = None;
 
         // Component classes are claimed in a fixed order with the keyframes
         // name as the last resort, mirroring lightningcss and stylo. The first
-        // <time> is the duration and the second the delay; a keyword whose
+        // <time> is the duration and the second is the delay; a keyword whose
         // class is already claimed (e.g. `ease 1s linear`) falls through to
-        // the name. Components are kept in authored order so round-tripping
-        // is lossless; animation-timeline is never parsed from the shorthand.
+        // the name.
         while !input.is_exhausted() {
-            if !duration_claimed && let Ok(value) = input.try_parse(Time::parse) {
-                duration_claimed = true;
-                components.push(AnimationComponent::Duration(value));
+            if duration.is_none()
+                && let Ok(value) = input.try_parse(Time::parse)
+            {
+                duration = Some(value);
                 continue;
             }
-            if !timing_function_claimed && let Ok(value) = input.try_parse(EasingFunction::parse) {
-                timing_function_claimed = true;
-                components.push(AnimationComponent::TimingFunction(allocator.boxed(value)));
+            if timing_function.is_none()
+                && let Ok(value) = input.try_parse(EasingFunction::parse)
+            {
+                timing_function = Some(value);
                 continue;
             }
-            if !delay_claimed && let Ok(value) = input.try_parse(Time::parse) {
-                delay_claimed = true;
-                components.push(AnimationComponent::Delay(value));
+            if delay.is_none()
+                && let Ok(value) = input.try_parse(Time::parse)
+            {
+                delay = Some(value);
                 continue;
             }
-            if !iteration_count_claimed
+            if iteration_count.is_none()
                 && let Ok(value) = input.try_parse(AnimationIterationCount::parse)
             {
-                iteration_count_claimed = true;
-                components.push(AnimationComponent::IterationCount(value));
+                iteration_count = Some(value);
                 continue;
             }
-            if !direction_claimed && let Ok(value) = input.try_parse(AnimationDirection::parse) {
-                direction_claimed = true;
-                components.push(AnimationComponent::Direction(value));
+            if direction.is_none()
+                && let Ok(value) = input.try_parse(AnimationDirection::parse)
+            {
+                direction = Some(value);
                 continue;
             }
-            if !fill_mode_claimed && let Ok(value) = input.try_parse(AnimationFillMode::parse) {
-                fill_mode_claimed = true;
-                components.push(AnimationComponent::FillMode(value));
+            if fill_mode.is_none()
+                && let Ok(value) = input.try_parse(AnimationFillMode::parse)
+            {
+                fill_mode = Some(value);
                 continue;
             }
-            if !play_state_claimed && let Ok(value) = input.try_parse(AnimationPlayState::parse) {
-                play_state_claimed = true;
-                components.push(AnimationComponent::PlayState(value));
+            if play_state.is_none()
+                && let Ok(value) = input.try_parse(AnimationPlayState::parse)
+            {
+                play_state = Some(value);
                 continue;
             }
-            if !name_claimed && let Ok(value) = input.try_parse(AnimationName::parse) {
-                name_claimed = true;
-                components.push(AnimationComponent::Name(allocator.boxed(value)));
+            if name.is_none()
+                && let Ok(value) = input.try_parse(AnimationName::parse)
+            {
+                name = Some(value);
                 continue;
             }
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
 
-        if components.is_empty() {
+        if name.is_none()
+            && duration.is_none()
+            && timing_function.is_none()
+            && iteration_count.is_none()
+            && direction.is_none()
+            && play_state.is_none()
+            && delay.is_none()
+            && fill_mode.is_none()
+        {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self { components })
+        Ok(Self {
+            name: allocator.boxed(name.unwrap_or(AnimationName::None)),
+            duration: duration.unwrap_or(Time::Seconds(0.0)),
+            timing_function: allocator.boxed(timing_function.unwrap_or(EasingFunction::Ease)),
+            iteration_count: iteration_count.unwrap_or(AnimationIterationCount::Number(1.0)),
+            direction: direction.unwrap_or(AnimationDirection::Normal),
+            play_state: play_state.unwrap_or(AnimationPlayState::Running),
+            delay: delay.unwrap_or(Time::Seconds(0.0)),
+            fill_mode: fill_mode.unwrap_or(AnimationFillMode::None),
+            timeline: allocator.boxed(AnimationTimeline::Auto),
+        })
     }
 }
 

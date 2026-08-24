@@ -222,22 +222,6 @@ pub trait Visitor<'a, 'ghost> {
         Visit::visit_children(node, self, cx);
     }
     #[inline]
-    fn visit_animation_component(
-        &mut self,
-        node: &AnimationComponent<'a>,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_animation_keyword_class(
-        &mut self,
-        node: &AnimationKeywordClass,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit_children(node, self, cx);
-    }
-    #[inline]
     fn visit_charset_rule(&mut self, node: &CharsetRule<'a>, cx: &VisitContext<'_, 'a, 'ghost>) {
         Visit::visit_children(node, self, cx);
     }

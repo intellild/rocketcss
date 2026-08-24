@@ -73,7 +73,6 @@ const _: () = {
     assert!(size_of::<CssColor<'_>>() == 16);
     assert!(size_of::<Length<'_>>() == 16);
     assert!(size_of::<ParsedComponent<'_>>() == 32);
-    assert!(size_of::<AnimationComponent<'_>>() == 16);
     assert!(size_of::<Filter<'_>>() == 16);
     assert!(size_of::<Transform<'_>>() == 32);
     assert!(size_of::<KeyframeSelector>() == 8);

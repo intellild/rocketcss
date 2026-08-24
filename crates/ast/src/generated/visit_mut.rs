@@ -274,22 +274,6 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_animation_component(
-        &mut self,
-        node: &mut AnimationComponent<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
-    fn visit_animation_keyword_class(
-        &mut self,
-        node: &mut AnimationKeywordClass,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
-        VisitMut::visit_mut_children(node, self, cx);
-    }
-    #[inline]
     fn visit_charset_rule(
         &mut self,
         node: &mut CharsetRule<'a>,
