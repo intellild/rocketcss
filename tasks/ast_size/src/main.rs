@@ -161,7 +161,7 @@ fn main() {
         Position<'static>,
         StrokeDasharray<'static>,
         TextDecoration<'static>,
-        TextDecorationLine<'static>,
+        TextDecorationLine,
         TextDecorationThickness<'static>,
         TextEmphasis<'static>,
         TextEmphasisStyle<'static>,

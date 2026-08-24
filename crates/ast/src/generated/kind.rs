@@ -338,8 +338,6 @@ pub enum AstType {
     TextJustify,
     Spacing,
     TextDecorationLine,
-    ExclusiveTextDecorationLine,
-    OtherTextDecorationLine,
     TextDecorationStyle,
     TextDecorationThickness,
     TextDecorationSkipInk,

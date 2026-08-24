@@ -68,6 +68,27 @@ fn printer_remains_send_for_a_send_writer() {
 }
 
 #[test]
+fn canonicalizes_text_decoration_line_flags() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        let stylesheet = parse_stylesheet(
+            "a{text-decoration-line:overline underline underline}",
+            &allocator,
+            &mut token,
+        );
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            "a{text-decoration-line:underline overline}"
+        );
+    })
+}
+
+#[test]
 fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();

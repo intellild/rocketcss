@@ -87,25 +87,36 @@ pub enum Spacing<'a> {
     Length(Box<'a, Length<'a>>),
 }
 
-#[derive(Debug, PartialEq, Visit)]
-pub enum TextDecorationLine<'a> {
-    ExclusiveTextDecorationLine(ExclusiveTextDecorationLine),
-    Value(Vec<'a, OtherTextDecorationLine>),
-}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Visit)]
+pub struct TextDecorationLine(u8);
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
-pub enum ExclusiveTextDecorationLine {
-    None,
-    SpellingError,
-    GrammarError,
-}
+impl TextDecorationLine {
+    pub const UNDERLINE: Self = Self(1 << 0);
+    pub const OVERLINE: Self = Self(1 << 1);
+    pub const LINE_THROUGH: Self = Self(1 << 2);
+    pub const BLINK: Self = Self(1 << 3);
+    pub const SPELLING_ERROR: Self = Self(1 << 4);
+    pub const GRAMMAR_ERROR: Self = Self(1 << 5);
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
-pub enum OtherTextDecorationLine {
-    Underline,
-    Overline,
-    LineThrough,
-    Blink,
+    pub const fn empty() -> Self {
+        Self(0)
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    pub const fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    pub fn insert(&mut self, other: Self) {
+        self.0 |= other.0;
+    }
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
