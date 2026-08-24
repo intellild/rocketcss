@@ -1,21 +1,12 @@
 use crate::{
-    Box, CharsetRule, ContainerCondition, CustomMediaRule, CustomProperty, Declaration, FamilyName,
+    Box, CharsetRule, ContainerCondition, CustomMediaRule, Declaration, FamilyName,
     FontFaceProperty, FontFeatureDeclaration, FontFeatureSubruleType, FontPaletteValuesProperty,
     ImportRule, KeyframeSelector, KeyframesName, MediaList, NamespaceRule, PageMarginBox,
     PageSelector, ParsedComponent, SelectorList, Span, SupportsCondition, SyntaxString,
     TokenOrValue, Vec, VendorPrefix, ViewTransitionProperty,
 };
 
-use super::{DeclarationId, SelectorValueId};
-
-/// One typed descriptor occurrence inside `@property`.
-#[derive(Debug, PartialEq)]
-pub enum PropertyRuleDescriptor<'ast> {
-    Syntax(Box<'ast, SyntaxString<'ast>>),
-    Inherits(bool),
-    InitialValue(Box<'ast, ParsedComponent<'ast>>),
-    Unknown(Box<'ast, CustomProperty<'ast>>),
-}
+use super::SelectorValueId;
 
 /// One heterogeneous occurrence in the global authored declaration tape.
 #[derive(Debug, PartialEq)]
@@ -25,7 +16,6 @@ pub enum DeclarationPayload<'ast> {
     FontPaletteValues(FontPaletteValuesProperty<'ast>),
     ViewTransition(ViewTransitionProperty<'ast>),
     FontFeature(FontFeatureDeclaration<'ast>),
-    PropertyRule(PropertyRuleDescriptor<'ast>),
 }
 
 impl<'ast> DeclarationPayload<'ast> {
@@ -36,8 +26,7 @@ impl<'ast> DeclarationPayload<'ast> {
             Self::FontFace(_)
             | Self::FontPaletteValues(_)
             | Self::ViewTransition(_)
-            | Self::FontFeature(_)
-            | Self::PropertyRule(_) => None,
+            | Self::FontFeature(_) => None,
         }
     }
 }
@@ -243,13 +232,13 @@ pub struct FontFeatureSubrulePayload {
     pub name: FontFeatureSubruleType,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct PropertyRulePayload<'ast> {
-    pub span: Span,
+    pub inherits: bool,
+    pub initial_value: Option<Box<'ast, ParsedComponent<'ast>>>,
     pub name: &'ast str,
-    pub syntax: Option<DeclarationId<'ast>>,
-    pub inherits: Option<DeclarationId<'ast>>,
-    pub initial_value: Option<DeclarationId<'ast>>,
+    pub span: Span,
+    pub syntax: Box<'ast, SyntaxString<'ast>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

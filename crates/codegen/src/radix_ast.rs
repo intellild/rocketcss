@@ -4,7 +4,7 @@ use crate::{prelude::*, rules::NamedProperty};
 use rocketcss_ast::{
     Compilation, ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId,
     CssRulePayload, DeclarationPayload, FontFeatureSubrulePayload, PageRulePayload,
-    PropertyRuleDescriptor, PropertyRulePayload, RuleListId, RuleListIter, RuleRecord,
+    PropertyRulePayload, RuleListId, RuleListIter, RuleRecord,
 };
 
 #[derive(Clone, Copy)]
@@ -567,57 +567,24 @@ impl<'ast> RadixWriter<'_, 'ast> {
             dest,
         )?;
         write_block(dest, |dest| {
-            if let Some(syntax) = payload.syntax {
-                dest.write_str("syntax")?;
-                dest.delim(Delimiter::Colon)?;
-                let PropertyRuleDescriptor::Syntax(value) = self.property_descriptor(syntax) else {
-                    panic!("the resolved syntax id references another descriptor")
-                };
-                let syntax = value.to_css_string(dest.options(), cx)?;
-                serialize_string(&syntax, dest)?;
-            }
-            if let Some(inherits) = payload.inherits {
-                if payload.syntax.is_some() {
-                    dest.write_char(';')?;
-                    dest.new_line()?;
-                }
-                dest.write_str("inherits")?;
-                dest.delim(Delimiter::Colon)?;
-                let PropertyRuleDescriptor::Inherits(value) = self.property_descriptor(inherits)
-                else {
-                    panic!("the resolved inherits id references another descriptor")
-                };
-                dest.write_str(if *value { "true" } else { "false" })?;
-            }
-            if let Some(initial_value) = payload.initial_value {
-                if payload.syntax.is_some() || payload.inherits.is_some() {
-                    dest.write_char(';')?;
-                    dest.new_line()?;
-                }
+            dest.write_str("syntax")?;
+            dest.delim(Delimiter::Colon)?;
+            let syntax = payload.syntax.to_css_string(dest.options(), cx)?;
+            serialize_string(&syntax, dest)?;
+            dest.write_char(';')?;
+            dest.new_line()?;
+            dest.write_str("inherits")?;
+            dest.delim(Delimiter::Colon)?;
+            dest.write_str(if payload.inherits { "true" } else { "false" })?;
+            if let Some(initial_value) = &payload.initial_value {
+                dest.write_char(';')?;
+                dest.new_line()?;
                 dest.write_str("initial-value")?;
                 dest.delim(Delimiter::Colon)?;
-                let PropertyRuleDescriptor::InitialValue(value) =
-                    self.property_descriptor(initial_value)
-                else {
-                    panic!("the resolved initial-value id references another descriptor")
-                };
-                value.to_css(dest, cx)?;
+                initial_value.to_css(dest, cx)?;
             }
             dest.semicolon(false)
         })
-    }
-
-    fn property_descriptor(
-        &self,
-        id: rocketcss_ast::DeclarationId<'ast>,
-    ) -> &PropertyRuleDescriptor<'_> {
-        let record = self
-            .declaration(id)
-            .expect("a resolved property descriptor remains in the declaration tape");
-        let DeclarationPayload::PropertyRule(descriptor) = record.payload() else {
-            panic!("a property descriptor id references another declaration family")
-        };
-        descriptor
     }
 
     fn block_is_non_empty(&self, block: DeclarationBlockId<'ast>) -> bool {

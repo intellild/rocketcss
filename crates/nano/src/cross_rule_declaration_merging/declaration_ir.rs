@@ -425,8 +425,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
             rocketcss_ast::DeclarationPayload::FontFace(_)
             | rocketcss_ast::DeclarationPayload::FontPaletteValues(_)
             | rocketcss_ast::DeclarationPayload::ViewTransition(_)
-            | rocketcss_ast::DeclarationPayload::FontFeature(_)
-            | rocketcss_ast::DeclarationPayload::PropertyRule(_) => {
+            | rocketcss_ast::DeclarationPayload::FontFeature(_) => {
                 (None, None, EffectExpansion::Opaque, 1)
             }
         };

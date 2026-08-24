@@ -164,6 +164,12 @@ fn minify_rule_payload<'ast, 'ghost>(
         CssRulePayload::Keyframe(payload) => payload.selectors.visit_mut(minifier, cx),
         CssRulePayload::Page(payload) => payload.selectors.visit_mut(minifier, cx),
         CssRulePayload::FontFeatureValues(payload) => payload.name.visit_mut(minifier, cx),
+        CssRulePayload::Property(payload) => {
+            payload.syntax.visit_mut(minifier, cx);
+            if let Some(initial_value) = &mut payload.initial_value {
+                initial_value.visit_mut(minifier, cx);
+            }
+        }
         CssRulePayload::Style(_)
         | CssRulePayload::StartingStyle(_)
         | CssRulePayload::LayerStatement(_)
@@ -181,7 +187,6 @@ fn minify_rule_payload<'ast, 'ghost>(
         | CssRulePayload::PageDeclarations(_)
         | CssRulePayload::Nesting(_)
         | CssRulePayload::FontFeatureSubrule(_)
-        | CssRulePayload::Property(_)
         | CssRulePayload::NestedDeclarations(_) => {}
     }
 }
@@ -191,7 +196,7 @@ fn minify_descriptor<'ast, 'ghost>(
     minifier: &mut Minifier<'ast, '_>,
     cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
 ) {
-    use {DeclarationPayload, PropertyRuleDescriptor};
+    use DeclarationPayload;
 
     match descriptor {
         DeclarationPayload::Property(declaration) => declaration.visit_mut(minifier, cx),
@@ -199,12 +204,6 @@ fn minify_descriptor<'ast, 'ghost>(
         DeclarationPayload::FontPaletteValues(property) => property.visit_mut(minifier, cx),
         DeclarationPayload::ViewTransition(property) => property.visit_mut(minifier, cx),
         DeclarationPayload::FontFeature(declaration) => declaration.visit_mut(minifier, cx),
-        DeclarationPayload::PropertyRule(descriptor) => match descriptor {
-            PropertyRuleDescriptor::Syntax(syntax) => syntax.visit_mut(minifier, cx),
-            PropertyRuleDescriptor::Inherits(_) => {}
-            PropertyRuleDescriptor::InitialValue(value) => value.visit_mut(minifier, cx),
-            PropertyRuleDescriptor::Unknown(property) => property.visit_mut(minifier, cx),
-        },
     }
 }
 

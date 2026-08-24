@@ -1410,7 +1410,7 @@ fn font_feature_subrules_and_declarations_are_flattened() {
 }
 
 #[test]
-fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
+fn property_rule_keeps_last_effective_descriptors_in_its_payload() {
     let allocator = Allocator::new();
     let source = "@property --space{syntax:'<length>';unknown:foo;syntax:'*';inherits:false;initial-value:10px}";
     let options = ParserOptions::default();
@@ -1421,53 +1421,15 @@ fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
     let CssRulePayload::Property(property) = record.payload() else {
         unreachable!()
     };
-    let block = record.declaration_block().unwrap();
-    let declarations = radix
-        .declarations_in_block(block)
-        .unwrap()
-        .collect::<std::vec::Vec<_>>();
-    assert_eq!(declarations.len(), 5);
-    assert!(matches!(
-        declarations[0].payload(),
-        DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Syntax(_))
-    ));
-    assert!(matches!(
-        declarations[1].payload(),
-        DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Unknown(_))
-    ));
-    assert!(matches!(
-        declarations[2].payload(),
-        DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Syntax(_))
-    ));
-    assert_eq!(property.syntax.unwrap().index(), 2);
-    assert_eq!(property.inherits.unwrap().index(), 3);
-    assert_eq!(property.initial_value.unwrap().index(), 4);
-
+    assert!(record.declaration_block().is_none());
+    assert_eq!(radix.declarations_in_source_order().count(), 0);
     assert_eq!(property.name, "--space");
-    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Syntax(syntax)) = radix
-        .declaration(property.syntax.unwrap())
-        .unwrap()
-        .payload()
-    else {
-        unreachable!()
-    };
-    assert!(matches!(&**syntax, SyntaxString::Universal));
-    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Inherits(inherits)) = radix
-        .declaration(property.inherits.unwrap())
-        .unwrap()
-        .payload()
-    else {
-        unreachable!()
-    };
-    assert!(!*inherits);
-    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::InitialValue(initial)) = radix
-        .declaration(property.initial_value.unwrap())
-        .unwrap()
-        .payload()
-    else {
-        unreachable!()
-    };
-    assert!(matches!(&**initial, ParsedComponent::TokenList(values) if !values.is_empty()));
+    assert!(matches!(&*property.syntax, SyntaxString::Universal));
+    assert!(!property.inherits);
+    assert!(matches!(
+        property.initial_value.as_deref(),
+        Some(ParsedComponent::TokenList(values)) if !values.is_empty()
+    ));
     assert_eq!(radix.rule(rule).unwrap().parent(), None);
     assert_eq!(radix.validate_ast(), Ok(()));
 }
