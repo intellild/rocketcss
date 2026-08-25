@@ -902,26 +902,30 @@ impl<'ghost> ToCss<'ghost> for AnimationRange<'_> {
     }
 }
 
-const ANIMATION_NAME_TIMING_FUNCTION: u8 = 1 << 0;
-const ANIMATION_NAME_ITERATION_COUNT: u8 = 1 << 1;
-const ANIMATION_NAME_DIRECTION: u8 = 1 << 2;
-const ANIMATION_NAME_FILL_MODE: u8 = 1 << 3;
-const ANIMATION_NAME_PLAY_STATE: u8 = 1 << 4;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AnimationNameKeywordClass {
+    TimingFunction,
+    IterationCount,
+    Direction,
+    FillMode,
+    PlayState,
+}
 
-fn animation_name_keyword_flags(name: &AnimationName<'_>) -> u8 {
+fn animation_name_keyword_class(name: &AnimationName<'_>) -> Option<AnimationNameKeywordClass> {
     let name = match name {
         AnimationName::Ident(name) | AnimationName::String(name) => *name,
-        AnimationName::None => return 0,
+        AnimationName::None => return None,
     };
     rocketcss_ast::match_ignore_ascii_case!(
         name,
         "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end" =>
-            ANIMATION_NAME_TIMING_FUNCTION,
-        "infinite" => ANIMATION_NAME_ITERATION_COUNT,
-        "normal" | "reverse" | "alternate" | "alternate-reverse" => ANIMATION_NAME_DIRECTION,
-        "forwards" | "backwards" | "both" => ANIMATION_NAME_FILL_MODE,
-        "running" | "paused" => ANIMATION_NAME_PLAY_STATE,
-        _ => 0,
+            Some(AnimationNameKeywordClass::TimingFunction),
+        "infinite" => Some(AnimationNameKeywordClass::IterationCount),
+        "normal" | "reverse" | "alternate" | "alternate-reverse" =>
+            Some(AnimationNameKeywordClass::Direction),
+        "forwards" | "backwards" | "both" => Some(AnimationNameKeywordClass::FillMode),
+        "running" | "paused" => Some(AnimationNameKeywordClass::PlayState),
+        _ => None,
     )
 }
 
@@ -931,7 +935,7 @@ impl<'ghost> ToCss<'ghost> for Animation<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        let name_flags = animation_name_keyword_flags(&self.name);
+        let name_keyword_class = animation_name_keyword_class(&self.name);
         let name_is_none = matches!(&*self.name, AnimationName::None);
         let mut wrote_value = false;
         macro_rules! write_value {
@@ -949,29 +953,31 @@ impl<'ghost> ToCss<'ghost> for Animation<'_> {
         {
             write_value!(self.duration);
         }
-        if !self.timing_function.is_ease() || name_flags & ANIMATION_NAME_TIMING_FUNCTION != 0 {
+        if !self.timing_function.is_ease()
+            || name_keyword_class == Some(AnimationNameKeywordClass::TimingFunction)
+        {
             write_value!(self.timing_function);
         }
         if !matches!(self.delay, Time::Seconds(0.0) | Time::Milliseconds(0.0)) {
             write_value!(self.delay);
         }
         if !matches!(self.iteration_count, AnimationIterationCount::Number(1.0))
-            || name_flags & ANIMATION_NAME_ITERATION_COUNT != 0
+            || name_keyword_class == Some(AnimationNameKeywordClass::IterationCount)
         {
             write_value!(self.iteration_count);
         }
         if !matches!(self.direction, AnimationDirection::Normal)
-            || name_flags & ANIMATION_NAME_DIRECTION != 0
+            || name_keyword_class == Some(AnimationNameKeywordClass::Direction)
         {
             write_value!(self.direction);
         }
         if !matches!(self.fill_mode, AnimationFillMode::None)
-            || name_flags & ANIMATION_NAME_FILL_MODE != 0
+            || name_keyword_class == Some(AnimationNameKeywordClass::FillMode)
         {
             write_value!(self.fill_mode);
         }
         if !matches!(self.play_state, AnimationPlayState::Running)
-            || name_flags & ANIMATION_NAME_PLAY_STATE != 0
+            || name_keyword_class == Some(AnimationNameKeywordClass::PlayState)
         {
             write_value!(self.play_state);
         }
