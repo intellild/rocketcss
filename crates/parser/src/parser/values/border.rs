@@ -61,6 +61,7 @@ fn clone_color<'i>(
 ) -> Option<Box<'i, CssColor<'i>>> {
     let value = match value {
         CssColor::CurrentColor => CssColor::CurrentColor,
+        CssColor::Known(value) => CssColor::Known(*value),
         CssColor::Rgba(value) => CssColor::Rgba(*value),
         _ => return None,
     };

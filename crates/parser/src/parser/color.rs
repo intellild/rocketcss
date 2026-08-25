@@ -9,24 +9,9 @@ impl<'i> Parse<'i> for CssColor<'i> {
             ValueToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => {
                 Ok(CssColor::CurrentColor)
             }
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("transparent") => {
-                Ok(CssColor::Rgba(RGBA {
-                    red: 0,
-                    green: 0,
-                    blue: 0,
-                    alpha: 0,
-                }))
-            }
-            ValueToken::Ident(name) => cssparser::color::parse_named_color(name)
-                .map(|(red, green, blue)| {
-                    CssColor::Rgba(RGBA {
-                        red,
-                        green,
-                        blue,
-                        alpha: u8::MAX,
-                    })
-                })
-                .map_err(|()| location.new_custom_error(ParserError::InvalidValue)),
+            ValueToken::Ident(name) => KnownColor::from_name(name)
+                .map(CssColor::Known)
+                .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),
             ValueToken::Hash(value) | ValueToken::IdHash(value) => parse_hex_color(value)
                 .map(CssColor::Rgba)
                 .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue)),

@@ -29,7 +29,7 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
         assert!(matches!(selectors[0], Selector::Parsed(_)));
         assert!(matches!(selectors[1], Selector::Tombstone));
         assert!(matches!(selectors[2], Selector::Parsed(_)));
-        assert_eq!(stats.values_normalized, 1);
+        assert_eq!(stats.values_normalized, 2);
         assert_eq!(
             stylesheet
                 .to_css_string(

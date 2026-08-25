@@ -22,6 +22,21 @@ fn normalizes_numbers_colors_and_lengths() {
 }
 
 #[test]
+fn normalizes_known_colors_only_during_minification() {
+    assert_eq!(
+        run("a{color:lightgreen;background-color:grey}"),
+        "a{color:#90ee90;background-color:gray}"
+    );
+
+    let mut options = MinifyOptions::default();
+    options.flags.remove(Options::NORMALIZE_VALUES);
+    assert_eq!(
+        run_with_options("a{color:lightgreen;background-color:grey}", options),
+        "a{color:lightgreen;background-color:grey}"
+    );
+}
+
+#[test]
 fn minifies_mixed_modern_rgb_components_and_preserves_none() {
     assert_eq!(
         run("a{color:rgb(255 50% 0)}b{color:rgb(none 50% 0/none)}\

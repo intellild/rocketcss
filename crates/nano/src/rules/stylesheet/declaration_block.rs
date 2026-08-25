@@ -1021,7 +1021,7 @@ impl<'ast, 'ghost> Visitor<'ast, 'ghost> for FunctionalColorBarrierVisitor {
 mod tests {
     use super::*;
     use rocketcss_ast::{
-        BorderColor, Function, Gradient, GradientItem, Image, LineDirection, RGBA, SVGPaint,
+        BorderColor, Function, Gradient, GradientItem, Image, KnownColor, LineDirection, SVGPaint,
         VerticalPositionKeyword,
     };
 
@@ -1054,14 +1054,7 @@ mod tests {
                 rocketcss_common::vec::Vec::new_in(&allocator),
             )))
         };
-        let known_color = || {
-            CssColor::Rgba(RGBA {
-                red: 255,
-                green: 0,
-                blue: 0,
-                alpha: 255,
-            })
-        };
+        let known_color = || CssColor::Known(KnownColor::Red);
 
         let direct = Declaration::Color(allocator.boxed(unresolved_color()));
         let border = Declaration::BorderColor(allocator.boxed(BorderColor {

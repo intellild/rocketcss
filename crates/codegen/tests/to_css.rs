@@ -89,6 +89,24 @@ fn canonicalizes_text_decoration_line_flags() {
 }
 
 #[test]
+fn preserves_known_color_keywords_before_minification() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        const SOURCE: &str = "a{color:lightgreen;background-color:grey}";
+        let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            SOURCE
+        );
+    })
+}
+
+#[test]
 fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
@@ -161,7 +179,7 @@ fn serializes_mask_shorthand_without_emitting_default_components() {
                     &ToCssContext::new(&token),
                 )
                 .unwrap(),
-            "a{mask:url(one.svg) center/cover no-repeat padding-box content-box exclude alpha,linear-gradient(red,#00f)}"
+            "a{mask:url(one.svg) center/cover no-repeat padding-box content-box exclude alpha,linear-gradient(red,blue)}"
         );
     })
 }

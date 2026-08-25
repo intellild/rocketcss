@@ -1313,7 +1313,6 @@ dependencies = [
 name = "rocketcss_parser"
 version = "0.1.0"
 dependencies = [
- "cssparser",
  "rocketcss_ast",
  "rocketcss_common",
  "serde_json",

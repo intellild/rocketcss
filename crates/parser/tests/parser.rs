@@ -194,13 +194,7 @@ fn parses_style_rule_selectors_and_declarations() {
         assert!(matches!(
             declarations[0].0,
             Declaration::Color(value)
-                if **value
-                    == rocketcss_ast::CssColor::Rgba(RGBA {
-                        red: 255,
-                        green: 0,
-                        blue: 0,
-                        alpha: 255,
-                    })
+                if matches!(**value, rocketcss_ast::CssColor::Known(KnownColor::Red))
         ));
         assert!(matches!(declarations[1].0, Declaration::Opacity(0.5)));
         assert!(matches!(
@@ -397,7 +391,7 @@ fn review_regressions_preserve_invalid_and_commented_declarations() {
 }
 
 #[test]
-fn parses_named_colors_as_rgba_nodes() {
+fn parses_named_colors_as_known_color_nodes() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let sheet = parse(
@@ -413,36 +407,19 @@ fn parses_named_colors_as_rgba_nodes() {
         assert!(matches!(
             declarations[0].0,
             Declaration::Color(value)
-                if **value
-                    == CssColor::Rgba(RGBA {
-                        red: 0,
-                        green: 0,
-                        blue: 255,
-                        alpha: 255,
-                    })
+                if matches!(**value, CssColor::Known(KnownColor::Blue))
         ));
         assert!(matches!(
             declarations[1].0,
             Declaration::BackgroundColor(value)
-                if **value
-                    == CssColor::Rgba(RGBA {
-                        red: 144,
-                        green: 238,
-                        blue: 144,
-                        alpha: 255,
-                    })
+                if matches!(**value, CssColor::Known(KnownColor::Lightgreen))
         ));
         assert!(matches!(
             declarations[2].0,
             Declaration::Background(values)
                 if matches!(
                     &*values[0].color,
-                    CssColor::Rgba(RGBA {
-                        red: 0,
-                        green: 0,
-                        blue: 255,
-                        alpha: 255,
-                    })
+                    CssColor::Known(KnownColor::Blue)
                 )
         ));
     })
