@@ -272,6 +272,30 @@ impl<'ast, 'cx> Minifier<'ast, 'cx> {
 }
 
 impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
+    fn visit_css_color(
+        &mut self,
+        node: &mut CssColor<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
+        if self
+            .cx
+            .is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any)
+            && self
+                .cx
+                .value_context
+                .is_enabled(context::ValueContextFlags::MINIFY_COLORS)
+            && !self
+                .cx
+                .value_context
+                .is_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+            && let CssColor::Known(color) = *node
+        {
+            *node = CssColor::Rgba(color.rgba());
+            self.cx.record_value_normalized();
+        }
+        node.visit_mut_children(self, cx);
+    }
+
     fn visit_declaration(
         &mut self,
         node: &mut Declaration<'ast>,
@@ -290,6 +314,15 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         }
     }
 
+    fn visit_animation(
+        &mut self,
+        node: &mut Animation<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
+        node.visit_mut_children(self, cx);
+        node.minify(&mut self.cx);
+    }
+
     fn visit_font_family(
         &mut self,
         node: &mut FontFamily<'ast>,
@@ -303,15 +336,6 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     fn visit_keyframe_selector(
         &mut self,
         node: &mut KeyframeSelector,
-        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
-    ) {
-        node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
-    }
-
-    fn visit_animation(
-        &mut self,
-        node: &mut Animation<'ast>,
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);

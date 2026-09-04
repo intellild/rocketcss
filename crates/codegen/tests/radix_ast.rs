@@ -107,7 +107,7 @@ fn streams_an_adjacent_block_merge_directly_from_live_topology() {
                 &ToCssContext::new(&token),
             )
             .unwrap();
-        assert_eq!(actual, "a{color:red;color:#00f}");
+        assert_eq!(actual, "a{color:red;color:blue}");
         assert_eq!(radix.validate_ast(), Ok(()));
     });
 }

@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 
+use rocketcss_ast::{CssColor, DeclarationPayload, VisitMutContext};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
-use rocketcss_common::Allocator;
+use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_nano::{MinifyOptions, minify};
 use rocketcss_parser::{ParserOptions, parse};
+use rocketcss_visitor::{VisitMut, VisitorMut};
 
 use crate::read_fixture;
 
@@ -124,8 +126,9 @@ fn minify_css(source: &str) -> Result<String, String> {
 fn print_css(source: &str) -> Result<String, String> {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
-        let stylesheet = parse(source, &allocator, &mut token, ParserOptions::default())
+        let mut stylesheet = parse(source, &allocator, &mut token, ParserOptions::default())
             .map_err(|error| format!("parse: {error:?}"))?;
+        canonicalize_known_colors(&mut stylesheet, &mut token)?;
         stylesheet
             .to_css_string(
                 PrinterOptions { prettify: false },
@@ -133,6 +136,73 @@ fn print_css(source: &str) -> Result<String, String> {
             )
             .map_err(|error| error.to_string())
     })
+}
+
+// Expected fixtures are parsed before comparison so formatting differences do
+// not matter. Before KnownColor preserved authored keywords, parsing also
+// canonicalized every named color to RGBA. Keep that comparison-only behavior
+// explicit without making normal codegen lossy again.
+fn canonicalize_known_colors<'ast, 'ghost>(
+    compilation: &mut rocketcss_ast::Compilation<'ast>,
+    token: &mut GhostToken<'ghost>,
+) -> Result<(), String> {
+    struct CanonicalizeKnownColors;
+
+    impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for CanonicalizeKnownColors {
+        fn visit_css_color(
+            &mut self,
+            node: &mut CssColor<'ast>,
+            cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+        ) {
+            if let CssColor::Known(color) = *node {
+                *node = CssColor::Rgba(color.rgba());
+            } else {
+                node.visit_mut_children(self, cx);
+            }
+        }
+    }
+
+    let blocks = compilation
+        .rules_in_source_order()
+        .filter(|(_, rule)| rule.is_live())
+        .map(|(_, record)| record.declaration_block())
+        .collect::<Vec<_>>();
+    let mut visitor = CanonicalizeKnownColors;
+    let mut cx = VisitMutContext::new(token);
+    for block in blocks.into_iter().flatten() {
+        compilation
+            .for_each_declaration_mut(block, |_, declaration| match declaration.payload_mut() {
+                DeclarationPayload::Property(declaration) => {
+                    declaration.visit_mut(&mut visitor, &mut cx);
+                }
+                DeclarationPayload::FontFace(property) => {
+                    property.visit_mut(&mut visitor, &mut cx);
+                }
+                DeclarationPayload::FontPaletteValues(property) => {
+                    property.visit_mut(&mut visitor, &mut cx);
+                }
+                DeclarationPayload::ViewTransition(property) => {
+                    property.visit_mut(&mut visitor, &mut cx);
+                }
+                DeclarationPayload::FontFeature(declaration) => {
+                    declaration.visit_mut(&mut visitor, &mut cx);
+                }
+                DeclarationPayload::PropertyRule(descriptor) => match descriptor {
+                    rocketcss_ast::PropertyRuleDescriptor::Syntax(syntax) => {
+                        syntax.visit_mut(&mut visitor, &mut cx);
+                    }
+                    rocketcss_ast::PropertyRuleDescriptor::Inherits(_) => {}
+                    rocketcss_ast::PropertyRuleDescriptor::InitialValue(value) => {
+                        value.visit_mut(&mut visitor, &mut cx);
+                    }
+                    rocketcss_ast::PropertyRuleDescriptor::Unknown(property) => {
+                        property.visit_mut(&mut visitor, &mut cx);
+                    }
+                },
+            })
+            .map_err(|error| format!("canonicalize declaration colors: {error:?}"))?;
+    }
+    Ok(())
 }
 
 fn spec_display_name(spec_path: &Path) -> String {

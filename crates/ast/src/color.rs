@@ -5,6 +5,7 @@ use rocketcss_common::{boxed::Box, vec::Vec};
 #[derive(Debug, PartialEq, Visit)]
 pub enum CssColor<'a> {
     CurrentColor,
+    #[visit(skip)]
     Known(KnownColor),
     Rgba(RGBA),
     Function(Box<'a, Function<'a>>),
@@ -17,17 +18,13 @@ pub enum CssColor<'a> {
 
 macro_rules! define_known_colors {
     ($($name:literal => $variant:ident($red:literal, $green:literal, $blue:literal, $alpha:literal),)+) => {
-        impl KnownColor {
-            $(
-                #[allow(non_upper_case_globals)]
-                pub const $variant: Self = Self(RGBA {
-                    red: $red,
-                    green: $green,
-                    blue: $blue,
-                    alpha: $alpha,
-                });
-            )+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[repr(u8)]
+        pub enum KnownColor {
+            $($variant,)+
+        }
 
+        impl KnownColor {
             #[inline]
             pub fn from_name(name: &str) -> Option<Self> {
                 match_ignore_ascii_case!(
@@ -38,15 +35,26 @@ macro_rules! define_known_colors {
             }
 
             #[inline]
+            pub const fn name(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+
+            #[inline]
             pub const fn rgba(self) -> RGBA {
-                self.0
+                match self {
+                    $(Self::$variant => RGBA {
+                        red: $red,
+                        green: $green,
+                        blue: $blue,
+                        alpha: $alpha,
+                    },)+
+                }
             }
         }
     };
 }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
-pub struct KnownColor(RGBA);
 
 define_known_colors! {
     "transparent" => Transparent(0, 0, 0, 0),

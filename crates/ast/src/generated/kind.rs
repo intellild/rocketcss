@@ -2,7 +2,6 @@
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AstType {
     CssColor,
-    KnownColor,
     RGBA,
     LABColor,
     PredefinedColor,

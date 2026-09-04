@@ -108,23 +108,21 @@ pub enum Resolution {
 
 /// A CSS `<ratio>` value.
 ///
-/// The variants record whether the source wrote the `/ <number>` part, so
+/// The optional denominator records whether the source wrote the `/ <number>` part, so
 /// serialization reproduces the original expression instead of normalizing by
 /// value.
 #[derive(Debug, PartialEq, Visit)]
-pub enum Ratio {
-    /// `<number>` with the denominator omitted.
-    Number(f32),
-    /// `<number> / <number>` with an explicit denominator.
-    Fraction(f32, f32),
+pub struct Ratio {
+    pub denominator: Option<f32>,
+    pub numerator: f32,
 }
 
 impl Ratio {
     /// `denominator` is `None` when the source omitted `/ <number>`.
     pub fn new(numerator: f32, denominator: Option<f32>) -> Self {
-        match denominator {
-            Some(denominator) => Self::Fraction(numerator, denominator),
-            None => Self::Number(numerator),
+        Self {
+            denominator,
+            numerator,
         }
     }
 }

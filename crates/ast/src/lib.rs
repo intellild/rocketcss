@@ -71,6 +71,7 @@ const _: () = {
     assert!(size_of::<TokenOrValue<'_>>() == 24);
     assert!(size_of::<Token<'_>>() == 24);
     assert!(size_of::<CssColor<'_>>() == 16);
+    assert!(size_of::<KnownColor>() == 1);
     assert!(size_of::<Length<'_>>() == 16);
     assert!(size_of::<ParsedComponent<'_>>() == 32);
     assert!(size_of::<AnimationComponent<'_>>() == 16);

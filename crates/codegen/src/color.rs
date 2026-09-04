@@ -8,7 +8,7 @@ impl<'ghost> ToCss<'ghost> for CssColor<'_> {
     ) -> fmt::Result {
         match self {
             Self::CurrentColor => dest.write_str("currentColor"),
-            Self::Known(value) => value.rgba().to_css(dest, _cx),
+            Self::Known(value) => dest.write_str(value.name()),
             Self::Rgba(value) => value.to_css(dest, _cx),
             Self::Function(value) => value.to_css(dest, _cx),
             Self::Lab(value) => value.to_css(dest, _cx),

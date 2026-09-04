@@ -68,6 +68,100 @@ fn printer_remains_send_for_a_send_writer() {
 }
 
 #[test]
+fn preserves_text_decoration_line_order_before_minification() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        const SOURCE: &str = "a{text-decoration-line:overline underline underline}";
+        let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            SOURCE
+        );
+    })
+}
+
+#[test]
+fn preserves_known_color_keywords_before_minification() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        const SOURCE: &str = "a{color:lightgreen;background-color:grey}";
+        let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            SOURCE
+        );
+    })
+}
+
+#[test]
+fn preserves_animation_component_order_before_minification() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        const SOURCE: &str = "a{animation:fade 1s ease}";
+        let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            SOURCE
+        );
+    })
+}
+
+#[test]
+fn preserves_ratio_denominator_presence_before_minification() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        const SOURCE: &str = "a{aspect-ratio:1;aspect-ratio:1/1}";
+        let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
+        let declarations = property_declarations(&stylesheet, first_block_id(&stylesheet));
+
+        assert!(matches!(
+            declarations[0].0,
+            Declaration::AspectRatio(AspectRatio {
+                ratio: Some(Ratio {
+                    denominator: None,
+                    numerator: 1.0,
+                }),
+                ..
+            })
+        ));
+        assert!(matches!(
+            declarations[1].0,
+            Declaration::AspectRatio(AspectRatio {
+                ratio: Some(Ratio {
+                    denominator: Some(1.0),
+                    numerator: 1.0,
+                }),
+                ..
+            })
+        ));
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            SOURCE
+        );
+    })
+}
+
+#[test]
 fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
@@ -140,7 +234,7 @@ fn serializes_mask_shorthand_without_emitting_default_components() {
                     &ToCssContext::new(&token),
                 )
                 .unwrap(),
-            "a{mask:url(one.svg) center/cover no-repeat padding-box content-box exclude alpha,linear-gradient(red,#00f)}"
+            "a{mask:url(one.svg) center/cover no-repeat padding-box content-box exclude alpha,linear-gradient(red,blue)}"
         );
     })
 }
