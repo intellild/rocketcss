@@ -136,7 +136,9 @@ fn write_minified_hash<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT)
     };
     let collapse_pairs = matches!(length, 6 | 8)
         && bytes[..length]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .all(|pair| pair[0].eq_ignore_ascii_case(&pair[1]));
 
     dest.write_char('#')?;
