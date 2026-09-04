@@ -888,25 +888,69 @@ fn parse_property_rule<'ast>(
     if !name.starts_with("--") {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(at_rule_name)));
     }
+    let rule = append_declaration_owner(
+        input,
+        compilation,
+        list,
+        CssRulePayload::Property(PropertyRulePayload {
+            span: span_from(start, input.position()),
+            name,
+            syntax: None,
+            inherits: None,
+            initial_value: None,
+        }),
+    )?;
+    let block = compilation
+        .rule(rule)
+        .and_then(|record| record.declaration_block())
+        .expect("a property rule block is bound before parsing descriptors");
     let allocator = input.allocator();
-    let descriptors = input.parse_nested_block(|input| {
-        parse_property_rule_descriptors(input, allocator, options, depth + 1)
+    let mut syntax = None;
+    let mut inherits = None;
+    let mut initial_value = None;
+    let mut sink_error = None;
+    input.parse_nested_block(|input| {
+        parse_property_rule_descriptors_into(input, allocator, options, depth + 1, |descriptor| {
+            if sink_error.is_some() {
+                return;
+            }
+            let kind = match &descriptor {
+                PropertyRuleDescriptor::Syntax(_) => 0,
+                PropertyRuleDescriptor::Inherits(_) => 1,
+                PropertyRuleDescriptor::InitialValue(_) => 2,
+                PropertyRuleDescriptor::Unknown(_) => 3,
+            };
+            match compilation.append_declaration(
+                block,
+                DeclarationPayload::PropertyRule(descriptor),
+                false,
+            ) {
+                Ok(id) => match kind {
+                    0 => syntax = Some(id),
+                    1 => inherits = Some(id),
+                    2 => initial_value = Some(id),
+                    _ => {}
+                },
+                Err(error) => sink_error = Some(error),
+            }
+        })
     })?;
+    if let Some(error) = sink_error {
+        return Err(mutation_error(input, error));
+    }
     let end = input.position();
-    compilation
-        .append_rule(
-            list,
-            CssRulePayload::Property(PropertyRulePayload {
-                inherits: descriptors.inherits,
-                initial_value: descriptors
-                    .initial_value
-                    .map(|value| allocator.boxed(value)),
-                name,
-                span: span_from(start, end),
-                syntax: allocator.boxed(descriptors.syntax),
-            }),
-        )
-        .map_err(|error| mutation_error(input, error))
+    let payload = compilation
+        .rule_mut(rule)
+        .expect("a parsed property rule remains live")
+        .payload_mut();
+    let CssRulePayload::Property(payload) = payload else {
+        unreachable!("the allocated payload remains a property rule")
+    };
+    payload.span = span_from(start, end);
+    payload.syntax = syntax;
+    payload.inherits = inherits;
+    payload.initial_value = initial_value;
+    Ok(rule)
 }
 
 fn parse_font_face_rule<'ast>(

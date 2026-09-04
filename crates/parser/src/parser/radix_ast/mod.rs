@@ -13,9 +13,9 @@ use rocketcss_ast::{
     KeyframePayload, KeyframesRulePayload, LayerBlockRulePayload, LayerStatementRulePayload,
     MediaRulePayload, MozDocumentRulePayload, NestedDeclarationsPayload, NestingRulePayload,
     PageDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
-    PropertyRulePayload, RuleListId, ScopeRulePayload, SelectorFrameKind, StartingStyleRulePayload,
-    StyleRulePayload, SupportsRulePayload, UnknownAtRulePayload, ViewTransitionRulePayload,
-    ViewportRulePayload,
+    PropertyRuleDescriptor, PropertyRulePayload, RuleListId, ScopeRulePayload, SelectorFrameKind,
+    StartingStyleRulePayload, StyleRulePayload, SupportsRulePayload, UnknownAtRulePayload,
+    ViewTransitionRulePayload, ViewportRulePayload,
 };
 
 use super::{
@@ -27,9 +27,9 @@ use super::{
         parse_container_prelude, parse_custom_media, parse_family_names,
         parse_font_face_contents_into, parse_font_feature_declarations_into,
         parse_font_palette_contents_into, parse_keyframe_selector, parse_keyframes_name,
-        parse_layer_names, parse_namespace, parse_page_selectors, parse_property_rule_descriptors,
-        parse_scope_prelude, parse_single_ident, parse_view_transition_contents_into,
-        validate_moz_document_prelude,
+        parse_layer_names, parse_namespace, parse_page_selectors,
+        parse_property_rule_descriptors_into, parse_scope_prelude, parse_single_ident,
+        parse_view_transition_contents_into, validate_moz_document_prelude,
     },
     selector::{parse_selector_list, parse_selector_list_with_recovery, parse_selector_string},
     stylesheet::{check_depth, into_error, recover_declaration, recover_rule, span_from},

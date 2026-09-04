@@ -2009,9 +2009,21 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         };
         assert_eq!(property.name, "--brand-color");
         assert!(property.initial_value.is_some());
-        assert!(matches!(&*property.syntax, SyntaxString::Components(_)));
-        assert!(!property.inherits);
-        assert!(sheet.rule(roots[0]).unwrap().declaration_block().is_none());
+        assert!(matches!(
+            sheet.declaration(property.syntax.unwrap()).unwrap().payload(),
+            DeclarationPayload::PropertyRule(
+                rocketcss_ast::PropertyRuleDescriptor::Syntax(syntax)
+            ) if matches!(&**syntax, SyntaxString::Components(_))
+        ));
+        assert!(matches!(
+            sheet
+                .declaration(property.inherits.unwrap())
+                .unwrap()
+                .payload(),
+            DeclarationPayload::PropertyRule(rocketcss_ast::PropertyRuleDescriptor::Inherits(
+                false
+            ))
+        ));
         assert_eq!(
             sheet
                 .declarations_in_block(sheet.rule(roots[1]).unwrap().declaration_block().unwrap())
@@ -2113,7 +2125,13 @@ fn parses_property_initial_value_edge_cases_losslessly() {
         let CssRulePayload::Property(ordered) = root_rule(&sheet, 2).1.payload() else {
             panic!("expected ordered property registration")
         };
-        assert!(ordered.inherits);
+        assert!(matches!(
+            sheet
+                .declaration(ordered.inherits.unwrap())
+                .unwrap()
+                .payload(),
+            DeclarationPayload::PropertyRule(rocketcss_ast::PropertyRuleDescriptor::Inherits(true))
+        ));
         assert!(ordered.initial_value.is_some());
     })
 }

@@ -7,6 +7,7 @@ use super::{
     },
 };
 use crate::prelude::*;
+use rocketcss_ast::PropertyRuleDescriptor;
 
 pub(super) fn parse_font_face_contents_into<'i>(
     input: &mut Compiler<'i>,
@@ -533,22 +534,18 @@ pub(super) fn parse_font_palette_contents_into<'i>(
     Ok(())
 }
 
-pub(super) struct PropertyRuleDescriptors<'i> {
-    pub inherits: bool,
-    pub initial_value: Option<ParsedComponent<'i>>,
-    pub syntax: SyntaxString<'i>,
-}
-
-pub(super) fn parse_property_rule_descriptors<'i>(
+pub(super) fn parse_property_rule_descriptors_into<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-) -> Result<PropertyRuleDescriptors<'i>, ParseError<'i, ParserError<'i>>> {
+    mut push: impl FnMut(PropertyRuleDescriptor<'i>),
+) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
-    let mut syntax = None;
-    let mut inherits = None;
-    let mut initial_value = None;
+    let mut has_syntax = false;
+    let mut syntax_is_universal = false;
+    let mut has_inherits = false;
+    let mut has_initial_value = false;
 
     loop {
         let descriptor = match input.next() {
@@ -569,24 +566,38 @@ pub(super) fn parse_property_rule_descriptors<'i>(
             }
             trim_leading_whitespace(&mut value);
 
-            if descriptor.eq_ignore_ascii_case("syntax") {
+            let parsed = if descriptor.eq_ignore_ascii_case("syntax") {
                 let Some(ValueToken::String(value)) = single_token(&value) else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 };
-                syntax = Some(parse_syntax_string(value, allocator)?);
+                let syntax = parse_syntax_string(value, allocator)?;
+                syntax_is_universal = matches!(syntax, SyntaxString::Universal);
+                has_syntax = true;
+                PropertyRuleDescriptor::Syntax(allocator.boxed(syntax))
             } else if descriptor.eq_ignore_ascii_case("inherits") {
                 let Some(value) = value.first().and_then(token_ident) else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 };
-                inherits = Some(match_ignore_ascii_case!(
+                let inherits = match_ignore_ascii_case!(
                     value,
                     "true" => true,
                     "false" => false,
                     _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
-                ));
+                );
+                has_inherits = true;
+                PropertyRuleDescriptor::Inherits(inherits)
             } else if descriptor.eq_ignore_ascii_case("initial-value") {
-                initial_value = Some(ParsedComponent::TokenList(value));
-            }
+                has_initial_value = true;
+                PropertyRuleDescriptor::InitialValue(
+                    allocator.boxed(ParsedComponent::TokenList(value)),
+                )
+            } else {
+                PropertyRuleDescriptor::Unknown(allocator.boxed(CustomProperty {
+                    name: allocator.boxed(CustomPropertyName::Unknown(descriptor)),
+                    value,
+                }))
+            };
+            push(parsed);
             Ok::<_, ParseError<'i, ParserError<'i>>>(())
         })();
         if let Err(error) = result {
@@ -598,20 +609,10 @@ pub(super) fn parse_property_rule_descriptors<'i>(
         }
     }
 
-    let Some(syntax) = syntax else {
-        return Err(input.new_custom_error(ParserError::InvalidValue));
-    };
-    let Some(inherits) = inherits else {
-        return Err(input.new_custom_error(ParserError::InvalidValue));
-    };
-    if !matches!(syntax, SyntaxString::Universal) && initial_value.is_none() {
+    if !has_syntax || !has_inherits || (!syntax_is_universal && !has_initial_value) {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
-    Ok(PropertyRuleDescriptors {
-        inherits,
-        initial_value,
-        syntax,
-    })
+    Ok(())
 }
 
 pub(super) fn parse_syntax_string<'i>(

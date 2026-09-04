@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rocketcss_ast::{CssColor, CssRulePayload, DeclarationPayload, VisitMutContext};
+use rocketcss_ast::{CssColor, DeclarationPayload, VisitMutContext};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_nano::{MinifyOptions, minify};
@@ -162,23 +162,14 @@ fn canonicalize_known_colors<'ast, 'ghost>(
         }
     }
 
-    let rules = compilation
+    let blocks = compilation
         .rules_in_source_order()
         .filter(|(_, rule)| rule.is_live())
-        .map(|(rule, record)| (rule, record.declaration_block()))
+        .map(|(_, record)| record.declaration_block())
         .collect::<Vec<_>>();
     let mut visitor = CanonicalizeKnownColors;
     let mut cx = VisitMutContext::new(token);
-    for (rule, block) in rules {
-        compilation
-            .transform_rule_payload(rule, |payload| {
-                if let CssRulePayload::Property(payload) = payload
-                    && let Some(initial_value) = &mut payload.initial_value
-                {
-                    initial_value.visit_mut(&mut visitor, &mut cx);
-                }
-            })
-            .map_err(|error| format!("canonicalize rule colors: {error:?}"))?;
+    for block in blocks {
         if let Some(block) = block {
             compilation
                 .for_each_declaration_mut(block, |_, declaration| match declaration.payload_mut() {
@@ -197,6 +188,18 @@ fn canonicalize_known_colors<'ast, 'ghost>(
                     DeclarationPayload::FontFeature(declaration) => {
                         declaration.visit_mut(&mut visitor, &mut cx);
                     }
+                    DeclarationPayload::PropertyRule(descriptor) => match descriptor {
+                        rocketcss_ast::PropertyRuleDescriptor::Syntax(syntax) => {
+                            syntax.visit_mut(&mut visitor, &mut cx);
+                        }
+                        rocketcss_ast::PropertyRuleDescriptor::Inherits(_) => {}
+                        rocketcss_ast::PropertyRuleDescriptor::InitialValue(value) => {
+                            value.visit_mut(&mut visitor, &mut cx);
+                        }
+                        rocketcss_ast::PropertyRuleDescriptor::Unknown(property) => {
+                            property.visit_mut(&mut visitor, &mut cx);
+                        }
+                    },
                 })
                 .map_err(|error| format!("canonicalize declaration colors: {error:?}"))?;
         }
