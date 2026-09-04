@@ -17,7 +17,7 @@ pub struct TextIndent<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub struct TextDecoration<'a> {
     pub color: Box<'a, CssColor<'a>>,
-    pub line: TextDecorationLine,
+    pub line: Box<'a, TextDecorationLine<'a>>,
     pub style: TextDecorationStyle,
     pub thickness: Box<'a, TextDecorationThickness<'a>>,
 }

@@ -68,14 +68,11 @@ fn printer_remains_send_for_a_send_writer() {
 }
 
 #[test]
-fn canonicalizes_text_decoration_line_flags() {
+fn preserves_text_decoration_line_order_before_minification() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
-        let stylesheet = parse_stylesheet(
-            "a{text-decoration-line:overline underline underline}",
-            &allocator,
-            &mut token,
-        );
+        const SOURCE: &str = "a{text-decoration-line:overline underline underline}";
+        let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
         assert_eq!(
             stylesheet
                 .to_css_string(
@@ -83,7 +80,7 @@ fn canonicalizes_text_decoration_line_flags() {
                     &ToCssContext::new(&token),
                 )
                 .unwrap(),
-            "a{text-decoration-line:underline overline}"
+            SOURCE
         );
     })
 }

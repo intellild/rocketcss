@@ -1923,7 +1923,23 @@ pub trait Visitor<'a, 'ghost> {
     #[inline]
     fn visit_text_decoration_line(
         &mut self,
-        node: &TextDecorationLine,
+        node: &TextDecorationLine<'a>,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        Visit::visit_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_exclusive_text_decoration_line(
+        &mut self,
+        node: &ExclusiveTextDecorationLine,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        Visit::visit_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_other_text_decoration_line(
+        &mut self,
+        node: &OtherTextDecorationLine,
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         Visit::visit_children(node, self, cx);

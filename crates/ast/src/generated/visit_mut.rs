@@ -2481,7 +2481,23 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_text_decoration_line(
         &mut self,
-        node: &mut TextDecorationLine,
+        node: &mut TextDecorationLine<'a>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_exclusive_text_decoration_line(
+        &mut self,
+        node: &mut ExclusiveTextDecorationLine,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_other_text_decoration_line(
+        &mut self,
+        node: &mut OtherTextDecorationLine,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         VisitMut::visit_mut_children(node, self, cx);

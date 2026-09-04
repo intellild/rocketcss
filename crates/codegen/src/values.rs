@@ -73,6 +73,8 @@ keyword_values! {
     TextAlign,
     TextAlignLast,
     TextJustify,
+    ExclusiveTextDecorationLine,
+    OtherTextDecorationLine,
     TextDecorationStyle,
     TextDecorationSkipInk,
     TextEmphasisFillMode,
@@ -1529,37 +1531,24 @@ impl<'ghost> ToCss<'ghost> for Spacing<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TextDecorationLine {
+impl<'ghost> ToCss<'ghost> for TextDecorationLine<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        if self.is_empty() {
-            return dest.write_str("none");
-        }
-        if self.contains(Self::SPELLING_ERROR) {
-            return dest.write_str("spelling-error");
-        }
-        if self.contains(Self::GRAMMAR_ERROR) {
-            return dest.write_str("grammar-error");
-        }
-        let mut needs_space = false;
-        for (flag, keyword) in [
-            (Self::UNDERLINE, "underline"),
-            (Self::OVERLINE, "overline"),
-            (Self::LINE_THROUGH, "line-through"),
-            (Self::BLINK, "blink"),
-        ] {
-            if self.contains(flag) {
-                if needs_space {
-                    dest.write_char(' ')?;
+        match self {
+            Self::ExclusiveTextDecorationLine(value) => value.to_css(dest, _cx),
+            Self::Value(values) => {
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        dest.write_char(' ')?;
+                    }
+                    value.to_css(dest, _cx)?;
                 }
-                dest.write_str(keyword)?;
-                needs_space = true;
+                Ok(())
             }
         }
-        Ok(())
     }
 }
 

@@ -160,55 +160,46 @@ impl<'i> Parse<'i> for Spacing<'i> {
     }
 }
 
-impl<'i> Parse<'i> for TextDecorationLine {
+impl<'i> Parse<'i> for TextDecorationLine<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let mut value = Self::empty();
-        let mut any = false;
+        let first = input.expect_ident()?;
+        if first.eq_ignore_ascii_case("none") {
+            return Ok(Self::ExclusiveTextDecorationLine(
+                ExclusiveTextDecorationLine::None,
+            ));
+        }
+        if first.eq_ignore_ascii_case("spelling-error") {
+            return Ok(Self::ExclusiveTextDecorationLine(
+                ExclusiveTextDecorationLine::SpellingError,
+            ));
+        }
+        if first.eq_ignore_ascii_case("grammar-error") {
+            return Ok(Self::ExclusiveTextDecorationLine(
+                ExclusiveTextDecorationLine::GrammarError,
+            ));
+        }
+
+        let mut values = input.allocator().vec();
+        values.push(parse_text_decoration_line(first, input)?);
         while !input.is_exhausted() {
-            let ident = input.expect_ident()?;
-            let flag = match_ignore_ascii_case!(
-                ident,
-                "none" => {
-                    if any {
-                        return Err(input.new_custom_error(ParserError::InvalidValue));
-                    }
-                    Self::empty()
-                },
-                "underline" => Self::UNDERLINE,
-                "overline" => Self::OVERLINE,
-                "line-through" => Self::LINE_THROUGH,
-                "blink" => Self::BLINK,
-                "spelling-error" => {
-                    if any {
-                        return Err(input.new_custom_error(ParserError::InvalidValue));
-                    }
-                    Self::SPELLING_ERROR
-                },
-                "grammar-error" => {
-                    if any {
-                        return Err(input.new_custom_error(ParserError::InvalidValue));
-                    }
-                    Self::GRAMMAR_ERROR
-                },
-                _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
-            );
-            if flag.is_empty()
-                || flag.intersects(Self::SPELLING_ERROR)
-                || flag.intersects(Self::GRAMMAR_ERROR)
-            {
-                if any || !input.is_exhausted() {
-                    return Err(input.new_custom_error(ParserError::InvalidValue));
-                }
-                return Ok(flag);
-            }
-            value.insert(flag);
-            any = true;
+            values.push(parse_text_decoration_line(input.expect_ident()?, input)?);
         }
-        if !any {
-            return Err(input.new_custom_error(ParserError::InvalidValue));
-        }
-        Ok(value)
+        Ok(Self::Value(values))
     }
+}
+
+fn parse_text_decoration_line<'i>(
+    ident: &'i str,
+    input: &mut Compiler<'i>,
+) -> Result<OtherTextDecorationLine, ParseError<'i, ParserError<'i>>> {
+    match_ignore_ascii_case!(
+        ident,
+        "underline" => Ok(OtherTextDecorationLine::Underline),
+        "overline" => Ok(OtherTextDecorationLine::Overline),
+        "line-through" => Ok(OtherTextDecorationLine::LineThrough),
+        "blink" => Ok(OtherTextDecorationLine::Blink),
+        _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+    )
 }
 
 impl<'i> Parse<'i> for TextDecorationThickness<'i> {

@@ -676,7 +676,7 @@ macro_rules! for_each_property {
     "word-spacing": WordSpacing(Box<'a, Spacing<'a>>) [boxed: Spacing<'i>],
     "letter-spacing": LetterSpacing(Box<'a, Spacing<'a>>) [boxed: Spacing<'i>],
     "text-indent": TextIndent(Box<'a, TextIndent<'a>>) [boxed: TextIndent<'i>],
-    "text-decoration-line": TextDecorationLine(TextDecorationLine, VendorPrefix) [parse: TextDecorationLine],
+    "text-decoration-line": TextDecorationLine(Box<'a, TextDecorationLine<'a>>, VendorPrefix) [boxed: TextDecorationLine<'i>],
     "text-decoration-style": TextDecorationStyle(TextDecorationStyle, VendorPrefix) [parse: TextDecorationStyle],
     "text-decoration-color": TextDecorationColor(Box<'a, CssColor<'a>>, VendorPrefix) [boxed: CssColor<'i>],
     "text-decoration-thickness": TextDecorationThickness(Box<'a, TextDecorationThickness<'a>>) [boxed: TextDecorationThickness<'i>],
