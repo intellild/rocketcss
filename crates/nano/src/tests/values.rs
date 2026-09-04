@@ -30,8 +30,8 @@ fn dispatches_known_functions_without_repeated_name_matching() {
 #[test]
 fn orders_duplicate_animation_keywords_as_name_last() {
     // The first value matching a keyword class claims it; a later duplicate is
-    // ambiguous and becomes the keyframes name. Flat semantic fields let
-    // codegen emit any required default before the colliding name.
+    // ambiguous and becomes the keyframes name. A colliding name is printed
+    // last so the output reparses to the same components.
     assert_eq!(
         run("a{animation:none 1s linear 2s both}"),
         "a{animation:1s linear 2s none both}"
@@ -42,7 +42,7 @@ fn orders_duplicate_animation_keywords_as_name_last() {
     );
     assert_eq!(
         run("a{animation:running none normal 3 1s 2s linear bounce}"),
-        "a{animation:1s linear 2s 3 bounce}"
+        "a{animation:bounce 1s linear 2s 3 normal none running}"
     );
 }
 
@@ -80,22 +80,20 @@ fn round_trips_legacy_single_token_display_values() {
 }
 
 #[test]
-fn normalizes_flat_animation_when_ordering_is_disabled() {
+fn leaves_value_order_untouched_when_ordering_is_disabled() {
     let options = MinifyOptions {
         flags: MinifyOptions::default().flags & !Options::ORDER_VALUES,
         ..MinifyOptions::default()
     };
-    // A flat shorthand no longer stores authored order, so typed animation
-    // values serialize semantically even when the generic ordering pass is off.
+    // The typed shorthand keeps authored order unless ORDER_VALUES runs.
     assert_eq!(
         run_with_options("a{animation:3s ease fade}", options),
-        "a{animation:3s fade}"
+        "a{animation:3s ease fade}"
     );
     assert_eq!(
         run_with_options("a{animation:ease 1s linear}", options),
-        "a{animation:1s ease linear}"
+        "a{animation:ease 1s linear}"
     );
-    // Unparsed values remain lossless because they never enter the flat AST.
     assert_eq!(
         run_with_options("a{animation:ease 1s var(--easing)}", options),
         "a{animation:ease 1s var(--easing)}"
@@ -136,60 +134,36 @@ fn keeps_comments_in_animation_values_on_the_unparsed_path() {
 }
 
 #[test]
-fn parses_animation_shorthand_into_flat_fields() {
-    let allocator = Allocator::new();
-    allocator.with_ghost(|mut token| {
-        let stylesheet = parse(
-            "a{animation:3s ease fade}",
-            &allocator,
-            &mut token,
-            ParserOptions::default(),
-        )
-        .unwrap();
-        let Declaration::Animation(animations, _) = first_property_declaration(&stylesheet) else {
-            panic!("animation shorthand should use its typed declaration");
-        };
-        let animation = &animations[0];
-        assert!(matches!(&*animation.name, AnimationName::Ident("fade")));
-        assert!(matches!(&animation.duration, Time::Seconds(3.0)));
-        assert!(matches!(&*animation.timing_function, EasingFunction::Ease));
-        assert!(matches!(
-            &animation.iteration_count,
-            AnimationIterationCount::Number(1.0)
-        ));
-        assert!(matches!(&animation.direction, AnimationDirection::Normal));
-        assert!(matches!(&animation.play_state, AnimationPlayState::Running));
-        assert!(matches!(&animation.delay, Time::Seconds(0.0)));
-        assert!(matches!(&animation.fill_mode, AnimationFillMode::None));
-        assert!(matches!(&*animation.timeline, AnimationTimeline::Auto));
-    });
-
-    assert_eq!(run("a{animation:3s ease fade}"), "a{animation:3s fade}");
-    // Explicit defaults collapse into the same semantic fields.
+fn parses_animation_shorthand_into_typed_components() {
+    assert_eq!(
+        run("a{animation:3s ease fade}"),
+        "a{animation:fade 3s ease}"
+    );
+    // Explicit defaults are preserved and printed in canonical order.
     assert_eq!(
         run("a{animation:running none normal 3 1s 2s linear bounce}"),
-        "a{animation:1s linear 2s 3 bounce}"
+        "a{animation:bounce 1s linear 2s 3 normal none running}"
     );
     assert_eq!(
         run("a{animation:1s 2s bounce linear,8s 1s shake ease}"),
-        "a{animation:1s linear 2s bounce,8s 1s shake}"
+        "a{animation:bounce 1s linear 2s,shake 8s ease 1s}"
     );
     assert_eq!(
         run("a{-webkit-animation:linear bounce 1s 2s}"),
-        "a{-webkit-animation:1s linear 2s bounce}"
+        "a{-webkit-animation:bounce 1s linear 2s}"
     );
     // Timing functions canonicalize through the typed AST.
     assert_eq!(
         run("a{animation:fade 3s cubic-bezier(0.25,0.1,0.25,1)}"),
-        "a{animation:3s fade}"
+        "a{animation:fade 3s ease}"
     );
     assert_eq!(
         run("a{animation:fade 3s steps(1, jump-start)}"),
-        "a{animation:3s step-start fade}"
+        "a{animation:fade 3s step-start}"
     );
     assert_eq!(
         run("a{animation:fade 3s steps(10, end)}"),
-        "a{animation:3s steps(10) fade}"
+        "a{animation:fade 3s steps(10)}"
     );
     // Values the typed grammar cannot represent stay unparsed and unordered.
     assert_eq!(

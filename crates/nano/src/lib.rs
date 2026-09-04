@@ -313,6 +313,15 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         }
     }
 
+    fn visit_animation(
+        &mut self,
+        node: &mut Animation<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
+        node.visit_mut_children(self, cx);
+        node.minify(&mut self.cx);
+    }
+
     fn visit_font_family(
         &mut self,
         node: &mut FontFamily<'ast>,

@@ -107,6 +107,24 @@ fn preserves_known_color_keywords_before_minification() {
 }
 
 #[test]
+fn preserves_animation_component_order_before_minification() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        const SOURCE: &str = "a{animation:fade 1s ease}";
+        let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            SOURCE
+        );
+    })
+}
+
+#[test]
 fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();

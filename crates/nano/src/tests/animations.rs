@@ -19,7 +19,7 @@ fn avoids_expanding_transition_shorthand_and_property() {
 fn preserves_cascade_sensitive_declaration_order() {
     assert_eq!(
         run(".item{animation:fade both;animation-timeline:scroll(root block)}"),
-        ".item{animation:both fade;animation-timeline:scroll(root block)}"
+        ".item{animation:fade both;animation-timeline:scroll(root block)}"
     );
     assert_eq!(
         run(
@@ -31,7 +31,7 @@ fn preserves_cascade_sensitive_declaration_order() {
         run(
             ".foo{animation:linear foo;animation-timeline:view();animation-range:entry-crossing 1% exit-crossing 100%}"
         ),
-        ".foo{animation:linear foo;animation-timeline:view();animation-range:entry-crossing 1% exit-crossing 100%}"
+        ".foo{animation:foo linear;animation-timeline:view();animation-range:entry-crossing 1% exit-crossing 100%}"
     );
 }
 
@@ -39,7 +39,7 @@ fn preserves_cascade_sensitive_declaration_order() {
 fn preserves_scroll_driven_animation_duration_auto_semantics() {
     const SOURCE: &str = ".overflowContainer{animation:--keyframes-top-scroll-border step-end,--keyframes-bottom-scroll-border step-end reverse;animation-timeline:scroll(self)}";
     let output = run(SOURCE);
-    assert!(output.contains("animation:step-end --keyframes-top-scroll-border,step-end reverse --keyframes-bottom-scroll-border"));
+    assert!(output.contains("animation:--keyframes-top-scroll-border step-end,--keyframes-bottom-scroll-border step-end reverse"));
     assert!(output.contains("animation-timeline:scroll(self)"));
     assert!(!output.contains("animation-duration"));
 }

@@ -78,7 +78,7 @@ fn main() {
         Selector<'static>,
         SelectorComponent<'static>,
         ParsedComponent<'static>,
-        Animation<'static>,
+        AnimationComponent<'static>,
         AnimationTimeline<'static>,
         Filter<'static>,
         Transform<'static>,
