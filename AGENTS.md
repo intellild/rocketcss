@@ -13,6 +13,13 @@
 - Use `Declaration::Unparsed` only as a lossless fallback for values the typed parser cannot represent, such as variables—not as a substitute for a missing AST node.
 - `PropertyId::Custom` and internal sentinel variants are exempt.
 
+## Lossless AST and serialization
+
+- Typed AST nodes must preserve authored syntactic distinctions that plain parser-to-codegen output can reproduce, including keyword identity and aliases, component order, duplicate authored components, and whether optional syntax was written explicitly.
+- AST simplifications must be information-preserving. Do not replace a source-bearing enum, ordered list, or explicit-presence marker with a canonical semantic representation when doing so changes codegen output without a transform.
+- Parsing followed directly by codegen must not perform value normalization, deduplication, reordering, or shortening. Those changes belong in nano or another explicitly requested transform, which must update the AST before codegen.
+- When changing a source-bearing AST shape, add a parser-to-codegen regression test with nano disabled, plus transform tests for any intended normalized output.
+
 ## Hash collections
 
 - Use `rustc_hash::FxHashMap` and `rustc_hash::FxHashSet` for compiler-internal hash collections instead of the standard library's `HashMap` and `HashSet`.
