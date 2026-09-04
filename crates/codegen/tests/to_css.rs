@@ -122,6 +122,46 @@ fn preserves_animation_component_order_before_minification() {
 }
 
 #[test]
+fn preserves_ratio_denominator_presence_before_minification() {
+    GhostToken::scope(|mut token| {
+        let allocator = Allocator::new();
+        const SOURCE: &str = "a{aspect-ratio:1;aspect-ratio:1/1}";
+        let stylesheet = parse_stylesheet(SOURCE, &allocator, &mut token);
+        let declarations = property_declarations(&stylesheet, first_block_id(&stylesheet));
+
+        assert!(matches!(
+            declarations[0].0,
+            Declaration::AspectRatio(AspectRatio {
+                ratio: Some(Ratio {
+                    denominator: None,
+                    numerator: 1.0,
+                }),
+                ..
+            })
+        ));
+        assert!(matches!(
+            declarations[1].0,
+            Declaration::AspectRatio(AspectRatio {
+                ratio: Some(Ratio {
+                    denominator: Some(1.0),
+                    numerator: 1.0,
+                }),
+                ..
+            })
+        ));
+        assert_eq!(
+            stylesheet
+                .to_css_string(
+                    PrinterOptions { prettify: false },
+                    &ToCssContext::new(&token),
+                )
+                .unwrap(),
+            SOURCE
+        );
+    })
+}
+
+#[test]
 fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
