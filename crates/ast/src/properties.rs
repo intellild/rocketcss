@@ -38,6 +38,15 @@ macro_rules! property_id_with_vendor_prefix {
     };
 }
 
+macro_rules! property_id_from_storage {
+    ($name:path, $prefix:expr) => {
+        $name
+    };
+    ($name:path, $prefix:expr, $vendor_prefix:ty) => {
+        $name($prefix)
+    };
+}
+
 macro_rules! declaration_pattern {
     ($name:path, $value:ident) => {
         $name($value)
@@ -229,6 +238,94 @@ macro_rules! define_properties {
                     Self::Unparsed => PropertySupport::UnsupportedGrammar,
                     _ => self.parser_strategy().support_classification(),
                 }
+            }
+
+            fn encode_storage(self, context: &mut AstContext<'a>) -> NodePayload {
+                let mut bytes = [0; NodePayload::INLINE_BYTES];
+                match self.known_id_and_prefix() {
+                    Some((id, prefix)) => {
+                        bytes[0] = 0;
+                        bytes[1] = prefix.bits();
+                        bytes[4..8].copy_from_slice(&id.to_le_bytes());
+                    }
+                    None => match self {
+                        Self::Unparsed => bytes[0] = 1,
+                        Self::Custom(name) => {
+                            bytes[0] = 2;
+                            bytes[4..8]
+                                .copy_from_slice(&context.store_string(name).to_le_bytes());
+                        }
+                        _ => unreachable!("known property IDs have a generated discriminant"),
+                    },
+                }
+                NodePayload::inline(&bytes)
+            }
+
+            fn decode_storage(bytes: &[u8], context: &AstContext<'a>) -> Self {
+                let value = u32::from_le_bytes(
+                    bytes[4..8]
+                        .try_into()
+                        .expect("compact property ID field is four bytes"),
+                );
+                match bytes[0] {
+                    0 => {
+                        let prefix = VendorPrefix::from_bits_retain(bytes[1]);
+                        match value {
+                            $(value if value == KnownPropertyDiscriminant::$property as u32 => {
+                                property_id_from_storage!(Self::$property, prefix$(, $vp)?)
+                            },)+
+                            _ => panic!("invalid encoded known PropertyId"),
+                        }
+                    }
+                    1 => Self::Unparsed,
+                    2 => Self::Custom(context.resolve_string(value as u64)),
+                    _ => panic!("invalid encoded PropertyId variant"),
+                }
+            }
+        }
+
+        // byte 0 variant, byte 1 vendor-prefix bits, bytes 4..8 generated
+        // known-property discriminant or compact custom-name string ID.
+        impl<'ast> AstNodeStorage<'ast> for PropertyId<'ast> {
+            const KIND: NodeKind = NodeKind::new(0x0007_0001);
+
+            fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+                Self::decode_storage(&payload.bytes(), context)
+            }
+
+            fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+                self.encode_storage(context)
+            }
+
+            fn encode_existing(
+                self,
+                _current: NodePayload,
+                context: &mut AstContext<'ast>,
+            ) -> NodePayload {
+                self.encode_storage(context)
+            }
+        }
+
+        impl<'ast> AstNodeClone<'ast> for PropertyId<'ast> {
+            fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+                self
+            }
+        }
+
+        impl<'ast> ExtraDataCompact<'ast> for PropertyId<'ast> {
+            fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData {
+                let payload = self.encode_storage(context);
+                ExtraData::from_bytes(&payload.bytes()[..ExtraData::BYTES])
+            }
+
+            fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+                Self::decode_storage(&data.bytes(), context)
+            }
+        }
+
+        impl<'ast> ExtraDataClone<'ast> for PropertyId<'ast> {
+            fn clone_extra(self, _context: &mut AstContext<'ast>) -> Self {
+                self
             }
         }
 
@@ -786,6 +883,43 @@ for_each_property!(define_properties);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rocketcss_common::Allocator;
+
+    #[test]
+    fn property_id_storage_reuses_generated_identity_metadata() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let known = PropertyId::BackgroundClip(VendorPrefix::WEBKIT | VendorPrefix::MOZ);
+        let known_id = context.alloc_encoded_node(known, DUMMY_SP);
+        assert_eq!(
+            context.encoded_node(known_id),
+            PropertyId::BackgroundClip(VendorPrefix::WEBKIT | VendorPrefix::MOZ)
+        );
+
+        let custom_id = context.alloc_encoded_node(PropertyId::Custom("--theme"), DUMMY_SP);
+        let cloned = context.clone_encoded_node(custom_id);
+        assert_ne!(custom_id, cloned);
+        assert_eq!(context.encoded_node(cloned), PropertyId::Custom("--theme"));
+
+        let values = context.alloc_encoded_vec(
+            [
+                PropertyId::Width,
+                PropertyId::Unparsed,
+                PropertyId::Custom("x-widget"),
+            ]
+            .into_iter(),
+        );
+        assert_eq!(
+            context
+                .encoded_vec_iter(values)
+                .collect::<std::vec::Vec<_>>(),
+            [
+                PropertyId::Width,
+                PropertyId::Unparsed,
+                PropertyId::Custom("x-widget"),
+            ]
+        );
+    }
 
     macro_rules! assert_webkit_round_trip {
         ($name:literal, $property:ident, $vendor_prefix:ty) => {{
