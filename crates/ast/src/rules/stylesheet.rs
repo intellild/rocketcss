@@ -71,6 +71,24 @@ impl<'ast> AstNodeStorage<'ast> for EnvironmentVariable<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for EnvironmentVariable<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            fallback: self
+                .fallback
+                .map(|fallback| context.clone_encoded_vec(fallback)),
+            indices: context.clone_encoded_vec(self.indices),
+            name: match self.name {
+                EnvironmentVariableName::UA(value) => EnvironmentVariableName::UA(value),
+                EnvironmentVariableName::Custom(value) => {
+                    EnvironmentVariableName::Custom(context.clone_encoded_node(value))
+                }
+                EnvironmentVariableName::Unknown(value) => EnvironmentVariableName::Unknown(value),
+            },
+        }
+    }
+}
+
 fn encode_environment_variable<'ast>(
     value: EnvironmentVariable<'ast>,
     existing_extra: Option<usize>,
@@ -238,6 +256,17 @@ impl<'ast> AstNodeStorage<'ast> for Variable<'ast> {
         _context: &mut AstContext<'ast>,
     ) -> NodePayload {
         encode_variable(self)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for Variable<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            fallback: self
+                .fallback
+                .map(|fallback| context.clone_encoded_vec(fallback)),
+            name: context.clone_encoded_node(self.name),
+        }
     }
 }
 
@@ -427,6 +456,18 @@ impl<'ast> AstNodeStorage<'ast> for Function<'ast> {
 
     fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
         encode_function(self, Some(current.extra_start()), context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for Function<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            arguments: context.clone_encoded_vec(self.arguments),
+            flags: self.flags,
+            kind: self.kind,
+            name: self.name,
+            replacement: self.replacement,
+        }
     }
 }
 

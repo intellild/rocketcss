@@ -1,5 +1,10 @@
 use crate::*;
 
+use crate::{
+    AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact, NodeKind,
+    NodePayload,
+};
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum ParsedComponent<'a> {
     Length(Length<'a>),
@@ -38,6 +43,44 @@ pub enum SyntaxString<'a> {
     Universal,
 }
 
+impl<'ast> AstNodeStorage<'ast> for SyntaxString<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0017_0001);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Components(decode_range(&bytes, 4, context)),
+            1 => Self::Universal,
+            _ => panic!("invalid encoded SyntaxString variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        match self {
+            Self::Components(values) => {
+                bytes[0] = 0;
+                write_range(&mut bytes, 4, values);
+            }
+            Self::Universal => bytes[0] = 1,
+        }
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for SyntaxString<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Components(values) => Self::Components(context.clone_encoded_vec(values)),
+            Self::Universal => Self::Universal,
+        }
+    }
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum SyntaxComponentKind<'a> {
     Length,
@@ -58,6 +101,33 @@ pub enum SyntaxComponentKind<'a> {
     Literal(&'a str),
 }
 
+impl<'ast> AstNodeStorage<'ast> for SyntaxComponentKind<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0017_0002);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        decode_syntax_component_kind(bytes[0], read_u32(&bytes, 4), context)
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        let (kind, value) = encode_syntax_component_kind(self, context);
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        bytes[0] = kind;
+        write_u32(&mut bytes, 4, value);
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for SyntaxComponentKind<'ast> {
+    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct UnparsedProperty<'a> {
     pub property_id: NodeId<'a, PropertyId<'a>>,
@@ -69,6 +139,76 @@ pub struct UnparsedProperty<'a> {
     #[visit(skip)]
     pub raw_value: Option<&'a str>,
     pub value: Vec<'a, TokenOrValue<'a>>,
+}
+
+// bytes 0..4 property ID, byte 4 reason, byte 5 raw-value presence,
+// bytes 8..12 raw-value string ID, bytes 12..16 first extra slot;
+// extra + 0 stores the token range.
+impl<'ast> AstNodeStorage<'ast> for UnparsedProperty<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0017_0003);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            property_id: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
+            reason: decode_unparsed_reason(bytes[4]),
+            raw_value: match bytes[5] {
+                0 => None,
+                1 => Some(context.resolve_string(read_u32(&bytes, 8) as u64)),
+                _ => panic!("invalid encoded raw-value presence"),
+            },
+            value: ExtraDataCompact::decode_extra(
+                context.extra_slot(payload.extra_start()),
+                context,
+            ),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_unparsed_property(self, None, context)
+    }
+
+    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_unparsed_property(self, Some(current.extra_start()), context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for UnparsedProperty<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            property_id: context.clone_encoded_node(self.property_id),
+            reason: self.reason,
+            raw_value: self.raw_value,
+            value: context.clone_encoded_vec(self.value),
+        }
+    }
+}
+
+fn encode_unparsed_property<'ast>(
+    value: UnparsedProperty<'ast>,
+    existing_extra: Option<usize>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
+    write_u32(
+        &mut bytes,
+        0,
+        u32::try_from(value.property_id.index()).expect("AST node ID exceeds four bytes"),
+    );
+    bytes[4] = encode_unparsed_reason(value.reason);
+    if let Some(raw_value) = value.raw_value {
+        bytes[5] = 1;
+        write_u32(&mut bytes, 8, context.store_string(raw_value));
+    }
+    let range = value.value.encode_extra(context);
+    let extra = match existing_extra {
+        Some(extra) => {
+            context.set_extra_slot(extra, range);
+            extra
+        }
+        None => context.alloc_extra_slots([range]),
+    };
+    NodePayload::with_extra(&bytes, extra)
 }
 
 /// Why a declaration could not be represented by its typed value AST.
@@ -94,8 +234,300 @@ pub struct CustomProperty<'a> {
     pub value: Vec<'a, TokenOrValue<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for CustomProperty<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0017_0004);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            name: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
+            value: decode_range(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        write_u32(
+            &mut bytes,
+            0,
+            u32::try_from(self.name.index()).expect("AST node ID exceeds four bytes"),
+        );
+        write_range(&mut bytes, 4, self.value);
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for CustomProperty<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            name: context.clone_encoded_node(self.name),
+            value: context.clone_encoded_vec(self.value),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct SyntaxComponent<'a> {
     pub kind: NodeId<'a, SyntaxComponentKind<'a>>,
     pub multiplier: Multiplier,
+}
+
+impl<'ast> ExtraDataCompact<'ast> for SyntaxComponent<'ast> {
+    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
+        let mut bytes = [0; ExtraData::BYTES];
+        write_u32(
+            &mut bytes,
+            0,
+            u32::try_from(self.kind.index()).expect("AST node ID exceeds four bytes"),
+        );
+        bytes[4] = encode_multiplier(self.multiplier);
+        ExtraData::from_bytes(&bytes)
+    }
+
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        let bytes = data.bytes();
+        Self {
+            kind: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
+            multiplier: decode_multiplier(bytes[4]),
+        }
+    }
+}
+
+impl<'ast> ExtraDataClone<'ast> for SyntaxComponent<'ast> {
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            kind: context.clone_encoded_node(self.kind),
+            multiplier: self.multiplier,
+        }
+    }
+}
+
+fn encode_syntax_component_kind<'ast>(
+    value: SyntaxComponentKind<'ast>,
+    context: &mut AstContext<'ast>,
+) -> (u8, u32) {
+    match value {
+        SyntaxComponentKind::Length => (0, 0),
+        SyntaxComponentKind::Number => (1, 0),
+        SyntaxComponentKind::Percentage => (2, 0),
+        SyntaxComponentKind::LengthPercentage => (3, 0),
+        SyntaxComponentKind::String => (4, 0),
+        SyntaxComponentKind::Color => (5, 0),
+        SyntaxComponentKind::Image => (6, 0),
+        SyntaxComponentKind::Url => (7, 0),
+        SyntaxComponentKind::Integer => (8, 0),
+        SyntaxComponentKind::Angle => (9, 0),
+        SyntaxComponentKind::Time => (10, 0),
+        SyntaxComponentKind::Resolution => (11, 0),
+        SyntaxComponentKind::TransformFunction => (12, 0),
+        SyntaxComponentKind::TransformList => (13, 0),
+        SyntaxComponentKind::CustomIdent => (14, 0),
+        SyntaxComponentKind::Literal(value) => (15, context.store_string(value)),
+    }
+}
+
+fn decode_syntax_component_kind<'ast>(
+    kind: u8,
+    value: u32,
+    context: &AstContext<'ast>,
+) -> SyntaxComponentKind<'ast> {
+    match kind {
+        0 => SyntaxComponentKind::Length,
+        1 => SyntaxComponentKind::Number,
+        2 => SyntaxComponentKind::Percentage,
+        3 => SyntaxComponentKind::LengthPercentage,
+        4 => SyntaxComponentKind::String,
+        5 => SyntaxComponentKind::Color,
+        6 => SyntaxComponentKind::Image,
+        7 => SyntaxComponentKind::Url,
+        8 => SyntaxComponentKind::Integer,
+        9 => SyntaxComponentKind::Angle,
+        10 => SyntaxComponentKind::Time,
+        11 => SyntaxComponentKind::Resolution,
+        12 => SyntaxComponentKind::TransformFunction,
+        13 => SyntaxComponentKind::TransformList,
+        14 => SyntaxComponentKind::CustomIdent,
+        15 => SyntaxComponentKind::Literal(context.resolve_string(value as u64)),
+        _ => panic!("invalid encoded SyntaxComponentKind"),
+    }
+}
+
+fn encode_multiplier(value: Multiplier) -> u8 {
+    match value {
+        Multiplier::None => 0,
+        Multiplier::Space => 1,
+        Multiplier::Comma => 2,
+    }
+}
+
+fn decode_multiplier(value: u8) -> Multiplier {
+    match value {
+        0 => Multiplier::None,
+        1 => Multiplier::Space,
+        2 => Multiplier::Comma,
+        _ => panic!("invalid encoded Multiplier"),
+    }
+}
+
+fn encode_unparsed_reason(value: UnparsedPropertyReason) -> u8 {
+    match value {
+        UnparsedPropertyReason::UnsupportedGrammar => 0,
+        UnparsedPropertyReason::UnknownProperty => 1,
+        UnparsedPropertyReason::OpaqueValue => 2,
+        UnparsedPropertyReason::InvalidValue => 3,
+    }
+}
+
+fn decode_unparsed_reason(value: u8) -> UnparsedPropertyReason {
+    match value {
+        0 => UnparsedPropertyReason::UnsupportedGrammar,
+        1 => UnparsedPropertyReason::UnknownProperty,
+        2 => UnparsedPropertyReason::OpaqueValue,
+        3 => UnparsedPropertyReason::InvalidValue,
+        _ => panic!("invalid encoded UnparsedPropertyReason"),
+    }
+}
+
+fn write_range<T>(bytes: &mut [u8], offset: usize, range: Vec<'_, T>) {
+    write_u32(
+        bytes,
+        offset,
+        u32::try_from(range.start_index()).expect("AST range exceeds four bytes"),
+    );
+    write_u32(
+        bytes,
+        offset + 4,
+        u32::try_from(range.end_index()).expect("AST range exceeds four bytes"),
+    );
+}
+
+fn decode_range<'ast, T>(bytes: &[u8], offset: usize, context: &AstContext<'ast>) -> Vec<'ast, T> {
+    context.encoded_vec_range(
+        read_u32(bytes, offset) as usize,
+        read_u32(bytes, offset + 4) as usize,
+    )
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use rocketcss_common::Allocator;
+
+    use crate::{
+        AstContext, CustomProperty, CustomPropertyName, DUMMY_SP, KeyframesName,
+        NoneOrCustomIdentList, PropertyId, SyntaxComponent, SyntaxComponentKind, SyntaxString,
+        TokenOrValue, UnparsedProperty, UnparsedPropertyReason,
+    };
+
+    use super::Multiplier;
+
+    #[test]
+    fn property_metadata_codecs_round_trip_and_deep_clone_ranges() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let literal = context.alloc_encoded_node(SyntaxComponentKind::Literal("|"), DUMMY_SP);
+        let components = context.alloc_encoded_vec(
+            [SyntaxComponent {
+                kind: literal,
+                multiplier: Multiplier::Comma,
+            }]
+            .into_iter(),
+        );
+        let syntax = context.alloc_encoded_node(SyntaxString::Components(components), DUMMY_SP);
+        let cloned = context.clone_encoded_node(syntax);
+        let SyntaxString::Components(cloned_components) = context.encoded_node(cloned) else {
+            panic!("expected component syntax")
+        };
+        assert_ne!(components, cloned_components);
+        let component = context
+            .encoded_vec_get(cloned_components, 0)
+            .expect("cloned syntax component");
+        assert_ne!(component.kind, literal);
+        assert_eq!(
+            context.encoded_node(component.kind),
+            SyntaxComponentKind::Literal("|")
+        );
+    }
+
+    #[test]
+    fn unparsed_property_reuses_its_fixed_overflow_slot() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let property_id = context.alloc_encoded_node(PropertyId::Custom("future-prop"), DUMMY_SP);
+        let value =
+            context.alloc_encoded_vec([TokenOrValue::DashedIdent("--fallback")].into_iter());
+        let before = context.encoded_extra_len();
+        let property = context.alloc_encoded_node(
+            UnparsedProperty {
+                property_id,
+                reason: UnparsedPropertyReason::UnknownProperty,
+                raw_value: Some(" var(--fallback) "),
+                value,
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(context.encoded_extra_len(), before + 1);
+        assert_eq!(context.encoded_node(property).value, value);
+
+        context.mutate_encoded_node(property, |value, _| {
+            value.reason = UnparsedPropertyReason::OpaqueValue;
+            value.raw_value = None;
+        });
+        assert_eq!(context.encoded_extra_len(), before + 1);
+        let decoded = context.encoded_node(property);
+        assert_eq!(decoded.reason, UnparsedPropertyReason::OpaqueValue);
+        assert_eq!(decoded.raw_value, None);
+
+        let cloned = context.clone_encoded_node(property);
+        let cloned = context.encoded_node(cloned);
+        assert_ne!(cloned.property_id, property_id);
+        assert_ne!(cloned.value, value);
+        assert_eq!(
+            context.encoded_vec_get(cloned.value, 0),
+            Some(TokenOrValue::DashedIdent("--fallback"))
+        );
+    }
+
+    #[test]
+    fn compact_name_and_custom_property_codecs_keep_typed_ids() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let name = context.alloc_encoded_node(CustomPropertyName::Custom("--theme"), DUMMY_SP);
+        let value = context.alloc_encoded_vec([TokenOrValue::DashedIdent("--base")].into_iter());
+        let property = context.alloc_encoded_node(CustomProperty { name, value }, DUMMY_SP);
+        let cloned_property = context.clone_encoded_node(property);
+        let cloned = context.encoded_node(cloned_property);
+        assert_ne!(cloned.name, name);
+        assert_ne!(cloned.value, value);
+        assert_eq!(
+            context.encoded_node(cloned.name),
+            CustomPropertyName::Custom("--theme")
+        );
+
+        let keyframes = context.alloc_encoded_node(KeyframesName::Custom("--motion"), DUMMY_SP);
+        assert_eq!(
+            context.encoded_node(keyframes),
+            KeyframesName::Custom("--motion")
+        );
+        let idents = context.alloc_encoded_vec(["one", "two"].into_iter());
+        let names = context.alloc_encoded_node(NoneOrCustomIdentList::Idents(idents), DUMMY_SP);
+        let cloned_names = context.clone_encoded_node(names);
+        let NoneOrCustomIdentList::Idents(cloned_idents) = context.encoded_node(cloned_names)
+        else {
+            panic!("expected custom identifier list")
+        };
+        assert_ne!(cloned_idents, idents);
+        assert_eq!(context.encoded_vec_get(cloned_idents, 1), Some("two"));
+    }
 }

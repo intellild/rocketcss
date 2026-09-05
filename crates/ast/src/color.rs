@@ -61,6 +61,22 @@ impl<'ast> AstNodeStorage<'ast> for CssColor<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for CssColor<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::CurrentColor => Self::CurrentColor,
+            Self::Known(value) => Self::Known(value),
+            Self::Rgba(value) => Self::Rgba(value),
+            Self::Function(value) => Self::Function(context.clone_encoded_node(value)),
+            Self::Lab(value) => Self::Lab(context.clone_encoded_node(value)),
+            Self::Predefined(value) => Self::Predefined(context.clone_encoded_node(value)),
+            Self::Float(value) => Self::Float(context.clone_encoded_node(value)),
+            Self::LightDark(value) => Self::LightDark(context.clone_encoded_node(value)),
+            Self::System(value) => Self::System(value),
+        }
+    }
+}
+
 fn encode_css_color(value: CssColor<'_>) -> NodePayload {
     let mut bytes = [0; NodePayload::INLINE_BYTES];
     match value {
@@ -603,6 +619,15 @@ impl<'ast> AstNodeStorage<'ast> for LightDark<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for LightDark<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            dark: context.clone_encoded_node(self.dark),
+            light: context.clone_encoded_node(self.light),
+        }
+    }
+}
+
 fn encode_light_dark(value: LightDark<'_>) -> NodePayload {
     let mut bytes = [0; NodePayload::INLINE_BYTES];
     write_u32(&mut bytes, 0, node_index(value.dark));
@@ -776,6 +801,29 @@ impl<'ast> AstNodeStorage<'ast> for UnresolvedColor<'ast> {
 
     fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
         encode_unresolved_color(self, Some(current.extra_start()), context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for UnresolvedColor<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Rgb { alpha, b, g, r } => Self::Rgb {
+                alpha: context.clone_encoded_vec(alpha),
+                b,
+                g,
+                r,
+            },
+            Self::Hsl { alpha, h, l, s } => Self::Hsl {
+                alpha: context.clone_encoded_vec(alpha),
+                h,
+                l,
+                s,
+            },
+            Self::LightDark { dark, light } => Self::LightDark {
+                dark: context.clone_encoded_vec(dark),
+                light: context.clone_encoded_vec(light),
+            },
+        }
     }
 }
 

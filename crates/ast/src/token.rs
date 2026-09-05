@@ -122,6 +122,28 @@ impl<'ast> ExtraDataCompact<'ast> for TokenOrValue<'ast> {
     }
 }
 
+impl<'ast> ExtraDataClone<'ast> for TokenOrValue<'ast> {
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Token(value) => Self::Token(context.clone_encoded_node(value)),
+            Self::Color(value) => Self::Color(context.clone_encoded_node(value)),
+            Self::UnresolvedColor(value) => {
+                Self::UnresolvedColor(context.clone_encoded_node(value))
+            }
+            Self::Url(value) => Self::Url(context.clone_encoded_node(value)),
+            Self::Var(value) => Self::Var(context.clone_encoded_node(value)),
+            Self::Env(value) => Self::Env(context.clone_encoded_node(value)),
+            Self::Function(value) => Self::Function(context.clone_encoded_node(value)),
+            Self::Length(value) => Self::Length(value),
+            Self::Angle(value) => Self::Angle(value),
+            Self::Time(value) => Self::Time(value),
+            Self::Resolution(value) => Self::Resolution(value),
+            Self::DashedIdent(value) => Self::DashedIdent(value),
+            Self::AnimationName(value) => Self::AnimationName(context.clone_encoded_node(value)),
+        }
+    }
+}
+
 impl Eq for TokenOrValue<'_> {}
 
 impl Hash for TokenOrValue<'_> {
