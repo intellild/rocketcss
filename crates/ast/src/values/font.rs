@@ -70,6 +70,57 @@ pub enum FontSize<'a> {
     Relative(RelativeFontSize),
 }
 
+impl<'ast> AstNodeStorage<'ast> for FontSize<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000c_0003);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Length(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
+            1 => Self::Absolute(AbsoluteFontSize::XxSmall),
+            2 => Self::Absolute(AbsoluteFontSize::XSmall),
+            3 => Self::Absolute(AbsoluteFontSize::Small),
+            4 => Self::Absolute(AbsoluteFontSize::Medium),
+            5 => Self::Absolute(AbsoluteFontSize::Large),
+            6 => Self::Absolute(AbsoluteFontSize::XLarge),
+            7 => Self::Absolute(AbsoluteFontSize::XxLarge),
+            8 => Self::Absolute(AbsoluteFontSize::XxxLarge),
+            9 => Self::Relative(RelativeFontSize::Smaller),
+            10 => Self::Relative(RelativeFontSize::Larger),
+            _ => panic!("invalid encoded FontSize variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        bytes[0] = match self {
+            Self::Length(value) => {
+                write_u32(
+                    &mut bytes,
+                    4,
+                    u32::try_from(value.index()).expect("AST node ID exceeds four bytes"),
+                );
+                0
+            }
+            Self::Absolute(AbsoluteFontSize::XxSmall) => 1,
+            Self::Absolute(AbsoluteFontSize::XSmall) => 2,
+            Self::Absolute(AbsoluteFontSize::Small) => 3,
+            Self::Absolute(AbsoluteFontSize::Medium) => 4,
+            Self::Absolute(AbsoluteFontSize::Large) => 5,
+            Self::Absolute(AbsoluteFontSize::XLarge) => 6,
+            Self::Absolute(AbsoluteFontSize::XxLarge) => 7,
+            Self::Absolute(AbsoluteFontSize::XxxLarge) => 8,
+            Self::Relative(RelativeFontSize::Smaller) => 9,
+            Self::Relative(RelativeFontSize::Larger) => 10,
+        };
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum AbsoluteFontSize {
     XxSmall,
@@ -311,6 +362,44 @@ pub enum LineHeight<'a> {
     Length(NodeId<'a, LengthPercentage<'a>>),
 }
 
+impl<'ast> AstNodeStorage<'ast> for LineHeight<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000c_0004);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Normal,
+            1 => Self::Number(f32::from_bits(read_u32(&bytes, 4))),
+            2 => Self::Length(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
+            _ => panic!("invalid encoded LineHeight variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        match self {
+            Self::Normal => bytes[0] = 0,
+            Self::Number(value) => {
+                bytes[0] = 1;
+                write_u32(&mut bytes, 4, value.to_bits());
+            }
+            Self::Length(value) => {
+                bytes[0] = 2;
+                write_u32(
+                    &mut bytes,
+                    4,
+                    u32::try_from(value.index()).expect("AST node ID exceeds four bytes"),
+                );
+            }
+        }
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum VerticalAlign<'a> {
     Keyword(VerticalAlignKeyword),
@@ -327,4 +416,40 @@ pub enum VerticalAlignKeyword {
     Middle,
     Bottom,
     TextBottom,
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use rocketcss_common::Allocator;
+
+    use crate::{
+        AbsoluteFontSize, AstContext, DUMMY_SP, DimensionPercentage, FontSize, LineHeight,
+        RelativeFontSize,
+    };
+
+    #[test]
+    fn font_size_and_line_height_codecs_preserve_variant_identity() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let size =
+            context.alloc_encoded_node(FontSize::Absolute(AbsoluteFontSize::XxxLarge), DUMMY_SP);
+        assert_eq!(
+            context.encoded_node(size),
+            FontSize::Absolute(AbsoluteFontSize::XxxLarge)
+        );
+        context.mutate_encoded_node(size, |value, _| {
+            *value = FontSize::Relative(RelativeFontSize::Smaller);
+        });
+        assert_eq!(
+            context.encoded_node(size),
+            FontSize::Relative(RelativeFontSize::Smaller)
+        );
+
+        let length = context.alloc_encoded_node(DimensionPercentage::Percentage(125.0), DUMMY_SP);
+        let line_height = context.alloc_encoded_node(LineHeight::Length(length), DUMMY_SP);
+        assert_eq!(
+            context.encoded_node(line_height),
+            LineHeight::Length(length)
+        );
+    }
 }
