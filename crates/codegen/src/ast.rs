@@ -648,7 +648,7 @@ fn next_visible_rule<'comp, 'ast>(
             if compilation
                 .vec(*selector.selectors())
                 .iter()
-                .all(Selector::is_tombstone)
+                .all(|selector| compilation.resolve_node(*selector).is_tombstone())
             {
                 continue;
             }

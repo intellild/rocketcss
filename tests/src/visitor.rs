@@ -18,18 +18,22 @@ impl<'a> CompilationVisitorMut<'a> for RenameClass<'a> {
         compilation: &mut AstContext<'a>,
     ) {
         compilation.mutate_vec(*selectors, |selectors, compilation| {
-            for selector in selectors {
-                let Selector::Parsed(components) = selector else {
-                    continue;
-                };
-                compilation.mutate_vec(*components, |components, _| {
-                    for component in components {
-                        if let SelectorComponent::Class(name) = component
-                            && *name == "before"
-                        {
-                            *name = self.after;
+            for selector in selectors.iter().copied() {
+                compilation.mutate_node(selector, |selector, compilation| {
+                    let Selector::Parsed(components) = selector else {
+                        return;
+                    };
+                    compilation.mutate_vec(*components, |components, compilation| {
+                        for component in components.iter().copied() {
+                            compilation.mutate_node(component, |component, _| {
+                                if let SelectorComponent::Class(name) = component
+                                    && *name == "before"
+                                {
+                                    *name = self.after;
+                                }
+                            });
                         }
-                    }
+                    });
                 });
             }
         });

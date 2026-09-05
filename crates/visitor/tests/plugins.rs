@@ -16,17 +16,21 @@ impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for Rename<'a> {
     ) {
         compilation.mutate_vec(*selectors, |selectors, compilation| {
             for selector in selectors {
-                let Selector::Parsed(components) = selector else {
-                    continue;
-                };
-                compilation.mutate_vec(*components, |components, _| {
-                    for component in components {
-                        if let SelectorComponent::Class(name) = component
-                            && *name == self.from
-                        {
-                            *name = self.to;
+                compilation.mutate_node(*selector, |selector, compilation| {
+                    let Selector::Parsed(components) = selector else {
+                        return;
+                    };
+                    compilation.mutate_vec(*components, |components, compilation| {
+                        for component in components {
+                            compilation.mutate_node(*component, |component, _| {
+                                if let SelectorComponent::Class(name) = component
+                                    && *name == self.from
+                                {
+                                    *name = self.to;
+                                }
+                            });
                         }
-                    }
+                    });
                 });
             }
         });
@@ -106,11 +110,11 @@ fn plugins_run_in_registration_order_and_share_context() {
             .expect("the selector value remains valid")
             .selectors();
         let selectors = sheet.vec(*selectors);
-        let Selector::Parsed(components) = &selectors[0] else {
+        let Selector::Parsed(components) = sheet.resolve_node(selectors[0]) else {
             panic!("expected parsed selector");
         };
         assert!(matches!(
-            sheet.vec(*components)[0],
+            sheet.resolve_node(sheet.vec(*components)[0]),
             SelectorComponent::Class(name) if name == "last"
         ));
     });

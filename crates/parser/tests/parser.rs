@@ -33,7 +33,7 @@ fn child_rule_ids<'ast>(
 fn style_selectors<'tree, 'ast>(
     compilation: &'tree AstContext<'ast>,
     rule: RuleId<'ast>,
-) -> &'tree [Selector<'ast>] {
+) -> &'tree [NodeId<'ast, Selector<'ast>>] {
     let selector = match compilation.rule(rule).unwrap().payload() {
         CssRulePayload::Style(payload) => payload.selector_value,
         CssRulePayload::Nesting(payload) => payload.selector_value,
@@ -44,12 +44,16 @@ fn style_selectors<'tree, 'ast>(
 
 fn selector_components<'tree, 'ast>(
     compilation: &'tree AstContext<'ast>,
-    selector: &'tree Selector<'ast>,
-) -> &'tree [SelectorComponent<'ast>] {
-    let Selector::Parsed(components) = selector else {
+    selector: &'tree NodeId<'ast, Selector<'ast>>,
+) -> std::vec::Vec<SelectorComponent<'ast>> {
+    let Selector::Parsed(components) = compilation.resolve_node(*selector) else {
         panic!("expected parsed selector");
     };
-    compilation.vec(*components)
+    compilation
+        .vec(*components)
+        .iter()
+        .map(|component| compilation.resolve_node(*component).clone())
+        .collect()
 }
 
 fn property_declarations<'tree, 'ast>(
@@ -543,8 +547,7 @@ fn scope_prelude_reuses_the_compiler_string_pool() {
         let CssRulePayload::Scope(scope) = scope.payload() else {
             panic!("expected scope rule")
         };
-        let scope_start = sheet.resolve_node(scope.scope_start.unwrap());
-        let scope_start = sheet.vec(*scope_start);
+        let scope_start = sheet.vec(scope.scope_start.unwrap());
         let SelectorComponent::Class(scope_class) =
             &selector_components(&sheet, &scope_start[0])[0]
         else {
@@ -773,7 +776,7 @@ fn selector_error_recovery_preserves_a_pure_invalid_selector() {
         let rule = root_rule(&sheet, 0).0;
         let selectors = style_selectors(&sheet, rule);
         assert!(matches!(
-            &selectors[0],
+            sheet.resolve_node(selectors[0]),
             Selector::Unparsed(raw) if raw == "(font-[family-name:var(--font-*)])"
         ));
         assert!(matches!(
@@ -800,12 +803,18 @@ fn selector_error_recovery_continues_at_commas() {
 
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert_eq!(selectors.len(), 3);
-        assert!(matches!(&selectors[0], Selector::Parsed(_)));
         assert!(matches!(
-            &selectors[1],
+            sheet.resolve_node(selectors[0]),
+            Selector::Parsed(_)
+        ));
+        assert!(matches!(
+            sheet.resolve_node(selectors[1]),
             Selector::Unparsed(raw) if raw == "(font-[family-name:var(--font-*)])"
         ));
-        assert!(matches!(&selectors[2], Selector::Parsed(_)));
+        assert!(matches!(
+            sheet.resolve_node(selectors[2]),
+            Selector::Parsed(_)
+        ));
     })
 }
 
@@ -826,12 +835,18 @@ fn selector_error_recovery_consumes_multiple_invalid_tokens() {
 
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert_eq!(selectors.len(), 3);
-        assert!(matches!(&selectors[0], Selector::Parsed(_)));
         assert!(matches!(
-            &selectors[1],
+            sheet.resolve_node(selectors[0]),
+            Selector::Parsed(_)
+        ));
+        assert!(matches!(
+            sheet.resolve_node(selectors[1]),
             Selector::Unparsed(raw) if raw == ".broken ?? trailing"
         ));
-        assert!(matches!(&selectors[2], Selector::Parsed(_)));
+        assert!(matches!(
+            sheet.resolve_node(selectors[2]),
+            Selector::Parsed(_)
+        ));
     })
 }
 
@@ -892,21 +907,21 @@ fn parses_namespace_deep_and_empty_where_selectors() {
     let selectors = ast.vec(selectors);
 
     assert!(matches!(
-        selector_components(ast, &selectors[0]),
+        selector_components(ast, &selectors[0]).as_slice(),
         [
             SelectorComponent::ExplicitNoNamespace,
             SelectorComponent::LocalName { name, .. }
         ] if name == "e"
     ));
     assert!(matches!(
-        selector_components(ast, &selectors[1]),
+        selector_components(ast, &selectors[1]).as_slice(),
         [
             SelectorComponent::ExplicitAnyNamespace,
             SelectorComponent::ExplicitUniversalType
         ]
     ));
     assert!(matches!(
-        selector_components(ast, &selectors[2]),
+        selector_components(ast, &selectors[2]).as_slice(),
         [
             SelectorComponent::Namespace { prefix, .. },
             SelectorComponent::LocalName { name, .. }
@@ -921,7 +936,7 @@ fn parses_namespace_deep_and_empty_where_selectors() {
             )
     ));
     assert!(matches!(
-        selector_components(ast, &selectors[4]),
+        selector_components(ast, &selectors[4]).as_slice(),
         [
             SelectorComponent::Class(left),
             SelectorComponent::Combinator(Combinator::Deep),
@@ -929,7 +944,7 @@ fn parses_namespace_deep_and_empty_where_selectors() {
         ] if left == "a" && right == "b"
     ));
     assert!(matches!(
-        selector_components(ast, &selectors[5]),
+        selector_components(ast, &selectors[5]).as_slice(),
         [SelectorComponent::LocalName { name, .. }, SelectorComponent::Where(list)]
             if name == "foo" && list.is_empty()
     ));

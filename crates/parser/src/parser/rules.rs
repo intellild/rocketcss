@@ -349,10 +349,7 @@ pub(super) fn parse_container_prelude<'i>(
     })
 }
 
-type ScopePrelude<'i> = (
-    Option<NodeId<'i, SelectorList<'i>>>,
-    Option<NodeId<'i, SelectorList<'i>>>,
-);
+type ScopePrelude<'i> = (Option<SelectorList<'i>>, Option<SelectorList<'i>>);
 
 pub(super) fn parse_scope_prelude<'i>(
     input: &mut Compiler<'i>,
@@ -362,11 +359,10 @@ pub(super) fn parse_scope_prelude<'i>(
     let allocator = input.allocator();
     input.with_source(prelude, |input| {
         let scope_start = if input.try_parse(Compiler::expect_parenthesis_block).is_ok() {
-            Some(store_node(
+            Some(
                 input
                     .parse_nested_block(|input| parse_selector_list(input, allocator, depth + 1))?,
-                input,
-            ))
+            )
         } else {
             None
         };
@@ -376,11 +372,10 @@ pub(super) fn parse_scope_prelude<'i>(
             .is_ok()
         {
             input.expect_parenthesis_block()?;
-            Some(store_node(
+            Some(
                 input
                     .parse_nested_block(|input| parse_selector_list(input, allocator, depth + 1))?,
-                input,
-            ))
+            )
         } else {
             None
         };

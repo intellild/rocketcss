@@ -1408,14 +1408,16 @@ fn selector_lists_are_equal(
         && left
             .iter()
             .zip(right)
-            .all(|(left, right)| selectors_are_equal(ast, left, right))
+            .all(|(left, right)| selectors_are_equal(ast, *left, *right))
 }
 
 fn selectors_are_equal(
     ast: &AstContext<'_>,
-    left: &crate::Selector<'_>,
-    right: &crate::Selector<'_>,
+    left: crate::NodeId<'_, crate::Selector<'_>>,
+    right: crate::NodeId<'_, crate::Selector<'_>>,
 ) -> bool {
+    let left = ast.resolve_node(left);
+    let right = ast.resolve_node(right);
     match (left, right) {
         (crate::Selector::Parsed(left), crate::Selector::Parsed(right)) => {
             let left = ast.vec(*left);
@@ -1424,7 +1426,7 @@ fn selectors_are_equal(
                 && left
                     .iter()
                     .zip(right)
-                    .all(|(left, right)| selector_components_are_equal(ast, left, right))
+                    .all(|(left, right)| selector_components_are_equal(ast, *left, *right))
         }
         _ => left == right,
     }
@@ -1432,9 +1434,11 @@ fn selectors_are_equal(
 
 fn selector_components_are_equal(
     ast: &AstContext<'_>,
-    left: &crate::SelectorComponent<'_>,
-    right: &crate::SelectorComponent<'_>,
+    left: crate::NodeId<'_, crate::SelectorComponent<'_>>,
+    right: crate::NodeId<'_, crate::SelectorComponent<'_>>,
 ) -> bool {
+    let left = ast.resolve_node(left);
+    let right = ast.resolve_node(right);
     use crate::SelectorComponent as Component;
     match (left, right) {
         (Component::Negation(left), Component::Negation(right))
@@ -1475,12 +1479,13 @@ fn hash_selector_list(
 ) {
     ast.vec(selectors).len().hash(hasher);
     for selector in ast.vec(selectors) {
+        let selector = ast.resolve_node(*selector);
         std::mem::discriminant(selector).hash(hasher);
         match selector {
             crate::Selector::Parsed(components) => {
                 ast.vec(*components).len().hash(hasher);
                 for component in ast.vec(*components) {
-                    hash_selector_component(ast, component, hasher);
+                    hash_selector_component(ast, ast.resolve_node(*component), hasher);
                 }
             }
             crate::Selector::Unparsed(value) => value.hash(hasher),
@@ -1529,7 +1534,7 @@ mod tests {
         let mut compilation = AstContext::new_in(&allocator);
         let empty = compilation.alloc_vec(allocator.vec());
         let mut tombstone = allocator.vec();
-        tombstone.push(Selector::Tombstone);
+        tombstone.push(compilation.alloc_node(Selector::Tombstone, crate::DUMMY_SP));
         let tombstone = compilation.alloc_vec(tombstone);
 
         let first = compilation
@@ -1557,20 +1562,28 @@ mod tests {
         let allocator = rocketcss_common::Allocator::new();
         let mut compilation = AstContext::new_in(&allocator);
 
+        let first_component =
+            compilation.alloc_node(crate::SelectorComponent::Empty, crate::DUMMY_SP);
         let first_components = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
-            [crate::SelectorComponent::Empty],
+            [first_component],
             &allocator,
         ));
+        let first_selector =
+            compilation.alloc_node(Selector::Parsed(first_components), crate::DUMMY_SP);
         let first_selectors = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
-            [Selector::Parsed(first_components)],
+            [first_selector],
             &allocator,
         ));
+        let second_component =
+            compilation.alloc_node(crate::SelectorComponent::Empty, crate::DUMMY_SP);
         let second_components = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
-            [crate::SelectorComponent::Empty],
+            [second_component],
             &allocator,
         ));
+        let second_selector =
+            compilation.alloc_node(Selector::Parsed(second_components), crate::DUMMY_SP);
         let second_selectors = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
-            [Selector::Parsed(second_components)],
+            [second_selector],
             &allocator,
         ));
 

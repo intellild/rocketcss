@@ -322,6 +322,7 @@ ContainerCondition                    // recursive container-condition operation
 MediaCondition                        // recursive media-condition operations
 ParsedComponent                        // recursive property-value components
 ScrollStateQuery                      // recursive scroll-state operations
+Selector, SelectorComponent           // selector roots and recursive selector components
 StyleQuery                            // recursive style-query operations
 SupportsCondition                     // recursive supports-condition operations
 Transform                              // Declaration::Transform and parsed transform lists
@@ -334,7 +335,6 @@ BackgroundSize, BoxShadow
 CursorImage
 Filter
 Mask, PageSelector
-Selector, SelectorComponent
 TextShadow
 TrackListItem, TrackSize, Transition
 ```

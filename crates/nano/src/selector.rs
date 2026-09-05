@@ -12,35 +12,41 @@ pub(crate) fn minify_selector_list<'ast>(
     ast: &mut VisitMutContext<'_, 'ast, '_>,
 ) {
     ast.rewrite_vec(selectors, |selectors, ast| {
-        for selector in selectors.iter_mut() {
-            if matches!(selector, Selector::Unparsed(_)) {
-                *selector = Selector::Tombstone;
-                context.record_value_normalized();
-            }
+        for selector in selectors.iter().copied() {
+            ast.mutate_node(selector, |selector, _| {
+                if matches!(selector, Selector::Unparsed(_)) {
+                    *selector = Selector::Tombstone;
+                    context.record_value_normalized();
+                }
+            });
         }
 
         if context.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
-            for selector in selectors.iter_mut() {
-                let Some(selector) = selector.as_parsed_mut() else {
-                    continue;
-                };
-                ast.rewrite_vec(selector, |components, _| {
-                    remove_qualified_universal(components);
-                    for component in components {
-                        if let SelectorComponent::Nth(data) = component
-                            && data.a == 0
-                            && data.b == 1
-                            && matches!(
-                                data.kind,
-                                NthType::Child
-                                    | NthType::LastChild
-                                    | NthType::OfType
-                                    | NthType::LastOfType
-                            )
-                        {
-                            data.is_function = false;
+            for selector in selectors.iter().copied() {
+                ast.mutate_node(selector, |selector, ast| {
+                    let Some(components) = selector.as_parsed_mut() else {
+                        return;
+                    };
+                    ast.rewrite_vec(components, |components, ast| {
+                        remove_qualified_universal(components, ast.ast_context());
+                        for component in components.iter().copied() {
+                            ast.mutate_node(component, |component, _| {
+                                if let SelectorComponent::Nth(data) = component
+                                    && data.a == 0
+                                    && data.b == 1
+                                    && matches!(
+                                        data.kind,
+                                        NthType::Child
+                                            | NthType::LastChild
+                                            | NthType::OfType
+                                            | NthType::LastOfType
+                                    )
+                                {
+                                    data.is_function = false;
+                                }
+                            });
                         }
-                    }
+                    });
                 });
             }
         }
@@ -55,17 +61,26 @@ pub(crate) fn minify_selector_list<'ast>(
     });
 }
 
-fn deduplicate(selectors: &mut Vec<'_, Selector<'_>>, allocator: &Allocator, ast: &AstContext<'_>) {
+fn deduplicate(
+    selectors: &mut Vec<'_, rocketcss_ast::NodeId<'_, Selector<'_>>>,
+    allocator: &Allocator,
+    ast: &AstContext<'_>,
+) {
     if selectors.len() < 2 {
         return;
     }
 
     let mut duplicate_indices = Vec::new_in(allocator);
-    for (index, selector) in selectors.iter().enumerate() {
-        if matches!(selector, Selector::Parsed(_))
+    for (index, selector) in selectors.iter().copied().enumerate() {
+        if matches!(ast.resolve_node(selector), Selector::Parsed(_))
             && selectors[..index].iter().any(|existing| {
+                let existing = ast.resolve_node(*existing);
                 matches!(existing, Selector::Parsed(_))
-                    && crate::equality::css_values_are_equal(ast, existing, selector)
+                    && crate::equality::css_values_are_equal(
+                        ast,
+                        existing,
+                        ast.resolve_node(selector),
+                    )
             })
         {
             duplicate_indices.push(index);
@@ -92,17 +107,24 @@ fn deduplicate(selectors: &mut Vec<'_, Selector<'_>>, allocator: &Allocator, ast
 }
 
 fn remove_qualified_universal(
-    selector: &mut rocketcss_common::prelude::Vec<'_, SelectorComponent<'_>>,
+    selector: &mut rocketcss_common::prelude::Vec<
+        '_,
+        rocketcss_ast::NodeId<'_, SelectorComponent<'_>>,
+    >,
+    ast: &AstContext<'_>,
 ) {
     let mut index = 0;
     while index < selector.len() {
-        if !matches!(selector[index], SelectorComponent::ExplicitUniversalType) {
+        if !matches!(
+            ast.resolve_node(selector[index]),
+            SelectorComponent::ExplicitUniversalType
+        ) {
             index += 1;
             continue;
         }
         let namespace_before = index > 0
             && matches!(
-                selector[index - 1],
+                ast.resolve_node(selector[index - 1]),
                 SelectorComponent::ExplicitAnyNamespace
                     | SelectorComponent::ExplicitNoNamespace
                     | SelectorComponent::DefaultNamespace(_)
@@ -110,7 +132,7 @@ fn remove_qualified_universal(
             );
         let qualified_after = selector.get(index + 1).is_some_and(|component| {
             !matches!(
-                component,
+                ast.resolve_node(*component),
                 SelectorComponent::Combinator(_)
                     | SelectorComponent::PseudoElement(_)
                     | SelectorComponent::ExplicitAnyNamespace

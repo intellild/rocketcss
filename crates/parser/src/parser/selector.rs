@@ -17,7 +17,9 @@ pub(super) fn parse_selector_list<'i>(
     let parsed =
         input.parse_comma_separated(|input| parse_selector(input, allocator, depth + 1))?;
     let mut selectors = allocator.vec();
-    selectors.extend(parsed);
+    for selector in parsed {
+        selectors.push(store_node(selector, input));
+    }
     Ok(store_vec(selectors, input))
 }
 
@@ -35,10 +37,11 @@ pub(super) fn parse_selector_list_with_recovery<'i>(
         match input.parse_until_before(Delimiter::Comma, |input| {
             parse_selector(input, allocator, depth + 1)
         }) {
-            Ok(selector) => selectors.push(selector),
+            Ok(selector) => selectors.push(store_node(selector, input)),
             Err(_) => {
                 let raw = input.slice(start..input.position()).trim();
-                selectors.push(Selector::Unparsed(input.intern(raw)));
+                let selector = Selector::Unparsed(input.intern(raw));
+                selectors.push(store_node(selector, input));
             }
         }
 
@@ -92,34 +95,39 @@ pub(super) fn parse_selector<'i>(
             _ => None,
         };
         if let Some(combinator) = explicit_combinator {
-            selector.push(SelectorComponent::Combinator(combinator));
+            selector.push(store_node(SelectorComponent::Combinator(combinator), input));
             pending_descendant = false;
             can_have_descendant = false;
             continue;
         }
 
         if pending_descendant && can_have_descendant {
-            selector.push(SelectorComponent::Combinator(Combinator::Descendant));
+            selector.push(store_node(
+                SelectorComponent::Combinator(Combinator::Descendant),
+                input,
+            ));
         }
         pending_descendant = false;
 
         let component = match token {
             ValueToken::Ident(name) if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
-                selector.push(SelectorComponent::Namespace {
-                    prefix: input.intern(name),
-                    url: input.intern(""),
-                });
+                let prefix = input.intern(name);
+                let url = input.intern("");
+                selector.push(store_node(
+                    SelectorComponent::Namespace { prefix, url },
+                    input,
+                ));
                 parse_type_selector(input)?
             }
             ValueToken::Ident(name) => local_name(name, input),
             ValueToken::IdHash(id) => SelectorComponent::Id(input.intern(id)),
             ValueToken::Delim("*") if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
-                selector.push(SelectorComponent::ExplicitAnyNamespace);
+                selector.push(store_node(SelectorComponent::ExplicitAnyNamespace, input));
                 parse_type_selector(input)?
             }
             ValueToken::Delim("*") => SelectorComponent::ExplicitUniversalType,
             ValueToken::Delim("|") => {
-                selector.push(SelectorComponent::ExplicitNoNamespace);
+                selector.push(store_node(SelectorComponent::ExplicitNoNamespace, input));
                 parse_type_selector(input)?
             }
             ValueToken::Delim("&") => SelectorComponent::Nesting,
@@ -133,11 +141,18 @@ pub(super) fn parse_selector<'i>(
             }
             _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
         };
-        selector.push(component);
+        selector.push(store_node(component, input));
         can_have_descendant = true;
     }
 
-    if selector.is_empty() || matches!(selector.last(), Some(SelectorComponent::Combinator(_))) {
+    if selector.is_empty()
+        || selector.last().is_some_and(|component| {
+            matches!(
+                input.ast_context().resolve_node(*component),
+                SelectorComponent::Combinator(_)
+            )
+        })
+    {
         return Err(input.new_custom_error(ParserError::InvalidSelector));
     }
     Ok(Selector::parsed(store_vec(selector, input)))

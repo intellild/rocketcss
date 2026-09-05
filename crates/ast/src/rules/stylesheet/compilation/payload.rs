@@ -136,8 +136,8 @@ pub struct ContainerRulePayload<'ast> {
 
 #[derive(Debug, PartialEq)]
 pub struct ScopeRulePayload<'ast> {
-    pub scope_start: Option<NodeId<'ast, SelectorList<'ast>>>,
-    pub scope_end: Option<NodeId<'ast, SelectorList<'ast>>>,
+    pub scope_start: Option<SelectorList<'ast>>,
+    pub scope_end: Option<SelectorList<'ast>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

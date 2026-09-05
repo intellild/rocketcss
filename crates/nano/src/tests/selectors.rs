@@ -27,9 +27,18 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
             .expect("the style selector remains valid")
             .selectors();
         let selectors = stylesheet.vec(*selectors);
-        assert!(matches!(selectors[0], Selector::Parsed(_)));
-        assert!(matches!(selectors[1], Selector::Tombstone));
-        assert!(matches!(selectors[2], Selector::Parsed(_)));
+        assert!(matches!(
+            stylesheet.resolve_node(selectors[0]),
+            Selector::Parsed(_)
+        ));
+        assert!(matches!(
+            stylesheet.resolve_node(selectors[1]),
+            Selector::Tombstone
+        ));
+        assert!(matches!(
+            stylesheet.resolve_node(selectors[2]),
+            Selector::Parsed(_)
+        ));
         assert_eq!(stats.values_normalized, 2);
         assert_eq!(
             stylesheet

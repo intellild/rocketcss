@@ -19,7 +19,9 @@ impl<'ghost> ToCss<'ghost> for Selector<'_> {
         match self {
             Self::Parsed(components) => {
                 for component in _cx.ast_context().vec(*components) {
-                    component.to_css(dest, _cx)?;
+                    _cx.ast_context()
+                        .resolve_node(*component)
+                        .to_css(dest, _cx)?;
                 }
                 Ok(())
             }
@@ -30,12 +32,13 @@ impl<'ghost> ToCss<'ghost> for Selector<'_> {
 }
 
 fn write_selector_list<'ghost, PrinterT: PrinterTrait>(
-    selectors: &[Selector<'_>],
+    selectors: &[NodeId<'_, Selector<'_>>],
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     let mut wrote_selector = false;
     for selector in selectors {
+        let selector = cx.ast_context().resolve_node(*selector);
         if selector.is_tombstone() {
             continue;
         }
@@ -140,24 +143,34 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
             }
             Self::Is(selectors) => {
                 let selectors = _cx.ast_context().vec(*selectors);
+                let selector =
+                    (selectors.len() == 1).then(|| _cx.ast_context().resolve_node(selectors[0]));
                 if selectors.len() == 1
-                    && !selectors[0].as_parsed().is_some_and(|components| {
-                        _cx.ast_context()
-                            .vec(components)
-                            .iter()
-                            .any(|component| matches!(component, SelectorComponent::Combinator(_)))
+                    && !selector.as_ref().is_some_and(|selector| {
+                        selector.as_parsed().is_some_and(|components| {
+                            _cx.ast_context().vec(components).iter().any(|component| {
+                                matches!(
+                                    _cx.ast_context().resolve_node(*component),
+                                    SelectorComponent::Combinator(_)
+                                )
+                            })
+                        })
                     })
-                    && !selectors[0].as_parsed().is_some_and(|components| {
-                        _cx.ast_context().vec(components).iter().any(|component| {
-                            matches!(
-                                component,
-                                SelectorComponent::LocalName { .. }
-                                    | SelectorComponent::ExplicitUniversalType
-                            )
+                    && !selector.as_ref().is_some_and(|selector| {
+                        selector.as_parsed().is_some_and(|components| {
+                            _cx.ast_context().vec(components).iter().any(|component| {
+                                matches!(
+                                    _cx.ast_context().resolve_node(*component),
+                                    SelectorComponent::LocalName { .. }
+                                        | SelectorComponent::ExplicitUniversalType
+                                )
+                            })
                         })
                     })
                 {
-                    return selectors[0].to_css(dest, _cx);
+                    return selector
+                        .expect("one selector was resolved")
+                        .to_css(dest, _cx);
                 }
                 dest.write_str(":is(")?;
                 write_selector_list(selectors, dest, _cx)?;
