@@ -444,7 +444,7 @@ fn decode_time(kind: u8, value: f32) -> Time {
     }
 }
 
-fn encode_resolution(resolution: Resolution) -> (u8, f32) {
+pub(crate) fn encode_resolution(resolution: Resolution) -> (u8, f32) {
     match resolution {
         Resolution::Dpi(value) => (0, value),
         Resolution::Dpcm(value) => (1, value),
@@ -452,7 +452,7 @@ fn encode_resolution(resolution: Resolution) -> (u8, f32) {
     }
 }
 
-fn decode_resolution(kind: u8, value: f32) -> Resolution {
+pub(crate) fn decode_resolution(kind: u8, value: f32) -> Resolution {
     match kind {
         0 => Resolution::Dpi(value),
         1 => Resolution::Dpcm(value),

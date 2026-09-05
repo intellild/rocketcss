@@ -1,6 +1,6 @@
 use crate::*;
 
-use crate::{AstNodeStorage, NodeKind, NodePayload};
+use crate::{AstNodeStorage, ExtraData, ExtraDataCompact, NodeKind, NodePayload};
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Image<'a> {
@@ -47,6 +47,16 @@ fn encode_image(value: Image<'_>) -> NodePayload {
         Image::ImageSet(value) => write_node_id(&mut bytes, 3, value),
     }
     NodePayload::inline(&bytes)
+}
+
+impl<'ast> ExtraDataCompact<'ast> for Image<'ast> {
+    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
+        inline_payload_as_extra(encode_image(self))
+    }
+
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        Self::decode(NodePayload::inline(&data.bytes()), context)
+    }
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -229,6 +239,16 @@ impl<'ast, D: DimensionCodec> AstNodeStorage<'ast> for DimensionPercentage<'ast,
     }
 }
 
+impl<'ast, D: DimensionCodec> ExtraDataCompact<'ast> for DimensionPercentage<'ast, D> {
+    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
+        inline_payload_as_extra(encode_dimension_percentage(self))
+    }
+
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        Self::decode(NodePayload::inline(&data.bytes()), context)
+    }
+}
+
 fn encode_dimension_percentage<D: DimensionCodec>(
     value: DimensionPercentage<'_, D>,
 ) -> NodePayload {
@@ -341,6 +361,16 @@ impl<'ast, S: PositionSideCodec> AstNodeStorage<'ast> for PositionComponent<'ast
         _context: &mut AstContext<'ast>,
     ) -> NodePayload {
         encode_position_component(self)
+    }
+}
+
+impl<'ast, S: PositionSideCodec> ExtraDataCompact<'ast> for PositionComponent<'ast, S> {
+    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
+        inline_payload_as_extra(encode_position_component(self))
+    }
+
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        Self::decode(NodePayload::inline(&data.bytes()), context)
     }
 }
 
@@ -656,6 +686,10 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
             .try_into()
             .expect("compact image field is four bytes"),
     )
+}
+
+fn inline_payload_as_extra(payload: NodePayload) -> ExtraData {
+    ExtraData::from_bytes(&payload.bytes()[..ExtraData::BYTES])
 }
 
 #[cfg(test)]
