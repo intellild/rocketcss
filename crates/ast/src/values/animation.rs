@@ -284,7 +284,7 @@ pub enum TimelineRangeName {
 
 pub type AnimationRangeEnd<'a> = AnimationAttachmentRange<'a>;
 
-fn encode_animation_direction(value: AnimationDirection) -> u8 {
+pub(crate) fn encode_animation_direction(value: AnimationDirection) -> u8 {
     match value {
         AnimationDirection::Normal => 0,
         AnimationDirection::Reverse => 1,
@@ -293,7 +293,7 @@ fn encode_animation_direction(value: AnimationDirection) -> u8 {
     }
 }
 
-fn decode_animation_direction(value: u8) -> AnimationDirection {
+pub(crate) fn decode_animation_direction(value: u8) -> AnimationDirection {
     match value {
         0 => AnimationDirection::Normal,
         1 => AnimationDirection::Reverse,
@@ -303,7 +303,7 @@ fn decode_animation_direction(value: u8) -> AnimationDirection {
     }
 }
 
-fn encode_animation_fill_mode(value: AnimationFillMode) -> u8 {
+pub(crate) fn encode_animation_fill_mode(value: AnimationFillMode) -> u8 {
     match value {
         AnimationFillMode::None => 0,
         AnimationFillMode::Forwards => 1,
@@ -312,7 +312,7 @@ fn encode_animation_fill_mode(value: AnimationFillMode) -> u8 {
     }
 }
 
-fn decode_animation_fill_mode(value: u8) -> AnimationFillMode {
+pub(crate) fn decode_animation_fill_mode(value: u8) -> AnimationFillMode {
     match value {
         0 => AnimationFillMode::None,
         1 => AnimationFillMode::Forwards,

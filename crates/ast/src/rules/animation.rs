@@ -26,12 +26,44 @@ pub struct AnimationRange<'a> {
     pub start: NodeId<'a, AnimationRangeStart<'a>>,
 }
 
+impl<'ast> ExtraDataCompact<'ast> for AnimationRange<'ast> {
+    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
+        let mut bytes = [0; ExtraData::BYTES];
+        write_u32(&mut bytes, 0, node_index(self.end));
+        write_u32(&mut bytes, 4, node_index(self.start));
+        ExtraData::from_bytes(&bytes)
+    }
+
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        let bytes = data.bytes();
+        Self {
+            end: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
+            start: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct Animation<'a> {
     /// Components in authored order, so parsing and printing round-trips
     /// losslessly. The `ORDER_VALUES` minify pass sorts them into canonical
     /// order in place.
     pub components: Vec<'a, AnimationComponent<'a>>,
+}
+
+impl<'ast> ExtraDataCompact<'ast> for Animation<'ast> {
+    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
+        encode_range(self.components)
+    }
+
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        Self {
+            components: context.encoded_vec_range(
+                data.as_u64() as u32 as usize,
+                (data.as_u64() >> 32) as u32 as usize,
+            ),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -44,6 +76,66 @@ pub enum AnimationComponent<'a> {
     Direction(AnimationDirection),
     FillMode(AnimationFillMode),
     PlayState(AnimationPlayState),
+}
+
+impl<'ast> ExtraDataCompact<'ast> for AnimationComponent<'ast> {
+    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
+        let mut bytes = [0; ExtraData::BYTES];
+        match self {
+            Self::Name(value) => write_tagged_node_id(&mut bytes, 0, value),
+            Self::Duration(value) => write_time(&mut bytes, 1, value),
+            Self::TimingFunction(value) => write_tagged_node_id(&mut bytes, 2, value),
+            Self::Delay(value) => write_time(&mut bytes, 3, value),
+            Self::IterationCount(value) => {
+                bytes[0] = 4;
+                match value {
+                    AnimationIterationCount::Number(value) => {
+                        write_u32(&mut bytes, 4, value.to_bits());
+                    }
+                    AnimationIterationCount::Infinite => bytes[1] = 1,
+                }
+            }
+            Self::Direction(value) => {
+                bytes[0] = 5;
+                bytes[1] = crate::encode_animation_direction(value);
+            }
+            Self::FillMode(value) => {
+                bytes[0] = 6;
+                bytes[1] = crate::encode_animation_fill_mode(value);
+            }
+            Self::PlayState(value) => {
+                bytes[0] = 7;
+                bytes[1] = match value {
+                    AnimationPlayState::Running => 0,
+                    AnimationPlayState::Paused => 1,
+                };
+            }
+        }
+        ExtraData::from_bytes(&bytes)
+    }
+
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        let bytes = data.bytes();
+        match bytes[0] {
+            0 => Self::Name(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
+            1 => Self::Duration(read_time(&bytes)),
+            2 => Self::TimingFunction(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
+            3 => Self::Delay(read_time(&bytes)),
+            4 => Self::IterationCount(match bytes[1] {
+                0 => AnimationIterationCount::Number(f32::from_bits(read_u32(&bytes, 4))),
+                1 => AnimationIterationCount::Infinite,
+                _ => panic!("invalid encoded AnimationIterationCount variant"),
+            }),
+            5 => Self::Direction(crate::decode_animation_direction(bytes[1])),
+            6 => Self::FillMode(crate::decode_animation_fill_mode(bytes[1])),
+            7 => Self::PlayState(match bytes[1] {
+                0 => AnimationPlayState::Running,
+                1 => AnimationPlayState::Paused,
+                _ => panic!("invalid encoded AnimationPlayState"),
+            }),
+            _ => panic!("invalid encoded AnimationComponent variant"),
+        }
+    }
 }
 
 /// The keyword class an animation component (or a keyframes name colliding
@@ -94,5 +186,86 @@ impl AnimationName<'_> {
             "running" | "paused" => Some(AnimationKeywordClass::PlayState),
             _ => None,
         )
+    }
+}
+
+fn node_index<T>(id: NodeId<'_, T>) -> u32 {
+    u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
+}
+
+fn write_tagged_node_id<T>(bytes: &mut [u8], tag: u8, id: NodeId<'_, T>) {
+    bytes[0] = tag;
+    write_u32(bytes, 4, node_index(id));
+}
+
+fn write_time(bytes: &mut [u8], tag: u8, value: Time) {
+    let (kind, value) = crate::token::encode_time(value);
+    bytes[0] = tag;
+    bytes[1] = kind;
+    write_u32(bytes, 4, value.to_bits());
+}
+
+fn read_time(bytes: &[u8]) -> Time {
+    crate::token::decode_time(bytes[1], f32::from_bits(read_u32(bytes, 4)))
+}
+
+fn encode_range<T>(range: Vec<'_, T>) -> ExtraData {
+    let start = u32::try_from(range.start_index()).expect("AST range start exceeds four bytes");
+    let end = u32::try_from(range.end_index()).expect("AST range end exceeds four bytes");
+    ExtraData::from_u64((end as u64) << 32 | start as u64)
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("compact animation field is four bytes"),
+    )
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use rocketcss_common::Allocator;
+
+    use crate::{
+        Animation, AnimationComponent, AnimationDirection, AnimationIterationCount, AnimationName,
+        AstContext, DUMMY_SP, Time,
+    };
+
+    #[test]
+    fn animation_and_components_form_nested_one_slot_ranges() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let name = context.alloc_encoded_node(AnimationName::Ident("fade"), DUMMY_SP);
+        let components = context.alloc_encoded_vec(
+            [
+                AnimationComponent::Duration(Time::Seconds(1.5)),
+                AnimationComponent::IterationCount(AnimationIterationCount::Infinite),
+                AnimationComponent::Direction(AnimationDirection::Alternate),
+                AnimationComponent::Name(name),
+            ]
+            .into_iter(),
+        );
+        assert_eq!(
+            context
+                .encoded_vec_iter(components)
+                .collect::<std::vec::Vec<_>>(),
+            [
+                AnimationComponent::Duration(Time::Seconds(1.5)),
+                AnimationComponent::IterationCount(AnimationIterationCount::Infinite),
+                AnimationComponent::Direction(AnimationDirection::Alternate),
+                AnimationComponent::Name(name),
+            ]
+        );
+
+        let animations = context.alloc_encoded_vec([Animation { components }].into_iter());
+        assert_eq!(
+            context.encoded_vec_get(animations, 0),
+            Some(Animation { components })
+        );
     }
 }
