@@ -63,7 +63,7 @@ fn encode_length(value: Length<'_>) -> NodePayload {
 }
 
 #[allow(dead_code)]
-fn encode_length_unit(unit: LengthUnit) -> u8 {
+pub(crate) fn encode_length_unit(unit: LengthUnit) -> u8 {
     match unit {
         LengthUnit::Px => 0,
         LengthUnit::In => 1,
@@ -118,7 +118,7 @@ fn encode_length_unit(unit: LengthUnit) -> u8 {
 }
 
 #[allow(dead_code)]
-fn decode_length_unit(unit: u8) -> LengthUnit {
+pub(crate) fn decode_length_unit(unit: u8) -> LengthUnit {
     match unit {
         0 => LengthUnit::Px,
         1 => LengthUnit::In,

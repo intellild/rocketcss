@@ -59,6 +59,176 @@ pub struct Function<'a> {
     pub replacement: Option<FunctionReplacement>,
 }
 
+// Fixed payload layout for `Function`:
+//
+// bytes 0..4   arguments range start
+// bytes 4..8   arguments range end
+// byte 8       FunctionFlags
+// bytes 9..12  reserved
+// bytes 12..16 first extra slot
+//
+// extra + 0    compact string ID for the lossless function name
+// extra + 1..3 fixed-width optional FunctionReplacement
+impl<'ast> AstNodeStorage<'ast> for Function<'ast> {
+    const KIND: NodeKind = NodeKind::new(2);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let start = u32::from_le_bytes(
+            bytes[..4]
+                .try_into()
+                .expect("Function range start is four bytes"),
+        ) as usize;
+        let end = u32::from_le_bytes(
+            bytes[4..8]
+                .try_into()
+                .expect("Function range end is four bytes"),
+        ) as usize;
+        let extra = payload.extra_start();
+        let name = context.resolve_string(context.extra_slot(extra).as_u64());
+        Self {
+            arguments: context.encoded_vec_range(start, end),
+            flags: FunctionFlags::from_bits_retain(bytes[8]),
+            kind: KnownFunction::from_name(name),
+            name,
+            replacement: decode_function_replacement(
+                context.extra_slot(extra + 1),
+                context.extra_slot(extra + 2),
+            ),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_function(self, None, context)
+    }
+
+    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_function(self, Some(current.extra_start()), context)
+    }
+}
+
+fn encode_function<'ast>(
+    function: Function<'ast>,
+    existing_extra: Option<usize>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let start = u32::try_from(function.arguments.start_index())
+        .expect("Function argument range start exceeds four bytes");
+    let end = u32::try_from(function.arguments.end_index())
+        .expect("Function argument range end exceeds four bytes");
+    let name = ExtraData::from_u64(context.store_string(function.name) as u64);
+    let (replacement_low, replacement_high) = encode_function_replacement(function.replacement);
+    let extra = match existing_extra {
+        Some(extra) => {
+            context.set_extra_slot(extra, name);
+            context.set_extra_slot(extra + 1, replacement_low);
+            context.set_extra_slot(extra + 2, replacement_high);
+            extra
+        }
+        None => context.alloc_extra_slots([name, replacement_low, replacement_high]),
+    };
+
+    let mut inline = [0; NodePayload::PARTIAL_INLINE_BYTES];
+    inline[..4].copy_from_slice(&start.to_le_bytes());
+    inline[4..8].copy_from_slice(&end.to_le_bytes());
+    inline[8] = function.flags.bits();
+    NodePayload::with_extra(&inline, extra)
+}
+
+fn encode_function_replacement(replacement: Option<FunctionReplacement>) -> (ExtraData, ExtraData) {
+    let mut bytes = [0; 16];
+    match replacement {
+        None => {}
+        Some(FunctionReplacement::GrayAlpha { alpha, lightness }) => {
+            bytes[0] = 1;
+            bytes[4..8].copy_from_slice(&alpha.to_bits().to_le_bytes());
+            bytes[8..12].copy_from_slice(&lightness.to_bits().to_le_bytes());
+        }
+        Some(FunctionReplacement::Number(value)) => {
+            bytes[0] = 2;
+            bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
+        }
+        Some(FunctionReplacement::Dimension { unit, value }) => {
+            bytes[0] = 3;
+            bytes[1] = crate::token::encode_unit(unit);
+            bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
+        }
+        Some(FunctionReplacement::Percentage(value)) => {
+            bytes[0] = 4;
+            bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
+        }
+        Some(FunctionReplacement::Rgb { blue, green, red }) => {
+            bytes[0] = 5;
+            bytes[1] = red;
+            bytes[2] = green;
+            bytes[3] = blue;
+        }
+        Some(FunctionReplacement::Rgba {
+            alpha,
+            blue,
+            green,
+            red,
+            use_hex,
+        }) => {
+            bytes[0] = 6;
+            bytes[1] = red;
+            bytes[2] = green;
+            bytes[3] = blue;
+            bytes[4..8].copy_from_slice(&alpha.to_bits().to_le_bytes());
+            bytes[8] = use_hex as u8;
+        }
+    }
+    (
+        ExtraData::from_bytes(&bytes[..8]),
+        ExtraData::from_bytes(&bytes[8..]),
+    )
+}
+
+fn decode_function_replacement(low: ExtraData, high: ExtraData) -> Option<FunctionReplacement> {
+    let mut bytes = [0; 16];
+    bytes[..8].copy_from_slice(&low.bytes());
+    bytes[8..].copy_from_slice(&high.bytes());
+    let value = f32::from_bits(u32::from_le_bytes(
+        bytes[4..8]
+            .try_into()
+            .expect("Function replacement value is four bytes"),
+    ));
+    match bytes[0] {
+        0 => None,
+        1 => Some(FunctionReplacement::GrayAlpha {
+            alpha: value,
+            lightness: f32::from_bits(u32::from_le_bytes(
+                bytes[8..12]
+                    .try_into()
+                    .expect("Function lightness is four bytes"),
+            )),
+        }),
+        2 => Some(FunctionReplacement::Number(value)),
+        3 => Some(FunctionReplacement::Dimension {
+            unit: crate::token::decode_unit(bytes[1]),
+            value,
+        }),
+        4 => Some(FunctionReplacement::Percentage(value)),
+        5 => Some(FunctionReplacement::Rgb {
+            blue: bytes[3],
+            green: bytes[2],
+            red: bytes[1],
+        }),
+        6 => Some(FunctionReplacement::Rgba {
+            alpha: value,
+            blue: bytes[3],
+            green: bytes[2],
+            red: bytes[1],
+            use_hex: match bytes[8] {
+                0 => false,
+                1 => true,
+                _ => panic!("invalid encoded FunctionReplacement::Rgba flag"),
+            },
+        }),
+        _ => panic!("invalid encoded FunctionReplacement variant"),
+    }
+}
+
 /// A function name recognized by RocketCSS.
 ///
 /// The original function name remains on [`Function`] so parsing and code
@@ -394,4 +564,75 @@ pub struct ImportRule<'a> {
     pub media: Option<NodeId<'a, MediaList<'a>>>,
     pub supports: Option<NodeId<'a, SupportsCondition<'a>>>,
     pub url: &'a str,
+}
+
+#[cfg(test)]
+mod storage_tests {
+    use rocketcss_common::Allocator;
+
+    use crate::{AstContext, DUMMY_SP, Function, FunctionReplacement, KnownFunction, Unit};
+
+    #[test]
+    fn function_codec_uses_fixed_overflow_slots_and_compact_string_ids() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let arguments = context.alloc_vec(allocator.vec());
+        let mut function = Function::new("-webkit-calc", arguments);
+        function.set_identifier(true);
+        function.set_valid_rgb(true);
+        function.replacement = Some(FunctionReplacement::Dimension {
+            unit: Unit::Length(crate::LengthUnit::Cqmax),
+            value: 12.5,
+        });
+        let id = context.alloc_encoded_node(function, DUMMY_SP);
+
+        let decoded = context.encoded_node(id);
+        assert_eq!(decoded.arguments, arguments);
+        assert_eq!(decoded.name(), "-webkit-calc");
+        assert_eq!(decoded.kind(), KnownFunction::Calc);
+        assert!(decoded.is_vendor_prefixed());
+        assert!(decoded.is_identifier());
+        assert!(decoded.is_valid_rgb());
+        assert_eq!(
+            decoded.replacement,
+            Some(FunctionReplacement::Dimension {
+                unit: Unit::Length(crate::LengthUnit::Cqmax),
+                value: 12.5,
+            })
+        );
+        assert_eq!(context.encoded_extra_len(), 3);
+
+        context.mutate_encoded_node(id, |function, _| {
+            function.set_name("rgb");
+            function.set_identifier(false);
+            function.replacement = Some(FunctionReplacement::Rgba {
+                alpha: 0.5,
+                blue: 3,
+                green: 2,
+                red: 1,
+                use_hex: true,
+            });
+        });
+
+        let decoded = context.encoded_node(id);
+        assert_eq!(decoded.name(), "rgb");
+        assert_eq!(decoded.kind(), KnownFunction::Rgb);
+        assert!(!decoded.is_vendor_prefixed());
+        assert!(!decoded.is_identifier());
+        assert_eq!(
+            decoded.replacement,
+            Some(FunctionReplacement::Rgba {
+                alpha: 0.5,
+                blue: 3,
+                green: 2,
+                red: 1,
+                use_hex: true,
+            })
+        );
+        assert_eq!(
+            context.encoded_extra_len(),
+            3,
+            "same-kind mutation must reuse fixed overflow slots"
+        );
+    }
 }

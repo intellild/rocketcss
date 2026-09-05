@@ -8,7 +8,7 @@ use rocketcss_common::{Allocator, DenseId, DenseRange, DenseStore, vec::Vec as A
 
 use crate::{DUMMY_SP, Span, Visit, VisitContext, VisitMut, VisitMutContext, Visitor, VisitorMut};
 
-use super::{AstContext, AstNodeStorage, ExtraDataCompact};
+use super::{AstContext, AstNodeClone, AstNodeStorage, ExtraData, ExtraDataCompact};
 
 /// AST node identity. The node type itself is the dense identity domain.
 pub type NodeId<'ast, T> = DenseId<'ast, T>;
@@ -436,6 +436,16 @@ impl<'ast> AstContext<'ast> {
         }
     }
 
+    /// Deep-clones one encoded node through the owning context.
+    pub(crate) fn clone_encoded_node<T: AstNodeClone<'ast>>(
+        &mut self,
+        id: NodeId<'ast, T>,
+    ) -> NodeId<'ast, T> {
+        let span = self.encoded_node_span(id);
+        let value = self.encoded_node(id).clone_in_context(self);
+        self.alloc_encoded_node(value, span)
+    }
+
     #[inline]
     pub(crate) fn encoded_node_span<T: AstNodeStorage<'ast>>(&self, id: NodeId<'ast, T>) -> Span {
         self.nodes.span(id, T::KIND)
@@ -500,6 +510,34 @@ impl<'ast> AstContext<'ast> {
     #[inline]
     pub(crate) fn resolve_atom(&self, index: u64) -> rocketcss_common::Atom<'ast> {
         self.strings.resolve_atom(index)
+    }
+
+    pub(crate) fn alloc_extra_slots<const N: usize>(&mut self, slots: [ExtraData; N]) -> usize {
+        self.extra
+            .alloc::<ExtraData>(slots.into_iter())
+            .start_index()
+    }
+
+    #[inline]
+    pub(crate) fn extra_slot(&self, index: usize) -> ExtraData {
+        self.extra.get_at(index)
+    }
+
+    #[inline]
+    pub(crate) fn set_extra_slot(&mut self, index: usize, value: ExtraData) {
+        self.extra.set_at(index, value);
+    }
+
+    #[inline]
+    pub(crate) fn encoded_vec_range<T>(&self, start: usize, end: usize) -> AstVec<'ast, T> {
+        // SAFETY: callers are hand-written codecs decoding bounds that were
+        // previously obtained from an AstVec owned by this same context.
+        unsafe { AstVec::from_indices_unchecked(start, end) }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn encoded_extra_len(&self) -> usize {
+        self.extra.len()
     }
 
     #[doc(hidden)]

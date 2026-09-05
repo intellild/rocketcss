@@ -23,7 +23,9 @@ pub use node::*;
 pub use payload::*;
 pub use traversal::*;
 
-pub(crate) use storage::{AstNodeStorage, ExtraDataCompact, NodeKind, NodePayload};
+pub(crate) use storage::{
+    AstNodeClone, AstNodeStorage, ExtraData, ExtraDataCompact, NodeKind, NodePayload,
+};
 use storage::{ExtraDataStore, NodeData, StringData};
 
 /// Stable identity of one rule in the [`RuleStore`]. The type parameter is the

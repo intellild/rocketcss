@@ -20,15 +20,22 @@ enum AtomDomain {}
 /// reserved so a freshly zeroed payload can never describe a published node;
 /// `u16::MAX` marks the slot that is temporarily unavailable to `mutate_node`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct NodeKind(u16);
+pub(crate) struct NodeKind(u32);
 
 impl NodeKind {
-    pub(crate) const MUTATING: Self = Self(u16::MAX);
+    pub(crate) const MUTATING: Self = Self(u32::MAX);
 
     #[inline]
-    pub(crate) const fn new(discriminant: u16) -> Self {
-        assert!(discriminant != 0 && discriminant != u16::MAX);
+    pub(crate) const fn new(discriminant: u32) -> Self {
+        assert!(discriminant != 0 && discriminant != u32::MAX);
         Self(discriminant)
+    }
+
+    #[inline]
+    pub(crate) const fn parameterized(family: u16, parameter: Self) -> Self {
+        assert!(family != 0 && family != u16::MAX);
+        assert!(parameter.0 <= u16::MAX as u32);
+        Self(((family as u32) << 16) | parameter.0)
     }
 }
 
@@ -91,6 +98,11 @@ pub(crate) trait AstNodeStorage<'ast>: Sized {
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload;
 
     fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload;
+}
+
+/// Context-aware deep cloning for a node whose physical codec is available.
+pub(crate) trait AstNodeClone<'ast>: AstNodeStorage<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self;
 }
 
 /// One untagged slot in the shared overflow and persistent-list table.
