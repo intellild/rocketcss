@@ -306,6 +306,46 @@ pub enum Angle {
     Turn(f32),
 }
 
+// Fixed payload layout for `Angle`:
+//
+// byte 0      angle unit
+// bytes 1..4  reserved
+// bytes 4..8  f32 bits
+// bytes 8..16 reserved
+impl AstNodeStorage<'_> for Angle {
+    const KIND: NodeKind = NodeKind::new(0x0001_0002);
+
+    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
+        let bytes = payload.bytes();
+        crate::token::decode_angle(
+            bytes[0],
+            f32::from_bits(u32::from_le_bytes(bytes[4..8].try_into().unwrap())),
+        )
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
+        encode_angle_node(self)
+    }
+
+    fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'_>) -> NodePayload {
+        encode_angle_node(self)
+    }
+}
+
+impl AstNodeClone<'_> for Angle {
+    fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
+fn encode_angle_node(value: Angle) -> NodePayload {
+    let (kind, value) = crate::token::encode_angle(value);
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    bytes[0] = kind;
+    bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
+    NodePayload::inline(&bytes)
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum Time {
     Seconds(f32),

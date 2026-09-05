@@ -1,10 +1,59 @@
 use crate::*;
 
+use crate::{AstNodeClone, AstNodeStorage, NodeKind, NodePayload};
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum FontWeight {
     Absolute(AbsoluteFontWeight),
     Bolder,
     Lighter,
+}
+
+impl AstNodeStorage<'_> for FontWeight {
+    const KIND: NodeKind = NodeKind::new(0x000c_0001);
+
+    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Absolute(AbsoluteFontWeight::Weight(f32::from_bits(read_u32(
+                &bytes, 4,
+            )))),
+            1 => Self::Absolute(AbsoluteFontWeight::Normal),
+            2 => Self::Absolute(AbsoluteFontWeight::Bold),
+            3 => Self::Bolder,
+            4 => Self::Lighter,
+            _ => panic!("invalid encoded FontWeight variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
+        encode_font_weight(self)
+    }
+
+    fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'_>) -> NodePayload {
+        encode_font_weight(self)
+    }
+}
+
+impl AstNodeClone<'_> for FontWeight {
+    fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
+fn encode_font_weight(value: FontWeight) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    match value {
+        FontWeight::Absolute(AbsoluteFontWeight::Weight(value)) => {
+            bytes[0] = 0;
+            write_u32(&mut bytes, 4, value.to_bits());
+        }
+        FontWeight::Absolute(AbsoluteFontWeight::Normal) => bytes[0] = 1,
+        FontWeight::Absolute(AbsoluteFontWeight::Bold) => bytes[0] = 2,
+        FontWeight::Bolder => bytes[0] = 3,
+        FontWeight::Lighter => bytes[0] = 4,
+    }
+    NodePayload::inline(&bytes)
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -43,6 +92,89 @@ pub enum RelativeFontSize {
 pub enum FontStretch {
     Keyword(FontStretchKeyword),
     Percentage(f32),
+}
+
+impl AstNodeStorage<'_> for FontStretch {
+    const KIND: NodeKind = NodeKind::new(0x000c_0002);
+
+    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Keyword(decode_font_stretch_keyword(bytes[1])),
+            1 => Self::Percentage(f32::from_bits(read_u32(&bytes, 4))),
+            _ => panic!("invalid encoded FontStretch variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
+        encode_font_stretch(self)
+    }
+
+    fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'_>) -> NodePayload {
+        encode_font_stretch(self)
+    }
+}
+
+impl AstNodeClone<'_> for FontStretch {
+    fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
+fn encode_font_stretch(value: FontStretch) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    match value {
+        FontStretch::Keyword(value) => {
+            bytes[0] = 0;
+            bytes[1] = encode_font_stretch_keyword(value);
+        }
+        FontStretch::Percentage(value) => {
+            bytes[0] = 1;
+            write_u32(&mut bytes, 4, value.to_bits());
+        }
+    }
+    NodePayload::inline(&bytes)
+}
+
+fn encode_font_stretch_keyword(value: FontStretchKeyword) -> u8 {
+    match value {
+        FontStretchKeyword::Normal => 0,
+        FontStretchKeyword::UltraCondensed => 1,
+        FontStretchKeyword::ExtraCondensed => 2,
+        FontStretchKeyword::Condensed => 3,
+        FontStretchKeyword::SemiCondensed => 4,
+        FontStretchKeyword::SemiExpanded => 5,
+        FontStretchKeyword::Expanded => 6,
+        FontStretchKeyword::ExtraExpanded => 7,
+        FontStretchKeyword::UltraExpanded => 8,
+    }
+}
+
+fn decode_font_stretch_keyword(value: u8) -> FontStretchKeyword {
+    match value {
+        0 => FontStretchKeyword::Normal,
+        1 => FontStretchKeyword::UltraCondensed,
+        2 => FontStretchKeyword::ExtraCondensed,
+        3 => FontStretchKeyword::Condensed,
+        4 => FontStretchKeyword::SemiCondensed,
+        5 => FontStretchKeyword::SemiExpanded,
+        6 => FontStretchKeyword::Expanded,
+        7 => FontStretchKeyword::ExtraExpanded,
+        8 => FontStretchKeyword::UltraExpanded,
+        _ => panic!("invalid encoded FontStretchKeyword"),
+    }
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("compact font field is four bytes"),
+    )
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

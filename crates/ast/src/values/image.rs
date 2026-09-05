@@ -572,6 +572,45 @@ pub enum NumberOrPercentage {
     Percentage(f32),
 }
 
+impl AstNodeStorage<'_> for NumberOrPercentage {
+    const KIND: NodeKind = NodeKind::new(0x0003_000b);
+
+    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
+        let bytes = payload.bytes();
+        let value = f32::from_bits(read_u32(&bytes, 4));
+        match bytes[0] {
+            0 => Self::Number(value),
+            1 => Self::Percentage(value),
+            _ => panic!("invalid encoded NumberOrPercentage variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
+        encode_number_or_percentage(self)
+    }
+
+    fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'_>) -> NodePayload {
+        encode_number_or_percentage(self)
+    }
+}
+
+impl AstNodeClone<'_> for NumberOrPercentage {
+    fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
+fn encode_number_or_percentage(value: NumberOrPercentage) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    let (kind, value) = match value {
+        NumberOrPercentage::Number(value) => (0, value),
+        NumberOrPercentage::Percentage(value) => (1, value),
+    };
+    bytes[0] = kind;
+    write_u32(&mut bytes, 4, value.to_bits());
+    NodePayload::inline(&bytes)
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum BackgroundSize<'a> {
     Explicit {
