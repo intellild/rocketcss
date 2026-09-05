@@ -1,6 +1,9 @@
 use crate::*;
 
-use crate::{AstNodeStorage, ExtraData, ExtraDataCompact, NodeKind, NodePayload};
+use crate::{
+    AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact, NodeKind,
+    NodePayload,
+};
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Position<'a> {
@@ -28,6 +31,15 @@ impl<'ast> AstNodeStorage<'ast> for Position<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for Position<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            x: context.clone_encoded_node(self.x),
+            y: context.clone_encoded_node(self.y),
+        }
+    }
+}
+
 impl<'ast> ExtraDataCompact<'ast> for Position<'ast> {
     fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
         payload_as_extra(encode_position(self))
@@ -35,6 +47,12 @@ impl<'ast> ExtraDataCompact<'ast> for Position<'ast> {
 
     fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
         decode_position(&data.bytes(), context)
+    }
+}
+
+impl<'ast> ExtraDataClone<'ast> for Position<'ast> {
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        self.clone_in_context(context)
     }
 }
 
@@ -75,6 +93,12 @@ impl AstNodeStorage<'_> for WebKitGradientPoint {
 
     fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'_>) -> NodePayload {
         encode_webkit_gradient_point(self)
+    }
+}
+
+impl AstNodeClone<'_> for WebKitGradientPoint {
+    fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
+        self
     }
 }
 
@@ -187,6 +211,15 @@ impl<'ast> ExtraDataCompact<'ast> for WebKitColorStop<'ast> {
     }
 }
 
+impl<'ast> ExtraDataClone<'ast> for WebKitColorStop<'ast> {
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            color: context.clone_encoded_node(self.color),
+            position: self.position,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct ImageSet<'a> {
     pub options: Vec<'a, NodeId<'a, ImageSetOption<'a>>>,
@@ -215,6 +248,15 @@ impl<'ast> AstNodeStorage<'ast> for ImageSet<'ast> {
         _context: &mut AstContext<'ast>,
     ) -> NodePayload {
         encode_image_set(self)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for ImageSet<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            options: context.clone_encoded_vec(self.options),
+            vendor_prefix: self.vendor_prefix,
+        }
     }
 }
 
@@ -262,6 +304,16 @@ impl<'ast> AstNodeStorage<'ast> for ImageSetOption<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for ImageSetOption<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            file_type: self.file_type,
+            image: context.clone_encoded_node(self.image),
+            resolution: self.resolution,
+        }
+    }
+}
+
 fn encode_image_set_option<'ast>(
     value: ImageSetOption<'ast>,
     context: &mut AstContext<'ast>,
@@ -305,6 +357,15 @@ impl<'ast> AstNodeStorage<'ast> for BackgroundPosition<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for BackgroundPosition<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            x: context.clone_encoded_node(self.x),
+            y: context.clone_encoded_node(self.y),
+        }
+    }
+}
+
 impl<'ast> ExtraDataCompact<'ast> for BackgroundPosition<'ast> {
     fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
         payload_as_extra(encode_background_position(self))
@@ -312,6 +373,12 @@ impl<'ast> ExtraDataCompact<'ast> for BackgroundPosition<'ast> {
 
     fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
         decode_background_position(&data.bytes(), context)
+    }
+}
+
+impl<'ast> ExtraDataClone<'ast> for BackgroundPosition<'ast> {
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        self.clone_in_context(context)
     }
 }
 

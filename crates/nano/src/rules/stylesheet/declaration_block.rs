@@ -1104,10 +1104,11 @@ mod tests {
             top,
         }));
         let mut gradient_items = allocator.vec();
-        gradient_items.push(GradientItem::ColorStop {
-            color: unresolved_color(&allocator, &mut ast),
+        let color = unresolved_color(&allocator, &mut ast);
+        gradient_items.push(ast.alloc_node_without_span(GradientItem::ColorStop {
+            color,
             position: None,
-        });
+        }));
         let gradient_items = ast.alloc_vec(gradient_items);
         let mut images = allocator.vec();
         let gradient = ast.alloc_node_without_span(Gradient::Linear {

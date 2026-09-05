@@ -1567,7 +1567,9 @@ fn parses_radial_mask_images_and_gradient_hints() {
                     && matches!(
                         sheet.resolve_node(*gradient),
                         Gradient::RepeatingRadial { items, .. }
-                            if sheet.vec(*items).iter().any(|item| matches!(item, GradientItem::Hint(_)))
+                            if sheet.vec(*items).iter().any(|item| {
+                                matches!(sheet.resolve_node(*item), GradientItem::Hint(_))
+                            })
                     )
         ));
         assert!(matches!(

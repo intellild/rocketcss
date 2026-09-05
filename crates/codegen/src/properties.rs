@@ -183,7 +183,7 @@ macro_rules! space_vec {
     };
 }
 
-space_vec! { TrackSize<'a>, Transform<'a> }
+space_vec! { TrackSize<'a>, NodeId<'a, Transform<'a>> }
 
 macro_rules! declaration_value_pattern {
     ($name:path, $value:ident) => {

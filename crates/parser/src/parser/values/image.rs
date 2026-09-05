@@ -213,7 +213,8 @@ fn parse_linear_gradient<'i>(
     };
     let mut items = allocator.vec();
     loop {
-        items.push(input.parse_until_before(Delimiter::Comma, parse_gradient_item)?);
+        let item = input.parse_until_before(Delimiter::Comma, parse_gradient_item)?;
+        items.push(store_node(item, input));
         if input.try_parse(Compiler::expect_comma).is_err() {
             break;
         }
@@ -281,7 +282,8 @@ fn parse_radial_gradient<'i>(
 
     let mut items = allocator.vec();
     loop {
-        items.push(input.parse_until_before(Delimiter::Comma, parse_gradient_item)?);
+        let item = input.parse_until_before(Delimiter::Comma, parse_gradient_item)?;
+        items.push(store_node(item, input));
         if input.try_parse(Compiler::expect_comma).is_err() {
             break;
         }
@@ -347,7 +349,8 @@ fn parse_conic_gradient<'i>(
 
     let mut items = allocator.vec();
     loop {
-        items.push(input.parse_until_before(Delimiter::Comma, parse_conic_gradient_item)?);
+        let item = input.parse_until_before(Delimiter::Comma, parse_conic_gradient_item)?;
+        items.push(store_node(item, input));
         if input.try_parse(Compiler::expect_comma).is_err() {
             break;
         }

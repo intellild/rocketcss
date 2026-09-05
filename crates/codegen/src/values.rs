@@ -160,7 +160,7 @@ impl<'ghost> ToCss<'ghost> for Image<'_> {
 }
 
 fn write_gradient_items<'ghost, PrinterT: PrinterTrait, D: ToCss<'ghost>>(
-    items: &[GradientItem<'_, D>],
+    items: &[NodeId<'_, GradientItem<'_, D>>],
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {

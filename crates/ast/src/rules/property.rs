@@ -7,27 +7,190 @@ use crate::{
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum ParsedComponent<'a> {
-    Length(Length<'a>),
+    Length(NodeId<'a, Length<'a>>),
     Number(f32),
     Percentage(f32),
-    LengthPercentage(LengthPercentage<'a>),
+    LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
     String(&'a str),
-    Color(CssColor<'a>),
+    Color(NodeId<'a, CssColor<'a>>),
     Image(NodeId<'a, Image<'a>>),
-    Url(Url<'a>),
+    Url(NodeId<'a, Url<'a>>),
     Integer(i32),
     Angle(Angle),
     Time(Time),
     Resolution(Resolution),
     TransformFunction(NodeId<'a, Transform<'a>>),
-    TransformList(Vec<'a, Transform<'a>>),
+    TransformList(Vec<'a, NodeId<'a, Transform<'a>>>),
     CustomIdent(&'a str),
     Literal(&'a str),
     Repeated {
-        components: Vec<'a, ParsedComponent<'a>>,
+        components: Vec<'a, NodeId<'a, ParsedComponent<'a>>>,
         multiplier: Multiplier,
     },
     TokenList(Vec<'a, TokenOrValue<'a>>),
+}
+
+// byte 0       variant
+// byte 1       scalar unit or multiplier
+// bytes 2..4   reserved
+// bytes 4..8   scalar bits, compact string ID, child ID, or range start
+// bytes 8..12  range end
+// bytes 12..16 reserved
+impl<'ast> AstNodeStorage<'ast> for ParsedComponent<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0017_0005);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let id = read_u32(&bytes, 4) as usize;
+        let scalar = f32::from_bits(read_u32(&bytes, 4));
+        match bytes[0] {
+            0 => Self::Length(context.encoded_node_id_at(id)),
+            1 => Self::Number(scalar),
+            2 => Self::Percentage(scalar),
+            3 => Self::LengthPercentage(context.encoded_node_id_at(id)),
+            4 => Self::String(context.resolve_string(id as u64)),
+            5 => Self::Color(context.encoded_node_id_at(id)),
+            6 => Self::Image(context.encoded_node_id_at(id)),
+            7 => Self::Url(context.encoded_node_id_at(id)),
+            8 => Self::Integer(read_u32(&bytes, 4) as i32),
+            9 => Self::Angle(crate::token::decode_angle(bytes[1], scalar)),
+            10 => Self::Time(crate::token::decode_time(bytes[1], scalar)),
+            11 => Self::Resolution(crate::token::decode_resolution(bytes[1], scalar)),
+            12 => Self::TransformFunction(context.encoded_node_id_at(id)),
+            13 => Self::TransformList(decode_range(&bytes, 4, context)),
+            14 => Self::CustomIdent(context.resolve_string(id as u64)),
+            15 => Self::Literal(context.resolve_string(id as u64)),
+            16 => Self::Repeated {
+                components: decode_range(&bytes, 4, context),
+                multiplier: decode_multiplier(bytes[1]),
+            },
+            17 => Self::TokenList(decode_range(&bytes, 4, context)),
+            _ => panic!("invalid encoded ParsedComponent variant"),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_parsed_component(self, context)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_parsed_component(self, context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for ParsedComponent<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Length(value) => Self::Length(context.clone_encoded_node(value)),
+            Self::Number(value) => Self::Number(value),
+            Self::Percentage(value) => Self::Percentage(value),
+            Self::LengthPercentage(value) => {
+                Self::LengthPercentage(context.clone_encoded_node(value))
+            }
+            Self::String(value) => Self::String(value),
+            Self::Color(value) => Self::Color(context.clone_encoded_node(value)),
+            Self::Image(value) => Self::Image(context.clone_encoded_node(value)),
+            Self::Url(value) => Self::Url(context.clone_encoded_node(value)),
+            Self::Integer(value) => Self::Integer(value),
+            Self::Angle(value) => Self::Angle(value),
+            Self::Time(value) => Self::Time(value),
+            Self::Resolution(value) => Self::Resolution(value),
+            Self::TransformFunction(value) => {
+                Self::TransformFunction(context.clone_encoded_node(value))
+            }
+            Self::TransformList(values) => Self::TransformList(context.clone_encoded_vec(values)),
+            Self::CustomIdent(value) => Self::CustomIdent(value),
+            Self::Literal(value) => Self::Literal(value),
+            Self::Repeated {
+                components,
+                multiplier,
+            } => Self::Repeated {
+                components: context.clone_encoded_vec(components),
+                multiplier,
+            },
+            Self::TokenList(values) => Self::TokenList(context.clone_encoded_vec(values)),
+        }
+    }
+}
+
+fn encode_parsed_component<'ast>(
+    value: ParsedComponent<'ast>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    match value {
+        ParsedComponent::Length(value) => write_tagged_id(&mut bytes, 0, value),
+        ParsedComponent::Number(value) => write_tagged_float(&mut bytes, 1, value),
+        ParsedComponent::Percentage(value) => write_tagged_float(&mut bytes, 2, value),
+        ParsedComponent::LengthPercentage(value) => write_tagged_id(&mut bytes, 3, value),
+        ParsedComponent::String(value) => write_tagged_string(&mut bytes, 4, value, context),
+        ParsedComponent::Color(value) => write_tagged_id(&mut bytes, 5, value),
+        ParsedComponent::Image(value) => write_tagged_id(&mut bytes, 6, value),
+        ParsedComponent::Url(value) => write_tagged_id(&mut bytes, 7, value),
+        ParsedComponent::Integer(value) => {
+            bytes[0] = 8;
+            write_u32(&mut bytes, 4, value as u32);
+        }
+        ParsedComponent::Angle(value) => {
+            let (kind, value) = crate::token::encode_angle(value);
+            write_tagged_scalar(&mut bytes, 9, kind, value);
+        }
+        ParsedComponent::Time(value) => {
+            let (kind, value) = crate::token::encode_time(value);
+            write_tagged_scalar(&mut bytes, 10, kind, value);
+        }
+        ParsedComponent::Resolution(value) => {
+            let (kind, value) = crate::token::encode_resolution(value);
+            write_tagged_scalar(&mut bytes, 11, kind, value);
+        }
+        ParsedComponent::TransformFunction(value) => write_tagged_id(&mut bytes, 12, value),
+        ParsedComponent::TransformList(values) => write_tagged_range(&mut bytes, 13, values),
+        ParsedComponent::CustomIdent(value) => write_tagged_string(&mut bytes, 14, value, context),
+        ParsedComponent::Literal(value) => write_tagged_string(&mut bytes, 15, value, context),
+        ParsedComponent::Repeated {
+            components,
+            multiplier,
+        } => {
+            write_tagged_range(&mut bytes, 16, components);
+            bytes[1] = encode_multiplier(multiplier);
+        }
+        ParsedComponent::TokenList(values) => write_tagged_range(&mut bytes, 17, values),
+    }
+    NodePayload::inline(&bytes)
+}
+
+fn write_tagged_id<T>(bytes: &mut [u8], tag: u8, value: NodeId<'_, T>) {
+    bytes[0] = tag;
+    write_u32(
+        bytes,
+        4,
+        u32::try_from(value.index()).expect("AST node ID exceeds four bytes"),
+    );
+}
+
+fn write_tagged_float(bytes: &mut [u8], tag: u8, value: f32) {
+    bytes[0] = tag;
+    write_u32(bytes, 4, value.to_bits());
+}
+
+fn write_tagged_scalar(bytes: &mut [u8], tag: u8, kind: u8, value: f32) {
+    write_tagged_float(bytes, tag, value);
+    bytes[1] = kind;
+}
+
+fn write_tagged_string<'ast>(
+    bytes: &mut [u8],
+    tag: u8,
+    value: &'ast str,
+    context: &mut AstContext<'ast>,
+) {
+    bytes[0] = tag;
+    write_u32(bytes, 4, context.store_string(value));
+}
+
+fn write_tagged_range<T>(bytes: &mut [u8], tag: u8, values: Vec<'_, T>) {
+    bytes[0] = tag;
+    write_range(bytes, 4, values);
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -426,8 +589,8 @@ mod storage_tests {
 
     use crate::{
         AstContext, CustomProperty, CustomPropertyName, DUMMY_SP, KeyframesName,
-        NoneOrCustomIdentList, PropertyId, SyntaxComponent, SyntaxComponentKind, SyntaxString,
-        TokenOrValue, UnparsedProperty, UnparsedPropertyReason,
+        NoneOrCustomIdentList, ParsedComponent, PropertyId, SyntaxComponent, SyntaxComponentKind,
+        SyntaxString, TokenOrValue, UnparsedProperty, UnparsedPropertyReason,
     };
 
     use super::Multiplier;
@@ -457,6 +620,40 @@ mod storage_tests {
         assert_eq!(
             context.encoded_node(component.kind),
             SyntaxComponentKind::Literal("|")
+        );
+    }
+
+    #[test]
+    fn parsed_component_codec_deep_clones_recursive_component_ranges() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let literal = context.alloc_encoded_node(ParsedComponent::Literal("/"), DUMMY_SP);
+        let components = context.alloc_encoded_vec([literal].into_iter());
+        let repeated = context.alloc_encoded_node(
+            ParsedComponent::Repeated {
+                components,
+                multiplier: Multiplier::Space,
+            },
+            DUMMY_SP,
+        );
+
+        let cloned = context.clone_encoded_node(repeated);
+        let ParsedComponent::Repeated {
+            components: cloned_components,
+            multiplier,
+        } = context.encoded_node(cloned)
+        else {
+            panic!("expected repeated component")
+        };
+        assert_eq!(multiplier, Multiplier::Space);
+        assert_ne!(cloned_components, components);
+        let cloned_literal = context
+            .encoded_vec_get(cloned_components, 0)
+            .expect("cloned parsed component");
+        assert_ne!(cloned_literal, literal);
+        assert_eq!(
+            context.encoded_node(cloned_literal),
+            ParsedComponent::Literal("/")
         );
     }
 

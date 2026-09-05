@@ -75,7 +75,7 @@ where
 }
 
 fn write_calc_list<'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost>>(
-    values: &[Calc<'_, V>],
+    values: &[NodeId<'_, Calc<'_, V>>],
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {

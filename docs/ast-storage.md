@@ -316,18 +316,22 @@ Promoted so far:
 Background                              // Declaration::Background
 EasingFunction                          // animation/transition timing-function lists
 ImageSetOption                          // ImageSet::options
+Calc                                   // MathFunction min/max/hypot lists
+GradientItem                           // linear/radial/conic gradient stops and hints
+ParsedComponent                        // recursive property-value components
+Transform                              // Declaration::Transform and parsed transform lists
 ```
 
 Remaining promotion targets:
 
 ```text
 BackgroundSize, BoxShadow
-Calc<V>, ContainerCondition, CursorImage
-Filter, GradientItem<Angle>, GradientItem<LengthValue>
-Mask, MediaCondition, PageSelector, ParsedComponent
+ContainerCondition, CursorImage
+Filter
+Mask, MediaCondition, PageSelector
 ScrollStateQuery, Selector, SelectorComponent
 StyleQuery, SupportsCondition, TextShadow
-TrackListItem, TrackSize, Transform, Transition
+TrackListItem, TrackSize, Transition
 ```
 
 The inventory is intentionally based on the maximum encoded variant. For

@@ -79,10 +79,11 @@ impl<'i> Parse<'i> for Transform<'i> {
 
 pub(crate) fn parse_transform_list<'i>(
     input: &mut Compiler<'i>,
-) -> Result<Vec<'i, Transform<'i>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, NodeId<'i, Transform<'i>>>, ParseError<'i, ParserError<'i>>> {
     let mut values = input.allocator().vec();
     while !input.is_exhausted() {
-        values.push(Transform::parse(input)?);
+        let value = Transform::parse(input)?;
+        values.push(store_node(value, input));
     }
     Ok(values)
 }

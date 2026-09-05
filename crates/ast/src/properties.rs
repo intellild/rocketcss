@@ -753,7 +753,7 @@ macro_rules! for_each_property {
     "animation-range-end": AnimationRangeEnd(Vec<'a, AnimationRangeEnd<'a>>) [unsupported],
     "animation-range": AnimationRange(Vec<'a, AnimationRange<'a>>) [unsupported],
     "animation": Animation(Vec<'a, Animation<'a>>, VendorPrefix) [custom: parse_animation],
-    "transform": Transform(Vec<'a, Transform<'a>>, VendorPrefix) [custom: parse_transform],
+    "transform": Transform(Vec<'a, NodeId<'a, Transform<'a>>>, VendorPrefix) [custom: parse_transform],
     "transform-origin": TransformOrigin(NodeId<'a, Position<'a>>, VendorPrefix) [boxed: Position<'i>],
     "transform-style": TransformStyle(TransformStyle, VendorPrefix) [parse: TransformStyle],
     "transform-box": TransformBox(TransformBox) [parse: TransformBox],

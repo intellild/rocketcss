@@ -1,6 +1,6 @@
 use super::*;
 
-use crate::{AstNodeStorage, NodeKind, NodePayload};
+use crate::{AstNodeClone, AstNodeStorage, NodeKind, NodePayload};
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Length<'a> {
@@ -41,6 +41,15 @@ impl<'ast> AstNodeStorage<'ast> for Length<'ast> {
         _context: &mut AstContext<'ast>,
     ) -> NodePayload {
         encode_length(self)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for Length<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Value(value) => Self::Value(value),
+            Self::Calc(value) => Self::Calc(context.clone_encoded_node(value)),
+        }
     }
 }
 
@@ -239,8 +248,8 @@ pub enum Calc<'a, V> {
 #[allow(clippy::type_complexity)]
 pub enum MathFunction<'a, V> {
     Calc(NodeId<'a, Calc<'a, V>>),
-    Min(Vec<'a, Calc<'a, V>>),
-    Max(Vec<'a, Calc<'a, V>>),
+    Min(Vec<'a, NodeId<'a, Calc<'a, V>>>),
+    Max(Vec<'a, NodeId<'a, Calc<'a, V>>>),
     Clamp(
         (
             NodeId<'a, Calc<'a, V>>,
@@ -259,7 +268,267 @@ pub enum MathFunction<'a, V> {
     Mod((NodeId<'a, Calc<'a, V>>, NodeId<'a, Calc<'a, V>>)),
     Abs(NodeId<'a, Calc<'a, V>>),
     Sign(NodeId<'a, Calc<'a, V>>),
-    Hypot(Vec<'a, Calc<'a, V>>),
+    Hypot(Vec<'a, NodeId<'a, Calc<'a, V>>>),
+}
+
+pub(crate) trait CalcValueCodec {
+    const CALC_KIND: NodeKind;
+    const MATH_FUNCTION_KIND: NodeKind;
+}
+
+impl CalcValueCodec for Length<'_> {
+    const CALC_KIND: NodeKind = NodeKind::new(0x0018_0001);
+    const MATH_FUNCTION_KIND: NodeKind = NodeKind::new(0x0019_0001);
+}
+
+// byte 0       variant
+// bytes 1..4   reserved
+// bytes 4..8   value/left/factor/function
+// bytes 8..12  right/product value
+// bytes 12..16 reserved
+impl<'ast, V: CalcValueCodec> AstNodeStorage<'ast> for Calc<'ast, V> {
+    const KIND: NodeKind = V::CALC_KIND;
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Value(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
+            1 => Self::Number(f32::from_bits(read_u32(&bytes, 4))),
+            2 => Self::Sum((
+                context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
+                context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
+            )),
+            3 => Self::Product((
+                f32::from_bits(read_u32(&bytes, 4)),
+                context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
+            )),
+            4 => Self::Function(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
+            _ => panic!("invalid encoded Calc variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_calc(self)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast, V> AstNodeClone<'ast> for Calc<'ast, V>
+where
+    V: CalcValueCodec + AstNodeClone<'ast>,
+{
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Value(value) => Self::Value(context.clone_encoded_node(value)),
+            Self::Number(value) => Self::Number(value),
+            Self::Sum((left, right)) => Self::Sum((
+                context.clone_encoded_node(left),
+                context.clone_encoded_node(right),
+            )),
+            Self::Product((factor, value)) => {
+                Self::Product((factor, context.clone_encoded_node(value)))
+            }
+            Self::Function(value) => Self::Function(context.clone_encoded_node(value)),
+        }
+    }
+}
+
+fn encode_calc<V: CalcValueCodec>(value: Calc<'_, V>) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    match value {
+        Calc::Value(value) => {
+            bytes[0] = 0;
+            write_node_id(&mut bytes, 4, value);
+        }
+        Calc::Number(value) => {
+            bytes[0] = 1;
+            write_u32(&mut bytes, 4, value.to_bits());
+        }
+        Calc::Sum((left, right)) => {
+            bytes[0] = 2;
+            write_node_id(&mut bytes, 4, left);
+            write_node_id(&mut bytes, 8, right);
+        }
+        Calc::Product((factor, value)) => {
+            bytes[0] = 3;
+            write_u32(&mut bytes, 4, factor.to_bits());
+            write_node_id(&mut bytes, 8, value);
+        }
+        Calc::Function(value) => {
+            bytes[0] = 4;
+            write_node_id(&mut bytes, 4, value);
+        }
+    }
+    NodePayload::inline(&bytes)
+}
+
+// byte 0       variant
+// byte 1       rounding strategy when applicable
+// bytes 2..4   reserved
+// bytes 4..16  up to three child IDs or one range
+impl<'ast, V: CalcValueCodec> AstNodeStorage<'ast> for MathFunction<'ast, V> {
+    const KIND: NodeKind = V::MATH_FUNCTION_KIND;
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let first = || context.encoded_node_id_at(read_u32(&bytes, 4) as usize);
+        let second = || context.encoded_node_id_at(read_u32(&bytes, 8) as usize);
+        match bytes[0] {
+            0 => Self::Calc(first()),
+            1 => Self::Min(decode_range(&bytes, context)),
+            2 => Self::Max(decode_range(&bytes, context)),
+            3 => Self::Clamp((
+                first(),
+                second(),
+                context.encoded_node_id_at(read_u32(&bytes, 12) as usize),
+            )),
+            4 => Self::Round((decode_rounding_strategy(bytes[1]), first(), second())),
+            5 => Self::Rem((first(), second())),
+            6 => Self::Mod((first(), second())),
+            7 => Self::Abs(first()),
+            8 => Self::Sign(first()),
+            9 => Self::Hypot(decode_range(&bytes, context)),
+            _ => panic!("invalid encoded MathFunction variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_math_function(self)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast, V> AstNodeClone<'ast> for MathFunction<'ast, V>
+where
+    V: CalcValueCodec + AstNodeClone<'ast>,
+{
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Calc(value) => Self::Calc(context.clone_encoded_node(value)),
+            Self::Min(values) => Self::Min(context.clone_encoded_vec(values)),
+            Self::Max(values) => Self::Max(context.clone_encoded_vec(values)),
+            Self::Clamp((min, value, max)) => Self::Clamp((
+                context.clone_encoded_node(min),
+                context.clone_encoded_node(value),
+                context.clone_encoded_node(max),
+            )),
+            Self::Round((strategy, value, interval)) => Self::Round((
+                strategy,
+                context.clone_encoded_node(value),
+                context.clone_encoded_node(interval),
+            )),
+            Self::Rem((left, right)) => Self::Rem((
+                context.clone_encoded_node(left),
+                context.clone_encoded_node(right),
+            )),
+            Self::Mod((left, right)) => Self::Mod((
+                context.clone_encoded_node(left),
+                context.clone_encoded_node(right),
+            )),
+            Self::Abs(value) => Self::Abs(context.clone_encoded_node(value)),
+            Self::Sign(value) => Self::Sign(context.clone_encoded_node(value)),
+            Self::Hypot(values) => Self::Hypot(context.clone_encoded_vec(values)),
+        }
+    }
+}
+
+fn encode_math_function<V: CalcValueCodec>(value: MathFunction<'_, V>) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    match value {
+        MathFunction::Calc(value) => write_tagged_node_id(&mut bytes, 0, value),
+        MathFunction::Min(values) => write_tagged_range(&mut bytes, 1, values),
+        MathFunction::Max(values) => write_tagged_range(&mut bytes, 2, values),
+        MathFunction::Clamp((min, value, max)) => {
+            bytes[0] = 3;
+            write_node_id(&mut bytes, 4, min);
+            write_node_id(&mut bytes, 8, value);
+            write_node_id(&mut bytes, 12, max);
+        }
+        MathFunction::Round((strategy, value, interval)) => {
+            bytes[0] = 4;
+            bytes[1] = encode_rounding_strategy(strategy);
+            write_node_id(&mut bytes, 4, value);
+            write_node_id(&mut bytes, 8, interval);
+        }
+        MathFunction::Rem((left, right)) => {
+            bytes[0] = 5;
+            write_node_id(&mut bytes, 4, left);
+            write_node_id(&mut bytes, 8, right);
+        }
+        MathFunction::Mod((left, right)) => {
+            bytes[0] = 6;
+            write_node_id(&mut bytes, 4, left);
+            write_node_id(&mut bytes, 8, right);
+        }
+        MathFunction::Abs(value) => write_tagged_node_id(&mut bytes, 7, value),
+        MathFunction::Sign(value) => write_tagged_node_id(&mut bytes, 8, value),
+        MathFunction::Hypot(values) => write_tagged_range(&mut bytes, 9, values),
+    }
+    NodePayload::inline(&bytes)
+}
+
+fn write_tagged_node_id<T>(bytes: &mut [u8], tag: u8, value: NodeId<'_, T>) {
+    bytes[0] = tag;
+    write_node_id(bytes, 4, value);
+}
+
+fn write_node_id<T>(bytes: &mut [u8], offset: usize, value: NodeId<'_, T>) {
+    write_u32(
+        bytes,
+        offset,
+        u32::try_from(value.index()).expect("AST node ID exceeds four bytes"),
+    );
+}
+
+fn write_tagged_range<T>(bytes: &mut [u8], tag: u8, values: Vec<'_, T>) {
+    bytes[0] = tag;
+    write_u32(
+        bytes,
+        4,
+        u32::try_from(values.start_index()).expect("AST range exceeds four bytes"),
+    );
+    write_u32(
+        bytes,
+        8,
+        u32::try_from(values.end_index()).expect("AST range exceeds four bytes"),
+    );
+}
+
+fn decode_range<'ast, T>(bytes: &[u8], context: &AstContext<'ast>) -> Vec<'ast, T> {
+    context.encoded_vec_range(read_u32(bytes, 4) as usize, read_u32(bytes, 8) as usize)
+}
+
+fn encode_rounding_strategy(value: RoundingStrategy) -> u8 {
+    match value {
+        RoundingStrategy::Nearest => 0,
+        RoundingStrategy::Up => 1,
+        RoundingStrategy::Down => 2,
+        RoundingStrategy::ToZero => 3,
+    }
+}
+
+fn decode_rounding_strategy(value: u8) -> RoundingStrategy {
+    match value {
+        0 => RoundingStrategy::Nearest,
+        1 => RoundingStrategy::Up,
+        2 => RoundingStrategy::Down,
+        3 => RoundingStrategy::ToZero,
+        _ => panic!("invalid encoded RoundingStrategy"),
+    }
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -382,7 +651,41 @@ mod storage_tests {
 
     use rocketcss_common::Allocator;
 
-    use crate::{AstContext, DUMMY_SP, Length, LengthUnit, LengthValue, Span};
+    use crate::{AstContext, Calc, DUMMY_SP, Length, LengthUnit, LengthValue, MathFunction, Span};
+
+    #[test]
+    fn calc_and_math_function_codecs_deep_clone_recursive_nodes_and_ranges() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let length = context.alloc_encoded_node(
+            Length::Value(LengthValue {
+                unit: LengthUnit::Rem,
+                value: 2.0,
+            }),
+            DUMMY_SP,
+        );
+        let value = context.alloc_encoded_node(Calc::Value(length), DUMMY_SP);
+        let number = context.alloc_encoded_node(Calc::<Length<'_>>::Number(3.0), DUMMY_SP);
+        let values = context.alloc_encoded_vec([value, number].into_iter());
+        let function = context.alloc_encoded_node(MathFunction::Min(values), DUMMY_SP);
+        let calc = context.alloc_encoded_node(Calc::Function(function), DUMMY_SP);
+        let root = context.alloc_encoded_node(Length::Calc(calc), DUMMY_SP);
+
+        let cloned_root = context.clone_encoded_node(root);
+        let Length::Calc(cloned_calc) = context.encoded_node(cloned_root) else {
+            panic!("expected calc length")
+        };
+        assert_ne!(cloned_calc, calc);
+        let Calc::Function(cloned_function) = context.encoded_node(cloned_calc) else {
+            panic!("expected math function")
+        };
+        assert_ne!(cloned_function, function);
+        let MathFunction::Min(cloned_values) = context.encoded_node(cloned_function) else {
+            panic!("expected min function")
+        };
+        assert_ne!(cloned_values, values);
+        assert_ne!(context.encoded_vec_get(cloned_values, 0), Some(value));
+    }
 
     #[test]
     fn length_codec_round_trips_and_mutates_one_dense_identity() {
