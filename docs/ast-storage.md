@@ -314,6 +314,7 @@ Promoted so far:
 
 ```text
 Background                              // Declaration::Background
+EasingFunction                          // animation/transition timing-function lists
 ImageSetOption                          // ImageSet::options
 ```
 
@@ -321,7 +322,7 @@ Remaining promotion targets:
 
 ```text
 BackgroundSize, BoxShadow
-Calc<V>, ContainerCondition, CursorImage, EasingFunction
+Calc<V>, ContainerCondition, CursorImage
 Filter, GradientItem<Angle>, GradientItem<LengthValue>
 Mask, MediaCondition, PageSelector, ParsedComponent
 ScrollStateQuery, Selector, SelectorComponent

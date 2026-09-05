@@ -665,7 +665,33 @@ macro_rules! prefixed_comma_adapter {
 
 prefixed_comma_adapter!(parse_animation_duration, AnimationDuration, Time);
 prefixed_comma_adapter!(parse_animation_delay, AnimationDelay, Time);
-prefixed_comma_adapter!(
+macro_rules! prefixed_comma_node_adapter {
+    ($name:ident, $variant:ident, $value:ty) => {
+        fn $name<'i>(
+            input: &mut Compiler<'i>,
+            allocator: &'i Allocator,
+            prefix: VendorPrefix,
+            _depth: usize,
+        ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
+            if value_contains_comment(input) {
+                return None;
+            }
+            Some(input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                |input| {
+                    let parsed = parse_comma_separated(input, <$value as Parse>::parse)?;
+                    let mut values = allocator.vec();
+                    for value in parsed {
+                        values.push(store_node(value, input));
+                    }
+                    Ok(Declaration::$variant(store_vec(values, input), prefix))
+                },
+            ))
+        }
+    };
+}
+
+prefixed_comma_node_adapter!(
     parse_animation_timing,
     AnimationTimingFunction,
     EasingFunction
@@ -688,7 +714,7 @@ prefixed_comma_adapter!(
 );
 prefixed_comma_adapter!(parse_transition_duration, TransitionDuration, Time);
 prefixed_comma_adapter!(parse_transition_delay, TransitionDelay, Time);
-prefixed_comma_adapter!(
+prefixed_comma_node_adapter!(
     parse_transition_timing,
     TransitionTimingFunction,
     EasingFunction

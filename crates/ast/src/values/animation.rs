@@ -12,6 +12,119 @@ pub enum EasingFunction {
     Steps { count: i32, position: StepPosition },
 }
 
+// byte 0       variant
+// byte 1       step position when applicable
+// bytes 2..4   reserved
+// bytes 4..8   frame/step count or cubic-bezier x1
+// bytes 8..12  cubic-bezier x2
+// bytes 12..16 first extra slot
+//
+// extra + 0    cubic-bezier y1/y2, or reserved
+impl AstNodeStorage<'_> for EasingFunction {
+    const KIND: NodeKind = NodeKind::new(0x000b_0001);
+
+    fn decode(payload: NodePayload, context: &AstContext<'_>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Linear,
+            1 => Self::Ease,
+            2 => Self::EaseIn,
+            3 => Self::EaseOut,
+            4 => Self::EaseInOut,
+            5 => {
+                let extra = context.extra_slot(payload.extra_start()).bytes();
+                Self::CubicBezier {
+                    x1: f32::from_bits(read_u32(&bytes, 4)),
+                    x2: f32::from_bits(read_u32(&bytes, 8)),
+                    y1: f32::from_bits(read_u32(&extra, 0)),
+                    y2: f32::from_bits(read_u32(&extra, 4)),
+                }
+            }
+            6 => Self::Frames(read_u32(&bytes, 4) as i32),
+            7 => Self::Steps {
+                count: read_u32(&bytes, 4) as i32,
+                position: decode_step_position(bytes[1]),
+            },
+            _ => panic!("invalid encoded EasingFunction variant"),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'_>) -> NodePayload {
+        encode_easing_function(self, None, context)
+    }
+
+    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
+        encode_easing_function(self, Some(current.extra_start()), context)
+    }
+}
+
+impl AstNodeClone<'_> for EasingFunction {
+    fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
+fn encode_easing_function(
+    value: EasingFunction,
+    existing_extra: Option<usize>,
+    context: &mut AstContext<'_>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
+    let mut extra = ExtraData::default();
+    match value {
+        EasingFunction::Linear => bytes[0] = 0,
+        EasingFunction::Ease => bytes[0] = 1,
+        EasingFunction::EaseIn => bytes[0] = 2,
+        EasingFunction::EaseOut => bytes[0] = 3,
+        EasingFunction::EaseInOut => bytes[0] = 4,
+        EasingFunction::CubicBezier { x1, x2, y1, y2 } => {
+            bytes[0] = 5;
+            write_u32(&mut bytes, 4, x1.to_bits());
+            write_u32(&mut bytes, 8, x2.to_bits());
+            let mut extra_bytes = [0; ExtraData::BYTES];
+            write_u32(&mut extra_bytes, 0, y1.to_bits());
+            write_u32(&mut extra_bytes, 4, y2.to_bits());
+            extra = ExtraData::from_bytes(&extra_bytes);
+        }
+        EasingFunction::Frames(count) => {
+            bytes[0] = 6;
+            write_u32(&mut bytes, 4, count as u32);
+        }
+        EasingFunction::Steps { count, position } => {
+            bytes[0] = 7;
+            bytes[1] = encode_step_position(position);
+            write_u32(&mut bytes, 4, count as u32);
+        }
+    }
+    let extra = match existing_extra {
+        Some(index) => {
+            context.set_extra_slot(index, extra);
+            index
+        }
+        None => context.alloc_extra_slots([extra]),
+    };
+    NodePayload::with_extra(&bytes, extra)
+}
+
+fn encode_step_position(value: StepPosition) -> u8 {
+    match value {
+        StepPosition::Start => 0,
+        StepPosition::End => 1,
+        StepPosition::JumpNone => 2,
+        StepPosition::JumpBoth => 3,
+    }
+}
+
+fn decode_step_position(value: u8) -> StepPosition {
+    match value {
+        0 => StepPosition::Start,
+        1 => StepPosition::End,
+        2 => StepPosition::JumpNone,
+        3 => StepPosition::JumpBoth,
+        _ => panic!("invalid encoded StepPosition"),
+    }
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum StepPosition {
     Start,
@@ -404,8 +517,49 @@ mod storage_tests {
     use crate::{
         AnimationAttachmentRange, AnimationComposition, AnimationDirection, AnimationFillMode,
         AnimationIterationCount, AnimationTimeline, AstContext, DUMMY_SP, DimensionPercentage,
-        ScrollAxis, ScrollTimeline, Scroller, TimelineRangeName,
+        EasingFunction, ScrollAxis, ScrollTimeline, Scroller, StepPosition, TimelineRangeName,
     };
+
+    #[test]
+    fn easing_function_codec_reuses_one_fixed_overflow_slot() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let before = context.encoded_extra_len();
+        let easing = context.alloc_encoded_node(
+            EasingFunction::CubicBezier {
+                x1: 0.1,
+                x2: 0.2,
+                y1: 0.3,
+                y2: 0.4,
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(context.encoded_extra_len(), before + 1);
+        assert_eq!(
+            context.encoded_node(easing),
+            EasingFunction::CubicBezier {
+                x1: 0.1,
+                x2: 0.2,
+                y1: 0.3,
+                y2: 0.4,
+            }
+        );
+
+        context.mutate_encoded_node(easing, |value, _| {
+            *value = EasingFunction::Steps {
+                count: 4,
+                position: StepPosition::JumpBoth,
+            };
+        });
+        assert_eq!(context.encoded_extra_len(), before + 1);
+        assert_eq!(
+            context.encoded_node(easing),
+            EasingFunction::Steps {
+                count: 4,
+                position: StepPosition::JumpBoth,
+            }
+        );
+    }
 
     #[test]
     fn animation_scalar_values_each_use_one_extra_slot() {

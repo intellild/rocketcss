@@ -119,7 +119,7 @@ comma_vec! {
     BoxShadow<'a>,
     PropertyId<'a>,
     Time,
-    EasingFunction,
+    NodeId<'a, EasingFunction>,
     Transition<'a>,
     AnimationName<'a>,
     AnimationIterationCount,
