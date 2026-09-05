@@ -47,7 +47,7 @@ pub(super) fn token_values_contain_opaque<'i>(
         TokenOrValue::Function(function) => {
             let function = ast.node(*function);
             function.kind().is_variable()
-                || function.arguments.iter().any(|argument| {
+                || ast.vec(function.arguments).iter().any(|argument| {
                     token_values_contain_opaque(ast, std::slice::from_ref(argument))
                 })
         }
@@ -94,6 +94,7 @@ fn collect_tokens_impl<'i>(
                 let arguments = input.parse_nested_block(|input| {
                     collect_tokens_impl(input, allocator, depth + 1, parse_embedded_values)
                 })?;
+                let arguments = store_vec(arguments, input);
                 let mut function = Function::new(name, arguments);
                 validate_rgb_function(input.ast_context(), &mut function);
                 let kind = function.kind();

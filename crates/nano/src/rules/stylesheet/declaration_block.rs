@@ -1079,10 +1079,8 @@ mod tests {
             allocator: &'ast Allocator,
             ast: &mut Compilation<'ast>,
         ) -> rocketcss_ast::NodeId<'ast, CssColor<'ast>> {
-            let function = ast.alloc_node_without_span(Function::new(
-                "color-mix",
-                rocketcss_common::vec::Vec::new_in(allocator),
-            ));
+            let arguments = ast.alloc_vec(rocketcss_common::vec::Vec::new_in(allocator));
+            let function = ast.alloc_node_without_span(Function::new("color-mix", arguments));
             ast.alloc_node_without_span(CssColor::Function(function))
         }
 
@@ -1110,6 +1108,7 @@ mod tests {
             color: unresolved_color(&allocator, &mut ast),
             position: None,
         });
+        let gradient_items = ast.alloc_vec(gradient_items);
         let mut images = allocator.vec();
         let gradient = ast.alloc_node_without_span(Gradient::Linear {
             direction: LineDirection::Vertical(VerticalPositionKeyword::Bottom),
@@ -1117,6 +1116,7 @@ mod tests {
             vendor_prefix: VendorPrefix::NONE,
         });
         images.push(Image::Gradient(gradient));
+        let images = ast.alloc_vec(images);
         let background_image = Declaration::BackgroundImage(images);
         let fill_color = unresolved_color(&allocator, &mut ast);
         let fill = Declaration::Fill(ast.alloc_node_without_span(SVGPaint::Color(fill_color)));

@@ -170,18 +170,18 @@ impl CalcLinear {
     pub(super) fn write_to<'ast>(
         mut self,
         function: &mut Function<'ast>,
+        arguments: &mut Vec<'ast, TokenOrValue<'ast>>,
         ast: &mut VisitMutContext<'_, 'ast, '_>,
     ) -> bool {
         self.compact_cancelled_terms();
         if let Some(replacement) = self.replacement() {
             function.replacement = Some(unitless_calc_zero(replacement));
-            function.arguments.clear();
+            arguments.clear();
             return true;
         }
 
         let required = 1 + (self.len - 1) * 4;
-        if function
-            .arguments
+        if arguments
             .iter()
             .filter(|value| matches!(value, TokenOrValue::Token(_)))
             .count()
@@ -190,31 +190,31 @@ impl CalcLinear {
             return false;
         }
         for target in 0..required {
-            if matches!(function.arguments[target], TokenOrValue::Token(_)) {
+            if matches!(arguments[target], TokenOrValue::Token(_)) {
                 continue;
             }
-            let Some(source) = function.arguments[target + 1..]
+            let Some(source) = arguments[target + 1..]
                 .iter()
                 .position(|value| matches!(value, TokenOrValue::Token(_)))
                 .map(|source| target + 1 + source)
             else {
                 return false;
             };
-            function.arguments.swap(target, source);
+            arguments.swap(target, source);
         }
 
         let mut output = 0;
         for (index, term) in self.terms[..self.len].iter().copied().enumerate() {
             if index != 0 {
-                set_calc_token(&mut function.arguments[output], Token::WhiteSpace(" "), ast);
+                set_calc_token(&mut arguments[output], Token::WhiteSpace(" "), ast);
                 output += 1;
                 set_calc_token(
-                    &mut function.arguments[output],
+                    &mut arguments[output],
                     Token::Delim(if term.value < 0.0 { "-" } else { "+" }),
                     ast,
                 );
                 output += 1;
-                set_calc_token(&mut function.arguments[output], Token::WhiteSpace(" "), ast);
+                set_calc_token(&mut arguments[output], Token::WhiteSpace(" "), ast);
                 output += 1;
             }
             let value = if index == 0 {
@@ -227,10 +227,10 @@ impl CalcLinear {
                 CalcTermKind::Percentage => Token::Percentage(value),
                 CalcTermKind::Dimension(unit) => Token::Dimension { unit, value },
             };
-            set_calc_token(&mut function.arguments[output], token, ast);
+            set_calc_token(&mut arguments[output], token, ast);
             output += 1;
         }
-        function.arguments.truncate(required);
+        arguments.truncate(required);
         true
     }
 }
@@ -357,7 +357,7 @@ impl<'values, 'context, 'arena> CalcLinearParser<'values, 'context, 'arena> {
                 if let Some(replacement) = function.replacement {
                     CalcLinear::from_value(replacement)?
                 } else {
-                    calc_linear_expression_in(&function.arguments, self.ast)?
+                    calc_linear_expression_in(self.ast.vec(function.arguments), self.ast)?
                 }
             }
             value => {
@@ -536,8 +536,10 @@ fn set_calc_value<'ast>(
             true
         }
         TokenOrValue::Function(function) => {
-            ast.mutate_node(*function, |function, _| {
-                function.arguments.clear();
+            ast.mutate_node(*function, |function, ast| {
+                let mut arguments = function.arguments;
+                ast.rewrite_vec(&mut arguments, |arguments, _| arguments.clear());
+                function.arguments = arguments;
                 function.replacement = Some(result);
             });
             true

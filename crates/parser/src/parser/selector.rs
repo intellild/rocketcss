@@ -18,7 +18,7 @@ pub(super) fn parse_selector_list<'i>(
         input.parse_comma_separated(|input| parse_selector(input, allocator, depth + 1))?;
     let mut selectors = allocator.vec();
     selectors.extend(parsed);
-    Ok(selectors)
+    Ok(store_vec(selectors, input))
 }
 
 pub(super) fn parse_selector_list_with_recovery<'i>(
@@ -50,7 +50,7 @@ pub(super) fn parse_selector_list_with_recovery<'i>(
         }
     }
 
-    Ok(selectors)
+    Ok(store_vec(selectors, input))
 }
 
 pub(super) fn parse_selector<'i>(
@@ -140,7 +140,7 @@ pub(super) fn parse_selector<'i>(
     if selector.is_empty() || matches!(selector.last(), Some(SelectorComponent::Combinator(_))) {
         return Err(input.new_custom_error(ParserError::InvalidSelector));
     }
-    Ok(Selector::parsed(selector))
+    Ok(Selector::parsed(store_vec(selector, input)))
 }
 
 fn local_name<'i>(name: &str, input: &mut Compiler<'i>) -> SelectorComponent<'i> {
@@ -187,6 +187,7 @@ pub(super) fn parse_pseudo<'i>(
         ValueToken::Function(name) if is_element => {
             let arguments =
                 input.parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
+            let arguments = store_vec(arguments, input);
             Ok(SelectorComponent::PseudoElement(store_node(
                 PseudoElement::CustomFunction {
                     name: input.intern(name),
@@ -232,7 +233,7 @@ pub(super) fn parse_pseudo<'i>(
                     SelectorComponent::Where(input.parse_nested_block(|input| {
                         input.skip_whitespace();
                         if input.is_exhausted() {
-                            Ok(allocator.vec())
+                            Ok(store_vec(allocator.vec(), input))
                         } else {
                             parse_selector_list(input, allocator, depth + 1)
                         }
@@ -244,6 +245,7 @@ pub(super) fn parse_pseudo<'i>(
                 } else {
                     let arguments = input
                         .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
+                    let arguments = store_vec(arguments, input);
                     SelectorComponent::PseudoClass(store_node(
                         PseudoClass::CustomFunction {
                             name: input.intern(name),

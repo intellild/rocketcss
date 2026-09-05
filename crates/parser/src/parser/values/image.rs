@@ -126,7 +126,7 @@ fn parse_image_set<'i>(
         parse_image_set_option(input, vendor_prefix)
     })?;
     Ok(ImageSet {
-        options,
+        options: store_vec(options, input),
         vendor_prefix,
     })
 }
@@ -221,6 +221,7 @@ fn parse_linear_gradient<'i>(
     if items.len() < 2 {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
+    let items = store_vec(items, input);
     Ok(if repeating {
         Gradient::RepeatingLinear {
             direction,
@@ -288,6 +289,7 @@ fn parse_radial_gradient<'i>(
     if items.len() < 2 {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
+    let items = store_vec(items, input);
     Ok(if repeating {
         Gradient::RepeatingRadial {
             items,
@@ -353,6 +355,7 @@ fn parse_conic_gradient<'i>(
     if items.len() < 2 {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
+    let items = store_vec(items, input);
     Ok(if repeating {
         Gradient::RepeatingConic {
             angle,

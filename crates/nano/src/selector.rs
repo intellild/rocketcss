@@ -1,52 +1,65 @@
-use rocketcss_ast::{Compilation, NthType, Selector, SelectorComponent, SelectorList};
+use rocketcss_ast::{
+    Compilation, NthType, Selector, SelectorComponent, SelectorList, VisitMutContext,
+};
 use rocketcss_common::prelude::{Allocator, Vec};
 
 use crate::{MinifyContext, Options, OptionsOp};
 
-pub(crate) fn minify_selector_list(
-    selectors: &mut SelectorList<'_>,
+pub(crate) fn minify_selector_list<'ast>(
+    selectors: &mut SelectorList<'ast>,
     context: &mut MinifyContext,
     scratch: &Allocator,
-    ast: &Compilation<'_>,
+    ast: &mut VisitMutContext<'_, 'ast, '_>,
 ) {
-    for selector in selectors.iter_mut() {
-        if matches!(selector, Selector::Unparsed(_)) {
-            *selector = Selector::Tombstone;
-            context.record_value_normalized();
-        }
-    }
-
-    if context.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
+    ast.rewrite_vec(selectors, |selectors, ast| {
         for selector in selectors.iter_mut() {
-            let Some(selector) = selector.as_parsed_mut() else {
-                continue;
-            };
-            remove_qualified_universal(selector);
-            for component in selector.iter_mut() {
-                if let SelectorComponent::Nth(data) = component
-                    && data.a == 0
-                    && data.b == 1
-                    && matches!(
-                        data.kind,
-                        NthType::Child | NthType::LastChild | NthType::OfType | NthType::LastOfType
-                    )
-                {
-                    data.is_function = false;
-                }
+            if matches!(selector, Selector::Unparsed(_)) {
+                *selector = Selector::Tombstone;
+                context.record_value_normalized();
             }
         }
-    }
 
-    if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
-        let before = selectors.len();
-        deduplicate(selectors, scratch, ast);
-        if before != selectors.len() {
-            context.record_value_normalized();
+        if context.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::Any) {
+            for selector in selectors.iter_mut() {
+                let Some(selector) = selector.as_parsed_mut() else {
+                    continue;
+                };
+                ast.rewrite_vec(selector, |components, _| {
+                    remove_qualified_universal(components);
+                    for component in components {
+                        if let SelectorComponent::Nth(data) = component
+                            && data.a == 0
+                            && data.b == 1
+                            && matches!(
+                                data.kind,
+                                NthType::Child
+                                    | NthType::LastChild
+                                    | NthType::OfType
+                                    | NthType::LastOfType
+                            )
+                        {
+                            data.is_function = false;
+                        }
+                    }
+                });
+            }
         }
-    }
+
+        if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
+            let before = selectors.len();
+            deduplicate(selectors, scratch, ast.ast_context());
+            if before != selectors.len() {
+                context.record_value_normalized();
+            }
+        }
+    });
 }
 
-fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator, ast: &Compilation<'_>) {
+fn deduplicate(
+    selectors: &mut Vec<'_, Selector<'_>>,
+    allocator: &Allocator,
+    ast: &Compilation<'_>,
+) {
     if selectors.len() < 2 {
         return;
     }

@@ -1,6 +1,10 @@
-use std::{any::type_name, ptr::NonNull};
+use std::{
+    any::type_name,
+    panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    ptr::NonNull,
+};
 
-use rocketcss_common::{Allocator, DenseId, DenseStore};
+use rocketcss_common::{Allocator, DenseId, DenseRange, DenseStore, vec::Vec as ArenaVec};
 
 use crate::{DUMMY_SP, Span, Visit, VisitContext, VisitMut, VisitMutContext, Visitor, VisitorMut};
 
@@ -8,6 +12,10 @@ use super::{CssRulePayload, DeclarationPayload, EffectiveKeyData, RadixCompilati
 
 /// AST node identity. The node type itself is the dense identity domain.
 pub type NodeId<'ast, T> = DenseId<'ast, T>;
+
+/// A persistent AST list. The handle stores only its dense `start..end` range;
+/// elements are resolved by the owning [`AstContext`](crate::AstContext).
+pub type AstVec<'ast, T> = DenseRange<'ast, T>;
 
 enum NodeStorageDomain {}
 
@@ -28,6 +36,50 @@ struct NodeStore<'ast> {
     nodes: DenseStore<'ast, NodeStorageDomain, NodeSlot>,
     spans: DenseStore<'ast, NodeStorageDomain, Span>,
     active_mutations: usize,
+}
+
+enum VecElementStorageDomain {}
+enum VecRangeStorageDomain {}
+
+struct VecRangeSlot {
+    pointer: Option<NonNull<()>>,
+    type_name: fn() -> &'static str,
+    start: u32,
+    end: u32,
+}
+
+/// Persistent list elements remain in one contiguous arena allocation. A compact
+/// dense element table maps every range position to one allocation slot, so the
+/// pointer, runtime type, and mutation borrow state are stored only once per list.
+struct VecStore<'ast> {
+    allocator: &'ast Allocator,
+    elements: DenseStore<'ast, VecElementStorageDomain, DenseId<'ast, VecRangeStorageDomain>>,
+    ranges: DenseStore<'ast, VecRangeStorageDomain, VecRangeSlot>,
+    active_mutations: usize,
+}
+
+pub(crate) struct VecMutation<'ast, T> {
+    store: *mut VecStore<'ast>,
+    range: AstVec<'ast, T>,
+    pointer: NonNull<T>,
+}
+
+impl<T> VecMutation<'_, T> {
+    #[inline]
+    pub(crate) fn values(&mut self) -> &mut [T] {
+        // SAFETY: VecStore::mutation made every slot in this range unavailable,
+        // and the payload was allocated as one contiguous slice of T.
+        unsafe { std::slice::from_raw_parts_mut(self.pointer.as_ptr(), self.range.len()) }
+    }
+}
+
+impl<T> Drop for VecMutation<'_, T> {
+    #[inline]
+    fn drop(&mut self) {
+        // SAFETY: the owning AstContext outlives this private transaction. The
+        // exact range and original contiguous pointer are restored once.
+        unsafe { (&mut *self.store).end_mutation(self.range, self.pointer) };
+    }
 }
 
 pub(crate) struct NodeMutation<'ast, T> {
@@ -172,17 +224,178 @@ impl<'ast> NodeStore<'ast> {
     }
 }
 
+impl<'ast> VecStore<'ast> {
+    fn new_in(allocator: &'ast Allocator) -> Self {
+        Self {
+            allocator,
+            elements: DenseStore::new_in(allocator),
+            ranges: DenseStore::new_in(allocator),
+            active_mutations: 0,
+        }
+    }
+
+    fn alloc<T: 'ast + Unpin>(&mut self, values: ArenaVec<'ast, T>) -> AstVec<'ast, T> {
+        assert!(
+            !std::mem::needs_drop::<T>(),
+            "persistent AST list elements cannot require Drop"
+        );
+        let start = self.elements.len();
+        let len = values.len();
+        assert!(
+            self.elements.has_capacity_for(len) && self.ranges.has_capacity_for(1),
+            "AST list element count exceeds dense range capacity"
+        );
+        if len == 0 {
+            return AstVec::empty();
+        }
+        self.elements.reserve(len);
+        self.ranges.reserve(1);
+        let values = values.into_bump_slice_mut();
+        let end = start + values.len();
+        let range_id = self.ranges.push(VecRangeSlot {
+            pointer: Some(NonNull::from(&mut values[0]).cast::<()>()),
+            type_name: node_type_name::<T>,
+            start: u32::try_from(start).expect("AST list start exceeds dense range capacity"),
+            end: u32::try_from(end).expect("AST list end exceeds dense range capacity"),
+        });
+        for _ in 0..values.len() {
+            self.elements.push(range_id);
+        }
+        debug_assert_eq!(end, self.elements.len());
+        // SAFETY: the just-appended slots point at one contiguous allocation of
+        // T values, and VecStore remains owned by the same arena-bound context.
+        unsafe { AstVec::from_indices_unchecked(start, end) }
+    }
+
+    fn range_id<T>(&self, range: AstVec<'_, T>) -> Option<DenseId<'ast, VecRangeStorageDomain>> {
+        if range.is_empty() {
+            return None;
+        }
+        assert!(
+            range.start_index() <= range.end_index() && range.end_index() <= self.elements.len(),
+            "AST list range does not belong to this context"
+        );
+        let range_id = self.elements.as_slice()[range.start_index()];
+        let slot = &self.ranges.as_slice()[range_id.index()];
+        assert!(
+            slot.start as usize == range.start_index() && slot.end as usize == range.end_index(),
+            "AST list range does not identify a complete allocation"
+        );
+        let expected = node_type_name::<T> as fn() -> &'static str;
+        assert!(
+            std::ptr::fn_addr_eq(slot.type_name, expected)
+                || (slot.type_name)() == node_type_name::<T>(),
+            "AST list range used with the wrong element type"
+        );
+        Some(range_id)
+    }
+
+    fn pointer<T>(&self, range: AstVec<'_, T>) -> Option<NonNull<T>> {
+        let range_id = self.range_id(range)?;
+        let pointer = self.ranges.as_slice()[range_id.index()]
+            .pointer
+            .expect("recursive access to a mutably borrowed or retired AST list")
+            .cast::<T>();
+        Some(pointer)
+    }
+
+    fn get<T>(&self, range: AstVec<'_, T>) -> &[T] {
+        let Some(pointer) = self.pointer(range) else {
+            return &[];
+        };
+        // SAFETY: alloc records the contiguous slice behind this typed range,
+        // and validate rejects active mutations or retired slots.
+        unsafe { std::slice::from_raw_parts(pointer.as_ptr(), range.len()) }
+    }
+
+    fn begin_mutation<T>(&mut self, range: AstVec<'ast, T>) -> NonNull<T> {
+        let Some(range_id) = self.range_id(range) else {
+            return NonNull::dangling();
+        };
+        let pointer = self.ranges.as_mut_slice()[range_id.index()]
+            .pointer
+            .take()
+            .expect("recursive access to a mutably borrowed or retired AST list")
+            .cast::<T>();
+        self.active_mutations += 1;
+        pointer
+    }
+
+    fn mutation<T>(&mut self, range: AstVec<'ast, T>) -> VecMutation<'ast, T> {
+        let pointer = self.begin_mutation(range);
+        VecMutation {
+            store: self,
+            range,
+            pointer,
+        }
+    }
+
+    fn end_mutation<T>(&mut self, range: AstVec<'ast, T>, pointer: NonNull<T>) {
+        if range.is_empty() {
+            return;
+        }
+        let range_id = self
+            .range_id(range)
+            .expect("a non-empty AST list has an allocation slot");
+        let slot = &mut self.ranges.as_mut_slice()[range_id.index()];
+        assert!(
+            slot.pointer.is_none(),
+            "an AST list transaction must restore its original borrowed range"
+        );
+        slot.pointer = Some(pointer.cast());
+        self.active_mutations -= 1;
+    }
+
+    fn take<T: 'ast + Unpin>(&mut self, range: AstVec<'ast, T>) -> ArenaVec<'ast, T> {
+        let Some(range_id) = self.range_id(range) else {
+            return ArenaVec::new_in(self.allocator);
+        };
+        let pointer = self.ranges.as_mut_slice()[range_id.index()]
+            .pointer
+            .take()
+            .expect("recursive access to a mutably borrowed or retired AST list")
+            .cast::<T>();
+        let mut values = ArenaVec::with_capacity_in(range.len(), self.allocator);
+        for offset in 0..range.len() {
+            // SAFETY: the old range is now retired, so moving each no-Drop AST
+            // value out exactly once cannot race another context access.
+            values.push(unsafe { pointer.as_ptr().add(offset).read() });
+        }
+        values
+    }
+
+    fn element_len(&self) -> usize {
+        self.elements.len()
+    }
+
+    fn range_len(&self) -> usize {
+        self.ranges.len()
+    }
+
+    fn truncate(&mut self, element_len: usize, range_len: usize) {
+        assert_eq!(
+            self.active_mutations, 0,
+            "cannot roll back AST range storage during a list mutation"
+        );
+        self.elements.truncate(element_len);
+        self.ranges.truncate(range_len);
+    }
+}
+
 /// Tail position of the node table captured by a speculative parser state.
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug)]
 pub struct NodeCheckpoint {
-    len: usize,
+    node_len: usize,
+    vec_element_len: usize,
+    vec_range_len: usize,
 }
 
 /// Storage extension used by the concrete AST context.
 #[doc(hidden)]
 pub struct AstNodeStores<'ast> {
     nodes: NodeStore<'ast>,
+    vecs: VecStore<'ast>,
 }
 
 /// Initializes the optional node-storage extension of a generic compilation.
@@ -199,6 +412,7 @@ impl<'ast> CompilationNodeStores<'ast> for AstNodeStores<'ast> {
     fn new_in(allocator: &'ast Allocator) -> Self {
         Self {
             nodes: NodeStore::new_in(allocator),
+            vecs: VecStore::new_in(allocator),
         }
     }
 }
@@ -216,19 +430,72 @@ impl<'ast> Context<'ast> {
     #[inline]
     pub fn node_checkpoint(&self) -> NodeCheckpoint {
         NodeCheckpoint {
-            len: self.node_stores.nodes.len(),
+            node_len: self.node_stores.nodes.len(),
+            vec_element_len: self.node_stores.vecs.element_len(),
+            vec_range_len: self.node_stores.vecs.range_len(),
         }
     }
 
     #[doc(hidden)]
     #[inline]
     pub fn restore_node_checkpoint(&mut self, checkpoint: NodeCheckpoint) {
-        self.node_stores.nodes.truncate(checkpoint.len);
+        self.node_stores.nodes.truncate(checkpoint.node_len);
+        self.node_stores
+            .vecs
+            .truncate(checkpoint.vec_element_len, checkpoint.vec_range_len);
     }
 
     #[inline]
     pub fn alloc_node<T: 'ast>(&mut self, value: T, span: Span) -> NodeId<'ast, T> {
         self.node_stores.nodes.alloc(value, span)
+    }
+
+    /// Commits a construction-time arena vector to persistent AST range storage.
+    #[inline]
+    pub fn alloc_vec<T: 'ast + Unpin>(&mut self, values: ArenaVec<'ast, T>) -> AstVec<'ast, T> {
+        self.node_stores.vecs.alloc(values)
+    }
+
+    /// Resolves a persistent AST range to its contiguous elements.
+    #[inline]
+    pub fn vec<'id, T>(&self, range: AstVec<'id, T>) -> &[T] {
+        self.node_stores.vecs.get(range)
+    }
+
+    /// Clones a persistent list into a fresh dense range.
+    pub fn clone_vec<T: Clone + Unpin + 'ast>(
+        &mut self,
+        range: AstVec<'ast, T>,
+    ) -> AstVec<'ast, T> {
+        let values = ArenaVec::from_iter_in(self.vec(range).iter().cloned(), self.allocator);
+        self.alloc_vec(values)
+    }
+
+    /// Mutates the elements of a persistent list without changing its length.
+    pub fn mutate_vec<T, R>(
+        &mut self,
+        range: AstVec<'ast, T>,
+        f: impl FnOnce(&mut [T], &mut Self) -> R,
+    ) -> R {
+        let mut mutation = self.node_stores.vecs.mutation(range);
+        f(mutation.values(), self)
+    }
+
+    /// Runs a length-changing list mutation and publishes a replacement range.
+    /// If the callback unwinds, its partially updated values are still committed
+    /// before the panic resumes, matching ordinary Vec mutation semantics.
+    pub fn rewrite_vec<T: Unpin + 'ast, R>(
+        &mut self,
+        range: &mut AstVec<'ast, T>,
+        f: impl FnOnce(&mut ArenaVec<'ast, T>, &mut Self) -> R,
+    ) -> R {
+        let mut values = self.node_stores.vecs.take(*range);
+        let result = catch_unwind(AssertUnwindSafe(|| f(&mut values, self)));
+        *range = self.node_stores.vecs.alloc(values);
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
     #[inline]
@@ -285,6 +552,17 @@ impl<'ast> Context<'ast> {
         self.node_stores.nodes.mutation(id)
     }
 
+    pub(crate) fn vec_mutation<T>(&mut self, range: AstVec<'ast, T>) -> VecMutation<'ast, T> {
+        self.node_stores.vecs.mutation(range)
+    }
+
+    pub(crate) fn take_vec<T: Unpin + 'ast>(
+        &mut self,
+        range: AstVec<'ast, T>,
+    ) -> ArenaVec<'ast, T> {
+        self.node_stores.vecs.take(range)
+    }
+
     #[inline]
     pub fn alloc_node_without_span<T: 'ast>(&mut self, value: T) -> NodeId<'ast, T> {
         self.alloc_node(value, DUMMY_SP)
@@ -314,5 +592,37 @@ where
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         cx.mutate_node(*self, |node, cx| node.visit_mut(visitor, cx));
+    }
+}
+
+impl<'ast, 'ghost, T> Visit<'ast, 'ghost> for AstVec<'ast, T>
+where
+    T: Visit<'ast, 'ghost>,
+{
+    fn visit<VisitorT: ?Sized + Visitor<'ast, 'ghost>>(
+        &self,
+        visitor: &mut VisitorT,
+        cx: &VisitContext<'_, 'ast, 'ghost>,
+    ) {
+        for value in cx.ast_context().vec(*self) {
+            value.visit(visitor, cx);
+        }
+    }
+}
+
+impl<'ast, 'ghost, T> VisitMut<'ast, 'ghost> for AstVec<'ast, T>
+where
+    T: VisitMut<'ast, 'ghost>,
+{
+    fn visit_mut<VisitorT: ?Sized + VisitorMut<'ast, 'ghost>>(
+        &mut self,
+        visitor: &mut VisitorT,
+        cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
+    ) {
+        cx.mutate_vec(*self, |values, cx| {
+            for value in values {
+                value.visit_mut(visitor, cx);
+            }
+        });
     }
 }

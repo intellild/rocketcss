@@ -96,12 +96,12 @@ impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<'_, V> {
     ) -> fmt::Result {
         match self {
             Self::Calc(value) => write_function("calc", dest, |dest| value.to_css(dest, _cx)),
-            Self::Min(values) => {
-                write_function("min", dest, |dest| write_calc_list(values, dest, _cx))
-            }
-            Self::Max(values) => {
-                write_function("max", dest, |dest| write_calc_list(values, dest, _cx))
-            }
+            Self::Min(values) => write_function("min", dest, |dest| {
+                write_calc_list(_cx.ast_context().vec(*values), dest, _cx)
+            }),
+            Self::Max(values) => write_function("max", dest, |dest| {
+                write_calc_list(_cx.ast_context().vec(*values), dest, _cx)
+            }),
             Self::Clamp((min, value, max)) => write_function("clamp", dest, |dest| {
                 min.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
@@ -130,9 +130,9 @@ impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<'_, V> {
             }),
             Self::Abs(value) => write_function("abs", dest, |dest| value.to_css(dest, _cx)),
             Self::Sign(value) => write_function("sign", dest, |dest| value.to_css(dest, _cx)),
-            Self::Hypot(values) => {
-                write_function("hypot", dest, |dest| write_calc_list(values, dest, _cx))
-            }
+            Self::Hypot(values) => write_function("hypot", dest, |dest| {
+                write_calc_list(_cx.ast_context().vec(*values), dest, _cx)
+            }),
         }
     }
 }

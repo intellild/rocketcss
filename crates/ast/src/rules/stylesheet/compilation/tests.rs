@@ -5,6 +5,7 @@ use super::*;
 #[test]
 fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<NodeId<'_, u8>>(), size_of::<u32>());
+    assert_eq!(size_of::<AstVec<'_, u8>>(), 2 * size_of::<u32>());
     assert_eq!(size_of::<Option<NodeId<'_, u8>>>(), size_of::<u32>());
     assert_eq!(size_of::<RuleId<'_, &str>>(), size_of::<u32>());
     assert_eq!(size_of::<Option<RuleId<'_, &str>>>(), size_of::<u32>());
@@ -28,16 +29,117 @@ fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<SourceOrderId>(), size_of::<u64>());
     assert_eq!(
         size_of::<RuleRecord<'static, CssRulePayload<'static>>>(),
-        120
+        96
     );
     assert_eq!(
         size_of::<DeclarationRecord<'static, DeclarationPayload<'static>>>(),
-        56
+        40
     );
     assert_eq!(
         size_of::<DeclarationBlockRecord<'static, CssRulePayload<'static>>>(),
         28
     );
+}
+
+#[test]
+fn ast_vec_access_clone_and_mutation_stay_on_the_context() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let original = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+        [1_u8, 2, 3],
+        &allocator,
+    ));
+    let cloned = compilation.clone_vec(original);
+
+    assert_ne!(original, cloned);
+    assert_eq!(compilation.vec(original), [1, 2, 3]);
+    compilation.mutate_vec(cloned, |values, ast| {
+        values[1] = 4;
+        let nested = ast.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([5_u8], &allocator));
+        assert_eq!(ast.vec(nested), [5]);
+    });
+
+    assert_eq!(compilation.vec(original), [1, 2, 3]);
+    assert_eq!(compilation.vec(cloned), [1, 4, 3]);
+}
+
+#[test]
+fn ast_vec_rejects_cross_context_element_type_confusion() {
+    let allocator = Allocator::new();
+    let mut first = Compilation::new_in(&allocator);
+    let mut second = Compilation::new_in(&allocator);
+    let bytes = first.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([1_u8], &allocator));
+    let _words = second.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+        [2_u16],
+        &allocator,
+    ));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = second.vec(bytes);
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(first.vec(bytes), [1]);
+}
+
+#[test]
+fn rewrite_vec_republishes_length_changes_after_unwind() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let mut values = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+        [1_u8, 2],
+        &allocator,
+    ));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compilation.rewrite_vec(&mut values, |values, _| {
+            values.push(3);
+            panic!("stop list rewrite");
+        });
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(compilation.vec(values), [1, 2, 3]);
+}
+
+#[test]
+fn mutate_vec_rejects_recursive_access_to_the_same_range() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let values =
+        compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([1_u8], &allocator));
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compilation.mutate_vec(values, |_, ast| {
+            let _ = ast.vec(values);
+        });
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(compilation.vec(values), [1]);
+}
+
+#[test]
+fn node_checkpoint_rolls_range_slots_back_with_nodes() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let committed =
+        compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([1_u8], &allocator));
+    let checkpoint = compilation.node_checkpoint();
+    let speculative = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+        [2_u8, 3],
+        &allocator,
+    ));
+
+    compilation.restore_node_checkpoint(checkpoint);
+    let replacement = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+        [4_u8, 5],
+        &allocator,
+    ));
+
+    assert_eq!(replacement, speculative);
+    assert_eq!(compilation.vec(committed), [1]);
+    assert_eq!(compilation.vec(replacement), [4, 5]);
 }
 
 #[test]

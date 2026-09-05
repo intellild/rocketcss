@@ -75,14 +75,6 @@ impl VisitMode {
         )
     }
 
-    fn reference(self) -> TokenStream2 {
-        if matches!(self, Self::Read) {
-            quote!(&)
-        } else {
-            quote!(&mut)
-        }
-    }
-
     fn iterator(self) -> Ident {
         format_ident!(
             "{}",
@@ -92,6 +84,14 @@ impl VisitMode {
                 "iter_mut"
             }
         )
+    }
+
+    fn reference(self) -> TokenStream2 {
+        if matches!(self, Self::Read) {
+            quote!(&)
+        } else {
+            quote!(&mut)
+        }
     }
 
     fn option_accessor(self) -> Ident {
@@ -561,17 +561,6 @@ fn visit_type(
                 } else {
                     visit_type(mode, inner_ty, quote!((#expression).#accessor()), counter)
                 }
-            } else if name == "Vec" {
-                let Some(inner_ty) = first_type_argument(&segment.arguments) else {
-                    return Err(syn::Error::new(
-                        segment.span(),
-                        "expected a Vec type argument",
-                    ));
-                };
-                let binding = fresh_binding(counter);
-                let iterator = mode.iterator();
-                let inner = visit_type(mode, inner_ty, quote!(#binding), counter)?;
-                Ok(quote!(for #binding in (#expression).#iterator() { #inner }))
             } else if name == "GhostCell" {
                 let Some(_inner_ty) = first_type_argument(&segment.arguments) else {
                     return Err(syn::Error::new(

@@ -1,10 +1,11 @@
+use rocketcss_common::vec::Vec as ArenaVec;
 use rocketcss_common::{GhostCell, GhostToken, Ref};
 use std::{
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
     pin::Pin,
 };
 
-use crate::{Compilation, NodeId};
+use crate::{AstVec, Compilation, NodeId};
 
 /// Shared GhostCell access carried through immutable value-AST traversal.
 pub struct VisitContext<'token, 'ast, 'ghost> {
@@ -176,6 +177,46 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
         // only uses the raw context pointer after the callback returns or starts unwinding.
         let mut mutation = unsafe { (*ast.as_ptr()).node_mutation(id) };
         visit(mutation.value(), self)
+    }
+
+    pub fn mutate_vec<T, R>(
+        &mut self,
+        range: AstVec<'ast, T>,
+        visit: impl FnOnce(&mut [T], &mut Self) -> R,
+    ) -> R {
+        let VisitMutState::Available { ast: Some(ast), .. } = &mut self.state else {
+            panic!("visiting an AstVec requires its available AstContext");
+        };
+        let ast = std::ptr::NonNull::from(&mut **ast);
+        // SAFETY: the private range transaction makes this range unavailable
+        // while the callback recursively accesses other ranges through self.
+        let mut mutation = unsafe { (*ast.as_ptr()).vec_mutation(range) };
+        visit(mutation.values(), self)
+    }
+
+    /// Runs a length-changing mutation over a persistent list and replaces its
+    /// range after the callback completes or unwinds.
+    pub fn rewrite_vec<T: Unpin + 'ast, R>(
+        &mut self,
+        range: &mut AstVec<'ast, T>,
+        visit: impl FnOnce(&mut ArenaVec<'ast, T>, &mut Self) -> R,
+    ) -> R {
+        let VisitMutState::Available { ast: Some(ast), .. } = &mut self.state else {
+            panic!("rewriting an AstVec requires its available AstContext");
+        };
+        let ast = std::ptr::NonNull::from(&mut **ast);
+        // SAFETY: no reference derived from the raw context pointer is kept
+        // while visit runs. The retired range is inaccessible through context
+        // until the replacement is committed below.
+        let mut values = unsafe { (*ast.as_ptr()).take_vec(*range) };
+        let result = catch_unwind(AssertUnwindSafe(|| visit(&mut values, self)));
+        // SAFETY: the callback has ended, so using the context pointer again is
+        // disjoint from every nested context borrow it created.
+        *range = unsafe { (*ast.as_ptr()).alloc_vec(values) };
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 }
 

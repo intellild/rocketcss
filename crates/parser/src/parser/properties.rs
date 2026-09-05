@@ -121,6 +121,7 @@ fn parse_declaration_fallback<'i>(
     let important = remove_important(input.ast_context(), &mut value);
 
     let declaration = if name.starts_with("--") {
+        let value = store_vec(value, input);
         Declaration::Custom(store_node(
             CustomProperty {
                 name: store_node(CustomPropertyName::Custom(name), input),
@@ -155,6 +156,7 @@ pub(super) fn unparsed_declaration<'i>(
     raw_value: Option<&'i str>,
     input: &mut Compiler<'i>,
 ) -> Declaration<'i> {
+    let value = store_vec(value, input);
     Declaration::Unparsed(store_node(
         UnparsedProperty {
             property_id: store_node(property_id, input),
@@ -373,7 +375,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 |input| super::values::parse_comma_separated(input, <$parser as Parse>::parse),
-            ).map(Declaration::$property));
+            ).map(|value| Declaration::$property(store_vec(value, $input))));
         }
     };
     (@dispatch comma_separated : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
@@ -381,7 +383,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 |input| super::values::parse_comma_separated(input, <$parser as Parse>::parse),
-            ).map(|value| Declaration::$property(value, *prefix)));
+            ).map(|value| Declaration::$property(store_vec(value, $input), *prefix)));
         }
     };
 
@@ -508,7 +510,7 @@ fn parse_background<'i>(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let mut values = allocator.vec();
             values.push(Background::parse(input)?);
-            Ok(Declaration::Background(values))
+            Ok(Declaration::Background(store_vec(values, input)))
         }),
     )
 }
@@ -545,7 +547,7 @@ fn parse_font_family<'i>(
             {
                 return Err(input.new_custom_error(ParserError::InvalidValue));
             }
-            Ok(Declaration::FontFamily(families))
+            Ok(Declaration::FontFamily(store_vec(families, input)))
         }),
     )
 }
@@ -567,7 +569,8 @@ fn parse_transform<'i>(
     }
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            parse_transform_list(input).map(|value| Declaration::Transform(value, prefix))
+            parse_transform_list(input)
+                .map(|value| Declaration::Transform(store_vec(value, input), prefix))
         }),
     )
 }
@@ -584,7 +587,7 @@ fn parse_transition<'i>(
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_comma_separated(input, Transition::parse)
-                .map(|value| Declaration::Transition(value, prefix))
+                .map(|value| Declaration::Transition(store_vec(value, input), prefix))
         }),
     )
 }
@@ -598,7 +601,7 @@ fn parse_transition_property<'i>(
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_transition_property_list(input)
-                .map(|value| Declaration::TransitionProperty(value, prefix))
+                .map(|value| Declaration::TransitionProperty(store_vec(value, input), prefix))
         }),
     )
 }
@@ -614,7 +617,8 @@ fn parse_animation<'i>(
     }
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            parse_animation_list(input).map(|value| Declaration::Animation(value, prefix))
+            parse_animation_list(input)
+                .map(|value| Declaration::Animation(store_vec(value, input), prefix))
         }),
     )
 }
@@ -631,7 +635,7 @@ fn parse_animation_name<'i>(
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_comma_separated(input, AnimationName::parse)
-                .map(|value| Declaration::AnimationName(value, prefix))
+                .map(|value| Declaration::AnimationName(store_vec(value, input), prefix))
         }),
     )
 }
@@ -651,7 +655,7 @@ macro_rules! prefixed_comma_adapter {
                 Delimiter::Bang | Delimiter::Semicolon,
                 |input| {
                     parse_comma_separated(input, <$value as Parse>::parse)
-                        .map(|value| Declaration::$variant(value, prefix))
+                        .map(|value| Declaration::$variant(store_vec(value, input), prefix))
                 },
             ))
         }

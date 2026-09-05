@@ -1,7 +1,5 @@
 use super::*;
 
-use rocketcss_common::vec::Vec;
-
 #[derive(Debug, PartialEq, Visit)]
 pub enum Length<'a> {
     Value(LengthValue),

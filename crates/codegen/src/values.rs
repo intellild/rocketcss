@@ -140,7 +140,7 @@ impl<'ghost> ToCss<'ghost> for Content<'_> {
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        crate::token::write_token_list(&self.value, dest, cx)
+        crate::token::write_token_list(cx.ast_context().vec(self.value), dest, cx)
     }
 }
 
@@ -203,7 +203,7 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                     direction.to_css(dest, _cx)?;
                     dest.delim(Delimiter::Comma)?;
                 }
-                write_gradient_items(items, dest, _cx)?;
+                write_gradient_items(_cx.ast_context().vec(*items), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Radial {
@@ -228,7 +228,7 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                 dest.write_str(" at ")?;
                 position.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
-                write_gradient_items(items, dest, _cx)?;
+                write_gradient_items(_cx.ast_context().vec(*items), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Conic {
@@ -250,7 +250,7 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                 dest.write_str(" at ")?;
                 position.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
-                write_gradient_items(items, dest, _cx)?;
+                write_gradient_items(_cx.ast_context().vec(*items), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::WebKitGradient(value) => value.to_css(dest, _cx),
@@ -271,7 +271,7 @@ impl<'ghost> ToCss<'ghost> for WebKitGradient<'_> {
                 from.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 to.to_css(dest, _cx)?;
-                for stop in stops {
+                for stop in _cx.ast_context().vec(*stops) {
                     dest.delim(Delimiter::Comma)?;
                     stop.to_css(dest, _cx)?;
                 }
@@ -291,7 +291,7 @@ impl<'ghost> ToCss<'ghost> for WebKitGradient<'_> {
                 to.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 serialize_number(*end_radius, dest)?;
-                for stop in stops {
+                for stop in _cx.ast_context().vec(*stops) {
                     dest.delim(Delimiter::Comma)?;
                     stop.to_css(dest, _cx)?;
                 }
@@ -968,6 +968,8 @@ impl<'ghost> ToCss<'ghost> for TrackSizing<'_> {
             Self::None => dest.write_str("none"),
             Self::TrackList { items, line_names } => {
                 let mut wrote_value = false;
+                let items = _cx.ast_context().vec(*items);
+                let line_names = _cx.ast_context().vec(*line_names);
                 for (index, item) in items.iter().enumerate() {
                     if let Some(names) = line_names.get(index)
                         && !names.is_empty()
@@ -975,7 +977,7 @@ impl<'ghost> ToCss<'ghost> for TrackSizing<'_> {
                         if wrote_value {
                             dest.write_char(' ')?;
                         }
-                        write_line_names(names, dest)?;
+                        write_line_names(_cx.ast_context().vec(*names), dest)?;
                         wrote_value = true;
                     }
                     if wrote_value {
@@ -990,7 +992,7 @@ impl<'ghost> ToCss<'ghost> for TrackSizing<'_> {
                     if wrote_value {
                         dest.write_char(' ')?;
                     }
-                    write_line_names(names, dest)?;
+                    write_line_names(_cx.ast_context().vec(*names), dest)?;
                 }
                 Ok(())
             }
@@ -1078,7 +1080,7 @@ impl<'ghost> ToCss<'ghost> for GridTemplateAreas<'_> {
                 if columns == 0 {
                     return Ok(());
                 }
-                for (row, values) in areas.chunks(columns).enumerate() {
+                for (row, values) in _cx.ast_context().vec(*areas).chunks(columns).enumerate() {
                     if row > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1540,7 +1542,7 @@ impl<'ghost> ToCss<'ghost> for TextDecorationLine<'_> {
         match self {
             Self::ExclusiveTextDecorationLine(value) => value.to_css(dest, _cx),
             Self::Value(values) => {
-                for (index, value) in values.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1663,7 +1665,7 @@ impl<'ghost> ToCss<'ghost> for CounterStyle<'_> {
                     system.to_css(dest, _cx)?;
                     dest.write_char(' ')?;
                 }
-                for (index, symbol) in symbols.iter().enumerate() {
+                for (index, symbol) in _cx.ast_context().vec(*symbols).iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1733,7 +1735,7 @@ impl<'ghost> ToCss<'ghost> for StrokeDasharray<'_> {
         match self {
             Self::None => dest.write_str("none"),
             Self::Values(values) => {
-                for (index, value) in values.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
@@ -1831,7 +1833,7 @@ impl<'ghost> ToCss<'ghost> for FilterList<'_> {
         match self {
             Self::None => dest.write_str("none"),
             Self::Filters(values) => {
-                for (index, value) in values.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1906,7 +1908,7 @@ impl<'ghost> ToCss<'ghost> for ContainerNameList<'_> {
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
-            Self::Names(values) => write_ident_list(values, dest),
+            Self::Names(values) => write_ident_list(_cx.ast_context().vec(*values), dest),
         }
     }
 }
@@ -1943,7 +1945,7 @@ impl<'ghost> ToCss<'ghost> for NoneOrCustomIdentList<'_> {
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
-            Self::Idents(values) => write_ident_list(values, dest),
+            Self::Idents(values) => write_ident_list(_cx.ast_context().vec(*values), dest),
         }
     }
 }

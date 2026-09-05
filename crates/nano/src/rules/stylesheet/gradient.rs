@@ -93,9 +93,11 @@ pub(super) fn minify_gradient_stops<'ast>(
                 Some(FunctionReplacement::Rgba { alpha: 0.0, .. })
             )
         {
-            ast.mutate_node(*function, |function, _| {
+            ast.mutate_node(*function, |function, ast| {
                 function.set_name("transparent");
-                function.arguments.clear();
+                let mut arguments = function.arguments;
+                ast.rewrite_vec(&mut arguments, |arguments, _| arguments.clear());
+                function.arguments = arguments;
                 function.replacement = None;
                 function.set_identifier(true);
             });
@@ -296,8 +298,10 @@ fn set_gradient_position_zero<'ast>(
 ) {
     match value {
         TokenOrValue::Length(value) => value.value = 0.0,
-        TokenOrValue::Function(function) => ast.mutate_node(*function, |function, _| {
-            function.arguments.clear();
+        TokenOrValue::Function(function) => ast.mutate_node(*function, |function, ast| {
+            let mut arguments = function.arguments;
+            ast.rewrite_vec(&mut arguments, |arguments, _| arguments.clear());
+            function.arguments = arguments;
             function.replacement = Some(FunctionReplacement::Number(0.0));
         }),
         TokenOrValue::Token(token) => {

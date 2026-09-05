@@ -32,6 +32,7 @@ impl<'i> Parse<'i> for CssColor<'i> {
                 if token_values_contain_opaque(input.ast_context(), &arguments) {
                     return Err(location.new_custom_error(ParserError::InvalidValue));
                 }
+                let arguments = store_vec(arguments, input);
                 let mut function = Function::new(name, arguments);
                 if matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
                     if !is_supported_rgb_function(input.ast_context(), &function) {
@@ -53,7 +54,7 @@ pub(super) fn validate_rgb_function<'i>(ast: &Compilation<'i>, function: &mut Fu
 }
 
 fn is_supported_rgb_function<'i>(ast: &Compilation<'i>, function: &Function<'i>) -> bool {
-    let mut components = function.arguments.iter().filter(|value| {
+    let mut components = ast.vec(function.arguments).iter().filter(|value| {
         !matches!(
             value,
             TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::WhiteSpace(_))

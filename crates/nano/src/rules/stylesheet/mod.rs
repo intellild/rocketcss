@@ -28,8 +28,9 @@ fn token_or_value_contains_variable(
         TokenOrValue::Function(function) => {
             let function = ast.ast_context().resolve_node(*function);
             function.kind() == KnownFunction::Var
-                || function
-                    .arguments
+                || ast
+                    .ast_context()
+                    .vec(function.arguments)
                     .iter()
                     .any(|value| token_or_value_contains_variable(value, ast))
         }

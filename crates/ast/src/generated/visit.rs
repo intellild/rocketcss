@@ -2205,9 +2205,7 @@ pub trait Visitor<'a, 'ghost> {
     ) {
         let visitor = self;
         visitor.enter_node(AstType::SelectorList);
-        for value_0 in (node).iter() {
-            Visit::visit(value_0, visitor, cx);
-        }
+        Visit::visit(node, visitor, cx);
         visitor.leave_node(AstType::SelectorList);
     }
     #[inline]
@@ -2355,6 +2353,15 @@ impl<'a, 'ghost> Visit<'a, 'ghost> for &'a str {
         cx: &VisitContext<'_, 'a, 'ghost>,
     ) {
         visitor.visit_str(self, cx);
+    }
+}
+impl<'a, 'ghost> Visit<'a, 'ghost> for rocketcss_common::Atom<'a> {
+    fn visit<VisitorT: ?Sized + Visitor<'a, 'ghost>>(
+        &self,
+        visitor: &mut VisitorT,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        visitor.visit_atom(self, cx);
     }
 }
 impl<'a, 'ghost> Visit<'a, 'ghost> for VendorPrefix {

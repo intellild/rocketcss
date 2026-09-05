@@ -2,53 +2,52 @@ use rocketcss_ast::{Animation, AnimationComponent, VisitMutContext};
 
 use crate::{MinifyContext, Options, OptionsOp};
 
-pub(crate) fn minify_animation(
-    animation: &mut Animation<'_>,
+pub(crate) fn minify_animation<'ast>(
+    animation: &mut Animation<'ast>,
     cx: &mut MinifyContext<'_>,
-    ast: &VisitMutContext<'_, '_, '_>,
+    ast: &mut VisitMutContext<'_, 'ast, '_>,
 ) {
     if animation.components.len() < 2 || !cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any) {
         return;
     }
-    // A keyframes name that collides with a present keyword class is
-    // deferred behind the class so a reparse claims the class first.
-    // With the class absent the name keeps its authored quotes instead.
-    let defer_name = animation.components.iter().any(|component| {
-        let AnimationComponent::Name(name) = component else {
-            return false;
-        };
-        ast.ast_context()
-            .resolve_node(*name)
-            .keyword_class()
-            .is_some_and(|class| {
-                animation
-                    .components
-                    .iter()
-                    .any(|component| component.keyword_class() == Some(class))
-            })
-    });
-    let rank = |component: &AnimationComponent<'_>| match component {
-        AnimationComponent::Name(_) if defer_name => 8,
-        AnimationComponent::Name(_) => 0,
-        AnimationComponent::Duration(_) => 1,
-        AnimationComponent::TimingFunction(_) => 2,
-        AnimationComponent::Delay(_) => 3,
-        AnimationComponent::IterationCount(_) => 4,
-        AnimationComponent::Direction(_) => 5,
-        AnimationComponent::FillMode(_) => 6,
-        AnimationComponent::PlayState(_) => 7,
-    };
     let mut changed = false;
-    for right in 1..animation.components.len() {
-        let mut current = right;
-        while current > 0
-            && rank(&animation.components[current - 1]) > rank(&animation.components[current])
-        {
-            animation.components.swap(current - 1, current);
-            current -= 1;
-            changed = true;
+    ast.mutate_vec(animation.components, |components, ast| {
+        // A keyframes name that collides with a present keyword class is
+        // deferred behind the class so a reparse claims the class first.
+        // With the class absent the name keeps its authored quotes instead.
+        let defer_name = components.iter().any(|component| {
+            let AnimationComponent::Name(name) = component else {
+                return false;
+            };
+            ast.ast_context()
+                .resolve_node(*name)
+                .keyword_class()
+                .is_some_and(|class| {
+                    components
+                        .iter()
+                        .any(|component| component.keyword_class() == Some(class))
+                })
+        });
+        let rank = |component: &AnimationComponent<'_>| match component {
+            AnimationComponent::Name(_) if defer_name => 8,
+            AnimationComponent::Name(_) => 0,
+            AnimationComponent::Duration(_) => 1,
+            AnimationComponent::TimingFunction(_) => 2,
+            AnimationComponent::Delay(_) => 3,
+            AnimationComponent::IterationCount(_) => 4,
+            AnimationComponent::Direction(_) => 5,
+            AnimationComponent::FillMode(_) => 6,
+            AnimationComponent::PlayState(_) => 7,
+        };
+        for right in 1..components.len() {
+            let mut current = right;
+            while current > 0 && rank(&components[current - 1]) > rank(&components[current]) {
+                components.swap(current - 1, current);
+                current -= 1;
+                changed = true;
+            }
         }
-    }
+    });
     if changed {
         cx.record_value_normalized();
     }

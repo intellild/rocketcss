@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn minify_hsl_function(
     function: &Function<'_>,
+    arguments: &[TokenOrValue<'_>],
     cx: &MinifyContext,
     ast: &VisitMutContext<'_, '_, '_>,
 ) -> Option<FunctionReplacement> {
@@ -10,7 +11,7 @@ pub(super) fn minify_hsl_function(
         KnownFunction::Hsla => false,
         _ => return None,
     };
-    let mut components = function.arguments.iter().filter(|value| {
+    let mut components = arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
             if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
     });
@@ -81,13 +82,14 @@ fn color_percentage(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>)
 
 pub(super) fn minify_rgb_function(
     function: &Function<'_>,
+    arguments: &[TokenOrValue<'_>],
     cx: &MinifyContext,
     ast: &VisitMutContext<'_, '_, '_>,
 ) -> Option<FunctionReplacement> {
     if !matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
         return None;
     }
-    let mut components = function.arguments.iter().filter(|value| {
+    let mut components = arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
             if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
     });

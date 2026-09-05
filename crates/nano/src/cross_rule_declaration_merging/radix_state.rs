@@ -1070,16 +1070,14 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 continue;
             }
 
-            let left_selectors = compilation
+            let left_selectors = *compilation
                 .selector_value(endpoints.left_selector)
                 .expect("a validated selector value remains resolvable")
-                .selectors()
-                .clone();
-            let right_selectors = compilation
+                .selectors();
+            let right_selectors = *compilation
                 .selector_value(endpoints.right_selector)
                 .expect("a validated selector value remains resolvable")
-                .selectors()
-                .clone();
+                .selectors();
             let Some(selectors) = materialize_selector_union(
                 &left_selectors,
                 &right_selectors,
@@ -1563,7 +1561,7 @@ fn declarations_have_equal_effect<'ast>(
     else {
         return false;
     };
-    if left_value.eq_ignoring_tombstones(right_value) {
+    if left_value.eq_ignoring_tombstones(right_value, compilation) {
         return true;
     }
     if let Some(equal) =

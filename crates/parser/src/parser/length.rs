@@ -75,6 +75,7 @@ impl<'i> Parse<'i> for Size<'i> {
                 if token_values_contain_opaque(input.ast_context(), &arguments) {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 }
+                let arguments = store_vec(arguments, input);
                 Ok(Size::MathFunction(store_node(
                     Function::new(name, arguments),
                     input,
@@ -144,6 +145,7 @@ impl<'i> Parse<'i> for MaxSize<'i> {
                 if token_values_contain_opaque(input.ast_context(), &arguments) {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 }
+                let arguments = store_vec(arguments, input);
                 Ok(Self::MathFunction(store_node(
                     Function::new(name, arguments),
                     input,

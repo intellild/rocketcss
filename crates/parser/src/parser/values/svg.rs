@@ -151,7 +151,7 @@ impl<'i> Parse<'i> for StrokeDasharray<'i> {
                 break;
             }
         }
-        Ok(Self::Values(values))
+        Ok(Self::Values(store_vec(values, input)))
     }
 }
 

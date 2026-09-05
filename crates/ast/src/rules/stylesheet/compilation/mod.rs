@@ -650,7 +650,7 @@ pub enum ValidationError<'ast, P> {
 pub struct RadixCompilation<'ast, R: Unpin, D, K, N = ()> {
     allocator: &'ast Allocator,
     stylesheet: StyleSheet<'ast>,
-    license_comments: crate::Vec<'ast, &'ast str>,
+    license_comments: rocketcss_common::vec::Vec<'ast, &'ast str>,
     rules: RuleStore<'ast, R>,
     rule_spans: DenseStore<'ast, RuleRecord<'ast, R>, Span>,
     rule_lists: RuleListStore<'ast, R>,

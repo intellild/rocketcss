@@ -286,7 +286,9 @@ impl<'i> Parse<'i> for Animation<'i> {
         if components.is_empty() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self { components })
+        Ok(Self {
+            components: store_vec(components, input),
+        })
     }
 }
 

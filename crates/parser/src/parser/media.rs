@@ -30,6 +30,7 @@ pub(super) fn parse_import_rule<'i>(
         } else {
             None
         };
+        let layer = layer.map(|layer| store_vec(layer, input));
 
         let supports = if input
             .try_parse(|input| input.expect_function_matching("supports"))
@@ -80,7 +81,7 @@ pub(super) fn parse_media_list<'i>(
     let allocator = input.allocator();
     if source.trim().is_empty() {
         return Ok(MediaList {
-            media_queries: allocator.vec(),
+            media_queries: store_vec(allocator.vec(), input),
         });
     }
     input.with_source(source, |input| {
@@ -93,7 +94,9 @@ pub(super) fn parse_media_list<'i>(
         for query in parsed {
             media_queries.push(store_node(query, input));
         }
-        Ok(MediaList { media_queries })
+        Ok(MediaList {
+            media_queries: store_vec(media_queries, input),
+        })
     })
 }
 
@@ -141,9 +144,10 @@ fn parse_unknown_media_query<'i>(
     allocator: &'i Allocator,
 ) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
     Ok(MediaQuery {
-        condition: Some(MediaCondition::Unknown(collect_tokens(
-            input, allocator, 0,
-        )?)),
+        condition: Some(MediaCondition::Unknown(store_vec(
+            collect_tokens(input, allocator, 0)?,
+            input,
+        ))),
         media_type: MediaType::All,
         qualifier: None,
     })
@@ -189,9 +193,8 @@ fn parse_media_condition_or_unknown<'i>(
     }) {
         return Ok(condition);
     }
-    Ok(MediaCondition::Unknown(collect_tokens(
-        input, allocator, 0,
-    )?))
+    let tokens = collect_tokens(input, allocator, 0)?;
+    Ok(MediaCondition::Unknown(store_vec(tokens, input)))
 }
 
 fn parse_media_condition<'i>(
@@ -230,7 +233,7 @@ fn parse_media_condition<'i>(
         conditions.push(parse_parenthesis(input, allocator)?);
     }
     Ok(MediaCondition::Operation {
-        conditions,
+        conditions: store_vec(conditions, input),
         operator,
     })
 }
@@ -754,6 +757,8 @@ fn parse_environment_variable<'i>(
             None
         };
         input.expect_exhausted()?;
+        let fallback = fallback.map(|fallback| store_vec(fallback, input));
+        let indices = store_vec(indices, input);
         Ok(EnvironmentVariable {
             fallback,
             indices,

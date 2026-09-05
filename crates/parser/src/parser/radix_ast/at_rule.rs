@@ -153,7 +153,7 @@ fn parse_layer_rule<'ast>(
     name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let (raw_prelude, ending) = parse_at_rule_header(input, depth, name)?;
-    let mut names = parse_layer_names(raw_prelude, input.allocator())?;
+    let mut names = parse_layer_names(input, raw_prelude)?;
     if ending == AtRuleEnding::Block {
         if names.len() > 1 {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
@@ -177,6 +177,7 @@ fn parse_layer_rule<'ast>(
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
         let span = span_from(start, input.position());
+        let names = store_vec(names, input);
         input
             .ast_context_mut()
             .append_rule_with_span(
@@ -297,6 +298,8 @@ fn parse_unknown_at_rule<'ast>(
         Err(error) => return Err(error.into()),
     };
     let span = span_from(start, input.position());
+    let prelude = store_vec(prelude, input);
+    let block = block.map(|block| store_vec(block, input));
     input
         .ast_context_mut()
         .append_rule_with_span(
@@ -407,6 +410,7 @@ fn parse_keyframe_list_into<'ast>(
         }
         let mut selectors = allocator.vec();
         selectors.extend(parsed?);
+        let selectors = store_vec(selectors, input);
         let frame = append_declaration_owner(
             input,
             list,
@@ -427,6 +431,7 @@ fn parse_font_feature_values_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
     let family_names = parse_family_names(prelude, input.allocator())?;
+    let family_names = store_vec(family_names, input);
     let rule = input
         .ast_context_mut()
         .append_rule(
@@ -522,7 +527,8 @@ fn parse_page_rule<'ast>(
     name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
-    let selectors = parse_page_selectors(prelude, input.allocator())?;
+    let selectors = parse_page_selectors(input, prelude)?;
+    let selectors = store_vec(selectors, input);
     let page = input
         .ast_context_mut()
         .append_rule(list, CssRulePayload::Page(PageRulePayload { selectors }))

@@ -90,9 +90,9 @@ impl<'ghost> ToCss<'ghost> for u16 {
 macro_rules! comma_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, $ty> {
+            impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
-                    for (index, value) in self.iter().enumerate() {
+                    for (index, value) in _cx.ast_context().vec(*self).iter().enumerate() {
                         if index > 0 {
                             dest.delim(Delimiter::Comma)?;
                         }
@@ -142,14 +142,19 @@ comma_vec! {
     WebKitMaskSourceType,
 }
 
-impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, FontFamily<'a>> {
+impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, FontFamily<'a>> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let mut first = true;
-        for family in self.iter().filter(|family| !family.is_tombstone()) {
+        for family in _cx
+            .ast_context()
+            .vec(*self)
+            .iter()
+            .filter(|family| !family.is_tombstone())
+        {
             if !first {
                 dest.delim(Delimiter::Comma)?;
             }
@@ -163,9 +168,9 @@ impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, FontFamily<'a>
 macro_rules! space_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, $ty> {
+            impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
-                    for (index, value) in self.iter().enumerate() {
+                    for (index, value) in _cx.ast_context().vec(*self).iter().enumerate() {
                         if index > 0 {
                             dest.write_char(' ')?;
                         }

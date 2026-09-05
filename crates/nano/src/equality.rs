@@ -86,7 +86,7 @@ pub(crate) fn known_declaration_structural_equality<'ast>(
             {
                 return Some(false);
             }
-            token_lists_are_equal(ast, &left.value, &right.value)
+            token_lists_are_equal(ast, ast.vec(left.value), ast.vec(right.value))
         }
         (Declaration::Custom(left), Declaration::Custom(right)) => {
             let left = ast.resolve_node(*left);
@@ -94,7 +94,7 @@ pub(crate) fn known_declaration_structural_equality<'ast>(
             if !ast.nodes_eq(left.name, right.name) {
                 return Some(false);
             }
-            token_lists_are_equal(ast, &left.value, &right.value)
+            token_lists_are_equal(ast, ast.vec(left.value), ast.vec(right.value))
         }
         (Declaration::CSSWide(..) | Declaration::Unparsed(_) | Declaration::Custom(_), _)
         | (_, Declaration::CSSWide(..) | Declaration::Unparsed(_) | Declaration::Custom(_)) => {
@@ -151,17 +151,25 @@ fn token_or_value_equality<'ast>(
             if !ast.nodes_eq(left.name, right.name) {
                 return Some(false);
             }
-            optional_token_lists_are_equal(ast, left.fallback.as_deref(), right.fallback.as_deref())
+            optional_token_lists_are_equal(
+                ast,
+                left.fallback.map(|values| ast.vec(values)),
+                right.fallback.map(|values| ast.vec(values)),
+            )
         }
         (TokenOrValue::Env(left), TokenOrValue::Env(right)) => {
             let left = ast.resolve_node(*left);
             let right = ast.resolve_node(*right);
-            if left.indices != right.indices
+            if ast.vec(left.indices) != ast.vec(right.indices)
                 || !environment_variable_names_are_equal(ast, &left.name, &right.name)
             {
                 return Some(false);
             }
-            optional_token_lists_are_equal(ast, left.fallback.as_deref(), right.fallback.as_deref())
+            optional_token_lists_are_equal(
+                ast,
+                left.fallback.map(|values| ast.vec(values)),
+                right.fallback.map(|values| ast.vec(values)),
+            )
         }
         (TokenOrValue::Function(left), TokenOrValue::Function(right)) => {
             functions_are_equal(ast, ast.resolve_node(*left), ast.resolve_node(*right))
@@ -213,7 +221,7 @@ fn functions_are_equal<'ast>(
     {
         return Some(false);
     }
-    token_lists_are_equal(ast, &left.arguments, &right.arguments)
+    token_lists_are_equal(ast, ast.vec(left.arguments), ast.vec(right.arguments))
 }
 
 fn unresolved_colors_are_equal<'ast>(
@@ -236,7 +244,7 @@ fn unresolved_colors_are_equal<'ast>(
                 r: right_r,
             },
         ) if left_b == right_b && left_g == right_g && left_r == right_r => {
-            token_lists_are_equal(ast, left_alpha, right_alpha)
+            token_lists_are_equal(ast, ast.vec(*left_alpha), ast.vec(*right_alpha))
         }
         (
             UnresolvedColor::Hsl {
@@ -252,7 +260,7 @@ fn unresolved_colors_are_equal<'ast>(
                 s: right_s,
             },
         ) if left_h == right_h && left_l == right_l && left_s == right_s => {
-            token_lists_are_equal(ast, left_alpha, right_alpha)
+            token_lists_are_equal(ast, ast.vec(*left_alpha), ast.vec(*right_alpha))
         }
         (
             UnresolvedColor::LightDark {
@@ -263,8 +271,8 @@ fn unresolved_colors_are_equal<'ast>(
                 dark: right_dark,
                 light: right_light,
             },
-        ) => match token_lists_are_equal(ast, left_dark, right_dark) {
-            Some(true) => token_lists_are_equal(ast, left_light, right_light),
+        ) => match token_lists_are_equal(ast, ast.vec(*left_dark), ast.vec(*right_dark)) {
+            Some(true) => token_lists_are_equal(ast, ast.vec(*left_light), ast.vec(*right_light)),
             result => result,
         },
         _ => Some(false),
@@ -279,7 +287,7 @@ pub(crate) fn declarations_with_equal_css_are_equal<'ast>(
 ) -> bool {
     match (left, right) {
         (Declaration::Mask(left, left_prefix), Declaration::Mask(right, right_prefix)) => {
-            left_prefix == right_prefix && masks_are_equal(ast, left, right)
+            left_prefix == right_prefix && masks_are_equal(ast, ast.vec(*left), ast.vec(*right))
         }
         _ => true,
     }

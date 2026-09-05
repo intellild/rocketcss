@@ -197,12 +197,13 @@ fn write_unparsed_token_or_value<'ghost, PrinterT: PrinterTrait>(
         },
         TokenOrValue::Function(function) => {
             let function = ast.resolve_node(*function);
+            let arguments = ast.vec(function.arguments);
             dest.write_str(function.name())?;
             dest.write_char('(')?;
-            write_unparsed_token_list(&function.arguments, dest, cx)?;
+            write_unparsed_token_list(arguments, dest, cx)?;
             if function.kind().is_variable()
                 && matches!(
-                    function.arguments.last(),
+                    arguments.last(),
                     Some(TokenOrValue::Token(token)) if matches!(ast.resolve_node(*token), Token::Comma)
                 )
             {
@@ -349,6 +350,7 @@ impl<'ghost> ToCss<'ghost> for Variable<'_> {
         dest.write_str("var(")?;
         self.name.to_css(dest, _cx)?;
         if let Some(fallback) = &self.fallback {
+            let fallback = _cx.ast_context().vec(*fallback);
             dest.write_char(',')?;
             if fallback.is_empty() {
                 dest.write_char(' ')?;
@@ -373,11 +375,12 @@ impl<'ghost> ToCss<'ghost> for EnvironmentVariable<'_> {
     ) -> fmt::Result {
         dest.write_str("env(")?;
         self.name.to_css(dest, _cx)?;
-        for index in &self.indices {
+        for index in _cx.ast_context().vec(self.indices) {
             dest.write_char(' ')?;
             serialize_int(*index, dest)?;
         }
         if let Some(fallback) = &self.fallback {
+            let fallback = _cx.ast_context().vec(*fallback);
             dest.write_char(',')?;
             if fallback.is_empty() {
                 dest.write_char(' ')?;
@@ -490,8 +493,9 @@ impl<'ghost> ToCss<'ghost> for Function<'_> {
             return Ok(());
         }
         dest.write_char('(')?;
+        let arguments = _cx.ast_context().vec(self.arguments);
         if self.is_unquoted_url() {
-            let [TokenOrValue::Token(token)] = self.arguments.as_slice() else {
+            let [TokenOrValue::Token(token)] = arguments else {
                 unreachable!("unquoted URL functions retain one string token")
             };
             let Token::String(value) = _cx.ast_context().resolve_node(*token) else {
@@ -500,9 +504,9 @@ impl<'ghost> ToCss<'ghost> for Function<'_> {
             write_unquoted_url(value, dest)?;
             return dest.write_char(')');
         }
-        write_token_list(&self.arguments, dest, _cx)?;
+        write_token_list(arguments, dest, _cx)?;
         if self.kind().is_variable()
-            && matches!(self.arguments.last(), Some(TokenOrValue::Token(token)) if matches!(_cx.ast_context().resolve_node(*token), Token::Comma))
+            && matches!(arguments.last(), Some(TokenOrValue::Token(token)) if matches!(_cx.ast_context().resolve_node(*token), Token::Comma))
         {
             dest.write_char(' ')?;
         }

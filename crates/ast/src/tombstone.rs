@@ -4,5 +4,5 @@
 /// the tombstone value itself remains structural, which keeps this relation
 /// transitive and leaves [`PartialEq`] unchanged.
 pub trait EqIgnoringTombstones {
-    fn eq_ignoring_tombstones(&self, other: &Self) -> bool;
+    fn eq_ignoring_tombstones(&self, other: &Self, ast: &crate::AstContext<'_>) -> bool;
 }

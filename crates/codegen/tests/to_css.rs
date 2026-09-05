@@ -328,7 +328,7 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
         else {
             panic!("expected media rule")
         };
-        let query = stylesheet.resolve_node(rule.query.media_queries[0]);
+        let query = stylesheet.resolve_node(stylesheet.vec(rule.query.media_queries)[0]);
         assert!(matches!(query.media_type, MediaType::All));
         assert!(query.qualifier.is_none());
         assert!(matches!(
@@ -633,12 +633,14 @@ fn font_family_lists_skip_tombstones_without_extra_commas() {
         families.push(FontFamily::Tombstone);
         families.push(FontFamily::Serif);
         families.push(FontFamily::Tombstone);
+        let mut ast = Compilation::new_in(&allocator);
+        let families = ast.alloc_vec(families);
 
         assert_eq!(
             families
                 .to_css_string(
                     PrinterOptions { prettify: false },
-                    &ToCssContext::new(&token),
+                    &ToCssContext::with_ast(&token, &ast),
                 )
                 .unwrap(),
             "A,serif"

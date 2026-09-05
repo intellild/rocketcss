@@ -1,7 +1,7 @@
 //! Common parser, tokenizer, allocator, and AST types.
 
 pub use crate::Compiler;
-pub(crate) use crate::compiler::store_node;
+pub(crate) use crate::compiler::{store_node, store_vec};
 pub use crate::escape::unescape;
 pub(crate) use crate::parser::parse_css_color;
 pub use crate::parser::stylesheet::parse;
@@ -15,3 +15,4 @@ pub use crate::tokenizer::{
 pub use rocketcss_ast::Token as ValueToken;
 pub(crate) use rocketcss_ast::match_ignore_ascii_case;
 pub use rocketcss_ast::prelude::*;
+pub use rocketcss_common::vec::Vec;

@@ -22,9 +22,9 @@ impl<'a> Selector<'a> {
     }
 
     #[inline]
-    pub fn as_parsed(&self) -> Option<&Vec<'a, SelectorComponent<'a>>> {
+    pub fn as_parsed(&self) -> Option<Vec<'a, SelectorComponent<'a>>> {
         match self {
-            Self::Parsed(components) => Some(components),
+            Self::Parsed(components) => Some(*components),
             Self::Unparsed(_) | Self::Tombstone => None,
         }
     }
@@ -40,28 +40,6 @@ impl<'a> Selector<'a> {
     #[inline]
     pub fn is_tombstone(&self) -> bool {
         matches!(self, Self::Tombstone)
-    }
-}
-
-impl<'a> std::ops::Deref for Selector<'a> {
-    type Target = [SelectorComponent<'a>];
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Parsed(components) => components,
-            Self::Unparsed(_) | Self::Tombstone => &[],
-        }
-    }
-}
-
-impl std::ops::DerefMut for Selector<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        match self {
-            Self::Parsed(components) => components,
-            Self::Unparsed(_) | Self::Tombstone => {
-                panic!("only parsed selectors expose mutable components")
-            }
-        }
     }
 }
 

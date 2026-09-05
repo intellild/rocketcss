@@ -2835,9 +2835,7 @@ pub trait VisitorMut<'a, 'ghost> {
     ) {
         let visitor = self;
         visitor.enter_node(AstType::SelectorList);
-        for value_0 in (node).iter_mut() {
-            VisitMut::visit_mut(value_0, visitor, cx);
-        }
+        VisitMut::visit_mut(node, visitor, cx);
         visitor.leave_node(AstType::SelectorList);
     }
     #[inline]
@@ -2997,6 +2995,15 @@ impl<'a, 'ghost> VisitMut<'a, 'ghost> for &'a str {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         visitor.visit_str(self, cx);
+    }
+}
+impl<'a, 'ghost> VisitMut<'a, 'ghost> for rocketcss_common::Atom<'a> {
+    fn visit_mut<VisitorT: ?Sized + VisitorMut<'a, 'ghost>>(
+        &mut self,
+        visitor: &mut VisitorT,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        visitor.visit_atom(self, cx);
     }
 }
 impl<'a, 'ghost> VisitMut<'a, 'ghost> for VendorPrefix {

@@ -184,7 +184,7 @@ impl<'i> Parse<'i> for TextDecorationLine<'i> {
         while !input.is_exhausted() {
             values.push(parse_text_decoration_line(input.expect_ident()?, input)?);
         }
-        Ok(Self::Value(values))
+        Ok(Self::Value(store_vec(values, input)))
     }
 }
 

@@ -1,4 +1,4 @@
-use rocketcss_ast::{Atom, CompilationVisitorMut, Selector, SelectorComponent};
+use rocketcss_ast::{Atom, Compilation, CompilationVisitorMut, Selector, SelectorComponent};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::Allocator;
 use rocketcss_parser::{Compiler, ParserOptions};
@@ -15,19 +15,24 @@ impl<'a> CompilationVisitorMut<'a> for RenameClass<'a> {
         &mut self,
         _id: rocketcss_ast::SelectorValueId,
         selectors: &mut rocketcss_ast::SelectorList<'a>,
+        compilation: &mut Compilation<'a>,
     ) {
-        for selector in selectors {
-            let Selector::Parsed(components) = selector else {
-                continue;
-            };
-            for component in components {
-                if let SelectorComponent::Class(name) = component
-                    && *name == "before"
-                {
-                    *name = self.after;
-                }
+        compilation.mutate_vec(*selectors, |selectors, compilation| {
+            for selector in selectors {
+                let Selector::Parsed(components) = selector else {
+                    continue;
+                };
+                compilation.mutate_vec(*components, |components, _| {
+                    for component in components {
+                        if let SelectorComponent::Class(name) = component
+                            && *name == "before"
+                        {
+                            *name = self.after;
+                        }
+                    }
+                });
             }
-        }
+        });
     }
 }
 

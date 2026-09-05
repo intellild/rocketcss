@@ -45,9 +45,12 @@ pub(super) fn parse_font_face_contents_into<'i>(
                 if name.eq_ignore_ascii_case("unicode-range") {
                     let ranges = parse_unicode_ranges(raw_value, allocator)
                         .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
-                    Ok(rocketcss_ast::FontFaceProperty::UnicodeRange(ranges))
+                    Ok(rocketcss_ast::FontFaceProperty::UnicodeRange(store_vec(
+                        ranges, input,
+                    )))
                 } else {
                     trim_leading_whitespace(input.ast_context(), &mut value);
+                    let value = store_vec(value, input);
                     Ok(rocketcss_ast::FontFaceProperty::Custom(store_node(
                         CustomProperty {
                             name: store_node(CustomPropertyName::Unknown(name), input),
@@ -143,25 +146,27 @@ pub(super) fn parse_charset<'i>(
 }
 
 pub(super) fn parse_layer_names<'i>(
+    input: &mut Compiler<'i>,
     prelude: &'i str,
-    allocator: &'i Allocator,
-) -> Result<Vec<'i, Vec<'i, &'i str>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, AstVec<'i, &'i str>>, ParseError<'i, ParserError<'i>>> {
+    let allocator = input.allocator();
     if prelude.is_empty() {
         return Ok(allocator.vec());
     }
-    let mut parser = Compiler::new_with_source(prelude, allocator);
-    let parsed = parser.parse_comma_separated(|input| {
-        let mut name = allocator.vec();
-        name.push(input.expect_ident()?);
-        while input.try_parse(|input| input.expect_delim('.')).is_ok() {
+    input.with_source(prelude, |input| {
+        let parsed = input.parse_comma_separated(|input| {
+            let mut name = allocator.vec();
             name.push(input.expect_ident()?);
-        }
-        input.expect_exhausted()?;
-        Ok(name)
-    })?;
-    let mut names = allocator.vec();
-    names.extend(parsed);
-    Ok(names)
+            while input.try_parse(|input| input.expect_delim('.')).is_ok() {
+                name.push(input.expect_ident()?);
+            }
+            input.expect_exhausted()?;
+            Ok(store_vec(name, input))
+        })?;
+        let mut names = allocator.vec();
+        names.extend(parsed);
+        Ok(names)
+    })
 }
 
 pub(super) fn parse_custom_media<'i>(
@@ -185,7 +190,7 @@ pub(super) fn parse_custom_media<'i>(
         // their public serialization even though this crate does not consume the
         // definition yet.
         let tokens = input.with_source(query, |input| collect_tokens(input, allocator, 0))?;
-        let condition = MediaCondition::Unknown(tokens);
+        let condition = MediaCondition::Unknown(store_vec(tokens, input));
         let mut media_queries = allocator.vec();
         media_queries.push(store_node(
             MediaQuery {
@@ -195,7 +200,12 @@ pub(super) fn parse_custom_media<'i>(
             },
             input,
         ));
-        Ok((name, MediaList { media_queries }))
+        Ok((
+            name,
+            MediaList {
+                media_queries: store_vec(media_queries, input),
+            },
+        ))
     })
 }
 
@@ -328,7 +338,7 @@ pub(super) fn parse_container_prelude<'i>(
         } else {
             let tokens = collect_tokens(input, allocator, 0)?;
             Some(store_node(
-                rocketcss_ast::ContainerCondition::Unknown(tokens),
+                rocketcss_ast::ContainerCondition::Unknown(store_vec(tokens, input)),
                 input,
             ))
         };
@@ -380,40 +390,42 @@ pub(super) fn parse_scope_prelude<'i>(
 }
 
 pub(super) fn parse_page_selectors<'i>(
+    input: &mut Compiler<'i>,
     prelude: &'i str,
-    allocator: &'i Allocator,
 ) -> Result<Vec<'i, PageSelector<'i>>, ParseError<'i, ParserError<'i>>> {
+    let allocator = input.allocator();
     if prelude.is_empty() {
         return Ok(allocator.vec());
     }
-    let mut parser = Compiler::new_with_source(prelude, allocator);
-    let parsed = parser.parse_comma_separated(|input| {
-        let name = input.try_parse(Compiler::expect_ident).ok();
-        let mut pseudo_classes = allocator.vec();
-        while input.try_parse(Compiler::expect_colon).is_ok() {
-            let pseudo = input.expect_ident()?;
-            pseudo_classes.push(match_ignore_ascii_case!(
-                pseudo,
-                "left" => PagePseudoClass::Left,
-                "right" => PagePseudoClass::Right,
-                "first" => PagePseudoClass::First,
-                "last" => PagePseudoClass::Last,
-                "blank" => PagePseudoClass::Blank,
-                _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
-            ));
-        }
-        if name.is_none() && pseudo_classes.is_empty() {
-            return Err(input.new_custom_error(ParserError::InvalidSelector));
-        }
-        input.expect_exhausted()?;
-        Ok(PageSelector {
-            name,
-            pseudo_classes,
-        })
-    })?;
-    let mut selectors = allocator.vec();
-    selectors.extend(parsed);
-    Ok(selectors)
+    input.with_source(prelude, |input| {
+        let parsed = input.parse_comma_separated(|input| {
+            let name = input.try_parse(Compiler::expect_ident).ok();
+            let mut pseudo_classes = allocator.vec();
+            while input.try_parse(Compiler::expect_colon).is_ok() {
+                let pseudo = input.expect_ident()?;
+                pseudo_classes.push(match_ignore_ascii_case!(
+                    pseudo,
+                    "left" => PagePseudoClass::Left,
+                    "right" => PagePseudoClass::Right,
+                    "first" => PagePseudoClass::First,
+                    "last" => PagePseudoClass::Last,
+                    "blank" => PagePseudoClass::Blank,
+                    _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
+                ));
+            }
+            if name.is_none() && pseudo_classes.is_empty() {
+                return Err(input.new_custom_error(ParserError::InvalidSelector));
+            }
+            input.expect_exhausted()?;
+            Ok(PageSelector {
+                name,
+                pseudo_classes: store_vec(pseudo_classes, input),
+            })
+        })?;
+        let mut selectors = allocator.vec();
+        selectors.extend(parsed);
+        Ok(selectors)
+    })
 }
 
 pub(super) fn parse_family_names<'i>(
@@ -475,7 +487,10 @@ pub(super) fn parse_font_feature_declarations_into<'i>(
                 Ok(values)
             })?;
             let _ = input.try_parse(Compiler::expect_semicolon);
-            Ok::<_, ParseError<'i, ParserError<'i>>>(FontFeatureDeclaration { name, values })
+            Ok::<_, ParseError<'i, ParserError<'i>>>(FontFeatureDeclaration {
+                name,
+                values: store_vec(values, input),
+            })
         })();
         match result {
             Ok(declaration) => push(input, declaration)?,
@@ -531,6 +546,7 @@ pub(super) fn parse_font_palette_contents_into<'i>(
                     return Err(input.new_custom_error(ParserError::InvalidDeclaration));
                 }
                 trim_leading_whitespace(input.ast_context(), &mut value);
+                let value = store_vec(value, input);
                 Ok(FontPaletteValuesProperty::Custom(store_node(
                     CustomProperty {
                         name: store_node(CustomPropertyName::Unknown(name), input),
@@ -608,11 +624,13 @@ pub(super) fn parse_property_rule_descriptors_into<'i>(
                 PropertyRuleDescriptor::Inherits(inherits)
             } else if descriptor.eq_ignore_ascii_case("initial-value") {
                 has_initial_value = true;
+                let value = store_vec(value, input);
                 PropertyRuleDescriptor::InitialValue(store_node(
                     ParsedComponent::TokenList(value),
                     input,
                 ))
             } else {
+                let value = store_vec(value, input);
                 PropertyRuleDescriptor::Unknown(store_node(
                     CustomProperty {
                         name: store_node(CustomPropertyName::Unknown(descriptor), input),
@@ -693,7 +711,7 @@ pub(super) fn parse_syntax_string<'i>(
     if components.is_empty() {
         return Err(crate::SourceLocation::default().new_custom_error(ParserError::InvalidValue));
     }
-    Ok(SyntaxString::Components(components))
+    Ok(SyntaxString::Components(store_vec(components, input)))
 }
 
 pub(super) fn parse_view_transition_contents_into<'i>(
@@ -752,10 +770,11 @@ pub(super) fn parse_view_transition_contents_into<'i>(
                 } else if idents.is_empty() {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 } else {
-                    NoneOrCustomIdentList::Idents(idents)
+                    NoneOrCustomIdentList::Idents(store_vec(idents, input))
                 };
                 ViewTransitionProperty::Types(store_node(types, input))
             } else {
+                let value = store_vec(value, input);
                 ViewTransitionProperty::Custom(store_node(
                     CustomProperty {
                         name: store_node(CustomPropertyName::Unknown(descriptor), input),

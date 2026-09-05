@@ -6,7 +6,7 @@ impl<'ghost> ToCss<'ghost> for SelectorList<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_selector_list(self, dest, _cx)
+        write_selector_list(_cx.ast_context().vec(*self), dest, _cx)
     }
 }
 
@@ -18,7 +18,7 @@ impl<'ghost> ToCss<'ghost> for Selector<'_> {
     ) -> fmt::Result {
         match self {
             Self::Parsed(components) => {
-                for component in components {
+                for component in _cx.ast_context().vec(*components) {
                     component.to_css(dest, _cx)?;
                 }
                 Ok(())
@@ -94,7 +94,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
             Self::AttributeOther(value) => value.to_css(dest, _cx),
             Self::Negation(selectors) => {
                 dest.write_str(":not(")?;
-                write_selector_list(selectors, dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Root => dest.write_str(":root"),
@@ -105,7 +105,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 write_nth_start(data, true, dest)?;
                 write_nth_affine(data, dest)?;
                 dest.write_str(" of ")?;
-                write_selector_list(selectors, dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::PseudoClass(value) => value.to_css(dest, _cx),
@@ -116,7 +116,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
             }
             Self::Part(parts) => {
                 dest.write_str("::part(")?;
-                for (index, part) in parts.iter().enumerate() {
+                for (index, part) in _cx.ast_context().vec(*parts).iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
@@ -135,20 +135,26 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
             }
             Self::Where(selectors) => {
                 dest.write_str(":where(")?;
-                write_selector_list(selectors, dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Is(selectors) => {
+                let selectors = _cx.ast_context().vec(*selectors);
                 if selectors.len() == 1
-                    && !selectors[0]
-                        .iter()
-                        .any(|component| matches!(component, SelectorComponent::Combinator(_)))
-                    && !selectors[0].iter().any(|component| {
-                        matches!(
-                            component,
-                            SelectorComponent::LocalName { .. }
-                                | SelectorComponent::ExplicitUniversalType
-                        )
+                    && !selectors[0].as_parsed().is_some_and(|components| {
+                        _cx.ast_context()
+                            .vec(components)
+                            .iter()
+                            .any(|component| matches!(component, SelectorComponent::Combinator(_)))
+                    })
+                    && !selectors[0].as_parsed().is_some_and(|components| {
+                        _cx.ast_context().vec(components).iter().any(|component| {
+                            matches!(
+                                component,
+                                SelectorComponent::LocalName { .. }
+                                    | SelectorComponent::ExplicitUniversalType
+                            )
+                        })
                     })
                 {
                     return selectors[0].to_css(dest, _cx);
@@ -164,12 +170,12 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 dest.write_char(':')?;
                 vendor_prefix.to_css(dest, _cx)?;
                 dest.write_str("any(")?;
-                write_selector_list(selectors, dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Has(selectors) => {
                 dest.write_str(":has(")?;
-                write_selector_list(selectors, dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::PseudoElement(value) => value.to_css(dest, _cx),
@@ -422,7 +428,7 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
         match self {
             Self::Lang { languages } => {
                 dest.write_str(":lang(")?;
-                for (index, language) in languages.iter().enumerate() {
+                for (index, language) in _cx.ast_context().vec(*languages).iter().enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
@@ -445,7 +451,7 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
             Self::Autofill(prefix) => write_prefixed_pseudo(prefix, "autofill", dest, _cx),
             Self::ActiveViewTransitionType { kinds } => {
                 dest.write_str(":active-view-transition-type(")?;
-                for (index, kind) in kinds.iter().enumerate() {
+                for (index, kind) in _cx.ast_context().vec(*kinds).iter().enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
@@ -469,7 +475,7 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
                 dest.write_char(':')?;
                 dest.write_str(name)?;
                 dest.write_char('(')?;
-                crate::token::write_token_list(arguments, dest, _cx)?;
+                crate::token::write_token_list(_cx.ast_context().vec(*arguments), dest, _cx)?;
                 dest.write_char(')')
             }
             value => dest.write_str(pseudo_class_name(value)),
@@ -619,7 +625,7 @@ impl<'ghost> ToCss<'ghost> for PseudoElement<'_> {
                 dest.write_str("::")?;
                 dest.write_str(name)?;
                 dest.write_char('(')?;
-                crate::token::write_token_list(arguments, dest, _cx)?;
+                crate::token::write_token_list(_cx.ast_context().vec(*arguments), dest, _cx)?;
                 dest.write_char(')')
             }
             value => dest.write_str(pseudo_element_name(value)),
@@ -737,7 +743,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionPartSelector<'_> {
         if let Some(name) = &self.name {
             name.to_css(dest, _cx)?;
         }
-        for class in &self.classes {
+        for class in _cx.ast_context().vec(self.classes) {
             dest.write_char('.')?;
             serialize_identifier(class, dest)?;
         }

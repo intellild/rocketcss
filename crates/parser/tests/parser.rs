@@ -33,13 +33,23 @@ fn child_rule_ids<'ast>(
 fn style_selectors<'tree, 'ast>(
     compilation: &'tree Compilation<'ast>,
     rule: RuleId<'ast>,
-) -> &'tree SelectorList<'ast> {
+) -> &'tree [Selector<'ast>] {
     let selector = match compilation.rule(rule).unwrap().payload() {
         CssRulePayload::Style(payload) => payload.selector_value,
         CssRulePayload::Nesting(payload) => payload.selector_value,
         _ => panic!("expected selector-owning rule"),
     };
-    compilation.selector_value(selector).unwrap().selectors()
+    compilation.vec(*compilation.selector_value(selector).unwrap().selectors())
+}
+
+fn selector_components<'tree, 'ast>(
+    compilation: &'tree Compilation<'ast>,
+    selector: &'tree Selector<'ast>,
+) -> &'tree [SelectorComponent<'ast>] {
+    let Selector::Parsed(components) = selector else {
+        panic!("expected parsed selector");
+    };
+    compilation.vec(*components)
 }
 
 fn property_declarations<'tree, 'ast>(
@@ -177,15 +187,15 @@ fn parses_style_rule_selectors_and_declarations() {
         let selectors = style_selectors(&sheet, rule_id);
         assert_eq!(selectors.len(), 2);
         assert!(matches!(
-            &selectors[0][0],
+            &selector_components(&sheet, &selectors[0])[0],
             SelectorComponent::Class(name) if *name == "Foo"
         ));
         assert!(matches!(
-            &selectors[1][1],
+            &selector_components(&sheet, &selectors[1])[1],
             SelectorComponent::Combinator(Combinator::Child)
         ));
         assert!(matches!(
-            &selectors[1][3],
+            &selector_components(&sheet, &selectors[1])[3],
             SelectorComponent::PseudoClass(value)
                 if matches!(sheet.resolve_node(*value), PseudoClass::Hover)
         ));
@@ -240,7 +250,7 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
                 if {
                     let value = sheet.resolve_node(*value);
                     matches!(
-                        &value.value[..],
+                        sheet.vec(value.value),
                         [TokenOrValue::Color(color)]
                             if matches!(
                                 sheet.resolve_node(*color),
@@ -261,7 +271,7 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
                     if {
                         let value = sheet.resolve_node(*value);
                         matches!(
-                            &value.value[..],
+                            sheet.vec(value.value),
                             [TokenOrValue::Function(function)]
                                 if {
                                     let function = sheet.resolve_node(*function);
@@ -275,8 +285,7 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
         assert!(matches!(
             declarations[4],
             Declaration::Custom(value)
-                if sheet.resolve_node(*value)
-                    .value
+                if sheet.vec(sheet.resolve_node(*value).value)
                     .iter()
                     .all(|value| matches!(value, TokenOrValue::Token(_)))
         ));
@@ -289,7 +298,7 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
                         let value = sheet.resolve_node(*value);
                         value.reason == UnparsedPropertyReason::OpaqueValue
                         && matches!(
-                            &value.value[..],
+                            sheet.vec(value.value),
                             [TokenOrValue::Function(function)]
                                 if {
                                     let function = sheet.resolve_node(*function);
@@ -328,7 +337,7 @@ fn modern_rgb_accepts_mixed_and_missing_components() {
                     if {
                         let value = sheet.resolve_node(*value);
                         matches!(
-                            &value.value[..],
+                            sheet.vec(value.value),
                             [TokenOrValue::Color(color)]
                                 if matches!(
                                     sheet.node(*color),
@@ -387,7 +396,7 @@ fn review_regressions_preserve_invalid_and_commented_declarations() {
                         if {
                             let value = sheet.resolve_node(*value);
                             value.reason == UnparsedPropertyReason::OpaqueValue
-                            && value.value.iter().any(|value| matches!(
+                            && sheet.vec(value.value).iter().any(|value| matches!(
                                 value,
                                 TokenOrValue::Token(token)
                                     if matches!(sheet.resolve_node(*token), ValueToken::Comment(_))
@@ -449,7 +458,7 @@ fn parses_named_colors_as_known_color_nodes() {
             declarations[2].0,
                 Declaration::Background(values)
                 if matches!(
-                    sheet.node(values[0].color),
+                    sheet.node(sheet.vec(*values)[0].color),
                     CssColor::Known(KnownColor::Blue)
                 )
         ));
@@ -470,7 +479,7 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
         let rule = root_rule(&sheet, 0).0;
         let selectors = style_selectors(&sheet, rule);
         assert!(matches!(
-            &selectors[0][0],
+            &selector_components(&sheet, &selectors[0])[0],
             SelectorComponent::Class(name) if name == "foo"
         ));
 
@@ -484,7 +493,7 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
             PropertyId::Width
         ));
         assert_eq!(width.reason, UnparsedPropertyReason::OpaqueValue);
-        assert!(width.value.iter().any(|value| matches!(
+        assert!(sheet.vec(width.value).iter().any(|value| matches!(
             value,
             TokenOrValue::Function(function)
                 if sheet.resolve_node(*function).name() == "calc"
@@ -505,10 +514,11 @@ fn compiler_interns_equal_selector_strings_to_one_atom() {
             )
             .unwrap();
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
-        let SelectorComponent::Class(first) = &selectors[0][0] else {
+        let SelectorComponent::Class(first) = &selector_components(&sheet, &selectors[0])[0] else {
             panic!("expected first class selector")
         };
-        let SelectorComponent::Class(second) = &selectors[1][0] else {
+        let SelectorComponent::Class(second) = &selector_components(&sheet, &selectors[1])[0]
+        else {
             panic!("expected second class selector")
         };
 
@@ -534,11 +544,16 @@ fn scope_prelude_reuses_the_compiler_string_pool() {
             panic!("expected scope rule")
         };
         let scope_start = sheet.resolve_node(scope.scope_start.unwrap());
-        let SelectorComponent::Class(scope_class) = &scope_start[0][0] else {
+        let scope_start = sheet.vec(*scope_start);
+        let SelectorComponent::Class(scope_class) =
+            &selector_components(&sheet, &scope_start[0])[0]
+        else {
             panic!("expected scope class selector")
         };
         let scoped_rule = child_rule_ids(&sheet, scope_id)[0];
-        let SelectorComponent::Class(rule_class) = &style_selectors(&sheet, scoped_rule)[0][0]
+        let rule_selectors = style_selectors(&sheet, scoped_rule);
+        let SelectorComponent::Class(rule_class) =
+            &selector_components(&sheet, &rule_selectors[0])[0]
         else {
             panic!("expected style class selector")
         };
@@ -566,7 +581,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
         };
         assert_eq!(rule.url, "a.css");
         let import_media = sheet.resolve_node(rule.media.unwrap());
-        let import_query = sheet.resolve_node(import_media.media_queries[0]);
+        let import_query = sheet.resolve_node(sheet.vec(import_media.media_queries)[0]);
         assert!(matches!(import_query.media_type, MediaType::Screen));
 
         let (media_id, media) = root_rule(&sheet, 1);
@@ -574,7 +589,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
             panic!("expected media")
         };
         assert_eq!(child_rule_ids(&sheet, media_id).len(), 1);
-        let media_query = sheet.resolve_node(rule.query.media_queries[0]);
+        let media_query = sheet.resolve_node(sheet.vec(rule.query.media_queries)[0]);
         assert!(matches!(media_query.media_type, MediaType::Screen));
         assert!(media_query.condition.is_some());
 
@@ -624,9 +639,8 @@ fn parses_typed_media_conditions_and_features() {
         let CssRulePayload::Media(rule) = root_rule(&sheet, 0).1.payload() else {
             panic!("expected media rule")
         };
-        let queries = rule
-            .query
-            .media_queries
+        let queries = sheet
+            .vec(rule.query.media_queries)
             .iter()
             .map(|query| sheet.resolve_node(*query))
             .collect::<std::vec::Vec<_>>();
@@ -638,7 +652,7 @@ fn parses_typed_media_conditions_and_features() {
                 operator: Operator::And,
                 conditions,
             }) if matches!(
-                &conditions[0],
+                &sheet.vec(*conditions)[0],
                 MediaCondition::Feature(feature)
                     if matches!(
                         sheet.resolve_node(*feature),
@@ -842,11 +856,13 @@ fn lightningcss_parse_trait_parses_values_from_strings() {
     let (selectors, ast) =
         rocketcss_ast::SelectorList::parse_string(".a:hover:is(.b, #c)", &allocator).unwrap();
     assert_eq!(selectors.len(), 1);
+    let selectors = ast.vec(selectors);
+    let components = selector_components(&ast, &selectors[0]);
     assert!(matches!(
-        &selectors[0][2],
+        &components[2],
         SelectorComponent::Is(list) if list.len() == 2
     ));
-    let SelectorComponent::PseudoClass(hover) = selectors[0][1] else {
+    let SelectorComponent::PseudoClass(hover) = components[1] else {
         panic!("expected :hover")
     };
     assert!(matches!(ast.node(hover), PseudoClass::Hover));
@@ -861,30 +877,31 @@ fn parses_namespace_deep_and_empty_where_selectors() {
     );
     let selectors = compiler.parse_entirely(SelectorList::parse).unwrap();
     let ast = compiler.ast_context();
+    let selectors = ast.vec(selectors);
 
     assert!(matches!(
-        &selectors[0][..],
+        selector_components(ast, &selectors[0]),
         [
             SelectorComponent::ExplicitNoNamespace,
             SelectorComponent::LocalName { name, .. }
         ] if name == "e"
     ));
     assert!(matches!(
-        &selectors[1][..],
+        selector_components(ast, &selectors[1]),
         [
             SelectorComponent::ExplicitAnyNamespace,
             SelectorComponent::ExplicitUniversalType
         ]
     ));
     assert!(matches!(
-        &selectors[2][..],
+        selector_components(ast, &selectors[2]),
         [
             SelectorComponent::Namespace { prefix, .. },
             SelectorComponent::LocalName { name, .. }
         ] if prefix == "svg" && name == "circle"
     ));
     assert!(matches!(
-        &selectors[3][0],
+        &selector_components(ast, &selectors[3])[0],
         SelectorComponent::AttributeOther(attribute)
             if matches!(
                 &ast.resolve_node(*attribute).namespace,
@@ -892,7 +909,7 @@ fn parses_namespace_deep_and_empty_where_selectors() {
             )
     ));
     assert!(matches!(
-        &selectors[4][..],
+        selector_components(ast, &selectors[4]),
         [
             SelectorComponent::Class(left),
             SelectorComponent::Combinator(Combinator::Deep),
@@ -900,7 +917,7 @@ fn parses_namespace_deep_and_empty_where_selectors() {
         ] if left == "a" && right == "b"
     ));
     assert!(matches!(
-        &selectors[5][..],
+        selector_components(ast, &selectors[5]),
         [SelectorComponent::LocalName { name, .. }, SelectorComponent::Where(list)]
             if name == "foo" && list.is_empty()
     ));
@@ -915,19 +932,20 @@ fn parses_selection_and_placeholder_vendor_prefixes_into_typed_selectors() {
     );
     let selectors = compiler.parse_entirely(SelectorList::parse).unwrap();
     let ast = compiler.ast_context();
+    let selectors = ast.vec(selectors);
 
     assert!(matches!(
-        &selectors[0][0],
+        &selector_components(ast, &selectors[0])[0],
         SelectorComponent::PseudoElement(element)
             if matches!(ast.resolve_node(*element), PseudoElement::Selection(VendorPrefix::MOZ))
     ));
     assert!(matches!(
-        &selectors[1][0],
+        &selector_components(ast, &selectors[1])[0],
         SelectorComponent::PseudoElement(element)
             if matches!(ast.resolve_node(*element), PseudoElement::Placeholder(VendorPrefix::WEBKIT))
     ));
     assert!(matches!(
-        &selectors[2][0],
+        &selector_components(ast, &selectors[2])[0],
         SelectorComponent::PseudoElement(element)
             if matches!(ast.resolve_node(*element), PseudoElement::Placeholder(VendorPrefix::NONE))
     ));
@@ -951,7 +969,7 @@ fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
             panic!("expected keyframe")
         };
         assert!(matches!(
-            &first.selectors[0],
+            &sheet.vec(first.selectors)[0],
             KeyframeSelector::TimelineRangePercentage(value)
                 if value.name == TimelineRangeName::Entry && value.percentage == 0.0
         ));
@@ -959,7 +977,7 @@ fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
             panic!("expected keyframe")
         };
         assert!(matches!(
-            &second.selectors[0],
+            &sheet.vec(second.selectors)[0],
             KeyframeSelector::TimelineRangePercentage(value)
                 if value.name == TimelineRangeName::Exit && value.percentage == 1.0
         ));
@@ -994,7 +1012,8 @@ fn parses_lightningcss_rule_families() {
         assert!(matches!(
             sheet.rule(roots[1]).unwrap().payload(),
             CssRulePayload::LayerStatement(rule)
-                if rule.names.len() == 2 && rule.names[1].as_slice() == ["theme", "base"]
+                if rule.names.len() == 2
+                    && sheet.vec(sheet.vec(rule.names)[1]) == ["theme", "base"]
         ));
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
@@ -1019,7 +1038,7 @@ fn parses_lightningcss_rule_families() {
         assert!(matches!(
             sheet.rule(frames[1]).unwrap().payload(),
             CssRulePayload::Keyframe(rule)
-                if matches!(rule.selectors[0], KeyframeSelector::Percentage(0.5))
+                if matches!(sheet.vec(rule.selectors)[0], KeyframeSelector::Percentage(0.5))
         ));
         assert!(matches!(
             sheet.rule(roots[5]).unwrap().payload(),
@@ -1061,10 +1080,13 @@ fn parses_import_modifiers_scope_and_page() {
         let CssRulePayload::Import(import) = sheet.rule(roots[0]).unwrap().payload() else {
             panic!("expected import")
         };
-        assert_eq!(import.layer.as_deref(), Some(&["theme", "base"][..]));
+        assert_eq!(
+            import.layer.map(|layer| sheet.vec(layer)),
+            Some(&["theme", "base"][..])
+        );
         assert!(import.supports.is_some());
         let import_media = sheet.resolve_node(import.media.unwrap());
-        let import_query = sheet.resolve_node(import_media.media_queries[0]);
+        let import_query = sheet.resolve_node(sheet.vec(import_media.media_queries)[0]);
         assert!(matches!(import_query.media_type, MediaType::Print));
 
         assert!(matches!(
@@ -1456,6 +1478,7 @@ fn parses_mask_shorthand_layers_without_losing_defaults() {
         let Declaration::Mask(layers, VendorPrefix::NONE) = declarations[0] else {
             panic!("expected typed mask shorthand")
         };
+        let layers = sheet.vec(*layers);
         assert_eq!(layers.len(), 2);
         assert!(matches!(sheet.resolve_node(layers[0].image), Image::Url(_)));
         assert!(matches!(
@@ -1498,6 +1521,7 @@ fn parses_mask_repeat_x_and_y_as_typed_layers() {
         else {
             panic!("expected typed mask shorthand")
         };
+        let layers = sheet.vec(*layers);
         assert!(matches!(
             (&layers[0].repeat.x, &layers[0].repeat.y),
             (
@@ -1530,6 +1554,7 @@ fn parses_radial_mask_images_and_gradient_hints() {
         let Declaration::MaskImage(images, _) = declarations[0] else {
             panic!("expected typed mask-image")
         };
+        let images = sheet.vec(*images);
         assert!(matches!(
             &images[0],
             Image::Gradient(gradient)
@@ -1542,7 +1567,7 @@ fn parses_radial_mask_images_and_gradient_hints() {
                     && matches!(
                         sheet.resolve_node(*gradient),
                         Gradient::RepeatingRadial { items, .. }
-                            if items.iter().any(|item| matches!(item, GradientItem::Hint(_)))
+                            if sheet.vec(*items).iter().any(|item| matches!(item, GradientItem::Hint(_)))
                     )
         ));
         assert!(matches!(
@@ -1551,7 +1576,7 @@ fn parses_radial_mask_images_and_gradient_hints() {
                 if matches!(sheet.resolve_node(*gradient), Gradient::Conic { .. })
         ));
         assert!(matches!(&images[3], Image::ImageSet(image_set)
-            if sheet.resolve_node(*image_set).options.len() == 2));
+            if sheet.vec(sheet.resolve_node(*image_set).options).len() == 2));
     })
 }
 
@@ -1727,7 +1752,7 @@ fn parses_font_family_into_typed_ast_nodes() {
     assert!(matches!(
         declarations[0],
         Declaration::FontFamily(families)
-            if matches!(families.as_slice(), [
+            if matches!(sheet.vec(*families), [
                 FontFamily::Custom("serif"),
                 FontFamily::SansSerif,
                 FontFamily::Custom("Fancy Font"),
@@ -1874,7 +1899,7 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
                 if {
                     let value = sheet.resolve_node(*value);
                     matches!(sheet.resolve_node(value.name), CustomPropertyName::Custom("--theme"))
-                        && value.value.iter().any(|token| matches!(token,
+                        && sheet.vec(value.value).iter().any(|token| matches!(token,
                             TokenOrValue::Function(function)
                                 if sheet.resolve_node(*function).name() == "fn"))
                 }
@@ -2145,7 +2170,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
             panic!("expected font-feature-values")
         };
         assert!(matches!(
-            features.name.as_slice(),
+            sheet.vec(features.name),
             [FamilyName("Demo Sans")]
         ));
         let feature_rule = child_rule_ids(&sheet, roots[3])[0];
@@ -2162,7 +2187,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
                 .unwrap()
                 .payload(),
             DeclarationPayload::FontFeature(declaration)
-                if declaration.values.as_slice() == [1, 2]
+                if sheet.vec(declaration.values) == [1, 2]
         ));
         assert!(matches!(
             sheet
@@ -2265,7 +2290,7 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
         let selectors = style_selectors(&sheet, rule);
         assert_eq!(selectors.len(), 1);
 
-        let selector = &selectors[0];
+        let selector = selector_components(&sheet, &selectors[0]);
         assert_eq!(selector.len(), 3);
 
         assert!(matches!(
@@ -2299,7 +2324,7 @@ fn preserves_details_content_chained_with_before_pseudo_element() {
         let selectors = style_selectors(&sheet, rule);
         assert_eq!(selectors.len(), 1);
 
-        let selector = &selectors[0];
+        let selector = selector_components(&sheet, &selectors[0]);
         assert_eq!(selector.len(), 2);
 
         assert!(matches!(
@@ -2333,7 +2358,7 @@ fn preserves_has_slotted_pseudo_class() {
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert_eq!(selectors.len(), 1);
 
-        let selector = &selectors[0];
+        let selector = selector_components(&sheet, &selectors[0]);
         assert_eq!(selector.len(), 2);
 
         assert!(matches!(
@@ -2362,7 +2387,7 @@ fn preserves_pseudo_element_arg_inside_has_selector() {
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert_eq!(selectors.len(), 1);
 
-        let selector = &selectors[0];
+        let selector = selector_components(&sheet, &selectors[0]);
         assert_eq!(selector.len(), 2);
 
         assert!(matches!(
@@ -2385,7 +2410,7 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
 
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert!(matches!(
-            &selectors[0][0],
+            &selector_components(&sheet, &selectors[0])[0],
             SelectorComponent::PseudoElement(element)
                 if matches!(
                     sheet.resolve_node(*element),
@@ -2395,7 +2420,7 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
 
         let selectors = style_selectors(&sheet, root_rule(&sheet, 1).0);
         assert!(matches!(
-            &selectors[0][3],
+            &selector_components(&sheet, &selectors[0])[3],
             SelectorComponent::PseudoElement(element)
                 if matches!(
                     sheet.resolve_node(*element),

@@ -125,8 +125,8 @@ fn custom_property_token_shape(source: &str, options: MinifyOptions) -> String {
             panic!("expected custom property")
         };
         let property = stylesheet.resolve_node(*property);
-        property
-            .value
+        stylesheet
+            .vec(property.value)
             .iter()
             .map(|value| match value {
                 rocketcss_ast::TokenOrValue::Token(token) => {

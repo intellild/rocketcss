@@ -8,7 +8,9 @@ impl<'ghost> ToCss<'ghost> for FontFamily<'_> {
     ) -> fmt::Result {
         match self {
             Self::Custom(value) => write_custom_font_family(value, dest),
-            Self::Unparsed(value) => crate::token::write_token_list(value, dest, _cx),
+            Self::Unparsed(value) => {
+                crate::token::write_token_list(_cx.ast_context().vec(*value), dest, _cx)
+            }
             Self::Tombstone => Ok(()),
             _ => dest.write_str(
                 self.as_css_str()

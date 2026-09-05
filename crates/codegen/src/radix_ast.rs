@@ -118,11 +118,11 @@ impl<'ast> RadixWriter<'_, 'ast> {
             }
             CssRulePayload::LayerStatement(payload) => {
                 dest.write_str("@layer ")?;
-                for (index, name) in payload.names.iter().enumerate() {
+                for (index, name) in self.vec(payload.names).iter().enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
-                    write_layer_name(name, dest)?;
+                    write_layer_name(self.vec(*name), dest)?;
                 }
                 dest.write_char(';')
             }
@@ -130,7 +130,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 dest.write_str("@layer")?;
                 if let Some(name) = &payload.name {
                     dest.write_char(' ')?;
-                    write_layer_name(name, dest)?;
+                    write_layer_name(self.vec(*name), dest)?;
                 }
                 self.write_child_rule_block(rule, dest, cx)
             }
@@ -170,14 +170,18 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 if !payload.prelude.is_empty() {
                     dest.write_char(' ')?;
                     crate::token::write_token_list_without_outer_whitespace(
-                        &payload.prelude,
+                        self.vec(payload.prelude),
                         dest,
                         cx,
                     )?;
                 }
                 if let Some(block) = &payload.block {
                     write_block(dest, |dest| {
-                        crate::token::write_token_list_without_outer_whitespace(block, dest, cx)
+                        crate::token::write_token_list_without_outer_whitespace(
+                            self.vec(*block),
+                            dest,
+                            cx,
+                        )
                     })
                 } else {
                     dest.write_char(';')
@@ -239,7 +243,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 }
             }
             CssRulePayload::Keyframe(payload) => {
-                write_comma_separated(&payload.selectors, dest, cx)?;
+                write_comma_separated(self.vec(payload.selectors), dest, cx)?;
                 self.write_property_block(rule, dest, cx)
             }
             CssRulePayload::Page(payload) => self.write_page_rule(rule, payload, dest, cx),
@@ -267,7 +271,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
             }
             CssRulePayload::FontFeatureValues(payload) => {
                 dest.write_str("@font-feature-values ")?;
-                write_comma_separated(&payload.name, dest, cx)?;
+                write_comma_separated(self.vec(payload.name), dest, cx)?;
                 self.write_child_rule_block(rule, dest, cx)
             }
             CssRulePayload::FontFeatureSubrule(payload) => {
@@ -466,7 +470,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
         dest.write_str("@page")?;
         if !payload.selectors.is_empty() {
             dest.write_char(' ')?;
-            write_comma_separated(&payload.selectors, dest, cx)?;
+            write_comma_separated(self.vec(payload.selectors), dest, cx)?;
         }
         let parent_block = rule
             .declaration_block()
@@ -641,7 +645,11 @@ fn next_visible_rule<'comp, 'ast>(
             let selector = compilation
                 .selector_value(style.selector_value)
                 .expect("a style selector value remains resolvable");
-            if selector.selectors().iter().all(Selector::is_tombstone) {
+            if compilation
+                .vec(*selector.selectors())
+                .iter()
+                .all(Selector::is_tombstone)
+            {
                 continue;
             }
         }

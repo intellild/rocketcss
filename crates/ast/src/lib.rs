@@ -27,7 +27,6 @@ macro_rules! match_ignore_ascii_case {
 }
 
 pub use rocketcss_common::Atom;
-use rocketcss_common::prelude::*;
 pub use rocketcss_macros::{CssKeyword, Visit};
 
 mod color;
@@ -61,19 +60,23 @@ pub use tombstone::*;
 pub use values::*;
 pub use visit_context::{VisitContext, VisitMutContext};
 
+/// Persistent AST list stored as a typed dense range in [`AstContext`].
+pub type Vec<'ast, T> = AstVec<'ast, T>;
+
 #[cfg(target_pointer_width = "64")]
 const _: () = {
     use std::mem::size_of;
 
     assert!(size_of::<VendorPrefix>() == 1);
     assert!(size_of::<KnownFunction>() == 1);
-    assert!(size_of::<Declaration<'_>>() == 32);
+    assert!(size_of::<AstVec<'_, u8>>() == 8);
+    assert!(size_of::<Declaration<'_>>() == 20);
     assert!(size_of::<TokenOrValue<'_>>() == 24);
     assert!(size_of::<Token<'_>>() == 24);
     assert!(size_of::<CssColor<'_>>() == 8);
     assert!(size_of::<KnownColor>() == 1);
     assert!(size_of::<Length<'_>>() == 8);
-    assert!(size_of::<ParsedComponent<'_>>() == 32);
+    assert!(size_of::<ParsedComponent<'_>>() == 24);
     assert!(size_of::<AnimationComponent<'_>>() == 12);
     assert!(size_of::<Filter<'_>>() == 12);
     assert!(size_of::<Transform<'_>>() == 24);
@@ -92,8 +95,9 @@ mod tests {
     #[test]
     fn compares_nodes_while_ignoring_owned_tombstone_slots() {
         let allocator = Allocator::new();
-        assert!(FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Tombstone));
-        assert!(!FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Serif));
+        let mut ast = Compilation::new_in(&allocator);
+        assert!(FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Tombstone, &ast));
+        assert!(!FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Serif, &ast));
 
         let mut left_families = allocator.vec();
         left_families.push(FontFamily::Custom("A"));
@@ -104,12 +108,14 @@ mod tests {
         right_families.push(FontFamily::Serif);
 
         assert_ne!(left_families, right_families);
-        assert!(left_families.eq_ignoring_tombstones(&right_families));
+        let left_families = ast.alloc_vec(left_families);
+        let right_families = ast.alloc_vec(right_families);
+        assert!(left_families.eq_ignoring_tombstones(&right_families, &ast));
 
         let left_declaration = Declaration::FontFamily(left_families);
         let right_declaration = Declaration::FontFamily(right_families);
         assert_ne!(left_declaration, right_declaration);
-        assert!(left_declaration.eq_ignoring_tombstones(&right_declaration));
+        assert!(left_declaration.eq_ignoring_tombstones(&right_declaration, &ast));
     }
 
     #[test]
@@ -178,7 +184,9 @@ mod tests {
     #[test]
     fn function_state_is_accessed_through_flags() {
         let allocator = Allocator::new();
-        let mut function = Function::new("url", allocator.vec());
+        let mut ast = Compilation::new_in(&allocator);
+        let arguments = ast.alloc_vec(allocator.vec());
+        let mut function = Function::new("url", arguments);
 
         assert_eq!(function.name(), "url");
         assert_eq!(function.kind(), KnownFunction::Url);
@@ -206,7 +214,9 @@ mod tests {
             KnownFunction::LinearGradient,
         );
         assert_eq!(KnownFunction::from_name("-moz-calc"), KnownFunction::Calc,);
-        let function = Function::new("-moz-calc", allocator.vec());
+        let mut ast = Compilation::new_in(&allocator);
+        let arguments = ast.alloc_vec(allocator.vec());
+        let function = Function::new("-moz-calc", arguments);
         assert!(function.is_vendor_prefixed());
         assert_eq!(
             KnownFunction::from_name("custom-function"),

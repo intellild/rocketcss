@@ -9,7 +9,7 @@ impl<'ghost> ToCss<'ghost> for MediaList<'_> {
         if self.media_queries.is_empty() {
             return dest.write_str("not all");
         }
-        for (index, query) in self.media_queries.iter().enumerate() {
+        for (index, query) in _cx.ast_context().vec(self.media_queries).iter().enumerate() {
             if index > 0 {
                 dest.delim(Delimiter::Comma)?;
             }
@@ -29,6 +29,7 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
         if let Some(condition) = &self.condition
             && let MediaCondition::Unknown(tokens) = condition
         {
+            let tokens = ast.vec(*tokens);
             if matches!(self.qualifier, Some(Qualifier::Not))
                 && matches!(self.media_type, MediaType::All)
                 && matches!(
@@ -138,7 +139,7 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
             if needs_parens {
                 dest.write_char('(')?;
             }
-            for (index, condition) in conditions.iter().enumerate() {
+            for (index, condition) in cx.ast_context().vec(*conditions).iter().enumerate() {
                 if index > 0 {
                     dest.write_str(match operator {
                         Operator::And => " and ",
@@ -152,7 +153,9 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
             }
             Ok(())
         }
-        MediaCondition::Unknown(values) => crate::token::write_token_list(values, dest, cx),
+        MediaCondition::Unknown(values) => {
+            crate::token::write_token_list(cx.ast_context().vec(*values), dest, cx)
+        }
     }
 }
 
@@ -329,7 +332,7 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
                 } else {
                     " or "
                 };
-                for (index, value) in values.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
                     if index > 0 {
                         dest.write_str(operator)?;
                     }

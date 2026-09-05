@@ -1079,13 +1079,18 @@ fn top_level_statements_preserve_payloads_and_ordering_state() {
     let CssRulePayload::LayerStatement(radix_layer) = radix.rule(ids[1]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(radix_layer.names.as_slice(), [&["base"][..]]);
+    let layer_names = radix.vec(radix_layer.names);
+    assert_eq!(layer_names.len(), 1);
+    assert_eq!(radix.vec(layer_names[0]), ["base"]);
 
     let CssRulePayload::Import(radix_import) = radix.rule(ids[2]).unwrap().payload() else {
         unreachable!()
     };
     assert_eq!(radix_import.url, "a.css");
-    assert_eq!(radix_import.layer.as_deref(), Some(&["theme"][..]));
+    assert_eq!(
+        radix_import.layer.map(|layer| radix.vec(layer)),
+        Some(&["theme"][..])
+    );
 
     let CssRulePayload::Namespace(radix_namespace) = radix.rule(ids[3]).unwrap().payload() else {
         unreachable!()
@@ -1159,14 +1164,14 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
         unreachable!()
     };
     assert!(matches!(
-        first_frame.selectors.as_slice(),
+        radix.vec(first_frame.selectors),
         [KeyframeSelector::From]
     ));
     let CssRulePayload::Keyframe(second_frame) = radix.rule(frames[1]).unwrap().payload() else {
         unreachable!()
     };
     assert!(matches!(
-        second_frame.selectors.as_slice(),
+        radix.vec(second_frame.selectors),
         [KeyframeSelector::Percentage(0.5), KeyframeSelector::To]
     ));
     assert_eq!(
@@ -1218,10 +1223,18 @@ fn page_margin_rules_split_parent_declaration_blocks() {
     let CssRulePayload::Page(radix_page) = radix.rule(page).unwrap().payload() else {
         unreachable!()
     };
+    let [
+        PageSelector {
+            name: Some("invoice"),
+            pseudo_classes,
+        },
+    ] = radix.vec(radix_page.selectors)
+    else {
+        panic!("expected the parsed page selector");
+    };
     assert!(matches!(
-        radix_page.selectors.as_slice(),
-        [PageSelector { name: Some("invoice"), pseudo_classes }]
-            if matches!(pseudo_classes.as_slice(), [PagePseudoClass::Left])
+        radix.vec(*pseudo_classes),
+        [PagePseudoClass::Left]
     ));
     let page_children = radix
         .rules_in_list(radix.rule(page).unwrap().child_list().unwrap())
@@ -1379,7 +1392,7 @@ fn font_feature_subrules_and_declarations_are_flattened() {
         unreachable!()
     };
     assert!(matches!(
-        radix_features.name.as_slice(),
+        radix.vec(radix_features.name),
         [FamilyName("Demo")]
     ));
     for (subrule, expected_name, expected_len) in [

@@ -12,19 +12,24 @@ impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for Rename<'a> {
         &mut self,
         _id: rocketcss_ast::SelectorValueId<'a>,
         selectors: &mut SelectorList<'a>,
+        compilation: &mut Compilation<'a>,
     ) {
-        for selector in selectors {
-            let Selector::Parsed(components) = selector else {
-                continue;
-            };
-            for component in components {
-                if let SelectorComponent::Class(name) = component
-                    && *name == self.from
-                {
-                    *name = self.to;
-                }
+        compilation.mutate_vec(*selectors, |selectors, compilation| {
+            for selector in selectors {
+                let Selector::Parsed(components) = selector else {
+                    continue;
+                };
+                compilation.mutate_vec(*components, |components, _| {
+                    for component in components {
+                        if let SelectorComponent::Class(name) = component
+                            && *name == self.from
+                        {
+                            *name = self.to;
+                        }
+                    }
+                });
             }
-        }
+        });
     }
 }
 
@@ -100,8 +105,12 @@ fn plugins_run_in_registration_order_and_share_context() {
             .selector_value(rule.selector_value)
             .expect("the selector value remains valid")
             .selectors();
+        let selectors = sheet.vec(*selectors);
+        let Selector::Parsed(components) = &selectors[0] else {
+            panic!("expected parsed selector");
+        };
         assert!(matches!(
-            selectors[0][0],
+            sheet.vec(*components)[0],
             SelectorComponent::Class(name) if name == "last"
         ));
     });

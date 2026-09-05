@@ -216,7 +216,7 @@ impl<'ghost> ToCss<'ghost> for ImageSet<'_> {
     ) -> fmt::Result {
         self.vendor_prefix.to_css(dest, _cx)?;
         dest.write_str("image-set(")?;
-        write_comma_separated(&self.options, dest, _cx)?;
+        write_comma_separated(_cx.ast_context().vec(self.options), dest, _cx)?;
         dest.write_char(')')
     }
 }
@@ -814,23 +814,25 @@ impl<'ghost> ToCss<'ghost> for TrackRepeat<'_> {
         dest.write_str("repeat(")?;
         self.count.to_css(dest, _cx)?;
         dest.delim(Delimiter::Comma)?;
-        for (index, track_size) in self.track_sizes.iter().enumerate() {
-            if let Some(names) = self.line_names.get(index)
+        let track_sizes = _cx.ast_context().vec(self.track_sizes);
+        let line_names = _cx.ast_context().vec(self.line_names);
+        for (index, track_size) in track_sizes.iter().enumerate() {
+            if let Some(names) = line_names.get(index)
                 && !names.is_empty()
             {
-                crate::values::write_line_names(names, dest)?;
+                crate::values::write_line_names(_cx.ast_context().vec(*names), dest)?;
                 dest.write_char(' ')?;
             }
             track_size.to_css(dest, _cx)?;
-            if index + 1 < self.track_sizes.len() {
+            if index + 1 < track_sizes.len() {
                 dest.write_char(' ')?;
             }
         }
-        if let Some(names) = self.line_names.get(self.track_sizes.len())
+        if let Some(names) = line_names.get(track_sizes.len())
             && !names.is_empty()
         {
             dest.write_char(' ')?;
-            crate::values::write_line_names(names, dest)?;
+            crate::values::write_line_names(_cx.ast_context().vec(*names), dest)?;
         }
         dest.write_char(')')
     }
@@ -897,11 +899,11 @@ impl<'ghost> ToCss<'ghost> for Grid<'_> {
         self.auto_flow.to_css(dest, _cx)?;
         if !self.auto_rows.is_empty() {
             dest.write_char(' ')?;
-            write_track_sizes(&self.auto_rows, dest, _cx)?;
+            write_track_sizes(_cx.ast_context().vec(self.auto_rows), dest, _cx)?;
         }
         if !self.auto_columns.is_empty() {
             dest.write_str(" / ")?;
-            write_track_sizes(&self.auto_columns, dest, _cx)?;
+            write_track_sizes(_cx.ast_context().vec(self.auto_columns), dest, _cx)?;
         }
         if !matches!(
             _cx.ast_context().resolve_node(self.areas),
@@ -964,7 +966,7 @@ impl<'ghost> ToCss<'ghost> for Font<'_> {
         dest.write_str(" / ")?;
         self.line_height.to_css(dest, _cx)?;
         dest.write_char(' ')?;
-        write_comma_separated(&self.family, dest, _cx)
+        write_comma_separated(_cx.ast_context().vec(self.family), dest, _cx)
     }
 }
 
@@ -1038,7 +1040,8 @@ impl<'ghost> ToCss<'ghost> for Animation<'_> {
         // Components print in their stored order: authored order after
         // parsing, canonical order after the ORDER_VALUES minify pass, which
         // also moves a name colliding with a keyword class behind that class.
-        for (index, component) in self.components.iter().enumerate() {
+        let components = ast.vec(self.components);
+        for (index, component) in components.iter().enumerate() {
             if index > 0 {
                 dest.write_char(' ')?;
             }
@@ -1049,7 +1052,7 @@ impl<'ghost> ToCss<'ghost> for Animation<'_> {
                 && let name = ast.resolve_node(*name)
                 && let AnimationName::String(value) = name
                 && name.keyword_class().is_some_and(|class| {
-                    !self.components[..index]
+                    !components[..index]
                         .iter()
                         .any(|component| component.keyword_class() == Some(class))
                 })
@@ -1232,7 +1235,7 @@ impl<'ghost> ToCss<'ghost> for Cursor<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        for image in &self.images {
+        for image in _cx.ast_context().vec(self.images) {
             image.to_css(dest, _cx)?;
             dest.delim(Delimiter::Comma)?;
         }
@@ -1289,7 +1292,7 @@ impl<'ghost> ToCss<'ghost> for Composes<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        for (index, name) in self.names.iter().enumerate() {
+        for (index, name) in _cx.ast_context().vec(self.names).iter().enumerate() {
             if index > 0 {
                 dest.write_char(' ')?;
             }
@@ -1356,7 +1359,7 @@ impl<'ghost> ToCss<'ghost> for Polygon<'_> {
         dest.write_str("polygon(")?;
         self.fill_rule.to_css(dest, _cx)?;
         dest.delim(Delimiter::Comma)?;
-        write_comma_separated(&self.points, dest, _cx)?;
+        write_comma_separated(_cx.ast_context().vec(self.points), dest, _cx)?;
         dest.write_char(')')
     }
 }
@@ -1577,7 +1580,7 @@ impl<'ghost> ToCss<'ghost> for UnparsedProperty<'_> {
         if let Some(raw_value) = self.raw_value {
             dest.write_str(raw_value)
         } else {
-            crate::token::write_unparsed_token_list(&self.value, dest, _cx)
+            crate::token::write_unparsed_token_list(_cx.ast_context().vec(self.value), dest, _cx)
         }
     }
 }
@@ -1588,7 +1591,7 @@ impl<'ghost> ToCss<'ghost> for CustomProperty<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        crate::token::write_token_list(&self.value, dest, _cx)
+        crate::token::write_token_list(_cx.ast_context().vec(self.value), dest, _cx)
     }
 }
 
@@ -1640,12 +1643,16 @@ impl<'ghost> ToCss<'ghost> for FontFaceProperty<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
-            Self::Source(values) => write_comma_separated(values, dest, _cx),
+            Self::Source(values) => {
+                write_comma_separated(_cx.ast_context().vec(*values), dest, _cx)
+            }
             Self::FontFamily(value) => value.to_css(dest, _cx),
             Self::FontStyle(value) => value.to_css(dest, _cx),
             Self::FontWeight(value) => value.to_css(dest, _cx),
             Self::FontStretch(value) => value.to_css(dest, _cx),
-            Self::UnicodeRange(values) => write_comma_separated(values, dest, _cx),
+            Self::UnicodeRange(values) => {
+                write_comma_separated(_cx.ast_context().vec(*values), dest, _cx)
+            }
             Self::Custom(value) => value.to_css(dest, _cx),
         }
     }
@@ -1757,7 +1764,9 @@ impl<'ghost> ToCss<'ghost> for FontPaletteValuesProperty<'_> {
         match self {
             Self::FontFamily(value) => value.to_css(dest, _cx),
             Self::BasePalette(value) => value.to_css(dest, _cx),
-            Self::OverrideColors(values) => write_comma_separated(values, dest, _cx),
+            Self::OverrideColors(values) => {
+                write_comma_separated(_cx.ast_context().vec(*values), dest, _cx)
+            }
             Self::Custom(value) => value.to_css(dest, _cx),
         }
     }
@@ -1855,7 +1864,7 @@ impl<'ghost> ToCss<'ghost> for ParsedComponent<'_> {
             Self::Resolution(value) => value.to_css(dest, _cx),
             Self::TransformFunction(value) => value.to_css(dest, _cx),
             Self::TransformList(values) => {
-                for (index, value) in values.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1874,7 +1883,7 @@ impl<'ghost> ToCss<'ghost> for ParsedComponent<'_> {
                     Multiplier::Space => " ",
                     Multiplier::Comma => ", ",
                 };
-                for (index, value) in components.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*components).iter().enumerate() {
                     if index > 0 {
                         dest.write_str(delimiter)?;
                     }
@@ -1882,7 +1891,9 @@ impl<'ghost> ToCss<'ghost> for ParsedComponent<'_> {
                 }
                 Ok(())
             }
-            Self::TokenList(values) => crate::token::write_token_list(values, dest, _cx),
+            Self::TokenList(values) => {
+                crate::token::write_token_list(_cx.ast_context().vec(*values), dest, _cx)
+            }
         }
     }
 }
@@ -1910,7 +1921,7 @@ impl<'ghost> ToCss<'ghost> for SyntaxString<'_> {
         match self {
             Self::Universal => dest.write_char('*'),
             Self::Components(values) => {
-                for (index, value) in values.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
                     if index > 0 {
                         dest.write_str(" | ")?;
                     }
@@ -1996,7 +2007,7 @@ impl<'ghost> ToCss<'ghost> for ContainerCondition<'_> {
                 conditions,
                 operator,
             } => {
-                for (index, value) in conditions.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*conditions).iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                         operator.to_css(dest, _cx)?;
@@ -2016,7 +2027,9 @@ impl<'ghost> ToCss<'ghost> for ContainerCondition<'_> {
                 value.to_css(dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Unknown(values) => crate::token::write_token_list(values, dest, _cx),
+            Self::Unknown(values) => {
+                crate::token::write_token_list(_cx.ast_context().vec(*values), dest, _cx)
+            }
         }
     }
 }
@@ -2038,7 +2051,7 @@ impl<'ghost> ToCss<'ghost> for StyleQuery<'_> {
                 conditions,
                 operator,
             } => {
-                for (index, value) in conditions.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*conditions).iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                         operator.to_css(dest, _cx)?;
@@ -2068,7 +2081,7 @@ impl<'ghost> ToCss<'ghost> for ScrollStateQuery<'_> {
                 conditions,
                 operator,
             } => {
-                for (index, value) in conditions.iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec(*conditions).iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                         operator.to_css(dest, _cx)?;
@@ -2135,7 +2148,7 @@ impl<'ghost> ToCss<'ghost> for ImportRule<'_> {
             dest.write_str(" layer")?;
             if !layer.is_empty() {
                 dest.write_char('(')?;
-                write_layer_name(layer, dest)?;
+                write_layer_name(_cx.ast_context().vec(*layer), dest)?;
                 dest.write_char(')')?;
             }
         }
@@ -2185,7 +2198,7 @@ impl<'ghost> ToCss<'ghost> for UrlSource<'_> {
         }
         if !self.tech.is_empty() {
             dest.write_str(" tech(")?;
-            write_comma_separated(&self.tech, dest, _cx)?;
+            write_comma_separated(_cx.ast_context().vec(self.tech), dest, _cx)?;
             dest.write_char(')')?;
         }
         Ok(())
@@ -2240,7 +2253,7 @@ impl<'ghost> ToCss<'ghost> for FontFeatureDeclaration<'_> {
     ) -> fmt::Result {
         serialize_identifier(self.name, dest)?;
         dest.delim(Delimiter::Colon)?;
-        for (index, value) in self.values.iter().enumerate() {
+        for (index, value) in _cx.ast_context().vec(self.values).iter().enumerate() {
             if index > 0 {
                 dest.write_char(' ')?;
             }
@@ -2259,7 +2272,7 @@ impl<'ghost> ToCss<'ghost> for PageSelector<'_> {
         if let Some(name) = self.name {
             serialize_identifier(name, dest)?;
         }
-        for pseudo_class in &self.pseudo_classes {
+        for pseudo_class in _cx.ast_context().vec(self.pseudo_classes) {
             dest.write_char(':')?;
             pseudo_class.to_css(dest, _cx)?;
         }

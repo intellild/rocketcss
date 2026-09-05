@@ -51,6 +51,7 @@ pub trait CompilationVisitorMut<'ast> {
         &mut self,
         _id: SelectorValueId<'ast>,
         _selectors: &mut crate::SelectorList<'ast>,
+        _compilation: &mut Compilation<'ast>,
     ) {
     }
 
@@ -189,8 +190,9 @@ impl<'ast> Compilation<'ast> {
         &mut self,
         visitor: &mut V,
     ) -> Result<(), ConcreteMutationError<'ast>> {
-        self.transform_selector_values(|id, selectors| {
-            visitor.visit_selector_value(id, selectors);
+        let allocator = self.allocator;
+        self.transform_selector_values_in(allocator, |id, selectors, compilation| {
+            visitor.visit_selector_value(id, selectors, compilation);
         });
         let mut current = self.first_rule_in_source;
         while let Some(rule_id) = current {

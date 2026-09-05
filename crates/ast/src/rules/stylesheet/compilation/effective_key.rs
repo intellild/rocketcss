@@ -467,16 +467,16 @@ impl<'ast> Compilation<'ast> {
             if let Err(payload) = result {
                 std::panic::resume_unwind(payload);
             }
-            let value = &mut self.selector_values[id];
-            value.fingerprint = selector_value_fingerprint(
-                value
-                    .selectors
-                    .as_ref()
-                    .expect("selector value was restored"),
-                value.kind,
-                value.vendor_prefix,
-            );
-            changed |= value.fingerprint != previous_fingerprint;
+            let value = &self.selector_values[id];
+            let selectors = *value
+                .selectors
+                .as_ref()
+                .expect("selector value was restored");
+            let kind = value.kind;
+            let vendor_prefix = value.vendor_prefix;
+            let fingerprint = selector_value_fingerprint(self, selectors, kind, vendor_prefix);
+            self.selector_values[id].fingerprint = fingerprint;
+            changed |= fingerprint != previous_fingerprint;
         }
 
         // The common minify path leaves the typed selector values untouched.
@@ -500,7 +500,11 @@ impl<'ast> Compilation<'ast> {
                         let candidate = &self.selector_values[candidate];
                         candidate.kind == value.kind
                             && candidate.vendor_prefix == value.vendor_prefix
-                            && candidate.selectors() == value.selectors()
+                            && selector_lists_are_equal(
+                                self,
+                                *candidate.selectors(),
+                                *value.selectors(),
+                            )
                     })
                 })
                 .unwrap_or(id);
@@ -1174,7 +1178,7 @@ impl<'ast> Compilation<'ast> {
         kind: SelectorFrameKind,
         vendor_prefix: VendorPrefix,
     ) -> Result<SelectorValueId<'ast>, MutationError<'ast>> {
-        let fingerprint = selector_value_fingerprint(&selectors, kind, vendor_prefix);
+        let fingerprint = selector_value_fingerprint(self, selectors, kind, vendor_prefix);
         self.intern_selector_value_with_fingerprint(selectors, kind, vendor_prefix, fingerprint)
     }
 
@@ -1190,7 +1194,7 @@ impl<'ast> Compilation<'ast> {
                 let value = &self.selector_values[id];
                 value.kind == kind
                     && value.vendor_prefix == vendor_prefix
-                    && value.selectors() == &selectors
+                    && selector_lists_are_equal(self, *value.selectors(), selectors)
             })
         {
             return Ok(id);
@@ -1381,20 +1385,141 @@ impl std::fmt::Write for DebugHashWriter<'_> {
 }
 
 fn selector_value_fingerprint(
-    selectors: &crate::SelectorList<'_>,
+    ast: &Compilation<'_>,
+    selectors: crate::SelectorList<'_>,
     kind: SelectorFrameKind,
     vendor_prefix: VendorPrefix,
 ) -> u64 {
     let mut hasher = FxHasher::default();
     kind.hash(&mut hasher);
     vendor_prefix.hash(&mut hasher);
-    selectors.hash(&mut hasher);
+    hash_selector_list(ast, selectors, &mut hasher);
     hasher.finish()
+}
+
+fn selector_lists_are_equal(
+    ast: &Compilation<'_>,
+    left: crate::SelectorList<'_>,
+    right: crate::SelectorList<'_>,
+) -> bool {
+    let left = ast.vec(left);
+    let right = ast.vec(right);
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| selectors_are_equal(ast, left, right))
+}
+
+fn selectors_are_equal(
+    ast: &Compilation<'_>,
+    left: &crate::Selector<'_>,
+    right: &crate::Selector<'_>,
+) -> bool {
+    match (left, right) {
+        (crate::Selector::Parsed(left), crate::Selector::Parsed(right)) => {
+            let left = ast.vec(*left);
+            let right = ast.vec(*right);
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right)
+                    .all(|(left, right)| selector_components_are_equal(ast, left, right))
+        }
+        _ => left == right,
+    }
+}
+
+fn selector_components_are_equal(
+    ast: &Compilation<'_>,
+    left: &crate::SelectorComponent<'_>,
+    right: &crate::SelectorComponent<'_>,
+) -> bool {
+    use crate::SelectorComponent as Component;
+    match (left, right) {
+        (Component::Negation(left), Component::Negation(right))
+        | (Component::Where(left), Component::Where(right))
+        | (Component::Is(left), Component::Is(right))
+        | (Component::Has(left), Component::Has(right)) => {
+            selector_lists_are_equal(ast, *left, *right)
+        }
+        (
+            Component::NthOf {
+                data: left_data,
+                selectors: left,
+            },
+            Component::NthOf {
+                data: right_data,
+                selectors: right,
+            },
+        ) => left_data == right_data && selector_lists_are_equal(ast, *left, *right),
+        (Component::Part(left), Component::Part(right)) => ast.vec(*left) == ast.vec(*right),
+        (
+            Component::Any {
+                vendor_prefix: left_prefix,
+                selectors: left,
+            },
+            Component::Any {
+                vendor_prefix: right_prefix,
+                selectors: right,
+            },
+        ) => left_prefix == right_prefix && selector_lists_are_equal(ast, *left, *right),
+        _ => left == right,
+    }
+}
+
+fn hash_selector_list(
+    ast: &Compilation<'_>,
+    selectors: crate::SelectorList<'_>,
+    hasher: &mut FxHasher,
+) {
+    ast.vec(selectors).len().hash(hasher);
+    for selector in ast.vec(selectors) {
+        std::mem::discriminant(selector).hash(hasher);
+        match selector {
+            crate::Selector::Parsed(components) => {
+                ast.vec(*components).len().hash(hasher);
+                for component in ast.vec(*components) {
+                    hash_selector_component(ast, component, hasher);
+                }
+            }
+            crate::Selector::Unparsed(value) => value.hash(hasher),
+            crate::Selector::Tombstone => {}
+        }
+    }
+}
+
+fn hash_selector_component(
+    ast: &Compilation<'_>,
+    component: &crate::SelectorComponent<'_>,
+    hasher: &mut FxHasher,
+) {
+    use crate::SelectorComponent as Component;
+    std::mem::discriminant(component).hash(hasher);
+    match component {
+        Component::Negation(selectors)
+        | Component::Where(selectors)
+        | Component::Is(selectors)
+        | Component::Has(selectors) => hash_selector_list(ast, *selectors, hasher),
+        Component::NthOf { data, selectors } => {
+            data.hash(hasher);
+            hash_selector_list(ast, *selectors, hasher);
+        }
+        Component::Part(names) => ast.vec(*names).hash(hasher),
+        Component::Any {
+            vendor_prefix,
+            selectors,
+        } => {
+            vendor_prefix.hash(hasher);
+            hash_selector_list(ast, *selectors, hasher);
+        }
+        _ => component.hash(hasher),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Selector, Vec};
+    use crate::Selector;
 
     use super::*;
 
@@ -1402,9 +1527,10 @@ mod tests {
     fn selector_fingerprint_collisions_still_require_exact_equality() {
         let allocator = rocketcss_common::Allocator::new();
         let mut compilation = Compilation::new_in(&allocator);
-        let empty = Vec::new_in(&allocator);
-        let mut tombstone = Vec::new_in(&allocator);
+        let empty = compilation.alloc_vec(allocator.vec());
+        let mut tombstone = allocator.vec();
         tombstone.push(Selector::Tombstone);
+        let tombstone = compilation.alloc_vec(tombstone);
 
         let first = compilation
             .intern_selector_value_with_fingerprint(
@@ -1424,5 +1550,46 @@ mod tests {
             .unwrap();
 
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn selector_interning_compares_range_contents_instead_of_range_identity() {
+        let allocator = rocketcss_common::Allocator::new();
+        let mut compilation = Compilation::new_in(&allocator);
+
+        let first_components = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+            [crate::SelectorComponent::Empty],
+            &allocator,
+        ));
+        let first_selectors = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+            [Selector::Parsed(first_components)],
+            &allocator,
+        ));
+        let second_components = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+            [crate::SelectorComponent::Empty],
+            &allocator,
+        ));
+        let second_selectors = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+            [Selector::Parsed(second_components)],
+            &allocator,
+        ));
+
+        assert_ne!(first_selectors, second_selectors);
+        let first = compilation
+            .intern_selector_value(
+                first_selectors,
+                SelectorFrameKind::Style,
+                VendorPrefix::NONE,
+            )
+            .unwrap();
+        let second = compilation
+            .intern_selector_value(
+                second_selectors,
+                SelectorFrameKind::Style,
+                VendorPrefix::NONE,
+            )
+            .unwrap();
+
+        assert_eq!(first, second);
     }
 }

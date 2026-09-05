@@ -638,6 +638,15 @@ fn container_impls(mode: Mode) -> TokenStream {
                     visitor.visit_str(self, cx);
                 }
             }
+            impl<'a, 'ghost> #node_trait<'a, 'ghost> for rocketcss_common::Atom<'a> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                    cx: &VisitContext<'_, 'a, 'ghost>,
+                ) {
+                    visitor.visit_atom(self, cx);
+                }
+            }
         }
     } else {
         quote! {
@@ -688,6 +697,15 @@ fn container_impls(mode: Mode) -> TokenStream {
                     cx: &mut VisitMutContext<'_, 'a, 'ghost>,
                 ) {
                     visitor.visit_str(self, cx);
+                }
+            }
+            impl<'a, 'ghost> #node_trait<'a, 'ghost> for rocketcss_common::Atom<'a> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+                ) {
+                    visitor.visit_atom(self, cx);
                 }
             }
         }
@@ -850,21 +868,9 @@ fn visit_type(
                     )
                 }
             } else if name == "Vec" {
-                let Some(inner_ty) = first_type_argument(&segment.arguments) else {
-                    return quote!();
-                };
-                let binding = fresh_binding(counter);
-                let iterator = mode.iterator();
-                let inner = visit_type(
-                    mode,
-                    inner_ty,
-                    quote!(#binding),
-                    known,
-                    aliases,
-                    generics,
-                    counter,
-                );
-                quote!(for #binding in (#expression).#iterator() { #inner })
+                let node_trait = mode.node_trait();
+                let visit = mode.visit_method();
+                quote!(#node_trait::#visit(#expression, visitor, cx);)
             } else if name == "GhostBox" {
                 let Some(_inner_ty) = first_type_argument(&segment.arguments) else {
                     return quote!();

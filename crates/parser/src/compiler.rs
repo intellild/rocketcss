@@ -1,5 +1,5 @@
-use rocketcss_ast::{Atom, Compilation, NodeId};
-use rocketcss_common::{Allocator, GhostToken, StringPool};
+use rocketcss_ast::{AstVec, Atom, Compilation, NodeId};
+use rocketcss_common::{Allocator, GhostToken, StringPool, vec::Vec};
 
 use crate::{
     Error, ParserOptions,
@@ -128,4 +128,13 @@ pub(crate) fn store_node<'alloc, T: 'alloc>(
 ) -> NodeId<'alloc, T> {
     let span = input.current_token_span().unwrap_or_default();
     input.ast_context_mut().alloc_node(value, span)
+}
+
+/// Commits a completed construction-time list to the AST context.
+#[inline]
+pub(crate) fn store_vec<'alloc, T: 'alloc + Unpin>(
+    values: Vec<'alloc, T>,
+    input: &mut Compiler<'alloc>,
+) -> AstVec<'alloc, T> {
+    input.ast_context_mut().alloc_vec(values)
 }

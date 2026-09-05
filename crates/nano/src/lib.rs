@@ -266,8 +266,8 @@ struct Minifier<'ast, 'cx> {
 impl<'ast, 'cx> Minifier<'ast, 'cx> {
     fn minify_unknown_token_lists<'ghost>(
         &mut self,
-        prelude: &mut rocketcss_common::vec::Vec<'ast, TokenOrValue<'ast>>,
-        mut block: Option<&mut rocketcss_common::vec::Vec<'ast, TokenOrValue<'ast>>>,
+        prelude: &mut rocketcss_ast::Vec<'ast, TokenOrValue<'ast>>,
+        mut block: Option<&mut rocketcss_ast::Vec<'ast, TokenOrValue<'ast>>>,
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         let previous = self.cx.value_context;
@@ -275,13 +275,19 @@ impl<'ast, 'cx> Minifier<'ast, 'cx> {
         self.cx
             .value_context
             .set_enabled(context::ValueContextFlags::SKIP_VALUE_TRANSFORMS, true);
-        if let Some(block) = &mut block {
-            block.visit_mut(self, cx);
+        if let Some(block) = block.as_deref_mut() {
+            cx.rewrite_vec(block, |block, cx| {
+                block.visit_mut(self, cx);
+            });
         }
-        prelude.visit_mut(self, cx);
-        token::minify_token_values(prelude, &mut self.cx, cx);
+        cx.rewrite_vec(prelude, |prelude, cx| {
+            prelude.visit_mut(self, cx);
+            token::minify_token_values(prelude, &mut self.cx, cx);
+        });
         if let Some(block) = block {
-            token::minify_token_values(block, &mut self.cx, cx);
+            cx.rewrite_vec(block, |block, cx| {
+                token::minify_token_values(block, &mut self.cx, cx);
+            });
         }
         self.cx.value_context = previous;
     }
@@ -328,8 +334,10 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     ) {
         node.visit_mut_children(self, cx);
         let remove_declaration = if let Declaration::FontFamily(families) = node {
-            families.minify(&mut self.cx);
-            families.iter().all(FontFamily::is_tombstone)
+            cx.mutate_vec(*families, |families, _| {
+                families.minify(&mut self.cx);
+                families.iter().all(FontFamily::is_tombstone)
+            })
         } else {
             false
         };
@@ -409,25 +417,26 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
             );
         if fuse_token_compaction {
             node.name.visit_mut(self, cx);
-            for value in &mut node.value {
-                value.visit_mut(self, cx);
-            }
             let preserve_space_after_comma = self
                 .cx
                 .value_context
                 .is_enabled(context::ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
-            let normalized = token::compact_comments_and_whitespace(
-                &mut node.value,
-                preserve_space_after_comma,
-                cx,
-            );
-            for _ in 0..normalized {
-                self.cx.record_value_normalized();
-            }
-            token::minify_compacted_token_values(&mut node.value, &mut self.cx, cx);
+            cx.rewrite_vec(&mut node.value, |values, cx| {
+                for value in values.iter_mut() {
+                    value.visit_mut(self, cx);
+                }
+                let normalized =
+                    token::compact_comments_and_whitespace(values, preserve_space_after_comma, cx);
+                for _ in 0..normalized {
+                    self.cx.record_value_normalized();
+                }
+                token::minify_compacted_token_values(values, &mut self.cx, cx);
+            });
         } else {
             node.visit_mut_children(self, cx);
-            token::minify_token_values(&mut node.value, &mut self.cx, cx);
+            cx.rewrite_vec(&mut node.value, |values, cx| {
+                token::minify_token_values(values, &mut self.cx, cx)
+            });
         }
         self.cx.value_context = previous;
     }
@@ -495,7 +504,9 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     ) {
         node.visit_mut_children(self, cx);
         if let Some(fallback) = &mut node.fallback {
-            token::minify_token_values(fallback, &mut self.cx, cx);
+            cx.rewrite_vec(fallback, |fallback, cx| {
+                token::minify_token_values(fallback, &mut self.cx, cx)
+            });
         }
     }
 
@@ -506,7 +517,9 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     ) {
         node.visit_mut_children(self, cx);
         if let Some(fallback) = &mut node.fallback {
-            token::minify_token_values(fallback, &mut self.cx, cx);
+            cx.rewrite_vec(fallback, |fallback, cx| {
+                token::minify_token_values(fallback, &mut self.cx, cx)
+            });
         }
     }
 
@@ -563,7 +576,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     ) {
         self.visit_selector_list_children(node, cx);
         let allocator = self.cx.allocator();
-        selector::minify_selector_list(node, &mut self.cx, allocator, cx.ast_context());
+        selector::minify_selector_list(node, &mut self.cx, allocator, cx);
     }
 
     fn visit_media_list(
@@ -572,7 +585,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
-        media::minify_media_list(node, &mut self.cx, cx.ast_context());
+        media::minify_media_list(node, &mut self.cx, cx);
     }
 }
 

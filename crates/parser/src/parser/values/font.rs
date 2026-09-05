@@ -175,7 +175,8 @@ pub(crate) fn parse_font_family_list<'i>(
             if let Ok(family) = input.try_parse(FontFamily::parse) {
                 return Ok(family);
             }
-            super::collect_tokens(input, allocator, depth + 1).map(FontFamily::Unparsed)
+            super::collect_tokens(input, allocator, depth + 1)
+                .map(|value| FontFamily::Unparsed(store_vec(value, input)))
         })?;
         families.push(family);
         if input.try_parse(Compiler::expect_comma).is_err() {
