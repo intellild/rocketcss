@@ -115,7 +115,7 @@ comma_vec! {
     BackgroundAttachment,
     BackgroundClip,
     BackgroundOrigin,
-    Background<'a>,
+    NodeId<'a, Background<'a>>,
     BoxShadow<'a>,
     PropertyId<'a>,
     Time,

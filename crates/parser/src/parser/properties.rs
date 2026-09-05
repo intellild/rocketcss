@@ -509,7 +509,8 @@ fn parse_background<'i>(
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let mut values = allocator.vec();
-            values.push(Background::parse(input)?);
+            let value = Background::parse(input)?;
+            values.push(store_node(value, input));
             Ok(Declaration::Background(store_vec(values, input)))
         }),
     )

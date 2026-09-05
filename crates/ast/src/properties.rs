@@ -520,7 +520,7 @@ macro_rules! for_each_property {
     "background-attachment": BackgroundAttachment(Vec<'a, BackgroundAttachment>) [comma_separated: BackgroundAttachment],
     "background-clip": BackgroundClip(Vec<'a, BackgroundClip>, VendorPrefix) [comma_separated: BackgroundClip],
     "background-origin": BackgroundOrigin(Vec<'a, BackgroundOrigin>) [comma_separated: BackgroundOrigin],
-    "background": Background(Vec<'a, Background<'a>>) [custom: parse_background],
+    "background": Background(Vec<'a, NodeId<'a, Background<'a>>>) [custom: parse_background],
     "box-shadow": BoxShadow(Vec<'a, BoxShadow<'a>>, VendorPrefix) [unsupported],
     "opacity": Opacity(f32) [custom: parse_opacity],
     "color": Color(NodeId<'a, CssColor<'a>>) [node: CssColor<'i>],

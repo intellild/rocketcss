@@ -458,7 +458,7 @@ fn parses_named_colors_as_known_color_nodes() {
             declarations[2].0,
                 Declaration::Background(values)
                 if matches!(
-                    sheet.node(sheet.vec(*values)[0].color),
+                    sheet.node(sheet.node(sheet.vec(*values)[0]).color),
                     CssColor::Known(KnownColor::Blue)
                 )
         ));

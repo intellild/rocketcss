@@ -374,6 +374,61 @@ fn decode_background_repeat_keyword(value: u8) -> BackgroundRepeatKeyword {
     }
 }
 
+fn encode_background_attachment(value: BackgroundAttachment) -> u8 {
+    match value {
+        BackgroundAttachment::Scroll => 0,
+        BackgroundAttachment::Fixed => 1,
+        BackgroundAttachment::Local => 2,
+    }
+}
+
+fn decode_background_attachment(value: u8) -> BackgroundAttachment {
+    match value {
+        0 => BackgroundAttachment::Scroll,
+        1 => BackgroundAttachment::Fixed,
+        2 => BackgroundAttachment::Local,
+        _ => panic!("invalid encoded BackgroundAttachment"),
+    }
+}
+
+fn encode_background_clip(value: BackgroundClip) -> u8 {
+    match value {
+        BackgroundClip::BorderBox => 0,
+        BackgroundClip::PaddingBox => 1,
+        BackgroundClip::ContentBox => 2,
+        BackgroundClip::Border => 3,
+        BackgroundClip::Text => 4,
+    }
+}
+
+fn decode_background_clip(value: u8) -> BackgroundClip {
+    match value {
+        0 => BackgroundClip::BorderBox,
+        1 => BackgroundClip::PaddingBox,
+        2 => BackgroundClip::ContentBox,
+        3 => BackgroundClip::Border,
+        4 => BackgroundClip::Text,
+        _ => panic!("invalid encoded BackgroundClip"),
+    }
+}
+
+fn encode_background_origin(value: BackgroundOrigin) -> u8 {
+    match value {
+        BackgroundOrigin::BorderBox => 0,
+        BackgroundOrigin::PaddingBox => 1,
+        BackgroundOrigin::ContentBox => 2,
+    }
+}
+
+fn decode_background_origin(value: u8) -> BackgroundOrigin {
+    match value {
+        0 => BackgroundOrigin::BorderBox,
+        1 => BackgroundOrigin::PaddingBox,
+        2 => BackgroundOrigin::ContentBox,
+        _ => panic!("invalid encoded BackgroundOrigin"),
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct Background<'a> {
     pub attachment: BackgroundAttachment,
@@ -384,6 +439,74 @@ pub struct Background<'a> {
     pub position: NodeId<'a, BackgroundPosition<'a>>,
     pub repeat: BackgroundRepeat,
     pub size: NodeId<'a, BackgroundSize<'a>>,
+}
+
+// Fixed payload layout for `Background`:
+//
+// bytes 0..4   color NodeId
+// bytes 4..8   image NodeId
+// bytes 8..12  position NodeId
+// bytes 12..16 first extra slot
+//
+// extra + 0    size NodeId
+// extra + 1    attachment/clip/origin/repeat-x/repeat-y
+impl<'ast> AstNodeStorage<'ast> for Background<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0006_0005);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let extra = payload.extra_start();
+        let enums = context.extra_slot(extra + 1).bytes();
+        Self {
+            attachment: decode_background_attachment(enums[0]),
+            clip: decode_background_clip(enums[1]),
+            color: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
+            image: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
+            origin: decode_background_origin(enums[2]),
+            position: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
+            repeat: BackgroundRepeat {
+                x: decode_background_repeat_keyword(enums[3]),
+                y: decode_background_repeat_keyword(enums[4]),
+            },
+            size: context.encoded_node_id_at(context.extra_slot(extra).as_u64() as usize),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_background(self, None, context)
+    }
+
+    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_background(self, Some(current.extra_start()), context)
+    }
+}
+
+fn encode_background<'ast>(
+    value: Background<'ast>,
+    existing_extra: Option<usize>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut inline = [0; NodePayload::PARTIAL_INLINE_BYTES];
+    write_u32(&mut inline, 0, node_index(value.color));
+    write_u32(&mut inline, 4, node_index(value.image));
+    write_u32(&mut inline, 8, node_index(value.position));
+    let size = ExtraData::from_u64(node_index(value.size) as u64);
+    let enums = ExtraData::from_bytes(&[
+        encode_background_attachment(value.attachment),
+        encode_background_clip(value.clip),
+        encode_background_origin(value.origin),
+        encode_background_repeat_keyword(value.repeat.x),
+        encode_background_repeat_keyword(value.repeat.y),
+    ]);
+    let extra = match existing_extra {
+        Some(extra) => {
+            context.set_extra_slot(extra, size);
+            context.set_extra_slot(extra + 1, enums);
+            extra
+        }
+        None => context.alloc_extra_slots([size, enums]),
+    };
+    NodePayload::with_extra(&inline, extra)
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -434,10 +557,12 @@ mod storage_tests {
     use rocketcss_common::Allocator;
 
     use crate::{
-        AstContext, BackgroundPosition, BackgroundRepeat, BackgroundRepeatKeyword, CssColor,
+        AstContext, Background, BackgroundAttachment, BackgroundClip, BackgroundOrigin,
+        BackgroundPosition, BackgroundRepeat, BackgroundRepeatKeyword, BackgroundSize, CssColor,
         DUMMY_SP, DimensionPercentage, HorizontalPositionKeyword, Image, ImageSet, ImageSetOption,
-        Position, PositionComponent, Resolution, Url, VendorPrefix, VerticalPositionKeyword,
-        WebKitColorStop, WebKitGradientPoint, WebKitGradientPointComponent,
+        LengthPercentageOrAuto, Position, PositionComponent, Resolution, Url, VendorPrefix,
+        VerticalPositionKeyword, WebKitColorStop, WebKitGradientPoint,
+        WebKitGradientPointComponent,
     };
 
     #[test]
@@ -533,6 +658,66 @@ mod storage_tests {
                 x: BackgroundRepeatKeyword::Round,
                 y: BackgroundRepeatKeyword::NoRepeat,
             })
+        );
+    }
+
+    #[test]
+    fn background_codec_uses_and_reuses_two_fixed_overflow_slots() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let color = context.alloc_encoded_node(CssColor::CurrentColor, DUMMY_SP);
+        let image = context.alloc_encoded_node(Image::None, DUMMY_SP);
+        let x = context.alloc_encoded_node(
+            PositionComponent::<HorizontalPositionKeyword>::Center,
+            DUMMY_SP,
+        );
+        let y = context.alloc_encoded_node(
+            PositionComponent::<VerticalPositionKeyword>::Center,
+            DUMMY_SP,
+        );
+        let position = context.alloc_encoded_node(BackgroundPosition { x, y }, DUMMY_SP);
+        let width = context.alloc_encoded_node(LengthPercentageOrAuto::Auto, DUMMY_SP);
+        let height = context.alloc_encoded_node(LengthPercentageOrAuto::Auto, DUMMY_SP);
+        let size = context.alloc_encoded_node(BackgroundSize::Explicit { height, width }, DUMMY_SP);
+        let before = context.encoded_extra_len();
+        let background = context.alloc_encoded_node(
+            Background {
+                attachment: BackgroundAttachment::Fixed,
+                clip: BackgroundClip::Text,
+                color,
+                image,
+                origin: BackgroundOrigin::ContentBox,
+                position,
+                repeat: BackgroundRepeat {
+                    x: BackgroundRepeatKeyword::Round,
+                    y: BackgroundRepeatKeyword::Space,
+                },
+                size,
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(context.encoded_extra_len(), before + 2);
+
+        context.mutate_encoded_node(background, |value, _| {
+            value.attachment = BackgroundAttachment::Local;
+            value.repeat.y = BackgroundRepeatKeyword::NoRepeat;
+        });
+        assert_eq!(context.encoded_extra_len(), before + 2);
+        assert_eq!(
+            context.encoded_node(background),
+            Background {
+                attachment: BackgroundAttachment::Local,
+                clip: BackgroundClip::Text,
+                color,
+                image,
+                origin: BackgroundOrigin::ContentBox,
+                position,
+                repeat: BackgroundRepeat {
+                    x: BackgroundRepeatKeyword::Round,
+                    y: BackgroundRepeatKeyword::NoRepeat,
+                },
+                size,
+            }
         );
     }
 
