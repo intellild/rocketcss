@@ -232,6 +232,44 @@ pub enum PositionProperty {
     Fixed,
 }
 
+impl AstNodeStorage<'_> for PositionProperty {
+    const KIND: NodeKind = NodeKind::new(0x0008_000d);
+
+    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Static,
+            1 => Self::Relative,
+            2 => Self::Absolute,
+            3 => Self::Sticky(decode_vendor_prefix(bytes[1])),
+            4 => Self::Fixed,
+            _ => panic!("invalid encoded PositionProperty variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        match self {
+            Self::Static => bytes[0] = 0,
+            Self::Relative => bytes[0] = 1,
+            Self::Absolute => bytes[0] = 2,
+            Self::Sticky(prefix) => write_vendor_prefix(&mut bytes, 3, prefix),
+            Self::Fixed => bytes[0] = 4,
+        }
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl AstNodeClone<'_> for PositionProperty {
+    fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct Size2D<'a, T>(pub NodeId<'a, T>, pub NodeId<'a, T>);
 
