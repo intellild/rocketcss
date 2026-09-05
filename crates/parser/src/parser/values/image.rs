@@ -123,7 +123,8 @@ fn parse_image_set<'i>(
     vendor_prefix: VendorPrefix,
 ) -> Result<ImageSet<'i>, ParseError<'i, ParserError<'i>>> {
     let options = super::animation::parse_comma_separated(input, |input| {
-        parse_image_set_option(input, vendor_prefix)
+        let option = parse_image_set_option(input, vendor_prefix)?;
+        Ok(store_node(option, input))
     })?;
     Ok(ImageSet {
         options: store_vec(options, input),

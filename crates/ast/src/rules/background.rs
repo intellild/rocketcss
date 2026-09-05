@@ -189,7 +189,7 @@ impl<'ast> ExtraDataCompact<'ast> for WebKitColorStop<'ast> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ImageSet<'a> {
-    pub options: Vec<'a, ImageSetOption<'a>>,
+    pub options: Vec<'a, NodeId<'a, ImageSetOption<'a>>>,
     pub vendor_prefix: VendorPrefix,
 }
 
@@ -483,13 +483,7 @@ mod storage_tests {
             }
         );
 
-        let mut option_values = allocator.vec();
-        option_values.push(ImageSetOption {
-            file_type: Some("image/avif"),
-            image,
-            resolution: Resolution::Dppx(2.0),
-        });
-        let options = context.alloc_vec(option_values);
+        let options = context.alloc_encoded_vec([option].into_iter());
         let image_set = context.alloc_encoded_node(
             ImageSet {
                 options,
