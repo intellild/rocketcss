@@ -429,14 +429,14 @@ pub(crate) fn decode_angle(kind: u8, value: f32) -> Angle {
     }
 }
 
-fn encode_time(time: Time) -> (u8, f32) {
+pub(crate) fn encode_time(time: Time) -> (u8, f32) {
     match time {
         Time::Seconds(value) => (0, value),
         Time::Milliseconds(value) => (1, value),
     }
 }
 
-fn decode_time(kind: u8, value: f32) -> Time {
+pub(crate) fn decode_time(kind: u8, value: f32) -> Time {
     match kind {
         0 => Time::Seconds(value),
         1 => Time::Milliseconds(value),
@@ -534,6 +534,69 @@ pub enum AnimationName<'a> {
     String(&'a str),
 }
 
+impl<'ast> AstNodeStorage<'ast> for AnimationName<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0005_0002);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        decode_animation_name(&payload.bytes(), context)
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_animation_name_node(self, context)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_animation_name_node(self, context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for AnimationName<'ast> {
+    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
+impl<'ast> ExtraDataCompact<'ast> for AnimationName<'ast> {
+    fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData {
+        let payload = encode_animation_name_node(self, context);
+        ExtraData::from_bytes(&payload.bytes()[..ExtraData::BYTES])
+    }
+
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        decode_animation_name(&data.bytes(), context)
+    }
+}
+
+fn encode_animation_name_node<'ast>(
+    value: AnimationName<'ast>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    match value {
+        AnimationName::None => bytes[0] = 0,
+        AnimationName::Ident(value) => {
+            bytes[0] = 1;
+            bytes[4..8].copy_from_slice(&context.store_string(value).to_le_bytes());
+        }
+        AnimationName::String(value) => {
+            bytes[0] = 2;
+            bytes[4..8].copy_from_slice(&context.store_string(value).to_le_bytes());
+        }
+    }
+    NodePayload::inline(&bytes)
+}
+
+fn decode_animation_name<'ast>(bytes: &[u8], context: &AstContext<'ast>) -> AnimationName<'ast> {
+    let string =
+        || context.resolve_string(u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as u64);
+    match bytes[0] {
+        0 => AnimationName::None,
+        1 => AnimationName::Ident(string()),
+        2 => AnimationName::String(string()),
+        _ => panic!("invalid encoded AnimationName variant"),
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum EnvironmentVariableName<'a> {
     UA(UAEnvironmentVariable),
@@ -559,7 +622,10 @@ pub enum UAEnvironmentVariable {
 mod storage_tests {
     use rocketcss_common::Allocator;
 
-    use crate::{Angle, AstContext, DUMMY_SP, LengthUnit, LengthValue, Token, TokenOrValue, Unit};
+    use crate::{
+        Angle, AnimationName, AstContext, DUMMY_SP, LengthUnit, LengthValue, Token, TokenOrValue,
+        Unit,
+    };
 
     #[test]
     fn token_codec_round_trips_string_and_dimension_variants() {
@@ -644,5 +710,24 @@ mod storage_tests {
             Some(TokenOrValue::DashedIdent("--custom"))
         );
         assert_eq!(values.len(), 4);
+    }
+
+    #[test]
+    fn animation_name_uses_the_same_compact_layout_as_node_and_list_storage() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let id = context.alloc_encoded_node(AnimationName::String("slide-in"), DUMMY_SP);
+        let cloned = context.clone_encoded_node(id);
+        assert_ne!(id, cloned);
+        assert_eq!(
+            context.encoded_node(cloned),
+            AnimationName::String("slide-in")
+        );
+
+        let names = context.alloc_encoded_vec([AnimationName::Ident("fade")].into_iter());
+        assert_eq!(
+            context.encoded_vec_get(names, 0),
+            Some(AnimationName::Ident("fade"))
+        );
     }
 }

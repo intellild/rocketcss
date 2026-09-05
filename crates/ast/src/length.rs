@@ -312,6 +312,24 @@ pub enum Time {
     Milliseconds(f32),
 }
 
+impl ExtraDataCompact<'_> for Time {
+    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
+        let (kind, value) = crate::token::encode_time(self);
+        let mut bytes = [0; ExtraData::BYTES];
+        bytes[0] = kind;
+        bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
+        ExtraData::from_bytes(&bytes)
+    }
+
+    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
+        let bytes = data.bytes();
+        crate::token::decode_time(
+            bytes[0],
+            f32::from_bits(u32::from_le_bytes(bytes[4..8].try_into().unwrap())),
+        )
+    }
+}
+
 #[cfg(test)]
 mod storage_tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
