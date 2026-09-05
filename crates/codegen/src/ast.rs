@@ -118,11 +118,11 @@ impl<'ast> AstWriter<'_, 'ast> {
             }
             CssRulePayload::LayerStatement(payload) => {
                 dest.write_str("@layer ")?;
-                for (index, name) in self.vec(payload.names).iter().enumerate() {
+                for (index, name) in self.vec_iter(payload.names).enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
-                    write_layer_name(self.vec(*name), dest)?;
+                    write_layer_name(self.vec_iter(name), dest)?;
                 }
                 dest.write_char(';')
             }
@@ -130,7 +130,7 @@ impl<'ast> AstWriter<'_, 'ast> {
                 dest.write_str("@layer")?;
                 if let Some(name) = &payload.name {
                     dest.write_char(' ')?;
-                    write_layer_name(self.vec(*name), dest)?;
+                    write_layer_name(self.vec_iter(*name), dest)?;
                 }
                 self.write_child_rule_block(rule, dest, cx)
             }
@@ -169,19 +169,13 @@ impl<'ast> AstWriter<'_, 'ast> {
                 serialize_identifier(payload.name, dest)?;
                 if !payload.prelude.is_empty() {
                     dest.write_char(' ')?;
-                    crate::token::write_token_list_without_outer_whitespace(
-                        self.vec(payload.prelude),
-                        dest,
-                        cx,
-                    )?;
+                    let prelude = self.vec_iter(payload.prelude).collect::<std::vec::Vec<_>>();
+                    crate::token::write_token_list_without_outer_whitespace(&prelude, dest, cx)?;
                 }
                 if let Some(block) = &payload.block {
                     write_block(dest, |dest| {
-                        crate::token::write_token_list_without_outer_whitespace(
-                            self.vec(*block),
-                            dest,
-                            cx,
-                        )
+                        let block = self.vec_iter(*block).collect::<std::vec::Vec<_>>();
+                        crate::token::write_token_list_without_outer_whitespace(&block, dest, cx)
                     })
                 } else {
                     dest.write_char(';')
@@ -243,7 +237,7 @@ impl<'ast> AstWriter<'_, 'ast> {
                 }
             }
             CssRulePayload::Keyframe(payload) => {
-                write_comma_separated(self.vec(payload.selectors), dest, cx)?;
+                write_comma_separated(self.vec_iter(payload.selectors), dest, cx)?;
                 self.write_property_block(rule, dest, cx)
             }
             CssRulePayload::Page(payload) => self.write_page_rule(rule, payload, dest, cx),
@@ -271,7 +265,7 @@ impl<'ast> AstWriter<'_, 'ast> {
             }
             CssRulePayload::FontFeatureValues(payload) => {
                 dest.write_str("@font-feature-values ")?;
-                write_comma_separated(self.vec(payload.name), dest, cx)?;
+                write_comma_separated(self.vec_iter(payload.name), dest, cx)?;
                 self.write_child_rule_block(rule, dest, cx)
             }
             CssRulePayload::FontFeatureSubrule(payload) => {
@@ -470,7 +464,7 @@ impl<'ast> AstWriter<'_, 'ast> {
         dest.write_str("@page")?;
         if !payload.selectors.is_empty() {
             dest.write_char(' ')?;
-            write_comma_separated(self.vec(payload.selectors), dest, cx)?;
+            write_comma_separated(self.vec_iter(payload.selectors), dest, cx)?;
         }
         let parent_block = rule
             .declaration_block()
@@ -646,9 +640,8 @@ fn next_visible_rule<'comp, 'ast>(
                 .selector_value(style.selector_value)
                 .expect("a style selector value remains resolvable");
             if compilation
-                .vec(*selector.selectors())
-                .iter()
-                .all(|selector| compilation.resolve_node(*selector).is_tombstone())
+                .vec_iter(*selector.selectors())
+                .all(|selector| compilation.resolve_node(selector).is_tombstone())
             {
                 continue;
             }
@@ -713,22 +706,32 @@ where
     value.to_css(dest, cx)
 }
 
-fn write_layer_name<PrinterT: PrinterTrait>(name: &[&str], dest: &mut PrinterT) -> fmt::Result {
-    for (index, part) in name.iter().enumerate() {
+fn write_layer_name<PrinterT, I>(name: I, dest: &mut PrinterT) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    for (index, part) in name.into_iter().enumerate() {
         if index > 0 {
             dest.write_char('.')?;
         }
-        serialize_identifier(part, dest)?;
+        serialize_identifier(part.as_ref(), dest)?;
     }
     Ok(())
 }
 
-fn write_comma_separated<'ghost, PrinterT: PrinterTrait, T: ToCss<'ghost>>(
-    values: &[T],
+fn write_comma_separated<'ghost, PrinterT, I>(
+    values: I,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
-) -> fmt::Result {
-    for (index, value) in values.iter().enumerate() {
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator,
+    I::Item: ToCss<'ghost>,
+{
+    for (index, value) in values.into_iter().enumerate() {
         if index > 0 {
             dest.delim(Delimiter::Comma)?;
         }

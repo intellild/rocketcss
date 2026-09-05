@@ -1384,9 +1384,9 @@ impl std::fmt::Write for DebugHashWriter<'_> {
     }
 }
 
-fn selector_value_fingerprint(
-    ast: &AstContext<'_>,
-    selectors: crate::SelectorList<'_>,
+fn selector_value_fingerprint<'ast>(
+    ast: &AstContext<'ast>,
+    selectors: crate::SelectorList<'ast>,
     kind: SelectorFrameKind,
     vendor_prefix: VendorPrefix,
 ) -> u64 {
@@ -1397,50 +1397,46 @@ fn selector_value_fingerprint(
     hasher.finish()
 }
 
-fn selector_lists_are_equal(
-    ast: &AstContext<'_>,
-    left: crate::SelectorList<'_>,
-    right: crate::SelectorList<'_>,
+fn selector_lists_are_equal<'ast>(
+    ast: &AstContext<'ast>,
+    left: crate::SelectorList<'ast>,
+    right: crate::SelectorList<'ast>,
 ) -> bool {
-    let left = ast.vec(left);
-    let right = ast.vec(right);
-    left.len() == right.len()
-        && left
-            .iter()
-            .zip(right)
-            .all(|(left, right)| selectors_are_equal(ast, *left, *right))
+    ast.vec_len(left) == ast.vec_len(right)
+        && ast
+            .vec_iter(left)
+            .zip(ast.vec_iter(right))
+            .all(|(left, right)| selectors_are_equal(ast, left, right))
 }
 
-fn selectors_are_equal(
-    ast: &AstContext<'_>,
-    left: crate::NodeId<'_, crate::Selector<'_>>,
-    right: crate::NodeId<'_, crate::Selector<'_>>,
+fn selectors_are_equal<'ast>(
+    ast: &AstContext<'ast>,
+    left: crate::NodeId<'ast, crate::Selector<'ast>>,
+    right: crate::NodeId<'ast, crate::Selector<'ast>>,
 ) -> bool {
     let left = ast.resolve_node(left);
     let right = ast.resolve_node(right);
-    match (left, right) {
+    match (&left, &right) {
         (crate::Selector::Parsed(left), crate::Selector::Parsed(right)) => {
-            let left = ast.vec(*left);
-            let right = ast.vec(*right);
-            left.len() == right.len()
-                && left
-                    .iter()
-                    .zip(right)
-                    .all(|(left, right)| selector_components_are_equal(ast, *left, *right))
+            ast.vec_len(*left) == ast.vec_len(*right)
+                && ast
+                    .vec_iter(*left)
+                    .zip(ast.vec_iter(*right))
+                    .all(|(left, right)| selector_components_are_equal(ast, left, right))
         }
         _ => left == right,
     }
 }
 
-fn selector_components_are_equal(
-    ast: &AstContext<'_>,
-    left: crate::NodeId<'_, crate::SelectorComponent<'_>>,
-    right: crate::NodeId<'_, crate::SelectorComponent<'_>>,
+fn selector_components_are_equal<'ast>(
+    ast: &AstContext<'ast>,
+    left: crate::NodeId<'ast, crate::SelectorComponent<'ast>>,
+    right: crate::NodeId<'ast, crate::SelectorComponent<'ast>>,
 ) -> bool {
     let left = ast.resolve_node(left);
     let right = ast.resolve_node(right);
     use crate::SelectorComponent as Component;
-    match (left, right) {
+    match (&left, &right) {
         (Component::Negation(left), Component::Negation(right))
         | (Component::Where(left), Component::Where(right))
         | (Component::Is(left), Component::Is(right))
@@ -1457,7 +1453,9 @@ fn selector_components_are_equal(
                 selectors: right,
             },
         ) => left_data == right_data && selector_lists_are_equal(ast, *left, *right),
-        (Component::Part(left), Component::Part(right)) => ast.vec(*left) == ast.vec(*right),
+        (Component::Part(left), Component::Part(right)) => {
+            ast.vec_iter(*left).eq(ast.vec_iter(*right))
+        }
         (
             Component::Any {
                 vendor_prefix: left_prefix,
@@ -1472,20 +1470,20 @@ fn selector_components_are_equal(
     }
 }
 
-fn hash_selector_list(
-    ast: &AstContext<'_>,
-    selectors: crate::SelectorList<'_>,
+fn hash_selector_list<'ast>(
+    ast: &AstContext<'ast>,
+    selectors: crate::SelectorList<'ast>,
     hasher: &mut FxHasher,
 ) {
-    ast.vec(selectors).len().hash(hasher);
-    for selector in ast.vec(selectors) {
-        let selector = ast.resolve_node(*selector);
-        std::mem::discriminant(selector).hash(hasher);
+    ast.vec_len(selectors).hash(hasher);
+    for selector in ast.vec_iter(selectors) {
+        let selector = ast.resolve_node(selector);
+        std::mem::discriminant(&selector).hash(hasher);
         match selector {
             crate::Selector::Parsed(components) => {
-                ast.vec(*components).len().hash(hasher);
-                for component in ast.vec(*components) {
-                    hash_selector_component(ast, ast.resolve_node(*component), hasher);
+                ast.vec_len(components).hash(hasher);
+                for component in ast.vec_iter(components) {
+                    hash_selector_component(ast, &ast.resolve_node(component), hasher);
                 }
             }
             crate::Selector::Unparsed(value) => value.hash(hasher),
@@ -1494,9 +1492,9 @@ fn hash_selector_list(
     }
 }
 
-fn hash_selector_component(
-    ast: &AstContext<'_>,
-    component: &crate::SelectorComponent<'_>,
+fn hash_selector_component<'ast>(
+    ast: &AstContext<'ast>,
+    component: &crate::SelectorComponent<'ast>,
     hasher: &mut FxHasher,
 ) {
     use crate::SelectorComponent as Component;
@@ -1510,7 +1508,12 @@ fn hash_selector_component(
             data.hash(hasher);
             hash_selector_list(ast, *selectors, hasher);
         }
-        Component::Part(names) => ast.vec(*names).hash(hasher),
+        Component::Part(names) => {
+            ast.vec_len(*names).hash(hasher);
+            for name in ast.vec_iter(*names) {
+                name.hash(hasher);
+            }
+        }
         Component::Any {
             vendor_prefix,
             selectors,

@@ -66,7 +66,7 @@ fn color_number(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> 
     let Token::Number(value) = ast.ast_context().resolve_node(*token) else {
         return None;
     };
-    Some(*value)
+    Some(value)
 }
 
 fn color_percentage(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> Option<f32> {
@@ -74,7 +74,7 @@ fn color_percentage(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>)
         return None;
     };
     match ast.ast_context().resolve_node(*token) {
-        Token::Percentage(value) => Some(*value),
+        Token::Percentage(value) => Some(value),
         Token::Number(0.0) => Some(0.0),
         _ => None,
     }

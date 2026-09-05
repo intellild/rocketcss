@@ -26,7 +26,7 @@ fn removes_unparsed_selectors_from_mixed_selector_lists() {
             .selector_value(rule.selector_value)
             .expect("the style selector remains valid")
             .selectors();
-        let selectors = stylesheet.vec(*selectors);
+        let selectors = stylesheet.vec_snapshot(*selectors);
         assert!(matches!(
             stylesheet.resolve_node(selectors[0]),
             Selector::Parsed(_)

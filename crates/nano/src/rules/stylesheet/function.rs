@@ -32,12 +32,15 @@ pub(crate) fn minify_function<'ast, 'cx, 'ghost>(
         return;
     }
     if function.kind().is_color() {
-        let arguments = ast.ast_context().vec(function.arguments);
+        let arguments = ast
+            .ast_context()
+            .vec_iter(function.arguments)
+            .collect::<std::vec::Vec<_>>();
         if cx
             .value_context
             .is_enabled(ValueContextFlags::MINIFY_COLORS)
-            && let Some(color) = minify_rgb_function(function, arguments, cx, ast)
-                .or_else(|| minify_hsl_function(function, arguments, cx, ast))
+            && let Some(color) = minify_rgb_function(function, &arguments, cx, ast)
+                .or_else(|| minify_hsl_function(function, &arguments, cx, ast))
         {
             function.replacement = Some(color);
             cx.record_value_normalized();

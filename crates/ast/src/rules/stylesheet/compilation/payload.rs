@@ -189,7 +189,7 @@ pub struct KeyframePayload<'ast> {
 
 #[derive(Debug, PartialEq)]
 pub struct PageRulePayload<'ast> {
-    pub selectors: Vec<'ast, PageSelector<'ast>>,
+    pub selectors: Vec<'ast, NodeId<'ast, PageSelector<'ast>>>,
 }
 
 #[derive(Debug, PartialEq)]

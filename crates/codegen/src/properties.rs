@@ -92,7 +92,7 @@ macro_rules! comma_vec {
         $(
             impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
-                    for (index, value) in _cx.ast_context().vec(*self).iter().enumerate() {
+                    for (index, value) in _cx.ast_context().vec_iter(*self).enumerate() {
                         if index > 0 {
                             dest.delim(Delimiter::Comma)?;
                         }
@@ -110,17 +110,17 @@ comma_vec! {
     PositionComponent<'a, HorizontalPositionKeyword>,
     PositionComponent<'a, VerticalPositionKeyword>,
     BackgroundPosition<'a>,
-    BackgroundSize<'a>,
+    NodeId<'a, BackgroundSize<'a>>,
     BackgroundRepeat,
     BackgroundAttachment,
     BackgroundClip,
     BackgroundOrigin,
     NodeId<'a, Background<'a>>,
-    BoxShadow<'a>,
+    NodeId<'a, BoxShadow<'a>>,
     PropertyId<'a>,
     Time,
     NodeId<'a, EasingFunction>,
-    Transition<'a>,
+    NodeId<'a, Transition<'a>>,
     AnimationName<'a>,
     AnimationIterationCount,
     AnimationDirection,
@@ -131,18 +131,18 @@ comma_vec! {
     AnimationAttachmentRange<'a>,
     AnimationRange<'a>,
     Animation<'a>,
-    TextShadow<'a>,
+    NodeId<'a, TextShadow<'a>>,
     MaskMode,
     Position<'a>,
     MaskClip,
     GeometryBox,
     MaskComposite,
-    Mask<'a>,
+    NodeId<'a, Mask<'a>>,
     WebKitMaskComposite,
     WebKitMaskSourceType,
 }
 
-impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, FontFamily<'a>> {
+impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, NodeId<'a, FontFamily<'a>>> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -151,9 +151,8 @@ impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, FontFamily<'a>> {
         let mut first = true;
         for family in _cx
             .ast_context()
-            .vec(*self)
-            .iter()
-            .filter(|family| !family.is_tombstone())
+            .vec_iter(*self)
+            .filter(|family| !_cx.ast_context().resolve_node(*family).is_tombstone())
         {
             if !first {
                 dest.delim(Delimiter::Comma)?;
@@ -170,7 +169,7 @@ macro_rules! space_vec {
         $(
             impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
-                    for (index, value) in _cx.ast_context().vec(*self).iter().enumerate() {
+                    for (index, value) in _cx.ast_context().vec_iter(*self).enumerate() {
                         if index > 0 {
                             dest.write_char(' ')?;
                         }
@@ -183,7 +182,7 @@ macro_rules! space_vec {
     };
 }
 
-space_vec! { TrackSize<'a>, NodeId<'a, Transform<'a>> }
+space_vec! { NodeId<'a, TrackSize<'a>>, NodeId<'a, Transform<'a>> }
 
 macro_rules! declaration_value_pattern {
     ($name:path, $value:ident) => {

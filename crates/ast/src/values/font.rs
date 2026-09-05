@@ -121,6 +121,15 @@ impl<'ast> AstNodeStorage<'ast> for FontSize<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for FontSize<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Length(value) => Self::Length(context.clone_encoded_node(value)),
+            value => value,
+        }
+    }
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum AbsoluteFontSize {
     XxSmall,
@@ -269,6 +278,99 @@ pub enum FontFamily<'a> {
     Custom(&'a str),
 }
 
+impl<'ast> AstNodeStorage<'ast> for FontFamily<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000c_0005);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Serif,
+            1 => Self::SansSerif,
+            2 => Self::Cursive,
+            3 => Self::Fantasy,
+            4 => Self::Monospace,
+            5 => Self::SystemUi,
+            6 => Self::Emoji,
+            7 => Self::Math,
+            8 => Self::Fangsong,
+            9 => Self::UiSerif,
+            10 => Self::UiSansSerif,
+            11 => Self::UiMonospace,
+            12 => Self::UiRounded,
+            13 => Self::Initial,
+            14 => Self::Inherit,
+            15 => Self::Unset,
+            16 => Self::Default,
+            17 => Self::Revert,
+            18 => Self::RevertLayer,
+            19 => Self::Unparsed(
+                context
+                    .encoded_vec_range(read_u32(&bytes, 4) as usize, read_u32(&bytes, 8) as usize),
+            ),
+            20 => Self::Tombstone,
+            21 => Self::Custom(context.resolve_string(read_u32(&bytes, 4) as u64)),
+            _ => panic!("invalid encoded FontFamily variant"),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        match self {
+            Self::Serif => bytes[0] = 0,
+            Self::SansSerif => bytes[0] = 1,
+            Self::Cursive => bytes[0] = 2,
+            Self::Fantasy => bytes[0] = 3,
+            Self::Monospace => bytes[0] = 4,
+            Self::SystemUi => bytes[0] = 5,
+            Self::Emoji => bytes[0] = 6,
+            Self::Math => bytes[0] = 7,
+            Self::Fangsong => bytes[0] = 8,
+            Self::UiSerif => bytes[0] = 9,
+            Self::UiSansSerif => bytes[0] = 10,
+            Self::UiMonospace => bytes[0] = 11,
+            Self::UiRounded => bytes[0] = 12,
+            Self::Initial => bytes[0] = 13,
+            Self::Inherit => bytes[0] = 14,
+            Self::Unset => bytes[0] = 15,
+            Self::Default => bytes[0] = 16,
+            Self::Revert => bytes[0] = 17,
+            Self::RevertLayer => bytes[0] = 18,
+            Self::Unparsed(values) => {
+                bytes[0] = 19;
+                write_u32(
+                    &mut bytes,
+                    4,
+                    u32::try_from(values.start_index()).expect("AST range exceeds four bytes"),
+                );
+                write_u32(
+                    &mut bytes,
+                    8,
+                    u32::try_from(values.end_index()).expect("AST range exceeds four bytes"),
+                );
+            }
+            Self::Tombstone => bytes[0] = 20,
+            Self::Custom(value) => {
+                bytes[0] = 21;
+                write_u32(&mut bytes, 4, context.store_string(value));
+            }
+        }
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for FontFamily<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Unparsed(values) => Self::Unparsed(context.clone_encoded_vec(values)),
+            value => value,
+        }
+    }
+}
+
 impl<'a> FontFamily<'a> {
     pub fn from_name(name: &'a str) -> Self {
         match_ignore_ascii_case!(
@@ -329,10 +431,16 @@ impl EqIgnoringTombstones for FontFamily<'_> {
     }
 }
 
-impl<'a> EqIgnoringTombstones for Vec<'a, FontFamily<'a>> {
+impl<'a> EqIgnoringTombstones for Vec<'a, NodeId<'a, FontFamily<'a>>> {
     fn eq_ignoring_tombstones(&self, other: &Self, ast: &AstContext<'_>) -> bool {
-        let left = ast.vec(*self).iter().filter(|value| !value.is_tombstone());
-        let right = ast.vec(*other).iter().filter(|value| !value.is_tombstone());
+        let left = ast
+            .vec_iter(*self)
+            .map(|value| ast.resolve_node(value))
+            .filter(|value| !value.is_tombstone());
+        let right = ast
+            .vec_iter(*other)
+            .map(|value| ast.resolve_node(value))
+            .filter(|value| !value.is_tombstone());
         left.eq(right)
     }
 }
@@ -342,6 +450,48 @@ pub enum FontStyle {
     Normal,
     Italic,
     Oblique(Angle),
+}
+
+impl AstNodeStorage<'_> for FontStyle {
+    const KIND: NodeKind = NodeKind::new(0x000c_0006);
+
+    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Normal,
+            1 => Self::Italic,
+            2 => Self::Oblique(crate::decode_angle(
+                bytes[1],
+                f32::from_bits(read_u32(&bytes, 4)),
+            )),
+            _ => panic!("invalid encoded FontStyle variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        match self {
+            Self::Normal => bytes[0] = 0,
+            Self::Italic => bytes[0] = 1,
+            Self::Oblique(value) => {
+                bytes[0] = 2;
+                let (kind, value) = crate::encode_angle(value);
+                bytes[1] = kind;
+                write_u32(&mut bytes, 4, value.to_bits());
+            }
+        }
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl AstNodeClone<'_> for FontStyle {
+    fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -400,10 +550,88 @@ impl<'ast> AstNodeStorage<'ast> for LineHeight<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for LineHeight<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Length(value) => Self::Length(context.clone_encoded_node(value)),
+            value => value,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum VerticalAlign<'a> {
     Keyword(VerticalAlignKeyword),
     Length(NodeId<'a, LengthPercentage<'a>>),
+}
+
+impl<'ast> AstNodeStorage<'ast> for VerticalAlign<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000c_0007);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0..=7 => Self::Keyword(decode_vertical_align_keyword(bytes[0])),
+            8 => Self::Length(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
+            _ => panic!("invalid encoded VerticalAlign variant"),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        match self {
+            Self::Keyword(value) => bytes[0] = encode_vertical_align_keyword(value),
+            Self::Length(value) => {
+                bytes[0] = 8;
+                write_u32(
+                    &mut bytes,
+                    4,
+                    u32::try_from(value.index()).expect("AST node ID exceeds four bytes"),
+                );
+            }
+        }
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for VerticalAlign<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Length(value) => Self::Length(context.clone_encoded_node(value)),
+            value => value,
+        }
+    }
+}
+
+fn encode_vertical_align_keyword(value: VerticalAlignKeyword) -> u8 {
+    match value {
+        VerticalAlignKeyword::Baseline => 0,
+        VerticalAlignKeyword::Sub => 1,
+        VerticalAlignKeyword::Super => 2,
+        VerticalAlignKeyword::Top => 3,
+        VerticalAlignKeyword::TextTop => 4,
+        VerticalAlignKeyword::Middle => 5,
+        VerticalAlignKeyword::Bottom => 6,
+        VerticalAlignKeyword::TextBottom => 7,
+    }
+}
+
+fn decode_vertical_align_keyword(value: u8) -> VerticalAlignKeyword {
+    match value {
+        0 => VerticalAlignKeyword::Baseline,
+        1 => VerticalAlignKeyword::Sub,
+        2 => VerticalAlignKeyword::Super,
+        3 => VerticalAlignKeyword::Top,
+        4 => VerticalAlignKeyword::TextTop,
+        5 => VerticalAlignKeyword::Middle,
+        6 => VerticalAlignKeyword::Bottom,
+        7 => VerticalAlignKeyword::TextBottom,
+        _ => panic!("invalid encoded VerticalAlignKeyword"),
+    }
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

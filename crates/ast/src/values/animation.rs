@@ -385,6 +385,46 @@ impl<'ast> ExtraDataCompact<'ast> for AnimationAttachmentRange<'ast> {
     }
 }
 
+impl<'ast> ExtraDataClone<'ast> for AnimationAttachmentRange<'ast> {
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::LengthPercentage(value) => {
+                Self::LengthPercentage(context.clone_encoded_node(value))
+            }
+            Self::TimelineRange { name, offset } => Self::TimelineRange {
+                name,
+                offset: context.clone_encoded_node(offset),
+            },
+            Self::Normal => Self::Normal,
+        }
+    }
+}
+
+impl<'ast> AstNodeStorage<'ast> for AnimationAttachmentRange<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000b_0002);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        Self::decode_extra(
+            ExtraData::from_bytes(&payload.bytes()[..ExtraData::BYTES]),
+            context,
+        )
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::inline(&self.encode_extra(context).bytes())
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for AnimationAttachmentRange<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        self.clone_extra(context)
+    }
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum TimelineRangeName {
     Cover,

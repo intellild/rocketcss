@@ -17,11 +17,14 @@ pub trait VisitorMut<'a, 'ghost> {
     #[inline]
     fn visit_atom(&mut self, _value: &mut Atom<'a>, _cx: &mut VisitMutContext<'_, 'a, 'ghost>) {}
     #[inline]
-    fn visit_css_color(
-        &mut self,
-        node: &mut CssColor<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_css_color(&mut self, node: &mut CssColor<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Function<'a>: AstNodeStorage<'a>,
+        LABColor: AstNodeStorage<'a>,
+        PredefinedColor: AstNodeStorage<'a>,
+        FloatColor: AstNodeStorage<'a>,
+        LightDark<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -53,7 +56,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut LightDark<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -73,7 +78,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_length(&mut self, node: &mut Length<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_length(&mut self, node: &mut Length<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Calc<'a, Length<'a>>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -88,6 +96,10 @@ pub trait VisitorMut<'a, 'ghost> {
     fn visit_calc<V>(&mut self, node: &mut Calc<'a, V>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
     where
         V: VisitMut<'a, 'ghost>,
+        V: AstNodeStorage<'a>,
+        Calc<'a, V>: AstNodeStorage<'a>,
+        MathFunction<'a, V>: AstNodeStorage<'a>,
+        V: CalcValueCodec,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -98,6 +110,9 @@ pub trait VisitorMut<'a, 'ghost> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         V: VisitMut<'a, 'ghost>,
+        Calc<'a, V>: AstNodeStorage<'a>,
+        V: CalcValueCodec,
+        V: AstNodeStorage<'a>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -134,7 +149,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut MediaCondition<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        MediaFeature<'a>: AstNodeStorage<'a>,
+        MediaCondition<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -144,6 +162,7 @@ pub trait VisitorMut<'a, 'ghost> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         FeatureId: VisitMut<'a, 'ghost>,
+        MediaFeatureValue<'a>: AstNodeStorage<'a>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -170,7 +189,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut MediaFeatureValue<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+        EnvironmentVariable<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -202,7 +224,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut SupportsCondition<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        SupportsCondition<'a>: AstNodeStorage<'a>,
+        PropertyId<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -230,7 +255,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut Transition<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        PropertyId<'a>: AstNodeStorage<'a>,
+        EasingFunction: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -246,7 +274,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ViewTimeline<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Size2D<'a, LengthPercentageOrAuto<'a>>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -254,7 +284,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut AnimationRange<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        AnimationRangeEnd<'a>: AstNodeStorage<'a>,
+        AnimationRangeStart<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -270,7 +303,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut AnimationComponent<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        AnimationName<'a>: AstNodeStorage<'a>,
+        EasingFunction: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -306,11 +342,11 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_position(
-        &mut self,
-        node: &mut Position<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_position(&mut self, node: &mut Position<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        PositionComponent<'a, HorizontalPositionKeyword>: AstNodeStorage<'a>,
+        PositionComponent<'a, VerticalPositionKeyword>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -326,15 +362,16 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut WebKitColorStop<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_image_set(
-        &mut self,
-        node: &mut ImageSet<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_image_set(&mut self, node: &mut ImageSet<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        ImageSetOption<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -342,7 +379,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ImageSetOption<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Image<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -350,7 +389,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BackgroundPosition<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        PositionComponent<'a, HorizontalPositionKeyword>: AstNodeStorage<'a>,
+        PositionComponent<'a, VerticalPositionKeyword>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -366,7 +408,12 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut Background<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+        Image<'a>: AstNodeStorage<'a>,
+        BackgroundPosition<'a>: AstNodeStorage<'a>,
+        BackgroundSize<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -374,7 +421,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BoxShadow<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -382,7 +432,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderRadius<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Size2D<'a, LengthPercentage<'a>>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -398,7 +450,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderImageSlice<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Rect<'a, NumberOrPercentage>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -406,7 +460,12 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderImage<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Rect<'a, LengthOrNumber<'a>>: AstNodeStorage<'a>,
+        BorderImageSlice<'a>: AstNodeStorage<'a>,
+        Image<'a>: AstNodeStorage<'a>,
+        Rect<'a, BorderImageSideWidth<'a>>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -414,7 +473,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderColor<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -430,7 +491,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderWidth<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        BorderSideWidth<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -438,7 +501,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderBlockColor<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -454,7 +519,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderBlockWidth<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        BorderSideWidth<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -462,7 +529,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderInlineColor<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -478,7 +547,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderInlineWidth<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        BorderSideWidth<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -488,6 +559,8 @@ pub trait VisitorMut<'a, 'ghost> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         S: VisitMut<'a, 'ghost>,
+        CssColor<'a>: AstNodeStorage<'a>,
+        BorderSideWidth<'a>: AstNodeStorage<'a>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -496,7 +569,12 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ContainerCondition<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        ContainerSizeFeature<'a>: AstNodeStorage<'a>,
+        ContainerCondition<'a>: AstNodeStorage<'a>,
+        StyleQuery<'a>: AstNodeStorage<'a>,
+        ScrollStateQuery<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -512,7 +590,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut StyleQuery<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        PropertyId<'a>: AstNodeStorage<'a>,
+        StyleQuery<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -520,7 +601,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ScrollStateQuery<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        ScrollStateFeature<'a>: AstNodeStorage<'a>,
+        ScrollStateQuery<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -536,7 +620,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut Container<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        ContainerNameList<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -544,11 +630,21 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut FontFaceProperty<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        FontFamily<'a>: AstNodeStorage<'a>,
+        FontFaceStyle<'a>: AstNodeStorage<'a>,
+        Size2D<'a, FontWeight>: AstNodeStorage<'a>,
+        Size2D<'a, FontStretch>: AstNodeStorage<'a>,
+        CustomProperty<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_source(&mut self, node: &mut Source<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_source(&mut self, node: &mut Source<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        UrlSource<'a>: AstNodeStorage<'a>,
+        FontFamily<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -572,7 +668,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut FontFaceStyle<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Size2D<'a, Angle>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -580,7 +678,11 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut FontPaletteValuesProperty<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        FontFamily<'a>: AstNodeStorage<'a>,
+        BasePalette: AstNodeStorage<'a>,
+        CustomProperty<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -600,7 +702,14 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_font(&mut self, node: &mut Font<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_font(&mut self, node: &mut Font<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        FontFamily<'a>: AstNodeStorage<'a>,
+        LineHeight<'a>: AstNodeStorage<'a>,
+        FontSize<'a>: AstNodeStorage<'a>,
+        FontStyle: AstNodeStorage<'a>,
+        FontWeight: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -608,7 +717,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut UrlSource<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        FontFormat<'a>: AstNodeStorage<'a>,
+        Url<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -624,7 +736,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut OverrideColors<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -684,7 +798,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut InsetBlock<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -692,11 +808,16 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut InsetInline<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_inset(&mut self, node: &mut Inset<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_inset(&mut self, node: &mut Inset<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -704,7 +825,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_flex(&mut self, node: &mut Flex<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_flex(&mut self, node: &mut Flex<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -728,7 +852,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_gap(&mut self, node: &mut Gap<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_gap(&mut self, node: &mut Gap<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        GapValue<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -736,7 +863,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ColumnRule<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+        BorderSideWidth<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -744,7 +874,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ColumnWidth<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -764,7 +896,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TrackRepeat<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        TrackSize<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -780,15 +914,26 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut GridTemplate<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        GridTemplateAreas<'a>: AstNodeStorage<'a>,
+        TrackSizing<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_grid(&mut self, node: &mut Grid<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_grid(&mut self, node: &mut Grid<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        GridTemplateAreas<'a>: AstNodeStorage<'a>,
+        TrackSize<'a>: AstNodeStorage<'a>,
+        TrackSizing<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_grid_row(&mut self, node: &mut GridRow<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_grid_row(&mut self, node: &mut GridRow<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        GridLine<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -796,15 +941,16 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut GridColumn<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        GridLine<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_grid_area(
-        &mut self,
-        node: &mut GridArea<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_grid_area(&mut self, node: &mut GridArea<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        GridLine<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -812,7 +958,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut MarginBlock<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -820,11 +968,16 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut MarginInline<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_margin(&mut self, node: &mut Margin<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_margin(&mut self, node: &mut Margin<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -832,7 +985,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut PaddingBlock<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -840,11 +995,16 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut PaddingInline<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_padding(&mut self, node: &mut Padding<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_padding(&mut self, node: &mut Padding<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -852,7 +1012,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ScrollMarginBlock<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -860,7 +1022,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ScrollMarginInline<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -868,7 +1032,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ScrollMargin<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -876,7 +1042,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ScrollPaddingBlock<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -884,7 +1052,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ScrollPaddingInline<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -892,7 +1062,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ScrollPadding<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -924,7 +1096,15 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ParsedComponent<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+        CssColor<'a>: AstNodeStorage<'a>,
+        Image<'a>: AstNodeStorage<'a>,
+        Url<'a>: AstNodeStorage<'a>,
+        Transform<'a>: AstNodeStorage<'a>,
+        ParsedComponent<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -956,7 +1136,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut UnparsedProperty<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        PropertyId<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -972,7 +1154,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut CustomProperty<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CustomPropertyName<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -980,7 +1164,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut SyntaxComponent<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        SyntaxComponentKind<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -988,7 +1174,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut InsetRect<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        BorderRadius<'a>: AstNodeStorage<'a>,
+        Rect<'a, LengthPercentage<'a>>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -996,7 +1185,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut CircleShape<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Position<'a>: AstNodeStorage<'a>,
+        ShapeRadius<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1004,7 +1196,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut EllipseShape<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Position<'a>: AstNodeStorage<'a>,
+        ShapeRadius<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1012,11 +1207,19 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_point(&mut self, node: &mut Point<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_point(&mut self, node: &mut Point<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_mask(&mut self, node: &mut Mask<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_mask(&mut self, node: &mut Mask<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Image<'a>: AstNodeStorage<'a>,
+        Position<'a>: AstNodeStorage<'a>,
+        BackgroundSize<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1024,7 +1227,12 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut MaskBorder<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Rect<'a, LengthOrNumber<'a>>: AstNodeStorage<'a>,
+        BorderImageSlice<'a>: AstNodeStorage<'a>,
+        Image<'a>: AstNodeStorage<'a>,
+        Rect<'a, BorderImageSideWidth<'a>>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1032,7 +1240,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut DropShadow<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1040,7 +1251,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut MediaList<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        MediaQuery<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1048,7 +1261,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut MediaQuery<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        MediaCondition<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1072,11 +1287,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_variable(
-        &mut self,
-        node: &mut Variable<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_variable(&mut self, node: &mut Variable<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        DashedIdentReference<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1116,7 +1330,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ImportRule<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        MediaList<'a>: AstNodeStorage<'a>,
+        SupportsCondition<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1132,7 +1349,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TextIndent<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1140,7 +1359,11 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TextDecoration<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+        TextDecorationLine<'a>: AstNodeStorage<'a>,
+        TextDecorationThickness<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1148,7 +1371,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TextEmphasis<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+        TextEmphasisStyle<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1164,7 +1390,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TextShadow<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1188,7 +1417,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_cursor(&mut self, node: &mut Cursor<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_cursor(&mut self, node: &mut Cursor<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        CursorImage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1196,11 +1428,16 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut CursorImage<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Url<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_caret(&mut self, node: &mut Caret<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_caret(&mut self, node: &mut Caret<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        ColorOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1208,15 +1445,17 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ListStyle<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Image<'a>: AstNodeStorage<'a>,
+        ListStyleType<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_composes(
-        &mut self,
-        node: &mut Composes<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_composes(&mut self, node: &mut Composes<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Specifier<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1232,7 +1471,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ViewTransitionProperty<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        NoneOrCustomIdentList<'a>: AstNodeStorage<'a>,
+        CustomProperty<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1248,15 +1490,16 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ViewTransitionPartSelector<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        ViewTransitionPartName<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_selector(
-        &mut self,
-        node: &mut Selector<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_selector(&mut self, node: &mut Selector<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        SelectorComponent<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1264,7 +1507,12 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut SelectorComponent<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        AttrSelector<'a>: AstNodeStorage<'a>,
+        Selector<'a>: AstNodeStorage<'a>,
+        PseudoClass<'a>: AstNodeStorage<'a>,
+        PseudoElement<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1336,7 +1584,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut PseudoClass<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Selector<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1352,7 +1602,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut PseudoElement<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Selector<'a>: AstNodeStorage<'a>,
+        ViewTransitionPartSelector<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1380,7 +1633,16 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TokenOrValue<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Token<'a>: AstNodeStorage<'a>,
+        CssColor<'a>: AstNodeStorage<'a>,
+        UnresolvedColor<'a>: AstNodeStorage<'a>,
+        Url<'a>: AstNodeStorage<'a>,
+        Variable<'a>: AstNodeStorage<'a>,
+        EnvironmentVariable<'a>: AstNodeStorage<'a>,
+        Function<'a>: AstNodeStorage<'a>,
+        AnimationName<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1412,7 +1674,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut EnvironmentVariableName<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        DashedIdentReference<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1516,11 +1780,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_gap_value(
-        &mut self,
-        node: &mut GapValue<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_gap_value(&mut self, node: &mut GapValue<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1604,7 +1867,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut AnimationAttachmentRange<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1624,7 +1889,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderSideWidth<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1632,7 +1899,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut LengthOrNumber<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1648,7 +1917,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BorderImageSideWidth<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1696,11 +1967,19 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_size(&mut self, node: &mut Size<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_size(&mut self, node: &mut Size<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+        Function<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_max_size(&mut self, node: &mut MaxSize<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_max_size(&mut self, node: &mut MaxSize<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+        Function<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1738,6 +2017,7 @@ pub trait VisitorMut<'a, 'ghost> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         T: VisitMut<'a, 'ghost>,
+        T: AstNodeStorage<'a>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -1745,6 +2025,7 @@ pub trait VisitorMut<'a, 'ghost> {
     fn visit_rect<T>(&mut self, node: &mut Rect<'a, T>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
     where
         T: VisitMut<'a, 'ghost>,
+        T: AstNodeStorage<'a>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -1781,11 +2062,18 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut FilterList<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Filter<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_filter(&mut self, node: &mut Filter<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_filter(&mut self, node: &mut Filter<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Length<'a>: AstNodeStorage<'a>,
+        DropShadow<'a>: AstNodeStorage<'a>,
+        Url<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1861,11 +2149,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_font_size(
-        &mut self,
-        node: &mut FontSize<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_font_size(&mut self, node: &mut FontSize<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1925,7 +2212,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut LineHeight<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1933,7 +2222,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut VerticalAlign<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1949,7 +2240,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TrackSizing<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        TrackListItem<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1957,7 +2250,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TrackListItem<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        TrackSize<'a>: AstNodeStorage<'a>,
+        TrackRepeat<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1965,7 +2261,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TrackSize<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        TrackBreadth<'a>: AstNodeStorage<'a>,
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1973,7 +2272,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TrackBreadth<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2009,7 +2310,12 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_image(&mut self, node: &mut Image<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_image(&mut self, node: &mut Image<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Url<'a>: AstNodeStorage<'a>,
+        Gradient<'a>: AstNodeStorage<'a>,
+        ImageSet<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2017,11 +2323,14 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_gradient(
-        &mut self,
-        node: &mut Gradient<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_gradient(&mut self, node: &mut Gradient<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        GradientItem<'a, LengthValue>: AstNodeStorage<'a>,
+        Position<'a>: AstNodeStorage<'a>,
+        EndingShape<'a>: AstNodeStorage<'a>,
+        GradientItem<'a, Angle>: AstNodeStorage<'a>,
+        WebKitGradient<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2029,7 +2338,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut WebKitGradient<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        WebKitGradientPoint: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2063,6 +2374,9 @@ pub trait VisitorMut<'a, 'ghost> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         D: VisitMut<'a, 'ghost>,
+        CssColor<'a>: AstNodeStorage<'a>,
+        DimensionPercentage<'a, D>: AstNodeStorage<'a>,
+        D: DimensionCodec,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -2073,6 +2387,8 @@ pub trait VisitorMut<'a, 'ghost> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         D: VisitMut<'a, 'ghost>,
+        Calc<'a, DimensionPercentage<'a, D>>: AstNodeStorage<'a>,
+        D: DimensionCodec,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -2083,6 +2399,7 @@ pub trait VisitorMut<'a, 'ghost> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         S: VisitMut<'a, 'ghost>,
+        LengthPercentage<'a>: AstNodeStorage<'a>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -2091,11 +2408,17 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut EndingShape<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Ellipse<'a>: AstNodeStorage<'a>,
+        Circle<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_ellipse(&mut self, node: &mut Ellipse<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_ellipse(&mut self, node: &mut Ellipse<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2107,7 +2430,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_circle(&mut self, node: &mut Circle<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_circle(&mut self, node: &mut Circle<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Length<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2133,7 +2459,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BackgroundSize<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentageOrAuto<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2141,7 +2469,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut LengthPercentageOrAuto<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2181,7 +2511,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ListStyleType<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CounterStyle<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2209,7 +2541,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_symbol(&mut self, node: &mut Symbol<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_symbol(&mut self, node: &mut Symbol<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Image<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2299,11 +2634,11 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_clip_path(
-        &mut self,
-        node: &mut ClipPath<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_clip_path(&mut self, node: &mut ClipPath<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Url<'a>: AstNodeStorage<'a>,
+        BasicShape<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2319,7 +2654,12 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut BasicShape<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        InsetRect<'a>: AstNodeStorage<'a>,
+        CircleShape<'a>: AstNodeStorage<'a>,
+        EllipseShape<'a>: AstNodeStorage<'a>,
+        Polygon<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2327,15 +2667,18 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ShapeRadius<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_svg_paint(
-        &mut self,
-        node: &mut SVGPaint<'a>,
-        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    fn visit_svg_paint(&mut self, node: &mut SVGPaint<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        SVGPaintFallback<'a>: AstNodeStorage<'a>,
+        Url<'a>: AstNodeStorage<'a>,
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2343,7 +2686,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut SVGPaintFallback<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2375,7 +2720,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_marker(&mut self, node: &mut Marker<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_marker(&mut self, node: &mut Marker<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Url<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2475,7 +2823,10 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
-    fn visit_spacing(&mut self, node: &mut Spacing<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+    fn visit_spacing(&mut self, node: &mut Spacing<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
+    where
+        Length<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2515,7 +2866,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut TextDecorationThickness<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2599,7 +2952,12 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut Transform<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+        Length<'a>: AstNodeStorage<'a>,
+        MatrixForFloat: AstNodeStorage<'a>,
+        Matrix3DForFloat: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2631,7 +2989,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut Perspective<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Length<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2639,7 +2999,10 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut Translate<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        LengthPercentage<'a>: AstNodeStorage<'a>,
+        Length<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2655,7 +3018,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ScrollbarColor<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2703,7 +3068,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut ColorOrAuto<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        CssColor<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2824,7 +3191,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut SelectorList<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Selector<'a>: AstNodeStorage<'a>,
+    {
         self.visit_selector_list_children(node, cx);
     }
     ///Continues traversal of [`SelectorList`] without redispatching its visitor callback.
@@ -2832,7 +3201,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut SelectorList<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Selector<'a>: AstNodeStorage<'a>,
+    {
         let visitor = self;
         visitor.enter_node(AstType::SelectorList);
         VisitMut::visit_mut(node, visitor, cx);

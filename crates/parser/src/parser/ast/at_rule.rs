@@ -528,7 +528,7 @@ fn parse_page_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
     let selectors = parse_page_selectors(input, prelude)?;
-    let selectors = store_vec(selectors, input);
+    let selectors = store_node_vec(selectors, input);
     let page = input
         .ast_context_mut()
         .append_rule(list, CssRulePayload::Page(PageRulePayload { selectors }))

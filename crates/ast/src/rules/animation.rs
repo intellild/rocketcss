@@ -8,6 +8,65 @@ pub struct Transition<'a> {
     pub timing_function: NodeId<'a, EasingFunction>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for Transition<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0024_0001);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let ids = context.extra_slot(payload.extra_start()).as_u64();
+        Self {
+            delay: crate::token::decode_time(bytes[0], f32::from_bits(read_u32(&bytes, 4))),
+            duration: crate::token::decode_time(bytes[1], f32::from_bits(read_u32(&bytes, 8))),
+            property: context.encoded_node_id_at(ids as u32 as usize),
+            timing_function: context.encoded_node_id_at((ids >> 32) as u32 as usize),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_transition(self, None, context)
+    }
+
+    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_transition(self, Some(current.extra_start()), context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for Transition<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            delay: self.delay,
+            duration: self.duration,
+            property: context.clone_encoded_node(self.property),
+            timing_function: context.clone_encoded_node(self.timing_function),
+        }
+    }
+}
+
+fn encode_transition<'ast>(
+    value: Transition<'ast>,
+    existing_extra: Option<usize>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
+    let (delay_kind, delay) = crate::token::encode_time(value.delay);
+    let (duration_kind, duration) = crate::token::encode_time(value.duration);
+    bytes[0] = delay_kind;
+    bytes[1] = duration_kind;
+    write_u32(&mut bytes, 4, delay.to_bits());
+    write_u32(&mut bytes, 8, duration.to_bits());
+    let ids = ExtraData::from_u64(
+        node_index(value.property) as u64 | (node_index(value.timing_function) as u64) << 32,
+    );
+    let extra = match existing_extra {
+        Some(extra) => {
+            context.set_extra_slot(extra, ids);
+            extra
+        }
+        None => context.alloc_extra_slots([ids]),
+    };
+    NodePayload::with_extra(&bytes, extra)
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollTimeline {
     pub axis: ScrollAxis,

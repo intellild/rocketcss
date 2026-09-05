@@ -96,15 +96,12 @@ fn observe_selector_list_compatibility<'scratch, 'ast>(
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
     ast: &AstContext<'ast>,
 ) -> Option<()> {
-    for selector in ast.vec(*selectors) {
-        match ast.resolve_node(*selector) {
+    for selector in ast.vec_iter(*selectors) {
+        match ast.resolve_node(selector) {
             Selector::Parsed(components) => {
-                for component in ast.vec(*components) {
-                    observe_selector_component_compatibility(
-                        ast.resolve_node(*component),
-                        compatibility,
-                        ast,
-                    )?;
+                for component in ast.vec_iter(components) {
+                    let component = ast.resolve_node(component);
+                    observe_selector_component_compatibility(&component, compatibility, ast)?;
                 }
             }
             Selector::Tombstone => {}
@@ -170,14 +167,14 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
         }
         Component::Negation(selectors) => {
             compatibility.features |= Feature::NEGATION;
-            let mut live_selectors = ast
-                .vec(*selectors)
-                .iter()
-                .filter(|selector| !matches!(ast.resolve_node(**selector), Selector::Tombstone));
-            if live_selectors.clone().count() != 1 {
+            let live_selectors = ast
+                .vec_iter(*selectors)
+                .filter(|selector| !matches!(ast.resolve_node(*selector), Selector::Tombstone));
+            let live_selectors = live_selectors.collect::<std::vec::Vec<_>>();
+            if live_selectors.len() != 1 {
                 compatibility.features |= Feature::NEGATION_LIST;
             }
-            if live_selectors.any(|selector| {
+            if live_selectors.iter().any(|selector| {
                 !matches!(ast.resolve_node(*selector), Selector::Parsed(components) if components.len() == 1)
             }) {
                 compatibility.features |= Feature::NEGATION_COMPLEX;
@@ -193,17 +190,17 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
             observe_selector_list_compatibility(selectors, compatibility, ast)?;
         }
         Component::PseudoClass(value) => {
-            observe_pseudo_class_compatibility(ast.resolve_node(*value), compatibility)?;
+            observe_pseudo_class_compatibility(&ast.resolve_node(*value), compatibility)?;
         }
         Component::Slotted(selector) => {
             compatibility.features |= Feature::SLOTTED;
-            observe_selector_compatibility(ast.resolve_node(*selector), compatibility, ast)?;
+            observe_selector_compatibility(&ast.resolve_node(*selector), compatibility, ast)?;
         }
         Component::Part(_) => compatibility.features |= Feature::PART,
         Component::Host(selector) => {
             compatibility.features |= Feature::HOST;
             if let Some(selector) = selector {
-                observe_selector_compatibility(ast.resolve_node(*selector), compatibility, ast)?;
+                observe_selector_compatibility(&ast.resolve_node(*selector), compatibility, ast)?;
             }
         }
         Component::Where(selectors) => {
@@ -227,7 +224,7 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
             observe_selector_list_compatibility(selectors, compatibility, ast)?;
         }
         Component::PseudoElement(value) => {
-            observe_pseudo_element_compatibility(ast.resolve_node(*value), compatibility, ast)?;
+            observe_pseudo_element_compatibility(&ast.resolve_node(*value), compatibility, ast)?;
         }
         Component::Nesting => compatibility.features |= Feature::NESTING,
         Component::ExplicitUniversalType
@@ -246,8 +243,8 @@ fn observe_selector_compatibility<'scratch, 'ast>(
     let Selector::Parsed(components) = selector else {
         return matches!(selector, Selector::Tombstone).then_some(());
     };
-    for component in ast.vec(*components) {
-        observe_selector_component_compatibility(ast.resolve_node(*component), compatibility, ast)?;
+    for component in ast.vec_iter(*components) {
+        observe_selector_component_compatibility(&ast.resolve_node(component), compatibility, ast)?;
     }
     Some(())
 }
@@ -311,7 +308,7 @@ fn observe_pseudo_element_compatibility<'scratch, 'ast>(
         | Pseudo::FileSelectorButton(prefix) => compatibility.prefixes |= *prefix,
         Pseudo::WebKitScrollbar(_) => compatibility.prefixes |= VendorPrefix::WEBKIT,
         Pseudo::CueFunction { selector } | Pseudo::CueRegionFunction { selector } => {
-            observe_selector_compatibility(ast.resolve_node(*selector), compatibility, ast)?;
+            observe_selector_compatibility(&ast.resolve_node(*selector), compatibility, ast)?;
         }
         Pseudo::Custom { .. } | Pseudo::CustomFunction { .. } => return None,
         _ => {}
@@ -326,15 +323,15 @@ fn append_materialized_selectors<'ast>(
     output: &mut Vec<'ast, NodeId<'ast, Selector<'ast>>>,
     ast: &mut AstContext<'ast>,
 ) -> Option<()> {
-    let source = Vec::from_iter_in(ast.vec(*source).iter().cloned(), allocator);
+    let source = Vec::from_iter_in(ast.vec_iter(*source), allocator);
     for selector in &source {
-        let selector = ast.resolve_node(*selector).clone();
+        let selector = ast.resolve_node(*selector);
         if selector.is_tombstone() {
             continue;
         }
         let selector = clone_selector(&selector, allocator, prefixes, ast)?;
         if !output.iter().any(|existing| {
-            crate::equality::css_values_are_equal(ast, ast.resolve_node(*existing), &selector)
+            crate::equality::css_values_are_equal(ast, &ast.resolve_node(*existing), &selector)
         }) {
             output.push(ast.alloc_node_without_span(selector));
         }
@@ -351,10 +348,10 @@ fn clone_selector<'ast>(
     let Selector::Parsed(components) = selector else {
         return None;
     };
-    let source = Vec::from_iter_in(ast.vec(*components).iter().cloned(), allocator);
+    let source = Vec::from_iter_in(ast.vec_iter(*components), allocator);
     let mut cloned = Vec::with_capacity_in(source.len(), allocator);
     for component in &source {
-        let component = ast.resolve_node(*component).clone();
+        let component = ast.resolve_node(*component);
         let component = clone_selector_component(&component, allocator, prefixes, ast)?;
         cloned.push(ast.alloc_node_without_span(component));
     }
@@ -367,10 +364,10 @@ fn clone_selector_list<'ast>(
     prefixes: &mut VendorPrefix,
     ast: &mut AstContext<'ast>,
 ) -> Option<SelectorList<'ast>> {
-    let source = Vec::from_iter_in(ast.vec(*selectors).iter().cloned(), allocator);
+    let source = Vec::from_iter_in(ast.vec_iter(*selectors), allocator);
     let mut cloned = Vec::with_capacity_in(source.len(), allocator);
     for selector in &source {
-        let selector = ast.resolve_node(*selector).clone();
+        let selector = ast.resolve_node(*selector);
         let selector = clone_selector(&selector, allocator, prefixes, ast)?;
         cloned.push(ast.alloc_node_without_span(selector));
     }
@@ -421,7 +418,7 @@ fn clone_selector_component<'ast>(
             never_matches: *never_matches,
         },
         Component::AttributeOther(attribute) => {
-            let attribute = clone_attribute_selector(ast.resolve_node(*attribute));
+            let attribute = clone_attribute_selector(&ast.resolve_node(*attribute));
             Component::AttributeOther(ast.alloc_node_without_span(attribute))
         }
         Component::Negation(selectors) => {
@@ -524,20 +521,20 @@ fn clone_pseudo_class<'ast>(
     ast: &mut AstContext<'ast>,
 ) -> Option<PseudoClass<'ast>> {
     use PseudoClass as Pseudo;
-    if let Pseudo::Lang { languages } = ast.resolve_node(value) {
+    let value = ast.resolve_node(value);
+    if let Pseudo::Lang { languages } = &value {
         let languages = *languages;
         return Some(Pseudo::Lang {
             languages: ast.clone_vec(languages),
         });
     }
-    if let Pseudo::ActiveViewTransitionType { kinds } = ast.resolve_node(value) {
+    if let Pseudo::ActiveViewTransitionType { kinds } = &value {
         let kinds = *kinds;
         return Some(Pseudo::ActiveViewTransitionType {
             kinds: ast.clone_vec(kinds),
         });
     }
-    let value = ast.resolve_node(value);
-    Some(match value {
+    Some(match &value {
         Pseudo::Lang { .. } => unreachable!(),
         Pseudo::Dir { direction } => Pseudo::Dir {
             direction: *direction,
@@ -631,7 +628,8 @@ fn clone_pseudo_element<'ast>(
 ) -> Option<PseudoElement<'ast>> {
     use PseudoElement as Pseudo;
 
-    let cue = match ast.resolve_node(value) {
+    let value = ast.resolve_node(value);
+    let cue = match &value {
         Pseudo::CueFunction { selector } => Some((false, *selector)),
         Pseudo::CueRegionFunction { selector } => Some((true, *selector)),
         _ => None,
@@ -645,7 +643,7 @@ fn clone_pseudo_element<'ast>(
         });
     }
 
-    let view_transition = match ast.resolve_node(value) {
+    let view_transition = match &value {
         Pseudo::ViewTransitionGroup { part } => Some((0, *part)),
         Pseudo::ViewTransitionImagePair { part } => Some((1, *part)),
         Pseudo::ViewTransitionOld { part } => Some((2, *part)),
@@ -662,7 +660,7 @@ fn clone_pseudo_element<'ast>(
         });
     }
 
-    Some(match ast.resolve_node(value) {
+    Some(match &value {
         Pseudo::After => Pseudo::After,
         Pseudo::Before => Pseudo::Before,
         Pseudo::FirstLine => Pseudo::FirstLine,
@@ -734,10 +732,9 @@ mod tests {
         selector: &Selector<'ast>,
         ast: &AstContext<'ast>,
     ) -> NodeId<'ast, PseudoClass<'ast>> {
-        ast.vec(selector.as_parsed().expect("expected parsed selector"))
-            .iter()
-            .find_map(|component| match ast.resolve_node(*component) {
-                SelectorComponent::PseudoClass(pseudo_class) => Some(*pseudo_class),
+        ast.vec_iter(selector.as_parsed().expect("expected parsed selector"))
+            .find_map(|component| match ast.resolve_node(component) {
+                SelectorComponent::PseudoClass(pseudo_class) => Some(pseudo_class),
                 _ => None,
             })
             .expect("selector contains a pseudo class")
@@ -747,7 +744,7 @@ mod tests {
     fn selector_clone_owns_its_nested_nodes() {
         let allocator = Allocator::new();
         let (selectors, mut ast) = SelectorList::parse_string(".foo:hover", &allocator).unwrap();
-        let original = ast.resolve_node(ast.vec(selectors)[0]).clone();
+        let original = ast.resolve_node(ast.vec_get(selectors, 0).unwrap());
         let mut prefixes = VendorPrefix::NONE;
         let cloned = clone_selector(&original, &allocator, &mut prefixes, &mut ast).unwrap();
 

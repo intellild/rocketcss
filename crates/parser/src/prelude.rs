@@ -1,7 +1,7 @@
 //! Common parser, tokenizer, allocator, and AST types.
 
 pub use crate::Compiler;
-pub(crate) use crate::compiler::{store_node, store_vec};
+pub(crate) use crate::compiler::{store_node, store_node_vec, store_vec};
 pub use crate::escape::unescape;
 pub(crate) use crate::parser::parse_css_color;
 pub use crate::parser::stylesheet::parse;

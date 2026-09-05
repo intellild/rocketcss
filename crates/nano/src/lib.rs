@@ -334,10 +334,21 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     ) {
         node.visit_mut_children(self, cx);
         let remove_declaration = if let Declaration::FontFamily(families) = node {
-            cx.mutate_vec(*families, |families, _| {
-                families.minify(&mut self.cx);
-                families.iter().all(FontFamily::is_tombstone)
-            })
+            let ids = cx
+                .ast_context()
+                .vec_iter(*families)
+                .collect::<std::vec::Vec<_>>();
+            let mut values = ids
+                .iter()
+                .map(|id| cx.ast_context().resolve_node(*id))
+                .collect::<std::vec::Vec<_>>();
+            values.minify(&mut self.cx);
+            let remove = values.iter().all(FontFamily::is_tombstone);
+            for (id, value) in ids.into_iter().zip(values) {
+                cx.ast_context_mut()
+                    .mutate_node(id, |node, _| *node = value);
+            }
+            remove
         } else {
             false
         };
@@ -402,7 +413,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::custom_property_context(&self.cx);
         let name = match cx.ast_context().resolve_node(node.name) {
-            CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => *name,
+            CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
         };
         if match_ignore_ascii_case!(name, "--font-family" => true, _ => false) {
             self.cx.value_context.property = context::PropertyContext::Font;

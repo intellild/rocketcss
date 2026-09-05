@@ -93,6 +93,9 @@ macro_rules! property_parser_strategy {
     (comma_separated : $value:ty) => {
         PropertyParserStrategy::CommaSeparated
     };
+    (comma_separated_node : $value:ty) => {
+        PropertyParserStrategy::CommaSeparatedNode
+    };
     (whitespace_separated : $value:ty) => {
         PropertyParserStrategy::WhitespaceSeparated
     };
@@ -348,8 +351,8 @@ macro_rules! define_properties {
             pub fn property_id(&self, ast: &AstContext<'_>) -> Option<PropertyId<'a>> {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some(declaration_property_id!(PropertyId::$property$(, vendor_prefix: $vp)?)),)+
-                    Self::CSSWide(property_id, _) => Some(*ast.resolve_node(*property_id)),
-                    Self::Unparsed(value) => Some(*ast.resolve_node(ast.resolve_node(*value).property_id)),
+                    Self::CSSWide(property_id, _) => Some(ast.resolve_node(*property_id)),
+                    Self::Unparsed(value) => Some(ast.resolve_node(ast.resolve_node(*value).property_id)),
                     Self::Custom(value) => Some(PropertyId::Custom(match ast.resolve_node(ast.resolve_node(*value).name) {
                         CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
                     })),
@@ -419,6 +422,7 @@ pub enum PropertyParserStrategy {
     Boxed,
     Node,
     CommaSeparated,
+    CommaSeparatedNode,
     WhitespaceSeparated,
     Rect,
     TwoValue,
@@ -445,6 +449,7 @@ impl PropertyParserStrategy {
             | Self::Boxed
             | Self::Node
             | Self::CommaSeparated
+            | Self::CommaSeparatedNode
             | Self::WhitespaceSeparated
             | Self::Rect
             | Self::TwoValue
@@ -515,13 +520,13 @@ macro_rules! for_each_property {
     "background-position-x": BackgroundPositionX(Vec<'a, PositionComponent<'a, HorizontalPositionKeyword>>) [comma_separated: PositionComponent<'i, HorizontalPositionKeyword>],
     "background-position-y": BackgroundPositionY(Vec<'a, PositionComponent<'a, VerticalPositionKeyword>>) [comma_separated: PositionComponent<'i, VerticalPositionKeyword>],
     "background-position": BackgroundPosition(Vec<'a, BackgroundPosition<'a>>) [comma_separated: BackgroundPosition<'i>],
-    "background-size": BackgroundSize(Vec<'a, BackgroundSize<'a>>) [comma_separated: BackgroundSize<'i>],
+    "background-size": BackgroundSize(Vec<'a, NodeId<'a, BackgroundSize<'a>>>) [comma_separated_node: BackgroundSize<'i>],
     "background-repeat": BackgroundRepeat(Vec<'a, BackgroundRepeat>) [comma_separated: BackgroundRepeat],
     "background-attachment": BackgroundAttachment(Vec<'a, BackgroundAttachment>) [comma_separated: BackgroundAttachment],
     "background-clip": BackgroundClip(Vec<'a, BackgroundClip>, VendorPrefix) [comma_separated: BackgroundClip],
     "background-origin": BackgroundOrigin(Vec<'a, BackgroundOrigin>) [comma_separated: BackgroundOrigin],
     "background": Background(Vec<'a, NodeId<'a, Background<'a>>>) [custom: parse_background],
-    "box-shadow": BoxShadow(Vec<'a, BoxShadow<'a>>, VendorPrefix) [unsupported],
+    "box-shadow": BoxShadow(Vec<'a, NodeId<'a, BoxShadow<'a>>>, VendorPrefix) [unsupported],
     "opacity": Opacity(f32) [custom: parse_opacity],
     "color": Color(NodeId<'a, CssColor<'a>>) [node: CssColor<'i>],
     "display": Display(Display) [parse: Display],
@@ -667,8 +672,8 @@ macro_rules! for_each_property {
     "flex-preferred-size": FlexPreferredSize(NodeId<'a, LengthPercentageOrAuto<'a>>, VendorPrefix) [boxed: LengthPercentageOrAuto<'i>],
     "grid-template-columns": GridTemplateColumns(NodeId<'a, TrackSizing<'a>>) [unsupported],
     "grid-template-rows": GridTemplateRows(NodeId<'a, TrackSizing<'a>>) [unsupported],
-    "grid-auto-columns": GridAutoColumns(Vec<'a, TrackSize<'a>>) [unsupported],
-    "grid-auto-rows": GridAutoRows(Vec<'a, TrackSize<'a>>) [unsupported],
+    "grid-auto-columns": GridAutoColumns(Vec<'a, NodeId<'a, TrackSize<'a>>>) [unsupported],
+    "grid-auto-rows": GridAutoRows(Vec<'a, NodeId<'a, TrackSize<'a>>>) [unsupported],
     "grid-auto-flow": GridAutoFlow(GridAutoFlow) [unsupported],
     "grid-template-areas": GridTemplateAreas(NodeId<'a, GridTemplateAreas<'a>>) [unsupported],
     "grid-template": GridTemplate(NodeId<'a, GridTemplate<'a>>) [unsupported],
@@ -727,7 +732,7 @@ macro_rules! for_each_property {
     "font-weight": FontWeight(FontWeight) [parse: FontWeight],
     "font-size": FontSize(NodeId<'a, FontSize<'a>>) [boxed: FontSize<'i>],
     "font-stretch": FontStretch(FontStretch) [parse: FontStretch],
-    "font-family": FontFamily(Vec<'a, FontFamily<'a>>) [custom: parse_font_family],
+    "font-family": FontFamily(Vec<'a, NodeId<'a, FontFamily<'a>>>) [custom: parse_font_family],
     "font-style": FontStyle(FontStyle) [parse: FontStyle],
     "font-variant-caps": FontVariantCaps(FontVariantCaps) [parse: FontVariantCaps],
     "line-height": LineHeight(NodeId<'a, LineHeight<'a>>) [boxed: LineHeight<'i>],
@@ -738,7 +743,7 @@ macro_rules! for_each_property {
     "transition-duration": TransitionDuration(Vec<'a, Time>, VendorPrefix) [custom: parse_transition_duration],
     "transition-delay": TransitionDelay(Vec<'a, Time>, VendorPrefix) [custom: parse_transition_delay],
     "transition-timing-function": TransitionTimingFunction(Vec<'a, NodeId<'a, EasingFunction>>, VendorPrefix) [custom: parse_transition_timing],
-    "transition": Transition(Vec<'a, Transition<'a>>, VendorPrefix) [custom: parse_transition],
+    "transition": Transition(Vec<'a, NodeId<'a, Transition<'a>>>, VendorPrefix) [custom: parse_transition],
     "animation-name": AnimationName(Vec<'a, AnimationName<'a>>, VendorPrefix) [custom: parse_animation_name],
     "animation-duration": AnimationDuration(Vec<'a, Time>, VendorPrefix) [custom: parse_animation_duration],
     "animation-timing-function": AnimationTimingFunction(Vec<'a, NodeId<'a, EasingFunction>>, VendorPrefix) [custom: parse_animation_timing],
@@ -788,7 +793,7 @@ macro_rules! for_each_property {
     "text-emphasis-color": TextEmphasisColor(NodeId<'a, CssColor<'a>>, VendorPrefix) [node: CssColor<'i>],
     "text-emphasis": TextEmphasis(NodeId<'a, TextEmphasis<'a>>, VendorPrefix) [unsupported],
     "text-emphasis-position": TextEmphasisPosition(TextEmphasisPosition, VendorPrefix) [unsupported],
-    "text-shadow": TextShadow(Vec<'a, TextShadow<'a>>) [unsupported],
+    "text-shadow": TextShadow(Vec<'a, NodeId<'a, TextShadow<'a>>>) [unsupported],
     "text-size-adjust": TextSizeAdjust(TextSizeAdjust, VendorPrefix) [parse: TextSizeAdjust],
     "direction": Direction(TextDirection) [parse: TextDirection],
     "unicode-bidi": UnicodeBidi(UnicodeBidi) [parse: UnicodeBidi],
@@ -843,10 +848,10 @@ macro_rules! for_each_property {
     "mask-position": MaskPosition(Vec<'a, Position<'a>>, VendorPrefix) [comma_separated: Position<'i>],
     "mask-clip": MaskClip(Vec<'a, MaskClip>, VendorPrefix) [comma_separated: MaskClip],
     "mask-origin": MaskOrigin(Vec<'a, GeometryBox>, VendorPrefix) [comma_separated: GeometryBox],
-    "mask-size": MaskSize(Vec<'a, BackgroundSize<'a>>, VendorPrefix) [comma_separated: BackgroundSize<'i>],
+    "mask-size": MaskSize(Vec<'a, NodeId<'a, BackgroundSize<'a>>>, VendorPrefix) [comma_separated_node: BackgroundSize<'i>],
     "mask-composite": MaskComposite(Vec<'a, MaskComposite>) [comma_separated: MaskComposite],
     "mask-type": MaskType(MaskType) [parse: MaskType],
-    "mask": Mask(Vec<'a, Mask<'a>>, VendorPrefix) [comma_separated: Mask<'i>],
+    "mask": Mask(Vec<'a, NodeId<'a, Mask<'a>>>, VendorPrefix) [comma_separated_node: Mask<'i>],
     "mask-border-source": MaskBorderSource(NodeId<'a, Image<'a>>) [boxed: Image<'i>],
     "mask-border-mode": MaskBorderMode(MaskBorderMode) [unsupported],
     "mask-border-slice": MaskBorderSlice(NodeId<'a, BorderImageSlice<'a>>) [unsupported],

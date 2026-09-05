@@ -64,9 +64,9 @@ pub(crate) fn declarations_are_equal<'ast>(
         && declarations_with_equal_css_are_equal(ast, left, right)
 }
 
-/// Returns the old Box-backed structural result when the declaration's stored graph is composed
-/// entirely of the high-frequency token nodes handled here. `None` keeps uncommon typed graphs on
-/// the serialization fallback rather than weakening their equality semantics.
+/// Returns an exact structural result when the declaration's stored graph is composed entirely of
+/// the high-frequency token nodes handled here. `None` keeps uncommon typed graphs on the
+/// serialization fallback rather than weakening their equality semantics.
 pub(crate) fn known_declaration_structural_equality<'ast>(
     ast: &AstContext<'ast>,
     left: &Declaration<'ast>,
@@ -86,7 +86,7 @@ pub(crate) fn known_declaration_structural_equality<'ast>(
             {
                 return Some(false);
             }
-            token_lists_are_equal(ast, ast.vec(left.value), ast.vec(right.value))
+            token_lists_are_equal(ast, ast.vec_iter(left.value), ast.vec_iter(right.value))
         }
         (Declaration::Custom(left), Declaration::Custom(right)) => {
             let left = ast.resolve_node(*left);
@@ -94,7 +94,7 @@ pub(crate) fn known_declaration_structural_equality<'ast>(
             if !ast.nodes_eq(left.name, right.name) {
                 return Some(false);
             }
-            token_lists_are_equal(ast, ast.vec(left.value), ast.vec(right.value))
+            token_lists_are_equal(ast, ast.vec_iter(left.value), ast.vec_iter(right.value))
         }
         (Declaration::CSSWide(..) | Declaration::Unparsed(_) | Declaration::Custom(_), _)
         | (_, Declaration::CSSWide(..) | Declaration::Unparsed(_) | Declaration::Custom(_)) => {
@@ -104,16 +104,16 @@ pub(crate) fn known_declaration_structural_equality<'ast>(
     }
 }
 
-fn token_lists_are_equal<'ast>(
-    ast: &AstContext<'ast>,
-    left: &[TokenOrValue<'ast>],
-    right: &[TokenOrValue<'ast>],
-) -> Option<bool> {
+fn token_lists_are_equal<'ast, I, J>(ast: &AstContext<'ast>, left: I, right: J) -> Option<bool>
+where
+    I: ExactSizeIterator<Item = TokenOrValue<'ast>>,
+    J: ExactSizeIterator<Item = TokenOrValue<'ast>>,
+{
     if left.len() != right.len() {
         return Some(false);
     }
-    for (left, right) in left.iter().zip(right) {
-        match token_or_value_equality(ast, left, right) {
+    for (left, right) in left.zip(right) {
+        match token_or_value_equality(ast, &left, &right) {
             Some(true) => {}
             result => return result,
         }
@@ -121,11 +121,15 @@ fn token_lists_are_equal<'ast>(
     Some(true)
 }
 
-fn optional_token_lists_are_equal<'ast>(
+fn optional_token_lists_are_equal<'ast, I, J>(
     ast: &AstContext<'ast>,
-    left: Option<&[TokenOrValue<'ast>]>,
-    right: Option<&[TokenOrValue<'ast>]>,
-) -> Option<bool> {
+    left: Option<I>,
+    right: Option<J>,
+) -> Option<bool>
+where
+    I: ExactSizeIterator<Item = TokenOrValue<'ast>>,
+    J: ExactSizeIterator<Item = TokenOrValue<'ast>>,
+{
     match (left, right) {
         (Some(left), Some(right)) => token_lists_are_equal(ast, left, right),
         (None, None) => Some(true),
@@ -153,29 +157,29 @@ fn token_or_value_equality<'ast>(
             }
             optional_token_lists_are_equal(
                 ast,
-                left.fallback.map(|values| ast.vec(values)),
-                right.fallback.map(|values| ast.vec(values)),
+                left.fallback.map(|values| ast.vec_iter(values)),
+                right.fallback.map(|values| ast.vec_iter(values)),
             )
         }
         (TokenOrValue::Env(left), TokenOrValue::Env(right)) => {
             let left = ast.resolve_node(*left);
             let right = ast.resolve_node(*right);
-            if ast.vec(left.indices) != ast.vec(right.indices)
+            if !ast.vec_iter(left.indices).eq(ast.vec_iter(right.indices))
                 || !environment_variable_names_are_equal(ast, &left.name, &right.name)
             {
                 return Some(false);
             }
             optional_token_lists_are_equal(
                 ast,
-                left.fallback.map(|values| ast.vec(values)),
-                right.fallback.map(|values| ast.vec(values)),
+                left.fallback.map(|values| ast.vec_iter(values)),
+                right.fallback.map(|values| ast.vec_iter(values)),
             )
         }
         (TokenOrValue::Function(left), TokenOrValue::Function(right)) => {
-            functions_are_equal(ast, ast.resolve_node(*left), ast.resolve_node(*right))
+            functions_are_equal(ast, &ast.resolve_node(*left), &ast.resolve_node(*right))
         }
         (TokenOrValue::UnresolvedColor(left), TokenOrValue::UnresolvedColor(right)) => {
-            unresolved_colors_are_equal(ast, ast.resolve_node(*left), ast.resolve_node(*right))
+            unresolved_colors_are_equal(ast, &ast.resolve_node(*left), &ast.resolve_node(*right))
         }
         (TokenOrValue::Color(left), TokenOrValue::Color(right)) => {
             ast.nodes_eq(*left, *right).then_some(true)
@@ -221,7 +225,11 @@ fn functions_are_equal<'ast>(
     {
         return Some(false);
     }
-    token_lists_are_equal(ast, ast.vec(left.arguments), ast.vec(right.arguments))
+    token_lists_are_equal(
+        ast,
+        ast.vec_iter(left.arguments),
+        ast.vec_iter(right.arguments),
+    )
 }
 
 fn unresolved_colors_are_equal<'ast>(
@@ -244,7 +252,7 @@ fn unresolved_colors_are_equal<'ast>(
                 r: right_r,
             },
         ) if left_b == right_b && left_g == right_g && left_r == right_r => {
-            token_lists_are_equal(ast, ast.vec(*left_alpha), ast.vec(*right_alpha))
+            token_lists_are_equal(ast, ast.vec_iter(*left_alpha), ast.vec_iter(*right_alpha))
         }
         (
             UnresolvedColor::Hsl {
@@ -260,7 +268,7 @@ fn unresolved_colors_are_equal<'ast>(
                 s: right_s,
             },
         ) if left_h == right_h && left_l == right_l && left_s == right_s => {
-            token_lists_are_equal(ast, ast.vec(*left_alpha), ast.vec(*right_alpha))
+            token_lists_are_equal(ast, ast.vec_iter(*left_alpha), ast.vec_iter(*right_alpha))
         }
         (
             UnresolvedColor::LightDark {
@@ -271,10 +279,16 @@ fn unresolved_colors_are_equal<'ast>(
                 dark: right_dark,
                 light: right_light,
             },
-        ) => match token_lists_are_equal(ast, ast.vec(*left_dark), ast.vec(*right_dark)) {
-            Some(true) => token_lists_are_equal(ast, ast.vec(*left_light), ast.vec(*right_light)),
-            result => result,
-        },
+        ) => {
+            match token_lists_are_equal(ast, ast.vec_iter(*left_dark), ast.vec_iter(*right_dark)) {
+                Some(true) => token_lists_are_equal(
+                    ast,
+                    ast.vec_iter(*left_light),
+                    ast.vec_iter(*right_light),
+                ),
+                result => result,
+            }
+        }
         _ => Some(false),
     }
 }
@@ -287,19 +301,22 @@ pub(crate) fn declarations_with_equal_css_are_equal<'ast>(
 ) -> bool {
     match (left, right) {
         (Declaration::Mask(left, left_prefix), Declaration::Mask(right, right_prefix)) => {
-            left_prefix == right_prefix && masks_are_equal(ast, ast.vec(*left), ast.vec(*right))
+            left_prefix == right_prefix
+                && masks_are_equal(ast, ast.vec_iter(*left), ast.vec_iter(*right))
         }
         _ => true,
     }
 }
 
-fn masks_are_equal<'ast>(
-    ast: &AstContext<'ast>,
-    left: &[Mask<'ast>],
-    right: &[Mask<'ast>],
-) -> bool {
+fn masks_are_equal<'ast, I, J>(ast: &AstContext<'ast>, left: I, right: J) -> bool
+where
+    I: ExactSizeIterator<Item = rocketcss_ast::NodeId<'ast, Mask<'ast>>>,
+    J: ExactSizeIterator<Item = rocketcss_ast::NodeId<'ast, Mask<'ast>>>,
+{
     left.len() == right.len()
-        && left.iter().zip(right).all(|(left, right)| {
+        && left.zip(right).all(|(left, right)| {
+            let left = ast.resolve_node(left);
+            let right = ast.resolve_node(right);
             left.clip == right.clip
                 && left.composite == right.composite
                 && left.mode == right.mode
@@ -318,10 +335,10 @@ fn images_are_equal<'ast>(
 ) -> bool {
     match (ast.resolve_node(left), ast.resolve_node(right)) {
         (rocketcss_ast::Image::Url(left), rocketcss_ast::Image::Url(right)) => {
-            ast.node_span(*left) == ast.node_span(*right)
-                && ast.resolve_node(*left) == ast.resolve_node(*right)
+            ast.node_span(left) == ast.node_span(right)
+                && ast.resolve_node(left) == ast.resolve_node(right)
         }
-        (left, right) => css_values_are_equal(ast, left, right),
+        (left, right) => css_values_are_equal(ast, &left, &right),
     }
 }
 
@@ -331,9 +348,9 @@ fn stored_values_are_equal<'ast, T>(
     right: rocketcss_ast::NodeId<'ast, T>,
 ) -> bool
 where
-    T: for<'ghost> ToCss<'ghost> + PartialEq,
+    T: for<'ghost> ToCss<'ghost> + PartialEq + rocketcss_ast::AstNodeStorage<'ast>,
 {
-    css_values_are_equal(ast, ast.resolve_node(left), ast.resolve_node(right))
+    css_values_are_equal(ast, &ast.resolve_node(left), &ast.resolve_node(right))
 }
 
 fn css_value_fingerprint<T>(ast: &AstContext<'_>, value: &T) -> u64

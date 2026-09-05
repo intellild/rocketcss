@@ -18,9 +18,10 @@ enum AtomDomain {}
 ///
 /// Codecs keep their discriminants beside the owning AST type. Zero is
 /// reserved so a freshly zeroed payload can never describe a published node;
-/// `u16::MAX` marks the slot that is temporarily unavailable to `mutate_node`.
+/// `u32::MAX` marks the slot that is temporarily unavailable to `mutate_node`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct NodeKind(u32);
+#[doc(hidden)]
+pub struct NodeKind(u32);
 
 impl NodeKind {
     pub(crate) const MUTATING: Self = Self(u32::MAX);
@@ -45,7 +46,8 @@ impl NodeKind {
 /// bytes inline and store the first shared-extra slot in the final four bytes.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct NodePayload(u128);
+#[doc(hidden)]
+pub struct NodePayload(u128);
 
 impl NodePayload {
     pub(crate) const INLINE_BYTES: usize = 16;
@@ -90,7 +92,8 @@ impl NodePayload {
 ///
 /// Implementations live beside the AST type they encode. They may only reach
 /// backing storage through `AstContext`; the payload itself is a value object.
-pub(crate) trait AstNodeStorage<'ast>: Sized {
+#[doc(hidden)]
+pub trait AstNodeStorage<'ast>: Sized {
     const KIND: NodeKind;
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self;
@@ -101,14 +104,16 @@ pub(crate) trait AstNodeStorage<'ast>: Sized {
 }
 
 /// Context-aware deep cloning for a node whose physical codec is available.
-pub(crate) trait AstNodeClone<'ast>: AstNodeStorage<'ast> {
+#[doc(hidden)]
+pub trait AstNodeClone<'ast>: AstNodeStorage<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self;
 }
 
 /// One untagged slot in the shared overflow and persistent-list table.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ExtraData(u64);
+#[doc(hidden)]
+pub struct ExtraData(u64);
 
 impl ExtraData {
     pub(crate) const BYTES: usize = 8;
@@ -138,14 +143,16 @@ impl ExtraData {
 }
 
 /// Compact representation of one typed field or persistent-list element.
-pub(crate) trait ExtraDataCompact<'ast>: Sized {
+#[doc(hidden)]
+pub trait ExtraDataCompact<'ast>: Sized {
     fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData;
 
     fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self;
 }
 
 /// Context-aware cloning for one logical value stored in `ExtraData`.
-pub(crate) trait ExtraDataClone<'ast>: ExtraDataCompact<'ast> {
+#[doc(hidden)]
+pub trait ExtraDataClone<'ast>: ExtraDataCompact<'ast> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self;
 }
 
@@ -394,6 +401,7 @@ pub(crate) struct NodeData<'ast> {
     spans: DenseStore<'ast, RawNodeDomain, Span>,
     kinds: DenseStore<'ast, RawNodeDomain, NodeKind>,
     payloads: DenseStore<'ast, RawNodeDomain, NodePayload>,
+    active_mutations: usize,
 }
 
 impl<'ast> NodeData<'ast> {
@@ -402,6 +410,7 @@ impl<'ast> NodeData<'ast> {
             spans: DenseStore::new_in(allocator),
             kinds: DenseStore::new_in(allocator),
             payloads: DenseStore::new_in(allocator),
+            active_mutations: 0,
         }
     }
 
@@ -472,6 +481,7 @@ impl<'ast> NodeData<'ast> {
     ) -> NodePayload {
         self.validate(id.index(), expected);
         self.kinds.as_mut_slice()[id.index()] = NodeKind::MUTATING;
+        self.active_mutations += 1;
         self.payloads.as_slice()[id.index()]
     }
 
@@ -494,6 +504,10 @@ impl<'ast> NodeData<'ast> {
         );
         self.payloads.as_mut_slice()[index] = payload;
         self.kinds.as_mut_slice()[index] = kind;
+        self.active_mutations = self
+            .active_mutations
+            .checked_sub(1)
+            .expect("publishing a node requires an active mutation");
     }
 
     #[inline]
@@ -504,7 +518,7 @@ impl<'ast> NodeData<'ast> {
 
     pub(crate) fn truncate(&mut self, len: usize) {
         assert!(
-            !self.kinds.as_slice().contains(&NodeKind::MUTATING),
+            self.active_mutations == 0,
             "cannot roll back AST storage during a node mutation"
         );
         self.spans.truncate(len);

@@ -28,7 +28,7 @@ pub use tokenizer::{
 
 #[cfg(test)]
 mod tests {
-    use rocketcss_ast::{DUMMY_SP, match_ignore_ascii_case};
+    use rocketcss_ast::{DUMMY_SP, FontFamily, match_ignore_ascii_case};
     use rocketcss_common::Allocator;
 
     use crate::Compiler;
@@ -55,7 +55,12 @@ mod tests {
         let allocator = Allocator::new();
         let mut compiler = Compiler::new_with_source("", &allocator);
 
-        for value in 0_u8..4 {
+        for value in [
+            FontFamily::Serif,
+            FontFamily::SansSerif,
+            FontFamily::Monospace,
+            FontFamily::Cursive,
+        ] {
             let result: Result<(), ()> = compiler.try_parse(|compiler| {
                 compiler.ast_context_mut().alloc_node(value, DUMMY_SP);
                 Err(())
@@ -63,8 +68,10 @@ mod tests {
             assert_eq!(result, Err(()));
         }
 
-        let committed = compiler.ast_context_mut().alloc_node(4_u8, DUMMY_SP);
+        let committed = compiler
+            .ast_context_mut()
+            .alloc_node(FontFamily::Fantasy, DUMMY_SP);
         assert_eq!(committed.index(), 0);
-        assert_eq!(*compiler.ast_context().node(committed), 4);
+        assert_eq!(compiler.ast_context().node(committed), FontFamily::Fantasy);
     }
 }

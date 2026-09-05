@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-fn parse_four_nodes<'i, T: 'i>(
+fn parse_four_nodes<'i, T: 'i + AstNodeStorage<'i>>(
     input: &mut Compiler<'i>,
     mut parse: impl FnMut(&mut Compiler<'i>) -> Result<T, ParseError<'i, ParserError<'i>>>,
     clone: impl Fn(NodeId<'i, T>, &mut Compiler<'i>) -> Option<NodeId<'i, T>>,
@@ -38,7 +38,7 @@ fn parse_four_nodes<'i, T: 'i>(
     Ok([top, right, bottom, left])
 }
 
-fn parse_two_nodes<'i, T: 'i>(
+fn parse_two_nodes<'i, T: 'i + AstNodeStorage<'i>>(
     input: &mut Compiler<'i>,
     mut parse: impl FnMut(&mut Compiler<'i>) -> Result<T, ParseError<'i, ParserError<'i>>>,
     clone: impl Fn(NodeId<'i, T>, &mut Compiler<'i>) -> Option<NodeId<'i, T>>,
@@ -125,10 +125,7 @@ fn clone_border_side_width<'i>(
         BorderSideWidth::Thin => BorderSideWidth::Thin,
         BorderSideWidth::Medium => BorderSideWidth::Medium,
         BorderSideWidth::Thick => BorderSideWidth::Thick,
-        BorderSideWidth::Length(value) => {
-            let value = *value;
-            BorderSideWidth::Length(clone_length(value, input)?)
-        }
+        BorderSideWidth::Length(value) => BorderSideWidth::Length(clone_length(value, input)?),
     };
     Some(store_node(value, input))
 }
@@ -273,7 +270,7 @@ impl<'i> Parse<'i> for Size2D<'i, LengthPercentage<'i>> {
                     unit: value.unit,
                     value: value.value,
                 }),
-                LengthPercentage::Percentage(value) => LengthPercentage::Percentage(*value),
+                LengthPercentage::Percentage(value) => LengthPercentage::Percentage(value),
                 LengthPercentage::Zero => LengthPercentage::Zero,
                 LengthPercentage::Calc(_) => return None,
             };
@@ -345,7 +342,7 @@ fn clone_length_percentage<'i>(
             unit: value.unit,
             value: value.value,
         }),
-        LengthPercentage::Percentage(value) => LengthPercentage::Percentage(*value),
+        LengthPercentage::Percentage(value) => LengthPercentage::Percentage(value),
         LengthPercentage::Zero => LengthPercentage::Zero,
         LengthPercentage::Calc(_) => return None,
     };

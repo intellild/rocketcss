@@ -126,18 +126,15 @@ fn custom_property_token_shape(source: &str, options: MinifyOptions) -> String {
         };
         let property = stylesheet.resolve_node(*property);
         stylesheet
-            .vec(property.value)
-            .iter()
+            .vec_iter(property.value)
             .map(|value| match value {
-                rocketcss_ast::TokenOrValue::Token(token) => {
-                    match stylesheet.resolve_node(*token) {
-                        rocketcss_ast::Token::Ident(_) => 'i',
-                        rocketcss_ast::Token::WhiteSpace(" ") => 'w',
-                        rocketcss_ast::Token::WhiteSpace(_) => 'W',
-                        rocketcss_ast::Token::Comment(_) => 'c',
-                        _ => 't',
-                    }
-                }
+                rocketcss_ast::TokenOrValue::Token(token) => match stylesheet.resolve_node(token) {
+                    rocketcss_ast::Token::Ident(_) => 'i',
+                    rocketcss_ast::Token::WhiteSpace(" ") => 'w',
+                    rocketcss_ast::Token::WhiteSpace(_) => 'W',
+                    rocketcss_ast::Token::Comment(_) => 'c',
+                    _ => 't',
+                },
                 _ => 'v',
             })
             .collect()

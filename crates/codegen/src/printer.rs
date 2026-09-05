@@ -447,7 +447,10 @@ impl Write for CssComparison<'_> {
     }
 }
 
-impl<'ast, 'ghost, T: ToCss<'ghost>> ToCss<'ghost> for rocketcss_ast::NodeId<'ast, T> {
+impl<'ast, 'ghost, T> ToCss<'ghost> for rocketcss_ast::NodeId<'ast, T>
+where
+    T: ToCss<'ghost> + rocketcss_ast::AstNodeStorage<'ast>,
+{
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,

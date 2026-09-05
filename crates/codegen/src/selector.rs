@@ -6,7 +6,7 @@ impl<'ghost> ToCss<'ghost> for SelectorList<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_selector_list(_cx.ast_context().vec(*self), dest, _cx)
+        write_selector_list(_cx.ast_context().vec_iter(*self), dest, _cx)
     }
 }
 
@@ -18,9 +18,9 @@ impl<'ghost> ToCss<'ghost> for Selector<'_> {
     ) -> fmt::Result {
         match self {
             Self::Parsed(components) => {
-                for component in _cx.ast_context().vec(*components) {
+                for component in _cx.ast_context().vec_iter(*components) {
                     _cx.ast_context()
-                        .resolve_node(*component)
+                        .resolve_node(component)
                         .to_css(dest, _cx)?;
                 }
                 Ok(())
@@ -31,14 +31,18 @@ impl<'ghost> ToCss<'ghost> for Selector<'_> {
     }
 }
 
-fn write_selector_list<'ghost, PrinterT: PrinterTrait>(
-    selectors: &[NodeId<'_, Selector<'_>>],
+fn write_selector_list<'ast, 'ghost, PrinterT, I>(
+    selectors: I,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
-) -> fmt::Result {
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator<Item = NodeId<'ast, Selector<'ast>>>,
+{
     let mut wrote_selector = false;
     for selector in selectors {
-        let selector = cx.ast_context().resolve_node(*selector);
+        let selector = cx.ast_context().resolve_node(selector);
         if selector.is_tombstone() {
             continue;
         }
@@ -97,7 +101,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
             Self::AttributeOther(value) => value.to_css(dest, _cx),
             Self::Negation(selectors) => {
                 dest.write_str(":not(")?;
-                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec_iter(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Root => dest.write_str(":root"),
@@ -108,7 +112,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 write_nth_start(data, true, dest)?;
                 write_nth_affine(data, dest)?;
                 dest.write_str(" of ")?;
-                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec_iter(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::PseudoClass(value) => value.to_css(dest, _cx),
@@ -119,11 +123,11 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
             }
             Self::Part(parts) => {
                 dest.write_str("::part(")?;
-                for (index, part) in _cx.ast_context().vec(*parts).iter().enumerate() {
+                for (index, part) in _cx.ast_context().vec_iter(*parts).enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
-                    serialize_identifier(part, dest)?;
+                    serialize_identifier(part.as_ref(), dest)?;
                 }
                 dest.write_char(')')
             }
@@ -138,19 +142,24 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
             }
             Self::Where(selectors) => {
                 dest.write_str(":where(")?;
-                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec_iter(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Is(selectors) => {
-                let selectors = _cx.ast_context().vec(*selectors);
-                let selector =
-                    (selectors.len() == 1).then(|| _cx.ast_context().resolve_node(selectors[0]));
-                if selectors.len() == 1
+                let selector_count = _cx.ast_context().vec_len(*selectors);
+                let selector = (selector_count == 1).then(|| {
+                    _cx.ast_context().resolve_node(
+                        _cx.ast_context()
+                            .vec_get(*selectors, 0)
+                            .expect("single selector range has one value"),
+                    )
+                });
+                if selector_count == 1
                     && !selector.as_ref().is_some_and(|selector| {
                         selector.as_parsed().is_some_and(|components| {
-                            _cx.ast_context().vec(components).iter().any(|component| {
+                            _cx.ast_context().vec_iter(components).any(|component| {
                                 matches!(
-                                    _cx.ast_context().resolve_node(*component),
+                                    _cx.ast_context().resolve_node(component),
                                     SelectorComponent::Combinator(_)
                                 )
                             })
@@ -158,9 +167,9 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                     })
                     && !selector.as_ref().is_some_and(|selector| {
                         selector.as_parsed().is_some_and(|components| {
-                            _cx.ast_context().vec(components).iter().any(|component| {
+                            _cx.ast_context().vec_iter(components).any(|component| {
                                 matches!(
-                                    _cx.ast_context().resolve_node(*component),
+                                    _cx.ast_context().resolve_node(component),
                                     SelectorComponent::LocalName { .. }
                                         | SelectorComponent::ExplicitUniversalType
                                 )
@@ -173,7 +182,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                         .to_css(dest, _cx);
                 }
                 dest.write_str(":is(")?;
-                write_selector_list(selectors, dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec_iter(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Any {
@@ -183,12 +192,12 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 dest.write_char(':')?;
                 vendor_prefix.to_css(dest, _cx)?;
                 dest.write_str("any(")?;
-                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec_iter(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Has(selectors) => {
                 dest.write_str(":has(")?;
-                write_selector_list(_cx.ast_context().vec(*selectors), dest, _cx)?;
+                write_selector_list(_cx.ast_context().vec_iter(*selectors), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::PseudoElement(value) => value.to_css(dest, _cx),
@@ -441,11 +450,11 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
         match self {
             Self::Lang { languages } => {
                 dest.write_str(":lang(")?;
-                for (index, language) in _cx.ast_context().vec(*languages).iter().enumerate() {
+                for (index, language) in _cx.ast_context().vec_iter(*languages).enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
-                    serialize_identifier(language, dest)?;
+                    serialize_identifier(language.as_ref(), dest)?;
                 }
                 dest.write_char(')')
             }
@@ -464,11 +473,11 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
             Self::Autofill(prefix) => write_prefixed_pseudo(prefix, "autofill", dest, _cx),
             Self::ActiveViewTransitionType { kinds } => {
                 dest.write_str(":active-view-transition-type(")?;
-                for (index, kind) in _cx.ast_context().vec(*kinds).iter().enumerate() {
+                for (index, kind) in _cx.ast_context().vec_iter(*kinds).enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
-                    serialize_identifier(kind, dest)?;
+                    serialize_identifier(kind.as_ref(), dest)?;
                 }
                 dest.write_char(')')
             }
@@ -488,7 +497,7 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
                 dest.write_char(':')?;
                 dest.write_str(name)?;
                 dest.write_char('(')?;
-                crate::token::write_token_list(_cx.ast_context().vec(*arguments), dest, _cx)?;
+                crate::token::write_token_list(_cx.ast_context().vec_iter(*arguments), dest, _cx)?;
                 dest.write_char(')')
             }
             value => dest.write_str(pseudo_class_name(value)),
@@ -594,36 +603,39 @@ impl<'ghost> ToCss<'ghost> for PseudoElement<'_> {
             }
             Self::HighlightFunction { name } => write_element_function("highlight", name, dest),
             Self::WebKitScrollbar(value) => value.to_css(dest, _cx),
-            Self::CueFunction { selector } => {
-                write_selector_function("cue", _cx.ast_context().resolve_node(*selector), dest, _cx)
-            }
+            Self::CueFunction { selector } => write_selector_function(
+                "cue",
+                &_cx.ast_context().resolve_node(*selector),
+                dest,
+                _cx,
+            ),
             Self::CueRegionFunction { selector } => write_selector_function(
                 "cue-region",
-                _cx.ast_context().resolve_node(*selector),
+                &_cx.ast_context().resolve_node(*selector),
                 dest,
                 _cx,
             ),
             Self::ViewTransitionGroup { part } => write_part_function(
                 "view-transition-group",
-                _cx.ast_context().resolve_node(*part),
+                &_cx.ast_context().resolve_node(*part),
                 dest,
                 _cx,
             ),
             Self::ViewTransitionImagePair { part } => write_part_function(
                 "view-transition-image-pair",
-                _cx.ast_context().resolve_node(*part),
+                &_cx.ast_context().resolve_node(*part),
                 dest,
                 _cx,
             ),
             Self::ViewTransitionOld { part } => write_part_function(
                 "view-transition-old",
-                _cx.ast_context().resolve_node(*part),
+                &_cx.ast_context().resolve_node(*part),
                 dest,
                 _cx,
             ),
             Self::ViewTransitionNew { part } => write_part_function(
                 "view-transition-new",
-                _cx.ast_context().resolve_node(*part),
+                &_cx.ast_context().resolve_node(*part),
                 dest,
                 _cx,
             ),
@@ -638,7 +650,7 @@ impl<'ghost> ToCss<'ghost> for PseudoElement<'_> {
                 dest.write_str("::")?;
                 dest.write_str(name)?;
                 dest.write_char('(')?;
-                crate::token::write_token_list(_cx.ast_context().vec(*arguments), dest, _cx)?;
+                crate::token::write_token_list(_cx.ast_context().vec_iter(*arguments), dest, _cx)?;
                 dest.write_char(')')
             }
             value => dest.write_str(pseudo_element_name(value)),
@@ -756,7 +768,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionPartSelector<'_> {
         if let Some(name) = &self.name {
             name.to_css(dest, _cx)?;
         }
-        for class in _cx.ast_context().vec(self.classes) {
+        for class in _cx.ast_context().vec_iter(self.classes) {
             dest.write_char('.')?;
             serialize_identifier(class, dest)?;
         }

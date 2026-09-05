@@ -26,10 +26,10 @@ pub(super) use animation::{
 pub(super) use font::parse_font_family_list;
 pub(super) use transform::parse_transform_list;
 
-pub(super) fn single_token<'context, 'i>(
-    ast: &'context AstContext<'i>,
+pub(super) fn single_token<'i>(
+    ast: &AstContext<'i>,
     value: &[TokenOrValue<'i>],
-) -> Option<&'context ValueToken<'i>> {
+) -> Option<ValueToken<'i>> {
     if let [TokenOrValue::Token(token)] = value {
         Some(ast.node(*token))
     } else {
@@ -41,18 +41,24 @@ pub(super) fn token_values_contain_opaque<'i>(
     ast: &AstContext<'i>,
     values: &[TokenOrValue<'i>],
 ) -> bool {
-    values.iter().any(|value| match value {
+    values
+        .iter()
+        .any(|value| token_value_contains_opaque(ast, value))
+}
+
+fn token_value_contains_opaque<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
+    match value {
         TokenOrValue::Token(token) => matches!(ast.node(*token), ValueToken::Comment(_)),
         TokenOrValue::Var(_) | TokenOrValue::Env(_) => true,
         TokenOrValue::Function(function) => {
             let function = ast.node(*function);
             function.kind().is_variable()
-                || ast.vec(function.arguments).iter().any(|argument| {
-                    token_values_contain_opaque(ast, std::slice::from_ref(argument))
-                })
+                || ast
+                    .vec_iter(function.arguments)
+                    .any(|argument| token_value_contains_opaque(ast, &argument))
         }
         _ => false,
-    })
+    }
 }
 
 pub(super) fn collect_tokens<'i>(

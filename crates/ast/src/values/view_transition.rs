@@ -9,6 +9,38 @@ pub enum ViewTransitionName<'a> {
     Custom(&'a str),
 }
 
+impl<'ast> AstNodeStorage<'ast> for ViewTransitionName<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0016_0002);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::None,
+            1 => Self::Auto,
+            2 => Self::Custom(context.resolve_string(read_u32(&bytes, 4) as u64)),
+            _ => panic!("invalid encoded ViewTransitionName variant"),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_string_enum(self, context, |value| match value {
+            Self::None => (0, None),
+            Self::Auto => (1, None),
+            Self::Custom(value) => (2, Some(value)),
+        })
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for ViewTransitionName<'ast> {
+    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum NoneOrCustomIdentList<'a> {
     None,
@@ -79,4 +111,52 @@ pub enum ViewTransitionGroup<'a> {
     Contain,
     Nearest,
     Custom(&'a str),
+}
+
+impl<'ast> AstNodeStorage<'ast> for ViewTransitionGroup<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0016_0003);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        match bytes[0] {
+            0 => Self::Normal,
+            1 => Self::Contain,
+            2 => Self::Nearest,
+            3 => Self::Custom(context.resolve_string(read_u32(&bytes, 4) as u64)),
+            _ => panic!("invalid encoded ViewTransitionGroup variant"),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_string_enum(self, context, |value| match value {
+            Self::Normal => (0, None),
+            Self::Contain => (1, None),
+            Self::Nearest => (2, None),
+            Self::Custom(value) => (3, Some(value)),
+        })
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for ViewTransitionGroup<'ast> {
+    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
+fn encode_string_enum<'ast, T>(
+    value: T,
+    context: &mut AstContext<'ast>,
+    classify: impl FnOnce(T) -> (u8, Option<&'ast str>),
+) -> NodePayload {
+    let (tag, string) = classify(value);
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    bytes[0] = tag;
+    if let Some(string) = string {
+        write_u32(&mut bytes, 4, context.store_string(string));
+    }
+    NodePayload::inline(&bytes)
 }

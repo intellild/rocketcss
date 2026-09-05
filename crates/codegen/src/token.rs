@@ -1,4 +1,5 @@
 use crate::prelude::*;
+use std::borrow::Borrow;
 
 impl<'ghost> ToCss<'ghost> for Unit {
     fn to_css<PrinterT: PrinterTrait>(
@@ -149,16 +150,28 @@ fn write_minified_hash<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT)
     Ok(())
 }
 
-pub(crate) fn write_token_list<'ghost, PrinterT: PrinterTrait>(
-    values: &[TokenOrValue<'_>],
+pub(crate) fn write_token_list<'ast, 'ghost, PrinterT, I>(
+    values: I,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
-) -> fmt::Result {
-    for (index, value) in values.iter().enumerate() {
-        if index > 0 && minified_color_needs_separator(&values[index - 1], value, cx) {
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator,
+    I::Item: std::borrow::Borrow<TokenOrValue<'ast>>,
+{
+    let mut values = values.into_iter();
+    let Some(mut previous) = values.next() else {
+        return Ok(());
+    };
+    previous.borrow().to_css(dest, cx)?;
+    for current in values {
+        let value = current.borrow();
+        if minified_color_needs_separator(previous.borrow(), value, cx) {
             dest.write_char(' ')?;
         }
         value.to_css(dest, cx)?;
+        previous = current;
     }
     Ok(())
 }
@@ -168,13 +181,18 @@ pub(crate) fn write_token_list<'ghost, PrinterT: PrinterTrait>(
 /// Unparsed declarations are semantic barriers. In particular, dropping a
 /// comment between two tokens or using a cached function replacement can join
 /// tokens that the parser deliberately kept opaque.
-pub(crate) fn write_unparsed_token_list<'ghost, PrinterT: PrinterTrait>(
-    values: &[TokenOrValue<'_>],
+pub(crate) fn write_unparsed_token_list<'ast, 'ghost, PrinterT, I>(
+    values: I,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
-) -> fmt::Result {
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator,
+    I::Item: std::borrow::Borrow<TokenOrValue<'ast>>,
+{
     for value in values {
-        write_unparsed_token_or_value(value, dest, cx)?;
+        write_unparsed_token_or_value(value.borrow(), dest, cx)?;
     }
     Ok(())
 }
@@ -197,10 +215,12 @@ fn write_unparsed_token_or_value<'ghost, PrinterT: PrinterTrait>(
         },
         TokenOrValue::Function(function) => {
             let function = ast.resolve_node(*function);
-            let arguments = ast.vec(function.arguments);
+            let arguments = ast
+                .vec_iter(function.arguments)
+                .collect::<std::vec::Vec<_>>();
             dest.write_str(function.name())?;
             dest.write_char('(')?;
-            write_unparsed_token_list(arguments, dest, cx)?;
+            write_unparsed_token_list(&arguments, dest, cx)?;
             if function.kind().is_variable()
                 && matches!(
                     arguments.last(),
@@ -350,14 +370,17 @@ impl<'ghost> ToCss<'ghost> for Variable<'_> {
         dest.write_str("var(")?;
         self.name.to_css(dest, _cx)?;
         if let Some(fallback) = &self.fallback {
-            let fallback = _cx.ast_context().vec(*fallback);
+            let fallback = _cx
+                .ast_context()
+                .vec_iter(*fallback)
+                .collect::<std::vec::Vec<_>>();
             dest.write_char(',')?;
             if fallback.is_empty() {
                 dest.write_char(' ')?;
-            } else if !starts_with_whitespace(fallback, _cx) {
+            } else if !starts_with_whitespace(&fallback, _cx) {
                 dest.whitespace()?;
             }
-            write_token_list(fallback, dest, _cx)?;
+            write_token_list(&fallback, dest, _cx)?;
             if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(_cx.ast_context().resolve_node(*token), Token::Comma))
             {
                 dest.write_char(' ')?;
@@ -375,19 +398,22 @@ impl<'ghost> ToCss<'ghost> for EnvironmentVariable<'_> {
     ) -> fmt::Result {
         dest.write_str("env(")?;
         self.name.to_css(dest, _cx)?;
-        for index in _cx.ast_context().vec(self.indices) {
+        for index in _cx.ast_context().vec_iter(self.indices) {
             dest.write_char(' ')?;
-            serialize_int(*index, dest)?;
+            serialize_int(index, dest)?;
         }
         if let Some(fallback) = &self.fallback {
-            let fallback = _cx.ast_context().vec(*fallback);
+            let fallback = _cx
+                .ast_context()
+                .vec_iter(*fallback)
+                .collect::<std::vec::Vec<_>>();
             dest.write_char(',')?;
             if fallback.is_empty() {
                 dest.write_char(' ')?;
-            } else if !starts_with_whitespace(fallback, _cx) {
+            } else if !starts_with_whitespace(&fallback, _cx) {
                 dest.whitespace()?;
             }
-            write_token_list(fallback, dest, _cx)?;
+            write_token_list(&fallback, dest, _cx)?;
             if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(_cx.ast_context().resolve_node(*token), Token::Comma))
             {
                 dest.write_char(' ')?;
@@ -493,9 +519,12 @@ impl<'ghost> ToCss<'ghost> for Function<'_> {
             return Ok(());
         }
         dest.write_char('(')?;
-        let arguments = _cx.ast_context().vec(self.arguments);
+        let arguments = _cx
+            .ast_context()
+            .vec_iter(self.arguments)
+            .collect::<std::vec::Vec<_>>();
         if self.is_unquoted_url() {
-            let [TokenOrValue::Token(token)] = arguments else {
+            let [TokenOrValue::Token(token)] = arguments.as_slice() else {
                 unreachable!("unquoted URL functions retain one string token")
             };
             let Token::String(value) = _cx.ast_context().resolve_node(*token) else {
@@ -504,7 +533,7 @@ impl<'ghost> ToCss<'ghost> for Function<'_> {
             write_unquoted_url(value, dest)?;
             return dest.write_char(')');
         }
-        write_token_list(arguments, dest, _cx)?;
+        write_token_list(&arguments, dest, _cx)?;
         if self.kind().is_variable()
             && matches!(arguments.last(), Some(TokenOrValue::Token(token)) if matches!(_cx.ast_context().resolve_node(*token), Token::Comma))
         {

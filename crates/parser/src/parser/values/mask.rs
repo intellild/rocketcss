@@ -113,7 +113,10 @@ fn default_mask_position<'i>(input: &mut Compiler<'i>) -> Position<'i> {
 
 fn zero_mask_position_component<'i, S>(
     input: &mut Compiler<'i>,
-) -> NodeId<'i, PositionComponent<'i, S>> {
+) -> NodeId<'i, PositionComponent<'i, S>>
+where
+    PositionComponent<'i, S>: AstNodeStorage<'i>,
+{
     let length = store_node(DimensionPercentage::Percentage(0.0), input);
     store_node(PositionComponent::Length(length), input)
 }

@@ -29,8 +29,7 @@ generation.
 
 ## Terminology and naming
 
-New code uses names based on responsibility, not the name of a historical
-indexing experiment:
+Storage names describe their concrete responsibility:
 
 | Responsibility | Name |
 | --- | --- |
@@ -42,23 +41,9 @@ indexing experiment:
 | Existing rule and declaration structure | `RuleStore`, `RuleListStore`, `DeclarationStore`, and other domain names |
 | Source-order relationships | `SourceOrderId` and explicit topology fields |
 
-`RadixCompilation`, `RadixWriter`, `parser/radix_ast`, and similar historical
-names are migration targets, not names in the final architecture. Rename them
-according to their actual responsibility:
-
-```text
-RadixCompilation     -> AstContext
-RadixWriter          -> AstWriter
-parser/radix_ast     -> parser/ast
-radix_state.rs       -> a transform-specific state name
-```
-
-No internal storage component should be called `radix` unless it actually
-implements a radix data structure. Historical analysis documents may keep the
-term when describing the removed design.
-
-The former `Compilation<'ast>` compatibility alias has no role in the target
-API. New APIs, fields, tests, and documentation use `AstContext` directly.
+`AstContext` is the only public owner/access boundary. APIs, fields, tests, and
+documentation use it directly rather than preserving compatibility aliases for
+earlier storage experiments.
 
 ## Ownership and physical layout
 
@@ -215,9 +200,13 @@ traits/helpers:
 trait AstNodeStorage<'ast>: Sized {
     const KIND: NodeKind;
 
-    fn decode(id: NodeId<'ast, Self>, ctx: &AstContext<'ast>) -> Self;
-    fn encode_new(self, span: Span, ctx: &mut AstContext<'ast>) -> NodeId<'ast, Self>;
-    fn encode_existing(self, id: NodeId<'ast, Self>, ctx: &mut AstContext<'ast>);
+    fn decode(payload: NodePayload, ctx: &AstContext<'ast>) -> Self;
+    fn encode_new(self, ctx: &mut AstContext<'ast>) -> NodePayload;
+    fn encode_existing(
+        self,
+        current: NodePayload,
+        ctx: &mut AstContext<'ast>,
+    ) -> NodePayload;
 }
 
 trait ExtraDataCompact<'ast>: Sized {
@@ -274,12 +263,13 @@ AST. It classifies the compact logical representation, not Rust's in-memory
 `size_of::<T>()`; enum padding and borrowed string pointers are never copied
 into `ExtraData`.
 
-Already supported as one slot:
+Built-in one-slot representations:
 
 ```text
-u8, i32
+bool, u8, u16, u32, i32, f32
 &str, Atom                         // context-owned compact string/atom ID
 NodeId<T>                          // dense node index
+Option<NodeId<T>>                  // dense node index or sentinel
 AstVec<T>                          // nested start..end range
 TokenOrValue                      // hand-written tagged 8-byte codec
 ```
@@ -295,7 +285,7 @@ AnimationIterationCount, AnimationName, AnimationPlayState
 AnimationRange, AnimationRangeStart, AnimationRangeEnd, AnimationTimeline
 BackgroundAttachment, BackgroundClip, BackgroundOrigin, BackgroundPosition
 BackgroundRepeat
-FamilyName, FontFamily, FontTechnology
+FamilyName, FontTechnology
 GeometryBox, Image, KeyframeSelector, LengthPercentage
 MaskClip, MaskComposite, MaskMode
 Option<&str>, OtherTextDecorationLine, OverrideColors
@@ -310,33 +300,32 @@ These elements cannot be represented losslessly in one slot. Their owning list
 field uses `AstVec<NodeId<T>>`, and parser construction allocates each element
 through `AstContext::alloc_node`.
 
-Promoted so far:
+Promoted composite list elements:
 
 ```text
 Background                              // Declaration::Background
+BackgroundSize                         // background/mask size lists
+BoxShadow                              // box-shadow lists
+CursorImage                            // cursor image lists
 EasingFunction                          // animation/transition timing-function lists
+Filter                                 // filter lists
+FontFamily                             // font-family lists
 ImageSetOption                          // ImageSet::options
 Calc                                   // MathFunction min/max/hypot lists
 GradientItem                           // linear/radial/conic gradient stops and hints
+Mask                                   // mask shorthand layers
 ContainerCondition                    // recursive container-condition operations
 MediaCondition                        // recursive media-condition operations
+PageSelector                           // @page selector lists
 ParsedComponent                        // recursive property-value components
 ScrollStateQuery                      // recursive scroll-state operations
 Selector, SelectorComponent           // selector roots and recursive selector components
 StyleQuery                            // recursive style-query operations
 SupportsCondition                     // recursive supports-condition operations
+TextShadow                            // text-shadow lists
+TrackListItem, TrackSize              // grid track lists
 Transform                              // Declaration::Transform and parsed transform lists
-```
-
-Remaining promotion targets:
-
-```text
-BackgroundSize, BoxShadow
-CursorImage
-Filter
-Mask, PageSelector
-TextShadow
-TrackListItem, TrackSize, Transition
+Transition                            // transition shorthand lists
 ```
 
 The inventory is intentionally based on the maximum encoded variant. For
@@ -424,7 +413,9 @@ publish the original NodeKind again
 The temporary mutation marker rejects recursive access to the same node while
 allowing the closure to read, allocate, clone, or mutate other nodes through
 the context. Unwind handling republishes a valid encoded value before resuming
-the panic.
+the panic. `NodeData` tracks the number of active mutations explicitly, so a
+checkpoint rollback can reject an invalid rollback in constant time without
+scanning the node columns.
 
 Since one `NodeKind` always has a fixed number of overflow fields, updating a
 node can overwrite its existing overflow slots after the closure completes.
@@ -487,8 +478,6 @@ Store compact elements directly;
 Replace pointer-based list storage with direct ExtraData ranges
        ↓
 Migrate parser, visitor, codegen, and Nano to AstContext-only access
-       ↓
-Rename historical compilation/parser/writer symbols by responsibility
        ↓
 Remove compatibility aliases and obsolete storage code
 ```

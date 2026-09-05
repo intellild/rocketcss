@@ -30,9 +30,8 @@ fn token_or_value_contains_variable(
             function.kind() == KnownFunction::Var
                 || ast
                     .ast_context()
-                    .vec(function.arguments)
-                    .iter()
-                    .any(|value| token_or_value_contains_variable(value, ast))
+                    .vec_iter(function.arguments)
+                    .any(|value| token_or_value_contains_variable(&value, ast))
         }
         _ => false,
     }
@@ -43,8 +42,8 @@ fn token_number(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> 
         return None;
     };
     match ast.ast_context().resolve_node(*token) {
-        Token::Number(value) => Some(*value),
-        Token::Dimension { value, .. } | Token::UnknownDimension { value, .. } => Some(*value),
+        Token::Number(value) => Some(value),
+        Token::Dimension { value, .. } | Token::UnknownDimension { value, .. } => Some(value),
         _ => None,
     }
 }
@@ -65,7 +64,7 @@ fn token_ident<'a>(
         return None;
     };
     match ast.ast_context().resolve_node(*token) {
-        Token::Ident(value) => Some(*value),
+        Token::Ident(value) => Some(value),
         _ => None,
     }
 }

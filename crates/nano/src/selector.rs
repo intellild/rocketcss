@@ -78,8 +78,8 @@ fn deduplicate(
                 matches!(existing, Selector::Parsed(_))
                     && crate::equality::css_values_are_equal(
                         ast,
-                        existing,
-                        ast.resolve_node(selector),
+                        &existing,
+                        &ast.resolve_node(selector),
                     )
             })
         {

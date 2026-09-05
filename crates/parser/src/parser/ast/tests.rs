@@ -1065,17 +1065,22 @@ fn top_level_statements_preserve_payloads_and_ordering_state() {
     let CssRulePayload::LayerStatement(ast_layer) = ast.rule(ids[1]).unwrap().payload() else {
         unreachable!()
     };
-    let layer_names = ast.vec(ast_layer.names);
-    assert_eq!(layer_names.len(), 1);
-    assert_eq!(ast.vec(layer_names[0]), ["base"]);
+    assert_eq!(ast.vec_len(ast_layer.names), 1);
+    let layer_name = ast.vec_get(ast_layer.names, 0).unwrap();
+    assert_eq!(
+        ast.vec_iter(layer_name).collect::<std::vec::Vec<_>>(),
+        ["base"]
+    );
 
     let CssRulePayload::Import(ast_import) = ast.rule(ids[2]).unwrap().payload() else {
         unreachable!()
     };
     assert_eq!(ast_import.url, "a.css");
     assert_eq!(
-        ast_import.layer.map(|layer| ast.vec(layer)),
-        Some(&["theme"][..])
+        ast_import
+            .layer
+            .map(|layer| ast.vec_iter(layer).collect::<std::vec::Vec<_>>()),
+        Some(vec!["theme"])
     );
 
     let CssRulePayload::Namespace(ast_namespace) = ast.rule(ids[3]).unwrap().payload() else {
@@ -1149,14 +1154,18 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
         unreachable!()
     };
     assert!(matches!(
-        ast.vec(first_frame.selectors),
+        ast.vec_iter(first_frame.selectors)
+            .collect::<std::vec::Vec<_>>()
+            .as_slice(),
         [KeyframeSelector::From]
     ));
     let CssRulePayload::Keyframe(second_frame) = ast.rule(frames[1]).unwrap().payload() else {
         unreachable!()
     };
     assert!(matches!(
-        ast.vec(second_frame.selectors),
+        ast.vec_iter(second_frame.selectors)
+            .collect::<std::vec::Vec<_>>()
+            .as_slice(),
         [KeyframeSelector::Percentage(0.5), KeyframeSelector::To]
     ));
     assert_eq!(
@@ -1206,16 +1215,20 @@ fn page_margin_rules_split_parent_declaration_blocks() {
     let CssRulePayload::Page(ast_page) = ast.rule(page).unwrap().payload() else {
         unreachable!()
     };
-    let [
-        PageSelector {
-            name: Some("invoice"),
-            pseudo_classes,
-        },
-    ] = ast.vec(ast_page.selectors)
+    let selector = ast.resolve_node(ast.vec_get(ast_page.selectors, 0).unwrap());
+    let PageSelector {
+        name: Some("invoice"),
+        pseudo_classes,
+    } = selector
     else {
         panic!("expected the parsed page selector");
     };
-    assert!(matches!(ast.vec(*pseudo_classes), [PagePseudoClass::Left]));
+    assert!(matches!(
+        ast.vec_iter(pseudo_classes)
+            .collect::<std::vec::Vec<_>>()
+            .as_slice(),
+        [PagePseudoClass::Left]
+    ));
     let page_children = ast
         .rules_in_list(ast.rule(page).unwrap().child_list().unwrap())
         .unwrap()
@@ -1360,7 +1373,12 @@ fn font_feature_subrules_and_declarations_are_flattened() {
     else {
         unreachable!()
     };
-    assert!(matches!(ast.vec(ast_features.name), [FamilyName("Demo")]));
+    assert!(matches!(
+        ast.vec_iter(ast_features.name)
+            .collect::<std::vec::Vec<_>>()
+            .as_slice(),
+        [FamilyName("Demo")]
+    ));
     for (subrule, expected_name, expected_len) in [
         (rules[1].0, FontFeatureSubruleType::Styleset, 2),
         (rules[2].0, FontFeatureSubruleType::Swash, 1),
@@ -1577,7 +1595,7 @@ fn replay_css_wide_success_is_not_replayed() {
     assert!(matches!(
         property_declarations(&compilation)[0],
         Declaration::CSSWide(property_id, keyword)
-            if compilation.resolve_node(*property_id) == &PropertyId::Width
+            if compilation.resolve_node(*property_id) == PropertyId::Width
                 && *keyword == CSSWideKeyword::Initial
     ));
     assert_eq!(counters.decodes, 0);

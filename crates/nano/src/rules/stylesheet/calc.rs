@@ -357,7 +357,11 @@ impl<'values, 'context, 'arena> CalcLinearParser<'values, 'context, 'arena> {
                 if let Some(replacement) = function.replacement {
                     CalcLinear::from_value(replacement)?
                 } else {
-                    calc_linear_expression_in(self.ast.vec(function.arguments), self.ast)?
+                    let arguments = self
+                        .ast
+                        .vec_iter(function.arguments)
+                        .collect::<std::vec::Vec<_>>();
+                    calc_linear_expression_in(&arguments, self.ast)?
                 }
             }
             value => {
@@ -384,7 +388,7 @@ impl<'values, 'context, 'arena> CalcLinearParser<'values, 'context, 'arena> {
         let operator = allowed
             .iter()
             .copied()
-            .find(|allowed| *operator == *allowed)?;
+            .find(|allowed| operator == *allowed)?;
         self.index += 1;
         Some(operator)
     }
@@ -427,7 +431,7 @@ pub(super) fn minify_flat_calc_operations<'ast>(
             let Token::Delim(operator) = ast.ast_context().resolve_node(*operator) else {
                 continue;
             };
-            if !matches!(*operator, "*" | "/") {
+            if !matches!(operator, "*" | "/") {
                 continue;
             }
             let Some(left_index) = values[..operator_index]
@@ -471,7 +475,7 @@ pub(super) fn minify_flat_calc_operations<'ast>(
             let Token::Delim(operator) = ast.ast_context().resolve_node(*operator) else {
                 continue;
             };
-            if !matches!(*operator, "+" | "-") {
+            if !matches!(operator, "+" | "-") {
                 continue;
             }
             let Some(left_index) = values[..operator_index]
@@ -612,12 +616,11 @@ fn calc_value(
 fn calc_value_in(value: &TokenOrValue<'_>, ast: &AstContext<'_>) -> Option<FunctionReplacement> {
     match value {
         TokenOrValue::Token(token) => match ast.resolve_node(*token) {
-            Token::Number(value) => Some(FunctionReplacement::Number(*value)),
-            Token::Dimension { unit, value } => Some(FunctionReplacement::Dimension {
-                unit: *unit,
-                value: *value,
-            }),
-            Token::Percentage(value) => Some(FunctionReplacement::Percentage(*value)),
+            Token::Number(value) => Some(FunctionReplacement::Number(value)),
+            Token::Dimension { unit, value } => {
+                Some(FunctionReplacement::Dimension { unit, value })
+            }
+            Token::Percentage(value) => Some(FunctionReplacement::Percentage(value)),
             _ => None,
         },
         TokenOrValue::Length(value) => Some(FunctionReplacement::Dimension {

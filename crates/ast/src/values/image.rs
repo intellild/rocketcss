@@ -563,7 +563,7 @@ pub enum VerticalPositionKeyword {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum GradientItem<'a, D> {
+pub enum GradientItem<'a, D: DimensionCodec> {
     ColorStop {
         color: NodeId<'a, CssColor<'a>>,
         position: Option<NodeId<'a, DimensionPercentage<'a, D>>>,
@@ -633,7 +633,7 @@ fn encode_gradient_item<D: DimensionCodec>(value: GradientItem<'_, D>) -> NodePa
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum DimensionPercentage<'a, D> {
+pub enum DimensionPercentage<'a, D: DimensionCodec> {
     Dimension(D),
     Percentage(f32),
     /// A unitless zero produced by target-aware minification.
@@ -644,7 +644,8 @@ pub enum DimensionPercentage<'a, D> {
 pub type LengthPercentage<'a> = DimensionPercentage<'a, LengthValue>;
 pub type AnglePercentage<'a> = DimensionPercentage<'a, Angle>;
 
-trait DimensionCodec: Sized {
+#[doc(hidden)]
+pub trait DimensionCodec: Sized {
     const NODE_KIND: NodeKind;
     const CALC_KIND: NodeKind;
     const GRADIENT_ITEM_KIND: NodeKind;
@@ -1209,6 +1210,18 @@ impl<'ast> AstNodeStorage<'ast> for BackgroundSize<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for BackgroundSize<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Explicit { height, width } => Self::Explicit {
+                height: context.clone_encoded_node(height),
+                width: context.clone_encoded_node(width),
+            },
+            value => value,
+        }
+    }
+}
+
 fn encode_background_size(value: BackgroundSize<'_>) -> NodePayload {
     let mut bytes = [0; NodePayload::INLINE_BYTES];
     match value {
@@ -1251,6 +1264,17 @@ impl<'ast> AstNodeStorage<'ast> for LengthPercentageOrAuto<'ast> {
         _context: &mut AstContext<'ast>,
     ) -> NodePayload {
         encode_length_percentage_or_auto(self)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for LengthPercentageOrAuto<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Auto => Self::Auto,
+            Self::LengthPercentage(value) => {
+                Self::LengthPercentage(context.clone_encoded_node(value))
+            }
+        }
     }
 }
 
@@ -1476,6 +1500,31 @@ pub enum BackgroundAttachment {
     Local,
 }
 
+impl ExtraDataCompact<'_> for BackgroundAttachment {
+    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
+        ExtraData::from_u64(match self {
+            Self::Scroll => 0,
+            Self::Fixed => 1,
+            Self::Local => 2,
+        })
+    }
+
+    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
+        match data.as_u64() {
+            0 => Self::Scroll,
+            1 => Self::Fixed,
+            2 => Self::Local,
+            _ => panic!("invalid encoded BackgroundAttachment"),
+        }
+    }
+}
+
+impl ExtraDataClone<'_> for BackgroundAttachment {
+    fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BackgroundClip {
     BorderBox,
@@ -1485,9 +1534,63 @@ pub enum BackgroundClip {
     Text,
 }
 
+impl ExtraDataCompact<'_> for BackgroundClip {
+    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
+        ExtraData::from_u64(match self {
+            Self::BorderBox => 0,
+            Self::PaddingBox => 1,
+            Self::ContentBox => 2,
+            Self::Border => 3,
+            Self::Text => 4,
+        })
+    }
+
+    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
+        match data.as_u64() {
+            0 => Self::BorderBox,
+            1 => Self::PaddingBox,
+            2 => Self::ContentBox,
+            3 => Self::Border,
+            4 => Self::Text,
+            _ => panic!("invalid encoded BackgroundClip"),
+        }
+    }
+}
+
+impl ExtraDataClone<'_> for BackgroundClip {
+    fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum BackgroundOrigin {
     BorderBox,
     PaddingBox,
     ContentBox,
+}
+
+impl ExtraDataCompact<'_> for BackgroundOrigin {
+    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
+        ExtraData::from_u64(match self {
+            Self::BorderBox => 0,
+            Self::PaddingBox => 1,
+            Self::ContentBox => 2,
+        })
+    }
+
+    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
+        match data.as_u64() {
+            0 => Self::BorderBox,
+            1 => Self::PaddingBox,
+            2 => Self::ContentBox,
+            _ => panic!("invalid encoded BackgroundOrigin"),
+        }
+    }
+}
+
+impl ExtraDataClone<'_> for BackgroundOrigin {
+    fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
 }

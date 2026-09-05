@@ -30,6 +30,7 @@ struct Node {
     ident: Ident,
     generics: Generics,
     pinned: bool,
+    storage_bounds: Vec<Type>,
 }
 
 #[derive(Clone)]
@@ -37,6 +38,7 @@ struct Alias {
     ident: Ident,
     generics: Generics,
     ty: Type,
+    storage_bounds: Vec<Type>,
 }
 
 #[derive(Clone, Copy)]
@@ -145,25 +147,40 @@ fn main() {
                 match item {
                     Item::Struct(item) if is_public(&item.vis) => {
                         assert_derives_visit(&item.attrs, &item.ident, &path);
+                        let storage_bounds =
+                            collect_node_id_types(item.fields.iter().map(|field| &field.ty));
                         nodes.push(Node {
                             ident: item.ident,
                             generics: item.generics,
                             pinned: has_visit_option(&item.attrs, "pinned"),
+                            storage_bounds,
                         });
                     }
                     Item::Enum(item) if is_public(&item.vis) => {
                         assert_derives_visit(&item.attrs, &item.ident, &path);
+                        let storage_bounds = collect_node_id_types(
+                            item.variants
+                                .iter()
+                                .flat_map(|variant| variant.fields.iter())
+                                .map(|field| &field.ty),
+                        );
                         nodes.push(Node {
                             ident: item.ident,
                             generics: item.generics,
                             pinned: false,
+                            storage_bounds,
                         });
                     }
-                    Item::Type(item) if is_public(&item.vis) => aliases.push(Alias {
-                        ident: item.ident.clone(),
-                        generics: item.generics.clone(),
-                        ty: *item.ty,
-                    }),
+                    Item::Type(item) if is_public(&item.vis) => {
+                        let ty = *item.ty;
+                        let storage_bounds = collect_node_id_types(std::iter::once(&ty));
+                        aliases.push(Alias {
+                            ident: item.ident,
+                            generics: item.generics,
+                            ty,
+                            storage_bounds,
+                        });
+                    }
                     _ => {}
                 }
             }
@@ -336,8 +353,12 @@ fn generate_visitor(
     };
     let methods = nodes.iter().map(|node| {
         let method = visit_method(&node.ident);
-        let (method_generics, ty, bounds) =
-            signature_parts(&node.ident, &node.generics, &node_trait);
+        let (method_generics, ty, bounds) = signature_parts(
+            &node.ident,
+            &node.generics,
+            &node.storage_bounds,
+            &node_trait,
+        );
         if matches!(mode, Mode::Mut) && node.pinned {
             quote! {
                 #[inline]
@@ -370,8 +391,12 @@ fn generate_visitor(
             alias.ident
         );
         let variant = &alias.ident;
-        let (method_generics, ty, bounds) =
-            signature_parts(&alias.ident, &alias.generics, &node_trait);
+        let (method_generics, ty, bounds) = signature_parts(
+            &alias.ident,
+            &alias.generics,
+            &alias.storage_bounds,
+            &node_trait,
+        );
         let generic_names = type_param_names(&alias.generics);
         let mut counter = 0;
         let body = visit_type(
@@ -1000,25 +1025,107 @@ fn non_lifetime_params(generics: &Generics) -> Vec<GenericParam> {
 fn signature_parts(
     ident: &Ident,
     generics: &Generics,
+    storage_bounds: &[Type],
     node_trait: &Ident,
 ) -> (TokenStream, TokenStream, TokenStream) {
-    let params = non_lifetime_params(generics);
+    let params = non_lifetime_params(generics)
+        .into_iter()
+        .map(|mut param| {
+            if let GenericParam::Type(param) = &mut param {
+                param.colon_token = None;
+                param.bounds.clear();
+            }
+            param
+        })
+        .collect::<Vec<_>>();
     let method_generics = if params.is_empty() {
         quote!()
     } else {
         quote!(<#(#params),*>)
     };
     let ty = type_tokens(ident, generics);
-    let names = generics
+    let visit_bounds = generics
         .type_params()
-        .map(|param| &param.ident)
+        .map(|param| {
+            let name = &param.ident;
+            quote!(#name: #node_trait<'a, 'ghost>)
+        })
         .collect::<Vec<_>>();
-    let bounds = if names.is_empty() {
+    let storage_bounds = storage_bounds
+        .iter()
+        .map(|ty| quote!(#ty: AstNodeStorage<'a>));
+    let inline_bounds = generics.type_params().flat_map(|param| {
+        let name = &param.ident;
+        param.bounds.iter().map(move |bound| quote!(#name: #bound))
+    });
+    let declared_bounds = generics
+        .where_clause
+        .iter()
+        .flat_map(|clause| clause.predicates.iter())
+        .map(|predicate| quote!(#predicate));
+    let predicates = visit_bounds
+        .into_iter()
+        .chain(storage_bounds)
+        .chain(inline_bounds)
+        .chain(declared_bounds)
+        .fold(
+            (HashSet::new(), Vec::new()),
+            |(mut seen, mut predicates), predicate| {
+                if seen.insert(predicate.to_string()) {
+                    predicates.push(predicate);
+                }
+                (seen, predicates)
+            },
+        )
+        .1;
+    let bounds = if predicates.is_empty() {
         quote!()
     } else {
-        quote!(where #(#names: #node_trait<'a, 'ghost>),*)
+        quote!(where #(#predicates),*)
     };
     (method_generics, ty, bounds)
+}
+
+fn collect_node_id_types<'a>(types: impl IntoIterator<Item = &'a Type>) -> Vec<Type> {
+    let mut result = Vec::new();
+    for ty in types {
+        collect_node_id_types_from_type(ty, &mut result);
+    }
+    result
+}
+
+fn collect_node_id_types_from_type(ty: &Type, result: &mut Vec<Type>) {
+    match ty {
+        Type::Path(path) => {
+            for segment in &path.path.segments {
+                if segment.ident == "NodeId" {
+                    if let Some(node_type) = first_type_argument(&segment.arguments) {
+                        result.push(node_type.clone());
+                    }
+                    return;
+                }
+                if let PathArguments::AngleBracketed(arguments) = &segment.arguments {
+                    for argument in &arguments.args {
+                        if let GenericArgument::Type(argument) = argument {
+                            collect_node_id_types_from_type(argument, result);
+                        }
+                    }
+                }
+            }
+        }
+        Type::Array(ty) => collect_node_id_types_from_type(&ty.elem, result),
+        Type::Group(ty) => collect_node_id_types_from_type(&ty.elem, result),
+        Type::Paren(ty) => collect_node_id_types_from_type(&ty.elem, result),
+        Type::Ptr(ty) => collect_node_id_types_from_type(&ty.elem, result),
+        Type::Reference(ty) => collect_node_id_types_from_type(&ty.elem, result),
+        Type::Slice(ty) => collect_node_id_types_from_type(&ty.elem, result),
+        Type::Tuple(ty) => {
+            for element in &ty.elems {
+                collect_node_id_types_from_type(element, result);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]

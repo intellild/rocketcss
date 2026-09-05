@@ -549,6 +549,48 @@ pub enum Specifier<'a> {
     SourceIndex(u32),
 }
 
+impl<'ast> AstNodeStorage<'ast> for Specifier<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0005_0003);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let value = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        match bytes[0] {
+            0 => Self::Global,
+            1 => Self::File(context.resolve_string(value as u64)),
+            2 => Self::SourceIndex(value),
+            _ => panic!("invalid encoded Specifier variant"),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        let value = match self {
+            Self::Global => 0,
+            Self::File(value) => {
+                bytes[0] = 1;
+                context.store_string(value)
+            }
+            Self::SourceIndex(value) => {
+                bytes[0] = 2;
+                value
+            }
+        };
+        bytes[4..8].copy_from_slice(&value.to_le_bytes());
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for Specifier<'ast> {
+    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum AnimationName<'a> {
     None,

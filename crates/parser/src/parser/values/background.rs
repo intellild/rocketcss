@@ -5,7 +5,10 @@ type PositionComponents<'i> = (
     NodeId<'i, PositionComponent<'i, VerticalPositionKeyword>>,
 );
 
-fn zero_position<'i, S>(input: &mut Compiler<'i>) -> NodeId<'i, PositionComponent<'i, S>> {
+fn zero_position<'i, S>(input: &mut Compiler<'i>) -> NodeId<'i, PositionComponent<'i, S>>
+where
+    PositionComponent<'i, S>: AstNodeStorage<'i>,
+{
     let length = store_node(DimensionPercentage::Percentage(0.0), input);
     store_node(PositionComponent::Length(length), input)
 }

@@ -236,7 +236,7 @@ pub enum LengthUnit {
 }
 
 #[derive(Debug, PartialEq, Visit)]
-pub enum Calc<'a, V> {
+pub enum Calc<'a, V: CalcValueCodec + AstNodeStorage<'a>> {
     Value(NodeId<'a, V>),
     Number(f32),
     Sum((NodeId<'a, Calc<'a, V>>, NodeId<'a, Calc<'a, V>>)),
@@ -246,7 +246,7 @@ pub enum Calc<'a, V> {
 
 #[derive(Debug, PartialEq, Visit)]
 #[allow(clippy::type_complexity)]
-pub enum MathFunction<'a, V> {
+pub enum MathFunction<'a, V: CalcValueCodec + AstNodeStorage<'a>> {
     Calc(NodeId<'a, Calc<'a, V>>),
     Min(Vec<'a, NodeId<'a, Calc<'a, V>>>),
     Max(Vec<'a, NodeId<'a, Calc<'a, V>>>),
@@ -271,7 +271,8 @@ pub enum MathFunction<'a, V> {
     Hypot(Vec<'a, NodeId<'a, Calc<'a, V>>>),
 }
 
-pub(crate) trait CalcValueCodec {
+#[doc(hidden)]
+pub trait CalcValueCodec {
     const CALC_KIND: NodeKind;
     const MATH_FUNCTION_KIND: NodeKind;
 }
@@ -286,7 +287,7 @@ impl CalcValueCodec for Length<'_> {
 // bytes 4..8   value/left/factor/function
 // bytes 8..12  right/product value
 // bytes 12..16 reserved
-impl<'ast, V: CalcValueCodec> AstNodeStorage<'ast> for Calc<'ast, V> {
+impl<'ast, V: CalcValueCodec + AstNodeStorage<'ast>> AstNodeStorage<'ast> for Calc<'ast, V> {
     const KIND: NodeKind = V::CALC_KIND;
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
@@ -336,7 +337,9 @@ where
     }
 }
 
-fn encode_calc<V: CalcValueCodec>(value: Calc<'_, V>) -> NodePayload {
+fn encode_calc<'ast, V: CalcValueCodec + AstNodeStorage<'ast>>(
+    value: Calc<'ast, V>,
+) -> NodePayload {
     let mut bytes = [0; NodePayload::INLINE_BYTES];
     match value {
         Calc::Value(value) => {
@@ -369,7 +372,9 @@ fn encode_calc<V: CalcValueCodec>(value: Calc<'_, V>) -> NodePayload {
 // byte 1       rounding strategy when applicable
 // bytes 2..4   reserved
 // bytes 4..16  up to three child IDs or one range
-impl<'ast, V: CalcValueCodec> AstNodeStorage<'ast> for MathFunction<'ast, V> {
+impl<'ast, V: CalcValueCodec + AstNodeStorage<'ast>> AstNodeStorage<'ast>
+    for MathFunction<'ast, V>
+{
     const KIND: NodeKind = V::MATH_FUNCTION_KIND;
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
@@ -438,7 +443,9 @@ where
     }
 }
 
-fn encode_math_function<V: CalcValueCodec>(value: MathFunction<'_, V>) -> NodePayload {
+fn encode_math_function<'ast, V: CalcValueCodec + AstNodeStorage<'ast>>(
+    value: MathFunction<'ast, V>,
+) -> NodePayload {
     let mut bytes = [0; NodePayload::INLINE_BYTES];
     match value {
         MathFunction::Calc(value) => write_tagged_node_id(&mut bytes, 0, value),

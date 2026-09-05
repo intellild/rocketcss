@@ -559,9 +559,9 @@ fn columns_property(
         _ => return None,
     };
     match property_id {
-        PropertyId::Columns(prefix) => Some(ColumnsProperty::Shorthand(*prefix)),
-        PropertyId::ColumnWidth(prefix) => Some(ColumnsProperty::Width(*prefix)),
-        PropertyId::ColumnCount(prefix) => Some(ColumnsProperty::Count(*prefix)),
+        PropertyId::Columns(prefix) => Some(ColumnsProperty::Shorthand(prefix)),
+        PropertyId::ColumnWidth(prefix) => Some(ColumnsProperty::Width(prefix)),
+        PropertyId::ColumnCount(prefix) => Some(ColumnsProperty::Count(prefix)),
         PropertyId::All => Some(ColumnsProperty::BarrierAll),
         _ => None,
     }

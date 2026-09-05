@@ -36,7 +36,10 @@ impl<'ghost> ToCss<'ghost> for Length<'_> {
     }
 }
 
-impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for Calc<'_, V> {
+impl<'ast, 'ghost, V> ToCss<'ghost> for Calc<'ast, V>
+where
+    V: ToCss<'ghost> + CalcValueCodec + AstNodeStorage<'ast> + 'ast,
+{
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -74,12 +77,17 @@ where
     dest.write_char(')')
 }
 
-fn write_calc_list<'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost>>(
-    values: &[NodeId<'_, Calc<'_, V>>],
+fn write_calc_list<'ast, 'ghost, PrinterT, V, I>(
+    values: I,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
-) -> fmt::Result {
-    for (index, value) in values.iter().enumerate() {
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    V: ToCss<'ghost> + CalcValueCodec + AstNodeStorage<'ast> + 'ast,
+    I: IntoIterator<Item = NodeId<'ast, Calc<'ast, V>>>,
+{
+    for (index, value) in values.into_iter().enumerate() {
         if index > 0 {
             dest.delim(Delimiter::Comma)?;
         }
@@ -88,7 +96,10 @@ fn write_calc_list<'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost>>(
     Ok(())
 }
 
-impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<'_, V> {
+impl<'ast, 'ghost, V> ToCss<'ghost> for MathFunction<'ast, V>
+where
+    V: ToCss<'ghost> + CalcValueCodec + AstNodeStorage<'ast>,
+{
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -97,10 +108,10 @@ impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<'_, V> {
         match self {
             Self::Calc(value) => write_function("calc", dest, |dest| value.to_css(dest, _cx)),
             Self::Min(values) => write_function("min", dest, |dest| {
-                write_calc_list(_cx.ast_context().vec(*values), dest, _cx)
+                write_calc_list(_cx.ast_context().vec_iter(*values), dest, _cx)
             }),
             Self::Max(values) => write_function("max", dest, |dest| {
-                write_calc_list(_cx.ast_context().vec(*values), dest, _cx)
+                write_calc_list(_cx.ast_context().vec_iter(*values), dest, _cx)
             }),
             Self::Clamp((min, value, max)) => write_function("clamp", dest, |dest| {
                 min.to_css(dest, _cx)?;
@@ -131,7 +142,7 @@ impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<'_, V> {
             Self::Abs(value) => write_function("abs", dest, |dest| value.to_css(dest, _cx)),
             Self::Sign(value) => write_function("sign", dest, |dest| value.to_css(dest, _cx)),
             Self::Hypot(values) => write_function("hypot", dest, |dest| {
-                write_calc_list(_cx.ast_context().vec(*values), dest, _cx)
+                write_calc_list(_cx.ast_context().vec_iter(*values), dest, _cx)
             }),
         }
     }

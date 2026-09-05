@@ -239,12 +239,12 @@ fn gradient_position(
             }
         }
         TokenOrValue::Token(token) => match ast.ast_context().resolve_node(*token) {
-            Token::Number(value) => Some(GradientPosition::Number(*value)),
-            Token::Percentage(value) => Some(GradientPosition::Percentage(*value)),
+            Token::Number(value) => Some(GradientPosition::Number(value)),
+            Token::Percentage(value) => Some(GradientPosition::Percentage(value)),
             Token::Dimension {
                 unit: Unit::Length(unit),
                 value,
-            } => Some(GradientPosition::Length(*unit, *value)),
+            } => Some(GradientPosition::Length(unit, value)),
             _ => None,
         },
         _ => None,

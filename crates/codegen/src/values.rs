@@ -140,7 +140,7 @@ impl<'ghost> ToCss<'ghost> for Content<'_> {
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        crate::token::write_token_list(cx.ast_context().vec(self.value), dest, cx)
+        crate::token::write_token_list(cx.ast_context().vec_iter(self.value), dest, cx)
     }
 }
 
@@ -159,12 +159,17 @@ impl<'ghost> ToCss<'ghost> for Image<'_> {
     }
 }
 
-fn write_gradient_items<'ghost, PrinterT: PrinterTrait, D: ToCss<'ghost>>(
-    items: &[NodeId<'_, GradientItem<'_, D>>],
+fn write_gradient_items<'ast, 'ghost, PrinterT, D, I>(
+    items: I,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
-) -> fmt::Result {
-    for (index, item) in items.iter().enumerate() {
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    D: ToCss<'ghost> + DimensionCodec + 'ast,
+    I: IntoIterator<Item = NodeId<'ast, GradientItem<'ast, D>>>,
+{
+    for (index, item) in items.into_iter().enumerate() {
         if index > 0 {
             dest.delim(Delimiter::Comma)?;
         }
@@ -203,7 +208,7 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                     direction.to_css(dest, _cx)?;
                     dest.delim(Delimiter::Comma)?;
                 }
-                write_gradient_items(_cx.ast_context().vec(*items), dest, _cx)?;
+                write_gradient_items(_cx.ast_context().vec_iter(*items), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Radial {
@@ -228,7 +233,7 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                 dest.write_str(" at ")?;
                 position.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
-                write_gradient_items(_cx.ast_context().vec(*items), dest, _cx)?;
+                write_gradient_items(_cx.ast_context().vec_iter(*items), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Conic {
@@ -250,7 +255,7 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                 dest.write_str(" at ")?;
                 position.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
-                write_gradient_items(_cx.ast_context().vec(*items), dest, _cx)?;
+                write_gradient_items(_cx.ast_context().vec_iter(*items), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::WebKitGradient(value) => value.to_css(dest, _cx),
@@ -271,7 +276,7 @@ impl<'ghost> ToCss<'ghost> for WebKitGradient<'_> {
                 from.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 to.to_css(dest, _cx)?;
-                for stop in _cx.ast_context().vec(*stops) {
+                for stop in _cx.ast_context().vec_iter(*stops) {
                     dest.delim(Delimiter::Comma)?;
                     stop.to_css(dest, _cx)?;
                 }
@@ -291,7 +296,7 @@ impl<'ghost> ToCss<'ghost> for WebKitGradient<'_> {
                 to.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 serialize_number(*end_radius, dest)?;
-                for stop in _cx.ast_context().vec(*stops) {
+                for stop in _cx.ast_context().vec_iter(*stops) {
                     dest.delim(Delimiter::Comma)?;
                     stop.to_css(dest, _cx)?;
                 }
@@ -330,7 +335,10 @@ impl<'ghost> ToCss<'ghost> for LineDirection {
     }
 }
 
-impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for GradientItem<'_, D> {
+impl<'ast, 'ghost, D> ToCss<'ghost> for GradientItem<'ast, D>
+where
+    D: ToCss<'ghost> + DimensionCodec,
+{
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -350,7 +358,10 @@ impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for GradientItem<'_, D> {
     }
 }
 
-impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for DimensionPercentage<'_, D> {
+impl<'ast, 'ghost, D> ToCss<'ghost> for DimensionPercentage<'ast, D>
+where
+    D: ToCss<'ghost> + DimensionCodec,
+{
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -683,7 +694,10 @@ impl<'ghost> ToCss<'ghost> for PositionProperty {
     }
 }
 
-impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Size2D<'_, T> {
+impl<'ast, 'ghost, T> ToCss<'ghost> for Size2D<'ast, T>
+where
+    T: ToCss<'ghost> + PartialEq + AstNodeStorage<'ast>,
+{
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -698,7 +712,10 @@ impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Size2D<'_, T> {
     }
 }
 
-impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Rect<'_, T> {
+impl<'ast, 'ghost, T> ToCss<'ghost> for Rect<'ast, T>
+where
+    T: ToCss<'ghost> + PartialEq + AstNodeStorage<'ast>,
+{
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -941,19 +958,22 @@ impl<'ghost> ToCss<'ghost> for GapValue<'_> {
     }
 }
 
-pub(crate) fn write_line_names<PrinterT: PrinterTrait>(
-    names: &[&str],
-    dest: &mut PrinterT,
-) -> fmt::Result {
-    if names.is_empty() {
+pub(crate) fn write_line_names<PrinterT, I>(names: I, dest: &mut PrinterT) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    let mut names = names.into_iter().peekable();
+    if names.peek().is_none() {
         return Ok(());
     }
     dest.write_char('[')?;
-    for (index, name) in names.iter().enumerate() {
+    for (index, name) in names.enumerate() {
         if index > 0 {
             dest.write_char(' ')?;
         }
-        serialize_identifier(name, dest)?;
+        serialize_identifier(name.as_ref(), dest)?;
     }
     dest.write_char(']')
 }
@@ -968,16 +988,15 @@ impl<'ghost> ToCss<'ghost> for TrackSizing<'_> {
             Self::None => dest.write_str("none"),
             Self::TrackList { items, line_names } => {
                 let mut wrote_value = false;
-                let items = _cx.ast_context().vec(*items);
-                let line_names = _cx.ast_context().vec(*line_names);
-                for (index, item) in items.iter().enumerate() {
-                    if let Some(names) = line_names.get(index)
+                let item_count = _cx.ast_context().vec_len(*items);
+                for (index, item) in _cx.ast_context().vec_iter(*items).enumerate() {
+                    if let Some(names) = _cx.ast_context().vec_get(*line_names, index)
                         && !names.is_empty()
                     {
                         if wrote_value {
                             dest.write_char(' ')?;
                         }
-                        write_line_names(_cx.ast_context().vec(*names), dest)?;
+                        write_line_names(_cx.ast_context().vec_iter(names), dest)?;
                         wrote_value = true;
                     }
                     if wrote_value {
@@ -986,13 +1005,13 @@ impl<'ghost> ToCss<'ghost> for TrackSizing<'_> {
                     item.to_css(dest, _cx)?;
                     wrote_value = true;
                 }
-                if let Some(names) = line_names.get(items.len())
+                if let Some(names) = _cx.ast_context().vec_get(*line_names, item_count)
                     && !names.is_empty()
                 {
                     if wrote_value {
                         dest.write_char(' ')?;
                     }
-                    write_line_names(_cx.ast_context().vec(*names), dest)?;
+                    write_line_names(_cx.ast_context().vec_iter(names), dest)?;
                 }
                 Ok(())
             }
@@ -1080,7 +1099,11 @@ impl<'ghost> ToCss<'ghost> for GridTemplateAreas<'_> {
                 if columns == 0 {
                     return Ok(());
                 }
-                for (row, values) in _cx.ast_context().vec(*areas).chunks(columns).enumerate() {
+                let areas = _cx
+                    .ast_context()
+                    .vec_iter(*areas)
+                    .collect::<std::vec::Vec<_>>();
+                for (row, values) in areas.chunks(columns).enumerate() {
                     if row > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1542,7 +1565,7 @@ impl<'ghost> ToCss<'ghost> for TextDecorationLine<'_> {
         match self {
             Self::ExclusiveTextDecorationLine(value) => value.to_css(dest, _cx),
             Self::Value(values) => {
-                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec_iter(*values).enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1665,7 +1688,7 @@ impl<'ghost> ToCss<'ghost> for CounterStyle<'_> {
                     system.to_css(dest, _cx)?;
                     dest.write_char(' ')?;
                 }
-                for (index, symbol) in _cx.ast_context().vec(*symbols).iter().enumerate() {
+                for (index, symbol) in _cx.ast_context().vec_iter(*symbols).enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1735,7 +1758,7 @@ impl<'ghost> ToCss<'ghost> for StrokeDasharray<'_> {
         match self {
             Self::None => dest.write_str("none"),
             Self::Values(values) => {
-                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec_iter(*values).enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
@@ -1833,7 +1856,7 @@ impl<'ghost> ToCss<'ghost> for FilterList<'_> {
         match self {
             Self::None => dest.write_str("none"),
             Self::Filters(values) => {
-                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec_iter(*values).enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
                     }
@@ -1908,17 +1931,22 @@ impl<'ghost> ToCss<'ghost> for ContainerNameList<'_> {
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
-            Self::Names(values) => write_ident_list(_cx.ast_context().vec(*values), dest),
+            Self::Names(values) => write_ident_list(_cx.ast_context().vec_iter(*values), dest),
         }
     }
 }
 
-fn write_ident_list<PrinterT: PrinterTrait>(values: &[&str], dest: &mut PrinterT) -> fmt::Result {
-    for (index, value) in values.iter().enumerate() {
+fn write_ident_list<PrinterT, I>(values: I, dest: &mut PrinterT) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    for (index, value) in values.into_iter().enumerate() {
         if index > 0 {
             dest.write_char(' ')?;
         }
-        serialize_identifier(value, dest)?;
+        serialize_identifier(value.as_ref(), dest)?;
     }
     Ok(())
 }
@@ -1945,7 +1973,7 @@ impl<'ghost> ToCss<'ghost> for NoneOrCustomIdentList<'_> {
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
-            Self::Idents(values) => write_ident_list(_cx.ast_context().vec(*values), dest),
+            Self::Idents(values) => write_ident_list(_cx.ast_context().vec_iter(*values), dest),
         }
     }
 }

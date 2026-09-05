@@ -518,7 +518,7 @@ pub struct Background<'a> {
 // extra + 0    size NodeId
 // extra + 1    attachment/clip/origin/repeat-x/repeat-y
 impl<'ast> AstNodeStorage<'ast> for Background<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0006_0005);
+    const KIND: NodeKind = NodeKind::new(0x0006_0006);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         let bytes = payload.bytes();
@@ -584,6 +584,70 @@ pub struct BoxShadow<'a> {
     pub spread: NodeId<'a, Length<'a>>,
     pub x_offset: NodeId<'a, Length<'a>>,
     pub y_offset: NodeId<'a, Length<'a>>,
+}
+
+impl<'ast> AstNodeStorage<'ast> for BoxShadow<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0006_0007);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let offsets = context.extra_slot(payload.extra_start()).as_u64();
+        Self {
+            blur: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
+            color: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
+            inset: context.extra_slot(payload.extra_start() + 1).as_u64() != 0,
+            spread: context.encoded_node_id_at((offsets >> 32) as u32 as usize),
+            x_offset: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
+            y_offset: context.encoded_node_id_at(offsets as u32 as usize),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_box_shadow(self, None, context)
+    }
+
+    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_box_shadow(self, Some(current.extra_start()), context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for BoxShadow<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            blur: context.clone_encoded_node(self.blur),
+            color: context.clone_encoded_node(self.color),
+            inset: self.inset,
+            spread: context.clone_encoded_node(self.spread),
+            x_offset: context.clone_encoded_node(self.x_offset),
+            y_offset: context.clone_encoded_node(self.y_offset),
+        }
+    }
+}
+
+fn encode_box_shadow<'ast>(
+    value: BoxShadow<'ast>,
+    existing_extra: Option<usize>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
+    write_u32(&mut bytes, 0, node_index(value.blur));
+    write_u32(&mut bytes, 4, node_index(value.color));
+    write_u32(&mut bytes, 8, node_index(value.x_offset));
+    let slots = [
+        ExtraData::from_u64(
+            node_index(value.y_offset) as u64 | (node_index(value.spread) as u64) << 32,
+        ),
+        ExtraData::from_u64(value.inset as u64),
+    ];
+    let extra = match existing_extra {
+        Some(extra) => {
+            context.set_extra_slot(extra, slots[0]);
+            context.set_extra_slot(extra + 1, slots[1]);
+            extra
+        }
+        None => context.alloc_extra_slots(slots),
+    };
+    NodePayload::with_extra(&bytes, extra)
 }
 
 fn node_index<T>(id: NodeId<'_, T>) -> u32 {

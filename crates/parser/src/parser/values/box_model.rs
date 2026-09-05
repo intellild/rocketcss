@@ -294,7 +294,7 @@ fn clone_length_percentage<'i>(
             unit: value.unit,
             value: value.value,
         }),
-        LengthPercentage::Percentage(value) => LengthPercentage::Percentage(*value),
+        LengthPercentage::Percentage(value) => LengthPercentage::Percentage(value),
         LengthPercentage::Zero => LengthPercentage::Zero,
         LengthPercentage::Calc(_) => return None,
     };
@@ -307,7 +307,7 @@ fn clone_length_percentage_or_auto<'i>(
 ) -> Option<NodeId<'i, LengthPercentageOrAuto<'i>>> {
     let length_percentage = match input.ast_context().node(id) {
         LengthPercentageOrAuto::Auto => None,
-        LengthPercentageOrAuto::LengthPercentage(value) => Some(*value),
+        LengthPercentageOrAuto::LengthPercentage(value) => Some(value),
     };
     let value = match length_percentage {
         None => LengthPercentageOrAuto::Auto,

@@ -116,7 +116,7 @@ fn is_empty_variable_function(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_
     matches!(value, TokenOrValue::Function(function)
     if {
         let function = ast.ast_context().resolve_node(*function);
-        ast.ast_context().vec(function.arguments).is_empty() && function.kind().is_variable()
+        ast.ast_context().vec_len(function.arguments) == 0 && function.kind().is_variable()
     })
 }
 

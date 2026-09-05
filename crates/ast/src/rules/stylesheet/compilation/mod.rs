@@ -23,7 +23,8 @@ pub use node::*;
 pub use payload::*;
 pub use traversal::*;
 
-pub(crate) use storage::{
+#[doc(hidden)]
+pub use storage::{
     AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact, NodeKind,
     NodePayload,
 };
@@ -680,8 +681,6 @@ pub struct AstContext<
     nodes: NodeData<'ast>,
     extra: ExtraDataStore<'ast>,
     strings: StringData<'ast>,
-    node_store: NodeStore<'ast>,
-    vec_store: VecStore<'ast>,
     first_rule_in_source: Option<RuleId<'ast, R>>,
     last_rule_in_source: Option<RuleId<'ast, R>>,
 }
@@ -753,8 +752,6 @@ impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
             nodes: NodeData::new_in(allocator),
             extra: ExtraDataStore::new_in(allocator),
             strings: StringData::new_in(allocator),
-            node_store: NodeStore::new_in(allocator),
-            vec_store: VecStore::new_in(allocator),
             first_rule_in_source: None,
             last_rule_in_source: None,
         }

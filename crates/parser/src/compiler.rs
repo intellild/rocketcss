@@ -122,7 +122,7 @@ impl<'alloc> Compiler<'alloc> {
 
 /// Stores a parsed value after its construction has released any temporary compiler borrow.
 #[inline]
-pub(crate) fn store_node<'alloc, T: 'alloc>(
+pub(crate) fn store_node<'alloc, T: 'alloc + rocketcss_ast::AstNodeStorage<'alloc>>(
     value: T,
     input: &mut Compiler<'alloc>,
 ) -> NodeId<'alloc, T> {
@@ -132,9 +132,22 @@ pub(crate) fn store_node<'alloc, T: 'alloc>(
 
 /// Commits a completed construction-time list to the AST context.
 #[inline]
-pub(crate) fn store_vec<'alloc, T: 'alloc + Unpin>(
+pub(crate) fn store_vec<'alloc, T: 'alloc + Unpin + rocketcss_ast::ExtraDataCompact<'alloc>>(
     values: Vec<'alloc, T>,
     input: &mut Compiler<'alloc>,
 ) -> AstVec<'alloc, T> {
     input.ast_context_mut().alloc_vec(values)
+}
+
+/// Stores each parsed node, then commits their dense IDs as one persistent range.
+#[inline]
+pub(crate) fn store_node_vec<'alloc, T: 'alloc + Unpin + rocketcss_ast::AstNodeStorage<'alloc>>(
+    values: Vec<'alloc, T>,
+    input: &mut Compiler<'alloc>,
+) -> AstVec<'alloc, NodeId<'alloc, T>> {
+    let mut ids = input.ast_context().allocator().vec();
+    for value in values {
+        ids.push(store_node(value, input));
+    }
+    store_vec(ids, input)
 }

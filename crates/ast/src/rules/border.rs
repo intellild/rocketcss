@@ -41,6 +41,17 @@ impl<'ast> AstNodeStorage<'ast> for BorderRadius<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for BorderRadius<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            bottom_left: context.clone_encoded_node(self.bottom_left),
+            bottom_right: context.clone_encoded_node(self.bottom_right),
+            top_left: context.clone_encoded_node(self.top_left),
+            top_right: context.clone_encoded_node(self.top_right),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderImageRepeat {
     pub horizontal: BorderImageRepeatKeyword,
@@ -53,6 +64,38 @@ pub struct BorderImageSlice<'a> {
     pub offsets: NodeId<'a, Rect<'a, NumberOrPercentage>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for BorderImageSlice<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000e_0016);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            fill: bytes[0] != 0,
+            offsets: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        bytes[0] = self.fill as u8;
+        write_u32(&mut bytes, 4, node_index(self.offsets));
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for BorderImageSlice<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            fill: self.fill,
+            offsets: context.clone_encoded_node(self.offsets),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderImage<'a> {
     pub outset: NodeId<'a, Rect<'a, LengthOrNumber<'a>>>,
@@ -60,6 +103,76 @@ pub struct BorderImage<'a> {
     pub slice: NodeId<'a, BorderImageSlice<'a>>,
     pub source: NodeId<'a, Image<'a>>,
     pub width: NodeId<'a, Rect<'a, BorderImageSideWidth<'a>>>,
+}
+
+impl<'ast> AstNodeStorage<'ast> for BorderImage<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000e_0017);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            outset: read_node_id(&bytes, 4, context),
+            repeat: BorderImageRepeat {
+                horizontal: decode_border_image_repeat(bytes[0]),
+                vertical: decode_border_image_repeat(bytes[1]),
+            },
+            slice: read_node_id(&bytes, 8, context),
+            source: read_node_id(
+                &context.extra_slot(payload.extra_start()).bytes(),
+                0,
+                context,
+            ),
+            width: read_node_id(
+                &context.extra_slot(payload.extra_start()).bytes(),
+                4,
+                context,
+            ),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_border_image(self, None, context)
+    }
+
+    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_border_image(self, Some(current.extra_start()), context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for BorderImage<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            outset: context.clone_encoded_node(self.outset),
+            repeat: self.repeat,
+            slice: context.clone_encoded_node(self.slice),
+            source: context.clone_encoded_node(self.source),
+            width: context.clone_encoded_node(self.width),
+        }
+    }
+}
+
+fn encode_border_image<'ast>(
+    value: BorderImage<'ast>,
+    existing_extra: Option<usize>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
+    bytes[0] = encode_border_image_repeat(value.repeat.horizontal);
+    bytes[1] = encode_border_image_repeat(value.repeat.vertical);
+    write_u32(&mut bytes, 4, node_index(value.outset));
+    write_u32(&mut bytes, 8, node_index(value.slice));
+    let mut extra = [0; ExtraData::BYTES];
+    write_u32(&mut extra, 0, node_index(value.source));
+    write_u32(&mut extra, 4, node_index(value.width));
+    let extra = ExtraData::from_bytes(&extra);
+    let extra_start = match existing_extra {
+        Some(extra_start) => {
+            context.set_extra_slot(extra_start, extra);
+            extra_start
+        }
+        None => context.alloc_extra_slots([extra]),
+    };
+    NodePayload::with_extra(&bytes, extra_start)
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -428,6 +541,33 @@ fn read_node_id<'ast, T>(
     context.encoded_node_id_at(
         u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize,
     )
+}
+
+fn node_index<T>(id: NodeId<'_, T>) -> u32 {
+    u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn encode_border_image_repeat(value: BorderImageRepeatKeyword) -> u8 {
+    match value {
+        BorderImageRepeatKeyword::Stretch => 0,
+        BorderImageRepeatKeyword::Repeat => 1,
+        BorderImageRepeatKeyword::Round => 2,
+        BorderImageRepeatKeyword::Space => 3,
+    }
+}
+
+fn decode_border_image_repeat(value: u8) -> BorderImageRepeatKeyword {
+    match value {
+        0 => BorderImageRepeatKeyword::Stretch,
+        1 => BorderImageRepeatKeyword::Repeat,
+        2 => BorderImageRepeatKeyword::Round,
+        3 => BorderImageRepeatKeyword::Space,
+        _ => panic!("invalid encoded BorderImageRepeatKeyword"),
+    }
 }
 
 #[cfg(test)]

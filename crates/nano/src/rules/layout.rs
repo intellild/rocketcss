@@ -117,7 +117,7 @@ pub(crate) fn materialize_box_longhands<'ast>(
                 bottom,
                 left,
             } = ast.resolve_node(*value);
-            let (top, right, bottom, left) = (*top, *right, *bottom, *left);
+            let (top, right, bottom, left) = (top, right, bottom, left);
             for (side, value) in [top, right, bottom, left].into_iter().enumerate() {
                 if live_effects & (1 << side) == 0 {
                     continue;
@@ -138,7 +138,7 @@ pub(crate) fn materialize_box_longhands<'ast>(
                 bottom,
                 left,
             } = ast.resolve_node(*value);
-            let (top, right, bottom, left) = (*top, *right, *bottom, *left);
+            let (top, right, bottom, left) = (top, right, bottom, left);
             for (side, value) in [top, right, bottom, left].into_iter().enumerate() {
                 if live_effects & (1 << side) == 0 {
                     continue;

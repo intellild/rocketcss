@@ -64,6 +64,53 @@ pub struct Container<'a> {
     pub name: NodeId<'a, ContainerNameList<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for Container<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x001a_0008);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            container_type: match bytes[0] {
+                0 => ContainerType::Normal,
+                1 => ContainerType::InlineSize,
+                2 => ContainerType::Size,
+                3 => ContainerType::ScrollState,
+                _ => panic!("invalid encoded ContainerType"),
+            },
+            name: read_node_id(&bytes, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        let mut bytes = [0; NodePayload::INLINE_BYTES];
+        bytes[0] = match self.container_type {
+            ContainerType::Normal => 0,
+            ContainerType::InlineSize => 1,
+            ContainerType::Size => 2,
+            ContainerType::ScrollState => 3,
+        };
+        write_u32(
+            &mut bytes,
+            4,
+            u32::try_from(self.name.index()).expect("AST node ID exceeds four bytes"),
+        );
+        NodePayload::inline(&bytes)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for Container<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            container_type: self.container_type,
+            name: context.clone_encoded_node(self.name),
+        }
+    }
+}
+
 impl QueryFeatureIdCodec for ContainerSizeFeatureId {
     const KIND: NodeKind = NodeKind::new(0x001a_0006);
 
@@ -173,7 +220,7 @@ fn encode_container_condition(value: ContainerCondition<'_>) -> NodePayload {
 }
 
 impl<'ast> AstNodeStorage<'ast> for StyleQuery<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001a_0008);
+    const KIND: NodeKind = NodeKind::new(0x001a_000c);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         let bytes = payload.bytes();

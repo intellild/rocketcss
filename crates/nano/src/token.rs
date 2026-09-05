@@ -788,7 +788,7 @@ fn multiplication_requires_whitespace(
 }
 
 fn is_delim(value: &TokenOrValue<'_>, expected: &str, ast: &VisitMutContext<'_, '_, '_>) -> bool {
-    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if *value == expected))
+    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if value == expected))
 }
 
 fn is_open_parenthesis(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> bool {
@@ -1505,8 +1505,8 @@ fn font_family_name<'a>(
         return None;
     };
     match ast.ast_context().resolve_node(*token) {
-        Token::Ident(value) => Some((*value, is_generic_font_family(value))),
-        Token::String(value) | Token::UnquotedFont(value) => Some((*value, false)),
+        Token::Ident(value) => Some((value, is_generic_font_family(value))),
+        Token::String(value) | Token::UnquotedFont(value) => Some((value, false)),
         _ => None,
     }
 }
@@ -1574,7 +1574,7 @@ fn token_ident<'a>(value: &TokenOrValue<'a>, ast: &VisitMutContext<'_, '_, '_>) 
         return None;
     };
     match ast.ast_context().resolve_node(*token) {
-        Token::Ident(value) => Some(*value),
+        Token::Ident(value) => Some(value),
         _ => None,
     }
 }

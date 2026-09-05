@@ -387,6 +387,23 @@ macro_rules! generate_typed_parser {
         }
     };
 
+    (@dispatch comma_separated_node : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+        if let PropertyId::$property = $property_id {
+            return Some($input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                |input| super::values::parse_comma_separated(input, <$parser as Parse>::parse),
+            ).map(|value| Declaration::$property(store_node_vec(value, $input))));
+        }
+    };
+    (@dispatch comma_separated_node : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+        if let PropertyId::$property(prefix) = $property_id {
+            return Some($input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                |input| super::values::parse_comma_separated(input, <$parser as Parse>::parse),
+            ).map(|value| Declaration::$property(store_node_vec(value, $input), *prefix)));
+        }
+    };
+
     (@dispatch whitespace_separated : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
@@ -548,7 +565,7 @@ fn parse_font_family<'i>(
             {
                 return Err(input.new_custom_error(ParserError::InvalidValue));
             }
-            Ok(Declaration::FontFamily(store_vec(families, input)))
+            Ok(Declaration::FontFamily(store_node_vec(families, input)))
         }),
     )
 }
@@ -588,7 +605,7 @@ fn parse_transition<'i>(
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_comma_separated(input, Transition::parse)
-                .map(|value| Declaration::Transition(store_vec(value, input), prefix))
+                .map(|value| Declaration::Transition(store_node_vec(value, input), prefix))
         }),
     )
 }

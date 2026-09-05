@@ -124,6 +124,15 @@ impl<'ast> AstNodeStorage<'ast> for LengthOrNumber<'ast> {
     }
 }
 
+impl<'ast> AstNodeClone<'ast> for LengthOrNumber<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Number(value) => Self::Number(value),
+            Self::Length(value) => Self::Length(context.clone_encoded_node(value)),
+        }
+    }
+}
+
 fn encode_length_or_number(value: LengthOrNumber<'_>) -> NodePayload {
     let mut bytes = [0; NodePayload::INLINE_BYTES];
     match value {
@@ -174,6 +183,17 @@ impl<'ast> AstNodeStorage<'ast> for BorderImageSideWidth<'ast> {
         _context: &mut AstContext<'ast>,
     ) -> NodePayload {
         encode_border_image_side_width(self)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for BorderImageSideWidth<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::LengthPercentage(value) => {
+                Self::LengthPercentage(context.clone_encoded_node(value))
+            }
+            value => value,
+        }
     }
 }
 

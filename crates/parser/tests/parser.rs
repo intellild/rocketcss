@@ -30,16 +30,16 @@ fn child_rule_ids<'ast>(
         .collect()
 }
 
-fn style_selectors<'tree, 'ast>(
-    compilation: &'tree AstContext<'ast>,
+fn style_selectors<'ast>(
+    compilation: &AstContext<'ast>,
     rule: RuleId<'ast>,
-) -> &'tree [NodeId<'ast, Selector<'ast>>] {
+) -> std::vec::Vec<NodeId<'ast, Selector<'ast>>> {
     let selector = match compilation.rule(rule).unwrap().payload() {
         CssRulePayload::Style(payload) => payload.selector_value,
         CssRulePayload::Nesting(payload) => payload.selector_value,
         _ => panic!("expected selector-owning rule"),
     };
-    compilation.vec(*compilation.selector_value(selector).unwrap().selectors())
+    compilation.vec_snapshot(*compilation.selector_value(selector).unwrap().selectors())
 }
 
 fn selector_components<'tree, 'ast>(
@@ -50,9 +50,8 @@ fn selector_components<'tree, 'ast>(
         panic!("expected parsed selector");
     };
     compilation
-        .vec(*components)
-        .iter()
-        .map(|component| compilation.resolve_node(*component).clone())
+        .vec_iter(components)
+        .map(|component| compilation.resolve_node(component))
         .collect()
 }
 
@@ -254,13 +253,13 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
                 if {
                     let value = sheet.resolve_node(*value);
                     matches!(
-                        sheet.vec(value.value),
+                        sheet.vec_snapshot(value.value).as_slice(),
                         [TokenOrValue::Color(color)]
                             if matches!(
                                 sheet.resolve_node(*color),
                                 CssColor::Function(function)
                                     if {
-                                        let function = sheet.resolve_node(*function);
+                                        let function = sheet.resolve_node(function);
                                         function.kind() == KnownFunction::Rgb
                                             && function.is_valid_rgb()
                                     }
@@ -275,7 +274,7 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
                     if {
                         let value = sheet.resolve_node(*value);
                         matches!(
-                            sheet.vec(value.value),
+                            sheet.vec_snapshot(value.value).as_slice(),
                             [TokenOrValue::Function(function)]
                                 if {
                                     let function = sheet.resolve_node(*function);
@@ -289,7 +288,7 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
         assert!(matches!(
             declarations[4],
             Declaration::Custom(value)
-                if sheet.vec(sheet.resolve_node(*value).value)
+                if sheet.vec_snapshot(sheet.resolve_node(*value).value)
                     .iter()
                     .all(|value| matches!(value, TokenOrValue::Token(_)))
         ));
@@ -302,7 +301,7 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
                         let value = sheet.resolve_node(*value);
                         value.reason == UnparsedPropertyReason::OpaqueValue
                         && matches!(
-                            sheet.vec(value.value),
+                            sheet.vec_snapshot(value.value).as_slice(),
                             [TokenOrValue::Function(function)]
                                 if {
                                     let function = sheet.resolve_node(*function);
@@ -341,12 +340,12 @@ fn modern_rgb_accepts_mixed_and_missing_components() {
                     if {
                         let value = sheet.resolve_node(*value);
                         matches!(
-                            sheet.vec(value.value),
+                            sheet.vec_snapshot(value.value).as_slice(),
                             [TokenOrValue::Color(color)]
                                 if matches!(
                                     sheet.node(*color),
                                     CssColor::Function(function)
-                                        if sheet.resolve_node(*function).is_valid_rgb()
+                                        if sheet.resolve_node(function).is_valid_rgb()
                                 )
                         )
                     }
@@ -359,7 +358,7 @@ fn modern_rgb_accepts_mixed_and_missing_components() {
                     if matches!(
                         sheet.node(*color),
                         CssColor::Function(function)
-                            if sheet.resolve_node(*function).is_valid_rgb()
+                            if sheet.resolve_node(function).is_valid_rgb()
                     )
             ));
         }
@@ -400,7 +399,7 @@ fn review_regressions_preserve_invalid_and_commented_declarations() {
                         if {
                             let value = sheet.resolve_node(*value);
                             value.reason == UnparsedPropertyReason::OpaqueValue
-                            && sheet.vec(value.value).iter().any(|value| matches!(
+                            && sheet.vec_snapshot(value.value).iter().any(|value| matches!(
                                 value,
                                 TokenOrValue::Token(token)
                                     if matches!(sheet.resolve_node(*token), ValueToken::Comment(_))
@@ -462,7 +461,7 @@ fn parses_named_colors_as_known_color_nodes() {
             declarations[2].0,
                 Declaration::Background(values)
                 if matches!(
-                    sheet.node(sheet.node(sheet.vec(*values)[0]).color),
+                    sheet.node(sheet.node(sheet.vec_snapshot(*values)[0]).color),
                     CssColor::Known(KnownColor::Blue)
                 )
         ));
@@ -497,7 +496,7 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
             PropertyId::Width
         ));
         assert_eq!(width.reason, UnparsedPropertyReason::OpaqueValue);
-        assert!(sheet.vec(width.value).iter().any(|value| matches!(
+        assert!(sheet.vec_snapshot(width.value).iter().any(|value| matches!(
             value,
             TokenOrValue::Function(function)
                 if sheet.resolve_node(*function).name() == "calc"
@@ -547,7 +546,7 @@ fn scope_prelude_reuses_the_compiler_string_pool() {
         let CssRulePayload::Scope(scope) = scope.payload() else {
             panic!("expected scope rule")
         };
-        let scope_start = sheet.vec(scope.scope_start.unwrap());
+        let scope_start = sheet.vec_snapshot(scope.scope_start.unwrap());
         let SelectorComponent::Class(scope_class) =
             &selector_components(&sheet, &scope_start[0])[0]
         else {
@@ -584,7 +583,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
         };
         assert_eq!(rule.url, "a.css");
         let import_media = sheet.resolve_node(rule.media.unwrap());
-        let import_query = sheet.resolve_node(sheet.vec(import_media.media_queries)[0]);
+        let import_query = sheet.resolve_node(sheet.vec_snapshot(import_media.media_queries)[0]);
         assert!(matches!(import_query.media_type, MediaType::Screen));
 
         let (media_id, media) = root_rule(&sheet, 1);
@@ -592,7 +591,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
             panic!("expected media")
         };
         assert_eq!(child_rule_ids(&sheet, media_id).len(), 1);
-        let media_query = sheet.resolve_node(sheet.vec(rule.query.media_queries)[0]);
+        let media_query = sheet.resolve_node(sheet.vec_snapshot(rule.query.media_queries)[0]);
         assert!(matches!(media_query.media_type, MediaType::Screen));
         assert!(media_query.condition.is_some());
 
@@ -643,9 +642,8 @@ fn parses_typed_media_conditions_and_features() {
             panic!("expected media rule")
         };
         let queries = sheet
-            .vec(rule.query.media_queries)
-            .iter()
-            .map(|query| sheet.resolve_node(*query))
+            .vec_iter(rule.query.media_queries)
+            .map(|query| sheet.resolve_node(query))
             .collect::<std::vec::Vec<_>>();
         assert_eq!(queries.len(), 5);
 
@@ -657,22 +655,24 @@ fn parses_typed_media_conditions_and_features() {
         else {
             panic!("expected and condition")
         };
-        let MediaCondition::Feature(feature) = sheet.resolve_node(sheet.vec(*conditions)[0]) else {
+        let MediaCondition::Feature(feature) =
+            sheet.resolve_node(sheet.vec_snapshot(conditions)[0])
+        else {
             panic!("expected width feature")
         };
         let QueryFeature::Range {
             name: MediaFeatureName::Standard(MediaFeatureId::Width),
             operator: MediaFeatureComparison::GreaterThanEqual,
             value,
-        } = sheet.resolve_node(*feature)
+        } = sheet.resolve_node(feature)
         else {
             panic!("expected width range")
         };
-        let MediaFeatureValue::Length(length) = sheet.resolve_node(*value) else {
+        let MediaFeatureValue::Length(length) = sheet.resolve_node(value) else {
             panic!("expected length value")
         };
         assert!(matches!(
-            sheet.resolve_node(*length),
+            sheet.resolve_node(length),
             Length::Value(length)
                 if length.value == 600.0 && length.unit == LengthUnit::Px
         ));
@@ -681,10 +681,10 @@ fn parses_typed_media_conditions_and_features() {
             second_condition,
             MediaCondition::Not(condition)
                 if matches!(
-                    sheet.resolve_node(*condition),
+                    sheet.resolve_node(condition),
                     MediaCondition::Feature(feature)
                         if matches!(
-                            sheet.resolve_node(*feature),
+                            sheet.resolve_node(feature),
                             QueryFeature::Boolean {
                                 name: MediaFeatureName::Standard(MediaFeatureId::Hover)
                             }
@@ -695,7 +695,7 @@ fn parses_typed_media_conditions_and_features() {
         assert!(matches!(
             third_condition,
             MediaCondition::Feature(feature)
-                if matches!(sheet.resolve_node(*feature), QueryFeature::Interval {
+                if matches!(sheet.resolve_node(feature), QueryFeature::Interval {
                     name: MediaFeatureName::Standard(MediaFeatureId::Width),
                     start_operator: MediaFeatureComparison::LessThan,
                     end_operator: MediaFeatureComparison::LessThanEqual,
@@ -708,12 +708,12 @@ fn parses_typed_media_conditions_and_features() {
             fourth_condition,
             MediaCondition::Feature(feature)
                 if matches!(
-                    sheet.resolve_node(*feature),
+                    sheet.resolve_node(feature),
                     QueryFeature::Plain {
                         name: MediaFeatureName::Standard(MediaFeatureId::Resolution),
                         value,
                     } if matches!(
-                        sheet.resolve_node(*value),
+                        sheet.resolve_node(value),
                         MediaFeatureValue::Resolution(Resolution::Dppx(2.0))
                     )
                 )
@@ -723,12 +723,12 @@ fn parses_typed_media_conditions_and_features() {
             fifth_condition,
             MediaCondition::Feature(feature)
                 if matches!(
-                    sheet.resolve_node(*feature),
+                    sheet.resolve_node(feature),
                     QueryFeature::Range {
                         name: MediaFeatureName::Standard(MediaFeatureId::Width),
                         operator: MediaFeatureComparison::LessThanEqual,
                         value,
-                    } if matches!(sheet.resolve_node(*value), MediaFeatureValue::Env(_))
+                    } if matches!(sheet.resolve_node(value), MediaFeatureValue::Env(_))
                 )
         ));
     })
@@ -883,7 +883,7 @@ fn lightningcss_parse_trait_parses_values_from_strings() {
     let (selectors, ast) =
         rocketcss_ast::SelectorList::parse_string(".a:hover:is(.b, #c)", &allocator).unwrap();
     assert_eq!(selectors.len(), 1);
-    let selectors = ast.vec(selectors);
+    let selectors = ast.vec_snapshot(selectors);
     let components = selector_components(&ast, &selectors[0]);
     assert!(matches!(
         &components[2],
@@ -904,7 +904,7 @@ fn parses_namespace_deep_and_empty_where_selectors() {
     );
     let selectors = compiler.parse_entirely(SelectorList::parse).unwrap();
     let ast = compiler.ast_context();
-    let selectors = ast.vec(selectors);
+    let selectors = ast.vec_snapshot(selectors);
 
     assert!(matches!(
         selector_components(ast, &selectors[0]).as_slice(),
@@ -959,7 +959,7 @@ fn parses_selection_and_placeholder_vendor_prefixes_into_typed_selectors() {
     );
     let selectors = compiler.parse_entirely(SelectorList::parse).unwrap();
     let ast = compiler.ast_context();
-    let selectors = ast.vec(selectors);
+    let selectors = ast.vec_snapshot(selectors);
 
     assert!(matches!(
         &selector_components(ast, &selectors[0])[0],
@@ -996,7 +996,7 @@ fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
             panic!("expected keyframe")
         };
         assert!(matches!(
-            &sheet.vec(first.selectors)[0],
+            &sheet.vec_snapshot(first.selectors)[0],
             KeyframeSelector::TimelineRangePercentage(value)
                 if value.name == TimelineRangeName::Entry && value.percentage == 0.0
         ));
@@ -1004,7 +1004,7 @@ fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
             panic!("expected keyframe")
         };
         assert!(matches!(
-            &sheet.vec(second.selectors)[0],
+            &sheet.vec_snapshot(second.selectors)[0],
             KeyframeSelector::TimelineRangePercentage(value)
                 if value.name == TimelineRangeName::Exit && value.percentage == 1.0
         ));
@@ -1040,7 +1040,7 @@ fn parses_lightningcss_rule_families() {
             sheet.rule(roots[1]).unwrap().payload(),
             CssRulePayload::LayerStatement(rule)
                 if rule.names.len() == 2
-                    && sheet.vec(sheet.vec(rule.names)[1]) == ["theme", "base"]
+                    && sheet.vec_snapshot(sheet.vec_snapshot(rule.names)[1]) == ["theme", "base"]
         ));
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
@@ -1065,7 +1065,7 @@ fn parses_lightningcss_rule_families() {
         assert!(matches!(
             sheet.rule(frames[1]).unwrap().payload(),
             CssRulePayload::Keyframe(rule)
-                if matches!(sheet.vec(rule.selectors)[0], KeyframeSelector::Percentage(0.5))
+                if matches!(sheet.vec_snapshot(rule.selectors)[0], KeyframeSelector::Percentage(0.5))
         ));
         assert!(matches!(
             sheet.rule(roots[5]).unwrap().payload(),
@@ -1108,12 +1108,12 @@ fn parses_import_modifiers_scope_and_page() {
             panic!("expected import")
         };
         assert_eq!(
-            import.layer.map(|layer| sheet.vec(layer)),
-            Some(&["theme", "base"][..])
+            import.layer.map(|layer| sheet.vec_snapshot(layer)),
+            Some(std::vec!["theme", "base"])
         );
         assert!(import.supports.is_some());
         let import_media = sheet.resolve_node(import.media.unwrap());
-        let import_query = sheet.resolve_node(sheet.vec(import_media.media_queries)[0]);
+        let import_query = sheet.resolve_node(sheet.vec_snapshot(import_media.media_queries)[0]);
         assert!(matches!(import_query.media_type, MediaType::Print));
 
         assert!(matches!(
@@ -1505,7 +1505,11 @@ fn parses_mask_shorthand_layers_without_losing_defaults() {
         let Declaration::Mask(layers, VendorPrefix::NONE) = declarations[0] else {
             panic!("expected typed mask shorthand")
         };
-        let layers = sheet.vec(*layers);
+        let layers = sheet.vec_snapshot(*layers);
+        let layers = layers
+            .into_iter()
+            .map(|layer| sheet.resolve_node(layer))
+            .collect::<std::vec::Vec<_>>();
         assert_eq!(layers.len(), 2);
         assert!(matches!(sheet.resolve_node(layers[0].image), Image::Url(_)));
         assert!(matches!(
@@ -1548,7 +1552,11 @@ fn parses_mask_repeat_x_and_y_as_typed_layers() {
         else {
             panic!("expected typed mask shorthand")
         };
-        let layers = sheet.vec(*layers);
+        let layers = sheet.vec_snapshot(*layers);
+        let layers = layers
+            .into_iter()
+            .map(|layer| sheet.resolve_node(layer))
+            .collect::<std::vec::Vec<_>>();
         assert!(matches!(
             (&layers[0].repeat.x, &layers[0].repeat.y),
             (
@@ -1581,7 +1589,7 @@ fn parses_radial_mask_images_and_gradient_hints() {
         let Declaration::MaskImage(images, _) = declarations[0] else {
             panic!("expected typed mask-image")
         };
-        let images = sheet.vec(*images);
+        let images = sheet.vec_snapshot(*images);
         assert!(matches!(
             &images[0],
             Image::Gradient(gradient)
@@ -1594,7 +1602,7 @@ fn parses_radial_mask_images_and_gradient_hints() {
                     && matches!(
                         sheet.resolve_node(*gradient),
                         Gradient::RepeatingRadial { items, .. }
-                            if sheet.vec(*items).iter().any(|item| {
+                            if sheet.vec_snapshot(items).iter().any(|item| {
                                 matches!(sheet.resolve_node(*item), GradientItem::Hint(_))
                             })
                     )
@@ -1605,7 +1613,7 @@ fn parses_radial_mask_images_and_gradient_hints() {
                 if matches!(sheet.resolve_node(*gradient), Gradient::Conic { .. })
         ));
         assert!(matches!(&images[3], Image::ImageSet(image_set)
-            if sheet.vec(sheet.resolve_node(*image_set).options).len() == 2));
+            if sheet.vec_snapshot(sheet.resolve_node(*image_set).options).len() == 2));
     })
 }
 
@@ -1781,13 +1789,20 @@ fn parses_font_family_into_typed_ast_nodes() {
     assert!(matches!(
         declarations[0],
         Declaration::FontFamily(families)
-            if matches!(sheet.vec(*families), [
-                FontFamily::Custom("serif"),
-                FontFamily::SansSerif,
-                FontFamily::Custom("Fancy Font"),
-                FontFamily::Custom("A"),
-                FontFamily::Custom("slab inherit"),
-            ])
+            if matches!(
+                sheet
+                    .vec_iter(*families)
+                    .map(|family| sheet.resolve_node(family))
+                    .collect::<std::vec::Vec<_>>()
+                    .as_slice(),
+                [
+                    FontFamily::Custom("serif"),
+                    FontFamily::SansSerif,
+                    FontFamily::Custom("Fancy Font"),
+                    FontFamily::Custom("A"),
+                    FontFamily::Custom("slab inherit"),
+                ]
+            )
     ));
     assert!(matches!(
         declarations[1],
@@ -1928,7 +1943,7 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
                 if {
                     let value = sheet.resolve_node(*value);
                     matches!(sheet.resolve_node(value.name), CustomPropertyName::Custom("--theme"))
-                        && sheet.vec(value.value).iter().any(|token| matches!(token,
+                        && sheet.vec_snapshot(value.value).iter().any(|token| matches!(token,
                             TokenOrValue::Function(function)
                                 if sheet.resolve_node(*function).name() == "fn"))
                 }
@@ -2199,7 +2214,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
             panic!("expected font-feature-values")
         };
         assert!(matches!(
-            sheet.vec(features.name),
+            sheet.vec_snapshot(features.name).as_slice(),
             [FamilyName("Demo Sans")]
         ));
         let feature_rule = child_rule_ids(&sheet, roots[3])[0];
@@ -2216,7 +2231,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
                 .unwrap()
                 .payload(),
             DeclarationPayload::FontFeature(declaration)
-                if sheet.vec(declaration.values) == [1, 2]
+                if sheet.vec_snapshot(declaration.values) == [1, 2]
         ));
         assert!(matches!(
             sheet

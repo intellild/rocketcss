@@ -54,7 +54,10 @@ pub(super) fn validate_rgb_function<'i>(ast: &AstContext<'i>, function: &mut Fun
 }
 
 fn is_supported_rgb_function<'i>(ast: &AstContext<'i>, function: &Function<'i>) -> bool {
-    let mut components = ast.vec(function.arguments).iter().filter(|value| {
+    let components = ast
+        .vec_iter(function.arguments)
+        .collect::<std::vec::Vec<_>>();
+    let mut components = components.iter().filter(|value| {
         !matches!(
             value,
             TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::WhiteSpace(_))

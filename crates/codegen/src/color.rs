@@ -298,7 +298,7 @@ impl<'ghost> ToCss<'ghost> for UnresolvedColor<'_> {
                 dest.write_char(' ')?;
                 serialize_number(*b, dest)?;
                 dest.write_str(" / ")?;
-                crate::token::write_token_list(_cx.ast_context().vec(*alpha), dest, _cx)?;
+                crate::token::write_token_list(_cx.ast_context().vec_iter(*alpha), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::Hsl { alpha, h, l, s } => {
@@ -309,14 +309,14 @@ impl<'ghost> ToCss<'ghost> for UnresolvedColor<'_> {
                 dest.write_str("% ")?;
                 serialize_number(*l * 100.0, dest)?;
                 dest.write_str("% / ")?;
-                crate::token::write_token_list(_cx.ast_context().vec(*alpha), dest, _cx)?;
+                crate::token::write_token_list(_cx.ast_context().vec_iter(*alpha), dest, _cx)?;
                 dest.write_char(')')
             }
             Self::LightDark { dark, light } => {
                 dest.write_str("light-dark(")?;
-                crate::token::write_token_list(_cx.ast_context().vec(*light), dest, _cx)?;
+                crate::token::write_token_list(_cx.ast_context().vec_iter(*light), dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
-                crate::token::write_token_list(_cx.ast_context().vec(*dark), dest, _cx)?;
+                crate::token::write_token_list(_cx.ast_context().vec_iter(*dark), dest, _cx)?;
                 dest.write_char(')')
             }
         }

@@ -16,8 +16,8 @@ pub(crate) fn minify_media_list<'ast>(
                 if media_queries[..index].iter().any(|query| {
                     crate::equality::css_values_are_equal(
                         ast.ast_context(),
-                        ast.ast_context().resolve_node(*query),
-                        ast.ast_context().resolve_node(media_queries[index]),
+                        &ast.ast_context().resolve_node(*query),
+                        &ast.ast_context().resolve_node(media_queries[index]),
                     )
                 }) {
                     media_queries.remove(index);

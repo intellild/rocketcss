@@ -9,7 +9,7 @@ impl<'ghost> ToCss<'ghost> for MediaList<'_> {
         if self.media_queries.is_empty() {
             return dest.write_str("not all");
         }
-        for (index, query) in _cx.ast_context().vec(self.media_queries).iter().enumerate() {
+        for (index, query) in _cx.ast_context().vec_iter(self.media_queries).enumerate() {
             if index > 0 {
                 dest.delim(Delimiter::Comma)?;
             }
@@ -29,7 +29,7 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
         if let Some(condition) = self.condition
             && let MediaCondition::Unknown(tokens) = ast.resolve_node(condition)
         {
-            let tokens = ast.vec(*tokens);
+            let tokens = ast.vec_iter(tokens).collect::<std::vec::Vec<_>>();
             if matches!(self.qualifier, Some(Qualifier::Not))
                 && matches!(self.media_type, MediaType::All)
                 && matches!(
@@ -40,7 +40,7 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
                 )
             {
                 dest.write_str("not ")?;
-                return crate::token::write_token_list_trimmed(tokens, dest, _cx);
+                return crate::token::write_token_list_trimmed(&tokens, dest, _cx);
             }
 
             if let Some(qualifier) = &self.qualifier {
@@ -52,7 +52,7 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
                 self.media_type.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
             }
-            return crate::token::write_token_list_trimmed(tokens, dest, _cx);
+            return crate::token::write_token_list_trimmed(&tokens, dest, _cx);
         }
 
         if let Some(qualifier) = &self.qualifier {
@@ -123,7 +123,7 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
             if needs_parens {
                 dest.write_char('(')?;
             }
-            write_media_condition(value, None, dest, cx)?;
+            write_media_condition(&value, None, dest, cx)?;
             if needs_parens {
                 dest.write_char(')')?;
             }
@@ -140,7 +140,7 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
             if needs_parens {
                 dest.write_char('(')?;
             }
-            for (index, condition) in cx.ast_context().vec(*conditions).iter().enumerate() {
+            for (index, condition) in cx.ast_context().vec_iter(*conditions).enumerate() {
                 if index > 0 {
                     dest.write_str(match operator {
                         Operator::And => " and ",
@@ -148,7 +148,7 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
                     })?;
                 }
                 write_media_condition(
-                    cx.ast_context().resolve_node(*condition),
+                    &cx.ast_context().resolve_node(condition),
                     Some(operator),
                     dest,
                     cx,
@@ -160,7 +160,7 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
             Ok(())
         }
         MediaCondition::Unknown(values) => {
-            crate::token::write_token_list(cx.ast_context().vec(*values), dest, cx)
+            crate::token::write_token_list(cx.ast_context().vec_iter(*values), dest, cx)
         }
     }
 }
@@ -338,13 +338,13 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
                 } else {
                     " or "
                 };
-                for (index, value) in _cx.ast_context().vec(*values).iter().enumerate() {
+                for (index, value) in _cx.ast_context().vec_iter(*values).enumerate() {
                     if index > 0 {
                         dest.write_str(operator)?;
                     }
-                    let resolved = _cx.ast_context().resolve_node(*value);
+                    let resolved = _cx.ast_context().resolve_node(value);
                     let needs_parens = matches!(
-                        (self, resolved),
+                        (self, &resolved),
                         (Self::And(_), Self::Or(_)) | (Self::Or(_), Self::And(_))
                     );
                     if needs_parens {

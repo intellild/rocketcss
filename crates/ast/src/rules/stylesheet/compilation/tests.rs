@@ -52,34 +52,24 @@ fn ast_vec_access_clone_and_mutation_stay_on_the_context() {
     let cloned = compilation.clone_vec(original);
 
     assert_ne!(original, cloned);
-    assert_eq!(compilation.vec(original), [1, 2, 3]);
+    assert_eq!(
+        compilation.vec_iter(original).collect::<std::vec::Vec<_>>(),
+        [1, 2, 3]
+    );
     compilation.mutate_vec(cloned, |values, ast| {
         values[1] = 4;
         let nested = ast.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([5_u8], &allocator));
-        assert_eq!(ast.vec(nested), [5]);
+        assert_eq!(ast.vec_iter(nested).collect::<std::vec::Vec<_>>(), [5]);
     });
 
-    assert_eq!(compilation.vec(original), [1, 2, 3]);
-    assert_eq!(compilation.vec(cloned), [1, 4, 3]);
-}
-
-#[test]
-fn ast_vec_rejects_cross_context_element_type_confusion() {
-    let allocator = Allocator::new();
-    let mut first = AstContext::new_in(&allocator);
-    let mut second = AstContext::new_in(&allocator);
-    let bytes = first.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([1_u8], &allocator));
-    let _words = second.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
-        [2_u16],
-        &allocator,
-    ));
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = second.vec(bytes);
-    }));
-
-    assert!(result.is_err());
-    assert_eq!(first.vec(bytes), [1]);
+    assert_eq!(
+        compilation.vec_iter(original).collect::<std::vec::Vec<_>>(),
+        [1, 2, 3]
+    );
+    assert_eq!(
+        compilation.vec_iter(cloned).collect::<std::vec::Vec<_>>(),
+        [1, 4, 3]
+    );
 }
 
 #[test]
@@ -99,24 +89,25 @@ fn rewrite_vec_republishes_length_changes_after_unwind() {
     }));
 
     assert!(result.is_err());
-    assert_eq!(compilation.vec(values), [1, 2, 3]);
+    assert_eq!(
+        compilation.vec_iter(values).collect::<std::vec::Vec<_>>(),
+        [1, 2, 3]
+    );
 }
 
 #[test]
-fn mutate_vec_rejects_recursive_access_to_the_same_range() {
+fn mutate_vec_keeps_context_access_available_during_the_edit() {
     let allocator = Allocator::new();
     let mut compilation = AstContext::new_in(&allocator);
     let values =
         compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([1_u8], &allocator));
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compilation.mutate_vec(values, |_, ast| {
-            let _ = ast.vec(values);
-        });
-    }));
+    compilation.mutate_vec(values, |decoded, ast| {
+        assert_eq!(ast.vec_get(values, 0), Some(1));
+        decoded[0] = 2;
+    });
 
-    assert!(result.is_err());
-    assert_eq!(compilation.vec(values), [1]);
+    assert_eq!(compilation.vec_get(values, 0), Some(2));
 }
 
 #[test]
@@ -138,8 +129,18 @@ fn node_checkpoint_rolls_range_slots_back_with_nodes() {
     ));
 
     assert_eq!(replacement, speculative);
-    assert_eq!(compilation.vec(committed), [1]);
-    assert_eq!(compilation.vec(replacement), [4, 5]);
+    assert_eq!(
+        compilation
+            .vec_iter(committed)
+            .collect::<std::vec::Vec<_>>(),
+        [1]
+    );
+    assert_eq!(
+        compilation
+            .vec_iter(replacement)
+            .collect::<std::vec::Vec<_>>(),
+        [4, 5]
+    );
 }
 
 #[test]
@@ -164,35 +165,38 @@ fn rule_spans_are_stored_in_an_aligned_sidecar() {
 fn clone_node_creates_an_independent_id_and_preserves_its_span() {
     let allocator = Allocator::new();
     let mut compilation = AstContext::new_in(&allocator);
-    let original = compilation.alloc_node(String::from("original"), Span::new(3, 11));
+    let original = compilation.alloc_node(crate::FontFamily::Custom("original"), Span::new(3, 11));
     let cloned = compilation.clone_node(original);
 
     assert_ne!(original, cloned);
     assert_eq!(compilation.node_span(cloned), Span::new(3, 11));
     compilation.mutate_node(cloned, |value, ast| {
-        value.push_str(" clone");
-        let child = ast.alloc_node(7_u8, Span::new(5, 6));
-        assert_eq!(*ast.node(child), 7);
+        *value = crate::FontFamily::Serif;
+        let child = ast.alloc_node(crate::KeyframesName::Ident("child"), Span::new(5, 6));
+        assert_eq!(ast.node(child), crate::KeyframesName::Ident("child"));
     });
 
-    assert_eq!(compilation.node(original), "original");
-    assert_eq!(compilation.node(cloned), "original clone");
+    assert_eq!(
+        compilation.node(original),
+        crate::FontFamily::Custom("original")
+    );
+    assert_eq!(compilation.node(cloned), crate::FontFamily::Serif);
 }
 
 #[test]
 fn node_checkpoint_rolls_payload_and_span_sidecars_back_together() {
     let allocator = Allocator::new();
     let mut compilation = AstContext::new_in(&allocator);
-    let committed = compilation.alloc_node(1_u8, Span::new(1, 2));
+    let committed = compilation.alloc_node(crate::FontFamily::Serif, Span::new(1, 2));
     let checkpoint = compilation.node_checkpoint();
-    compilation.alloc_node(2_u8, Span::new(2, 3));
+    compilation.alloc_node(crate::FontFamily::SansSerif, Span::new(2, 3));
 
     compilation.restore_node_checkpoint(checkpoint);
-    let replacement = compilation.alloc_node(3_u8, Span::new(3, 4));
+    let replacement = compilation.alloc_node(crate::FontFamily::Monospace, Span::new(3, 4));
 
     assert_eq!(replacement.index(), committed.index() + 1);
-    assert_eq!(*compilation.node(committed), 1);
-    assert_eq!(*compilation.node(replacement), 3);
+    assert_eq!(compilation.node(committed), crate::FontFamily::Serif);
+    assert_eq!(compilation.node(replacement), crate::FontFamily::Monospace);
     assert_eq!(compilation.node_span(committed), Span::new(1, 2));
     assert_eq!(compilation.node_span(replacement), Span::new(3, 4));
 }
@@ -201,24 +205,24 @@ fn node_checkpoint_rolls_payload_and_span_sidecars_back_together() {
 fn mutate_node_restores_the_slot_after_unwind() {
     let allocator = Allocator::new();
     let mut compilation = AstContext::new_in(&allocator);
-    let node = compilation.alloc_node(vec![1_u8], DUMMY_SP);
+    let node = compilation.alloc_node(crate::FontFamily::Serif, DUMMY_SP);
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compilation.mutate_node(node, |value, _| {
-            value.push(2);
+            *value = crate::FontFamily::SansSerif;
             panic!("stop mutation");
         });
     }));
 
     assert!(result.is_err());
-    assert_eq!(compilation.node(node), &[1, 2]);
+    assert_eq!(compilation.node(node), crate::FontFamily::SansSerif);
 }
 
 #[test]
 fn mutate_node_rejects_recursive_access_to_the_same_id() {
     let allocator = Allocator::new();
     let mut compilation = AstContext::new_in(&allocator);
-    let node = compilation.alloc_node(1_u8, DUMMY_SP);
+    let node = compilation.alloc_node(crate::FontFamily::Serif, DUMMY_SP);
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         compilation.mutate_node(node, |_, ast| {
@@ -227,27 +231,30 @@ fn mutate_node_rejects_recursive_access_to_the_same_id() {
     }));
 
     assert!(result.is_err());
-    assert_eq!(*compilation.node(node), 1);
+    assert_eq!(compilation.node(node), crate::FontFamily::Serif);
 }
 
 #[test]
 fn visitor_mutation_restores_the_node_after_nested_unwind() {
     let allocator = Allocator::new();
     let mut compilation = AstContext::new_in(&allocator);
-    let node = compilation.alloc_node(1_u8, DUMMY_SP);
+    let node = compilation.alloc_node(crate::FontFamily::Serif, DUMMY_SP);
 
     rocketcss_common::GhostToken::scope(|mut token| {
         let cell = std::pin::pin!(rocketcss_common::GhostCell::new(2_u8));
         let mut context = crate::VisitMutContext::with_ast(&mut token, &mut compilation);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             context.mutate_node(node, |value, context| {
-                *value += 1;
+                *value = crate::FontFamily::SansSerif;
                 context.with_cell(cell.as_ref(), |_, _| panic!("stop nested mutation"));
             });
         }));
 
         assert!(result.is_err());
-        assert_eq!(*context.ast_context().node(node), 2);
+        assert_eq!(
+            context.ast_context().node(node),
+            crate::FontFamily::SansSerif
+        );
     });
 }
 

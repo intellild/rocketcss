@@ -100,15 +100,16 @@ mod tests {
         assert!(FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Tombstone, &ast));
         assert!(!FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Serif, &ast));
 
+        let left_custom = ast.alloc_node(FontFamily::Custom("A"), DUMMY_SP);
+        let left_tombstone = ast.alloc_node(FontFamily::Tombstone, DUMMY_SP);
+        let left_serif = ast.alloc_node(FontFamily::Serif, DUMMY_SP);
+        let right_custom = ast.alloc_node(FontFamily::Custom("A"), DUMMY_SP);
+        let right_serif = ast.alloc_node(FontFamily::Serif, DUMMY_SP);
         let mut left_families = allocator.vec();
-        left_families.push(FontFamily::Custom("A"));
-        left_families.push(FontFamily::Tombstone);
-        left_families.push(FontFamily::Serif);
+        left_families.extend([left_custom, left_tombstone, left_serif]);
         let mut right_families = allocator.vec();
-        right_families.push(FontFamily::Custom("A"));
-        right_families.push(FontFamily::Serif);
+        right_families.extend([right_custom, right_serif]);
 
-        assert_ne!(left_families, right_families);
         let left_families = ast.alloc_vec(left_families);
         let right_families = ast.alloc_vec(right_families);
         assert!(left_families.eq_ignoring_tombstones(&right_families, &ast));

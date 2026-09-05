@@ -5,7 +5,7 @@ use std::{
     pin::Pin,
 };
 
-use crate::{AstContext, AstVec, NodeId};
+use crate::{AstContext, AstNodeStorage, AstVec, ExtraDataCompact, NodeId};
 
 /// Shared GhostCell access carried through immutable value-AST traversal.
 pub struct VisitContext<'token, 'ast, 'ghost> {
@@ -163,7 +163,7 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
         }
     }
 
-    pub fn mutate_node<T, R>(
+    pub fn mutate_node<T: AstNodeStorage<'ast>, R>(
         &mut self,
         id: NodeId<'ast, T>,
         visit: impl FnOnce(&mut T, &mut Self) -> R,
@@ -172,14 +172,20 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
             panic!("visiting a NodeId requires its available AstContext");
         };
         let ast = std::ptr::NonNull::from(&mut **ast);
-        // SAFETY: the temporary unique borrow above has ended. The private node transaction keeps
-        // this ID unavailable while the callback accesses the context through `self`; its guard
-        // only uses the raw context pointer after the callback returns or starts unwinding.
-        let mut mutation = unsafe { (*ast.as_ptr()).node_mutation(id) };
-        visit(mutation.value(), self)
+        // SAFETY: the temporary unique borrow above has ended. The context
+        // transaction marks this ID unavailable, then owns its decoded value
+        // while the visitor recursively accesses other IDs through `self`.
+        let (current, mut value) = unsafe { (*ast.as_ptr()).begin_visit_node_mutation(id) };
+        let result = catch_unwind(AssertUnwindSafe(|| visit(&mut value, self)));
+        // SAFETY: the callback has ended, so no nested context borrow remains.
+        unsafe { (*ast.as_ptr()).finish_visit_node_mutation(id, current, value) };
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
-    pub fn mutate_vec<T, R>(
+    pub fn mutate_vec<T: ExtraDataCompact<'ast>, R>(
         &mut self,
         range: AstVec<'ast, T>,
         visit: impl FnOnce(&mut [T], &mut Self) -> R,
@@ -188,15 +194,55 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
             panic!("visiting an AstVec requires its available AstContext");
         };
         let ast = std::ptr::NonNull::from(&mut **ast);
-        // SAFETY: the private range transaction makes this range unavailable
-        // while the callback recursively accesses other ranges through self.
-        let mut mutation = unsafe { (*ast.as_ptr()).vec_mutation(range) };
-        visit(mutation.values(), self)
+        // SAFETY: decoded values are owned locally; no reference into the
+        // context survives while the callback recursively visits other data.
+        let mut values = unsafe {
+            (*ast.as_ptr())
+                .vec_iter(range)
+                .collect::<std::vec::Vec<_>>()
+        };
+        let result = catch_unwind(AssertUnwindSafe(|| visit(&mut values, self)));
+        for (index, value) in values.into_iter().enumerate() {
+            // SAFETY: the callback has ended, so each encoded write is disjoint
+            // from nested context access.
+            unsafe { (*ast.as_ptr()).vec_set(range, index, value) };
+        }
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
+    }
+
+    /// Mutates one decoded range element while retaining the range bounds.
+    pub(crate) fn mutate_vec_element<T: ExtraDataCompact<'ast>, R>(
+        &mut self,
+        range: AstVec<'ast, T>,
+        index: usize,
+        visit: impl FnOnce(&mut T, &mut Self) -> R,
+    ) -> R {
+        let VisitMutState::Available { ast: Some(ast), .. } = &mut self.state else {
+            panic!("visiting an AstVec requires its available AstContext");
+        };
+        let ast = std::ptr::NonNull::from(&mut **ast);
+        // SAFETY: the decoded element is owned locally. The temporary context
+        // borrow ends before the callback recursively visits other storage.
+        let mut value = unsafe {
+            (*ast.as_ptr())
+                .vec_get(range, index)
+                .expect("AST range index validated by its length")
+        };
+        let result = catch_unwind(AssertUnwindSafe(|| visit(&mut value, self)));
+        // SAFETY: the callback has ended, so no nested context borrow remains.
+        unsafe { (*ast.as_ptr()).vec_set(range, index, value) };
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
     /// Runs a length-changing mutation over a persistent list and replaces its
     /// range after the callback completes or unwinds.
-    pub fn rewrite_vec<T: Unpin + 'ast, R>(
+    pub fn rewrite_vec<T: ExtraDataCompact<'ast> + Unpin + 'ast, R>(
         &mut self,
         range: &mut AstVec<'ast, T>,
         visit: impl FnOnce(&mut ArenaVec<'ast, T>, &mut Self) -> R,
@@ -205,10 +251,14 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
             panic!("rewriting an AstVec requires its available AstContext");
         };
         let ast = std::ptr::NonNull::from(&mut **ast);
-        // SAFETY: no reference derived from the raw context pointer is kept
-        // while visit runs. The retired range is inaccessible through context
-        // until the replacement is committed below.
-        let mut values = unsafe { (*ast.as_ptr()).take_vec(*range) };
+        // SAFETY: the decoded values are copied into a construction-time arena
+        // vector before the callback, so no list-storage reference is retained.
+        let mut values = unsafe {
+            ArenaVec::from_iter_in(
+                (*ast.as_ptr()).vec_iter(*range),
+                (*ast.as_ptr()).allocator(),
+            )
+        };
         let result = catch_unwind(AssertUnwindSafe(|| visit(&mut values, self)));
         // SAFETY: the callback has ended, so using the context pointer again is
         // disjoint from every nested context borrow it created.

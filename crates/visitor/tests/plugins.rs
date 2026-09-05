@@ -109,12 +109,12 @@ fn plugins_run_in_registration_order_and_share_context() {
             .selector_value(rule.selector_value)
             .expect("the selector value remains valid")
             .selectors();
-        let selectors = sheet.vec(*selectors);
+        let selectors = sheet.vec_snapshot(*selectors);
         let Selector::Parsed(components) = sheet.resolve_node(selectors[0]) else {
             panic!("expected parsed selector");
         };
         assert!(matches!(
-            sheet.resolve_node(sheet.vec(*components)[0]),
+            sheet.resolve_node(sheet.vec_snapshot(components)[0]),
             SelectorComponent::Class(name) if name == "last"
         ));
     });
