@@ -30,9 +30,170 @@ pub struct EnvironmentVariable<'a> {
     pub name: EnvironmentVariableName<'a>,
 }
 
+// Fixed payload layout for `EnvironmentVariable`:
+//
+// byte 0       fallback range presence
+// bytes 1..4   reserved
+// bytes 4..8   fallback range start
+// bytes 8..12  fallback range end
+// bytes 12..16 first extra slot
+//
+// extra + 0    indices range
+// extra + 1    EnvironmentVariableName
+impl<'ast> AstNodeStorage<'ast> for EnvironmentVariable<'ast> {
+    const KIND: NodeKind = NodeKind::new(7);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let fallback_start = read_u32(&bytes, 4) as usize;
+        let fallback_end = read_u32(&bytes, 8) as usize;
+        let fallback = match bytes[0] {
+            0 => None,
+            1 => Some(context.encoded_vec_range(fallback_start, fallback_end)),
+            _ => panic!("invalid encoded EnvironmentVariable fallback flag"),
+        };
+        let extra = payload.extra_start();
+        let indices = decode_range(context.extra_slot(extra), context);
+        let name = decode_environment_variable_name(context.extra_slot(extra + 1), context);
+        Self {
+            fallback,
+            indices,
+            name,
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_environment_variable(self, None, context)
+    }
+
+    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_environment_variable(self, Some(current.extra_start()), context)
+    }
+}
+
+fn encode_environment_variable<'ast>(
+    value: EnvironmentVariable<'ast>,
+    existing_extra: Option<usize>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut inline = [0; NodePayload::PARTIAL_INLINE_BYTES];
+    if let Some(fallback) = value.fallback {
+        inline[0] = 1;
+        write_range(&mut inline, 4, fallback);
+    }
+    let indices = encode_range(value.indices);
+    let name = encode_environment_variable_name(value.name, context);
+    let extra = match existing_extra {
+        Some(extra) => {
+            context.set_extra_slot(extra, indices);
+            context.set_extra_slot(extra + 1, name);
+            extra
+        }
+        None => context.alloc_extra_slots([indices, name]),
+    };
+    NodePayload::with_extra(&inline, extra)
+}
+
+fn encode_environment_variable_name<'ast>(
+    name: EnvironmentVariableName<'ast>,
+    context: &mut AstContext<'ast>,
+) -> ExtraData {
+    let mut bytes = [0; ExtraData::BYTES];
+    let data = match name {
+        EnvironmentVariableName::UA(name) => {
+            bytes[0] = 0;
+            encode_ua_environment_variable(name) as u32
+        }
+        EnvironmentVariableName::Custom(name) => {
+            bytes[0] = 1;
+            compact_node_index(name)
+        }
+        EnvironmentVariableName::Unknown(name) => {
+            bytes[0] = 2;
+            context.store_string(name)
+        }
+    };
+    bytes[4..].copy_from_slice(&data.to_le_bytes());
+    ExtraData::from_bytes(&bytes)
+}
+
+fn decode_environment_variable_name<'ast>(
+    data: ExtraData,
+    context: &AstContext<'ast>,
+) -> EnvironmentVariableName<'ast> {
+    let bytes = data.bytes();
+    let data = read_u32(&bytes, 4);
+    match bytes[0] {
+        0 => EnvironmentVariableName::UA(decode_ua_environment_variable(data as u8)),
+        1 => EnvironmentVariableName::Custom(context.encoded_node_id_at(data as usize)),
+        2 => EnvironmentVariableName::Unknown(context.resolve_string(data as u64)),
+        _ => panic!("invalid encoded EnvironmentVariableName variant"),
+    }
+}
+
+fn encode_ua_environment_variable(name: UAEnvironmentVariable) -> u8 {
+    match name {
+        UAEnvironmentVariable::SafeAreaInsetTop => 0,
+        UAEnvironmentVariable::SafeAreaInsetRight => 1,
+        UAEnvironmentVariable::SafeAreaInsetBottom => 2,
+        UAEnvironmentVariable::SafeAreaInsetLeft => 3,
+        UAEnvironmentVariable::ViewportSegmentWidth => 4,
+        UAEnvironmentVariable::ViewportSegmentHeight => 5,
+        UAEnvironmentVariable::ViewportSegmentTop => 6,
+        UAEnvironmentVariable::ViewportSegmentLeft => 7,
+        UAEnvironmentVariable::ViewportSegmentBottom => 8,
+        UAEnvironmentVariable::ViewportSegmentRight => 9,
+    }
+}
+
+fn decode_ua_environment_variable(name: u8) -> UAEnvironmentVariable {
+    match name {
+        0 => UAEnvironmentVariable::SafeAreaInsetTop,
+        1 => UAEnvironmentVariable::SafeAreaInsetRight,
+        2 => UAEnvironmentVariable::SafeAreaInsetBottom,
+        3 => UAEnvironmentVariable::SafeAreaInsetLeft,
+        4 => UAEnvironmentVariable::ViewportSegmentWidth,
+        5 => UAEnvironmentVariable::ViewportSegmentHeight,
+        6 => UAEnvironmentVariable::ViewportSegmentTop,
+        7 => UAEnvironmentVariable::ViewportSegmentLeft,
+        8 => UAEnvironmentVariable::ViewportSegmentBottom,
+        9 => UAEnvironmentVariable::ViewportSegmentRight,
+        _ => panic!("invalid encoded UAEnvironmentVariable"),
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct Url<'a> {
     pub url: &'a str,
+}
+
+// bytes 0..4 compact string ID; remaining bytes reserved.
+impl<'ast> AstNodeStorage<'ast> for Url<'ast> {
+    const KIND: NodeKind = NodeKind::new(4);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        Self {
+            url: context.resolve_string(read_u32(&payload.bytes(), 0) as u64),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_url(self, context)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_url(self, context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for Url<'ast> {
+    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
+fn encode_url<'ast>(url: Url<'ast>, context: &mut AstContext<'ast>) -> NodePayload {
+    NodePayload::inline(&context.store_string(url.url).to_le_bytes())
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -41,10 +202,172 @@ pub struct Variable<'a> {
     pub name: NodeId<'a, DashedIdentReference<'a>>,
 }
 
+// Fixed payload layout for `Variable`:
+//
+// byte 0       fallback range presence
+// bytes 1..4   reserved
+// bytes 4..8   fallback range start
+// bytes 8..12  fallback range end
+// bytes 12..16 DashedIdentReference NodeId
+impl<'ast> AstNodeStorage<'ast> for Variable<'ast> {
+    const KIND: NodeKind = NodeKind::new(6);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        let fallback = match bytes[0] {
+            0 => None,
+            1 => Some(
+                context
+                    .encoded_vec_range(read_u32(&bytes, 4) as usize, read_u32(&bytes, 8) as usize),
+            ),
+            _ => panic!("invalid encoded Variable fallback flag"),
+        };
+        Self {
+            fallback,
+            name: context.encoded_node_id_at(read_u32(&bytes, 12) as usize),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_variable(self)
+    }
+
+    fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        encode_variable(self)
+    }
+}
+
+fn encode_variable(variable: Variable<'_>) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    if let Some(fallback) = variable.fallback {
+        bytes[0] = 1;
+        write_range(&mut bytes, 4, fallback);
+    }
+    write_u32(&mut bytes, 12, compact_node_index(variable.name));
+    NodePayload::inline(&bytes)
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct DashedIdentReference<'a> {
     pub from: Option<Specifier<'a>>,
     pub ident: &'a str,
+}
+
+// Fixed payload layout for `DashedIdentReference`:
+//
+// byte 0       optional Specifier variant
+// bytes 1..4   reserved
+// bytes 4..8   Specifier compact string ID/source index
+// bytes 8..12  ident compact string ID
+// bytes 12..16 reserved
+impl<'ast> AstNodeStorage<'ast> for DashedIdentReference<'ast> {
+    const KIND: NodeKind = NodeKind::new(5);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            from: decode_specifier(bytes[0], read_u32(&bytes, 4), context),
+            ident: context.resolve_string(read_u32(&bytes, 8) as u64),
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_dashed_ident_reference(self, context)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_dashed_ident_reference(self, context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for DashedIdentReference<'ast> {
+    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
+fn encode_dashed_ident_reference<'ast>(
+    value: DashedIdentReference<'ast>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    let (tag, data) = encode_specifier(value.from, context);
+    bytes[0] = tag;
+    write_u32(&mut bytes, 4, data);
+    write_u32(&mut bytes, 8, context.store_string(value.ident));
+    NodePayload::inline(&bytes)
+}
+
+fn encode_specifier<'ast>(
+    value: Option<Specifier<'ast>>,
+    context: &mut AstContext<'ast>,
+) -> (u8, u32) {
+    match value {
+        None => (0, 0),
+        Some(Specifier::Global) => (1, 0),
+        Some(Specifier::File(value)) => (2, context.store_string(value)),
+        Some(Specifier::SourceIndex(value)) => (3, value),
+    }
+}
+
+fn decode_specifier<'ast>(
+    tag: u8,
+    data: u32,
+    context: &AstContext<'ast>,
+) -> Option<Specifier<'ast>> {
+    match tag {
+        0 => None,
+        1 => Some(Specifier::Global),
+        2 => Some(Specifier::File(context.resolve_string(data as u64))),
+        3 => Some(Specifier::SourceIndex(data)),
+        _ => panic!("invalid encoded Specifier variant"),
+    }
+}
+
+fn compact_node_index<T>(id: NodeId<'_, T>) -> u32 {
+    u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
+}
+
+fn encode_range<T>(range: Vec<'_, T>) -> ExtraData {
+    let start = u32::try_from(range.start_index()).expect("AST range start exceeds four bytes");
+    let end = u32::try_from(range.end_index()).expect("AST range end exceeds four bytes");
+    ExtraData::from_u64((end as u64) << 32 | start as u64)
+}
+
+fn decode_range<'ast, T>(data: ExtraData, context: &AstContext<'ast>) -> Vec<'ast, T> {
+    context.encoded_vec_range(
+        data.as_u64() as u32 as usize,
+        (data.as_u64() >> 32) as u32 as usize,
+    )
+}
+
+fn write_range<T>(bytes: &mut [u8], offset: usize, range: Vec<'_, T>) {
+    write_u32(
+        bytes,
+        offset,
+        u32::try_from(range.start_index()).expect("AST range start exceeds four bytes"),
+    );
+    write_u32(
+        bytes,
+        offset + 4,
+        u32::try_from(range.end_index()).expect("AST range end exceeds four bytes"),
+    );
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("compact field is four bytes"),
+    )
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -570,7 +893,11 @@ pub struct ImportRule<'a> {
 mod storage_tests {
     use rocketcss_common::Allocator;
 
-    use crate::{AstContext, DUMMY_SP, Function, FunctionReplacement, KnownFunction, Unit};
+    use crate::{
+        AstContext, DUMMY_SP, DashedIdentReference, EnvironmentVariable, EnvironmentVariableName,
+        Function, FunctionReplacement, KnownFunction, Specifier, Token, TokenOrValue,
+        UAEnvironmentVariable, Unit, Url, Variable,
+    };
 
     #[test]
     fn function_codec_uses_fixed_overflow_slots_and_compact_string_ids() {
@@ -633,6 +960,94 @@ mod storage_tests {
             context.encoded_extra_len(),
             3,
             "same-kind mutation must reuse fixed overflow slots"
+        );
+    }
+
+    #[test]
+    fn url_and_variable_codecs_keep_strings_ranges_and_owned_node_ids() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let url = context.alloc_encoded_node(
+            Url {
+                url: "asset.svg#icon",
+            },
+            DUMMY_SP,
+        );
+        let cloned_url = context.clone_encoded_node(url);
+        assert_ne!(url, cloned_url);
+        assert_eq!(
+            context.encoded_node(cloned_url),
+            Url {
+                url: "asset.svg#icon"
+            }
+        );
+
+        let name = context.alloc_encoded_node(
+            DashedIdentReference {
+                from: Some(Specifier::File("theme.css")),
+                ident: "--accent",
+            },
+            DUMMY_SP,
+        );
+        let comma = context.alloc_encoded_node(Token::Comma, DUMMY_SP);
+        let fallback = context.alloc_encoded_vec(
+            [
+                TokenOrValue::Token(comma),
+                TokenOrValue::DashedIdent("--fallback"),
+            ]
+            .into_iter(),
+        );
+        let variable = context.alloc_encoded_node(
+            Variable {
+                fallback: Some(fallback),
+                name,
+            },
+            DUMMY_SP,
+        );
+        let decoded = context.encoded_node(variable);
+        assert_eq!(decoded.fallback, Some(fallback));
+        assert_eq!(
+            context.encoded_node(decoded.name),
+            DashedIdentReference {
+                from: Some(Specifier::File("theme.css")),
+                ident: "--accent",
+            }
+        );
+    }
+
+    #[test]
+    fn environment_variable_codec_round_trips_fixed_overflow_fields() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let fallback =
+            context.alloc_encoded_vec([TokenOrValue::DashedIdent("--fallback")].into_iter());
+        let indices = context.alloc_encoded_vec([2_i32, 4].into_iter());
+        let id = context.alloc_encoded_node(
+            EnvironmentVariable {
+                fallback: Some(fallback),
+                indices,
+                name: EnvironmentVariableName::UA(UAEnvironmentVariable::ViewportSegmentWidth),
+            },
+            DUMMY_SP,
+        );
+
+        let decoded = context.encoded_node(id);
+        assert_eq!(decoded.fallback, Some(fallback));
+        assert_eq!(decoded.indices, indices);
+        assert_eq!(
+            decoded.name,
+            EnvironmentVariableName::UA(UAEnvironmentVariable::ViewportSegmentWidth)
+        );
+
+        context.mutate_encoded_node(id, |value, _| {
+            value.fallback = None;
+            value.name = EnvironmentVariableName::Unknown("viewport-custom");
+        });
+        let decoded = context.encoded_node(id);
+        assert_eq!(decoded.fallback, None);
+        assert_eq!(
+            decoded.name,
+            EnvironmentVariableName::Unknown("viewport-custom")
         );
     }
 }
