@@ -58,6 +58,7 @@ pub use span::*;
 pub use token::*;
 pub use tombstone::*;
 pub use values::*;
+pub(crate) use values::{decode_line_style, encode_line_style};
 pub use visit_context::{VisitContext, VisitMutContext};
 
 /// Persistent AST list stored as a typed dense range in [`AstContext`].

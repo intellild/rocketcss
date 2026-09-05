@@ -21,6 +21,7 @@ mod view_transition;
 pub use alignment::*;
 pub use animation::*;
 pub use border::*;
+pub(crate) use border::{decode_line_style, encode_line_style};
 pub use box_model::*;
 pub use container::*;
 pub use filter::*;

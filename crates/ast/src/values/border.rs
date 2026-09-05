@@ -16,6 +16,37 @@ pub enum LineStyle {
     Double,
 }
 
+pub(crate) fn encode_line_style(value: LineStyle) -> u8 {
+    match value {
+        LineStyle::None => 0,
+        LineStyle::Hidden => 1,
+        LineStyle::Inset => 2,
+        LineStyle::Groove => 3,
+        LineStyle::Outset => 4,
+        LineStyle::Ridge => 5,
+        LineStyle::Dotted => 6,
+        LineStyle::Dashed => 7,
+        LineStyle::Solid => 8,
+        LineStyle::Double => 9,
+    }
+}
+
+pub(crate) fn decode_line_style(value: u8) -> LineStyle {
+    match value {
+        0 => LineStyle::None,
+        1 => LineStyle::Hidden,
+        2 => LineStyle::Inset,
+        3 => LineStyle::Groove,
+        4 => LineStyle::Outset,
+        5 => LineStyle::Ridge,
+        6 => LineStyle::Dotted,
+        7 => LineStyle::Dashed,
+        8 => LineStyle::Solid,
+        9 => LineStyle::Double,
+        _ => panic!("invalid encoded LineStyle"),
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub enum BorderSideWidth<'a> {
     Thin,

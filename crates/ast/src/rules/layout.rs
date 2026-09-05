@@ -399,10 +399,50 @@ pub struct MarginBlock<'a> {
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for MarginBlock<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_0009);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            block_end: read_node_id(&bytes, 0, context),
+            block_start: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_two_ids(self.block_end, self.block_start)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct MarginInline<'a> {
     pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
+}
+
+impl<'ast> AstNodeStorage<'ast> for MarginInline<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_000a);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            inline_end: read_node_id(&bytes, 0, context),
+            inline_start: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_two_ids(self.inline_end, self.inline_start)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -413,16 +453,78 @@ pub struct Margin<'a> {
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for Margin<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_000b);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            bottom: read_node_id(&bytes, 0, context),
+            left: read_node_id(&bytes, 4, context),
+            right: read_node_id(&bytes, 8, context),
+            top: read_node_id(&bytes, 12, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_four_ids(self.bottom, self.left, self.right, self.top)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct PaddingBlock<'a> {
     pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for PaddingBlock<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_000c);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            block_end: read_node_id(&bytes, 0, context),
+            block_start: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_two_ids(self.block_end, self.block_start)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct PaddingInline<'a> {
     pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
+}
+
+impl<'ast> AstNodeStorage<'ast> for PaddingInline<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_000d);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            inline_end: read_node_id(&bytes, 0, context),
+            inline_start: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_two_ids(self.inline_end, self.inline_start)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -433,16 +535,78 @@ pub struct Padding<'a> {
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for Padding<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_000e);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            bottom: read_node_id(&bytes, 0, context),
+            left: read_node_id(&bytes, 4, context),
+            right: read_node_id(&bytes, 8, context),
+            top: read_node_id(&bytes, 12, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_four_ids(self.bottom, self.left, self.right, self.top)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollMarginBlock<'a> {
     pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for ScrollMarginBlock<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_000f);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            block_end: read_node_id(&bytes, 0, context),
+            block_start: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_two_ids(self.block_end, self.block_start)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollMarginInline<'a> {
     pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
+}
+
+impl<'ast> AstNodeStorage<'ast> for ScrollMarginInline<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_0010);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            inline_end: read_node_id(&bytes, 0, context),
+            inline_start: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_two_ids(self.inline_end, self.inline_start)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -453,10 +617,52 @@ pub struct ScrollMargin<'a> {
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for ScrollMargin<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_0011);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            bottom: read_node_id(&bytes, 0, context),
+            left: read_node_id(&bytes, 4, context),
+            right: read_node_id(&bytes, 8, context),
+            top: read_node_id(&bytes, 12, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_four_ids(self.bottom, self.left, self.right, self.top)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollPaddingBlock<'a> {
     pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
+}
+
+impl<'ast> AstNodeStorage<'ast> for ScrollPaddingBlock<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_0012);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            block_end: read_node_id(&bytes, 0, context),
+            block_start: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_two_ids(self.block_end, self.block_start)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -465,12 +671,54 @@ pub struct ScrollPaddingInline<'a> {
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
+impl<'ast> AstNodeStorage<'ast> for ScrollPaddingInline<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_0013);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            inline_end: read_node_id(&bytes, 0, context),
+            inline_start: read_node_id(&bytes, 4, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_two_ids(self.inline_end, self.inline_start)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
+}
+
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollPadding<'a> {
     pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub right: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
+}
+
+impl<'ast> AstNodeStorage<'ast> for ScrollPadding<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_0014);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            bottom: read_node_id(&bytes, 0, context),
+            left: read_node_id(&bytes, 4, context),
+            right: read_node_id(&bytes, 8, context),
+            top: read_node_id(&bytes, 12, context),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_four_ids(self.bottom, self.left, self.right, self.top)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        self.encode_new(context)
+    }
 }
 
 fn encode_two_ids<T>(first: NodeId<'_, T>, second: NodeId<'_, T>) -> NodePayload {
@@ -577,37 +825,6 @@ fn decode_flex_wrap(value: u8) -> FlexWrap {
     }
 }
 
-fn encode_line_style(value: LineStyle) -> u8 {
-    match value {
-        LineStyle::None => 0,
-        LineStyle::Hidden => 1,
-        LineStyle::Inset => 2,
-        LineStyle::Groove => 3,
-        LineStyle::Outset => 4,
-        LineStyle::Ridge => 5,
-        LineStyle::Dotted => 6,
-        LineStyle::Dashed => 7,
-        LineStyle::Solid => 8,
-        LineStyle::Double => 9,
-    }
-}
-
-fn decode_line_style(value: u8) -> LineStyle {
-    match value {
-        0 => LineStyle::None,
-        1 => LineStyle::Hidden,
-        2 => LineStyle::Inset,
-        3 => LineStyle::Groove,
-        4 => LineStyle::Outset,
-        5 => LineStyle::Ridge,
-        6 => LineStyle::Dotted,
-        7 => LineStyle::Dashed,
-        8 => LineStyle::Solid,
-        9 => LineStyle::Double,
-        _ => panic!("invalid encoded LineStyle"),
-    }
-}
-
 #[cfg(test)]
 mod storage_tests {
     use rocketcss_common::Allocator;
@@ -615,7 +832,7 @@ mod storage_tests {
     use crate::{
         AstContext, ColumnCount, ColumnRule, ColumnWidth, Columns, DUMMY_SP, Flex, FlexDirection,
         FlexFlow, FlexWrap, Gap, GapValue, Length, LengthPercentageOrAuto, LengthUnit, LengthValue,
-        LineStyle,
+        LineStyle, Margin,
     };
 
     #[test]
@@ -713,6 +930,27 @@ mod storage_tests {
             Columns {
                 count: ColumnCount::Integer(2),
                 width: ColumnWidth::Length(length),
+            }
+        );
+
+        let edges =
+            [(); 4].map(|()| context.alloc_encoded_node(LengthPercentageOrAuto::Auto, DUMMY_SP));
+        let margin = context.alloc_encoded_node(
+            Margin {
+                bottom: edges[0],
+                left: edges[1],
+                right: edges[2],
+                top: edges[3],
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(
+            context.encoded_node(margin),
+            Margin {
+                bottom: edges[0],
+                left: edges[1],
+                right: edges[2],
+                top: edges[3],
             }
         );
     }
