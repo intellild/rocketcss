@@ -16,7 +16,7 @@ pub enum Length<'a> {
 // bytes 4..8  f32 bits or Calc NodeId index
 // bytes 8..16 reserved
 impl<'ast> AstNodeStorage<'ast> for Length<'ast> {
-    const KIND: NodeKind = NodeKind::new(1);
+    const KIND: NodeKind = NodeKind::new(0x0001_0001);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         let bytes = payload.bytes();

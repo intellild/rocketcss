@@ -41,7 +41,7 @@ pub struct EnvironmentVariable<'a> {
 // extra + 0    indices range
 // extra + 1    EnvironmentVariableName
 impl<'ast> AstNodeStorage<'ast> for EnvironmentVariable<'ast> {
-    const KIND: NodeKind = NodeKind::new(7);
+    const KIND: NodeKind = NodeKind::new(0x0004_0005);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         let bytes = payload.bytes();
@@ -169,7 +169,7 @@ pub struct Url<'a> {
 
 // bytes 0..4 compact string ID; remaining bytes reserved.
 impl<'ast> AstNodeStorage<'ast> for Url<'ast> {
-    const KIND: NodeKind = NodeKind::new(4);
+    const KIND: NodeKind = NodeKind::new(0x0004_0002);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         Self {
@@ -210,7 +210,7 @@ pub struct Variable<'a> {
 // bytes 8..12  fallback range end
 // bytes 12..16 DashedIdentReference NodeId
 impl<'ast> AstNodeStorage<'ast> for Variable<'ast> {
-    const KIND: NodeKind = NodeKind::new(6);
+    const KIND: NodeKind = NodeKind::new(0x0004_0003);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         let bytes = payload.bytes();
@@ -265,7 +265,7 @@ pub struct DashedIdentReference<'a> {
 // bytes 8..12  ident compact string ID
 // bytes 12..16 reserved
 impl<'ast> AstNodeStorage<'ast> for DashedIdentReference<'ast> {
-    const KIND: NodeKind = NodeKind::new(5);
+    const KIND: NodeKind = NodeKind::new(0x0004_0004);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         let bytes = payload.bytes();
@@ -393,7 +393,7 @@ pub struct Function<'a> {
 // extra + 0    compact string ID for the lossless function name
 // extra + 1..3 fixed-width optional FunctionReplacement
 impl<'ast> AstNodeStorage<'ast> for Function<'ast> {
-    const KIND: NodeKind = NodeKind::new(2);
+    const KIND: NodeKind = NodeKind::new(0x0004_0001);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         let bytes = payload.bytes();

@@ -261,7 +261,7 @@ pub enum Token<'a> {
 // bytes 8..12  second compact string ID for UnknownDimension
 // bytes 12..16 reserved
 impl<'ast> AstNodeStorage<'ast> for Token<'ast> {
-    const KIND: NodeKind = NodeKind::new(3);
+    const KIND: NodeKind = NodeKind::new(0x0005_0001);
 
     fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
         let bytes = payload.bytes();
@@ -410,7 +410,7 @@ fn node_index<T>(id: NodeId<'_, T>) -> u32 {
     u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
 }
 
-fn encode_angle(angle: Angle) -> (u8, f32) {
+pub(crate) fn encode_angle(angle: Angle) -> (u8, f32) {
     match angle {
         Angle::Deg(value) => (0, value),
         Angle::Rad(value) => (1, value),
@@ -419,7 +419,7 @@ fn encode_angle(angle: Angle) -> (u8, f32) {
     }
 }
 
-fn decode_angle(kind: u8, value: f32) -> Angle {
+pub(crate) fn decode_angle(kind: u8, value: f32) -> Angle {
     match kind {
         0 => Angle::Deg(value),
         1 => Angle::Rad(value),

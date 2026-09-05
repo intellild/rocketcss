@@ -151,6 +151,12 @@ single context checkpoint.
 slot is decoded with the node type that created it. There is no stored pointer,
 Rust type name, trait object, per-type table, or per-type lookup map.
 
+The upper 16 bits reserve a family range for the owning AST module and the
+lower 16 bits identify a hand-written codec within that family. For example,
+length, color, image, stylesheet-value, and token codecs currently use families
+`0x0001` through `0x0005`. This keeps discriminants local to the owning module
+without relying on a generated central registry.
+
 ### Inline and overflow layout
 
 `NodePayload` is 16 bytes. Each node type has one manually defined, stable field
