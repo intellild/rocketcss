@@ -168,9 +168,9 @@ fn plugin_errors_include_the_plugin_name() {
     });
 }
 
-struct RecordRadixPlugin(&'static str);
+struct RecordContextPlugin(&'static str);
 
-impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordRadixPlugin {
+impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordContextPlugin {
     fn name(&self) -> &str {
         self.0
     }
@@ -216,9 +216,9 @@ fn ast_plugins_run_on_one_authoritative_compilation_in_registration_order() {
         let mut context = PluginContext::new(&allocator, &mut token);
         context.insert(std::vec::Vec::<&'static str>::new());
         let mut plugins = Plugins::new();
-        plugins.add(RecordRadixPlugin("one"));
+        plugins.add(RecordContextPlugin("one"));
         plugins.add_visitor("tombstone-properties", TombstoneProperties);
-        plugins.add(RecordRadixPlugin("two"));
+        plugins.add(RecordContextPlugin("two"));
 
         plugins.run(&mut compilation, &mut context).unwrap();
 

@@ -103,14 +103,14 @@ fn ast_traversal_uses_lexical_rule_and_declaration_order() {
     );
 }
 
-struct RadixRewrite<'a> {
+struct ContextRewrite<'a> {
     first_rule: RuleId<'a>,
     replacement_selector: SelectorValueId<'a>,
     selector_replaced: bool,
     declaration_replaced: bool,
 }
 
-impl<'a> CompilationVisitorMut<'a> for RadixRewrite<'a> {
+impl<'a> CompilationVisitorMut<'a> for ContextRewrite<'a> {
     fn visit_rule(&mut self, id: RuleId<'a>, cx: &mut CompilationVisitMutContext<'_, 'a>) {
         if id == self.first_rule {
             self.selector_replaced = cx
@@ -151,7 +151,7 @@ fn ast_mutable_traversal_uses_selector_and_declaration_transactions() {
         panic!("expected a style rule")
     };
     let replacement_selector = second_payload.selector_value;
-    let mut visitor = RadixRewrite {
+    let mut visitor = ContextRewrite {
         first_rule: *first_rule,
         replacement_selector,
         selector_replaced: false,

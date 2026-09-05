@@ -1467,7 +1467,7 @@ fn declarations_are_exactly_equal<'ast>(
 }
 
 #[derive(Clone, Copy)]
-struct RadixS3Endpoints<'ast> {
+struct S3Endpoints<'ast> {
     left_rule: RuleId<'ast>,
     right_rule: RuleId<'ast>,
     left_key: EffectiveKeyId<'ast>,
@@ -1482,7 +1482,7 @@ struct RadixS3Endpoints<'ast> {
 fn validate_s3<'ast>(
     compilation: &AstContext<'ast>,
     candidate: Candidate<'ast>,
-) -> Option<RadixS3Endpoints<'ast>> {
+) -> Option<S3Endpoints<'ast>> {
     let left_block = compilation.declaration_block(candidate.left)?;
     let right_block = compilation.declaration_block(candidate.right)?;
     if !left_block.is_live()
@@ -1523,7 +1523,7 @@ fn validate_s3<'ast>(
     {
         return None;
     }
-    Some(RadixS3Endpoints {
+    Some(S3Endpoints {
         left_rule: left_rule_id,
         right_rule: right_rule_id,
         left_key: left_block.effective_key(),

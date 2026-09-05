@@ -1,6 +1,6 @@
 use crate::MinifyContext;
 use rocketcss_ast::{
-    AstContext, CSSWideOr, Columns, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
+    AstContext, CSSWideOr, Columns, ConcreteDeclarationBlockId as ContextDeclarationBlockId,
     CssColor, Declaration, DeclarationBlockMutationScope, DeclarationPayload, Margin, Padding,
     PropertyId, ScopedDeclarationHandle, VendorPrefix, Visit, VisitContext, Visitor,
 };
@@ -305,7 +305,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
     pub(crate) fn minify_compilation_block(
         &mut self,
         compilation: &mut AstContext<'ast>,
-        block: RadixDeclarationBlockId<'ast>,
+        block: ContextDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         compilation
