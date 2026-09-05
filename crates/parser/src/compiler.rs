@@ -1,4 +1,4 @@
-use rocketcss_ast::{Atom, Compilation};
+use rocketcss_ast::{Atom, Compilation, NodeId};
 use rocketcss_common::{Allocator, GhostToken, StringPool};
 
 use crate::{
@@ -9,6 +9,7 @@ use crate::{
 /// Shared state for parsing CSS into one arena-owned compilation.
 pub struct Compiler<'alloc> {
     pub(crate) allocator: &'alloc Allocator,
+    pub(crate) compilation: Compilation<'alloc>,
     pub(crate) string_pool: StringPool<'alloc>,
     pub(crate) cursor: ParserCursor<'alloc>,
     pub(crate) replay: DeclarationTokenReplay<'alloc>,
@@ -20,6 +21,7 @@ impl<'alloc> Compiler<'alloc> {
     pub fn new(allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
+            compilation: Compilation::new_in(allocator),
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(""),
             replay: DeclarationTokenReplay::new(allocator),
@@ -32,6 +34,7 @@ impl<'alloc> Compiler<'alloc> {
     pub fn new_with_source(source: &'alloc str, allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
+            compilation: Compilation::new_in(allocator),
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(source),
             replay: DeclarationTokenReplay::new(allocator),
@@ -55,6 +58,24 @@ impl<'alloc> Compiler<'alloc> {
     #[inline]
     pub fn allocator(&self) -> &'alloc Allocator {
         self.allocator
+    }
+
+    /// Returns the AST context that owns every node allocated by this parser.
+    #[inline]
+    pub fn ast_context(&self) -> &Compilation<'alloc> {
+        &self.compilation
+    }
+
+    /// Returns the AST context that owns every node allocated by this parser.
+    #[inline]
+    pub fn ast_context_mut(&mut self) -> &mut Compilation<'alloc> {
+        &mut self.compilation
+    }
+
+    /// Finishes value parsing and transfers ownership of the node context to the caller.
+    #[inline]
+    pub fn into_ast_context(self) -> Compilation<'alloc> {
+        self.compilation
     }
 
     #[inline]
@@ -97,4 +118,14 @@ impl<'alloc> Compiler<'alloc> {
     pub fn source_map_url(&self) -> Option<&'alloc str> {
         self.source_map_url
     }
+}
+
+/// Stores a parsed value after its construction has released any temporary compiler borrow.
+#[inline]
+pub(crate) fn store_node<'alloc, T: 'alloc>(
+    value: T,
+    input: &mut Compiler<'alloc>,
+) -> NodeId<'alloc, T> {
+    let span = input.current_token_span().unwrap_or_default();
+    input.ast_context_mut().alloc_node(value, span)
 }

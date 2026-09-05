@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
+pub(super) fn minify_transform_function(
+    function: &mut Function<'_>,
+    ast: &VisitMutContext<'_, '_, '_>,
+) -> bool {
     if function.kind() == KnownFunction::RotateZ && function.arguments.len() == 1 {
         function.set_name("rotate");
         return true;
@@ -8,16 +11,16 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
     if function.kind() == KnownFunction::Matrix3d {
         let values = &function.arguments;
         if values.len() == 31
-            && number_at(values, 4) == Some(0.0)
-            && number_at(values, 6) == Some(0.0)
-            && number_at(values, 12) == Some(0.0)
-            && number_at(values, 14) == Some(0.0)
-            && number_at(values, 16) == Some(0.0)
-            && number_at(values, 18) == Some(0.0)
-            && number_at(values, 20) == Some(1.0)
-            && number_at(values, 22) == Some(0.0)
-            && number_at(values, 28) == Some(0.0)
-            && number_at(values, 30) == Some(1.0)
+            && number_at(values, 4, ast) == Some(0.0)
+            && number_at(values, 6, ast) == Some(0.0)
+            && number_at(values, 12, ast) == Some(0.0)
+            && number_at(values, 14, ast) == Some(0.0)
+            && number_at(values, 16, ast) == Some(0.0)
+            && number_at(values, 18, ast) == Some(0.0)
+            && number_at(values, 20, ast) == Some(1.0)
+            && number_at(values, 22, ast) == Some(0.0)
+            && number_at(values, 28, ast) == Some(0.0)
+            && number_at(values, 30, ast) == Some(1.0)
         {
             function.set_name("matrix");
             compact_arguments(
@@ -30,9 +33,9 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
     }
     if function.kind() == KnownFunction::Rotate3d && function.arguments.len() == 7 {
         let name = match (
-            number_at(&function.arguments, 0),
-            number_at(&function.arguments, 2),
-            number_at(&function.arguments, 4),
+            number_at(&function.arguments, 0, ast),
+            number_at(&function.arguments, 2, ast),
+            number_at(&function.arguments, 4, ast),
         ) {
             (Some(1.0), Some(0.0), Some(0.0)) => "rotateX",
             (Some(0.0), Some(1.0), Some(0.0)) => "rotateY",
@@ -44,14 +47,14 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
         return true;
     }
     if function.kind() == KnownFunction::Scale && function.arguments.len() == 3 {
-        if function.arguments[0] == function.arguments[2]
-            && !is_empty_variable_function(&function.arguments[0])
+        if crate::token::token_or_value_eq(&function.arguments[0], &function.arguments[2], ast)
+            && !is_empty_variable_function(&function.arguments[0], ast)
         {
             function.arguments.truncate(1);
             return true;
         }
-        let first = number_at(&function.arguments, 0);
-        let second = number_at(&function.arguments, 2);
+        let first = number_at(&function.arguments, 0, ast);
+        let second = number_at(&function.arguments, 2, ast);
         if first == second && first.is_some() {
             function.arguments.truncate(1);
             return true;
@@ -70,9 +73,9 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
     }
     if function.kind() == KnownFunction::Scale3d && function.arguments.len() == 5 {
         let values = [
-            number_at(&function.arguments, 0),
-            number_at(&function.arguments, 2),
-            number_at(&function.arguments, 4),
+            number_at(&function.arguments, 0, ast),
+            number_at(&function.arguments, 2, ast),
+            number_at(&function.arguments, 4, ast),
         ];
         let (name, index) = if values[1] == Some(1.0) && values[2] == Some(1.0) {
             ("scaleX", 0)
@@ -88,11 +91,11 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
         return true;
     }
     if function.kind() == KnownFunction::Translate && function.arguments.len() == 3 {
-        if number_at(&function.arguments, 2) == Some(0.0) {
+        if number_at(&function.arguments, 2, ast) == Some(0.0) {
             function.arguments.truncate(1);
             return true;
         }
-        if number_at(&function.arguments, 0) == Some(0.0) {
+        if number_at(&function.arguments, 0, ast) == Some(0.0) {
             function.set_name("translateY");
             compact_arguments(&mut function.arguments, &[2]);
             return true;
@@ -101,8 +104,8 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
     }
     if function.kind() == KnownFunction::Translate3d
         && function.arguments.len() == 5
-        && number_at(&function.arguments, 0) == Some(0.0)
-        && number_at(&function.arguments, 2) == Some(0.0)
+        && number_at(&function.arguments, 0, ast) == Some(0.0)
+        && number_at(&function.arguments, 2, ast) == Some(0.0)
     {
         function.set_name("translateZ");
         compact_arguments(&mut function.arguments, &[4]);
@@ -111,9 +114,12 @@ pub(super) fn minify_transform_function(function: &mut Function<'_>) -> bool {
     false
 }
 
-fn is_empty_variable_function(value: &TokenOrValue<'_>) -> bool {
+fn is_empty_variable_function(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> bool {
     matches!(value, TokenOrValue::Function(function)
-        if function.arguments.is_empty() && function.kind().is_variable())
+    if {
+        let function = ast.ast_context().resolve_node(*function);
+        function.arguments.is_empty() && function.kind().is_variable()
+    })
 }
 
 fn compact_arguments(

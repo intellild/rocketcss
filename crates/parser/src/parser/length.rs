@@ -67,33 +67,37 @@ impl<'i> Parse<'i> for Size<'i> {
                     input.expect_exhausted()?;
                     Ok(value)
                 })?;
-                Ok(Size::FitContentFunction(allocator.boxed(value)))
+                Ok(Size::FitContentFunction(store_node(value, input)))
             }
             ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
                 let arguments =
                     input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
-                if token_values_contain_opaque(&arguments) {
+                if token_values_contain_opaque(input.ast_context(), &arguments) {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 }
-                Ok(Size::MathFunction(
-                    allocator.boxed(Function::new(name, arguments)),
-                ))
+                Ok(Size::MathFunction(store_node(
+                    Function::new(name, arguments),
+                    input,
+                )))
             }
-            ValueToken::Percentage(value) => Ok(Size::LengthPercentage(
-                allocator.boxed(DimensionPercentage::Percentage(value)),
-            )),
+            ValueToken::Percentage(value) => Ok(Size::LengthPercentage(store_node(
+                DimensionPercentage::Percentage(value),
+                input,
+            ))),
             ValueToken::Dimension { unit, value } => {
                 let unit = parse_length_unit(&unit)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Size::LengthPercentage(allocator.boxed(
+                Ok(Size::LengthPercentage(store_node(
                     DimensionPercentage::Dimension(LengthValue { unit, value }),
+                    input,
                 )))
             }
-            ValueToken::Number(0.0) => Ok(Size::LengthPercentage(allocator.boxed(
+            ValueToken::Number(0.0) => Ok(Size::LengthPercentage(store_node(
                 DimensionPercentage::Dimension(LengthValue {
                     unit: LengthUnit::Px,
                     value: 0.0,
                 }),
+                input,
             ))),
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
@@ -132,33 +136,37 @@ impl<'i> Parse<'i> for MaxSize<'i> {
                     input.expect_exhausted()?;
                     Ok(value)
                 })?;
-                Ok(Self::FitContentFunction(allocator.boxed(value)))
+                Ok(Self::FitContentFunction(store_node(value, input)))
             }
             ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
                 let arguments =
                     input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
-                if token_values_contain_opaque(&arguments) {
+                if token_values_contain_opaque(input.ast_context(), &arguments) {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 }
-                Ok(Self::MathFunction(
-                    allocator.boxed(Function::new(name, arguments)),
-                ))
+                Ok(Self::MathFunction(store_node(
+                    Function::new(name, arguments),
+                    input,
+                )))
             }
-            ValueToken::Percentage(value) => Ok(Self::LengthPercentage(
-                allocator.boxed(DimensionPercentage::Percentage(value)),
-            )),
+            ValueToken::Percentage(value) => Ok(Self::LengthPercentage(store_node(
+                DimensionPercentage::Percentage(value),
+                input,
+            ))),
             ValueToken::Dimension { unit, value } => {
                 let unit = parse_length_unit(&unit)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Self::LengthPercentage(allocator.boxed(
+                Ok(Self::LengthPercentage(store_node(
                     DimensionPercentage::Dimension(LengthValue { unit, value }),
+                    input,
                 )))
             }
-            ValueToken::Number(0.0) => Ok(Self::LengthPercentage(allocator.boxed(
+            ValueToken::Number(0.0) => Ok(Self::LengthPercentage(store_node(
                 DimensionPercentage::Dimension(LengthValue {
                     unit: LengthUnit::Px,
                     value: 0.0,
                 }),
+                input,
             ))),
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }

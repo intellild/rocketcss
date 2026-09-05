@@ -366,7 +366,7 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
     let inserted = compilation
         .insert_rule_after(
             outer,
-            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
+            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload),
         )
         .unwrap();
 
@@ -428,7 +428,7 @@ fn dense_insertion_preserves_existing_ids_and_effective_key_seeds() {
     let first = compilation
         .insert_rule_after(
             outer,
-            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
+            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload),
         )
         .unwrap();
     let key = compilation
@@ -439,7 +439,7 @@ fn dense_insertion_preserves_existing_ids_and_effective_key_seeds() {
         compilation
             .insert_rule_after(
                 outer,
-                CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
+                CssRulePayload::NestedDeclarations(NestedDeclarationsPayload),
             )
             .unwrap();
         assert_eq!(compilation.validate_ast(), Ok(()));
@@ -484,7 +484,7 @@ fn insertion_skips_retired_source_tombstones() {
     let inserted = compilation
         .insert_rule_after(
             first,
-            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
+            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload),
         )
         .unwrap();
 
@@ -1151,7 +1151,7 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
         unreachable!()
     };
     assert!(matches!(
-        *radix_keyframes.name,
+        radix.resolve_node(radix_keyframes.name),
         KeyframesName::Ident("fade")
     ));
     assert_eq!(radix_keyframes.vendor_prefix, VendorPrefix::WEBKIT);
@@ -1451,7 +1451,10 @@ fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
     else {
         unreachable!()
     };
-    assert!(matches!(&**syntax, SyntaxString::Universal));
+    assert!(matches!(
+        radix.resolve_node(*syntax),
+        SyntaxString::Universal
+    ));
     let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Inherits(inherits)) = radix
         .declaration(property.inherits.unwrap())
         .unwrap()
@@ -1467,7 +1470,9 @@ fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
     else {
         unreachable!()
     };
-    assert!(matches!(&**initial, ParsedComponent::TokenList(values) if !values.is_empty()));
+    assert!(
+        matches!(radix.resolve_node(*initial), ParsedComponent::TokenList(values) if !values.is_empty())
+    );
     assert_eq!(radix.rule(rule).unwrap().parent(), None);
     assert_eq!(radix.validate_ast(), Ok(()));
 }
@@ -1540,7 +1545,8 @@ fn replay_failed_prefix_is_never_decoded_twice() {
     let declarations = property_declarations(&compilation);
     assert!(matches!(
         declarations[0],
-        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::InvalidValue
+        Declaration::Unparsed(value)
+            if compilation.resolve_node(*value).reason == UnparsedPropertyReason::InvalidValue
     ));
     // `1px` and the comma are decoded once by the typed parser and replayed
     // by the fallback; `2px` is decoded once by the fallback.
@@ -1559,7 +1565,8 @@ fn replay_nested_failure_reuses_the_whole_typed_tape() {
     let declarations = property_declarations(&compilation);
     assert!(matches!(
         declarations[0],
-        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::OpaqueValue
+        Declaration::Unparsed(value)
+            if compilation.resolve_node(*value).reason == UnparsedPropertyReason::OpaqueValue
     ));
     // calc, 1px, whitespace, +, whitespace, var, --x are all decoded by the
     // typed parser and replayed by the fallback; the closing parenthesis is
@@ -1578,7 +1585,8 @@ fn replay_css_wide_candidate_fallback_reuses_the_ident() {
     let declarations = property_declarations(&compilation);
     assert!(matches!(
         declarations[0],
-        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::InvalidValue
+        Declaration::Unparsed(value)
+            if compilation.resolve_node(*value).reason == UnparsedPropertyReason::InvalidValue
     ));
     // `initial` is decoded by the CSS-wide attempt and replayed by the
     // fallback; the whitespace and `5px` are decoded only by the fallback.
@@ -1596,7 +1604,8 @@ fn replay_css_wide_success_is_not_replayed() {
     assert!(matches!(
         property_declarations(&compilation)[0],
         Declaration::CSSWide(property_id, keyword)
-            if **property_id == PropertyId::Width && *keyword == CSSWideKeyword::Initial
+            if compilation.resolve_node(*property_id) == &PropertyId::Width
+                && *keyword == CSSWideKeyword::Initial
     ));
     assert_eq!(counters.decodes, 0);
     assert_eq!(counters.replay_hits, 0);
@@ -1625,7 +1634,9 @@ fn unsupported_grammar_property_stays_on_the_inactive_fast_path() {
     let declarations = property_declarations(&compilation);
     assert!(matches!(
         declarations[0],
-        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::UnsupportedGrammar
+        Declaration::Unparsed(value)
+            if compilation.resolve_node(*value).reason
+                == UnparsedPropertyReason::UnsupportedGrammar
     ));
     assert_eq!(counters.decodes, 0);
     assert_eq!(counters.replay_hits, 0);

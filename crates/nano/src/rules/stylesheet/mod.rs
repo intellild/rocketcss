@@ -8,77 +8,67 @@ mod transform;
 mod url;
 
 use rocketcss_ast::{
-    EnvironmentVariable, Function, FunctionReplacement, KnownFunction, LengthUnit, Token,
-    TokenOrValue, Unit, Variable, match_ignore_ascii_case,
+    Function, FunctionReplacement, KnownFunction, LengthUnit, Token, TokenOrValue, Unit,
+    VisitMutContext, match_ignore_ascii_case,
 };
 use rocketcss_common::vec::Vec;
 
-use crate::{Minify, MinifyContext, Options, OptionsOp, context::ValueContextFlags};
+use crate::{MinifyContext, Options, OptionsOp, context::ValueContextFlags};
 
 pub(crate) use declaration_block::DeclarationBlockMinifier;
+pub(crate) use function::minify_function;
 pub(crate) use url::normalize_url_text;
 
-fn token_or_value_contains_variable(value: &TokenOrValue<'_>) -> bool {
+fn token_or_value_contains_variable(
+    value: &TokenOrValue<'_>,
+    ast: &VisitMutContext<'_, '_, '_>,
+) -> bool {
     match value {
         TokenOrValue::Var(_) => true,
         TokenOrValue::Function(function) => {
+            let function = ast.ast_context().resolve_node(*function);
             function.kind() == KnownFunction::Var
                 || function
                     .arguments
                     .iter()
-                    .any(token_or_value_contains_variable)
+                    .any(|value| token_or_value_contains_variable(value, ast))
         }
         _ => false,
     }
 }
 
-fn token_number(value: &TokenOrValue<'_>) -> Option<f32> {
+fn token_number(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> Option<f32> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    match **token {
-        Token::Number(value) => Some(value),
-        Token::Dimension { value, .. } | Token::UnknownDimension { value, .. } => Some(value),
+    match ast.ast_context().resolve_node(*token) {
+        Token::Number(value) => Some(*value),
+        Token::Dimension { value, .. } | Token::UnknownDimension { value, .. } => Some(*value),
         _ => None,
     }
 }
 
-fn number_at(values: &[TokenOrValue<'_>], index: usize) -> Option<f32> {
-    values.get(index).and_then(token_number)
+fn number_at(
+    values: &[TokenOrValue<'_>],
+    index: usize,
+    ast: &VisitMutContext<'_, '_, '_>,
+) -> Option<f32> {
+    values.get(index).and_then(|value| token_number(value, ast))
 }
 
-fn token_ident<'a>(value: &'a TokenOrValue<'a>) -> Option<&'a str> {
+fn token_ident<'a>(
+    value: &'a TokenOrValue<'a>,
+    ast: &VisitMutContext<'_, '_, '_>,
+) -> Option<&'a str> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    match **token {
-        Token::Ident(value) => Some(value),
+    match ast.ast_context().resolve_node(*token) {
+        Token::Ident(value) => Some(*value),
         _ => None,
     }
 }
 
-fn is_comma(value: &TokenOrValue<'_>) -> bool {
-    matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::Comma))
-}
-
-impl Minify for Variable<'_> {
-    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        if let Some(fallback) = &mut self.fallback {
-            fallback.minify(cx);
-        }
-    }
-}
-
-impl Minify for EnvironmentVariable<'_> {
-    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        if let Some(fallback) = &mut self.fallback {
-            fallback.minify(cx);
-        }
-    }
+fn is_comma(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> bool {
+    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::Comma))
 }

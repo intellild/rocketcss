@@ -1,5 +1,6 @@
 //! Typed dense storage and topology for the compiler's persistent AST.
 
+use crate::{DUMMY_SP, Span};
 use rocketcss_common::{Allocator, DenseId, DenseStore};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
@@ -7,12 +8,14 @@ use std::hash::Hash;
 
 mod effective_key;
 mod mutation;
+mod node;
 mod payload;
 mod topology;
 mod traversal;
 mod validation;
 
 pub use effective_key::*;
+pub use node::*;
 pub use payload::*;
 pub use traversal::*;
 
@@ -79,13 +82,17 @@ pub type EffectiveKeyStore<'ast, P> = DenseStore<'ast, EffectiveKeyDomain, P>;
 pub type DeclarationStore<'ast, P> =
     DenseStore<'ast, DeclarationDomain, DeclarationRecord<'ast, P>>;
 
-/// Concrete compiler-owned AST.
-pub type Compilation<'ast> = RadixCompilation<
+/// Concrete compiler-owned AST context.
+pub type AstContext<'ast> = RadixCompilation<
     'ast,
     CssRulePayload<'ast>,
     DeclarationPayload<'ast>,
     EffectiveKeyData<'ast, CssRulePayload<'ast>>,
+    AstNodeStores<'ast>,
 >;
+
+/// Compatibility name for the compiler-owned [`AstContext`].
+pub type Compilation<'ast> = AstContext<'ast>;
 
 /// Concrete rule identity for the compiler-owned [`Compilation`].
 pub type ConcreteRuleId<'ast> = RuleId<'ast, CssRulePayload<'ast>>;
@@ -138,7 +145,7 @@ pub struct CompilationCapacity {
 /// One authored declaration occurrence and its cascade importance.
 #[derive(Debug, PartialEq, Eq)]
 pub struct DeclarationRecord<'ast, P> {
-    payload: P,
+    payload: Option<P>,
     next_in_block: Option<DeclarationId<'ast>>,
     important: bool,
 }
@@ -146,12 +153,17 @@ pub struct DeclarationRecord<'ast, P> {
 impl<P> DeclarationRecord<'_, P> {
     #[inline]
     pub const fn payload(&self) -> &P {
-        &self.payload
+        match &self.payload {
+            Some(payload) => payload,
+            None => panic!("recursive access to a mutably borrowed declaration payload"),
+        }
     }
 
     #[inline]
     pub fn payload_mut(&mut self) -> &mut P {
-        &mut self.payload
+        self.payload
+            .as_mut()
+            .expect("recursive access to a mutably borrowed declaration payload")
     }
 
     #[inline]
@@ -176,7 +188,7 @@ impl<'ast> StyleSheet<'ast> {
 /// Direct topology for one authored or synthesized CSS rule.
 #[derive(Debug, PartialEq, Eq)]
 pub struct RuleRecord<'ast, P> {
-    payload: P,
+    payload: Option<P>,
     source_order_id: SourceOrderId,
     parent: Option<RuleId<'ast, P>>,
     parent_list: RuleListId<'ast>,
@@ -193,12 +205,17 @@ pub struct RuleRecord<'ast, P> {
 impl<'ast, P> RuleRecord<'ast, P> {
     #[inline]
     pub const fn payload(&self) -> &P {
-        &self.payload
+        match &self.payload {
+            Some(payload) => payload,
+            None => panic!("recursive access to a mutably borrowed rule payload"),
+        }
     }
 
     #[inline]
     pub fn payload_mut(&mut self) -> &mut P {
-        &mut self.payload
+        self.payload
+            .as_mut()
+            .expect("recursive access to a mutably borrowed rule payload")
     }
 
     #[inline]
@@ -630,11 +647,12 @@ pub enum ValidationError<'ast, P> {
 }
 
 /// `R` and `D` keep rule and declaration payloads independent from storage.
-pub struct RadixCompilation<'ast, R: Unpin, D, K> {
+pub struct RadixCompilation<'ast, R: Unpin, D, K, N = ()> {
     allocator: &'ast Allocator,
     stylesheet: StyleSheet<'ast>,
     license_comments: crate::Vec<'ast, &'ast str>,
     rules: RuleStore<'ast, R>,
+    rule_spans: DenseStore<'ast, RuleRecord<'ast, R>, Span>,
     rule_lists: RuleListStore<'ast, R>,
     declaration_blocks: DeclarationBlockStore<'ast, R>,
     declarations: DeclarationStore<'ast, D>,
@@ -651,11 +669,12 @@ pub struct RadixCompilation<'ast, R: Unpin, D, K> {
     context_path_ids: FxHashMap<ContextPathKey<'ast>, ContextPathId<'ast>>,
     layer_contexts: DenseStore<'ast, LayerContextDomain, LayerContextRecord<'ast, R>>,
     layer_context_ids: FxHashMap<LayerContextKey<'ast, R>, LayerContextId<'ast>>,
+    node_stores: N,
     first_rule_in_source: Option<RuleId<'ast, R>>,
     last_rule_in_source: Option<RuleId<'ast, R>>,
 }
 
-impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
+impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
     const SOURCE_ORDER_STRIDE: u64 = 1_u64 << 32;
 
     /// Creates an empty compilation with one root rule list.
@@ -678,6 +697,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             stylesheet: StyleSheet { root_rules },
             license_comments: allocator.vec(),
             rules: RuleStore::with_capacity_in(allocator, capacity.rules),
+            rule_spans: DenseStore::with_capacity_in(allocator, capacity.rules),
             rule_lists,
             declaration_blocks: DeclarationBlockStore::with_capacity_in(
                 allocator,
@@ -718,6 +738,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 capacity.contexts,
                 Default::default(),
             ),
+            node_stores: N::new_in(allocator),
             first_rule_in_source: None,
             last_rule_in_source: None,
         }
@@ -756,6 +777,26 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     #[inline]
     pub fn rule_mut(&mut self, id: RuleId<'ast, R>) -> Option<&mut RuleRecord<'ast, R>> {
         self.rules.try_get_mut(id)
+    }
+
+    /// Returns the source span stored alongside `id`'s rule record.
+    #[inline]
+    pub fn rule_span(&self, id: RuleId<'ast, R>) -> Option<Span> {
+        self.rule_spans.try_get(id).copied()
+    }
+
+    /// Replaces the source span stored alongside `id`'s rule record.
+    #[inline]
+    pub fn set_rule_span(
+        &mut self,
+        id: RuleId<'ast, R>,
+        span: Span,
+    ) -> Result<(), MutationError<'ast, R>> {
+        *self
+            .rule_spans
+            .try_get_mut(id)
+            .ok_or(MutationError::UnknownRule(id))? = span;
+        Ok(())
     }
 
     #[inline]
@@ -943,6 +984,71 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         Ok(visited)
     }
 
+    /// Visits declaration payloads through a context-owned transaction.
+    /// Nested NodeIds remain resolvable through the supplied compilation while
+    /// the current declaration payload is temporarily vacant.
+    #[doc(hidden)]
+    pub fn for_each_declaration_payload_mut_with_context(
+        &mut self,
+        block: DeclarationBlockId<'ast, R>,
+        mut visit: impl FnMut(DeclarationId<'ast>, &mut D, &mut Self),
+    ) -> Result<usize, MutationError<'ast, R>> {
+        let block_record = self
+            .declaration_blocks
+            .try_get(block)
+            .ok_or(MutationError::UnknownDeclarationBlock(block))?;
+        if !block_record.live {
+            return Err(MutationError::UnknownDeclarationBlock(block));
+        }
+        let mut next = block_record.first_declaration;
+        let expected = block_record.declaration_count as usize;
+        let mut visited = 0usize;
+        while visited < expected {
+            let declaration = next.ok_or(MutationError::InvalidDeclarationChain(block))?;
+            let mut payload = {
+                let record = self
+                    .declarations
+                    .try_get_mut(declaration)
+                    .ok_or(MutationError::UnknownDeclaration(declaration))?;
+                next = record.next_in_block;
+                record
+                    .payload
+                    .take()
+                    .expect("recursive mutation of one declaration payload")
+            };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                visit(declaration, &mut payload, self);
+            }));
+            let record = self
+                .declarations
+                .try_get_mut(declaration)
+                .expect("a declaration transaction cannot remove its dense record");
+            assert!(
+                record.payload.is_none(),
+                "a declaration transaction must restore its original vacant slot"
+            );
+            record.payload = Some(payload);
+            if let Err(payload) = result {
+                std::panic::resume_unwind(payload);
+            }
+            visited += 1;
+        }
+        if next.is_some() {
+            return Err(MutationError::InvalidDeclarationChain(block));
+        }
+
+        if visited != 0 {
+            let revision =
+                u32::try_from(visited).expect("a block cannot contain u32::MAX declarations");
+            let block = self
+                .declaration_blocks
+                .try_get_mut(block)
+                .expect("the live block remains resolvable");
+            block.revision = block.revision.wrapping_add(revision);
+        }
+        Ok(visited)
+    }
+
     /// Resolves one semantic declaration position without materializing the
     /// block's ID sequence.
     #[doc(hidden)]
@@ -1086,19 +1192,30 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         list: RuleListId<'ast>,
         payload: R,
     ) -> Result<RuleId<'ast, R>, MutationError<'ast, R>> {
+        self.append_rule_with_span(list, payload, DUMMY_SP)
+    }
+
+    /// Appends one authored rule and stores its source span in the aligned
+    /// rule-span sidecar.
+    pub fn append_rule_with_span(
+        &mut self,
+        list: RuleListId<'ast>,
+        payload: R,
+        span: Span,
+    ) -> Result<RuleId<'ast, R>, MutationError<'ast, R>> {
         let (parent, previous_sibling) = self
             .rule_lists
             .try_get(list)
             .map(|list| (list.parent, list.last))
             .ok_or(MutationError::UnknownRuleList(list))?;
-        if !self.rules.has_capacity_for(1) {
+        if !self.rules.has_capacity_for(1) || !self.rule_spans.has_capacity_for(1) {
             return Err(MutationError::RuleCapacityExhausted);
         }
         let source_order_id = self.source_order_id_between(self.last_rule_in_source, None)?;
         let id = self
             .rules
             .try_push(RuleRecord {
-                payload,
+                payload: Some(payload),
                 source_order_id,
                 parent,
                 parent_list: list,
@@ -1112,6 +1229,11 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 live: true,
             })
             .map_err(|_| MutationError::RuleCapacityExhausted)?;
+        let span_id = self
+            .rule_spans
+            .try_push(span)
+            .expect("the rule span store was preflighted with the rule store");
+        debug_assert_eq!(id, span_id, "rule payloads and spans must stay aligned");
         if let Some(previous) = self.last_rule_in_source {
             self.rules
                 .try_get_mut(previous)
@@ -1354,7 +1476,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
         let declaration = self
             .declarations
             .try_push(DeclarationRecord {
-                payload,
+                payload: Some(payload),
                 next_in_block: None,
                 important,
             })

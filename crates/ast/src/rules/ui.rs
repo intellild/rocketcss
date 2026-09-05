@@ -9,26 +9,25 @@ pub struct Cursor<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub struct CursorImage<'a> {
     pub hotspot: Option<(f32, f32)>,
-    pub url: Box<'a, Url<'a>>,
+    pub url: NodeId<'a, Url<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Caret<'a> {
-    pub color: Box<'a, ColorOrAuto<'a>>,
+    pub color: NodeId<'a, ColorOrAuto<'a>>,
     pub shape: CaretShape,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ListStyle<'a> {
-    pub image: Box<'a, Image<'a>>,
-    pub list_style_type: Box<'a, ListStyleType<'a>>,
+    pub image: NodeId<'a, Image<'a>>,
+    pub list_style_type: NodeId<'a, ListStyleType<'a>>,
     pub position: ListStylePosition,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Composes<'a> {
-    pub from: Option<Box<'a, Specifier<'a>>>,
-    pub span: Span,
+    pub from: Option<NodeId<'a, Specifier<'a>>>,
     pub names: Vec<'a, &'a str>,
 }
 

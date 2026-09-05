@@ -173,7 +173,10 @@ fn preserves_comments_in_css_wide_fallbacks_when_prettifying() {
         for (declaration, _) in property_declarations(&stylesheet, first_block_id(&stylesheet)) {
             assert!(
                 declaration
-                    .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                    .to_css_string(
+                        PrinterOptions::default(),
+                        &ToCssContext::with_ast(&token, &stylesheet),
+                    )
                     .unwrap()
                     .contains("/**/")
             );
@@ -197,7 +200,10 @@ fn ports_lightningcss_public_to_css_api_cases() {
         assert_eq!(
             declarations[0]
                 .0
-                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .to_css_string(
+                    PrinterOptions::default(),
+                    &ToCssContext::with_ast(&token, &stylesheet),
+                )
                 .unwrap(),
             "color: red"
         );
@@ -322,7 +328,7 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
         else {
             panic!("expected media rule")
         };
-        let query = &rule.query.media_queries[0];
+        let query = stylesheet.resolve_node(rule.query.media_queries[0]);
         assert!(matches!(query.media_type, MediaType::All));
         assert!(query.qualifier.is_none());
         assert!(matches!(
@@ -524,10 +530,13 @@ fn box_sizing_css_wide_keywords_round_trip_as_known_unparsed_values() {
         assert!(declarations.iter().all(|(declaration, _)| matches!(
             declaration,
             Declaration::Unparsed(value)
-                if matches!(
-                    &*value.property_id,
-                    PropertyId::BoxSizing(VendorPrefix::NONE)
-                )
+                if {
+                    let value = stylesheet.resolve_node(*value);
+                    matches!(
+                        stylesheet.resolve_node(value.property_id),
+                        PropertyId::BoxSizing(VendorPrefix::NONE)
+                    )
+                }
         )));
         assert_eq!(
             stylesheet
@@ -729,6 +738,7 @@ fn unparsed_values_preserve_authored_spelling_for_every_reason() {
             .iter()
             .map(|(declaration, _)| match declaration {
                 Declaration::Unparsed(value) => {
+                    let value = stylesheet.resolve_node(*value);
                     assert!(value.raw_value.is_some());
                     value.reason
                 }
@@ -748,7 +758,10 @@ fn unparsed_values_preserve_authored_spelling_for_every_reason() {
         assert!(matches!(
             declarations[2].0,
             Declaration::Unparsed(value)
-                if value.property_id.vendor_prefix() == VendorPrefix::WEBKIT
+                if stylesheet
+                    .resolve_node(stylesheet.resolve_node(*value).property_id)
+                    .vendor_prefix()
+                    == VendorPrefix::WEBKIT
         ));
 
         assert_eq!(

@@ -75,14 +75,12 @@ impl<'i> Parse<'i> for SVGPaint<'i> {
             let fallback = input
                 .try_parse(parse_svg_paint_fallback)
                 .ok()
-                .map(|value| input.allocator().boxed(value));
+                .map(|value| store_node(value, input));
             return Ok(Self::Url { fallback, url });
         }
         input.reset(&state);
 
-        Ok(Self::Color(
-            input.allocator().boxed(CssColor::parse(input)?),
-        ))
+        Ok(Self::Color(parse_css_color(input)?))
     }
 }
 
@@ -108,14 +106,12 @@ fn parse_svg_paint_fallback<'i>(
     {
         return Ok(SVGPaintFallback::None);
     }
-    Ok(SVGPaintFallback::Color(
-        input.allocator().boxed(CssColor::parse(input)?),
-    ))
+    Ok(SVGPaintFallback::Color(parse_css_color(input)?))
 }
 
 fn parse_url<'i>(
     input: &mut Compiler<'i>,
-) -> Result<Box<'i, Url<'i>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<NodeId<'i, Url<'i>>, ParseError<'i, ParserError<'i>>> {
     let span = input.current_token_span().unwrap_or_default();
     let url = match input.next()?.clone() {
         ValueToken::UnquotedUrl(url) => url,
@@ -130,7 +126,7 @@ fn parse_url<'i>(
             })?,
         _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
     };
-    Ok(input.allocator().boxed(Url { span, url }))
+    Ok(input.ast_context_mut().alloc_node(Url { url }, span))
 }
 
 impl<'i> Parse<'i> for StrokeDasharray<'i> {

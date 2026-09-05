@@ -4,7 +4,7 @@ use crate::*;
 pub enum ListStyleType<'a> {
     None,
     String(&'a str),
-    CounterStyle(Box<'a, CounterStyle<'a>>),
+    CounterStyle(NodeId<'a, CounterStyle<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -88,7 +88,7 @@ pub enum PredefinedCounterStyle {
 #[derive(Debug, PartialEq, Visit)]
 pub enum Symbol<'a> {
     String(&'a str),
-    Image(Box<'a, Image<'a>>),
+    Image(NodeId<'a, Image<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

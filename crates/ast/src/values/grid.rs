@@ -11,23 +11,23 @@ pub enum TrackSizing<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum TrackListItem<'a> {
-    TrackSize(Box<'a, TrackSize<'a>>),
-    TrackRepeat(Box<'a, TrackRepeat<'a>>),
+    TrackSize(NodeId<'a, TrackSize<'a>>),
+    TrackRepeat(NodeId<'a, TrackRepeat<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum TrackSize<'a> {
-    TrackBreadth(Box<'a, TrackBreadth<'a>>),
+    TrackBreadth(NodeId<'a, TrackBreadth<'a>>),
     MinMax {
-        max: Box<'a, TrackBreadth<'a>>,
-        min: Box<'a, TrackBreadth<'a>>,
+        max: NodeId<'a, TrackBreadth<'a>>,
+        min: NodeId<'a, TrackBreadth<'a>>,
     },
-    FitContent(Box<'a, LengthPercentage<'a>>),
+    FitContent(NodeId<'a, LengthPercentage<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum TrackBreadth<'a> {
-    Length(Box<'a, LengthPercentage<'a>>),
+    Length(NodeId<'a, LengthPercentage<'a>>),
     Flex(f32),
     MinContent,
     MaxContent,

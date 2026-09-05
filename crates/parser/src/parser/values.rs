@@ -26,24 +26,30 @@ pub(super) use animation::{
 pub(super) use font::parse_font_family_list;
 pub(super) use transform::parse_transform_list;
 
-pub(super) fn single_token<'a, 'i>(value: &'a [TokenOrValue<'i>]) -> Option<&'a ValueToken<'i>> {
+pub(super) fn single_token<'context, 'i>(
+    ast: &'context Compilation<'i>,
+    value: &[TokenOrValue<'i>],
+) -> Option<&'context ValueToken<'i>> {
     if let [TokenOrValue::Token(token)] = value {
-        Some(token)
+        Some(ast.node(*token))
     } else {
         None
     }
 }
 
-pub(super) fn token_values_contain_opaque(values: &[TokenOrValue<'_>]) -> bool {
+pub(super) fn token_values_contain_opaque<'i>(
+    ast: &Compilation<'i>,
+    values: &[TokenOrValue<'i>],
+) -> bool {
     values.iter().any(|value| match value {
-        TokenOrValue::Token(token) => matches!(**token, ValueToken::Comment(_)),
+        TokenOrValue::Token(token) => matches!(ast.node(*token), ValueToken::Comment(_)),
         TokenOrValue::Var(_) | TokenOrValue::Env(_) => true,
         TokenOrValue::Function(function) => {
+            let function = ast.node(*function);
             function.kind().is_variable()
-                || function
-                    .arguments
-                    .iter()
-                    .any(|argument| token_values_contain_opaque(std::slice::from_ref(argument)))
+                || function.arguments.iter().any(|argument| {
+                    token_values_contain_opaque(ast, std::slice::from_ref(argument))
+                })
         }
         _ => false,
     })
@@ -81,6 +87,7 @@ fn collect_tokens_impl<'i>(
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };
+        let token_span = input.current_token_span().unwrap_or_default();
 
         match token {
             ValueToken::Function(name) => {
@@ -88,43 +95,52 @@ fn collect_tokens_impl<'i>(
                     collect_tokens_impl(input, allocator, depth + 1, parse_embedded_values)
                 })?;
                 let mut function = Function::new(name, arguments);
-                validate_rgb_function(&mut function);
-                let function = allocator.boxed(function);
+                validate_rgb_function(input.ast_context(), &mut function);
+                let kind = function.kind();
+                let valid_rgb = function.is_valid_rgb();
+                let function = store_node(function, input);
                 if parse_embedded_values
-                    && function.kind().is_color()
-                    && (!matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba)
-                        || function.is_valid_rgb())
+                    && kind.is_color()
+                    && (!matches!(kind, KnownFunction::Rgb | KnownFunction::Rgba) || valid_rgb)
                 {
-                    tokens.push(TokenOrValue::Color(
-                        allocator.boxed(CssColor::Function(function)),
-                    ));
+                    let color = input
+                        .ast_context_mut()
+                        .alloc_node(CssColor::Function(function), token_span);
+                    tokens.push(TokenOrValue::Color(color));
                 } else {
                     tokens.push(TokenOrValue::Function(function));
                 }
             }
             ValueToken::Hash(value) if parse_embedded_values => {
                 if let Some(color) = parse_hex_color(value) {
-                    tokens.push(TokenOrValue::Color(allocator.boxed(CssColor::Rgba(color))));
+                    let color = input
+                        .ast_context_mut()
+                        .alloc_node(CssColor::Rgba(color), token_span);
+                    tokens.push(TokenOrValue::Color(color));
                 } else {
-                    tokens.push(TokenOrValue::Token(
-                        allocator.boxed(ValueToken::Hash(value)),
-                    ));
+                    tokens.push(TokenOrValue::Token(store_node(
+                        ValueToken::Hash(value),
+                        input,
+                    )));
                 }
             }
             ValueToken::IdHash(value) if parse_embedded_values => {
                 if let Some(color) = parse_hex_color(value) {
-                    tokens.push(TokenOrValue::Color(allocator.boxed(CssColor::Rgba(color))));
+                    let color = input
+                        .ast_context_mut()
+                        .alloc_node(CssColor::Rgba(color), token_span);
+                    tokens.push(TokenOrValue::Color(color));
                 } else {
-                    tokens.push(TokenOrValue::Token(
-                        allocator.boxed(ValueToken::IdHash(value)),
-                    ));
+                    tokens.push(TokenOrValue::Token(store_node(
+                        ValueToken::IdHash(value),
+                        input,
+                    )));
                 }
             }
             ValueToken::UnquotedUrl(url) => {
-                tokens.push(TokenOrValue::Url(allocator.boxed(Url {
-                    span: input.current_token_span().unwrap_or_default(),
-                    url,
-                })));
+                let span = input.current_token_span().unwrap_or_default();
+                let url = input.ast_context_mut().alloc_node(Url { url }, span);
+                tokens.push(TokenOrValue::Url(url));
             }
             ValueToken::Ident(name) if name.starts_with("--") => {
                 tokens.push(TokenOrValue::DashedIdent(name));
@@ -138,12 +154,12 @@ fn collect_tokens_impl<'i>(
                     ValueToken::CurlyBracketBlock => ValueToken::CloseCurlyBracket,
                     _ => unreachable!(),
                 };
-                tokens.push(TokenOrValue::Token(allocator.boxed(opening)));
+                tokens.push(TokenOrValue::Token(store_node(opening, input)));
                 let nested = input.parse_nested_block(|input| {
                     collect_tokens_impl(input, allocator, depth + 1, parse_embedded_values)
                 })?;
                 tokens.extend(nested);
-                tokens.push(TokenOrValue::Token(allocator.boxed(closing)));
+                tokens.push(TokenOrValue::Token(store_node(closing, input)));
             }
             ValueToken::BadUrl(_)
             | ValueToken::BadString(_)
@@ -156,61 +172,74 @@ fn collect_tokens_impl<'i>(
                 input.reset(&state);
                 return Err(input.new_custom_error(ParserError::UnexpectedToken(token)));
             }
-            token => tokens.push(TokenOrValue::Token(allocator.boxed(token))),
+            token => tokens.push(TokenOrValue::Token(store_node(token, input))),
         }
     }
 
     Ok(tokens)
 }
 
-pub(super) fn remove_important(value: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
-    let Some(important_index) = previous_non_whitespace(value, value.len()) else {
+pub(super) fn remove_important<'i>(
+    ast: &Compilation<'i>,
+    value: &mut Vec<'i, TokenOrValue<'i>>,
+) -> bool {
+    let Some(important_index) = previous_non_whitespace(ast, value, value.len()) else {
         return false;
     };
-    if !token_ident(&value[important_index])
+    if !token_ident(ast, &value[important_index])
         .is_some_and(|name| name.eq_ignore_ascii_case("important"))
     {
-        trim_trailing_whitespace(value);
+        trim_trailing_whitespace(ast, value);
         return false;
     }
-    let Some(bang_index) = previous_non_whitespace(value, important_index) else {
-        trim_trailing_whitespace(value);
+    let Some(bang_index) = previous_non_whitespace(ast, value, important_index) else {
+        trim_trailing_whitespace(ast, value);
         return false;
     };
-    if !matches!(&value[bang_index], TokenOrValue::Token(token) if matches!(**token, ValueToken::Delim("!")))
+    if !matches!(&value[bang_index], TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::Delim("!")))
     {
-        trim_trailing_whitespace(value);
+        trim_trailing_whitespace(ast, value);
         return false;
     }
     value.remove(important_index);
     value.remove(bang_index);
-    trim_trailing_whitespace(value);
+    trim_trailing_whitespace(ast, value);
     true
 }
 
-pub(super) fn previous_non_whitespace(value: &[TokenOrValue<'_>], before: usize) -> Option<usize> {
+pub(super) fn previous_non_whitespace<'i>(
+    ast: &Compilation<'i>,
+    value: &[TokenOrValue<'i>],
+    before: usize,
+) -> Option<usize> {
     (0..before).rev().find(|index| {
-        !matches!(&value[*index], TokenOrValue::Token(token) if matches!(**token, ValueToken::WhiteSpace(_) | ValueToken::Comment(_)))
+        !matches!(&value[*index], TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::WhiteSpace(_) | ValueToken::Comment(_)))
     })
 }
 
-pub(super) fn trim_trailing_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
-    while matches!(value.last(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_)))
+pub(super) fn trim_trailing_whitespace<'i>(
+    ast: &Compilation<'i>,
+    value: &mut Vec<'i, TokenOrValue<'i>>,
+) {
+    while matches!(value.last(), Some(TokenOrValue::Token(token)) if matches!(ast.node(*token), ValueToken::WhiteSpace(_)))
     {
         value.pop();
     }
 }
 
-pub(super) fn trim_leading_whitespace(value: &mut Vec<'_, TokenOrValue<'_>>) {
-    while matches!(value.first(), Some(TokenOrValue::Token(token)) if matches!(**token, ValueToken::WhiteSpace(_)))
+pub(super) fn trim_leading_whitespace<'i>(
+    ast: &Compilation<'i>,
+    value: &mut Vec<'i, TokenOrValue<'i>>,
+) {
+    while matches!(value.first(), Some(TokenOrValue::Token(token)) if matches!(ast.node(*token), ValueToken::WhiteSpace(_)))
     {
         value.remove(0);
     }
 }
 
-pub(super) fn token_ident<'i>(value: &TokenOrValue<'i>) -> Option<&'i str> {
+pub(super) fn token_ident<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> Option<&'i str> {
     match value {
-        TokenOrValue::Token(token) => match **token {
+        TokenOrValue::Token(token) => match ast.node(*token) {
             ValueToken::Ident(name) => Some(name),
             _ => None,
         },

@@ -7,7 +7,7 @@ pub use compilation::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MediaList<'a> {
-    pub media_queries: Vec<'a, Box<'a, MediaQuery<'a>>>,
+    pub media_queries: Vec<'a, NodeId<'a, MediaQuery<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -32,14 +32,13 @@ pub struct EnvironmentVariable<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Url<'a> {
-    pub span: Span,
     pub url: &'a str,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Variable<'a> {
     pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
-    pub name: Box<'a, DashedIdentReference<'a>>,
+    pub name: NodeId<'a, DashedIdentReference<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -392,8 +391,7 @@ pub enum FunctionReplacement {
 #[derive(Debug, PartialEq, Visit)]
 pub struct ImportRule<'a> {
     pub layer: Option<Vec<'a, &'a str>>,
-    pub span: Span,
-    pub media: Option<Box<'a, MediaList<'a>>>,
-    pub supports: Option<Box<'a, SupportsCondition<'a>>>,
+    pub media: Option<NodeId<'a, MediaList<'a>>>,
+    pub supports: Option<NodeId<'a, SupportsCondition<'a>>>,
     pub url: &'a str,
 }

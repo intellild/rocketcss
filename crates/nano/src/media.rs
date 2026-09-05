@@ -1,28 +1,30 @@
-use rocketcss_ast::MediaList;
+use rocketcss_ast::{Compilation, MediaList};
 
-use crate::{Minify, MinifyContext, Options, OptionsOp};
+use crate::{MinifyContext, Options, OptionsOp};
 
-impl Minify for MediaList<'_> {
-    fn minify<'cx>(&mut self, context: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
-            let before = self.media_queries.len();
-            let mut index = 0;
-            while index < self.media_queries.len() {
-                if self.media_queries[..index]
-                    .iter()
-                    .any(|query| query == &self.media_queries[index])
-                {
-                    self.media_queries.remove(index);
-                } else {
-                    index += 1;
-                }
+pub(crate) fn minify_media_list(
+    media: &mut MediaList<'_>,
+    context: &mut MinifyContext<'_>,
+    ast: &Compilation<'_>,
+) {
+    if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
+        let before = media.media_queries.len();
+        let mut index = 0;
+        while index < media.media_queries.len() {
+            if media.media_queries[..index].iter().any(|query| {
+                crate::equality::css_values_are_equal(
+                    ast,
+                    ast.resolve_node(*query),
+                    ast.resolve_node(media.media_queries[index]),
+                )
+            }) {
+                media.media_queries.remove(index);
+            } else {
+                index += 1;
             }
-            if self.media_queries.len() != before {
-                context.record_value_normalized();
-            }
+        }
+        if media.media_queries.len() != before {
+            context.record_value_normalized();
         }
     }
 }

@@ -2,15 +2,20 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Transform<'a> {
-    Translate((Box<'a, LengthPercentage<'a>>, Box<'a, LengthPercentage<'a>>)),
-    TranslateX(Box<'a, LengthPercentage<'a>>),
-    TranslateY(Box<'a, LengthPercentage<'a>>),
-    TranslateZ(Box<'a, Length<'a>>),
+    Translate(
+        (
+            NodeId<'a, LengthPercentage<'a>>,
+            NodeId<'a, LengthPercentage<'a>>,
+        ),
+    ),
+    TranslateX(NodeId<'a, LengthPercentage<'a>>),
+    TranslateY(NodeId<'a, LengthPercentage<'a>>),
+    TranslateZ(NodeId<'a, Length<'a>>),
     Translate3d(
         (
-            Box<'a, LengthPercentage<'a>>,
-            Box<'a, LengthPercentage<'a>>,
-            Box<'a, Length<'a>>,
+            NodeId<'a, LengthPercentage<'a>>,
+            NodeId<'a, LengthPercentage<'a>>,
+            NodeId<'a, Length<'a>>,
         ),
     ),
     Scale((NumberOrPercentage, NumberOrPercentage)),
@@ -26,9 +31,9 @@ pub enum Transform<'a> {
     Skew((Angle, Angle)),
     SkewX(Angle),
     SkewY(Angle),
-    Perspective(Box<'a, Length<'a>>),
-    Matrix(Box<'a, MatrixForFloat>),
-    Matrix3d(Box<'a, Matrix3DForFloat>),
+    Perspective(NodeId<'a, Length<'a>>),
+    Matrix(NodeId<'a, MatrixForFloat>),
+    Matrix3d(NodeId<'a, Matrix3DForFloat>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -55,16 +60,16 @@ pub enum BackfaceVisibility {
 #[derive(Debug, PartialEq, Visit)]
 pub enum Perspective<'a> {
     None,
-    Length(Box<'a, Length<'a>>),
+    Length(NodeId<'a, Length<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Translate<'a> {
     None,
     Xyz {
-        x: Box<'a, LengthPercentage<'a>>,
-        y: Box<'a, LengthPercentage<'a>>,
-        z: Box<'a, Length<'a>>,
+        x: NodeId<'a, LengthPercentage<'a>>,
+        y: NodeId<'a, LengthPercentage<'a>>,
+        z: NodeId<'a, Length<'a>>,
     },
 }
 

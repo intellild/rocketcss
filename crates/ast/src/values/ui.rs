@@ -13,7 +13,7 @@ pub enum Resize {
 #[derive(Debug, PartialEq, Visit)]
 pub enum ScrollbarColor<'a> {
     Auto,
-    Colors(Box<'a, CssColor<'a>>, Box<'a, CssColor<'a>>),
+    Colors(NodeId<'a, CssColor<'a>>, NodeId<'a, CssColor<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -112,7 +112,7 @@ pub enum CursorKeyword {
 #[derive(Debug, PartialEq, Visit)]
 pub enum ColorOrAuto<'a> {
     Auto,
-    Color(Box<'a, CssColor<'a>>),
+    Color(NodeId<'a, CssColor<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

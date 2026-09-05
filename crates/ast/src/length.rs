@@ -1,11 +1,11 @@
 use super::*;
 
-use rocketcss_common::{boxed::Box, vec::Vec};
+use rocketcss_common::vec::Vec;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Length<'a> {
     Value(LengthValue),
-    Calc(Box<'a, Calc<'a, Length<'a>>>),
+    Calc(NodeId<'a, Calc<'a, Length<'a>>>),
 }
 
 #[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
@@ -63,31 +63,37 @@ pub enum LengthUnit {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Calc<'a, V> {
-    Value(Box<'a, V>),
+    Value(NodeId<'a, V>),
     Number(f32),
-    Sum((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
-    Product((f32, Box<'a, Calc<'a, V>>)),
-    Function(Box<'a, MathFunction<'a, V>>),
+    Sum((NodeId<'a, Calc<'a, V>>, NodeId<'a, Calc<'a, V>>)),
+    Product((f32, NodeId<'a, Calc<'a, V>>)),
+    Function(NodeId<'a, MathFunction<'a, V>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 #[allow(clippy::type_complexity)]
 pub enum MathFunction<'a, V> {
-    Calc(Box<'a, Calc<'a, V>>),
+    Calc(NodeId<'a, Calc<'a, V>>),
     Min(Vec<'a, Calc<'a, V>>),
     Max(Vec<'a, Calc<'a, V>>),
     Clamp(
         (
-            Box<'a, Calc<'a, V>>,
-            Box<'a, Calc<'a, V>>,
-            Box<'a, Calc<'a, V>>,
+            NodeId<'a, Calc<'a, V>>,
+            NodeId<'a, Calc<'a, V>>,
+            NodeId<'a, Calc<'a, V>>,
         ),
     ),
-    Round((RoundingStrategy, Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
-    Rem((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
-    Mod((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
-    Abs(Box<'a, Calc<'a, V>>),
-    Sign(Box<'a, Calc<'a, V>>),
+    Round(
+        (
+            RoundingStrategy,
+            NodeId<'a, Calc<'a, V>>,
+            NodeId<'a, Calc<'a, V>>,
+        ),
+    ),
+    Rem((NodeId<'a, Calc<'a, V>>, NodeId<'a, Calc<'a, V>>)),
+    Mod((NodeId<'a, Calc<'a, V>>, NodeId<'a, Calc<'a, V>>)),
+    Abs(NodeId<'a, Calc<'a, V>>),
+    Sign(NodeId<'a, Calc<'a, V>>),
     Hypot(Vec<'a, Calc<'a, V>>),
 }
 

@@ -4,6 +4,8 @@ use super::*;
 
 #[test]
 fn typed_ids_keep_compact_optional_layout() {
+    assert_eq!(size_of::<NodeId<'_, u8>>(), size_of::<u32>());
+    assert_eq!(size_of::<Option<NodeId<'_, u8>>>(), size_of::<u32>());
     assert_eq!(size_of::<RuleId<'_, &str>>(), size_of::<u32>());
     assert_eq!(size_of::<Option<RuleId<'_, &str>>>(), size_of::<u32>());
     assert_eq!(size_of::<DeclarationBlockId<'_, &str>>(), size_of::<u32>());
@@ -24,8 +26,127 @@ fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<ContextPathId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<LayerContextId<'_>>(), size_of::<u32>());
     assert_eq!(size_of::<SourceOrderId>(), size_of::<u64>());
-    assert!(size_of::<DeclarationRecord<'static, DeclarationPayload<'static>>>() <= 56);
-    assert!(size_of::<DeclarationBlockRecord<'static, CssRulePayload<'static>>>() <= 28);
+    assert_eq!(
+        size_of::<RuleRecord<'static, CssRulePayload<'static>>>(),
+        120
+    );
+    assert_eq!(
+        size_of::<DeclarationRecord<'static, DeclarationPayload<'static>>>(),
+        56
+    );
+    assert_eq!(
+        size_of::<DeclarationBlockRecord<'static, CssRulePayload<'static>>>(),
+        28
+    );
+}
+
+#[test]
+fn rule_spans_are_stored_in_an_aligned_sidecar() {
+    let allocator = Allocator::new();
+    let mut compilation = RadixCompilation::<&str, (), ()>::new_in(&allocator);
+    let root = compilation.stylesheet().root_rules();
+    let first = compilation
+        .append_rule_with_span(root, "first", Span::new(3, 11))
+        .unwrap();
+    let second = compilation.append_rule(root, "second").unwrap();
+
+    assert_eq!(compilation.rule_span(first), Some(Span::new(3, 11)));
+    assert_eq!(compilation.rule_span(second), Some(DUMMY_SP));
+
+    compilation.set_rule_span(first, Span::new(4, 12)).unwrap();
+    assert_eq!(compilation.rule_span(first), Some(Span::new(4, 12)));
+    assert_eq!(compilation.rule(first).unwrap().payload(), &"first");
+}
+
+#[test]
+fn clone_node_creates_an_independent_id_and_preserves_its_span() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let original = compilation.alloc_node(String::from("original"), Span::new(3, 11));
+    let cloned = compilation.clone_node(original);
+
+    assert_ne!(original, cloned);
+    assert_eq!(compilation.node_span(cloned), Span::new(3, 11));
+    compilation.mutate_node(cloned, |value, ast| {
+        value.push_str(" clone");
+        let child = ast.alloc_node(7_u8, Span::new(5, 6));
+        assert_eq!(*ast.node(child), 7);
+    });
+
+    assert_eq!(compilation.node(original), "original");
+    assert_eq!(compilation.node(cloned), "original clone");
+}
+
+#[test]
+fn node_checkpoint_rolls_payload_and_span_sidecars_back_together() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let committed = compilation.alloc_node(1_u8, Span::new(1, 2));
+    let checkpoint = compilation.node_checkpoint();
+    compilation.alloc_node(2_u8, Span::new(2, 3));
+
+    compilation.restore_node_checkpoint(checkpoint);
+    let replacement = compilation.alloc_node(3_u8, Span::new(3, 4));
+
+    assert_eq!(replacement.index(), committed.index() + 1);
+    assert_eq!(*compilation.node(committed), 1);
+    assert_eq!(*compilation.node(replacement), 3);
+    assert_eq!(compilation.node_span(committed), Span::new(1, 2));
+    assert_eq!(compilation.node_span(replacement), Span::new(3, 4));
+}
+
+#[test]
+fn mutate_node_restores_the_slot_after_unwind() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let node = compilation.alloc_node(vec![1_u8], DUMMY_SP);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compilation.mutate_node(node, |value, _| {
+            value.push(2);
+            panic!("stop mutation");
+        });
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(compilation.node(node), &[1, 2]);
+}
+
+#[test]
+fn mutate_node_rejects_recursive_access_to_the_same_id() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let node = compilation.alloc_node(1_u8, DUMMY_SP);
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        compilation.mutate_node(node, |_, ast| {
+            let _ = ast.node(node);
+        });
+    }));
+
+    assert!(result.is_err());
+    assert_eq!(*compilation.node(node), 1);
+}
+
+#[test]
+fn visitor_mutation_restores_the_node_after_nested_unwind() {
+    let allocator = Allocator::new();
+    let mut compilation = Compilation::new_in(&allocator);
+    let node = compilation.alloc_node(1_u8, DUMMY_SP);
+
+    rocketcss_common::GhostToken::scope(|mut token| {
+        let cell = std::pin::pin!(rocketcss_common::GhostCell::new(2_u8));
+        let mut context = crate::VisitMutContext::with_ast(&mut token, &mut compilation);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            context.mutate_node(node, |value, context| {
+                *value += 1;
+                context.with_cell(cell.as_ref(), |_, _| panic!("stop nested mutation"));
+            });
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(*context.ast_context().node(node), 2);
+    });
 }
 
 fn append_test_block<'ast>(

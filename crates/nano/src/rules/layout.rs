@@ -1,5 +1,4 @@
-use rocketcss_ast::{Declaration, Margin, Padding, PropertyId};
-use rocketcss_common::boxed::Box;
+use rocketcss_ast::{Compilation, Declaration, Margin, Padding, PropertyId};
 
 pub(crate) const ALL_BOX_SIDES: u8 = 0b1111;
 
@@ -59,14 +58,17 @@ pub(crate) fn typed_box_property(declaration: &Declaration<'_>) -> Option<BoxPro
 }
 
 #[inline]
-pub(crate) fn box_property(declaration: &Declaration<'_>) -> Option<BoxProperty> {
+pub(crate) fn box_property(
+    declaration: &Declaration<'_>,
+    ast: &Compilation<'_>,
+) -> Option<BoxProperty> {
     if let Some(property) = typed_box_property(declaration) {
         return Some(property);
     }
     let property_id = match declaration {
         Declaration::All(..) => return Some(BoxProperty::BarrierAll),
-        Declaration::CSSWide(property_id, _) => &**property_id,
-        Declaration::Unparsed(value) => &*value.property_id,
+        Declaration::CSSWide(property_id, _) => ast.resolve_node(*property_id),
+        Declaration::Unparsed(value) => ast.resolve_node(ast.resolve_node(*value).property_id),
         _ => return None,
     };
     match property_id {
@@ -98,9 +100,10 @@ pub(crate) fn box_property(declaration: &Declaration<'_>) -> Option<BoxProperty>
 }
 
 pub(crate) fn materialize_box_longhands<'ast>(
-    declaration: Declaration<'ast>,
+    declaration: &Declaration<'ast>,
     family: BoxFamily,
     live_effects: u8,
+    ast: &Compilation<'ast>,
 ) -> Option<std::vec::Vec<Declaration<'ast>>> {
     if live_effects == 0 || live_effects & !ALL_BOX_SIDES != 0 {
         return None;
@@ -113,7 +116,8 @@ pub(crate) fn materialize_box_longhands<'ast>(
                 right,
                 bottom,
                 left,
-            } = Box::into_inner(value);
+            } = ast.resolve_node(*value);
+            let (top, right, bottom, left) = (*top, *right, *bottom, *left);
             for (side, value) in [top, right, bottom, left].into_iter().enumerate() {
                 if live_effects & (1 << side) == 0 {
                     continue;
@@ -133,7 +137,8 @@ pub(crate) fn materialize_box_longhands<'ast>(
                 right,
                 bottom,
                 left,
-            } = Box::into_inner(value);
+            } = ast.resolve_node(*value);
+            let (top, right, bottom, left) = (*top, *right, *bottom, *left);
             for (side, value) in [top, right, bottom, left].into_iter().enumerate() {
                 if live_effects & (1 << side) == 0 {
                     continue;

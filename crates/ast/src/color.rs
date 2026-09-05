@@ -1,6 +1,6 @@
 use super::*;
 
-use rocketcss_common::{boxed::Box, vec::Vec};
+use rocketcss_common::vec::Vec;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum CssColor<'a> {
@@ -8,11 +8,11 @@ pub enum CssColor<'a> {
     #[visit(skip)]
     Known(KnownColor),
     Rgba(RGBA),
-    Function(Box<'a, Function<'a>>),
-    Lab(Box<'a, LABColor>),
-    Predefined(Box<'a, PredefinedColor>),
-    Float(Box<'a, FloatColor>),
-    LightDark(Box<'a, LightDark<'a>>),
+    Function(NodeId<'a, Function<'a>>),
+    Lab(NodeId<'a, LABColor>),
+    Predefined(NodeId<'a, PredefinedColor>),
+    Float(NodeId<'a, FloatColor>),
+    LightDark(NodeId<'a, LightDark<'a>>),
     System(SystemColor),
 }
 
@@ -245,8 +245,8 @@ pub enum FloatColor {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct LightDark<'a> {
-    pub dark: Box<'a, CssColor<'a>>,
-    pub light: Box<'a, CssColor<'a>>,
+    pub dark: NodeId<'a, CssColor<'a>>,
+    pub light: NodeId<'a, CssColor<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]

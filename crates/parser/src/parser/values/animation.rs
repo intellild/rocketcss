@@ -20,7 +20,6 @@ impl<'i> Parse<'i> for Time {
 
 impl<'i> Parse<'i> for Transition<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let mut property = None;
         let mut duration = None;
         let mut timing_function = None;
@@ -48,7 +47,7 @@ impl<'i> Parse<'i> for Transition<'i> {
             if property.is_none()
                 && let Ok(name) = input.try_parse(Compiler::expect_ident)
             {
-                property = Some(allocator.boxed(PropertyId::from_name(name)));
+                property = Some(store_node(PropertyId::from_name(name), input));
                 continue;
             }
             return Err(input.new_custom_error(ParserError::InvalidValue));
@@ -57,8 +56,8 @@ impl<'i> Parse<'i> for Transition<'i> {
         Ok(Self {
             delay: delay.unwrap_or(Time::Seconds(0.0)),
             duration: duration.unwrap_or(Time::Seconds(0.0)),
-            property: property.unwrap_or_else(|| allocator.boxed(PropertyId::All)),
-            timing_function: allocator.boxed(timing_function.unwrap_or(EasingFunction::Ease)),
+            property: property.unwrap_or_else(|| store_node(PropertyId::All, input)),
+            timing_function: store_node(timing_function.unwrap_or(EasingFunction::Ease), input),
         })
     }
 }
@@ -246,7 +245,7 @@ impl<'i> Parse<'i> for Animation<'i> {
             }
             if !timing_function_claimed && let Ok(value) = input.try_parse(EasingFunction::parse) {
                 timing_function_claimed = true;
-                components.push(AnimationComponent::TimingFunction(allocator.boxed(value)));
+                components.push(AnimationComponent::TimingFunction(store_node(value, input)));
                 continue;
             }
             if !delay_claimed && let Ok(value) = input.try_parse(Time::parse) {
@@ -278,7 +277,7 @@ impl<'i> Parse<'i> for Animation<'i> {
             }
             if !name_claimed && let Ok(value) = input.try_parse(AnimationName::parse) {
                 name_claimed = true;
-                components.push(AnimationComponent::Name(allocator.boxed(value)));
+                components.push(AnimationComponent::Name(store_node(value, input)));
                 continue;
             }
             return Err(input.new_custom_error(ParserError::InvalidValue));

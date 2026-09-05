@@ -19,13 +19,13 @@ pub enum BorderSideWidth<'a> {
     Thin,
     Medium,
     Thick,
-    Length(Box<'a, Length<'a>>),
+    Length(NodeId<'a, Length<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum LengthOrNumber<'a> {
     Number(f32),
-    Length(Box<'a, Length<'a>>),
+    Length(NodeId<'a, Length<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -39,7 +39,7 @@ pub enum BorderImageRepeatKeyword {
 #[derive(Debug, PartialEq, Visit)]
 pub enum BorderImageSideWidth<'a> {
     Number(f32),
-    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
     Auto,
 }
 

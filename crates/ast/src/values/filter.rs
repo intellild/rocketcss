@@ -8,7 +8,7 @@ pub enum FilterList<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Filter<'a> {
-    Blur(Box<'a, Length<'a>>),
+    Blur(NodeId<'a, Length<'a>>),
     Brightness(NumberOrPercentage),
     Contrast(NumberOrPercentage),
     Grayscale(NumberOrPercentage),
@@ -17,6 +17,6 @@ pub enum Filter<'a> {
     Opacity(NumberOrPercentage),
     Saturate(NumberOrPercentage),
     Sepia(NumberOrPercentage),
-    DropShadow(Box<'a, DropShadow<'a>>),
-    Url(Box<'a, Url<'a>>),
+    DropShadow(NodeId<'a, DropShadow<'a>>),
+    Url(NodeId<'a, Url<'a>>),
 }

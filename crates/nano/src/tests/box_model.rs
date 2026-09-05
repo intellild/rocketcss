@@ -257,8 +257,12 @@ fn unparsed_value_storage<'a>(
     let Declaration::Unparsed(property) = first_property_declaration(stylesheet) else {
         panic!("expected unparsed property")
     };
+    let property = stylesheet.resolve_node(*property);
     let TokenOrValue::Token(token) = &property.value[0] else {
         panic!("expected token value")
     };
-    (property.value.as_ptr(), &**token)
+    (
+        property.value.as_ptr(),
+        stylesheet.resolve_node(*token) as *const Token<'a>,
+    )
 }

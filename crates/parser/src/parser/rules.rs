@@ -15,6 +15,7 @@ pub(super) fn parse_font_face_contents_into<'i>(
     options: &ParserOptions<'i>,
     depth: usize,
     mut push: impl FnMut(
+        &mut Compiler<'i>,
         rocketcss_ast::FontFaceProperty<'i>,
     ) -> Result<(), ParseError<'i, ParserError<'i>>>,
 ) -> Result<(), ParseError<'i, ParserError<'i>>> {
@@ -38,7 +39,7 @@ pub(super) fn parse_font_face_contents_into<'i>(
                 })?;
                 let raw_value = input.slice(value_start..input.position());
                 let _ = input.try_parse(Compiler::expect_semicolon);
-                if remove_important(&mut value) {
+                if remove_important(input.ast_context(), &mut value) {
                     return Err(input.new_custom_error(ParserError::InvalidDeclaration));
                 }
                 if name.eq_ignore_ascii_case("unicode-range") {
@@ -46,12 +47,13 @@ pub(super) fn parse_font_face_contents_into<'i>(
                         .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
                     Ok(rocketcss_ast::FontFaceProperty::UnicodeRange(ranges))
                 } else {
-                    trim_leading_whitespace(&mut value);
-                    Ok(rocketcss_ast::FontFaceProperty::Custom(allocator.boxed(
+                    trim_leading_whitespace(input.ast_context(), &mut value);
+                    Ok(rocketcss_ast::FontFaceProperty::Custom(store_node(
                         CustomProperty {
-                            name: allocator.boxed(CustomPropertyName::Unknown(name)),
+                            name: store_node(CustomPropertyName::Unknown(name), input),
                             value,
                         },
+                        input,
                     )))
                 }
             }
@@ -59,7 +61,7 @@ pub(super) fn parse_font_face_contents_into<'i>(
         };
 
         match result {
-            Ok(property) => push(property)?,
+            Ok(property) => push(input, property)?,
             Err(_) if options.error_recovery => recover_declaration(input),
             Err(error) => return Err(error),
         }
@@ -163,33 +165,38 @@ pub(super) fn parse_layer_names<'i>(
 }
 
 pub(super) fn parse_custom_media<'i>(
+    input: &mut Compiler<'i>,
     prelude: &'i str,
-    allocator: &'i Allocator,
 ) -> Result<(&'i str, MediaList<'i>), ParseError<'i, ParserError<'i>>> {
-    let mut parser = Compiler::new_with_source(prelude, allocator);
-    let name = parser.expect_ident()?;
-    if !name.starts_with("--") {
-        return Err(parser.new_custom_error(ParserError::InvalidValue));
-    }
-    let query = parser
-        .slice(parser.position()..SourcePosition(prelude.len()))
-        .trim();
-    if query.is_empty() {
-        return Err(parser.new_custom_error(ParserError::InvalidValue));
-    }
-    // Keep custom media definitions lossless until custom-media expansion is
-    // implemented. Parsing these into normalized range features would change
-    // their public serialization even though this crate does not consume the
-    // definition yet.
-    let mut query_parser = Compiler::new_with_source(query, allocator);
-    let condition = MediaCondition::Unknown(collect_tokens(&mut query_parser, allocator, 0)?);
-    let mut media_queries = allocator.vec();
-    media_queries.push(allocator.boxed(MediaQuery {
-        condition: Some(condition),
-        media_type: MediaType::All,
-        qualifier: None,
-    }));
-    Ok((name, MediaList { media_queries }))
+    let allocator = input.allocator();
+    input.with_source(prelude, |input| {
+        let name = input.expect_ident()?;
+        if !name.starts_with("--") {
+            return Err(input.new_custom_error(ParserError::InvalidValue));
+        }
+        let query = input
+            .slice(input.position()..SourcePosition(prelude.len()))
+            .trim();
+        if query.is_empty() {
+            return Err(input.new_custom_error(ParserError::InvalidValue));
+        }
+        // Keep custom media definitions lossless until custom-media expansion is
+        // implemented. Parsing these into normalized range features would change
+        // their public serialization even though this crate does not consume the
+        // definition yet.
+        let tokens = input.with_source(query, |input| collect_tokens(input, allocator, 0))?;
+        let condition = MediaCondition::Unknown(tokens);
+        let mut media_queries = allocator.vec();
+        media_queries.push(store_node(
+            MediaQuery {
+                condition: Some(condition),
+                media_type: MediaType::All,
+                qualifier: None,
+            },
+            input,
+        ));
+        Ok((name, MediaList { media_queries }))
+    })
 }
 
 pub(super) fn parse_single_ident<'i>(
@@ -305,36 +312,36 @@ pub(super) fn validate_moz_document_prelude<'i>(
 
 type ContainerPrelude<'i> = (
     Option<&'i str>,
-    Option<rocketcss_common::boxed::Box<'i, rocketcss_ast::ContainerCondition<'i>>>,
+    Option<NodeId<'i, rocketcss_ast::ContainerCondition<'i>>>,
 );
 
 pub(super) fn parse_container_prelude<'i>(
+    input: &mut Compiler<'i>,
     prelude: &'i str,
-    allocator: &'i Allocator,
 ) -> Result<ContainerPrelude<'i>, ParseError<'i, ParserError<'i>>> {
-    let mut parser = Compiler::new_with_source(prelude, allocator);
-    let name = parser.try_parse(Compiler::expect_ident).ok();
-    parser.skip_whitespace();
-    let condition = if parser.is_exhausted() {
-        None
-    } else {
-        Some(
-            allocator.boxed(rocketcss_ast::ContainerCondition::Unknown(collect_tokens(
-                &mut parser,
-                allocator,
-                0,
-            )?)),
-        )
-    };
-    if name.is_none() && condition.is_none() {
-        return Err(parser.new_custom_error(ParserError::InvalidValue));
-    }
-    Ok((name, condition))
+    let allocator = input.allocator();
+    input.with_source(prelude, |input| {
+        let name = input.try_parse(Compiler::expect_ident).ok();
+        input.skip_whitespace();
+        let condition = if input.is_exhausted() {
+            None
+        } else {
+            let tokens = collect_tokens(input, allocator, 0)?;
+            Some(store_node(
+                rocketcss_ast::ContainerCondition::Unknown(tokens),
+                input,
+            ))
+        };
+        if name.is_none() && condition.is_none() {
+            return Err(input.new_custom_error(ParserError::InvalidValue));
+        }
+        Ok((name, condition))
+    })
 }
 
 type ScopePrelude<'i> = (
-    Option<rocketcss_common::boxed::Box<'i, SelectorList<'i>>>,
-    Option<rocketcss_common::boxed::Box<'i, SelectorList<'i>>>,
+    Option<NodeId<'i, SelectorList<'i>>>,
+    Option<NodeId<'i, SelectorList<'i>>>,
 );
 
 pub(super) fn parse_scope_prelude<'i>(
@@ -344,27 +351,29 @@ pub(super) fn parse_scope_prelude<'i>(
 ) -> Result<ScopePrelude<'i>, ParseError<'i, ParserError<'i>>> {
     let allocator = input.allocator();
     input.with_source(prelude, |input| {
-        let scope_start =
-            if input.try_parse(Compiler::expect_parenthesis_block).is_ok() {
-                Some(allocator.boxed(input.parse_nested_block(|input| {
-                    parse_selector_list(input, allocator, depth + 1)
-                })?))
-            } else {
-                None
-            };
+        let scope_start = if input.try_parse(Compiler::expect_parenthesis_block).is_ok() {
+            Some(store_node(
+                input
+                    .parse_nested_block(|input| parse_selector_list(input, allocator, depth + 1))?,
+                input,
+            ))
+        } else {
+            None
+        };
 
-        let scope_end =
-            if input
-                .try_parse(|input| input.expect_ident_matching("to"))
-                .is_ok()
-            {
-                input.expect_parenthesis_block()?;
-                Some(allocator.boxed(input.parse_nested_block(|input| {
-                    parse_selector_list(input, allocator, depth + 1)
-                })?))
-            } else {
-                None
-            };
+        let scope_end = if input
+            .try_parse(|input| input.expect_ident_matching("to"))
+            .is_ok()
+        {
+            input.expect_parenthesis_block()?;
+            Some(store_node(
+                input
+                    .parse_nested_block(|input| parse_selector_list(input, allocator, depth + 1))?,
+                input,
+            ))
+        } else {
+            None
+        };
         input.expect_exhausted()?;
         Ok((scope_start, scope_end))
     })
@@ -439,7 +448,10 @@ pub(super) fn parse_font_feature_declarations_into<'i>(
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-    mut push: impl FnMut(FontFeatureDeclaration<'i>) -> Result<(), ParseError<'i, ParserError<'i>>>,
+    mut push: impl FnMut(
+        &mut Compiler<'i>,
+        FontFeatureDeclaration<'i>,
+    ) -> Result<(), ParseError<'i, ParserError<'i>>>,
 ) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     loop {
@@ -466,7 +478,7 @@ pub(super) fn parse_font_feature_declarations_into<'i>(
             Ok::<_, ParseError<'i, ParserError<'i>>>(FontFeatureDeclaration { name, values })
         })();
         match result {
-            Ok(declaration) => push(declaration)?,
+            Ok(declaration) => push(input, declaration)?,
             Err(_) if options.error_recovery => recover_declaration(input),
             Err(error) => return Err(error),
         }
@@ -493,7 +505,10 @@ pub(super) fn parse_font_palette_contents_into<'i>(
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-    mut push: impl FnMut(FontPaletteValuesProperty<'i>) -> Result<(), ParseError<'i, ParserError<'i>>>,
+    mut push: impl FnMut(
+        &mut Compiler<'i>,
+        FontPaletteValuesProperty<'i>,
+    ) -> Result<(), ParseError<'i, ParserError<'i>>>,
 ) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     loop {
@@ -512,21 +527,22 @@ pub(super) fn parse_font_palette_contents_into<'i>(
                     collect_tokens(input, allocator, depth + 1)
                 })?;
                 let _ = input.try_parse(Compiler::expect_semicolon);
-                if remove_important(&mut value) {
+                if remove_important(input.ast_context(), &mut value) {
                     return Err(input.new_custom_error(ParserError::InvalidDeclaration));
                 }
-                trim_leading_whitespace(&mut value);
-                Ok(FontPaletteValuesProperty::Custom(allocator.boxed(
+                trim_leading_whitespace(input.ast_context(), &mut value);
+                Ok(FontPaletteValuesProperty::Custom(store_node(
                     CustomProperty {
-                        name: allocator.boxed(CustomPropertyName::Unknown(name)),
+                        name: store_node(CustomPropertyName::Unknown(name), input),
                         value,
                     },
+                    input,
                 )))
             }
             _ => Err(input.new_custom_error(ParserError::InvalidDeclaration)),
         };
         match result {
-            Ok(property) => push(property)?,
+            Ok(property) => push(input, property)?,
             Err(_) if options.error_recovery => recover_declaration(input),
             Err(error) => return Err(error),
         }
@@ -539,7 +555,7 @@ pub(super) fn parse_property_rule_descriptors_into<'i>(
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-    mut push: impl FnMut(PropertyRuleDescriptor<'i>),
+    mut push: impl FnMut(&mut Compiler<'i>, PropertyRuleDescriptor<'i>),
 ) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     let mut has_syntax = false;
@@ -561,21 +577,25 @@ pub(super) fn parse_property_rule_descriptors_into<'i>(
                 collect_tokens(input, allocator, depth + 1)
             })?;
             let _ = input.try_parse(Compiler::expect_semicolon);
-            if remove_important(&mut value) {
+            if remove_important(input.ast_context(), &mut value) {
                 return Err(input.new_custom_error(ParserError::InvalidDeclaration));
             }
-            trim_leading_whitespace(&mut value);
+            trim_leading_whitespace(input.ast_context(), &mut value);
 
             let parsed = if descriptor.eq_ignore_ascii_case("syntax") {
-                let Some(ValueToken::String(value)) = single_token(&value) else {
+                let Some(ValueToken::String(value)) = single_token(input.ast_context(), &value)
+                else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 };
-                let syntax = parse_syntax_string(value, allocator)?;
+                let syntax = parse_syntax_string(input, value)?;
                 syntax_is_universal = matches!(syntax, SyntaxString::Universal);
                 has_syntax = true;
-                PropertyRuleDescriptor::Syntax(allocator.boxed(syntax))
+                PropertyRuleDescriptor::Syntax(store_node(syntax, input))
             } else if descriptor.eq_ignore_ascii_case("inherits") {
-                let Some(value) = value.first().and_then(token_ident) else {
+                let Some(value) = value
+                    .first()
+                    .and_then(|token| token_ident(input.ast_context(), token))
+                else {
                     return Err(input.new_custom_error(ParserError::InvalidValue));
                 };
                 let inherits = match_ignore_ascii_case!(
@@ -588,16 +608,20 @@ pub(super) fn parse_property_rule_descriptors_into<'i>(
                 PropertyRuleDescriptor::Inherits(inherits)
             } else if descriptor.eq_ignore_ascii_case("initial-value") {
                 has_initial_value = true;
-                PropertyRuleDescriptor::InitialValue(
-                    allocator.boxed(ParsedComponent::TokenList(value)),
-                )
+                PropertyRuleDescriptor::InitialValue(store_node(
+                    ParsedComponent::TokenList(value),
+                    input,
+                ))
             } else {
-                PropertyRuleDescriptor::Unknown(allocator.boxed(CustomProperty {
-                    name: allocator.boxed(CustomPropertyName::Unknown(descriptor)),
-                    value,
-                }))
+                PropertyRuleDescriptor::Unknown(store_node(
+                    CustomProperty {
+                        name: store_node(CustomPropertyName::Unknown(descriptor), input),
+                        value,
+                    },
+                    input,
+                ))
             };
-            push(parsed);
+            push(input, parsed);
             Ok::<_, ParseError<'i, ParserError<'i>>>(())
         })();
         if let Err(error) = result {
@@ -616,13 +640,13 @@ pub(super) fn parse_property_rule_descriptors_into<'i>(
 }
 
 pub(super) fn parse_syntax_string<'i>(
+    input: &mut Compiler<'i>,
     value: &'i str,
-    allocator: &'i Allocator,
 ) -> Result<SyntaxString<'i>, ParseError<'i, ParserError<'i>>> {
     if value == "*" {
         return Ok(SyntaxString::Universal);
     }
-    let mut components = allocator.vec();
+    let mut components = input.allocator().vec();
     for raw_component in value.split('|') {
         let raw_component = raw_component.trim();
         let (component, multiplier) = if let Some(component) = raw_component.strip_suffix('+') {
@@ -662,7 +686,7 @@ pub(super) fn parse_syntax_string<'i>(
             },
         );
         components.push(SyntaxComponent {
-            kind: allocator.boxed(kind),
+            kind: store_node(kind, input),
             multiplier,
         });
     }
@@ -677,7 +701,10 @@ pub(super) fn parse_view_transition_contents_into<'i>(
     allocator: &'i Allocator,
     options: &ParserOptions<'i>,
     depth: usize,
-    mut push: impl FnMut(ViewTransitionProperty<'i>) -> Result<(), ParseError<'i, ParserError<'i>>>,
+    mut push: impl FnMut(
+        &mut Compiler<'i>,
+        ViewTransitionProperty<'i>,
+    ) -> Result<(), ParseError<'i, ParserError<'i>>>,
 ) -> Result<(), ParseError<'i, ParserError<'i>>> {
     check_depth(input, depth)?;
     loop {
@@ -694,15 +721,15 @@ pub(super) fn parse_view_transition_contents_into<'i>(
                 collect_tokens(input, allocator, depth + 1)
             })?;
             let _ = input.try_parse(Compiler::expect_semicolon);
-            if remove_important(&mut value) {
+            if remove_important(input.ast_context(), &mut value) {
                 return Err(input.new_custom_error(ParserError::InvalidDeclaration));
             }
-            trim_leading_whitespace(&mut value);
+            trim_leading_whitespace(input.ast_context(), &mut value);
 
             let property = if descriptor.eq_ignore_ascii_case("navigation") {
                 let value = value
                     .first()
-                    .and_then(token_ident)
+                    .and_then(|token| token_ident(input.ast_context(), token))
                     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
                 ViewTransitionProperty::Navigation(match_ignore_ascii_case!(
                     value,
@@ -713,9 +740,9 @@ pub(super) fn parse_view_transition_contents_into<'i>(
             } else if descriptor.eq_ignore_ascii_case("types") {
                 let mut idents = allocator.vec();
                 for token in &value {
-                    if let Some(ident) = token_ident(token) {
+                    if let Some(ident) = token_ident(input.ast_context(), token) {
                         idents.push(ident);
-                    } else if !matches!(token, TokenOrValue::Token(token) if matches!(**token, ValueToken::WhiteSpace(_)))
+                    } else if !matches!(token, TokenOrValue::Token(token) if matches!(input.ast_context().node(*token), ValueToken::WhiteSpace(_)))
                     {
                         return Err(input.new_custom_error(ParserError::InvalidValue));
                     }
@@ -727,18 +754,21 @@ pub(super) fn parse_view_transition_contents_into<'i>(
                 } else {
                     NoneOrCustomIdentList::Idents(idents)
                 };
-                ViewTransitionProperty::Types(allocator.boxed(types))
+                ViewTransitionProperty::Types(store_node(types, input))
             } else {
-                ViewTransitionProperty::Custom(allocator.boxed(CustomProperty {
-                    name: allocator.boxed(CustomPropertyName::Unknown(descriptor)),
-                    value,
-                }))
+                ViewTransitionProperty::Custom(store_node(
+                    CustomProperty {
+                        name: store_node(CustomPropertyName::Unknown(descriptor), input),
+                        value,
+                    },
+                    input,
+                ))
             };
             Ok::<_, ParseError<'i, ParserError<'i>>>(property)
         })();
 
         match result {
-            Ok(property) => push(property)?,
+            Ok(property) => push(input, property)?,
             Err(_) if options.error_recovery => recover_declaration(input),
             Err(error) => return Err(error),
         }

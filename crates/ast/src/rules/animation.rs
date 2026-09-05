@@ -4,8 +4,8 @@ use crate::*;
 pub struct Transition<'a> {
     pub delay: Time,
     pub duration: Time,
-    pub property: Box<'a, PropertyId<'a>>,
-    pub timing_function: Box<'a, EasingFunction>,
+    pub property: NodeId<'a, PropertyId<'a>>,
+    pub timing_function: NodeId<'a, EasingFunction>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -17,13 +17,13 @@ pub struct ScrollTimeline {
 #[derive(Debug, PartialEq, Visit)]
 pub struct ViewTimeline<'a> {
     pub axis: ScrollAxis,
-    pub inset: Box<'a, Size2D<'a, LengthPercentageOrAuto<'a>>>,
+    pub inset: NodeId<'a, Size2D<'a, LengthPercentageOrAuto<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct AnimationRange<'a> {
-    pub end: Box<'a, AnimationRangeEnd<'a>>,
-    pub start: Box<'a, AnimationRangeStart<'a>>,
+    pub end: NodeId<'a, AnimationRangeEnd<'a>>,
+    pub start: NodeId<'a, AnimationRangeStart<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -36,9 +36,9 @@ pub struct Animation<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum AnimationComponent<'a> {
-    Name(Box<'a, AnimationName<'a>>),
+    Name(NodeId<'a, AnimationName<'a>>),
     Duration(Time),
-    TimingFunction(Box<'a, EasingFunction>),
+    TimingFunction(NodeId<'a, EasingFunction>),
     Delay(Time),
     IterationCount(AnimationIterationCount),
     Direction(AnimationDirection),

@@ -24,7 +24,8 @@ impl<'i> Parse<'i> for Image<'i> {
         match token {
             ValueToken::Ident(name) if name.eq_ignore_ascii_case("none") => Ok(Self::None),
             ValueToken::UnquotedUrl(url) => {
-                Ok(Self::Url(input.allocator().boxed(Url { span, url })))
+                let url = input.ast_context_mut().alloc_node(Url { url }, span);
+                Ok(Self::Url(url))
             }
             ValueToken::Function(name) if name.eq_ignore_ascii_case("url") => {
                 let url = input.parse_nested_block(|input| {
@@ -32,7 +33,8 @@ impl<'i> Parse<'i> for Image<'i> {
                     input.expect_exhausted()?;
                     Ok(url)
                 })?;
-                Ok(Self::Url(input.allocator().boxed(Url { span, url })))
+                let url = input.ast_context_mut().alloc_node(Url { url }, span);
+                Ok(Self::Url(url))
             }
             ValueToken::Function(name)
                 if name.eq_ignore_ascii_case("linear-gradient")
@@ -49,7 +51,7 @@ impl<'i> Parse<'i> for Image<'i> {
                 let gradient = input.parse_nested_block(|input| {
                     parse_linear_gradient(input, vendor_prefix, repeating)
                 })?;
-                Ok(Self::Gradient(input.allocator().boxed(gradient)))
+                Ok(Self::Gradient(store_node(gradient, input)))
             }
             ValueToken::Function(name)
                 if name.eq_ignore_ascii_case("radial-gradient")
@@ -66,7 +68,7 @@ impl<'i> Parse<'i> for Image<'i> {
                 let gradient = input.parse_nested_block(|input| {
                     parse_radial_gradient(input, vendor_prefix, repeating)
                 })?;
-                Ok(Self::Gradient(input.allocator().boxed(gradient)))
+                Ok(Self::Gradient(store_node(gradient, input)))
             }
             ValueToken::Function(name)
                 if name.eq_ignore_ascii_case("conic-gradient")
@@ -75,7 +77,7 @@ impl<'i> Parse<'i> for Image<'i> {
                 let repeating = name.eq_ignore_ascii_case("repeating-conic-gradient");
                 let gradient =
                     input.parse_nested_block(|input| parse_conic_gradient(input, repeating))?;
-                Ok(Self::Gradient(input.allocator().boxed(gradient)))
+                Ok(Self::Gradient(store_node(gradient, input)))
             }
             ValueToken::Function(name)
                 if name.eq_ignore_ascii_case("image-set")
@@ -88,7 +90,7 @@ impl<'i> Parse<'i> for Image<'i> {
                 };
                 let image_set =
                     input.parse_nested_block(|input| parse_image_set(input, vendor_prefix))?;
-                Ok(Self::ImageSet(input.allocator().boxed(image_set)))
+                Ok(Self::ImageSet(store_node(image_set, input)))
             }
             _ => Err(input.new_custom_error(ParserError::InvalidValue)),
         }
@@ -133,10 +135,10 @@ fn parse_image_set_option<'i>(
     input: &mut Compiler<'i>,
     vendor_prefix: VendorPrefix,
 ) -> Result<ImageSetOption<'i>, ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
     let span = input.current_token_span().unwrap_or_default();
     let image = if let Ok(url) = input.try_parse(Compiler::expect_string) {
-        Image::Url(allocator.boxed(Url { span, url }))
+        let url = input.ast_context_mut().alloc_node(Url { url }, span);
+        Image::Url(url)
     } else {
         Image::parse(input)?
     };
@@ -160,7 +162,7 @@ fn parse_image_set_option<'i>(
     }
     Ok(ImageSetOption {
         file_type,
-        image: allocator.boxed(image),
+        image: store_node(image, input),
         resolution,
     })
 }
@@ -240,12 +242,6 @@ fn parse_radial_gradient<'i>(
     repeating: bool,
 ) -> Result<Gradient<'i>, ParseError<'i, ParserError<'i>>> {
     let allocator = input.allocator();
-    let default_shape =
-        || EndingShape::Ellipse(allocator.boxed(Ellipse::Extent(ShapeExtent::FarthestCorner)));
-    let default_position = || Position {
-        x: allocator.boxed(PositionComponent::Center),
-        y: allocator.boxed(PositionComponent::Center),
-    };
 
     let header = input.try_parse(|input| {
         let shape = input.try_parse(parse_radial_shape).ok();
@@ -261,18 +257,25 @@ fn parse_radial_gradient<'i>(
                 Ok(Position { x, y })
             })?
         } else {
-            default_position()
+            default_gradient_position(input)
         };
         input.expect_comma()?;
-        Ok((shape.unwrap_or_else(default_shape), position))
+        let shape = match shape {
+            Some(shape) => shape,
+            None => default_radial_shape(input),
+        };
+        Ok((shape, position))
     });
 
     let (shape, position) = match header {
         Ok(header) => header,
-        Err(_) => (default_shape(), default_position()),
+        Err(_) => (
+            default_radial_shape(input),
+            default_gradient_position(input),
+        ),
     };
-    let shape = allocator.boxed(shape);
-    let position = allocator.boxed(position);
+    let shape = store_node(shape, input);
+    let position = store_node(position, input);
 
     let mut items = allocator.vec();
     loop {
@@ -307,10 +310,6 @@ fn parse_conic_gradient<'i>(
     repeating: bool,
 ) -> Result<Gradient<'i>, ParseError<'i, ParserError<'i>>> {
     let allocator = input.allocator();
-    let default_position = || Position {
-        x: allocator.boxed(PositionComponent::Center),
-        y: allocator.boxed(PositionComponent::Center),
-    };
     let header = input.try_parse(|input| {
         let has_from = input
             .try_parse(|input| input.expect_ident_matching("from"))
@@ -332,16 +331,16 @@ fn parse_conic_gradient<'i>(
                 Ok(Position { x, y })
             })?
         } else {
-            default_position()
+            default_gradient_position(input)
         };
         input.expect_comma()?;
         Ok((angle, position))
     });
     let (angle, position) = match header {
         Ok(header) => header,
-        Err(_) => (Angle::Deg(0.0), default_position()),
+        Err(_) => (Angle::Deg(0.0), default_gradient_position(input)),
     };
-    let position = allocator.boxed(position);
+    let position = store_node(position, input);
 
     let mut items = allocator.vec();
     loop {
@@ -369,15 +368,27 @@ fn parse_conic_gradient<'i>(
     })
 }
 
+fn default_radial_shape<'i>(input: &mut Compiler<'i>) -> EndingShape<'i> {
+    EndingShape::Ellipse(store_node(
+        Ellipse::Extent(ShapeExtent::FarthestCorner),
+        input,
+    ))
+}
+
+fn default_gradient_position<'i>(input: &mut Compiler<'i>) -> Position<'i> {
+    let x = store_node(PositionComponent::Center, input);
+    let y = store_node(PositionComponent::Center, input);
+    Position { x, y }
+}
+
 fn parse_radial_shape<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<EndingShape<'i>, ParseError<'i, ParserError<'i>>> {
     if let Ok(value) = input.try_parse(Length::parse) {
-        return Ok(EndingShape::Circle(
-            input
-                .allocator()
-                .boxed(Circle::Radius(input.allocator().boxed(value))),
-        ));
+        return Ok(EndingShape::Circle(store_node(
+            Circle::Radius(store_node(value, input)),
+            input,
+        )));
     }
     let ident = input.expect_ident()?;
     let shape = match_ignore_ascii_case!(
@@ -400,36 +411,38 @@ fn parse_radial_shape<'i>(
             let value = if let Ok(extent) = input.try_parse(parse_shape_extent) {
                 Circle::Extent(extent)
             } else if let Ok(value) = input.try_parse(Length::parse) {
-                Circle::Radius(input.allocator().boxed(value))
+                Circle::Radius(store_node(value, input))
             } else {
                 Circle::Extent(ShapeExtent::FarthestCorner)
             };
-            return Ok(EndingShape::Circle(input.allocator().boxed(value)));
+            return Ok(EndingShape::Circle(store_node(value, input)));
         }
 
         if let Ok(extent) = input.try_parse(parse_shape_extent) {
-            return Ok(EndingShape::Ellipse(
-                input.allocator().boxed(Ellipse::Extent(extent)),
-            ));
+            return Ok(EndingShape::Ellipse(store_node(
+                Ellipse::Extent(extent),
+                input,
+            )));
         }
         if let Ok(x) = input.try_parse(LengthPercentage::parse) {
             let y = LengthPercentage::parse(input)?;
-            return Ok(EndingShape::Ellipse(input.allocator().boxed(
+            return Ok(EndingShape::Ellipse(store_node(
                 Ellipse::Size {
-                    x: input.allocator().boxed(x),
-                    y: input.allocator().boxed(y),
+                    x: store_node(x, input),
+                    y: store_node(y, input),
                 },
+                input,
             )));
         }
-        return Ok(EndingShape::Ellipse(
-            input
-                .allocator()
-                .boxed(Ellipse::Extent(ShapeExtent::FarthestCorner)),
-        ));
+        return Ok(EndingShape::Ellipse(store_node(
+            Ellipse::Extent(ShapeExtent::FarthestCorner),
+            input,
+        )));
     }
 
-    Ok(EndingShape::Ellipse(input.allocator().boxed(
+    Ok(EndingShape::Ellipse(store_node(
         Ellipse::Extent(extent.unwrap_or(ShapeExtent::FarthestCorner)),
+        input,
     )))
 }
 
@@ -509,35 +522,33 @@ fn parse_line_direction<'i>(
 fn parse_gradient_item<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<GradientItem<'i, LengthValue>, ParseError<'i, ParserError<'i>>> {
-    if let Ok(color) = input.try_parse(CssColor::parse) {
-        let color = input.allocator().boxed(color);
+    if let Ok(color) = input.try_parse(parse_css_color) {
         let position = input
             .try_parse(LengthPercentage::parse)
             .ok()
-            .map(|value| input.allocator().boxed(value));
+            .map(|value| store_node(value, input));
         input.expect_exhausted()?;
         return Ok(GradientItem::ColorStop { color, position });
     }
     let value = LengthPercentage::parse(input)?;
     input.expect_exhausted()?;
-    Ok(GradientItem::Hint(input.allocator().boxed(value)))
+    Ok(GradientItem::Hint(store_node(value, input)))
 }
 
 fn parse_conic_gradient_item<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<GradientItem<'i, Angle>, ParseError<'i, ParserError<'i>>> {
-    if let Ok(color) = input.try_parse(CssColor::parse) {
-        let color = input.allocator().boxed(color);
+    if let Ok(color) = input.try_parse(parse_css_color) {
         let position = input
             .try_parse(parse_angle_percentage)
             .ok()
-            .map(|value| input.allocator().boxed(value));
+            .map(|value| store_node(value, input));
         input.expect_exhausted()?;
         return Ok(GradientItem::ColorStop { color, position });
     }
     let value = parse_angle_percentage(input)?;
     input.expect_exhausted()?;
-    Ok(GradientItem::Hint(input.allocator().boxed(value)))
+    Ok(GradientItem::Hint(store_node(value, input)))
 }
 
 fn parse_angle_percentage<'i>(

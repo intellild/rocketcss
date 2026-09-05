@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn minify_hsl_function(
     function: &Function<'_>,
     cx: &MinifyContext,
+    ast: &VisitMutContext<'_, '_, '_>,
 ) -> Option<FunctionReplacement> {
     let is_hsl = match function.kind() {
         KnownFunction::Hsl => true,
@@ -11,13 +12,13 @@ pub(super) fn minify_hsl_function(
     };
     let mut components = function.arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
-            if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
+            if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
     });
-    let hue = color_number(components.next()?)?;
-    let saturation = color_percentage(components.next()?)?;
-    let lightness = color_percentage(components.next()?)?;
+    let hue = color_number(components.next()?, ast)?;
+    let saturation = color_percentage(components.next()?, ast)?;
+    let lightness = color_percentage(components.next()?, ast)?;
     let alpha = match components.next() {
-        Some(value) => color_alpha(value)?,
+        Some(value) => color_alpha(value, ast)?,
         None if is_hsl => 1.0,
         None => return None,
     };
@@ -57,22 +58,22 @@ pub(super) fn minify_hsl_function(
     })
 }
 
-fn color_number(value: &TokenOrValue<'_>) -> Option<f32> {
+fn color_number(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> Option<f32> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    let Token::Number(value) = **token else {
+    let Token::Number(value) = ast.ast_context().resolve_node(*token) else {
         return None;
     };
-    Some(value)
+    Some(*value)
 }
 
-fn color_percentage(value: &TokenOrValue<'_>) -> Option<f32> {
+fn color_percentage(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> Option<f32> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    match **token {
-        Token::Percentage(value) => Some(value),
+    match ast.ast_context().resolve_node(*token) {
+        Token::Percentage(value) => Some(*value),
         Token::Number(0.0) => Some(0.0),
         _ => None,
     }
@@ -81,19 +82,20 @@ fn color_percentage(value: &TokenOrValue<'_>) -> Option<f32> {
 pub(super) fn minify_rgb_function(
     function: &Function<'_>,
     cx: &MinifyContext,
+    ast: &VisitMutContext<'_, '_, '_>,
 ) -> Option<FunctionReplacement> {
     if !matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
         return None;
     }
     let mut components = function.arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
-            if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
+            if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
     });
-    let (red, red_normalized) = color_component(components.next()?)?;
-    let (green, green_normalized) = color_component(components.next()?)?;
-    let (blue, blue_normalized) = color_component(components.next()?)?;
+    let (red, red_normalized) = color_component(components.next()?, ast)?;
+    let (green, green_normalized) = color_component(components.next()?, ast)?;
+    let (blue, blue_normalized) = color_component(components.next()?, ast)?;
     let alpha = match components.next() {
-        Some(value) => color_alpha(value)?,
+        Some(value) => color_alpha(value, ast)?,
         None => 1.0,
     };
     if components.next().is_some() {
@@ -118,21 +120,24 @@ pub(super) fn minify_rgb_function(
     Some(FunctionReplacement::Rgb { blue, green, red })
 }
 
-fn color_alpha(value: &TokenOrValue<'_>) -> Option<f32> {
+fn color_alpha(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> Option<f32> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    match **token {
+    match ast.ast_context().resolve_node(*token) {
         Token::Number(value) | Token::Percentage(value) => Some(value.clamp(0.0, 1.0)),
         _ => None,
     }
 }
 
-fn color_component(value: &TokenOrValue<'_>) -> Option<(u8, f32)> {
+fn color_component(
+    value: &TokenOrValue<'_>,
+    ast: &VisitMutContext<'_, '_, '_>,
+) -> Option<(u8, f32)> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    let (value, normalized) = match **token {
+    let (value, normalized) = match ast.ast_context().resolve_node(*token) {
         Token::Number(value) => {
             let value = value.clamp(0.0, 255.0);
             (value, value / 255.0)

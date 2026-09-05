@@ -54,9 +54,10 @@ impl<'i> Parse<'i> for FontSize<'i> {
                 _ => Err(input.new_custom_error(ParserError::InvalidValue)),
             );
         }
-        Ok(Self::Length(
-            input.allocator().boxed(LengthPercentage::parse(input)?),
-        ))
+        Ok(Self::Length(store_node(
+            LengthPercentage::parse(input)?,
+            input,
+        )))
     }
 }
 
@@ -127,9 +128,10 @@ impl<'i> Parse<'i> for LineHeight<'i> {
         if let Ok(value) = input.try_parse(Compiler::expect_number) {
             return Ok(Self::Number(value));
         }
-        Ok(Self::Length(
-            input.allocator().boxed(LengthPercentage::parse(input)?),
-        ))
+        Ok(Self::Length(store_node(
+            LengthPercentage::parse(input)?,
+            input,
+        )))
     }
 }
 

@@ -70,13 +70,13 @@ const _: () = {
     assert!(size_of::<Declaration<'_>>() == 32);
     assert!(size_of::<TokenOrValue<'_>>() == 24);
     assert!(size_of::<Token<'_>>() == 24);
-    assert!(size_of::<CssColor<'_>>() == 16);
+    assert!(size_of::<CssColor<'_>>() == 8);
     assert!(size_of::<KnownColor>() == 1);
-    assert!(size_of::<Length<'_>>() == 16);
+    assert!(size_of::<Length<'_>>() == 8);
     assert!(size_of::<ParsedComponent<'_>>() == 32);
-    assert!(size_of::<AnimationComponent<'_>>() == 16);
-    assert!(size_of::<Filter<'_>>() == 16);
-    assert!(size_of::<Transform<'_>>() == 32);
+    assert!(size_of::<AnimationComponent<'_>>() == 12);
+    assert!(size_of::<Filter<'_>>() == 12);
+    assert!(size_of::<Transform<'_>>() == 24);
     assert!(size_of::<KeyframeSelector>() == 8);
     assert!(size_of::<Display>() == 4);
     assert!(size_of::<PlaceContent>() == 4);
@@ -88,15 +88,6 @@ const _: () = {
 mod tests {
     use super::*;
     use rocketcss_common::Allocator;
-
-    #[test]
-    fn charset_rule_uses_span() {
-        let rule = CharsetRule {
-            span: Span::new(2, 19),
-            encoding: "UTF-8",
-        };
-        assert_eq!(rule.span(), Span::new(2, 19));
-    }
 
     #[test]
     fn compares_nodes_while_ignoring_owned_tombstone_slots() {
@@ -164,6 +155,7 @@ mod tests {
     #[test]
     fn selector_uses_typed_lightningcss_components() {
         let allocator = Allocator::new();
+        let mut ast = Compilation::new_in(&allocator);
         let mut selector = allocator.vec();
         selector.push(SelectorComponent::Nth(NthSelectorData {
             kind: NthType::Child,
@@ -172,13 +164,14 @@ mod tests {
             b: 1,
         }));
         selector.push(SelectorComponent::PseudoClass(
-            allocator.boxed(PseudoClass::Hover),
+            ast.alloc_node_without_span(PseudoClass::Hover),
         ));
 
         assert!(matches!(selector[0], SelectorComponent::Nth(_)));
         assert!(matches!(
             selector[1],
-            SelectorComponent::PseudoClass(ref value) if matches!(**value, PseudoClass::Hover)
+            SelectorComponent::PseudoClass(value)
+                if matches!(ast.resolve_node(value), PseudoClass::Hover)
         ));
     }
 

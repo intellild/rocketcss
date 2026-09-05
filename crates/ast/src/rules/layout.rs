@@ -14,22 +14,22 @@ pub struct Overflow {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct InsetBlock<'a> {
-    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct InsetInline<'a> {
-    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Inset<'a> {
-    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub right: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -40,7 +40,7 @@ pub struct FlexFlow {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Flex<'a> {
-    pub basis: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub basis: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub grow: f32,
     pub shrink: f32,
 }
@@ -65,21 +65,21 @@ pub struct PlaceItems {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Gap<'a> {
-    pub column: Box<'a, GapValue<'a>>,
-    pub row: Box<'a, GapValue<'a>>,
+    pub column: NodeId<'a, GapValue<'a>>,
+    pub row: NodeId<'a, GapValue<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ColumnRule<'a> {
-    pub color: Option<Box<'a, CssColor<'a>>>,
+    pub color: Option<NodeId<'a, CssColor<'a>>>,
     pub style: Option<LineStyle>,
-    pub width: Option<Box<'a, BorderSideWidth<'a>>>,
+    pub width: Option<NodeId<'a, BorderSideWidth<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum ColumnWidth<'a> {
     Auto,
-    Length(Box<'a, Length<'a>>),
+    Length(NodeId<'a, Length<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -109,117 +109,117 @@ pub struct GridAutoFlow {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GridTemplate<'a> {
-    pub areas: Box<'a, GridTemplateAreas<'a>>,
-    pub columns: Box<'a, TrackSizing<'a>>,
-    pub rows: Box<'a, TrackSizing<'a>>,
+    pub areas: NodeId<'a, GridTemplateAreas<'a>>,
+    pub columns: NodeId<'a, TrackSizing<'a>>,
+    pub rows: NodeId<'a, TrackSizing<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Grid<'a> {
-    pub areas: Box<'a, GridTemplateAreas<'a>>,
+    pub areas: NodeId<'a, GridTemplateAreas<'a>>,
     pub auto_columns: Vec<'a, TrackSize<'a>>,
     pub auto_flow: GridAutoFlow,
     pub auto_rows: Vec<'a, TrackSize<'a>>,
-    pub columns: Box<'a, TrackSizing<'a>>,
-    pub rows: Box<'a, TrackSizing<'a>>,
+    pub columns: NodeId<'a, TrackSizing<'a>>,
+    pub rows: NodeId<'a, TrackSizing<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GridRow<'a> {
-    pub end: Box<'a, GridLine<'a>>,
-    pub start: Box<'a, GridLine<'a>>,
+    pub end: NodeId<'a, GridLine<'a>>,
+    pub start: NodeId<'a, GridLine<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GridColumn<'a> {
-    pub end: Box<'a, GridLine<'a>>,
-    pub start: Box<'a, GridLine<'a>>,
+    pub end: NodeId<'a, GridLine<'a>>,
+    pub start: NodeId<'a, GridLine<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GridArea<'a> {
-    pub column_end: Box<'a, GridLine<'a>>,
-    pub column_start: Box<'a, GridLine<'a>>,
-    pub row_end: Box<'a, GridLine<'a>>,
-    pub row_start: Box<'a, GridLine<'a>>,
+    pub column_end: NodeId<'a, GridLine<'a>>,
+    pub column_start: NodeId<'a, GridLine<'a>>,
+    pub row_end: NodeId<'a, GridLine<'a>>,
+    pub row_start: NodeId<'a, GridLine<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MarginBlock<'a> {
-    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MarginInline<'a> {
-    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Margin<'a> {
-    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub right: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct PaddingBlock<'a> {
-    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct PaddingInline<'a> {
-    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Padding<'a> {
-    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub right: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollMarginBlock<'a> {
-    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollMarginInline<'a> {
-    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollMargin<'a> {
-    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub right: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollPaddingBlock<'a> {
-    pub block_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub block_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollPaddingInline<'a> {
-    pub inline_end: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub inline_start: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ScrollPadding<'a> {
-    pub bottom: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub left: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub right: Box<'a, LengthPercentageOrAuto<'a>>,
-    pub top: Box<'a, LengthPercentageOrAuto<'a>>,
+    pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub right: NodeId<'a, LengthPercentageOrAuto<'a>>,
+    pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }

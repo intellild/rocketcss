@@ -84,10 +84,10 @@ pub type AnimationRangeStart<'a> = AnimationAttachmentRange<'a>;
 #[derive(Debug, PartialEq, Visit)]
 pub enum AnimationAttachmentRange<'a> {
     Normal,
-    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
     TimelineRange {
         name: TimelineRangeName,
-        offset: Box<'a, LengthPercentage<'a>>,
+        offset: NodeId<'a, LengthPercentage<'a>>,
     },
 }
 

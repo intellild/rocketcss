@@ -19,6 +19,7 @@ impl<'ghost> ToCss<'ghost> for Compilation<'_> {
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        let cx = ToCssContext::with_ast(cx.token(), self);
         let writer = RadixWriter(self);
         for (index, comment) in self.license_comments().iter().enumerate() {
             dest.write_str("/*")?;
@@ -28,7 +29,7 @@ impl<'ghost> ToCss<'ghost> for Compilation<'_> {
                 dest.new_line()?;
             }
         }
-        writer.write_rule_list(self.stylesheet().root_rules(), dest, cx)?;
+        writer.write_rule_list(self.stylesheet().root_rules(), dest, &cx)?;
         if !writer.root_is_empty() {
             dest.new_line()?;
         }
@@ -698,7 +699,7 @@ fn write_named_property<'ghost, PrinterT: PrinterTrait, T>(
 where
     T: NamedProperty + ToCss<'ghost>,
 {
-    serialize_name(value.css_name(), dest)?;
+    serialize_name(value.css_name(cx.ast_context()), dest)?;
     dest.write_char(':')?;
     dest.whitespace()?;
     value.to_css(dest, cx)

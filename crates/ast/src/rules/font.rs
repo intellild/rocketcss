@@ -3,18 +3,18 @@ use crate::*;
 #[derive(Debug, PartialEq, Visit)]
 pub enum FontFaceProperty<'a> {
     Source(Vec<'a, Source<'a>>),
-    FontFamily(Box<'a, FontFamily<'a>>),
-    FontStyle(Box<'a, FontFaceStyle<'a>>),
-    FontWeight(Box<'a, Size2D<'a, FontWeight>>),
-    FontStretch(Box<'a, Size2D<'a, FontStretch>>),
+    FontFamily(NodeId<'a, FontFamily<'a>>),
+    FontStyle(NodeId<'a, FontFaceStyle<'a>>),
+    FontWeight(NodeId<'a, Size2D<'a, FontWeight>>),
+    FontStretch(NodeId<'a, Size2D<'a, FontStretch>>),
     UnicodeRange(Vec<'a, UnicodeRange>),
-    Custom(Box<'a, CustomProperty<'a>>),
+    Custom(NodeId<'a, CustomProperty<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum Source<'a> {
-    Url(Box<'a, UrlSource<'a>>),
-    Local(Box<'a, FontFamily<'a>>),
+    Url(NodeId<'a, UrlSource<'a>>),
+    Local(NodeId<'a, FontFamily<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -48,15 +48,15 @@ pub enum FontTechnology {
 pub enum FontFaceStyle<'a> {
     Normal,
     Italic,
-    Oblique(Box<'a, Size2D<'a, Angle>>),
+    Oblique(NodeId<'a, Size2D<'a, Angle>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum FontPaletteValuesProperty<'a> {
-    FontFamily(Box<'a, FontFamily<'a>>),
-    BasePalette(Box<'a, BasePalette>),
+    FontFamily(NodeId<'a, FontFamily<'a>>),
+    BasePalette(NodeId<'a, BasePalette>),
     OverrideColors(Vec<'a, OverrideColors<'a>>),
-    Custom(Box<'a, CustomProperty<'a>>),
+    Custom(NodeId<'a, CustomProperty<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -80,19 +80,19 @@ pub enum FontFeatureSubruleType {
 #[derive(Debug, PartialEq, Visit)]
 pub struct Font<'a> {
     pub family: Vec<'a, FontFamily<'a>>,
-    pub line_height: Box<'a, LineHeight<'a>>,
-    pub size: Box<'a, FontSize<'a>>,
+    pub line_height: NodeId<'a, LineHeight<'a>>,
+    pub size: NodeId<'a, FontSize<'a>>,
     pub stretch: FontStretch,
-    pub style: Box<'a, FontStyle>,
+    pub style: NodeId<'a, FontStyle>,
     pub variant_caps: FontVariantCaps,
-    pub weight: Box<'a, FontWeight>,
+    pub weight: NodeId<'a, FontWeight>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct UrlSource<'a> {
-    pub format: Option<Box<'a, FontFormat<'a>>>,
+    pub format: Option<NodeId<'a, FontFormat<'a>>>,
     pub tech: Vec<'a, FontTechnology>,
-    pub url: Box<'a, Url<'a>>,
+    pub url: NodeId<'a, Url<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -103,7 +103,7 @@ pub struct UnicodeRange {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct OverrideColors<'a> {
-    pub color: Box<'a, CssColor<'a>>,
+    pub color: NodeId<'a, CssColor<'a>>,
     pub index: u16,
 }
 

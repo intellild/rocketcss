@@ -252,8 +252,7 @@ impl<'i> Parse<'i> for LengthPercentageOrAuto<'i> {
         {
             return Ok(Self::Auto);
         }
-        LengthPercentage::parse(input)
-            .map(|value| Self::LengthPercentage(input.allocator().boxed(value)))
+        LengthPercentage::parse(input).map(|value| Self::LengthPercentage(store_node(value, input)))
     }
 }
 
@@ -287,10 +286,10 @@ impl<'i> Parse<'i> for ZIndex {
 }
 
 fn clone_length_percentage<'i>(
-    value: &LengthPercentage<'i>,
-    allocator: &'i Allocator,
-) -> Option<Box<'i, LengthPercentage<'i>>> {
-    let value = match value {
+    id: NodeId<'i, LengthPercentage<'i>>,
+    input: &mut Compiler<'i>,
+) -> Option<NodeId<'i, LengthPercentage<'i>>> {
+    let value = match input.ast_context().node(id) {
         LengthPercentage::Dimension(value) => LengthPercentage::Dimension(LengthValue {
             unit: value.unit,
             value: value.value,
@@ -299,31 +298,35 @@ fn clone_length_percentage<'i>(
         LengthPercentage::Zero => LengthPercentage::Zero,
         LengthPercentage::Calc(_) => return None,
     };
-    Some(allocator.boxed(value))
+    Some(store_node(value, input))
 }
 
 fn clone_length_percentage_or_auto<'i>(
-    value: &LengthPercentageOrAuto<'i>,
-    allocator: &'i Allocator,
-) -> Option<Box<'i, LengthPercentageOrAuto<'i>>> {
-    let value = match value {
-        LengthPercentageOrAuto::Auto => LengthPercentageOrAuto::Auto,
-        LengthPercentageOrAuto::LengthPercentage(value) => {
-            LengthPercentageOrAuto::LengthPercentage(clone_length_percentage(value, allocator)?)
+    id: NodeId<'i, LengthPercentageOrAuto<'i>>,
+    input: &mut Compiler<'i>,
+) -> Option<NodeId<'i, LengthPercentageOrAuto<'i>>> {
+    let length_percentage = match input.ast_context().node(id) {
+        LengthPercentageOrAuto::Auto => None,
+        LengthPercentageOrAuto::LengthPercentage(value) => Some(*value),
+    };
+    let value = match length_percentage {
+        None => LengthPercentageOrAuto::Auto,
+        Some(value) => {
+            LengthPercentageOrAuto::LengthPercentage(clone_length_percentage(value, input)?)
         }
     };
-    Some(allocator.boxed(value))
+    Some(store_node(value, input))
 }
 
 fn parse_four_box_values<'i>(
     input: &mut Compiler<'i>,
-) -> Result<[Box<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
+) -> Result<[NodeId<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
     parse_four_box_values_with(input, LengthPercentageOrAuto::parse)
 }
 
 fn parse_four_box_values_without_auto<'i>(
     input: &mut Compiler<'i>,
-) -> Result<[Box<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
+) -> Result<[NodeId<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
     parse_four_box_values_with(input, |input| {
         let value = LengthPercentageOrAuto::parse(input)?;
         if matches!(value, LengthPercentageOrAuto::Auto) {
@@ -338,16 +341,14 @@ fn parse_four_box_values_with<'i>(
     mut parse: impl FnMut(
         &mut Compiler<'i>,
     ) -> Result<LengthPercentageOrAuto<'i>, ParseError<'i, ParserError<'i>>>,
-) -> Result<[Box<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let mut values: [Option<Box<'i, LengthPercentageOrAuto<'i>>>; 4] =
-        std::array::from_fn(|_| None);
+) -> Result<[NodeId<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
+    let mut values: [Option<NodeId<'i, LengthPercentageOrAuto<'i>>>; 4] = [None; 4];
     let mut count = 0;
     while !input.is_exhausted() {
         if count == values.len() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        values[count] = Some(allocator.boxed(parse(input)?));
+        values[count] = Some(store_node(parse(input)?, input));
         count += 1;
     }
     if count == 0 {
@@ -356,18 +357,18 @@ fn parse_four_box_values_with<'i>(
 
     let top = values[0].take().unwrap();
     let right = match count {
-        1 => clone_length_percentage_or_auto(&top, allocator),
+        1 => clone_length_percentage_or_auto(top, input),
         _ => values[1].take(),
     }
     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
     let bottom = match count {
-        1 | 2 => clone_length_percentage_or_auto(&top, allocator),
+        1 | 2 => clone_length_percentage_or_auto(top, input),
         _ => values[2].take(),
     }
     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
     let left = match count {
-        1 => clone_length_percentage_or_auto(&top, allocator),
-        2 | 3 => clone_length_percentage_or_auto(&right, allocator),
+        1 => clone_length_percentage_or_auto(top, input),
+        2 | 3 => clone_length_percentage_or_auto(right, input),
         _ => values[3].take(),
     }
     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
@@ -377,8 +378,7 @@ fn parse_four_box_values_with<'i>(
 fn parse_logical_box_values<'i>(
     input: &mut Compiler<'i>,
     allow_auto: bool,
-) -> Result<[Box<'i, LengthPercentageOrAuto<'i>>; 2], ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
+) -> Result<[NodeId<'i, LengthPercentageOrAuto<'i>>; 2], ParseError<'i, ParserError<'i>>> {
     let parse = |input: &mut Compiler<'i>| {
         let value = LengthPercentageOrAuto::parse(input)?;
         if !allow_auto && matches!(value, LengthPercentageOrAuto::Auto) {
@@ -386,12 +386,12 @@ fn parse_logical_box_values<'i>(
         }
         Ok(value)
     };
-    let first = allocator.boxed(parse(input)?);
+    let first = store_node(parse(input)?, input);
     let second = if input.is_exhausted() {
-        clone_length_percentage_or_auto(&first, allocator)
+        clone_length_percentage_or_auto(first, input)
             .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?
     } else {
-        allocator.boxed(parse(input)?)
+        store_node(parse(input)?, input)
     };
     input.expect_exhausted()?;
     Ok([first, second])

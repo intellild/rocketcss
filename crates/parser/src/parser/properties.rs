@@ -72,7 +72,7 @@ fn parse_known_declaration_with_fallback<'i>(
                 PropertyId::Columns(prefix) => {
                     Declaration::Columns(CSSWideOr::CSSWide(keyword), prefix)
                 }
-                _ => Declaration::CSSWide(allocator.boxed(property_id), keyword),
+                _ => Declaration::CSSWide(store_node(property_id, input), keyword),
             };
             return Ok((declaration, important));
         }
@@ -118,22 +118,30 @@ fn parse_declaration_fallback<'i>(
     })?;
     let raw_value = input.slice(value_start..input.position());
     let _ = input.try_parse(Compiler::expect_semicolon);
-    let important = remove_important(&mut value);
+    let important = remove_important(input.ast_context(), &mut value);
 
     let declaration = if name.starts_with("--") {
-        Declaration::Custom(allocator.boxed(CustomProperty {
-            name: allocator.boxed(CustomPropertyName::Custom(name)),
-            value,
-        }))
+        Declaration::Custom(store_node(
+            CustomProperty {
+                name: store_node(CustomPropertyName::Custom(name), input),
+                value,
+            },
+            input,
+        ))
     } else {
-        trim_leading_whitespace(&mut value);
-        let reason = unparsed_reason(&property_id, &value, typed_grammar_supported);
+        trim_leading_whitespace(input.ast_context(), &mut value);
+        let reason = unparsed_reason(
+            input.ast_context(),
+            &property_id,
+            &value,
+            typed_grammar_supported,
+        );
         unparsed_declaration(
             property_id,
             value,
             reason,
             preserve_unparsed_value(raw_value, important, allocator),
-            allocator,
+            input,
         )
     };
 
@@ -145,14 +153,17 @@ pub(super) fn unparsed_declaration<'i>(
     value: Vec<'i, TokenOrValue<'i>>,
     reason: UnparsedPropertyReason,
     raw_value: Option<&'i str>,
-    allocator: &'i Allocator,
+    input: &mut Compiler<'i>,
 ) -> Declaration<'i> {
-    Declaration::Unparsed(allocator.boxed(UnparsedProperty {
-        property_id: allocator.boxed(property_id),
-        reason,
-        raw_value,
-        value,
-    }))
+    Declaration::Unparsed(store_node(
+        UnparsedProperty {
+            property_id: store_node(property_id, input),
+            reason,
+            raw_value,
+            value,
+        },
+        input,
+    ))
 }
 
 fn preserve_unparsed_value<'i>(
@@ -232,15 +243,16 @@ fn find_trailing_important(value: &str) -> Option<(Range<usize>, Range<usize>)> 
     ))
 }
 
-fn unparsed_reason(
-    property_id: &PropertyId<'_>,
-    value: &[TokenOrValue<'_>],
+fn unparsed_reason<'i>(
+    ast: &Compilation<'i>,
+    property_id: &PropertyId<'i>,
+    value: &[TokenOrValue<'i>],
     typed_grammar_supported: bool,
 ) -> UnparsedPropertyReason {
     if matches!(property_id, PropertyId::Custom(_)) {
         return UnparsedPropertyReason::UnknownProperty;
     }
-    if value.iter().any(token_value_is_comment) {
+    if value.iter().any(|value| token_value_is_comment(ast, value)) {
         return UnparsedPropertyReason::OpaqueValue;
     }
     if !typed_grammar_supported {
@@ -258,10 +270,10 @@ fn unparsed_reason(
     UnparsedPropertyReason::InvalidValue
 }
 
-fn token_value_is_comment(value: &TokenOrValue<'_>) -> bool {
+fn token_value_is_comment<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
         value,
-        TokenOrValue::Token(token) if matches!(**token, ValueToken::Comment(_))
+        TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::Comment(_))
     )
 }
 
@@ -305,6 +317,23 @@ macro_rules! generate_typed_parser {
     (@dispatch unsupported ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {};
     (@dispatch unsupported ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {};
 
+    (@dispatch node : CssColor<'i> ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+        if let PropertyId::$property = $property_id {
+            return Some($input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                parse_css_color,
+            ).map(Declaration::$property));
+        }
+    };
+    (@dispatch node : CssColor<'i> ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+        if let PropertyId::$property(prefix) = $property_id {
+            return Some($input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                parse_css_color,
+            ).map(|value| Declaration::$property(value, *prefix)));
+        }
+    };
+
     (@dispatch parse : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
@@ -327,7 +356,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value))));
+            ).map(|value| Declaration::$property(store_node(value, $input))));
         }
     };
     (@dispatch boxed : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
@@ -335,7 +364,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
+            ).map(|value| Declaration::$property(store_node(value, $input), *prefix)));
         }
     };
 
@@ -361,7 +390,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value))));
+            ).map(|value| Declaration::$property(store_node(value, $input))));
         }
     };
     (@dispatch whitespace_separated : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
@@ -369,7 +398,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
+            ).map(|value| Declaration::$property(store_node(value, $input), *prefix)));
         }
     };
 
@@ -378,7 +407,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value))));
+            ).map(|value| Declaration::$property(store_node(value, $input))));
         }
     };
     (@dispatch rect : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
@@ -386,7 +415,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
+            ).map(|value| Declaration::$property(store_node(value, $input), *prefix)));
         }
     };
 
@@ -395,7 +424,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value))));
+            ).map(|value| Declaration::$property(store_node(value, $input))));
         }
     };
     (@dispatch two_value : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
@@ -403,7 +432,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
+            ).map(|value| Declaration::$property(store_node(value, $input), *prefix)));
         }
     };
 
@@ -440,7 +469,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property(CSSWideOr::Value($allocator.boxed(value)))));
+            ).map(|value| Declaration::$property(CSSWideOr::Value(store_node(value, $input)))));
         }
     };
     (@dispatch css_wide_boxed : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
@@ -448,7 +477,7 @@ macro_rules! generate_typed_parser {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property(CSSWideOr::Value($allocator.boxed(value)), *prefix)));
+            ).map(|value| Declaration::$property(CSSWideOr::Value(store_node(value, $input)), *prefix)));
         }
     };
 }

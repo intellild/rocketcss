@@ -2,21 +2,21 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct InsetRect<'a> {
-    pub radius: Box<'a, BorderRadius<'a>>,
-    pub rect: Box<'a, Rect<'a, LengthPercentage<'a>>>,
+    pub radius: NodeId<'a, BorderRadius<'a>>,
+    pub rect: NodeId<'a, Rect<'a, LengthPercentage<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct CircleShape<'a> {
-    pub position: Box<'a, Position<'a>>,
-    pub radius: Box<'a, ShapeRadius<'a>>,
+    pub position: NodeId<'a, Position<'a>>,
+    pub radius: NodeId<'a, ShapeRadius<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct EllipseShape<'a> {
-    pub position: Box<'a, Position<'a>>,
-    pub radius_x: Box<'a, ShapeRadius<'a>>,
-    pub radius_y: Box<'a, ShapeRadius<'a>>,
+    pub position: NodeId<'a, Position<'a>>,
+    pub radius_x: NodeId<'a, ShapeRadius<'a>>,
+    pub radius_y: NodeId<'a, ShapeRadius<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -27,36 +27,36 @@ pub struct Polygon<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Point<'a> {
-    pub x: Box<'a, LengthPercentage<'a>>,
-    pub y: Box<'a, LengthPercentage<'a>>,
+    pub x: NodeId<'a, LengthPercentage<'a>>,
+    pub y: NodeId<'a, LengthPercentage<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Mask<'a> {
     pub clip: MaskClip,
     pub composite: MaskComposite,
-    pub image: Box<'a, Image<'a>>,
+    pub image: NodeId<'a, Image<'a>>,
     pub mode: MaskMode,
     pub origin: GeometryBox,
-    pub position: Box<'a, Position<'a>>,
+    pub position: NodeId<'a, Position<'a>>,
     pub repeat: BackgroundRepeat,
-    pub size: Box<'a, BackgroundSize<'a>>,
+    pub size: NodeId<'a, BackgroundSize<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MaskBorder<'a> {
     pub mode: MaskBorderMode,
-    pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
+    pub outset: NodeId<'a, Rect<'a, LengthOrNumber<'a>>>,
     pub repeat: BorderImageRepeat,
-    pub slice: Box<'a, BorderImageSlice<'a>>,
-    pub source: Box<'a, Image<'a>>,
-    pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,
+    pub slice: NodeId<'a, BorderImageSlice<'a>>,
+    pub source: NodeId<'a, Image<'a>>,
+    pub width: NodeId<'a, Rect<'a, BorderImageSideWidth<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct DropShadow<'a> {
-    pub blur: Box<'a, Length<'a>>,
-    pub color: Box<'a, CssColor<'a>>,
-    pub x_offset: Box<'a, Length<'a>>,
-    pub y_offset: Box<'a, Length<'a>>,
+    pub blur: NodeId<'a, Length<'a>>,
+    pub color: NodeId<'a, CssColor<'a>>,
+    pub x_offset: NodeId<'a, Length<'a>>,
+    pub y_offset: NodeId<'a, Length<'a>>,
 }

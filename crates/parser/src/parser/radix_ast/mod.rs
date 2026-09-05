@@ -52,15 +52,15 @@ impl<'ast> Compiler<'ast> {
     ) -> Result<Compilation<'ast>, Error<'ast>> {
         self.cursor = super::ParserCursor::new(source);
         self.replay.reset_for_new_source();
-        let mut compilation =
+        self.compilation =
             Compilation::with_capacity_in(self.allocator(), compilation_capacity(source.len()));
 
         let mut state = self.state();
-        while let Ok(token) = self.next_including_whitespace_and_comments() {
+        while let Ok(token) = self.next_including_whitespace_and_comments().cloned() {
             match token {
                 ValueToken::WhiteSpace(_) => {}
                 ValueToken::Comment(comment) if comment.starts_with('!') => {
-                    compilation.push_license_comment(comment);
+                    self.compilation.push_license_comment(comment);
                 }
                 _ => break,
             }
@@ -68,17 +68,19 @@ impl<'ast> Compiler<'ast> {
         }
         self.reset(&state);
 
-        let root = compilation.stylesheet().root_rules();
+        let root = self.compilation.stylesheet().root_rules();
         parse_rule_list(
             self,
-            &mut compilation,
             root,
             ConcreteEffectiveContext::<'ast>::default(),
             &options,
             0,
         )
         .map_err(|error| into_error(error, options.filename))?;
-        Ok(compilation)
+        Ok(std::mem::replace(
+            &mut self.compilation,
+            Compilation::new_in(self.allocator),
+        ))
     }
 }
 
@@ -116,7 +118,6 @@ enum TopLevelState {
 
 fn parse_rule_list<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -152,27 +153,19 @@ fn parse_rule_list<'ast>(
                 {
                     Err(input.new_custom_error(ParserError::UnexpectedNamespaceRule))
                 } else {
-                    parse_group_at_rule(
-                        input,
-                        compilation,
-                        list,
-                        context,
-                        options,
-                        depth,
-                        &start,
-                        name,
-                    )
+                    parse_group_at_rule(input, list, context, options, depth, &start, name)
                 }
             }
             _ => {
                 input.reset(&start);
-                parse_style_rule(input, compilation, list, context, options, depth, &start)
+                parse_style_rule(input, list, context, options, depth, &start)
             }
         };
         match result {
             Ok(rule) => {
                 if depth == 0 {
-                    top_level_state = match compilation
+                    top_level_state = match input
+                        .ast_context()
                         .rule(rule)
                         .expect("the parsed top-level rule remains resolvable")
                         .payload()

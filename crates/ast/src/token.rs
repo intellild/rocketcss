@@ -1,23 +1,22 @@
 use super::*;
 
-use rocketcss_common::boxed::Box;
 use std::hash::{Hash, Hasher};
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum TokenOrValue<'a> {
-    Token(Box<'a, Token<'a>>),
-    Color(Box<'a, CssColor<'a>>),
-    UnresolvedColor(Box<'a, UnresolvedColor<'a>>),
-    Url(Box<'a, Url<'a>>),
-    Var(Box<'a, Variable<'a>>),
-    Env(Box<'a, EnvironmentVariable<'a>>),
-    Function(Box<'a, Function<'a>>),
+    Token(NodeId<'a, Token<'a>>),
+    Color(NodeId<'a, CssColor<'a>>),
+    UnresolvedColor(NodeId<'a, UnresolvedColor<'a>>),
+    Url(NodeId<'a, Url<'a>>),
+    Var(NodeId<'a, Variable<'a>>),
+    Env(NodeId<'a, EnvironmentVariable<'a>>),
+    Function(NodeId<'a, Function<'a>>),
     Length(LengthValue),
     Angle(Angle),
     Time(Time),
     Resolution(Resolution),
     DashedIdent(&'a str),
-    AnimationName(Box<'a, AnimationName<'a>>),
+    AnimationName(NodeId<'a, AnimationName<'a>>),
 }
 
 impl Eq for TokenOrValue<'_> {}
@@ -187,7 +186,7 @@ pub enum AnimationName<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub enum EnvironmentVariableName<'a> {
     UA(UAEnvironmentVariable),
-    Custom(Box<'a, DashedIdentReference<'a>>),
+    Custom(NodeId<'a, DashedIdentReference<'a>>),
     Unknown(&'a str),
 }
 

@@ -16,7 +16,7 @@ pub enum AbsoluteFontWeight {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum FontSize<'a> {
-    Length(Box<'a, LengthPercentage<'a>>),
+    Length(NodeId<'a, LengthPercentage<'a>>),
     Absolute(AbsoluteFontSize),
     Relative(RelativeFontSize),
 }
@@ -182,13 +182,13 @@ pub enum FontVariantCaps {
 pub enum LineHeight<'a> {
     Normal,
     Number(f32),
-    Length(Box<'a, LengthPercentage<'a>>),
+    Length(NodeId<'a, LengthPercentage<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum VerticalAlign<'a> {
     Keyword(VerticalAlignKeyword),
-    Length(Box<'a, LengthPercentage<'a>>),
+    Length(NodeId<'a, LengthPercentage<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

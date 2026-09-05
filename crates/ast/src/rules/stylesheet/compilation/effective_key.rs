@@ -293,7 +293,7 @@ impl<'ast, P> EffectiveContext<'ast, P> {
 
 #[derive(Debug)]
 pub struct SelectorValueRecord<'ast> {
-    selectors: crate::SelectorList<'ast>,
+    selectors: Option<crate::SelectorList<'ast>>,
     kind: SelectorFrameKind,
     vendor_prefix: VendorPrefix,
     fingerprint: u64,
@@ -302,7 +302,9 @@ pub struct SelectorValueRecord<'ast> {
 impl<'ast> SelectorValueRecord<'ast> {
     #[inline]
     pub fn selectors(&self) -> &crate::SelectorList<'ast> {
-        &self.selectors
+        self.selectors
+            .as_ref()
+            .expect("recursive access to a mutably borrowed selector value")
     }
 
     #[inline]
@@ -333,6 +335,8 @@ pub(crate) struct SelectorPathRecord<'ast> {
 pub(crate) struct ContextValueRecord<'ast, P> {
     pub(super) representative: super::RuleId<'ast, P>,
     pub(super) fingerprint: u64,
+    source_key: Option<&'ast str>,
+    fingerprint_is_source: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -434,7 +438,7 @@ impl<'ast> Compilation<'ast> {
         mut transform: impl FnMut(SelectorValueId<'ast>, &mut crate::SelectorList<'ast>),
     ) {
         let allocator = self.allocator;
-        self.transform_selector_values_in(allocator, &mut transform);
+        self.transform_selector_values_in(allocator, |id, selectors, _| transform(id, selectors));
     }
 
     /// Variant of [`Self::transform_selector_values`] whose repair scratch is
@@ -443,14 +447,35 @@ impl<'ast> Compilation<'ast> {
     pub fn transform_selector_values_in(
         &mut self,
         allocator: &Allocator,
-        mut transform: impl FnMut(SelectorValueId<'ast>, &mut crate::SelectorList<'ast>),
+        mut transform: impl FnMut(SelectorValueId<'ast>, &mut crate::SelectorList<'ast>, &mut Self),
     ) -> bool {
         let mut changed = false;
-        for (id, value) in self.selector_values.iter_enumerated_mut() {
-            let previous_fingerprint = value.fingerprint;
-            transform(id, &mut value.selectors);
-            value.fingerprint =
-                selector_value_fingerprint(&value.selectors, value.kind, value.vendor_prefix);
+        for index in 0..self.selector_values.len() {
+            let id = self
+                .selector_values
+                .id_at_offset(0, index)
+                .expect("an existing selector value has a store-owned dense ID");
+            let previous_fingerprint = self.selector_values[id].fingerprint;
+            let mut selectors = self.selector_values[id]
+                .selectors
+                .take()
+                .expect("recursive access to a mutably borrowed selector value");
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                transform(id, &mut selectors, self)
+            }));
+            self.selector_values[id].selectors = Some(selectors);
+            if let Err(payload) = result {
+                std::panic::resume_unwind(payload);
+            }
+            let value = &mut self.selector_values[id];
+            value.fingerprint = selector_value_fingerprint(
+                value
+                    .selectors
+                    .as_ref()
+                    .expect("selector value was restored"),
+                value.kind,
+                value.vendor_prefix,
+            );
             changed |= value.fingerprint != previous_fingerprint;
         }
 
@@ -475,7 +500,7 @@ impl<'ast> Compilation<'ast> {
                         let candidate = &self.selector_values[candidate];
                         candidate.kind == value.kind
                             && candidate.vendor_prefix == value.vendor_prefix
-                            && candidate.selectors == value.selectors
+                            && candidate.selectors() == value.selectors()
                     })
                 })
                 .unwrap_or(id);
@@ -619,6 +644,32 @@ impl<'ast> Compilation<'ast> {
         &mut self,
         allocator: &'scratch Allocator,
     ) -> Result<ContextIdentityRepair<'scratch, 'ast>, MutationError<'ast>> {
+        self.refresh_context_value_identities_with_remaps_by(
+            allocator,
+            |ast, representative| {
+                let kind = ast
+                    .context_frame_kind(representative)
+                    .expect("a context representative has a context frame kind");
+                ast.hash_context_frame(representative, kind)
+            },
+            |ast, left, right| {
+                let kind = ast
+                    .context_frame_kind(left)
+                    .expect("a context representative has a context frame kind");
+                ast.context_frame_kind(right) == Some(kind)
+                    && ast.context_frames_equal(left, right, kind)
+            },
+        )
+    }
+
+    /// Repairs context identities using context-aware payload fingerprinting and equality.
+    #[doc(hidden)]
+    pub fn refresh_context_value_identities_with_remaps_by<'scratch>(
+        &mut self,
+        allocator: &'scratch Allocator,
+        mut fingerprint: impl FnMut(&Self, RuleId<'ast>) -> u64,
+        mut frames_equal: impl FnMut(&Self, RuleId<'ast>, RuleId<'ast>) -> bool,
+    ) -> Result<ContextIdentityRepair<'scratch, 'ast>, MutationError<'ast>> {
         let mut changed = false;
         for index in 0..self.context_values.len() {
             let id = self
@@ -629,8 +680,13 @@ impl<'ast> Compilation<'ast> {
             let kind = self
                 .context_frame_kind(representative)
                 .ok_or(MutationError::InvalidRuleTopology(representative))?;
-            let fingerprint = self.hash_context_frame(representative, kind);
-            changed |= fingerprint != self.context_values[id].fingerprint;
+            let next_fingerprint = if kind.is_opaque() {
+                self.hash_context_frame(representative, kind)
+            } else {
+                fingerprint(self, representative)
+            };
+            changed |= self.context_values[id].fingerprint_is_source
+                || next_fingerprint != self.context_values[id].fingerprint;
         }
         if !changed {
             return Ok(ContextIdentityRepair {
@@ -638,7 +694,6 @@ impl<'ast> Compilation<'ast> {
                 effective_key_remaps: rocketcss_common::vec::Vec::new_in(allocator),
             });
         }
-
         let mut value_remaps =
             rocketcss_common::vec::Vec::with_capacity_in(self.context_values.len(), allocator);
         self.context_value_buckets.clear();
@@ -652,27 +707,33 @@ impl<'ast> Compilation<'ast> {
             let kind = self
                 .context_frame_kind(representative)
                 .ok_or(MutationError::InvalidRuleTopology(representative))?;
-            let fingerprint = self.hash_context_frame(representative, kind);
-            self.context_values[id].fingerprint = fingerprint;
+            let next_fingerprint = if kind.is_opaque() {
+                self.hash_context_frame(representative, kind)
+            } else {
+                fingerprint(self, representative)
+            };
+            let value = &mut self.context_values[id];
+            value.fingerprint = next_fingerprint;
+            value.source_key = None;
+            value.fingerprint_is_source = false;
             let canonical = self
                 .context_value_buckets
-                .get(&fingerprint)
+                .get(&next_fingerprint)
                 .and_then(|bucket| {
                     bucket.iter().find_map(|state| {
                         (self.context_frame_kind(state.representative) == Some(kind)
-                            && self.context_frames_equal(
-                                state.representative,
-                                representative,
-                                kind,
-                            ))
+                            && (kind.is_opaque() && state.representative == representative
+                                || !kind.is_opaque()
+                                    && frames_equal(self, state.representative, representative)))
                         .then_some(state.id)
                     })
                 })
                 .unwrap_or(id);
+            changed |= canonical != id;
             value_remaps.push(canonical);
             if canonical == id {
                 self.context_value_buckets
-                    .entry(fingerprint)
+                    .entry(next_fingerprint)
                     .or_default()
                     .push(ContextValueState { id, representative });
             }
@@ -748,7 +809,7 @@ impl<'ast> Compilation<'ast> {
             current = next;
         }
         Ok(ContextIdentityRepair {
-            changed: true,
+            changed,
             effective_key_remaps: key_remaps,
         })
     }
@@ -780,6 +841,21 @@ impl<'ast> Compilation<'ast> {
         context: EffectiveContext<'ast, CssRulePayload<'ast>>,
         rule: RuleId<'ast>,
     ) -> Result<EffectiveContext<'ast, CssRulePayload<'ast>>, MutationError<'ast>> {
+        self.enter_wrapper_context_with_source_key(context, rule, None)
+    }
+
+    /// Enters a wrapper while using its parser-owned prelude as the initial
+    /// canonicalization key. This keeps independently stored wrapper rules
+    /// canonical without comparing nested NodeId identities. A transform
+    /// later replaces these source fingerprints through the context-aware
+    /// identity refresh transaction.
+    #[doc(hidden)]
+    pub fn enter_wrapper_context_with_source_key(
+        &mut self,
+        context: EffectiveContext<'ast, CssRulePayload<'ast>>,
+        rule: RuleId<'ast>,
+        source_key: Option<&'ast str>,
+    ) -> Result<EffectiveContext<'ast, CssRulePayload<'ast>>, MutationError<'ast>> {
         if matches!(
             self.rule(rule).map(RuleRecord::payload),
             Some(CssRulePayload::LayerBlock(_))
@@ -807,7 +883,7 @@ impl<'ast> Compilation<'ast> {
             });
         }
 
-        let value = self.intern_context_value(rule)?;
+        let value = self.intern_context_value(rule, source_key)?;
         let key = ContextPathKey {
             parent: context.context_path,
             value,
@@ -1114,7 +1190,7 @@ impl<'ast> Compilation<'ast> {
                 let value = &self.selector_values[id];
                 value.kind == kind
                     && value.vendor_prefix == vendor_prefix
-                    && value.selectors == selectors
+                    && value.selectors() == &selectors
             })
         {
             return Ok(id);
@@ -1122,7 +1198,7 @@ impl<'ast> Compilation<'ast> {
         let id = self
             .selector_values
             .try_push(SelectorValueRecord {
-                selectors,
+                selectors: Some(selectors),
                 kind,
                 vendor_prefix,
                 fingerprint,
@@ -1174,15 +1250,32 @@ impl<'ast> Compilation<'ast> {
     fn intern_context_value(
         &mut self,
         rule: RuleId<'ast>,
+        source_key: Option<&'ast str>,
     ) -> Result<ContextValueId<'ast>, MutationError<'ast>> {
         let kind = self
             .context_frame_kind(rule)
             .ok_or(MutationError::InvalidRuleTopology(rule))?;
-        let fingerprint = self.hash_context_frame(rule, kind);
+        let source_key = (!kind.is_opaque()).then_some(source_key).flatten();
+        let fingerprint = source_key.map_or_else(
+            || self.hash_context_frame(rule, kind),
+            |source_key| {
+                let mut hasher = FxHasher::default();
+                kind.hash(&mut hasher);
+                source_key.hash(&mut hasher);
+                hasher.finish()
+            },
+        );
         if let Some(bucket) = self.context_value_buckets.get(&fingerprint)
-            && let Some(state) = bucket
-                .iter()
-                .find(|state| self.context_frames_equal(state.representative, rule, kind))
+            && let Some(state) = bucket.iter().find(|state| {
+                self.context_frame_kind(state.representative) == Some(kind)
+                    && if kind.is_opaque() {
+                        state.representative == rule
+                    } else if let Some(source_key) = source_key {
+                        self.context_values[state.id].source_key == Some(source_key)
+                    } else {
+                        self.context_frames_equal(state.representative, rule, kind)
+                    }
+            })
         {
             return Ok(state.id);
         }
@@ -1191,6 +1284,8 @@ impl<'ast> Compilation<'ast> {
             .try_push(ContextValueRecord {
                 representative: rule,
                 fingerprint,
+                source_key,
+                fingerprint_is_source: source_key.is_some(),
             })
             .map_err(|_| MutationError::SelectorContextCapacityExhausted)?;
         self.context_value_buckets

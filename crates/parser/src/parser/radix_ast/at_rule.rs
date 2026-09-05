@@ -6,7 +6,6 @@ use super::{
 #[allow(clippy::too_many_arguments)]
 pub(super) fn parse_group_at_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -15,117 +14,54 @@ pub(super) fn parse_group_at_rule<'ast>(
     name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     if name.eq_ignore_ascii_case("media") {
-        parse_media_rule(
-            input,
-            compilation,
-            list,
-            context,
-            options,
-            depth,
-            start,
-            name,
-        )
+        parse_media_rule(input, list, context, options, depth, start, name)
     } else if name.eq_ignore_ascii_case("supports") {
-        parse_supports_rule(
-            input,
-            compilation,
-            list,
-            context,
-            options,
-            depth,
-            start,
-            name,
-        )
+        parse_supports_rule(input, list, context, options, depth, start, name)
     } else if name.eq_ignore_ascii_case("starting-style") {
-        parse_starting_style_rule(
-            input,
-            compilation,
-            list,
-            context,
-            options,
-            depth,
-            start,
-            name,
-        )
+        parse_starting_style_rule(input, list, context, options, depth, start, name)
     } else if name.eq_ignore_ascii_case("layer") {
-        parse_layer_rule(
-            input,
-            compilation,
-            list,
-            context,
-            options,
-            depth,
-            start,
-            name,
-        )
+        parse_layer_rule(input, list, context, options, depth, start, name)
     } else if name.eq_ignore_ascii_case("container") {
-        parse_container_rule(
-            input,
-            compilation,
-            list,
-            context,
-            options,
-            depth,
-            start,
-            name,
-        )
+        parse_container_rule(input, list, context, options, depth, start, name)
     } else if name.eq_ignore_ascii_case("scope") {
-        parse_scope_rule(
-            input,
-            compilation,
-            list,
-            context,
-            options,
-            depth,
-            start,
-            name,
-        )
+        parse_scope_rule(input, list, context, options, depth, start, name)
     } else if name.eq_ignore_ascii_case("-moz-document") {
-        parse_moz_document_rule(
-            input,
-            compilation,
-            list,
-            context,
-            options,
-            depth,
-            start,
-            name,
-        )
+        parse_moz_document_rule(input, list, context, options, depth, start, name)
     } else if name.eq_ignore_ascii_case("counter-style") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_counter_style_rule(input, compilation, list, options, depth, start, name)
+            parse_counter_style_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("font-face") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_font_face_rule(input, compilation, list, options, depth, start, name)
+            parse_font_face_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("font-palette-values") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_font_palette_values_rule(input, compilation, list, options, depth, start, name)
+            parse_font_palette_values_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("view-transition") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_view_transition_rule(input, compilation, list, options, depth, start, name)
+            parse_view_transition_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("viewport") || name.eq_ignore_ascii_case("-ms-viewport") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_viewport_rule(input, compilation, list, options, depth, start, name)
+            parse_viewport_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("position-try") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_position_try_rule(input, compilation, list, options, depth, start, name)
+            parse_position_try_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("import")
         || name.eq_ignore_ascii_case("charset")
@@ -135,7 +71,7 @@ pub(super) fn parse_group_at_rule<'ast>(
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_top_level_statement_rule(input, compilation, list, depth, start, name)
+            parse_top_level_statement_rule(input, list, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("keyframes")
         || name.eq_ignore_ascii_case("-webkit-keyframes")
@@ -146,39 +82,30 @@ pub(super) fn parse_group_at_rule<'ast>(
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_keyframes_rule(input, compilation, list, options, depth, start, name)
+            parse_keyframes_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("page") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_page_rule(input, compilation, list, options, depth, start, name)
+            parse_page_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("font-feature-values") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_font_feature_values_rule(input, compilation, list, options, depth, start, name)
+            parse_font_feature_values_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("property") {
         if context.style_rule().is_some() {
             Err(input.new_custom_error(ParserError::InvalidAtRule(name)))
         } else {
-            parse_property_rule(input, compilation, list, options, depth, start, name)
+            parse_property_rule(input, list, options, depth, start, name)
         }
     } else if name.eq_ignore_ascii_case("nest") && context.style_rule().is_some() {
-        parse_nesting_rule(
-            input,
-            compilation,
-            list,
-            context,
-            options,
-            depth,
-            start,
-            name,
-        )
+        parse_nesting_rule(input, list, context, options, depth, start, name)
     } else {
-        parse_unknown_at_rule(input, compilation, list, depth, start, name)
+        parse_unknown_at_rule(input, list, depth, start, name)
     }
 }
 
@@ -192,7 +119,6 @@ enum AtRuleEnding {
 #[allow(clippy::too_many_arguments)]
 fn parse_media_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -201,34 +127,24 @@ fn parse_media_rule<'ast>(
     name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
-    let query = parse_media_list(raw_prelude, input.allocator())?;
-    let rule = compilation
-        .append_rule(
-            list,
-            CssRulePayload::Media(MediaRulePayload {
-                span: span_from(start, input.position()),
-                query,
-            }),
-        )
+    let query = parse_media_list(input, raw_prelude)?;
+    let rule = input
+        .ast_context_mut()
+        .append_rule(list, CssRulePayload::Media(MediaRulePayload { query }))
         .map_err(|error| mutation_error(input, error))?;
-    parse_group_rule_contents(input, compilation, rule, context, options, depth)?;
+    parse_group_rule_contents(input, rule, context, options, depth, Some(raw_prelude))?;
 
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed media rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::Media(payload) = payload else {
-        unreachable!("the allocated payload remains a media rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn parse_layer_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -242,37 +158,31 @@ fn parse_layer_rule<'ast>(
         if names.len() > 1 {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
-        let rule = compilation
+        let rule = input
+            .ast_context_mut()
             .append_rule(
                 list,
-                CssRulePayload::LayerBlock(LayerBlockRulePayload {
-                    span: span_from(start, input.position()),
-                    name: names.pop(),
-                }),
+                CssRulePayload::LayerBlock(LayerBlockRulePayload { name: names.pop() }),
             )
             .map_err(|error| mutation_error(input, error))?;
-        parse_group_rule_contents(input, compilation, rule, context, options, depth)?;
+        parse_group_rule_contents(input, rule, context, options, depth, None)?;
         let end = input.position();
-        let payload = compilation
-            .rule_mut(rule)
-            .expect("a parsed layer block remains live while its body is parsed")
-            .payload_mut();
-        let CssRulePayload::LayerBlock(payload) = payload else {
-            unreachable!("the allocated payload remains a layer block")
-        };
-        payload.span = span_from(start, end);
+        input
+            .ast_context_mut()
+            .set_rule_span(rule, span_from(start, end))
+            .map_err(|error| mutation_error(input, error))?;
         Ok(rule)
     } else {
         if names.is_empty() {
             return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
         }
-        compilation
-            .append_rule(
+        let span = span_from(start, input.position());
+        input
+            .ast_context_mut()
+            .append_rule_with_span(
                 list,
-                CssRulePayload::LayerStatement(LayerStatementRulePayload {
-                    span: span_from(start, input.position()),
-                    names,
-                }),
+                CssRulePayload::LayerStatement(LayerStatementRulePayload { names }),
+                span,
             )
             .map_err(|error| mutation_error(input, error))
     }
@@ -281,7 +191,6 @@ fn parse_layer_rule<'ast>(
 #[allow(clippy::too_many_arguments)]
 fn parse_container_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -290,34 +199,29 @@ fn parse_container_rule<'ast>(
     name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
-    let (container_name, condition) = parse_container_prelude(raw_prelude, input.allocator())?;
-    let rule = compilation
+    let (container_name, condition) = parse_container_prelude(input, raw_prelude)?;
+    let rule = input
+        .ast_context_mut()
         .append_rule(
             list,
             CssRulePayload::Container(ContainerRulePayload {
-                span: span_from(start, input.position()),
                 name: container_name,
                 condition,
             }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    parse_group_rule_contents(input, compilation, rule, context, options, depth)?;
+    parse_group_rule_contents(input, rule, context, options, depth, Some(raw_prelude))?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed container rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::Container(payload) = payload else {
-        unreachable!("the allocated payload remains a container rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn parse_scope_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -327,33 +231,28 @@ fn parse_scope_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
     let (scope_start, scope_end) = parse_scope_prelude(input, raw_prelude, depth + 1)?;
-    let rule = compilation
+    let rule = input
+        .ast_context_mut()
         .append_rule(
             list,
             CssRulePayload::Scope(ScopeRulePayload {
-                span: span_from(start, input.position()),
                 scope_start,
                 scope_end,
             }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    parse_group_rule_contents(input, compilation, rule, context, options, depth)?;
+    parse_group_rule_contents(input, rule, context, options, depth, None)?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed scope rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::Scope(payload) = payload else {
-        unreachable!("the allocated payload remains a scope rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn parse_moz_document_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -363,30 +262,21 @@ fn parse_moz_document_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
     validate_moz_document_prelude(raw_prelude, input.allocator())?;
-    let rule = compilation
-        .append_rule(
-            list,
-            CssRulePayload::MozDocument(MozDocumentRulePayload {
-                span: span_from(start, input.position()),
-            }),
-        )
+    let rule = input
+        .ast_context_mut()
+        .append_rule(list, CssRulePayload::MozDocument(MozDocumentRulePayload))
         .map_err(|error| mutation_error(input, error))?;
-    parse_group_rule_contents(input, compilation, rule, context, options, depth)?;
+    parse_group_rule_contents(input, rule, context, options, depth, None)?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed moz-document rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::MozDocument(payload) = payload else {
-        unreachable!("the allocated payload remains a moz-document rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_unknown_at_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     depth: usize,
     start: &ParserState,
@@ -406,22 +296,23 @@ fn parse_unknown_at_rule<'ast>(
         Ok(_) => return Err(input.new_custom_error(ParserError::InvalidAtRule(name))),
         Err(error) => return Err(error.into()),
     };
-    compilation
-        .append_rule(
+    let span = span_from(start, input.position());
+    input
+        .ast_context_mut()
+        .append_rule_with_span(
             list,
             CssRulePayload::Unknown(UnknownAtRulePayload {
-                span: span_from(start, input.position()),
                 name,
                 prelude,
                 block,
             }),
+            span,
         )
         .map_err(|error| mutation_error(input, error))
 }
 
 fn parse_top_level_statement_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     depth: usize,
     start: &ParserState,
@@ -434,36 +325,29 @@ fn parse_top_level_statement_rule<'ast>(
     let allocator = input.allocator();
     let span = span_from(start, input.position());
     let payload = if name.eq_ignore_ascii_case("import") {
-        CssRulePayload::Import(parse_import_rule(
-            prelude,
-            allocator,
-            start,
-            input.position(),
-        )?)
+        CssRulePayload::Import(parse_import_rule(input, prelude)?)
     } else if name.eq_ignore_ascii_case("charset") {
         CssRulePayload::Charset(CharsetRule {
-            span,
             encoding: parse_charset(prelude, allocator)?,
         })
     } else if name.eq_ignore_ascii_case("namespace") {
         let (prefix, url) = parse_namespace(prelude, allocator)?;
-        CssRulePayload::Namespace(NamespaceRule { span, prefix, url })
+        CssRulePayload::Namespace(NamespaceRule { prefix, url })
     } else {
-        let (custom_name, query) = parse_custom_media(prelude, allocator)?;
+        let (custom_name, query) = parse_custom_media(input, prelude)?;
         CssRulePayload::CustomMedia(CustomMediaRule {
-            span,
             name: custom_name,
             query,
         })
     };
-    compilation
-        .append_rule(list, payload)
+    input
+        .ast_context_mut()
+        .append_rule_with_span(list, payload, span)
         .map_err(|error| mutation_error(input, error))
 }
 
 fn parse_keyframes_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -472,37 +356,33 @@ fn parse_keyframes_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
     let name = parse_keyframes_name(prelude, input.allocator())?;
-    let rule = compilation
+    let name = store_node(name, input);
+    let rule = input
+        .ast_context_mut()
         .append_rule(
             list,
             CssRulePayload::Keyframes(KeyframesRulePayload {
-                span: span_from(start, input.position()),
-                name: input.allocator().boxed(name),
+                name,
                 vendor_prefix: at_rule_vendor_prefix(at_rule_name),
             }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    let frames = compilation
+    let frames = input
+        .ast_context_mut()
         .create_child_list(rule)
         .map_err(|error| mutation_error(input, error))?;
-    input.parse_nested_block(|input| {
-        parse_keyframe_list_into(input, compilation, frames, options, depth + 1)
-    })?;
+    input
+        .parse_nested_block(|input| parse_keyframe_list_into(input, frames, options, depth + 1))?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed keyframes rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::Keyframes(payload) = payload else {
-        unreachable!("the allocated payload remains a keyframes rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_keyframe_list_into<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -529,18 +409,16 @@ fn parse_keyframe_list_into<'ast>(
         selectors.extend(parsed?);
         let frame = append_declaration_owner(
             input,
-            compilation,
             list,
             CssRulePayload::Keyframe(KeyframePayload { selectors }),
         )?;
-        parse_declaration_owner_body(input, compilation, frame, options, depth)?;
+        parse_declaration_owner_body(input, frame, options, depth)?;
     }
     Ok(())
 }
 
 fn parse_font_feature_values_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -549,36 +427,30 @@ fn parse_font_feature_values_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
     let family_names = parse_family_names(prelude, input.allocator())?;
-    let rule = compilation
+    let rule = input
+        .ast_context_mut()
         .append_rule(
             list,
-            CssRulePayload::FontFeatureValues(FontFeatureValuesRulePayload {
-                span: span_from(start, input.position()),
-                name: family_names,
-            }),
+            CssRulePayload::FontFeatureValues(FontFeatureValuesRulePayload { name: family_names }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    let subrules = compilation
+    let subrules = input
+        .ast_context_mut()
         .create_child_list(rule)
         .map_err(|error| mutation_error(input, error))?;
     input.parse_nested_block(|input| {
-        parse_font_feature_subrules_into(input, compilation, subrules, options, depth + 1)
+        parse_font_feature_subrules_into(input, subrules, options, depth + 1)
     })?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed font-feature-values rule remains live")
-        .payload_mut();
-    let CssRulePayload::FontFeatureValues(payload) = payload else {
-        unreachable!("the allocated payload remains a font-feature-values rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_font_feature_subrules_into<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -600,14 +472,11 @@ fn parse_font_feature_subrules_into<'ast>(
         }
         let subrule = append_declaration_owner(
             input,
-            compilation,
             list,
-            CssRulePayload::FontFeatureSubrule(FontFeatureSubrulePayload {
-                span: span_from(&start, input.position()),
-                name: kind,
-            }),
+            CssRulePayload::FontFeatureSubrule(FontFeatureSubrulePayload { name: kind }),
         )?;
-        let block = compilation
+        let block = input
+            .ast_context_mut()
             .rule(subrule)
             .and_then(|record| record.declaration_block())
             .expect("a font-feature subrule block is bound before descriptors");
@@ -618,9 +487,9 @@ fn parse_font_feature_subrules_into<'ast>(
                 allocator,
                 options,
                 depth + 1,
-                |declaration| {
+                |input, declaration| {
                     if sink_error.is_none()
-                        && let Err(error) = compilation.append_declaration(
+                        && let Err(error) = input.ast_context_mut().append_declaration(
                             block,
                             DeclarationPayload::FontFeature(declaration),
                             false,
@@ -636,21 +505,16 @@ fn parse_font_feature_subrules_into<'ast>(
             return Err(mutation_error(input, error));
         }
         let end = input.position();
-        let payload = compilation
-            .rule_mut(subrule)
-            .expect("a parsed font-feature subrule remains live")
-            .payload_mut();
-        let CssRulePayload::FontFeatureSubrule(payload) = payload else {
-            unreachable!("the allocated payload remains a font-feature subrule")
-        };
-        payload.span = span_from(&start, end);
+        input
+            .ast_context_mut()
+            .set_rule_span(subrule, span_from(&start, end))
+            .map_err(|error| mutation_error(input, error))?;
     }
     Ok(())
 }
 
 fn parse_page_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -659,47 +523,31 @@ fn parse_page_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
     let selectors = parse_page_selectors(prelude, input.allocator())?;
-    let page = compilation
-        .append_rule(
-            list,
-            CssRulePayload::Page(PageRulePayload {
-                span: span_from(start, input.position()),
-                selectors,
-            }),
-        )
+    let page = input
+        .ast_context_mut()
+        .append_rule(list, CssRulePayload::Page(PageRulePayload { selectors }))
         .map_err(|error| mutation_error(input, error))?;
-    let key = compilation
+    let key = input
+        .ast_context_mut()
         .append_effective_key(ConcreteEffectiveContext::<'ast>::isolated(page))
         .map_err(|error| mutation_error(input, error))?;
-    let block = compilation
+    let block = input
+        .ast_context_mut()
         .append_declaration_block(DeclarationBlockOwner::Rule(page), key)
         .map_err(|error| mutation_error(input, error))?;
     input.parse_nested_block(|input| {
-        parse_page_contents(
-            input,
-            compilation,
-            page,
-            key,
-            Some((page, block)),
-            options,
-            depth + 1,
-        )
+        parse_page_contents(input, page, key, Some((page, block)), options, depth + 1)
     })?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(page)
-        .expect("a parsed page rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::Page(payload) = payload else {
-        unreachable!("the allocated payload remains a page rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(page, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(page)
 }
 
 fn parse_page_contents<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     page: ConcreteRuleId<'ast>,
     effective_key: EffectiveKeyId<'ast>,
     mut active_segment: Option<(ConcreteRuleId<'ast>, ConcreteDeclarationBlockId<'ast>)>,
@@ -731,17 +579,19 @@ fn parse_page_contents<'ast>(
                 )
                 .and_then(|(declaration, important)| {
                     if active_segment.is_none() {
-                        let children = ensure_child_list(compilation, page)
+                        let children = ensure_child_list(input, page)
                             .map_err(|error| mutation_error(input, error))?;
-                        let declarations = compilation
-                            .append_rule(
+                        let span = span_from(&start, input.position());
+                        let declarations = input
+                            .ast_context_mut()
+                            .append_rule_with_span(
                                 children,
-                                CssRulePayload::PageDeclarations(PageDeclarationsPayload {
-                                    span: span_from(&start, input.position()),
-                                }),
+                                CssRulePayload::PageDeclarations(PageDeclarationsPayload),
+                                span,
                             )
                             .map_err(|error| mutation_error(input, error))?;
-                        let block = compilation
+                        let block = input
+                            .ast_context_mut()
                             .append_declaration_block(
                                 DeclarationBlockOwner::Rule(declarations),
                                 effective_key,
@@ -751,7 +601,8 @@ fn parse_page_contents<'ast>(
                     }
                     let (segment, block) = active_segment
                         .expect("a page declaration always has an active syntax segment");
-                    compilation
+                    input
+                        .ast_context_mut()
                         .append_declaration(
                             block,
                             DeclarationPayload::Property(declaration),
@@ -760,14 +611,15 @@ fn parse_page_contents<'ast>(
                         .map_err(|error| mutation_error(input, error))?;
                     if segment != page {
                         let end = input.position();
-                        let payload = compilation
-                            .rule_mut(segment)
-                            .expect("the page declaration segment remains live")
-                            .payload_mut();
-                        let CssRulePayload::PageDeclarations(payload) = payload else {
-                            unreachable!("post-margin declarations use a page segment")
-                        };
-                        payload.span.end = end.byte_index() as u32;
+                        let mut span = input
+                            .ast_context_mut()
+                            .rule_span(segment)
+                            .expect("the page declaration segment remains live");
+                        span.end = end.byte_index() as u32;
+                        input
+                            .ast_context_mut()
+                            .set_rule_span(segment, span)
+                            .map_err(|error| mutation_error(input, error))?;
                     }
                     Ok(())
                 })
@@ -778,27 +630,19 @@ fn parse_page_contents<'ast>(
                 if !parse_group_rule_prelude(input, depth, name)?.is_empty() {
                     return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
                 }
-                let children = ensure_child_list(compilation, page)
-                    .map_err(|error| mutation_error(input, error))?;
+                let children =
+                    ensure_child_list(input, page).map_err(|error| mutation_error(input, error))?;
                 let margin = append_declaration_owner(
                     input,
-                    compilation,
                     children,
-                    CssRulePayload::PageMargin(PageMarginPayload {
-                        span: span_from(&start, input.position()),
-                        margin_box,
-                    }),
+                    CssRulePayload::PageMargin(PageMarginPayload { margin_box }),
                 )?;
-                parse_declaration_owner_body(input, compilation, margin, options, depth)?;
+                parse_declaration_owner_body(input, margin, options, depth)?;
                 let end = input.position();
-                let payload = compilation
-                    .rule_mut(margin)
-                    .expect("a parsed page margin remains live")
-                    .payload_mut();
-                let CssRulePayload::PageMargin(payload) = payload else {
-                    unreachable!("the allocated payload remains a page margin")
-                };
-                payload.span = span_from(&start, end);
+                input
+                    .ast_context_mut()
+                    .set_rule_span(margin, span_from(&start, end))
+                    .map_err(|error| mutation_error(input, error))?;
                 active_segment = None;
                 Ok(())
             }
@@ -819,7 +663,6 @@ fn parse_page_contents<'ast>(
 #[allow(clippy::too_many_arguments)]
 fn parse_nesting_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -829,31 +672,32 @@ fn parse_nesting_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
     let selectors = parse_selector_string(input, prelude, depth + 1)?;
-    let selector_value = compilation
+    let selector_value = input
+        .ast_context_mut()
         .intern_selector_value(selectors, SelectorFrameKind::Nesting, VendorPrefix::NONE)
         .map_err(|error| mutation_error(input, error))?;
-    let rule = compilation
+    let rule = input
+        .ast_context_mut()
         .append_rule(
             list,
-            CssRulePayload::Nesting(NestingRulePayload {
-                span: span_from(start, input.position()),
-                selector_value,
-            }),
+            CssRulePayload::Nesting(NestingRulePayload { selector_value }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    let context = compilation
+    let context = input
+        .ast_context_mut()
         .enter_selector_context(context, rule)
         .map_err(|error| mutation_error(input, error))?;
-    let key = compilation
+    let key = input
+        .ast_context_mut()
         .append_effective_key(context.effective_key())
         .map_err(|error| mutation_error(input, error))?;
-    let block = compilation
+    let block = input
+        .ast_context_mut()
         .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
         .map_err(|error| mutation_error(input, error))?;
     input.parse_nested_block(|input| {
         parse_mixed_style_contents(
             input,
-            compilation,
             rule,
             key,
             context,
@@ -863,20 +707,15 @@ fn parse_nesting_rule<'ast>(
         )
     })?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed nesting rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::Nesting(payload) = payload else {
-        unreachable!("the allocated payload remains a nesting rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_property_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -890,17 +729,16 @@ fn parse_property_rule<'ast>(
     }
     let rule = append_declaration_owner(
         input,
-        compilation,
         list,
         CssRulePayload::Property(PropertyRulePayload {
-            span: span_from(start, input.position()),
             name,
             syntax: None,
             inherits: None,
             initial_value: None,
         }),
     )?;
-    let block = compilation
+    let block = input
+        .ast_context_mut()
         .rule(rule)
         .and_then(|record| record.declaration_block())
         .expect("a property rule block is bound before parsing descriptors");
@@ -910,52 +748,61 @@ fn parse_property_rule<'ast>(
     let mut initial_value = None;
     let mut sink_error = None;
     input.parse_nested_block(|input| {
-        parse_property_rule_descriptors_into(input, allocator, options, depth + 1, |descriptor| {
-            if sink_error.is_some() {
-                return;
-            }
-            let kind = match &descriptor {
-                PropertyRuleDescriptor::Syntax(_) => 0,
-                PropertyRuleDescriptor::Inherits(_) => 1,
-                PropertyRuleDescriptor::InitialValue(_) => 2,
-                PropertyRuleDescriptor::Unknown(_) => 3,
-            };
-            match compilation.append_declaration(
-                block,
-                DeclarationPayload::PropertyRule(descriptor),
-                false,
-            ) {
-                Ok(id) => match kind {
-                    0 => syntax = Some(id),
-                    1 => inherits = Some(id),
-                    2 => initial_value = Some(id),
-                    _ => {}
-                },
-                Err(error) => sink_error = Some(error),
-            }
-        })
+        parse_property_rule_descriptors_into(
+            input,
+            allocator,
+            options,
+            depth + 1,
+            |input, descriptor| {
+                if sink_error.is_some() {
+                    return;
+                }
+                let kind = match &descriptor {
+                    PropertyRuleDescriptor::Syntax(_) => 0,
+                    PropertyRuleDescriptor::Inherits(_) => 1,
+                    PropertyRuleDescriptor::InitialValue(_) => 2,
+                    PropertyRuleDescriptor::Unknown(_) => 3,
+                };
+                match input.ast_context_mut().append_declaration(
+                    block,
+                    DeclarationPayload::PropertyRule(descriptor),
+                    false,
+                ) {
+                    Ok(id) => match kind {
+                        0 => syntax = Some(id),
+                        1 => inherits = Some(id),
+                        2 => initial_value = Some(id),
+                        _ => {}
+                    },
+                    Err(error) => sink_error = Some(error),
+                }
+            },
+        )
     })?;
     if let Some(error) = sink_error {
         return Err(mutation_error(input, error));
     }
     let end = input.position();
-    let payload = compilation
+    let payload = input
+        .ast_context_mut()
         .rule_mut(rule)
         .expect("a parsed property rule remains live")
         .payload_mut();
     let CssRulePayload::Property(payload) = payload else {
         unreachable!("the allocated payload remains a property rule")
     };
-    payload.span = span_from(start, end);
     payload.syntax = syntax;
     payload.inherits = inherits;
     payload.initial_value = initial_value;
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_font_face_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -965,24 +812,19 @@ fn parse_font_face_rule<'ast>(
     if !parse_group_rule_prelude(input, depth, name)?.is_empty() {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
     }
-    let rule = append_declaration_owner(
-        input,
-        compilation,
-        list,
-        CssRulePayload::FontFace(FontFaceRulePayload {
-            span: span_from(start, input.position()),
-        }),
-    )?;
-    let block = compilation
+    let rule =
+        append_declaration_owner(input, list, CssRulePayload::FontFace(FontFaceRulePayload))?;
+    let block = input
+        .ast_context_mut()
         .rule(rule)
         .and_then(|record| record.declaration_block())
         .expect("a font-face block is bound before parsing descriptors");
     let allocator = input.allocator();
     let mut sink_error = None;
     input.parse_nested_block(|input| {
-        parse_font_face_contents_into(input, allocator, options, depth + 1, |property| {
+        parse_font_face_contents_into(input, allocator, options, depth + 1, |input, property| {
             if sink_error.is_none()
-                && let Err(error) = compilation.append_declaration(
+                && let Err(error) = input.ast_context_mut().append_declaration(
                     block,
                     DeclarationPayload::FontFace(property),
                     false,
@@ -997,20 +839,15 @@ fn parse_font_face_rule<'ast>(
         return Err(mutation_error(input, error));
     }
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed font-face rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::FontFace(payload) = payload else {
-        unreachable!("the allocated payload remains a font-face rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_font_palette_values_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -1024,23 +861,20 @@ fn parse_font_palette_values_rule<'ast>(
     }
     let rule = append_declaration_owner(
         input,
-        compilation,
         list,
-        CssRulePayload::FontPaletteValues(FontPaletteValuesRulePayload {
-            span: span_from(start, input.position()),
-            name,
-        }),
+        CssRulePayload::FontPaletteValues(FontPaletteValuesRulePayload { name }),
     )?;
-    let block = compilation
+    let block = input
+        .ast_context_mut()
         .rule(rule)
         .and_then(|record| record.declaration_block())
         .expect("a font-palette-values block is bound before parsing descriptors");
     let allocator = input.allocator();
     let mut sink_error = None;
     input.parse_nested_block(|input| {
-        parse_font_palette_contents_into(input, allocator, options, depth + 1, |property| {
+        parse_font_palette_contents_into(input, allocator, options, depth + 1, |input, property| {
             if sink_error.is_none()
-                && let Err(error) = compilation.append_declaration(
+                && let Err(error) = input.ast_context_mut().append_declaration(
                     block,
                     DeclarationPayload::FontPaletteValues(property),
                     false,
@@ -1055,20 +889,15 @@ fn parse_font_palette_values_rule<'ast>(
         return Err(mutation_error(input, error));
     }
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed font-palette-values rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::FontPaletteValues(payload) = payload else {
-        unreachable!("the allocated payload remains a font-palette-values rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_view_transition_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -1080,50 +909,49 @@ fn parse_view_transition_rule<'ast>(
     }
     let rule = append_declaration_owner(
         input,
-        compilation,
         list,
-        CssRulePayload::ViewTransition(ViewTransitionRulePayload {
-            span: span_from(start, input.position()),
-        }),
+        CssRulePayload::ViewTransition(ViewTransitionRulePayload),
     )?;
-    let block = compilation
+    let block = input
+        .ast_context_mut()
         .rule(rule)
         .and_then(|record| record.declaration_block())
         .expect("a view-transition block is bound before parsing descriptors");
     let allocator = input.allocator();
     let mut sink_error = None;
     input.parse_nested_block(|input| {
-        parse_view_transition_contents_into(input, allocator, options, depth + 1, |property| {
-            if sink_error.is_none()
-                && let Err(error) = compilation.append_declaration(
-                    block,
-                    DeclarationPayload::ViewTransition(property),
-                    false,
-                )
-            {
-                sink_error = Some(error);
-            }
-            Ok(())
-        })
+        parse_view_transition_contents_into(
+            input,
+            allocator,
+            options,
+            depth + 1,
+            |input, property| {
+                if sink_error.is_none()
+                    && let Err(error) = input.ast_context_mut().append_declaration(
+                        block,
+                        DeclarationPayload::ViewTransition(property),
+                        false,
+                    )
+                {
+                    sink_error = Some(error);
+                }
+                Ok(())
+            },
+        )
     })?;
     if let Some(error) = sink_error {
         return Err(mutation_error(input, error));
     }
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed view-transition rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::ViewTransition(payload) = payload else {
-        unreachable!("the allocated payload remains a view-transition rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_counter_style_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -1134,29 +962,20 @@ fn parse_counter_style_rule<'ast>(
     let name = parse_single_ident(prelude, input.allocator())?;
     let rule = append_declaration_owner(
         input,
-        compilation,
         list,
-        CssRulePayload::CounterStyle(CounterStyleRulePayload {
-            span: span_from(start, input.position()),
-            name,
-        }),
+        CssRulePayload::CounterStyle(CounterStyleRulePayload { name }),
     )?;
-    parse_declaration_owner_body(input, compilation, rule, options, depth)?;
+    parse_declaration_owner_body(input, rule, options, depth)?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed counter-style rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::CounterStyle(payload) = payload else {
-        unreachable!("the allocated payload remains a counter-style rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_viewport_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -1168,29 +987,22 @@ fn parse_viewport_rule<'ast>(
     }
     let rule = append_declaration_owner(
         input,
-        compilation,
         list,
         CssRulePayload::Viewport(ViewportRulePayload {
-            span: span_from(start, input.position()),
             vendor_prefix: at_rule_vendor_prefix(name),
         }),
     )?;
-    parse_declaration_owner_body(input, compilation, rule, options, depth)?;
+    parse_declaration_owner_body(input, rule, options, depth)?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed viewport rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::Viewport(payload) = payload else {
-        unreachable!("the allocated payload remains a viewport rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn parse_position_try_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -1204,39 +1016,33 @@ fn parse_position_try_rule<'ast>(
     }
     let rule = append_declaration_owner(
         input,
-        compilation,
         list,
-        CssRulePayload::PositionTry(PositionTryRulePayload {
-            span: span_from(start, input.position()),
-            name,
-        }),
+        CssRulePayload::PositionTry(PositionTryRulePayload { name }),
     )?;
-    parse_declaration_owner_body(input, compilation, rule, options, depth)?;
+    parse_declaration_owner_body(input, rule, options, depth)?;
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed position-try rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::PositionTry(payload) = payload else {
-        unreachable!("the allocated payload remains a position-try rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 fn append_declaration_owner<'ast>(
-    input: &Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
+    input: &mut Compiler<'ast>,
     list: RuleListId<'ast>,
     payload: CssRulePayload<'ast>,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
-    let rule = compilation
+    let rule = input
+        .ast_context_mut()
         .append_rule(list, payload)
         .map_err(|error| mutation_error(input, error))?;
-    let key = compilation
+    let key = input
+        .ast_context_mut()
         .append_effective_key(ConcreteEffectiveContext::<'ast>::isolated(rule))
         .map_err(|error| mutation_error(input, error))?;
-    compilation
+    input
+        .ast_context_mut()
         .append_declaration_block(DeclarationBlockOwner::Rule(rule), key)
         .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
@@ -1244,23 +1050,22 @@ fn append_declaration_owner<'ast>(
 
 fn parse_declaration_owner_body<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     rule: ConcreteRuleId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
-    let block = compilation
+    let block = input
+        .ast_context_mut()
         .rule(rule)
         .and_then(|record| record.declaration_block())
         .expect("a declaration owner is bound before its body is parsed");
     input.parse_nested_block(|input| {
-        parse_standard_declaration_contents(input, compilation, block, options, depth + 1)
+        parse_standard_declaration_contents(input, block, options, depth + 1)
     })
 }
 
 fn parse_standard_declaration_contents<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     block: ConcreteDeclarationBlockId<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
@@ -1289,7 +1094,8 @@ fn parse_standard_declaration_contents<'ast>(
                     scan.css_wide_hint(),
                 )
                 .and_then(|(declaration, important)| {
-                    compilation
+                    input
+                        .ast_context_mut()
                         .append_declaration(
                             block,
                             DeclarationPayload::Property(declaration),
@@ -1316,7 +1122,6 @@ fn parse_standard_declaration_contents<'ast>(
 #[allow(clippy::too_many_arguments)]
 fn parse_supports_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -1326,33 +1131,26 @@ fn parse_supports_rule<'ast>(
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
     let condition = parse_supports_condition(raw_prelude);
-    let rule = compilation
+    let rule = input
+        .ast_context_mut()
         .append_rule(
             list,
-            CssRulePayload::Supports(SupportsRulePayload {
-                span: span_from(start, input.position()),
-                condition,
-            }),
+            CssRulePayload::Supports(SupportsRulePayload { condition }),
         )
         .map_err(|error| mutation_error(input, error))?;
-    parse_group_rule_contents(input, compilation, rule, context, options, depth)?;
+    parse_group_rule_contents(input, rule, context, options, depth, Some(raw_prelude))?;
 
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed supports rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::Supports(payload) = payload else {
-        unreachable!("the allocated payload remains a supports rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
 #[allow(clippy::too_many_arguments)]
 fn parse_starting_style_rule<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     list: RuleListId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
@@ -1363,25 +1161,20 @@ fn parse_starting_style_rule<'ast>(
     if !parse_group_rule_prelude(input, depth, name)?.is_empty() {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
     }
-    let rule = compilation
+    let rule = input
+        .ast_context_mut()
         .append_rule(
             list,
-            CssRulePayload::StartingStyle(StartingStyleRulePayload {
-                span: span_from(start, input.position()),
-            }),
+            CssRulePayload::StartingStyle(StartingStyleRulePayload),
         )
         .map_err(|error| mutation_error(input, error))?;
-    parse_group_rule_contents(input, compilation, rule, context, options, depth)?;
+    parse_group_rule_contents(input, rule, context, options, depth, None)?;
 
     let end = input.position();
-    let payload = compilation
-        .rule_mut(rule)
-        .expect("a parsed starting-style rule remains live while its body is parsed")
-        .payload_mut();
-    let CssRulePayload::StartingStyle(payload) = payload else {
-        unreachable!("the allocated payload remains a starting-style rule")
-    };
-    payload.span = span_from(start, end);
+    input
+        .ast_context_mut()
+        .set_rule_span(rule, span_from(start, end))
+        .map_err(|error| mutation_error(input, error))?;
     Ok(rule)
 }
 
@@ -1422,35 +1215,29 @@ fn parse_at_rule_header<'ast>(
 
 fn parse_group_rule_contents<'ast>(
     input: &mut Compiler<'ast>,
-    compilation: &mut Compilation<'ast>,
     rule: ConcreteRuleId<'ast>,
     context: ConcreteEffectiveContext<'ast>,
     options: &ParserOptions<'ast>,
     depth: usize,
+    source_key: Option<&'ast str>,
 ) -> Result<(), ParseError<'ast, ParserError<'ast>>> {
-    let children = compilation
+    let children = input
+        .ast_context_mut()
         .create_child_list(rule)
         .map_err(|error| mutation_error(input, error))?;
-    let context = compilation
-        .enter_wrapper_context(context, rule)
+    let context = input
+        .ast_context_mut()
+        .enter_wrapper_context_with_source_key(context, rule, source_key)
         .map_err(|error| mutation_error(input, error))?;
     input.parse_nested_block(|input| {
         if context.style_rule().is_some() {
-            let key = compilation
+            let key = input
+                .ast_context_mut()
                 .append_effective_key(context.effective_key())
                 .map_err(|error| mutation_error(input, error))?;
-            parse_mixed_style_contents(
-                input,
-                compilation,
-                rule,
-                key,
-                context,
-                None,
-                options,
-                depth + 1,
-            )
+            parse_mixed_style_contents(input, rule, key, context, None, options, depth + 1)
         } else {
-            parse_rule_list(input, compilation, children, context, options, depth + 1)
+            parse_rule_list(input, children, context, options, depth + 1)
         }
     })
 }

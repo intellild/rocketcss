@@ -2,7 +2,7 @@ use rustc_hash::FxHashSet;
 
 use super::*;
 
-impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
+impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
     /// Checks typed store IDs, list endpoints, mutual links, and block owners.
     pub fn validate_ast(&self) -> Result<(), ValidationError<'ast, R>> {
         let root = self.rule_lists.try_get(self.stylesheet.root_rules).ok_or(

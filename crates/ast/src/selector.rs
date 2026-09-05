@@ -4,7 +4,7 @@ use super::*;
 pub type SelectorList<'a> = Vec<'a, Selector<'a>>;
 
 /// A complex selector, a losslessly preserved invalid selector, or a removed selector.
-#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Visit)]
 pub enum Selector<'a> {
     /// A valid selector. Components are stored in parse order.
     Parsed(Vec<'a, SelectorComponent<'a>>),
@@ -69,7 +69,7 @@ impl std::ops::DerefMut for Selector<'_> {
 ///
 /// This mirrors `parcel_selectors::parser::Component`, specialized for
 /// lightningcss' selector implementation and arena-backed containers.
-#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Visit)]
 pub enum SelectorComponent<'a> {
     Combinator(Combinator),
 
@@ -101,7 +101,7 @@ pub enum SelectorComponent<'a> {
         case_sensitivity: ParsedCaseSensitivity,
         never_matches: bool,
     },
-    AttributeOther(Box<'a, AttrSelector<'a>>),
+    AttributeOther(NodeId<'a, AttrSelector<'a>>),
 
     Negation(Vec<'a, Selector<'a>>),
     Root,
@@ -112,10 +112,10 @@ pub enum SelectorComponent<'a> {
         data: NthSelectorData,
         selectors: Vec<'a, Selector<'a>>,
     },
-    PseudoClass(Box<'a, PseudoClass<'a>>),
-    Slotted(Box<'a, Selector<'a>>),
+    PseudoClass(NodeId<'a, PseudoClass<'a>>),
+    Slotted(NodeId<'a, Selector<'a>>),
     Part(Vec<'a, Atom<'a>>),
-    Host(Option<Box<'a, Selector<'a>>>),
+    Host(Option<NodeId<'a, Selector<'a>>>),
     Where(Vec<'a, Selector<'a>>),
     Is(Vec<'a, Selector<'a>>),
     Any {
@@ -123,7 +123,7 @@ pub enum SelectorComponent<'a> {
         selectors: Vec<'a, Selector<'a>>,
     },
     Has(Vec<'a, Selector<'a>>),
-    PseudoElement(Box<'a, PseudoElement<'a>>),
+    PseudoElement(NodeId<'a, PseudoElement<'a>>),
     Nesting,
 }
 
@@ -276,10 +276,10 @@ pub enum PseudoClass<'a> {
         state: Atom<'a>,
     },
     Local {
-        selector: Box<'a, Selector<'a>>,
+        selector: NodeId<'a, Selector<'a>>,
     },
     Global {
-        selector: Box<'a, Selector<'a>>,
+        selector: NodeId<'a, Selector<'a>>,
     },
     WebKitScrollbar(WebKitScrollbarPseudoClass),
     Custom {
@@ -327,23 +327,23 @@ pub enum PseudoElement<'a> {
     Cue,
     CueRegion,
     CueFunction {
-        selector: Box<'a, Selector<'a>>,
+        selector: NodeId<'a, Selector<'a>>,
     },
     CueRegionFunction {
-        selector: Box<'a, Selector<'a>>,
+        selector: NodeId<'a, Selector<'a>>,
     },
     ViewTransition,
     ViewTransitionGroup {
-        part: Box<'a, ViewTransitionPartSelector<'a>>,
+        part: NodeId<'a, ViewTransitionPartSelector<'a>>,
     },
     ViewTransitionImagePair {
-        part: Box<'a, ViewTransitionPartSelector<'a>>,
+        part: NodeId<'a, ViewTransitionPartSelector<'a>>,
     },
     ViewTransitionOld {
-        part: Box<'a, ViewTransitionPartSelector<'a>>,
+        part: NodeId<'a, ViewTransitionPartSelector<'a>>,
     },
     ViewTransitionNew {
-        part: Box<'a, ViewTransitionPartSelector<'a>>,
+        part: NodeId<'a, ViewTransitionPartSelector<'a>>,
     },
     PickerFunction {
         identifier: Atom<'a>,
@@ -372,7 +372,7 @@ pub enum WebKitScrollbarPseudoElement {
     Resizer,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Visit)]
 pub enum ViewTransitionPartName<'a> {
     All,
     Name(Atom<'a>),

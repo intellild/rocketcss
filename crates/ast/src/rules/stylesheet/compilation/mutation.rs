@@ -9,13 +9,23 @@ struct DeclarationRewritePreflight<'ast> {
     important: bool,
 }
 
-impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
+impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
     /// Appends a new rule record and links it as the direct sibling after
     /// `after`. Dense identity is independent from semantic source order.
     pub fn insert_rule_after(
         &mut self,
         after: RuleId<'ast, R>,
         payload: R,
+    ) -> Result<RuleId<'ast, R>, MutationError<'ast, R>> {
+        self.insert_rule_after_with_span(after, payload, DUMMY_SP)
+    }
+
+    /// Inserts a new rule record and its aligned source span after `after`.
+    pub fn insert_rule_after_with_span(
+        &mut self,
+        after: RuleId<'ast, R>,
+        payload: R,
+        span: Span,
     ) -> Result<RuleId<'ast, R>, MutationError<'ast, R>> {
         let after_record = self
             .rules
@@ -65,14 +75,14 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             }
             anchor = next;
         }
-        if !self.rules.has_capacity_for(1) {
+        if !self.rules.has_capacity_for(1) || !self.rule_spans.has_capacity_for(1) {
             return Err(MutationError::RuleCapacityExhausted);
         }
         let source_order_id = self.source_order_id_between(Some(anchor), storage_before)?;
         let inserted = self
             .rules
             .try_push(RuleRecord {
-                payload,
+                payload: Some(payload),
                 source_order_id,
                 parent,
                 parent_list: list,
@@ -86,6 +96,14 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 live: true,
             })
             .map_err(|_| MutationError::RuleCapacityExhausted)?;
+        let span_id = self
+            .rule_spans
+            .try_push(span)
+            .expect("the rule span store was preflighted with the rule store");
+        debug_assert_eq!(
+            inserted, span_id,
+            "rule payloads and spans must stay aligned"
+        );
         self.rules
             .try_get_mut(after)
             .expect("the validated previous sibling remains resolvable")
@@ -115,7 +133,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     }
 }
 
-impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
+impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
     /// Returns whether a terminal transform can allocate `additional`
     /// declaration records without publishing a partial mutation.
     #[inline]
@@ -182,7 +200,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 .declarations
                 .try_get_mut(declaration)
                 .expect("the replacement origin was validated before commit");
-            std::mem::replace(&mut record.payload, placeholder)
+            std::mem::replace(record.payload_mut(), placeholder)
         };
         let replacements = rewrite(original, preflight.important);
         assert_eq!(
@@ -268,13 +286,13 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
                 .try_get_mut(declaration)
                 .expect("the replacement origin was validated before commit");
             record.important = first_important;
-            std::mem::replace(&mut record.payload, first_payload)
+            std::mem::replace(record.payload_mut(), first_payload)
         };
 
         let mut tail = declaration;
         for (payload, important) in replacements {
             let inserted = self.declarations.push(DeclarationRecord {
-                payload,
+                payload: Some(payload),
                 next_in_block: None,
                 important,
             });
@@ -340,7 +358,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             return Err(MutationError::DeclarationCapacityExhausted);
         }
         let inserted = self.declarations.push(DeclarationRecord {
-            payload,
+            payload: Some(payload),
             next_in_block: None,
             important,
         });
@@ -414,7 +432,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
     }
 }
 
-impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
+impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
     /// Replaces one declaration payload through its owning block and bumps the
     /// block revision used by incremental Nano candidates.
     pub fn replace_declaration(
@@ -475,7 +493,7 @@ impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
             .try_get_mut(block)
             .expect("the validated occurrence block remains resolvable")
             .revision = revision;
-        Ok((&mut declaration_record.payload, important))
+        Ok((declaration_record.payload_mut(), important))
     }
 
     /// Folds one direct leaf rule's declaration chain into its right sibling
@@ -803,16 +821,47 @@ impl<'ast> Compilation<'ast> {
         rule_id: ConcreteRuleId<'ast>,
         transform: impl FnOnce(&mut CssRulePayload<'ast>),
     ) -> Result<(), ConcreteMutationError<'ast>> {
+        self.transform_rule_payload_with_context(rule_id, |payload, _| transform(payload))
+    }
+
+    /// Runs a scoped transform while keeping all nested node access routed
+    /// through this compilation. The payload is temporarily unavailable from
+    /// its rule record, so recursive access to the same owner is rejected.
+    #[doc(hidden)]
+    pub fn transform_rule_payload_with_context(
+        &mut self,
+        rule_id: ConcreteRuleId<'ast>,
+        transform: impl FnOnce(&mut CssRulePayload<'ast>, &mut Self),
+    ) -> Result<(), ConcreteMutationError<'ast>> {
+        let mut payload = {
+            let rule = self
+                .rules
+                .try_get_mut(rule_id)
+                .ok_or(ConcreteMutationError::UnknownRule(rule_id))?;
+            if !rule.live {
+                return Err(ConcreteMutationError::RetiredRule(rule_id));
+            }
+            rule.payload
+                .take()
+                .expect("recursive mutation of one rule payload")
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            transform(&mut payload, self);
+        }));
         let rule = self
             .rules
             .try_get_mut(rule_id)
-            .ok_or(ConcreteMutationError::UnknownRule(rule_id))?;
-        if !rule.live {
-            return Err(ConcreteMutationError::RetiredRule(rule_id));
-        }
-        transform(&mut rule.payload);
+            .expect("a rule payload transaction cannot remove its dense record");
+        assert!(
+            rule.payload.is_none(),
+            "a rule payload transaction must restore its original vacant slot"
+        );
+        rule.payload = Some(payload);
         rule.revision = rule.revision.wrapping_add(1);
-        Ok(())
+        match result {
+            Ok(()) => Ok(()),
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
     }
 
     /// Resolves one authored declaration-tape occurrence through its owner for
@@ -843,7 +892,7 @@ impl<'ast> Compilation<'ast> {
             .try_get_mut(block)
             .expect("the declaration owner was validated before mutation")
             .revision = revision;
-        Ok((&mut declaration.payload, important))
+        Ok((declaration.payload_mut(), important))
     }
 
     /// Resolves an iterator-created occurrence without rescanning block
@@ -890,6 +939,18 @@ impl<'ast> Compilation<'ast> {
 }
 
 impl<'scope, 'ast> DeclarationBlockMutationScope<'scope, 'ast> {
+    /// Returns the AST context that owns every declaration payload and node ID in this scope.
+    #[inline]
+    pub fn ast_context(&self) -> &Compilation<'ast> {
+        self.compilation
+    }
+
+    /// Returns unique access to the AST context when no declaration borrow is active.
+    #[inline]
+    pub fn ast_context_mut(&mut self) -> &mut Compilation<'ast> {
+        self.compilation
+    }
+
     /// Iterates compact handles for this scope's block in semantic order.
     pub fn declaration_handles(
         &self,

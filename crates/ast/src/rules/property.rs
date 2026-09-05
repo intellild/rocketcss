@@ -8,13 +8,13 @@ pub enum ParsedComponent<'a> {
     LengthPercentage(LengthPercentage<'a>),
     String(&'a str),
     Color(CssColor<'a>),
-    Image(Box<'a, Image<'a>>),
+    Image(NodeId<'a, Image<'a>>),
     Url(Url<'a>),
     Integer(i32),
     Angle(Angle),
     Time(Time),
     Resolution(Resolution),
-    TransformFunction(Box<'a, Transform<'a>>),
+    TransformFunction(NodeId<'a, Transform<'a>>),
     TransformList(Vec<'a, Transform<'a>>),
     CustomIdent(&'a str),
     Literal(&'a str),
@@ -60,7 +60,7 @@ pub enum SyntaxComponentKind<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct UnparsedProperty<'a> {
-    pub property_id: Box<'a, PropertyId<'a>>,
+    pub property_id: NodeId<'a, PropertyId<'a>>,
     #[visit(skip)]
     pub reason: UnparsedPropertyReason,
     /// The authored value after removing declaration-level whitespace and
@@ -90,12 +90,12 @@ pub enum UnparsedPropertyReason {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct CustomProperty<'a> {
-    pub name: Box<'a, CustomPropertyName<'a>>,
+    pub name: NodeId<'a, CustomPropertyName<'a>>,
     pub value: Vec<'a, TokenOrValue<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct SyntaxComponent<'a> {
-    pub kind: Box<'a, SyntaxComponentKind<'a>>,
+    pub kind: NodeId<'a, SyntaxComponentKind<'a>>,
     pub multiplier: Multiplier,
 }

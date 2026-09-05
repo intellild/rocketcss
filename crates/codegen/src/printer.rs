@@ -1,7 +1,4 @@
-use std::{
-    fmt::{self, Write},
-    marker::PhantomData,
-};
+use std::fmt::{self, Write};
 
 use rocketcss_common::GhostToken;
 
@@ -326,21 +323,37 @@ impl<W: Write> PrinterTrait for Printer<'_, W> {
 #[derive(Clone, Copy)]
 pub struct ToCssContext<'token, 'ast, 'ghost> {
     token: &'token GhostToken<'ghost>,
-    ast: PhantomData<&'ast ()>,
+    ast: Option<&'token rocketcss_ast::Compilation<'ast>>,
 }
 
 impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
     #[inline]
     pub const fn new(token: &'token GhostToken<'ghost>) -> Self {
+        Self { token, ast: None }
+    }
+
+    /// Creates a serialization context backed by the owner of all node IDs.
+    #[inline]
+    pub const fn with_ast(
+        token: &'token GhostToken<'ghost>,
+        ast: &'token rocketcss_ast::Compilation<'ast>,
+    ) -> Self {
         Self {
             token,
-            ast: PhantomData,
+            ast: Some(ast),
         }
     }
 
     #[inline]
     pub const fn token(&self) -> &'token GhostToken<'ghost> {
         self.token
+    }
+
+    /// Returns the AST context used to resolve typed node IDs.
+    #[inline]
+    pub fn ast_context(&self) -> &'token rocketcss_ast::Compilation<'ast> {
+        self.ast
+            .expect("serializing a NodeId requires its AstContext")
     }
 }
 
@@ -361,6 +374,86 @@ pub trait ToCss<'ghost> {
         let mut output = String::new();
         self.to_css(&mut Printer::new(&mut output, options), cx)?;
         Ok(output)
+    }
+}
+
+/// Compares two complete serialized value graphs while resolving NodeIds through `cx`.
+/// A structural fast path avoids serialization for payloads whose nested identities already
+/// match; the fallback allocates only the left serialization and streams the right side into it.
+#[doc(hidden)]
+pub fn css_values_are_equal<'ghost, T>(
+    left: &T,
+    right: &T,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> bool
+where
+    T: ToCss<'ghost> + PartialEq,
+{
+    if left == right {
+        return true;
+    }
+    let options = PrinterOptions { prettify: false };
+    let Ok(expected) = left.to_css_string(options, cx) else {
+        return false;
+    };
+    css_value_matches_serialization(&expected, right, cx)
+}
+
+/// Streams `value` against an existing compact CSS serialization without allocating another
+/// output buffer.
+#[doc(hidden)]
+pub fn css_value_matches_serialization<'ghost, T>(
+    expected: &str,
+    value: &T,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> bool
+where
+    T: ToCss<'ghost>,
+{
+    let options = PrinterOptions { prettify: false };
+    let mut comparison = CssComparison::new(expected);
+    let result = value.to_css(&mut Printer::new(&mut comparison, options), cx);
+    result.is_ok() && comparison.is_complete()
+}
+
+struct CssComparison<'a> {
+    expected: &'a str,
+    offset: usize,
+}
+
+impl<'a> CssComparison<'a> {
+    #[inline]
+    const fn new(expected: &'a str) -> Self {
+        Self {
+            expected,
+            offset: 0,
+        }
+    }
+
+    #[inline]
+    fn is_complete(&self) -> bool {
+        self.offset == self.expected.len()
+    }
+}
+
+impl Write for CssComparison<'_> {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
+        let end = self.offset.checked_add(value.len()).ok_or(fmt::Error)?;
+        if self.expected.get(self.offset..end) != Some(value) {
+            return Err(fmt::Error);
+        }
+        self.offset = end;
+        Ok(())
+    }
+}
+
+impl<'ast, 'ghost, T: ToCss<'ghost>> ToCss<'ghost> for rocketcss_ast::NodeId<'ast, T> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result {
+        cx.ast_context().resolve_node(*self).to_css(dest, cx)
     }
 }
 
@@ -461,15 +554,4 @@ pub(crate) fn serialize_dimension<'ghost, UnitT: ToCss<'ghost>, PrinterT: Printe
 ) -> fmt::Result {
     serialize_number(value, dest)?;
     unit.to_css(dest, cx)
-}
-
-impl<'a, 'ghost, T: ToCss<'ghost>> ToCss<'ghost> for rocketcss_common::boxed::Box<'a, T> {
-    #[inline]
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        (**self).to_css(dest, _cx)
-    }
 }

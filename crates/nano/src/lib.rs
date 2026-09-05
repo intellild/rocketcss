@@ -1,5 +1,6 @@
 mod context;
 mod cross_rule_declaration_merging;
+mod equality;
 mod length;
 mod media;
 mod options;
@@ -42,6 +43,14 @@ pub fn try_minify<'ast, 'ghost>(
     options: MinifyOptions,
 ) -> Result<MinifyStats, ConcreteMutationError<'ast>> {
     let allocator = Allocator::new();
+    // Parser-time context keys use lossless source fingerprints because nested NodeIds have
+    // identity equality. Canonicalize them before cross-rule snapshots are published; the final
+    // repair below then only observes changes made by this transform.
+    compilation.refresh_context_value_identities_with_remaps_by(
+        &allocator,
+        equality::context_frame_fingerprint,
+        equality::context_frames_are_equal,
+    )?;
     let cx = MinifyContext::new(options, &allocator);
     let declaration_blocks = rules::DeclarationBlockMinifier::new(&allocator);
     let merge_adjacent_rules = options.is_enabled(Options::MERGE_ADJACENT_RULES, OptionsOp::Any);
@@ -51,9 +60,8 @@ pub fn try_minify<'ast, 'ghost>(
         cx,
         declaration_blocks,
     };
-    let mut visit_context = VisitMutContext::new(token);
-
-    compilation.transform_selector_values_in(&allocator, |_, selectors| {
+    compilation.transform_selector_values_in(&allocator, |_, selectors, compilation| {
+        let mut visit_context = VisitMutContext::with_ast(&mut *token, compilation);
         minifier.visit_selector_list(selectors, &mut visit_context);
     });
 
@@ -68,23 +76,27 @@ pub fn try_minify<'ast, 'ghost>(
         }
         let property_block = rule.payload().owns_property_declarations();
         let block_id = rule.declaration_block();
-        compilation.transform_rule_payload(rule_id, |payload| {
+        compilation.transform_rule_payload_with_context(rule_id, |payload, compilation| {
+            let mut visit_context = VisitMutContext::with_ast(&mut *token, compilation);
             minify_rule_payload(payload, &mut minifier, &mut visit_context);
         })?;
         let Some(block_id) = block_id else {
             continue;
         };
-        compilation.for_each_declaration_mut(block_id, |_, record| {
-            if property_block {
-                let rocketcss_ast::DeclarationPayload::Property(declaration) = record.payload_mut()
-                else {
-                    unreachable!("a property rule owns only property declarations")
-                };
-                declaration.visit_mut(&mut minifier, &mut visit_context);
-            } else {
-                minify_descriptor(record.payload_mut(), &mut minifier, &mut visit_context);
-            }
-        })?;
+        compilation.for_each_declaration_payload_mut_with_context(
+            block_id,
+            |_, payload, compilation| {
+                let mut visit_context = VisitMutContext::with_ast(&mut *token, compilation);
+                if property_block {
+                    let rocketcss_ast::DeclarationPayload::Property(declaration) = payload else {
+                        unreachable!("a property rule owns only property declarations")
+                    };
+                    declaration.visit_mut(&mut minifier, &mut visit_context);
+                } else {
+                    minify_descriptor(payload, &mut minifier, &mut visit_context);
+                }
+            },
+        )?;
         if property_block {
             minifier.declaration_blocks.minify_compilation_block(
                 compilation,
@@ -101,7 +113,11 @@ pub fn try_minify<'ast, 'ghost>(
         }
     }
 
-    let context_repair = compilation.refresh_context_value_identities_with_remaps(&allocator)?;
+    let context_repair = compilation.refresh_context_value_identities_with_remaps_by(
+        &allocator,
+        equality::context_frame_fingerprint,
+        equality::context_frames_are_equal,
+    )?;
 
     if let Some(builder) = cross_rule {
         let preserve_selector_compatibility = minifier
@@ -149,10 +165,10 @@ fn minify_rule_payload<'ast, 'ghost>(
         }
         CssRulePayload::Scope(payload) => {
             if let Some(selectors) = &mut payload.scope_start {
-                minifier.visit_selector_list(selectors, cx);
+                selectors.visit_mut(minifier, cx);
             }
             if let Some(selectors) = &mut payload.scope_end {
-                minifier.visit_selector_list(selectors, cx);
+                selectors.visit_mut(minifier, cx);
             }
         }
         CssRulePayload::Unknown(payload) => {
@@ -263,15 +279,24 @@ impl<'ast, 'cx> Minifier<'ast, 'cx> {
             block.visit_mut(self, cx);
         }
         prelude.visit_mut(self, cx);
-        prelude.minify(&mut self.cx);
+        token::minify_token_values(prelude, &mut self.cx, cx);
         if let Some(block) = block {
-            block.minify(&mut self.cx);
+            token::minify_token_values(block, &mut self.cx, cx);
         }
         self.cx.value_context = previous;
     }
 }
 
 impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
+    fn visit_url(&mut self, node: &mut Url<'ast>, cx: &mut VisitMutContext<'_, 'ast, 'ghost>) {
+        if self.cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any)
+            && let Some(normalized) = rules::normalize_url_text(node.url)
+        {
+            node.url = cx.ast_allocator().alloc_str(&normalized);
+            self.cx.record_value_normalized();
+        }
+    }
+
     fn visit_css_color(
         &mut self,
         node: &mut CssColor<'ast>,
@@ -320,7 +345,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
+        values::animation::minify_animation(node, &mut self.cx, cx);
     }
 
     fn visit_font_family(
@@ -368,7 +393,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     ) {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::custom_property_context(&self.cx);
-        let name = match &*node.name {
+        let name = match cx.ast_context().resolve_node(node.name) {
             CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => *name,
         };
         if match_ignore_ascii_case!(name, "--font-family" => true, _ => false) {
@@ -384,22 +409,25 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
             );
         if fuse_token_compaction {
             node.name.visit_mut(self, cx);
+            for value in &mut node.value {
+                value.visit_mut(self, cx);
+            }
             let preserve_space_after_comma = self
                 .cx
                 .value_context
                 .is_enabled(context::ValueContextFlags::PRESERVE_SPACE_AFTER_COMMA);
-            let normalized = token::visit_and_compact_comments_and_whitespace(
+            let normalized = token::compact_comments_and_whitespace(
                 &mut node.value,
                 preserve_space_after_comma,
-                |value| value.visit_mut(self, cx),
+                cx,
             );
             for _ in 0..normalized {
                 self.cx.record_value_normalized();
             }
-            token::minify_compacted_token_values(&mut node.value, &mut self.cx);
+            token::minify_compacted_token_values(&mut node.value, &mut self.cx, cx);
         } else {
             node.visit_mut_children(self, cx);
-            node.minify(&mut self.cx);
+            token::minify_token_values(&mut node.value, &mut self.cx, cx);
         }
         self.cx.value_context = previous;
     }
@@ -423,7 +451,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
             self.cx
                 .value_context
                 .set_enabled(context::ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS, true);
-            node.minify(&mut self.cx);
+            rules::minify_function(node, &mut self.cx, cx);
             self.cx.value_context = previous;
             return;
         }
@@ -456,7 +484,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
                 .set_enabled(context::ValueContextFlags::MINIFY_COLORS, false);
         }
         node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
+        rules::minify_function(node, &mut self.cx, cx);
         self.cx.value_context = previous;
     }
 
@@ -466,7 +494,9 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
+        if let Some(fallback) = &mut node.fallback {
+            token::minify_token_values(fallback, &mut self.cx, cx);
+        }
     }
 
     fn visit_environment_variable(
@@ -475,7 +505,9 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
+        if let Some(fallback) = &mut node.fallback {
+            token::minify_token_values(fallback, &mut self.cx, cx);
+        }
     }
 
     fn visit_token_or_value(
@@ -483,6 +515,10 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         node: &mut TokenOrValue<'ast>,
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
+        node.visit_mut_children(self, cx);
+    }
+
+    fn visit_token(&mut self, node: &mut Token<'ast>, cx: &mut VisitMutContext<'_, 'ast, 'ghost>) {
         node.visit_mut_children(self, cx);
         node.minify(&mut self.cx);
     }
@@ -527,7 +563,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
     ) {
         self.visit_selector_list_children(node, cx);
         let allocator = self.cx.allocator();
-        selector::minify_selector_list(node, &mut self.cx, allocator);
+        selector::minify_selector_list(node, &mut self.cx, allocator, cx.ast_context());
     }
 
     fn visit_media_list(
@@ -536,7 +572,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
     ) {
         node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
+        media::minify_media_list(node, &mut self.cx, cx.ast_context());
     }
 }
 

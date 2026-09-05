@@ -10,9 +10,10 @@ pub(crate) fn materialize_selector_union<'ast>(
     right: &SelectorList<'ast>,
     preserve_compatibility: bool,
     allocator: &Allocator,
+    ast: &mut Compilation<'ast>,
 ) -> Option<SelectorList<'ast>> {
-    let left_compatibility = selector_compatibility(left, allocator)?;
-    let right_compatibility = selector_compatibility(right, allocator)?;
+    let left_compatibility = selector_compatibility(left, allocator, ast)?;
+    let right_compatibility = selector_compatibility(right, allocator, ast)?;
     if left_compatibility.prefixes != right_compatibility.prefixes
         || preserve_compatibility && left_compatibility != right_compatibility
     {
@@ -23,8 +24,8 @@ pub(crate) fn materialize_selector_union<'ast>(
     let mut left_prefixes = VendorPrefix::NONE;
     let mut right_prefixes = VendorPrefix::NONE;
     let mut selectors = Vec::with_capacity_in(left.len() + right.len(), allocator);
-    append_materialized_selectors(left, allocator, &mut left_prefixes, &mut selectors)?;
-    append_materialized_selectors(right, allocator, &mut right_prefixes, &mut selectors)?;
+    append_materialized_selectors(left, allocator, &mut left_prefixes, &mut selectors, ast)?;
+    append_materialized_selectors(right, allocator, &mut right_prefixes, &mut selectors, ast)?;
     debug_assert_eq!(left_prefixes, left_compatibility.prefixes);
     debug_assert_eq!(right_prefixes, right_compatibility.prefixes);
     (!selectors.is_empty()).then_some(selectors)
@@ -83,21 +84,23 @@ impl<'scratch, 'ast> SelectorCompatibility<'scratch, 'ast> {
 fn selector_compatibility<'scratch, 'ast>(
     selectors: &SelectorList<'ast>,
     allocator: &'scratch Allocator,
+    ast: &Compilation<'ast>,
 ) -> Option<SelectorCompatibility<'scratch, 'ast>> {
     let mut compatibility = SelectorCompatibility::new_in(allocator);
-    observe_selector_list_compatibility(selectors, &mut compatibility)?;
+    observe_selector_list_compatibility(selectors, &mut compatibility, ast)?;
     Some(compatibility)
 }
 
 fn observe_selector_list_compatibility<'scratch, 'ast>(
     selectors: &SelectorList<'ast>,
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
+    ast: &Compilation<'ast>,
 ) -> Option<()> {
     for selector in selectors {
         match selector {
             Selector::Parsed(components) => {
                 for component in components {
-                    observe_selector_component_compatibility(component, compatibility)?;
+                    observe_selector_component_compatibility(component, compatibility, ast)?;
                 }
             }
             Selector::Tombstone => {}
@@ -110,6 +113,7 @@ fn observe_selector_list_compatibility<'scratch, 'ast>(
 fn observe_selector_component_compatibility<'scratch, 'ast>(
     component: &SelectorComponent<'ast>,
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
+    ast: &Compilation<'ast>,
 ) -> Option<()> {
     use SelectorComponent as Component;
     use SelectorSyntaxFeatures as Feature;
@@ -147,6 +151,7 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
             observe_attribute_compatibility(*operator, *case_sensitivity, compatibility);
         }
         Component::AttributeOther(attribute) => {
+            let attribute = ast.resolve_node(*attribute);
             if attribute.namespace.is_some() {
                 compatibility.features |= Feature::NAMESPACE;
             }
@@ -172,7 +177,7 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
             }) {
                 compatibility.features |= Feature::NEGATION_COMPLEX;
             }
-            observe_selector_list_compatibility(selectors, compatibility)?;
+            observe_selector_list_compatibility(selectors, compatibility, ast)?;
         }
         Component::Root => compatibility.features |= Feature::ROOT,
         Component::Empty => compatibility.features |= Feature::EMPTY,
@@ -180,29 +185,29 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
         Component::Nth(_) => compatibility.features |= Feature::NTH,
         Component::NthOf { selectors, .. } => {
             compatibility.features |= Feature::NTH_OF;
-            observe_selector_list_compatibility(selectors, compatibility)?;
+            observe_selector_list_compatibility(selectors, compatibility, ast)?;
         }
         Component::PseudoClass(value) => {
-            observe_pseudo_class_compatibility(value, compatibility)?;
+            observe_pseudo_class_compatibility(ast.resolve_node(*value), compatibility)?;
         }
         Component::Slotted(selector) => {
             compatibility.features |= Feature::SLOTTED;
-            observe_selector_compatibility(selector, compatibility)?;
+            observe_selector_compatibility(ast.resolve_node(*selector), compatibility, ast)?;
         }
         Component::Part(_) => compatibility.features |= Feature::PART,
         Component::Host(selector) => {
             compatibility.features |= Feature::HOST;
             if let Some(selector) = selector {
-                observe_selector_compatibility(selector, compatibility)?;
+                observe_selector_compatibility(ast.resolve_node(*selector), compatibility, ast)?;
             }
         }
         Component::Where(selectors) => {
             compatibility.features |= Feature::WHERE;
-            observe_selector_list_compatibility(selectors, compatibility)?;
+            observe_selector_list_compatibility(selectors, compatibility, ast)?;
         }
         Component::Is(selectors) => {
             compatibility.features |= Feature::IS;
-            observe_selector_list_compatibility(selectors, compatibility)?;
+            observe_selector_list_compatibility(selectors, compatibility, ast)?;
         }
         Component::Any {
             vendor_prefix,
@@ -210,14 +215,14 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
         } => {
             compatibility.features |= Feature::ANY;
             compatibility.prefixes |= *vendor_prefix;
-            observe_selector_list_compatibility(selectors, compatibility)?;
+            observe_selector_list_compatibility(selectors, compatibility, ast)?;
         }
         Component::Has(selectors) => {
             compatibility.features |= Feature::HAS;
-            observe_selector_list_compatibility(selectors, compatibility)?;
+            observe_selector_list_compatibility(selectors, compatibility, ast)?;
         }
         Component::PseudoElement(value) => {
-            observe_pseudo_element_compatibility(value, compatibility)?;
+            observe_pseudo_element_compatibility(ast.resolve_node(*value), compatibility, ast)?;
         }
         Component::Nesting => compatibility.features |= Feature::NESTING,
         Component::ExplicitUniversalType
@@ -231,12 +236,13 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
 fn observe_selector_compatibility<'scratch, 'ast>(
     selector: &Selector<'ast>,
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
+    ast: &Compilation<'ast>,
 ) -> Option<()> {
     let Selector::Parsed(components) = selector else {
         return matches!(selector, Selector::Tombstone).then_some(());
     };
     for component in components {
-        observe_selector_component_compatibility(component, compatibility)?;
+        observe_selector_component_compatibility(component, compatibility, ast)?;
     }
     Some(())
 }
@@ -288,6 +294,7 @@ fn observe_pseudo_class_compatibility<'scratch, 'ast>(
 fn observe_pseudo_element_compatibility<'scratch, 'ast>(
     value: &PseudoElement<'ast>,
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
+    ast: &Compilation<'ast>,
 ) -> Option<()> {
     use PseudoElement as Pseudo;
 
@@ -299,7 +306,7 @@ fn observe_pseudo_element_compatibility<'scratch, 'ast>(
         | Pseudo::FileSelectorButton(prefix) => compatibility.prefixes |= *prefix,
         Pseudo::WebKitScrollbar(_) => compatibility.prefixes |= VendorPrefix::WEBKIT,
         Pseudo::CueFunction { selector } | Pseudo::CueRegionFunction { selector } => {
-            observe_selector_compatibility(selector, compatibility)?;
+            observe_selector_compatibility(ast.resolve_node(*selector), compatibility, ast)?;
         }
         Pseudo::Custom { .. } | Pseudo::CustomFunction { .. } => return None,
         _ => {}
@@ -312,12 +319,13 @@ fn append_materialized_selectors<'ast>(
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
     output: &mut SelectorList<'ast>,
+    ast: &mut Compilation<'ast>,
 ) -> Option<()> {
     for selector in source {
         if selector.is_tombstone() {
             continue;
         }
-        let selector = clone_selector(selector, allocator, prefixes)?;
+        let selector = clone_selector(selector, allocator, prefixes, ast)?;
         if !output.iter().any(|existing| existing == &selector) {
             output.push(selector);
         }
@@ -329,13 +337,16 @@ fn clone_selector<'ast>(
     selector: &Selector<'ast>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
+    ast: &mut Compilation<'ast>,
 ) -> Option<Selector<'ast>> {
     let Selector::Parsed(components) = selector else {
         return None;
     };
     let mut cloned = Vec::with_capacity_in(components.len(), allocator);
     for component in components {
-        cloned.push(clone_selector_component(component, allocator, prefixes)?);
+        cloned.push(clone_selector_component(
+            component, allocator, prefixes, ast,
+        )?);
     }
     Some(Selector::Parsed(cloned))
 }
@@ -344,10 +355,11 @@ fn clone_selector_list<'ast>(
     selectors: &SelectorList<'ast>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
+    ast: &mut Compilation<'ast>,
 ) -> Option<SelectorList<'ast>> {
     let mut cloned = Vec::with_capacity_in(selectors.len(), allocator);
     for selector in selectors {
-        cloned.push(clone_selector(selector, allocator, prefixes)?);
+        cloned.push(clone_selector(selector, allocator, prefixes, ast)?);
     }
     Some(cloned)
 }
@@ -356,6 +368,7 @@ fn clone_selector_component<'ast>(
     component: &SelectorComponent<'ast>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
+    ast: &mut Compilation<'ast>,
 ) -> Option<SelectorComponent<'ast>> {
     use SelectorComponent as Component;
     Some(match component {
@@ -395,10 +408,11 @@ fn clone_selector_component<'ast>(
             never_matches: *never_matches,
         },
         Component::AttributeOther(attribute) => {
-            Component::AttributeOther(allocator.boxed(clone_attribute_selector(attribute)))
+            let attribute = clone_attribute_selector(ast.resolve_node(*attribute));
+            Component::AttributeOther(ast.alloc_node_without_span(attribute))
         }
         Component::Negation(selectors) => {
-            Component::Negation(clone_selector_list(selectors, allocator, prefixes)?)
+            Component::Negation(clone_selector_list(selectors, allocator, prefixes, ast)?)
         }
         Component::Root => Component::Root,
         Component::Empty => Component::Empty,
@@ -406,24 +420,25 @@ fn clone_selector_component<'ast>(
         Component::Nth(value) => Component::Nth(*value),
         Component::NthOf { data, selectors } => Component::NthOf {
             data: *data,
-            selectors: clone_selector_list(selectors, allocator, prefixes)?,
+            selectors: clone_selector_list(selectors, allocator, prefixes, ast)?,
         },
         Component::PseudoClass(value) => {
-            Component::PseudoClass(allocator.boxed(clone_pseudo_class(value, allocator, prefixes)?))
+            let value = clone_pseudo_class(ast.resolve_node(*value), allocator, prefixes)?;
+            Component::PseudoClass(ast.alloc_node_without_span(value))
         }
         Component::Slotted(selector) => {
-            Component::Slotted(allocator.boxed(clone_selector(selector, allocator, prefixes)?))
+            Component::Slotted(clone_stored_selector(*selector, allocator, prefixes, ast)?)
         }
         Component::Part(names) => Component::Part(names.clone()),
         Component::Host(selector) => Component::Host(match selector {
-            Some(selector) => Some(allocator.boxed(clone_selector(selector, allocator, prefixes)?)),
+            Some(selector) => Some(clone_stored_selector(*selector, allocator, prefixes, ast)?),
             None => None,
         }),
         Component::Where(selectors) => {
-            Component::Where(clone_selector_list(selectors, allocator, prefixes)?)
+            Component::Where(clone_selector_list(selectors, allocator, prefixes, ast)?)
         }
         Component::Is(selectors) => {
-            Component::Is(clone_selector_list(selectors, allocator, prefixes)?)
+            Component::Is(clone_selector_list(selectors, allocator, prefixes, ast)?)
         }
         Component::Any {
             vendor_prefix,
@@ -432,17 +447,32 @@ fn clone_selector_component<'ast>(
             *prefixes |= *vendor_prefix;
             Component::Any {
                 vendor_prefix: *vendor_prefix,
-                selectors: clone_selector_list(selectors, allocator, prefixes)?,
+                selectors: clone_selector_list(selectors, allocator, prefixes, ast)?,
             }
         }
         Component::Has(selectors) => {
-            Component::Has(clone_selector_list(selectors, allocator, prefixes)?)
+            Component::Has(clone_selector_list(selectors, allocator, prefixes, ast)?)
         }
-        Component::PseudoElement(value) => Component::PseudoElement(
-            allocator.boxed(clone_pseudo_element(value, allocator, prefixes)?),
-        ),
+        Component::PseudoElement(value) => {
+            let value = clone_pseudo_element(*value, allocator, prefixes, ast)?;
+            Component::PseudoElement(ast.alloc_node_without_span(value))
+        }
         Component::Nesting => Component::Nesting,
     })
+}
+
+fn clone_stored_selector<'ast>(
+    selector: NodeId<'ast, Selector<'ast>>,
+    allocator: &'ast Allocator,
+    prefixes: &mut VendorPrefix,
+    ast: &mut Compilation<'ast>,
+) -> Option<NodeId<'ast, Selector<'ast>>> {
+    let cloned = ast.clone_node(selector);
+    ast.mutate_node(cloned, |selector, ast| {
+        *selector = clone_selector(selector, allocator, prefixes, ast)?;
+        Some(())
+    })?;
+    Some(cloned)
 }
 
 fn clone_attribute_selector<'ast>(attribute: &AttrSelector<'ast>) -> AttrSelector<'ast> {
@@ -572,12 +602,45 @@ fn clone_pseudo_class<'ast>(
 }
 
 fn clone_pseudo_element<'ast>(
-    value: &PseudoElement<'ast>,
+    value: NodeId<'ast, PseudoElement<'ast>>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
+    ast: &mut Compilation<'ast>,
 ) -> Option<PseudoElement<'ast>> {
     use PseudoElement as Pseudo;
-    Some(match value {
+
+    let cue = match ast.resolve_node(value) {
+        Pseudo::CueFunction { selector } => Some((false, *selector)),
+        Pseudo::CueRegionFunction { selector } => Some((true, *selector)),
+        _ => None,
+    };
+    if let Some((is_region, selector)) = cue {
+        let selector = clone_stored_selector(selector, allocator, prefixes, ast)?;
+        return Some(if is_region {
+            Pseudo::CueRegionFunction { selector }
+        } else {
+            Pseudo::CueFunction { selector }
+        });
+    }
+
+    let view_transition = match ast.resolve_node(value) {
+        Pseudo::ViewTransitionGroup { part } => Some((0, *part)),
+        Pseudo::ViewTransitionImagePair { part } => Some((1, *part)),
+        Pseudo::ViewTransitionOld { part } => Some((2, *part)),
+        Pseudo::ViewTransitionNew { part } => Some((3, *part)),
+        _ => None,
+    };
+    if let Some((kind, part)) = view_transition {
+        let part = clone_view_transition_part(part, ast);
+        return Some(match kind {
+            0 => Pseudo::ViewTransitionGroup { part },
+            1 => Pseudo::ViewTransitionImagePair { part },
+            2 => Pseudo::ViewTransitionOld { part },
+            _ => Pseudo::ViewTransitionNew { part },
+        });
+    }
+
+    Some(match ast.resolve_node(value) {
         Pseudo::After => Pseudo::After,
         Pseudo::Before => Pseudo::Before,
         Pseudo::FirstLine => Pseudo::FirstLine,
@@ -609,25 +672,12 @@ fn clone_pseudo_element<'ast>(
         }
         Pseudo::Cue => Pseudo::Cue,
         Pseudo::CueRegion => Pseudo::CueRegion,
-        Pseudo::CueFunction { selector } => Pseudo::CueFunction {
-            selector: allocator.boxed(clone_selector(selector, allocator, prefixes)?),
-        },
-        Pseudo::CueRegionFunction { selector } => Pseudo::CueRegionFunction {
-            selector: allocator.boxed(clone_selector(selector, allocator, prefixes)?),
-        },
+        Pseudo::CueFunction { .. } | Pseudo::CueRegionFunction { .. } => unreachable!(),
         Pseudo::ViewTransition => Pseudo::ViewTransition,
-        Pseudo::ViewTransitionGroup { part } => Pseudo::ViewTransitionGroup {
-            part: allocator.boxed(clone_view_transition_part(part, allocator)),
-        },
-        Pseudo::ViewTransitionImagePair { part } => Pseudo::ViewTransitionImagePair {
-            part: allocator.boxed(clone_view_transition_part(part, allocator)),
-        },
-        Pseudo::ViewTransitionOld { part } => Pseudo::ViewTransitionOld {
-            part: allocator.boxed(clone_view_transition_part(part, allocator)),
-        },
-        Pseudo::ViewTransitionNew { part } => Pseudo::ViewTransitionNew {
-            part: allocator.boxed(clone_view_transition_part(part, allocator)),
-        },
+        Pseudo::ViewTransitionGroup { .. }
+        | Pseudo::ViewTransitionImagePair { .. }
+        | Pseudo::ViewTransitionOld { .. }
+        | Pseudo::ViewTransitionNew { .. } => unreachable!(),
         Pseudo::PickerFunction { identifier } => Pseudo::PickerFunction {
             identifier: *identifier,
         },
@@ -640,16 +690,48 @@ fn clone_pseudo_element<'ast>(
 }
 
 fn clone_view_transition_part<'ast>(
-    part: &ViewTransitionPartSelector<'ast>,
-    allocator: &'ast Allocator,
-) -> ViewTransitionPartSelector<'ast> {
-    ViewTransitionPartSelector {
-        classes: part.classes.clone(),
-        name: part.name.as_ref().map(|name| {
-            allocator.boxed(match &**name {
-                ViewTransitionPartName::All => ViewTransitionPartName::All,
-                ViewTransitionPartName::Name(name) => ViewTransitionPartName::Name(*name),
+    part: NodeId<'ast, ViewTransitionPartSelector<'ast>>,
+    ast: &mut Compilation<'ast>,
+) -> NodeId<'ast, ViewTransitionPartSelector<'ast>> {
+    let cloned = ast.clone_node(part);
+    ast.mutate_node(cloned, |part, ast| {
+        if let Some(name) = part.name {
+            part.name = Some(ast.clone_node(name));
+        }
+    });
+    cloned
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rocketcss_parser::Parse;
+
+    fn pseudo_class_id<'ast>(selector: &Selector<'ast>) -> NodeId<'ast, PseudoClass<'ast>> {
+        selector
+            .iter()
+            .find_map(|component| match component {
+                SelectorComponent::PseudoClass(pseudo_class) => Some(*pseudo_class),
+                _ => None,
             })
-        }),
+            .expect("selector contains a pseudo class")
+    }
+
+    #[test]
+    fn selector_clone_owns_its_nested_nodes() {
+        let allocator = Allocator::new();
+        let (selectors, mut ast) = SelectorList::parse_string(".foo:hover", &allocator).unwrap();
+        let mut prefixes = VendorPrefix::NONE;
+        let cloned = clone_selector(&selectors[0], &allocator, &mut prefixes, &mut ast).unwrap();
+
+        let original_nested = pseudo_class_id(&selectors[0]);
+        let cloned_nested = pseudo_class_id(&cloned);
+        assert_ne!(original_nested, cloned_nested);
+
+        ast.mutate_node(cloned_nested, |pseudo_class, _| {
+            *pseudo_class = PseudoClass::Active
+        });
+        assert!(matches!(ast.node(original_nested), PseudoClass::Hover));
+        assert!(matches!(ast.node(cloned_nested), PseudoClass::Active));
     }
 }

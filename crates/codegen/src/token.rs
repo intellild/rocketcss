@@ -155,7 +155,7 @@ pub(crate) fn write_token_list<'ghost, PrinterT: PrinterTrait>(
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
-        if index > 0 && minified_color_needs_separator(&values[index - 1], value) {
+        if index > 0 && minified_color_needs_separator(&values[index - 1], value, cx) {
             dest.write_char(' ')?;
         }
         value.to_css(dest, cx)?;
@@ -184,8 +184,9 @@ fn write_unparsed_token_or_value<'ghost, PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
+    let ast = cx.ast_context();
     match value {
-        TokenOrValue::Token(token) => match &**token {
+        TokenOrValue::Token(token) => match ast.resolve_node(*token) {
             Token::Comment(comment) => {
                 dest.write_str("/*")?;
                 dest.write_str(comment)?;
@@ -195,13 +196,14 @@ fn write_unparsed_token_or_value<'ghost, PrinterT: PrinterTrait>(
             token => token.to_css(dest, cx),
         },
         TokenOrValue::Function(function) => {
+            let function = ast.resolve_node(*function);
             dest.write_str(function.name())?;
             dest.write_char('(')?;
             write_unparsed_token_list(&function.arguments, dest, cx)?;
             if function.kind().is_variable()
                 && matches!(
                     function.arguments.last(),
-                    Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma)
+                    Some(TokenOrValue::Token(token)) if matches!(ast.resolve_node(*token), Token::Comma)
                 )
             {
                 dest.write_char(' ')?;
@@ -212,10 +214,16 @@ fn write_unparsed_token_or_value<'ghost, PrinterT: PrinterTrait>(
     }
 }
 
-fn minified_color_needs_separator(left: &TokenOrValue<'_>, right: &TokenOrValue<'_>) -> bool {
+fn minified_color_needs_separator(
+    left: &TokenOrValue<'_>,
+    right: &TokenOrValue<'_>,
+    cx: &ToCssContext<'_, '_, '_>,
+) -> bool {
     let TokenOrValue::Function(function) = left else {
         return false;
     };
+    let ast = cx.ast_context();
+    let function = ast.resolve_node(*function);
     let ends_as_identifier_or_hash = matches!(
         function.replacement,
         Some(FunctionReplacement::Rgb { .. })
@@ -224,7 +232,7 @@ fn minified_color_needs_separator(left: &TokenOrValue<'_>, right: &TokenOrValue<
     );
     ends_as_identifier_or_hash
         && !matches!(right, TokenOrValue::Token(token)
-            if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Semicolon
+            if matches!(ast.resolve_node(*token), Token::WhiteSpace(_) | Token::Comma | Token::Semicolon
                 | Token::CloseParenthesis | Token::CloseSquareBracket | Token::CloseCurlyBracket))
 }
 
@@ -236,7 +244,7 @@ pub(crate) fn write_token_list_trimmed<'ghost, PrinterT: PrinterTrait>(
     let start = values
         .iter()
         .position(|value| {
-            !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)))
+            !matches!(value, TokenOrValue::Token(token) if matches!(cx.ast_context().resolve_node(*token), Token::WhiteSpace(_)))
         })
         .unwrap_or(values.len());
     write_token_list(&values[start..], dest, cx)
@@ -247,7 +255,7 @@ pub(crate) fn write_token_list_without_outer_whitespace<'ghost, PrinterT: Printe
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
-    let is_whitespace = |value: &TokenOrValue<'_>| matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)));
+    let is_whitespace = |value: &TokenOrValue<'_>| matches!(value, TokenOrValue::Token(token) if matches!(cx.ast_context().resolve_node(*token), Token::WhiteSpace(_)));
     let start = values
         .iter()
         .position(|value| !is_whitespace(value))
@@ -259,8 +267,8 @@ pub(crate) fn write_token_list_without_outer_whitespace<'ghost, PrinterT: Printe
     write_token_list(&values[start..end], dest, cx)
 }
 
-fn starts_with_whitespace(values: &[TokenOrValue<'_>]) -> bool {
-    matches!(values.first(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::WhiteSpace(_)))
+fn starts_with_whitespace(values: &[TokenOrValue<'_>], cx: &ToCssContext<'_, '_, '_>) -> bool {
+    matches!(values.first(), Some(TokenOrValue::Token(token)) if matches!(cx.ast_context().resolve_node(*token), Token::WhiteSpace(_)))
 }
 
 impl<'ghost> ToCss<'ghost> for TokenOrValue<'_> {
@@ -344,11 +352,11 @@ impl<'ghost> ToCss<'ghost> for Variable<'_> {
             dest.write_char(',')?;
             if fallback.is_empty() {
                 dest.write_char(' ')?;
-            } else if !starts_with_whitespace(fallback) {
+            } else if !starts_with_whitespace(fallback, _cx) {
                 dest.whitespace()?;
             }
             write_token_list(fallback, dest, _cx)?;
-            if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
+            if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(_cx.ast_context().resolve_node(*token), Token::Comma))
             {
                 dest.write_char(' ')?;
             }
@@ -373,11 +381,11 @@ impl<'ghost> ToCss<'ghost> for EnvironmentVariable<'_> {
             dest.write_char(',')?;
             if fallback.is_empty() {
                 dest.write_char(' ')?;
-            } else if !starts_with_whitespace(fallback) {
+            } else if !starts_with_whitespace(fallback, _cx) {
                 dest.whitespace()?;
             }
             write_token_list(fallback, dest, _cx)?;
-            if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
+            if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(_cx.ast_context().resolve_node(*token), Token::Comma))
             {
                 dest.write_char(' ')?;
             }
@@ -486,7 +494,7 @@ impl<'ghost> ToCss<'ghost> for Function<'_> {
             let [TokenOrValue::Token(token)] = self.arguments.as_slice() else {
                 unreachable!("unquoted URL functions retain one string token")
             };
-            let Token::String(value) = &**token else {
+            let Token::String(value) = _cx.ast_context().resolve_node(*token) else {
                 unreachable!("unquoted URL functions retain one string token")
             };
             write_unquoted_url(value, dest)?;
@@ -494,7 +502,7 @@ impl<'ghost> ToCss<'ghost> for Function<'_> {
         }
         write_token_list(&self.arguments, dest, _cx)?;
         if self.kind().is_variable()
-            && matches!(self.arguments.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
+            && matches!(self.arguments.last(), Some(TokenOrValue::Token(token)) if matches!(_cx.ast_context().resolve_node(*token), Token::Comma))
         {
             dest.write_char(' ')?;
         }

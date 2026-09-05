@@ -167,38 +167,40 @@ fn canonicalize_known_colors<'ast, 'ghost>(
         .filter(|(_, rule)| rule.is_live())
         .map(|(_, record)| record.declaration_block())
         .collect::<Vec<_>>();
-    let mut visitor = CanonicalizeKnownColors;
-    let mut cx = VisitMutContext::new(token);
     for block in blocks.into_iter().flatten() {
         compilation
-            .for_each_declaration_mut(block, |_, declaration| match declaration.payload_mut() {
-                DeclarationPayload::Property(declaration) => {
-                    declaration.visit_mut(&mut visitor, &mut cx);
-                }
-                DeclarationPayload::FontFace(property) => {
-                    property.visit_mut(&mut visitor, &mut cx);
-                }
-                DeclarationPayload::FontPaletteValues(property) => {
-                    property.visit_mut(&mut visitor, &mut cx);
-                }
-                DeclarationPayload::ViewTransition(property) => {
-                    property.visit_mut(&mut visitor, &mut cx);
-                }
-                DeclarationPayload::FontFeature(declaration) => {
-                    declaration.visit_mut(&mut visitor, &mut cx);
-                }
-                DeclarationPayload::PropertyRule(descriptor) => match descriptor {
-                    rocketcss_ast::PropertyRuleDescriptor::Syntax(syntax) => {
-                        syntax.visit_mut(&mut visitor, &mut cx);
+            .for_each_declaration_payload_mut_with_context(block, |_, declaration, compilation| {
+                let mut visitor = CanonicalizeKnownColors;
+                let mut cx = VisitMutContext::with_ast(&mut *token, compilation);
+                match declaration {
+                    DeclarationPayload::Property(declaration) => {
+                        declaration.visit_mut(&mut visitor, &mut cx);
                     }
-                    rocketcss_ast::PropertyRuleDescriptor::Inherits(_) => {}
-                    rocketcss_ast::PropertyRuleDescriptor::InitialValue(value) => {
-                        value.visit_mut(&mut visitor, &mut cx);
-                    }
-                    rocketcss_ast::PropertyRuleDescriptor::Unknown(property) => {
+                    DeclarationPayload::FontFace(property) => {
                         property.visit_mut(&mut visitor, &mut cx);
                     }
-                },
+                    DeclarationPayload::FontPaletteValues(property) => {
+                        property.visit_mut(&mut visitor, &mut cx);
+                    }
+                    DeclarationPayload::ViewTransition(property) => {
+                        property.visit_mut(&mut visitor, &mut cx);
+                    }
+                    DeclarationPayload::FontFeature(declaration) => {
+                        declaration.visit_mut(&mut visitor, &mut cx);
+                    }
+                    DeclarationPayload::PropertyRule(descriptor) => match descriptor {
+                        rocketcss_ast::PropertyRuleDescriptor::Syntax(syntax) => {
+                            syntax.visit_mut(&mut visitor, &mut cx);
+                        }
+                        rocketcss_ast::PropertyRuleDescriptor::Inherits(_) => {}
+                        rocketcss_ast::PropertyRuleDescriptor::InitialValue(value) => {
+                            value.visit_mut(&mut visitor, &mut cx);
+                        }
+                        rocketcss_ast::PropertyRuleDescriptor::Unknown(property) => {
+                            property.visit_mut(&mut visitor, &mut cx);
+                        }
+                    },
+                }
             })
             .map_err(|error| format!("canonicalize declaration colors: {error:?}"))?;
     }

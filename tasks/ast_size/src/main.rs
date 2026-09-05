@@ -9,7 +9,7 @@ use rocketcss_ast::{
     NestedDeclarationsPayload, PageMarginPayload, PageRulePayload, PositionTryRulePayload,
     RuleRecord, ViewportRulePayload,
 };
-use rocketcss_common::{boxed::Box, vec::Vec};
+use rocketcss_common::vec::Vec;
 
 macro_rules! print_sizes {
     ($($ty:ty),+ $(,)?) => {

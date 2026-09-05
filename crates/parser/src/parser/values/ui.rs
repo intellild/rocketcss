@@ -76,9 +76,7 @@ impl<'i> Parse<'i> for ColorOrAuto<'i> {
         {
             return Ok(Self::Auto);
         }
-        Ok(Self::Color(
-            input.allocator().boxed(CssColor::parse(input)?),
-        ))
+        Ok(Self::Color(parse_css_color(input)?))
     }
 }
 
@@ -91,9 +89,8 @@ impl<'i> Parse<'i> for ScrollbarColor<'i> {
             input.expect_exhausted()?;
             return Ok(Self::Auto);
         }
-        let allocator = input.allocator();
-        let first = allocator.boxed(CssColor::parse(input)?);
-        let second = allocator.boxed(CssColor::parse(input)?);
+        let first = parse_css_color(input)?;
+        let second = parse_css_color(input)?;
         input.expect_exhausted()?;
         Ok(Self::Colors(first, second))
     }

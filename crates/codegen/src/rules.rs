@@ -68,16 +68,99 @@ fn write_four<'ghost, PrinterT: PrinterTrait, T: ToCss<'ghost> + PartialEq>(
     Ok(())
 }
 
+fn write_node_pair<'ast, 'ghost, PrinterT, T>(
+    first: &NodeId<'ast, T>,
+    second: &NodeId<'ast, T>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    T: ToCss<'ghost> + PartialEq,
+{
+    first.to_css(dest, cx)?;
+    if !css_values_are_equal(
+        cx.ast_context().resolve_node(*first),
+        cx.ast_context().resolve_node(*second),
+        cx,
+    ) {
+        dest.write_char(' ')?;
+        second.to_css(dest, cx)?;
+    }
+    Ok(())
+}
+
+fn write_four_nodes<'ast, 'ghost, PrinterT, T>(
+    top: &NodeId<'ast, T>,
+    right: &NodeId<'ast, T>,
+    bottom: &NodeId<'ast, T>,
+    left: &NodeId<'ast, T>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    T: ToCss<'ghost> + PartialEq,
+{
+    let ast = cx.ast_context();
+    let top_value = ast.resolve_node(*top);
+    let right_value = ast.resolve_node(*right);
+    let bottom_value = ast.resolve_node(*bottom);
+    let left_value = ast.resolve_node(*left);
+    top.to_css(dest, cx)?;
+    if css_values_are_equal(top_value, right_value, cx)
+        && css_values_are_equal(top_value, bottom_value, cx)
+        && css_values_are_equal(top_value, left_value, cx)
+    {
+        return Ok(());
+    }
+    dest.write_char(' ')?;
+    right.to_css(dest, cx)?;
+    if css_values_are_equal(top_value, bottom_value, cx)
+        && css_values_are_equal(right_value, left_value, cx)
+    {
+        return Ok(());
+    }
+    dest.write_char(' ')?;
+    bottom.to_css(dest, cx)?;
+    if !css_values_are_equal(right_value, left_value, cx) {
+        dest.write_char(' ')?;
+        left.to_css(dest, cx)?;
+    }
+    Ok(())
+}
+
+fn write_color_pair<'ast, 'ghost, PrinterT: PrinterTrait>(
+    first: &NodeId<'ast, CssColor<'ast>>,
+    second: &NodeId<'ast, CssColor<'ast>>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    write_node_pair(first, second, dest, cx)
+}
+
+fn write_four_colors<'ast, 'ghost, PrinterT: PrinterTrait>(
+    top: &NodeId<'ast, CssColor<'ast>>,
+    right: &NodeId<'ast, CssColor<'ast>>,
+    bottom: &NodeId<'ast, CssColor<'ast>>,
+    left: &NodeId<'ast, CssColor<'ast>>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    write_four_nodes(top, right, bottom, left, dest, cx)
+}
+
 impl<'ghost> ToCss<'ghost> for Position<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        let ast = _cx.ast_context();
         self.x.to_css(dest, _cx)?;
-        if !matches!(&*self.y, PositionComponent::Center)
+        if !matches!(ast.resolve_node(self.y), PositionComponent::Center)
             || matches!(
-                &*self.x,
+                ast.resolve_node(self.x),
                 PositionComponent::Side {
                     offset: Some(_),
                     ..
@@ -162,10 +245,11 @@ impl<'ghost> ToCss<'ghost> for BackgroundPosition<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        let ast = _cx.ast_context();
         self.x.to_css(dest, _cx)?;
-        if !matches!(&*self.y, PositionComponent::Center)
+        if !matches!(ast.resolve_node(self.y), PositionComponent::Center)
             || matches!(
-                &*self.x,
+                ast.resolve_node(self.x),
                 PositionComponent::Side {
                     offset: Some(_),
                     ..
@@ -203,13 +287,14 @@ impl<'ghost> ToCss<'ghost> for Background<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        if matches!(&*self.image, Image::None)
-            && is_zero_background_position(&self.position)
+        let ast = _cx.ast_context();
+        if matches!(ast.resolve_node(self.image), Image::None)
+            && is_zero_background_position(&self.position, _cx)
             && matches!(
-                &*self.size,
+                ast.resolve_node(self.size),
                 BackgroundSize::Explicit { height, width }
-                    if matches!(&**height, LengthPercentageOrAuto::Auto)
-                        && matches!(&**width, LengthPercentageOrAuto::Auto)
+                    if matches!(ast.resolve_node(*height), LengthPercentageOrAuto::Auto)
+                        && matches!(ast.resolve_node(*width), LengthPercentageOrAuto::Auto)
             )
             && matches!(
                 &self.repeat,
@@ -251,27 +336,40 @@ impl<'ghost> ToCss<'ghost> for Background<'_> {
     }
 }
 
-fn is_zero_position_components<Sx, Sy>(
-    x: &PositionComponent<'_, Sx>,
-    y: &PositionComponent<'_, Sy>,
+fn is_zero_position_components<'ast, Sx, Sy>(
+    x: &NodeId<'ast, PositionComponent<'ast, Sx>>,
+    y: &NodeId<'ast, PositionComponent<'ast, Sy>>,
+    cx: &ToCssContext<'_, '_, '_>,
 ) -> bool {
-    fn is_zero(component: &PositionComponent<'_, impl Sized>) -> bool {
+    fn is_zero(
+        component: &PositionComponent<'_, impl Sized>,
+        cx: &ToCssContext<'_, '_, '_>,
+    ) -> bool {
         matches!(
             component,
             PositionComponent::Length(value)
-                if matches!(&**value, DimensionPercentage::Percentage(0.0) | DimensionPercentage::Zero)
+                if matches!(
+                    cx.ast_context().resolve_node(*value),
+                    DimensionPercentage::Percentage(0.0) | DimensionPercentage::Zero
+                )
         )
     }
 
-    is_zero(x) && is_zero(y)
+    let ast = cx.ast_context();
+    is_zero(ast.resolve_node(*x), cx) && is_zero(ast.resolve_node(*y), cx)
 }
 
-fn is_zero_background_position(position: &BackgroundPosition<'_>) -> bool {
-    is_zero_position_components(&position.x, &position.y)
+fn is_zero_background_position(
+    position: &NodeId<'_, BackgroundPosition<'_>>,
+    cx: &ToCssContext<'_, '_, '_>,
+) -> bool {
+    let position = cx.ast_context().resolve_node(*position);
+    is_zero_position_components(&position.x, &position.y, cx)
 }
 
-fn is_zero_position(position: &Position<'_>) -> bool {
-    is_zero_position_components(&position.x, &position.y)
+fn is_zero_position(position: &NodeId<'_, Position<'_>>, cx: &ToCssContext<'_, '_, '_>) -> bool {
+    let position = cx.ast_context().resolve_node(*position);
+    is_zero_position_components(&position.x, &position.y, cx)
 }
 
 impl<'ghost> ToCss<'ghost> for BoxShadow<'_> {
@@ -284,7 +382,7 @@ impl<'ghost> ToCss<'ghost> for BoxShadow<'_> {
             dest.write_str("inset ")?;
         }
         write_space_separated(
-            &[&*self.x_offset, &*self.y_offset, &*self.blur, &*self.spread],
+            &[&self.x_offset, &self.y_offset, &self.blur, &self.spread],
             dest,
             _cx,
         )?;
@@ -324,7 +422,7 @@ macro_rules! logical_pair {
         $(
             impl<'ghost> ToCss<'ghost> for $ty {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
-                    write_pair(&*self.$first, &*self.$second, dest, _cx)
+                    write_node_pair(&self.$first, &self.$second, dest, _cx)
                 }
             }
         )+
@@ -349,7 +447,7 @@ macro_rules! physical_four {
         $(
             impl<'ghost> ToCss<'ghost> for $ty {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
-                    write_four(&*self.top, &*self.right, &*self.bottom, &*self.left, dest, _cx)
+                    write_four_nodes(&self.top, &self.right, &self.bottom, &self.left, dest, _cx)
                 }
             }
         )+
@@ -362,8 +460,17 @@ physical_four! {
     Padding<'_>;
     ScrollMargin<'_>;
     ScrollPadding<'_>;
-    BorderColor<'_>;
     BorderWidth<'_>;
+}
+
+impl<'ghost> ToCss<'ghost> for BorderColor<'_> {
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result {
+        write_four_colors(&self.top, &self.right, &self.bottom, &self.left, dest, cx)
+    }
 }
 
 impl<'ghost> ToCss<'ghost> for BorderStyle {
@@ -382,33 +489,42 @@ impl<'ghost> ToCss<'ghost> for BorderRadius<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_four(
-            &*self.top_left.0,
-            &*self.top_right.0,
-            &*self.bottom_right.0,
-            &*self.bottom_left.0,
+        let ast = _cx.ast_context();
+        let top_left = ast.resolve_node(self.top_left);
+        let top_right = ast.resolve_node(self.top_right);
+        let bottom_right = ast.resolve_node(self.bottom_right);
+        let bottom_left = ast.resolve_node(self.bottom_left);
+        write_four_nodes(
+            &top_left.0,
+            &top_right.0,
+            &bottom_right.0,
+            &bottom_left.0,
             dest,
             _cx,
         )?;
-        let horizontal = [
-            &*self.top_left.0,
-            &*self.top_right.0,
-            &*self.bottom_right.0,
-            &*self.bottom_left.0,
-        ];
-        let vertical = [
-            &*self.top_left.1,
-            &*self.top_right.1,
-            &*self.bottom_right.1,
-            &*self.bottom_left.1,
-        ];
-        if horizontal != vertical {
+        if !css_values_are_equal(
+            ast.resolve_node(top_left.0),
+            ast.resolve_node(top_left.1),
+            _cx,
+        ) || !css_values_are_equal(
+            ast.resolve_node(top_right.0),
+            ast.resolve_node(top_right.1),
+            _cx,
+        ) || !css_values_are_equal(
+            ast.resolve_node(bottom_right.0),
+            ast.resolve_node(bottom_right.1),
+            _cx,
+        ) || !css_values_are_equal(
+            ast.resolve_node(bottom_left.0),
+            ast.resolve_node(bottom_left.1),
+            _cx,
+        ) {
             dest.write_str(" / ")?;
-            write_four(
-                vertical[0],
-                vertical[1],
-                vertical[2],
-                vertical[3],
+            write_four_nodes(
+                &top_left.1,
+                &top_right.1,
+                &bottom_right.1,
+                &bottom_left.1,
                 dest,
                 _cx,
             )?;
@@ -465,7 +581,7 @@ impl<'ghost> ToCss<'ghost> for BorderBlockColor<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_pair(&*self.start, &*self.end, dest, _cx)
+        write_color_pair(&self.start, &self.end, dest, _cx)
     }
 }
 
@@ -485,7 +601,7 @@ impl<'ghost> ToCss<'ghost> for BorderBlockWidth<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_pair(&*self.start, &*self.end, dest, _cx)
+        write_node_pair(&self.start, &self.end, dest, _cx)
     }
 }
 
@@ -495,7 +611,7 @@ impl<'ghost> ToCss<'ghost> for BorderInlineColor<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_pair(&*self.start, &*self.end, dest, _cx)
+        write_color_pair(&self.start, &self.end, dest, _cx)
     }
 }
 
@@ -515,7 +631,7 @@ impl<'ghost> ToCss<'ghost> for BorderInlineWidth<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_pair(&*self.start, &*self.end, dest, _cx)
+        write_node_pair(&self.start, &self.end, dest, _cx)
     }
 }
 
@@ -551,26 +667,27 @@ impl<'ghost> ToCss<'ghost> for Flex<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        let ast = _cx.ast_context();
         if self.grow == 0.0
             && self.shrink == 0.0
-            && matches!(&*self.basis, LengthPercentageOrAuto::Auto)
+            && matches!(ast.resolve_node(self.basis), LengthPercentageOrAuto::Auto)
         {
             return dest.write_str("none");
         }
         if self.grow == 1.0
             && self.shrink == 1.0
-            && matches!(&*self.basis, LengthPercentageOrAuto::Auto)
+            && matches!(ast.resolve_node(self.basis), LengthPercentageOrAuto::Auto)
         {
             return dest.write_str("auto");
         }
 
         serialize_number(self.grow, dest)?;
         let basis_is_zero = matches!(
-            &*self.basis,
+            ast.resolve_node(self.basis),
             LengthPercentageOrAuto::LengthPercentage(value)
-                if matches!(&**value, LengthPercentage::Zero)
+                if matches!(ast.resolve_node(*value), LengthPercentage::Zero)
         );
-        let basis_is_auto = matches!(&*self.basis, LengthPercentageOrAuto::Auto);
+        let basis_is_auto = matches!(ast.resolve_node(self.basis), LengthPercentageOrAuto::Auto);
         if self.shrink != 1.0 || (!basis_is_zero && !basis_is_auto) {
             dest.write_char(' ')?;
             serialize_number(self.shrink, dest)?;
@@ -605,7 +722,7 @@ impl<'ghost> ToCss<'ghost> for Gap<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_pair(&*self.row, &*self.column, dest, _cx)
+        write_node_pair(&self.row, &self.column, dest, _cx)
     }
 }
 
@@ -742,7 +859,10 @@ impl<'ghost> ToCss<'ghost> for GridTemplate<'_> {
         self.rows.to_css(dest, _cx)?;
         dest.write_str(" / ")?;
         self.columns.to_css(dest, _cx)?;
-        if !matches!(*self.areas, GridTemplateAreas::None) {
+        if !matches!(
+            _cx.ast_context().resolve_node(self.areas),
+            GridTemplateAreas::None
+        ) {
             dest.write_char(' ')?;
             self.areas.to_css(dest, _cx)?;
         }
@@ -783,7 +903,10 @@ impl<'ghost> ToCss<'ghost> for Grid<'_> {
             dest.write_str(" / ")?;
             write_track_sizes(&self.auto_columns, dest, _cx)?;
         }
-        if !matches!(*self.areas, GridTemplateAreas::None) {
+        if !matches!(
+            _cx.ast_context().resolve_node(self.areas),
+            GridTemplateAreas::None
+        ) {
             dest.write_char(' ')?;
             self.areas.to_css(dest, _cx)?;
         }
@@ -854,7 +977,10 @@ impl<'ghost> ToCss<'ghost> for Transition<'_> {
         self.property.to_css(dest, _cx)?;
         dest.write_char(' ')?;
         self.duration.to_css(dest, _cx)?;
-        if !matches!(&*self.timing_function, EasingFunction::Ease) {
+        if !matches!(
+            _cx.ast_context().resolve_node(self.timing_function),
+            EasingFunction::Ease
+        ) {
             dest.write_char(' ')?;
             self.timing_function.to_css(dest, _cx)?;
         }
@@ -908,6 +1034,7 @@ impl<'ghost> ToCss<'ghost> for Animation<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        let ast = _cx.ast_context();
         // Components print in their stored order: authored order after
         // parsing, canonical order after the ORDER_VALUES minify pass, which
         // also moves a name colliding with a keyword class behind that class.
@@ -919,7 +1046,8 @@ impl<'ghost> ToCss<'ghost> for Animation<'_> {
             // unless the class appears before it; unquoted it would reparse
             // into the class slot.
             if let AnimationComponent::Name(name) = component
-                && let AnimationName::String(value) = &**name
+                && let name = ast.resolve_node(*name)
+                && let AnimationName::String(value) = name
                 && name.keyword_class().is_some_and(|class| {
                     !self.components[..index]
                         .iter()
@@ -1089,7 +1217,7 @@ impl<'ghost> ToCss<'ghost> for TextShadow<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         write_space_separated(
-            &[&*self.x_offset, &*self.y_offset, &*self.blur, &*self.spread],
+            &[&self.x_offset, &self.y_offset, &self.blur, &self.spread],
             dest,
             _cx,
         )?;
@@ -1251,24 +1379,25 @@ impl<'ghost> ToCss<'ghost> for Mask<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        let ast = _cx.ast_context();
         self.image.to_css(dest, _cx)?;
 
         let default_size = matches!(
-            &*self.size,
+            ast.resolve_node(self.size),
             BackgroundSize::Explicit { height, width }
-                if matches!(&**height, LengthPercentageOrAuto::Auto)
-                    && matches!(&**width, LengthPercentageOrAuto::Auto)
+                if matches!(ast.resolve_node(*height), LengthPercentageOrAuto::Auto)
+                    && matches!(ast.resolve_node(*width), LengthPercentageOrAuto::Auto)
         );
-        if !is_zero_position(&self.position) || !default_size {
+        if !is_zero_position(&self.position, _cx) || !default_size {
             dest.write_char(' ')?;
-            write_mask_position(&self.position, dest, _cx)?;
+            write_mask_position(ast.resolve_node(self.position), dest, _cx)?;
             if !default_size {
                 if dest.prettify() {
                     dest.write_str(" / ")?;
                 } else {
                     dest.write_char('/')?;
                 }
-                write_mask_size(&self.size, dest, _cx)?;
+                write_mask_size(ast.resolve_node(self.size), dest, _cx)?;
             }
         }
 
@@ -1312,10 +1441,11 @@ fn write_mask_position<'ghost, PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
-    write_mask_horizontal_position(&value.x, dest, cx)?;
-    if !matches!(&*value.y, PositionComponent::Center)
+    let ast = cx.ast_context();
+    write_mask_horizontal_position(ast.resolve_node(value.x), dest, cx)?;
+    if !matches!(ast.resolve_node(value.y), PositionComponent::Center)
         || matches!(
-            &*value.x,
+            ast.resolve_node(value.x),
             PositionComponent::Side {
                 offset: Some(_),
                 ..
@@ -1323,7 +1453,7 @@ fn write_mask_position<'ghost, PrinterT: PrinterTrait>(
         )
     {
         dest.write_char(' ')?;
-        write_mask_vertical_position(&value.y, dest, cx)?;
+        write_mask_vertical_position(ast.resolve_node(value.y), dest, cx)?;
     }
     Ok(())
 }
@@ -1334,7 +1464,10 @@ fn write_mask_size<'ghost, PrinterT: PrinterTrait>(
     cx: &ToCssContext<'_, '_, 'ghost>,
 ) -> fmt::Result {
     if let BackgroundSize::Explicit { height, width } = value
-        && matches!(&**height, LengthPercentageOrAuto::Auto)
+        && matches!(
+            cx.ast_context().resolve_node(*height),
+            LengthPercentageOrAuto::Auto
+        )
     {
         return width.to_css(dest, cx);
     }
@@ -1399,7 +1532,7 @@ impl<'ghost> ToCss<'ghost> for DropShadow<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_space_separated(&[&*self.x_offset, &*self.y_offset, &*self.blur], dest, _cx)?;
+        write_space_separated(&[&self.x_offset, &self.y_offset, &self.blur], dest, _cx)?;
         dest.write_char(' ')?;
         self.color.to_css(dest, _cx)
     }
@@ -1519,11 +1652,11 @@ impl<'ghost> ToCss<'ghost> for FontFaceProperty<'_> {
 }
 
 pub(crate) trait NamedProperty {
-    fn css_name(&self) -> &str;
+    fn css_name<'a>(&'a self, ast: &'a Compilation<'_>) -> &'a str;
 }
 
 impl NamedProperty for FontFaceProperty<'_> {
-    fn css_name(&self) -> &str {
+    fn css_name<'a>(&'a self, ast: &'a Compilation<'_>) -> &'a str {
         match self {
             FontFaceProperty::Source(_) => "src",
             FontFaceProperty::FontFamily(_) => "font-family",
@@ -1531,9 +1664,11 @@ impl NamedProperty for FontFaceProperty<'_> {
             FontFaceProperty::FontWeight(_) => "font-weight",
             FontFaceProperty::FontStretch(_) => "font-stretch",
             FontFaceProperty::UnicodeRange(_) => "unicode-range",
-            FontFaceProperty::Custom(value) => match &*value.name {
-                CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
-            },
+            FontFaceProperty::Custom(value) => {
+                match ast.resolve_node(ast.resolve_node(*value).name) {
+                    CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                }
+            }
         }
     }
 }
@@ -1595,8 +1730,12 @@ impl<'ghost> ToCss<'ghost> for FontFaceStyle<'_> {
             Self::Italic => dest.write_str("italic"),
             Self::Oblique(value) => {
                 dest.write_str("oblique")?;
+                let value = _cx.ast_context().resolve_node(*value);
                 let is_default = matches!(
-                    (&*value.0, &*value.1),
+                    (
+                        _cx.ast_context().resolve_node(value.0),
+                        _cx.ast_context().resolve_node(value.1),
+                    ),
                     (Angle::Deg(first), Angle::Deg(second)) if *first == 14.0 && *second == 14.0
                 );
                 if !is_default {
@@ -1625,14 +1764,16 @@ impl<'ghost> ToCss<'ghost> for FontPaletteValuesProperty<'_> {
 }
 
 impl NamedProperty for FontPaletteValuesProperty<'_> {
-    fn css_name(&self) -> &str {
+    fn css_name<'a>(&'a self, ast: &'a Compilation<'_>) -> &'a str {
         match self {
             FontPaletteValuesProperty::FontFamily(_) => "font-family",
             FontPaletteValuesProperty::BasePalette(_) => "base-palette",
             FontPaletteValuesProperty::OverrideColors(_) => "override-colors",
-            FontPaletteValuesProperty::Custom(value) => match &*value.name {
-                CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
-            },
+            FontPaletteValuesProperty::Custom(value) => {
+                match ast.resolve_node(ast.resolve_node(*value).name) {
+                    CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                }
+            }
         }
     }
 }
@@ -1956,13 +2097,15 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionProperty<'_> {
 }
 
 impl NamedProperty for ViewTransitionProperty<'_> {
-    fn css_name(&self) -> &str {
+    fn css_name<'a>(&'a self, ast: &'a Compilation<'_>) -> &'a str {
         match self {
             ViewTransitionProperty::Navigation(_) => "navigation",
             ViewTransitionProperty::Types(_) => "types",
-            ViewTransitionProperty::Custom(value) => match &*value.name {
-                CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
-            },
+            ViewTransitionProperty::Custom(value) => {
+                match ast.resolve_node(ast.resolve_node(*value).name) {
+                    CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                }
+            }
         }
     }
 }

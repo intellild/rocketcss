@@ -22,7 +22,6 @@ impl<'i> Parse<'i> for LineStyle {
 
 impl<'i> Parse<'i> for BorderSideWidth<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         if let Ok(ident) = input.try_parse(Compiler::expect_ident) {
             return match_ignore_ascii_case!(
                 ident,
@@ -36,13 +35,12 @@ impl<'i> Parse<'i> for BorderSideWidth<'i> {
         if !is_non_negative_length(&length) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self::Length(allocator.boxed(length)))
+        Ok(Self::Length(store_node(length, input)))
     }
 }
 
 impl<'i> Parse<'i> for ColumnRule<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let mut width = None;
         let mut style = None;
         let mut color = None;
@@ -51,7 +49,7 @@ impl<'i> Parse<'i> for ColumnRule<'i> {
             if width.is_none()
                 && let Ok(value) = input.try_parse(BorderSideWidth::parse)
             {
-                width = Some(allocator.boxed(value));
+                width = Some(store_node(value, input));
                 continue;
             }
             if style.is_none()
@@ -61,9 +59,9 @@ impl<'i> Parse<'i> for ColumnRule<'i> {
                 continue;
             }
             if color.is_none()
-                && let Ok(value) = input.try_parse(CssColor::parse)
+                && let Ok(value) = input.try_parse(parse_css_color)
             {
-                color = Some(allocator.boxed(value));
+                color = Some(value);
                 continue;
             }
             return Err(input.new_custom_error(ParserError::InvalidValue));
@@ -88,12 +86,11 @@ impl<'i> Parse<'i> for ColumnWidth<'i> {
         {
             return Ok(Self::Auto);
         }
-        let allocator = input.allocator();
         let length = Length::parse(input)?;
         if !is_non_negative_length(&length) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self::Length(allocator.boxed(length)))
+        Ok(Self::Length(store_node(length, input)))
     }
 }
 
@@ -115,7 +112,6 @@ impl<'i> Parse<'i> for ColumnCount {
 
 impl<'i> Parse<'i> for Columns<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let mut width = None;
         let mut count = None;
         let mut auto_count = 0u8;
@@ -125,7 +121,7 @@ impl<'i> Parse<'i> for Columns<'i> {
                 && let Ok(value) = input.try_parse(Length::parse)
                 && is_non_negative_length(&value)
             {
-                width = Some(ColumnWidth::Length(allocator.boxed(value)));
+                width = Some(ColumnWidth::Length(store_node(value, input)));
                 continue;
             }
             if count.is_none()
@@ -165,25 +161,23 @@ impl<'i> Parse<'i> for GapValue<'i> {
         {
             return Ok(Self::Normal);
         }
-        let allocator = input.allocator();
         let value = LengthPercentage::parse(input)?;
         if !is_non_negative_length_percentage(&value) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(Self::LengthPercentage(allocator.boxed(value)))
+        Ok(Self::LengthPercentage(store_node(value, input)))
     }
 }
 
 impl<'i> Parse<'i> for Gap<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let first_state = input.state();
-        let row = allocator.boxed(GapValue::parse(input)?);
+        let row = store_node(GapValue::parse(input)?, input);
         let column = if input.is_exhausted() {
             input.reset(&first_state);
-            allocator.boxed(GapValue::parse(input)?)
+            store_node(GapValue::parse(input)?, input)
         } else {
-            allocator.boxed(GapValue::parse(input)?)
+            store_node(GapValue::parse(input)?, input)
         };
         Ok(Self { row, column })
     }

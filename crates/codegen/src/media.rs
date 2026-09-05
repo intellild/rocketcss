@@ -25,6 +25,7 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
         dest: &mut PrinterT,
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
+        let ast = _cx.ast_context();
         if let Some(condition) = &self.condition
             && let MediaCondition::Unknown(tokens) = condition
         {
@@ -32,9 +33,9 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
                 && matches!(self.media_type, MediaType::All)
                 && matches!(
                     tokens.iter().find(|value| {
-                        !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)))
+                        !matches!(value, TokenOrValue::Token(token) if matches!(ast.resolve_node(*token), Token::WhiteSpace(_)))
                     }),
-                    Some(TokenOrValue::Token(token)) if matches!(**token, Token::ParenthesisBlock)
+                    Some(TokenOrValue::Token(token)) if matches!(ast.resolve_node(*token), Token::ParenthesisBlock)
                 )
             {
                 dest.write_str("not ")?;
@@ -73,7 +74,7 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
             }
             let needs_parens = (has_type || self.qualifier.is_some())
                 && matches!(
-                    *condition,
+                    condition,
                     MediaCondition::Operation {
                         operator: Operator::Or,
                         ..
@@ -110,12 +111,13 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
     match condition {
         MediaCondition::Feature(value) => value.to_css(dest, cx),
         MediaCondition::Not(value) => {
+            let value = cx.ast_context().resolve_node(*value);
             let wrap_not = parent.is_some();
             if wrap_not {
                 dest.write_char('(')?;
             }
             dest.write_str("not ")?;
-            let needs_parens = matches!(**value, MediaCondition::Operation { .. });
+            let needs_parens = matches!(value, MediaCondition::Operation { .. });
             if needs_parens {
                 dest.write_char('(')?;
             }
@@ -308,7 +310,10 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
         match self {
             Self::Not(value) => {
                 dest.write_str("not ")?;
-                let needs_parens = matches!(**value, Self::And(_) | Self::Or(_));
+                let needs_parens = matches!(
+                    _cx.ast_context().resolve_node(*value),
+                    Self::And(_) | Self::Or(_)
+                );
                 if needs_parens {
                     dest.write_char('(')?;
                 }

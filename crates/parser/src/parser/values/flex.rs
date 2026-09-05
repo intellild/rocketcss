@@ -116,7 +116,7 @@ impl<'i> Parse<'i> for Flex<'i> {
         {
             input.expect_exhausted()?;
             return Ok(Self {
-                basis: input.allocator().boxed(LengthPercentageOrAuto::Auto),
+                basis: store_node(LengthPercentageOrAuto::Auto, input),
                 grow: 0.0,
                 shrink: 0.0,
             });
@@ -127,7 +127,7 @@ impl<'i> Parse<'i> for Flex<'i> {
         {
             input.expect_exhausted()?;
             return Ok(Self {
-                basis: input.allocator().boxed(LengthPercentageOrAuto::Auto),
+                basis: store_node(LengthPercentageOrAuto::Auto, input),
                 grow: 1.0,
                 shrink: 1.0,
             });
@@ -163,13 +163,11 @@ impl<'i> Parse<'i> for Flex<'i> {
         let grow = grow.unwrap_or(1.0);
         let shrink = shrink.unwrap_or(1.0);
         let basis = basis.unwrap_or_else(|| {
-            LengthPercentageOrAuto::LengthPercentage(
-                input.allocator().boxed(LengthPercentage::Zero),
-            )
+            LengthPercentageOrAuto::LengthPercentage(store_node(LengthPercentage::Zero, input))
         });
         input.expect_exhausted()?;
         Ok(Self {
-            basis: input.allocator().boxed(basis),
+            basis: store_node(basis, input),
             grow,
             shrink,
         })

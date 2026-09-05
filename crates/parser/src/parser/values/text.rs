@@ -156,7 +156,7 @@ impl<'i> Parse<'i> for Spacing<'i> {
         {
             return Ok(Self::Normal);
         }
-        Ok(Self::Length(input.allocator().boxed(Length::parse(input)?)))
+        Ok(Self::Length(store_node(Length::parse(input)?, input)))
     }
 }
 
@@ -216,9 +216,10 @@ impl<'i> Parse<'i> for TextDecorationThickness<'i> {
         {
             return Ok(Self::FromFont);
         }
-        Ok(Self::LengthPercentage(
-            input.allocator().boxed(LengthPercentage::parse(input)?),
-        ))
+        Ok(Self::LengthPercentage(store_node(
+            LengthPercentage::parse(input)?,
+            input,
+        )))
     }
 }
 
@@ -242,7 +243,7 @@ impl<'i> Parse<'i> for TextSizeAdjust {
 
 impl<'i> Parse<'i> for TextIndent<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let value = input.allocator().boxed(LengthPercentage::parse(input)?);
+        let value = store_node(LengthPercentage::parse(input)?, input);
         let mut each_line = false;
         let mut hanging = false;
         while !input.is_exhausted() {

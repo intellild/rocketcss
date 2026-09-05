@@ -202,15 +202,19 @@ macro_rules! impl_declaration_to_css {
                 if self.is_tombstone() {
                     return Ok(());
                 }
-                self.vendor_prefix().to_css(dest, _cx)?;
+                let ast = _cx.ast_context();
+                self.vendor_prefix(ast).to_css(dest, _cx)?;
                 match self {
-                    Self::Custom(_) => serialize_name(self.name(), dest)?,
+                    Self::Custom(_) => serialize_name(self.name(ast), dest)?,
                     Self::Unparsed(value)
-                        if matches!(&*value.property_id, PropertyId::Custom(_)) =>
+                        if matches!(
+                            ast.resolve_node(ast.resolve_node(*value).property_id),
+                            PropertyId::Custom(_)
+                        ) =>
                     {
-                        serialize_name(self.name(), dest)?;
+                        serialize_name(self.name(ast), dest)?;
                     }
-                    _ => dest.write_str(self.name())?,
+                    _ => dest.write_str(self.name(ast))?,
                 }
                 if matches!(self, Self::Custom(_)) {
                     dest.write_char(':')?;

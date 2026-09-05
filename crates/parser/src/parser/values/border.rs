@@ -1,18 +1,17 @@
 use crate::prelude::*;
 
-fn parse_four_values<'i, T>(
+fn parse_four_nodes<'i, T: 'i>(
     input: &mut Compiler<'i>,
     mut parse: impl FnMut(&mut Compiler<'i>) -> Result<T, ParseError<'i, ParserError<'i>>>,
-    clone: impl Fn(&T, &'i Allocator) -> Option<Box<'i, T>>,
-) -> Result<[Box<'i, T>; 4], ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let mut values: [Option<Box<'i, T>>; 4] = std::array::from_fn(|_| None);
+    clone: impl Fn(NodeId<'i, T>, &mut Compiler<'i>) -> Option<NodeId<'i, T>>,
+) -> Result<[NodeId<'i, T>; 4], ParseError<'i, ParserError<'i>>> {
+    let mut values: [Option<NodeId<'i, T>>; 4] = [None; 4];
     let mut count = 0;
     while !input.is_exhausted() {
         if count == values.len() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        values[count] = Some(allocator.boxed(parse(input)?));
+        values[count] = Some(store_node(parse(input)?, input));
         count += 1;
     }
     if count == 0 {
@@ -21,55 +20,76 @@ fn parse_four_values<'i, T>(
 
     let top = values[0].take().unwrap();
     let right = match count {
-        1 => clone(&top, allocator),
+        1 => clone(top, input),
         _ => values[1].take(),
     }
     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
     let bottom = match count {
-        1 | 2 => clone(&top, allocator),
+        1 | 2 => clone(top, input),
         _ => values[2].take(),
     }
     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
     let left = match count {
-        1 => clone(&top, allocator),
-        2 | 3 => clone(&right, allocator),
+        1 => clone(top, input),
+        2 | 3 => clone(right, input),
         _ => values[3].take(),
     }
     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
     Ok([top, right, bottom, left])
 }
 
-fn parse_two_values<'i, T>(
+fn parse_two_nodes<'i, T: 'i>(
     input: &mut Compiler<'i>,
     mut parse: impl FnMut(&mut Compiler<'i>) -> Result<T, ParseError<'i, ParserError<'i>>>,
-    clone: impl Fn(&T, &'i Allocator) -> Option<Box<'i, T>>,
-) -> Result<[Box<'i, T>; 2], ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let first = allocator.boxed(parse(input)?);
+    clone: impl Fn(NodeId<'i, T>, &mut Compiler<'i>) -> Option<NodeId<'i, T>>,
+) -> Result<[NodeId<'i, T>; 2], ParseError<'i, ParserError<'i>>> {
+    let first = store_node(parse(input)?, input);
     let second = if input.is_exhausted() {
-        clone(&first, allocator).ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?
+        clone(first, input).ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?
     } else {
-        allocator.boxed(parse(input)?)
+        store_node(parse(input)?, input)
     };
     input.expect_exhausted()?;
     Ok([first, second])
 }
 
-fn clone_color<'i>(
-    value: &CssColor<'i>,
-    allocator: &'i Allocator,
-) -> Option<Box<'i, CssColor<'i>>> {
-    let value = match value {
-        CssColor::CurrentColor => CssColor::CurrentColor,
-        CssColor::Known(value) => CssColor::Known(*value),
-        CssColor::Rgba(value) => CssColor::Rgba(*value),
-        _ => return None,
-    };
-    Some(allocator.boxed(value))
+fn parse_four_colors<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<[NodeId<'i, CssColor<'i>>; 4], ParseError<'i, ParserError<'i>>> {
+    let mut values = [None; 4];
+    let mut count = 0;
+    while !input.is_exhausted() {
+        if count == values.len() {
+            return Err(input.new_custom_error(ParserError::InvalidValue));
+        }
+        values[count] = Some(parse_css_color(input)?);
+        count += 1;
+    }
+    if count == 0 {
+        return Err(input.new_custom_error(ParserError::InvalidValue));
+    }
+    let top = values[0].unwrap();
+    let right = values[1].unwrap_or(top);
+    let bottom = values[2].unwrap_or(top);
+    let left = values[3].unwrap_or(if count == 2 { right } else { top });
+    Ok([top, right, bottom, left])
 }
 
-fn clone_line_style<'i>(value: &LineStyle, allocator: &'i Allocator) -> Option<Box<'i, LineStyle>> {
-    let value = match value {
+fn parse_two_colors<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<[NodeId<'i, CssColor<'i>>; 2], ParseError<'i, ParserError<'i>>> {
+    let first = parse_css_color(input)?;
+    let second = if input.is_exhausted() {
+        first
+    } else {
+        parse_css_color(input)?
+    };
+    input.expect_exhausted()?;
+    Ok([first, second])
+}
+
+fn clone_line_style(value: &LineStyle) -> LineStyle {
+    match value {
         LineStyle::None => LineStyle::None,
         LineStyle::Hidden => LineStyle::Hidden,
         LineStyle::Inset => LineStyle::Inset,
@@ -80,36 +100,83 @@ fn clone_line_style<'i>(value: &LineStyle, allocator: &'i Allocator) -> Option<B
         LineStyle::Dashed => LineStyle::Dashed,
         LineStyle::Solid => LineStyle::Solid,
         LineStyle::Double => LineStyle::Double,
-    };
-    Some(allocator.boxed(value))
+    }
 }
 
-fn clone_length<'i>(value: &Length<'i>, allocator: &'i Allocator) -> Option<Box<'i, Length<'i>>> {
-    let Length::Value(value) = value else {
+fn clone_length<'i>(
+    id: NodeId<'i, Length<'i>>,
+    input: &mut Compiler<'i>,
+) -> Option<NodeId<'i, Length<'i>>> {
+    let Length::Value(value) = input.ast_context().node(id) else {
         return None;
     };
-    Some(allocator.boxed(Length::Value(LengthValue {
+    let value = LengthValue {
         unit: value.unit,
         value: value.value,
-    })))
+    };
+    Some(store_node(Length::Value(value), input))
 }
 
 fn clone_border_side_width<'i>(
-    value: &BorderSideWidth<'i>,
-    allocator: &'i Allocator,
-) -> Option<Box<'i, BorderSideWidth<'i>>> {
-    let value = match value {
+    id: NodeId<'i, BorderSideWidth<'i>>,
+    input: &mut Compiler<'i>,
+) -> Option<NodeId<'i, BorderSideWidth<'i>>> {
+    let value = match input.ast_context().node(id) {
         BorderSideWidth::Thin => BorderSideWidth::Thin,
         BorderSideWidth::Medium => BorderSideWidth::Medium,
         BorderSideWidth::Thick => BorderSideWidth::Thick,
-        BorderSideWidth::Length(value) => BorderSideWidth::Length(clone_length(value, allocator)?),
+        BorderSideWidth::Length(value) => {
+            let value = *value;
+            BorderSideWidth::Length(clone_length(value, input)?)
+        }
     };
-    Some(allocator.boxed(value))
+    Some(store_node(value, input))
+}
+
+fn parse_four_line_styles<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<[LineStyle; 4], ParseError<'i, ParserError<'i>>> {
+    let mut values: [Option<LineStyle>; 4] = std::array::from_fn(|_| None);
+    let mut count = 0;
+    while !input.is_exhausted() {
+        if count == values.len() {
+            return Err(input.new_custom_error(ParserError::InvalidValue));
+        }
+        values[count] = Some(LineStyle::parse(input)?);
+        count += 1;
+    }
+    if count == 0 {
+        return Err(input.new_custom_error(ParserError::InvalidValue));
+    }
+    let top = values[0].take().unwrap();
+    let right = values[1].take().unwrap_or_else(|| clone_line_style(&top));
+    let bottom = values[2].take().unwrap_or_else(|| clone_line_style(&top));
+    let left = values[3].take().unwrap_or_else(|| {
+        if count == 2 {
+            clone_line_style(&right)
+        } else {
+            clone_line_style(&top)
+        }
+    });
+    Ok([top, right, bottom, left])
+}
+
+fn parse_two_line_styles<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<[LineStyle; 2], ParseError<'i, ParserError<'i>>> {
+    let first = LineStyle::parse(input)?;
+    let second = if input.is_exhausted() {
+        clone_line_style(&first)
+    } else {
+        LineStyle::parse(input)?
+    };
+    input.expect_exhausted()?;
+    Ok([first, second])
 }
 
 impl<'i> Parse<'i> for BorderColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [top, right, bottom, left] = parse_four_values(input, CssColor::parse, clone_color)?;
+        let [top, right, bottom, left] = parse_four_colors(input)?;
         Ok(Self {
             top,
             right,
@@ -121,13 +188,12 @@ impl<'i> Parse<'i> for BorderColor<'i> {
 
 impl<'i> Parse<'i> for BorderStyle {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [top, right, bottom, left] =
-            parse_four_values(input, LineStyle::parse, clone_line_style)?;
+        let [top, right, bottom, left] = parse_four_line_styles(input)?;
         Ok(Self {
-            top: Box::into_inner(top),
-            right: Box::into_inner(right),
-            bottom: Box::into_inner(bottom),
-            left: Box::into_inner(left),
+            top,
+            right,
+            bottom,
+            left,
         })
     }
 }
@@ -135,7 +201,7 @@ impl<'i> Parse<'i> for BorderStyle {
 impl<'i> Parse<'i> for BorderWidth<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [top, right, bottom, left] =
-            parse_four_values(input, BorderSideWidth::parse, clone_border_side_width)?;
+            parse_four_nodes(input, BorderSideWidth::parse, clone_border_side_width)?;
         Ok(Self {
             top,
             right,
@@ -147,50 +213,42 @@ impl<'i> Parse<'i> for BorderWidth<'i> {
 
 impl<'i> Parse<'i> for BorderBlockColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [start, end] = parse_two_values(input, CssColor::parse, clone_color)?;
+        let [start, end] = parse_two_colors(input)?;
         Ok(Self { start, end })
     }
 }
 
 impl<'i> Parse<'i> for BorderBlockStyle {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [start, end] = parse_two_values(input, LineStyle::parse, clone_line_style)?;
-        Ok(Self {
-            start: Box::into_inner(start),
-            end: Box::into_inner(end),
-        })
+        let [start, end] = parse_two_line_styles(input)?;
+        Ok(Self { start, end })
     }
 }
 
 impl<'i> Parse<'i> for BorderBlockWidth<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [start, end] =
-            parse_two_values(input, BorderSideWidth::parse, clone_border_side_width)?;
+        let [start, end] = parse_two_nodes(input, BorderSideWidth::parse, clone_border_side_width)?;
         Ok(Self { start, end })
     }
 }
 
 impl<'i> Parse<'i> for BorderInlineColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [start, end] = parse_two_values(input, CssColor::parse, clone_color)?;
+        let [start, end] = parse_two_colors(input)?;
         Ok(Self { start, end })
     }
 }
 
 impl<'i> Parse<'i> for BorderInlineStyle {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [start, end] = parse_two_values(input, LineStyle::parse, clone_line_style)?;
-        Ok(Self {
-            start: Box::into_inner(start),
-            end: Box::into_inner(end),
-        })
+        let [start, end] = parse_two_line_styles(input)?;
+        Ok(Self { start, end })
     }
 }
 
 impl<'i> Parse<'i> for BorderInlineWidth<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [start, end] =
-            parse_two_values(input, BorderSideWidth::parse, clone_border_side_width)?;
+        let [start, end] = parse_two_nodes(input, BorderSideWidth::parse, clone_border_side_width)?;
         Ok(Self { start, end })
     }
 }
@@ -209,8 +267,8 @@ impl<'i> Parse<'i> for OutlineStyle {
 
 impl<'i> Parse<'i> for Size2D<'i, LengthPercentage<'i>> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [x, y] = parse_two_values(input, LengthPercentage::parse, |value, allocator| {
-            let value = match value {
+        let [x, y] = parse_two_nodes(input, LengthPercentage::parse, |id, input| {
+            let value = match input.ast_context().node(id) {
                 LengthPercentage::Dimension(value) => LengthPercentage::Dimension(LengthValue {
                     unit: value.unit,
                     value: value.value,
@@ -219,7 +277,7 @@ impl<'i> Parse<'i> for Size2D<'i, LengthPercentage<'i>> {
                 LengthPercentage::Zero => LengthPercentage::Zero,
                 LengthPercentage::Calc(_) => return None,
             };
-            Some(allocator.boxed(value))
+            Some(store_node(value, input))
         })?;
         Ok(Self(x, y))
     }
@@ -227,14 +285,13 @@ impl<'i> Parse<'i> for Size2D<'i, LengthPercentage<'i>> {
 
 impl<'i> Parse<'i> for Size2D<'i, Length<'i>> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
         let first_state = input.state();
-        let first = allocator.boxed(Length::parse(input)?);
+        let first = store_node(Length::parse(input)?, input);
         let second = if input.is_exhausted() {
             input.reset(&first_state);
-            allocator.boxed(Length::parse(input)?)
+            store_node(Length::parse(input)?, input)
         } else {
-            allocator.boxed(Length::parse(input)?)
+            store_node(Length::parse(input)?, input)
         };
         Ok(Self(first, second))
     }
@@ -242,9 +299,8 @@ impl<'i> Parse<'i> for Size2D<'i, Length<'i>> {
 
 fn parse_radius_four<'i>(
     input: &mut Compiler<'i>,
-) -> Result<[Box<'i, LengthPercentage<'i>>; 4], ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let mut values: [Option<Box<'i, LengthPercentage<'i>>>; 4] = std::array::from_fn(|_| None);
+) -> Result<[NodeId<'i, LengthPercentage<'i>>; 4], ParseError<'i, ParserError<'i>>> {
+    let mut values: [Option<NodeId<'i, LengthPercentage<'i>>>; 4] = [None; 4];
     let mut count = 0;
     while count < values.len() && !input.is_exhausted() {
         let state = input.state();
@@ -252,39 +308,39 @@ fn parse_radius_four<'i>(
             input.reset(&state);
             break;
         }
-        values[count] = Some(allocator.boxed(LengthPercentage::parse(input)?));
+        values[count] = Some(store_node(LengthPercentage::parse(input)?, input));
         count += 1;
     }
     if count == 0 {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
 
-    let clone = |value: &Box<'i, LengthPercentage<'i>>| {
-        clone_length_percentage(value, allocator)
-            .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
-    };
     let top = values[0].take().unwrap();
     let right = match count {
-        1 => clone(&top)?,
+        1 => clone_length_percentage(top, input)
+            .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?,
         _ => values[1].take().unwrap(),
     };
     let bottom = match count {
-        1 | 2 => clone(&top)?,
+        1 | 2 => clone_length_percentage(top, input)
+            .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?,
         _ => values[2].take().unwrap(),
     };
     let left = match count {
-        1 => clone(&top)?,
-        2 | 3 => clone(&right)?,
+        1 => clone_length_percentage(top, input)
+            .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?,
+        2 | 3 => clone_length_percentage(right, input)
+            .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?,
         _ => values[3].take().unwrap(),
     };
     Ok([top, right, bottom, left])
 }
 
 fn clone_length_percentage<'i>(
-    value: &LengthPercentage<'i>,
-    allocator: &'i Allocator,
-) -> Option<Box<'i, LengthPercentage<'i>>> {
-    let value = match value {
+    id: NodeId<'i, LengthPercentage<'i>>,
+    input: &mut Compiler<'i>,
+) -> Option<NodeId<'i, LengthPercentage<'i>>> {
+    let value = match input.ast_context().node(id) {
         LengthPercentage::Dimension(value) => LengthPercentage::Dimension(LengthValue {
             unit: value.unit,
             value: value.value,
@@ -293,7 +349,7 @@ fn clone_length_percentage<'i>(
         LengthPercentage::Zero => LengthPercentage::Zero,
         LengthPercentage::Calc(_) => return None,
     };
-    Some(allocator.boxed(value))
+    Some(store_node(value, input))
 }
 
 impl<'i> Parse<'i> for BorderRadius<'i> {
@@ -303,27 +359,23 @@ impl<'i> Parse<'i> for BorderRadius<'i> {
             parse_radius_four(input)?
         } else {
             [
-                clone_length_percentage(&horizontal[0], input.allocator())
+                clone_length_percentage(horizontal[0], input)
                     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?,
-                clone_length_percentage(&horizontal[1], input.allocator())
+                clone_length_percentage(horizontal[1], input)
                     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?,
-                clone_length_percentage(&horizontal[2], input.allocator())
+                clone_length_percentage(horizontal[2], input)
                     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?,
-                clone_length_percentage(&horizontal[3], input.allocator())
+                clone_length_percentage(horizontal[3], input)
                     .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?,
             ]
         };
         let [top_left_x, top_right_x, bottom_right_x, bottom_left_x] = horizontal;
         let [top_left_y, top_right_y, bottom_right_y, bottom_left_y] = vertical;
         Ok(Self {
-            top_left: input.allocator().boxed(Size2D(top_left_x, top_left_y)),
-            top_right: input.allocator().boxed(Size2D(top_right_x, top_right_y)),
-            bottom_right: input
-                .allocator()
-                .boxed(Size2D(bottom_right_x, bottom_right_y)),
-            bottom_left: input
-                .allocator()
-                .boxed(Size2D(bottom_left_x, bottom_left_y)),
+            top_left: store_node(Size2D(top_left_x, top_left_y), input),
+            top_right: store_node(Size2D(top_right_x, top_right_y), input),
+            bottom_right: store_node(Size2D(bottom_right_x, bottom_right_y), input),
+            bottom_left: store_node(Size2D(bottom_left_x, bottom_left_y), input),
         })
     }
 }
@@ -333,7 +385,6 @@ fn parse_generic_border<'i, S>(
     mut parse_style: impl FnMut(&mut Compiler<'i>) -> Result<S, ParseError<'i, ParserError<'i>>>,
     default_style: S,
 ) -> Result<GenericBorder<'i, S>, ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
     let mut color = None;
     let mut style = None;
     let mut width = None;
@@ -342,7 +393,7 @@ fn parse_generic_border<'i, S>(
         if width.is_none()
             && let Ok(value) = input.try_parse(BorderSideWidth::parse)
         {
-            width = Some(allocator.boxed(value));
+            width = Some(store_node(value, input));
             continue;
         }
         if style.is_none()
@@ -352,9 +403,9 @@ fn parse_generic_border<'i, S>(
             continue;
         }
         if color.is_none()
-            && let Ok(value) = input.try_parse(CssColor::parse)
+            && let Ok(value) = input.try_parse(parse_css_color)
         {
-            color = Some(allocator.boxed(value));
+            color = Some(value);
             continue;
         }
         return Err(input.new_custom_error(ParserError::InvalidValue));
@@ -365,9 +416,13 @@ fn parse_generic_border<'i, S>(
     }
 
     Ok(GenericBorder {
-        color: color.unwrap_or_else(|| allocator.boxed(CssColor::CurrentColor)),
+        color: color.unwrap_or_else(|| {
+            input
+                .ast_context_mut()
+                .alloc_node_without_span(CssColor::CurrentColor)
+        }),
         style: style.unwrap_or(default_style),
-        width: width.unwrap_or_else(|| allocator.boxed(BorderSideWidth::Medium)),
+        width: width.unwrap_or_else(|| store_node(BorderSideWidth::Medium, input)),
     })
 }
 

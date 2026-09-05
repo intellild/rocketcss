@@ -169,9 +169,10 @@ pub(super) fn parse_pseudo<'i>(
     let token = input.next()?.clone();
 
     match token {
-        ValueToken::Ident(name) if is_element => Ok(SelectorComponent::PseudoElement(
-            allocator.boxed(pseudo_element(name, input)),
-        )),
+        ValueToken::Ident(name) if is_element => Ok(SelectorComponent::PseudoElement(store_node(
+            pseudo_element(name, input),
+            input,
+        ))),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("root") => Ok(SelectorComponent::Root),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("empty") => {
             Ok(SelectorComponent::Empty)
@@ -179,17 +180,19 @@ pub(super) fn parse_pseudo<'i>(
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("scope") => {
             Ok(SelectorComponent::Scope)
         }
-        ValueToken::Ident(name) => Ok(SelectorComponent::PseudoClass(
-            allocator.boxed(pseudo_class(name, input)),
-        )),
+        ValueToken::Ident(name) => Ok(SelectorComponent::PseudoClass(store_node(
+            pseudo_class(name, input),
+            input,
+        ))),
         ValueToken::Function(name) if is_element => {
             let arguments =
                 input.parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
-            Ok(SelectorComponent::PseudoElement(allocator.boxed(
+            Ok(SelectorComponent::PseudoElement(store_node(
                 PseudoElement::CustomFunction {
                     name: input.intern(name),
                     arguments,
                 },
+                input,
             )))
         }
         ValueToken::Function(name) => {
@@ -241,10 +244,13 @@ pub(super) fn parse_pseudo<'i>(
                 } else {
                     let arguments = input
                         .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
-                    SelectorComponent::PseudoClass(allocator.boxed(PseudoClass::CustomFunction {
-                        name: input.intern(name),
-                        arguments,
-                    }))
+                    SelectorComponent::PseudoClass(store_node(
+                        PseudoClass::CustomFunction {
+                            name: input.intern(name),
+                            arguments,
+                        },
+                        input,
+                    ))
                 };
             Ok(component)
         }
@@ -300,7 +306,7 @@ fn parse_nth_affine(source: &str, kind: NthType) -> Option<NthSelectorData> {
 
 pub(super) fn parse_attribute<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
+    _allocator: &'i Allocator,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
     let first = input.next()?.clone();
     let (namespace, name) = match first {
@@ -327,13 +333,16 @@ pub(super) fn parse_attribute<'i>(
                 local_name: name,
                 local_name_lower: lower_name,
             },
-            Some(namespace) => SelectorComponent::AttributeOther(allocator.boxed(AttrSelector {
-                namespace: Some(namespace),
-                local_name: name,
-                local_name_lower: lower_name,
-                operation: AttrOperation::Exists,
-                never_matches: false,
-            })),
+            Some(namespace) => SelectorComponent::AttributeOther(store_node(
+                AttrSelector {
+                    namespace: Some(namespace),
+                    local_name: name,
+                    local_name_lower: lower_name,
+                    operation: AttrOperation::Exists,
+                    never_matches: false,
+                },
+                input,
+            )),
         });
     }
 
@@ -368,17 +377,20 @@ pub(super) fn parse_attribute<'i>(
             case_sensitivity,
             never_matches: false,
         },
-        Some(namespace) => SelectorComponent::AttributeOther(allocator.boxed(AttrSelector {
-            namespace: Some(namespace),
-            local_name: name,
-            local_name_lower: lower_name,
-            operation: AttrOperation::WithValue {
-                operator,
-                case_sensitivity,
-                expected_value: value,
+        Some(namespace) => SelectorComponent::AttributeOther(store_node(
+            AttrSelector {
+                namespace: Some(namespace),
+                local_name: name,
+                local_name_lower: lower_name,
+                operation: AttrOperation::WithValue {
+                    operator,
+                    case_sensitivity,
+                    expected_value: value,
+                },
+                never_matches: false,
             },
-            never_matches: false,
-        })),
+            input,
+        )),
     })
 }
 

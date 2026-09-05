@@ -2324,17 +2324,6 @@ macro_rules! impl_leaf_visit {
     };
 }
 impl_leaf_visit!(bool, char, f32, i32, u8, u16, u32, usize);
-impl<'a, 'ghost, T: ?Sized + Visit<'a, 'ghost>> Visit<'a, 'ghost>
-    for rocketcss_common::boxed::Box<'a, T>
-{
-    fn visit<VisitorT: ?Sized + Visitor<'a, 'ghost>>(
-        &self,
-        visitor: &mut VisitorT,
-        cx: &VisitContext<'_, 'a, 'ghost>,
-    ) {
-        Visit::visit(self.as_ref(), visitor, cx);
-    }
-}
 impl<'a, 'ghost, T: Visit<'a, 'ghost> + Unpin> Visit<'a, 'ghost>
     for rocketcss_common::vec::Vec<'a, T>
 {

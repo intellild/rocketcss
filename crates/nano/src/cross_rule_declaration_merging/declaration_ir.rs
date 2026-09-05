@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use rocketcss_ast::DeclarationRecord;
-use rocketcss_ast::{Declaration, PropertyId};
+use rocketcss_ast::{Compilation, Declaration, PropertyId};
 use rocketcss_common::{
     Allocator,
     prelude::{HashMap, Vec},
@@ -32,6 +32,7 @@ impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
 
     pub(super) fn property_key(
         &mut self,
+        ast: &Compilation<'ast>,
         declaration: &Declaration<'ast>,
         important: bool,
     ) -> Option<CompactPropertyKey> {
@@ -41,10 +42,10 @@ impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
         ) {
             return None;
         }
-        if let Some(key) = CompactPropertyKey::known(declaration, important) {
+        if let Some(key) = CompactPropertyKey::known(ast, declaration, important) {
             return Some(key);
         }
-        let PropertyId::Custom(name) = declaration.property_id()? else {
+        let PropertyId::Custom(name) = declaration.property_id(ast)? else {
             return None;
         };
         let id = self.intern_custom_property(name);
@@ -57,9 +58,10 @@ impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
 
     pub(super) fn movement_domain(
         &mut self,
+        ast: &Compilation<'ast>,
         declaration: &Declaration<'ast>,
     ) -> Option<MovementDomain> {
-        let property_id = declaration.property_id()?;
+        let property_id = declaration.property_id(ast)?;
         if let PropertyId::Custom(name) = property_id {
             return Some(MovementDomain::Custom(self.intern_custom_property(name)));
         }
@@ -78,8 +80,12 @@ impl CompactPropertyKey {
     const VENDOR_PREFIX_SHIFT: u32 = 1;
     const PROPERTY_ID_SHIFT: u32 = 6;
 
-    fn known(declaration: &Declaration<'_>, important: bool) -> Option<Self> {
-        if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix() {
+    fn known(
+        ast: &Compilation<'_>,
+        declaration: &Declaration<'_>,
+        important: bool,
+    ) -> Option<Self> {
+        if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix(ast) {
             let vendor_prefix = u32::from(vendor_prefix.bits());
             debug_assert!(property_id <= u32::MAX >> Self::PROPERTY_ID_SHIFT);
             debug_assert_eq!(vendor_prefix & !0b1_1111, 0);
@@ -268,6 +274,7 @@ pub(super) struct DeclarationIrStore<'scratch, 'ast> {
     allocator: &'scratch Allocator,
     classifier: DeclarationIrClassifier<'scratch, 'ast>,
     occurrences: Vec<'scratch, Option<DeclarationOccurrenceIr<'ast>>>,
+    serialized_values: Vec<'scratch, Option<&'scratch str>>,
     blocks: HashMap<'scratch, rocketcss_ast::ConcreteDeclarationBlockId<'ast>, DeclarationBlockIr>,
     property_index: HashMap<
         'scratch,
@@ -334,6 +341,13 @@ struct DeclarationBlockIr {
     has_box_effects: bool,
 }
 
+#[derive(Clone, Copy)]
+struct PublishedOccurrence<'ast> {
+    owner: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
+    declaration: rocketcss_ast::DeclarationId<'ast>,
+    order: usize,
+}
+
 impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
     pub(super) fn new_in(
         allocator: &'scratch Allocator,
@@ -344,6 +358,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
             allocator,
             classifier: DeclarationIrClassifier::new_in(allocator),
             occurrences: Vec::with_capacity_in(declaration_capacity, allocator),
+            serialized_values: Vec::with_capacity_in(declaration_capacity, allocator),
             blocks: HashMap::with_capacity_in(block_capacity, allocator),
             property_index: HashMap::with_capacity_in(block_capacity, allocator),
         }
@@ -361,10 +376,13 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
             .enumerate()
         {
             self.publish_occurrence(
-                block,
-                occurrence.declaration(),
+                compilation,
+                PublishedOccurrence {
+                    owner: block,
+                    declaration: occurrence.declaration(),
+                    order,
+                },
                 record,
-                order,
                 &mut summary,
                 &mut property_index,
             );
@@ -376,21 +394,28 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     fn publish_occurrence(
         &mut self,
-        owner: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
-        declaration: rocketcss_ast::DeclarationId<'ast>,
+        compilation: &rocketcss_ast::Compilation<'ast>,
+        occurrence: PublishedOccurrence<'ast>,
         record: &DeclarationRecord<'ast, rocketcss_ast::DeclarationPayload<'ast>>,
-        order: usize,
         summary: &mut DeclarationBlockIr,
         property_index: &mut PropertyIndex<'scratch, 'ast>,
     ) {
+        let PublishedOccurrence {
+            owner,
+            declaration,
+            order,
+        } = occurrence;
         let (property_key, movement_domain, expansion, live_effects) = match record.payload() {
             rocketcss_ast::DeclarationPayload::Property(value) => {
                 let live = !matches!(value, Declaration::Tombstone);
                 let property_key = live
-                    .then(|| self.classifier.property_key(value, record.is_important()))
+                    .then(|| {
+                        self.classifier
+                            .property_key(compilation, value, record.is_important())
+                    })
                     .flatten();
                 let movement_domain = live
-                    .then(|| self.classifier.movement_domain(value))
+                    .then(|| self.classifier.movement_domain(compilation, value))
                     .flatten();
                 let expansion = if !live {
                     EffectExpansion::Opaque
@@ -405,9 +430,10 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
                         Some(BoxProperty::Barrier(_) | BoxProperty::BarrierAll) => {
                             unreachable!("typed box declarations are never barriers")
                         }
-                        None => box_property(value).map_or(EffectExpansion::Exact, |property| {
-                            EffectExpansion::Barrier(property.family())
-                        }),
+                        None => box_property(value, compilation)
+                            .map_or(EffectExpansion::Exact, |property| {
+                                EffectExpansion::Barrier(property.family())
+                            }),
                     }
                 };
                 let live_effects = if !live {
@@ -450,7 +476,9 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         }
         if self.occurrences.len() <= declaration.index() {
             self.occurrences.resize(declaration.index() + 1, None);
+            self.serialized_values.resize(declaration.index() + 1, None);
         }
+        self.serialized_values[declaration.index()] = None;
         self.occurrences[declaration.index()] = Some(DeclarationOccurrenceIr {
             property_key,
             movement_domain,
@@ -477,10 +505,13 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
             .remove(&block)
             .unwrap_or_else(|| PropertyIndex::new_in(self.allocator));
         self.publish_occurrence(
-            block,
-            declaration,
+            compilation,
+            PublishedOccurrence {
+                owner: block,
+                declaration,
+                order,
+            },
             record,
-            order,
             &mut summary,
             &mut property_index,
         );
@@ -564,6 +595,60 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         declaration: rocketcss_ast::DeclarationId<'ast>,
     ) -> Option<&DeclarationOccurrenceIr<'ast>> {
         self.occurrences.get(declaration.index())?.as_ref()
+    }
+
+    pub(super) fn declarations_have_equal_css(
+        &mut self,
+        compilation: &rocketcss_ast::Compilation<'ast>,
+        left: rocketcss_ast::DeclarationId<'ast>,
+        right: rocketcss_ast::DeclarationId<'ast>,
+    ) -> bool {
+        if left == right {
+            return true;
+        }
+        let Some(left_cached) = self.serialized_values.get(left.index()).copied() else {
+            return false;
+        };
+        let Some(right_cached) = self.serialized_values.get(right.index()).copied() else {
+            return false;
+        };
+        if let (Some(left), Some(right)) = (left_cached, right_cached) {
+            return left == right;
+        }
+
+        let value = |declaration| {
+            let record = compilation.declaration(declaration)?;
+            let rocketcss_ast::DeclarationPayload::Property(value) = record.payload() else {
+                return None;
+            };
+            Some(value)
+        };
+        let (expected, uncached, expected_owner) = match (left_cached, right_cached) {
+            (Some(expected), None) => (expected, right, None),
+            (None, Some(expected)) => (expected, left, None),
+            (None, None) => {
+                let Some(serialized) = value(left)
+                    .and_then(|value| crate::equality::css_value_serialization(compilation, value))
+                else {
+                    return false;
+                };
+                let expected = self.allocator.alloc_str(&serialized);
+                (expected, right, Some(left))
+            }
+            (Some(_), Some(_)) => unreachable!(),
+        };
+        if let Some(owner) = expected_owner {
+            self.serialized_values[owner.index()] = Some(expected);
+        }
+        let Some(uncached_value) = value(uncached) else {
+            return false;
+        };
+        if !crate::equality::css_value_matches_serialization(compilation, expected, uncached_value)
+        {
+            return false;
+        }
+        self.serialized_values[uncached.index()] = Some(expected);
+        true
     }
 
     pub(super) fn live_declarations(

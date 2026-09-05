@@ -2,8 +2,8 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Position<'a> {
-    pub x: Box<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
-    pub y: Box<'a, PositionComponent<'a, VerticalPositionKeyword>>,
+    pub x: NodeId<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
+    pub y: NodeId<'a, PositionComponent<'a, VerticalPositionKeyword>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -14,7 +14,7 @@ pub struct WebKitGradientPoint {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct WebKitColorStop<'a> {
-    pub color: Box<'a, CssColor<'a>>,
+    pub color: NodeId<'a, CssColor<'a>>,
     pub position: f32,
 }
 
@@ -27,14 +27,14 @@ pub struct ImageSet<'a> {
 #[derive(Debug, PartialEq, Visit)]
 pub struct ImageSetOption<'a> {
     pub file_type: Option<&'a str>,
-    pub image: Box<'a, Image<'a>>,
+    pub image: NodeId<'a, Image<'a>>,
     pub resolution: Resolution,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BackgroundPosition<'a> {
-    pub x: Box<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
-    pub y: Box<'a, PositionComponent<'a, VerticalPositionKeyword>>,
+    pub x: NodeId<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
+    pub y: NodeId<'a, PositionComponent<'a, VerticalPositionKeyword>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -47,20 +47,20 @@ pub struct BackgroundRepeat {
 pub struct Background<'a> {
     pub attachment: BackgroundAttachment,
     pub clip: BackgroundClip,
-    pub color: Box<'a, CssColor<'a>>,
-    pub image: Box<'a, Image<'a>>,
+    pub color: NodeId<'a, CssColor<'a>>,
+    pub image: NodeId<'a, Image<'a>>,
     pub origin: BackgroundOrigin,
-    pub position: Box<'a, BackgroundPosition<'a>>,
+    pub position: NodeId<'a, BackgroundPosition<'a>>,
     pub repeat: BackgroundRepeat,
-    pub size: Box<'a, BackgroundSize<'a>>,
+    pub size: NodeId<'a, BackgroundSize<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BoxShadow<'a> {
-    pub blur: Box<'a, Length<'a>>,
-    pub color: Box<'a, CssColor<'a>>,
+    pub blur: NodeId<'a, Length<'a>>,
+    pub color: NodeId<'a, CssColor<'a>>,
     pub inset: bool,
-    pub spread: Box<'a, Length<'a>>,
-    pub x_offset: Box<'a, Length<'a>>,
-    pub y_offset: Box<'a, Length<'a>>,
+    pub spread: NodeId<'a, Length<'a>>,
+    pub x_offset: NodeId<'a, Length<'a>>,
+    pub y_offset: NodeId<'a, Length<'a>>,
 }

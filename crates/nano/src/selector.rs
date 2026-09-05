@@ -1,22 +1,13 @@
-use rocketcss_ast::{NthType, Selector, SelectorComponent, SelectorList};
-use rocketcss_common::prelude::{AdaptiveHashSet, Allocator, Vec};
+use rocketcss_ast::{Compilation, NthType, Selector, SelectorComponent, SelectorList};
+use rocketcss_common::prelude::{Allocator, Vec};
 
-use crate::{Minify, MinifyContext, Options, OptionsOp};
-
-impl Minify for SelectorList<'_> {
-    fn minify<'cx>(&mut self, context: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        let allocator = context.allocator();
-        minify_selector_list(self, context, allocator);
-    }
-}
+use crate::{MinifyContext, Options, OptionsOp};
 
 pub(crate) fn minify_selector_list(
     selectors: &mut SelectorList<'_>,
     context: &mut MinifyContext,
     scratch: &Allocator,
+    ast: &Compilation<'_>,
 ) {
     for selector in selectors.iter_mut() {
         if matches!(selector, Selector::Unparsed(_)) {
@@ -48,25 +39,27 @@ pub(crate) fn minify_selector_list(
 
     if context.is_enabled(Options::DEDUPLICATE_LISTS, OptionsOp::Any) {
         let before = selectors.len();
-        deduplicate(selectors, scratch);
+        deduplicate(selectors, scratch, ast);
         if before != selectors.len() {
             context.record_value_normalized();
         }
     }
 }
 
-fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator) {
+fn deduplicate(selectors: &mut SelectorList<'_>, allocator: &Allocator, ast: &Compilation<'_>) {
     if selectors.len() < 2 {
         return;
     }
 
     let mut duplicate_indices = Vec::new_in(allocator);
-    {
-        let mut seen = AdaptiveHashSet::<_, 4>::new_in(allocator);
-        for (index, selector) in selectors.iter().enumerate() {
-            if matches!(selector, Selector::Parsed(_)) && !seen.insert(selector) {
-                duplicate_indices.push(index);
-            }
+    for (index, selector) in selectors.iter().enumerate() {
+        if matches!(selector, Selector::Parsed(_))
+            && selectors[..index].iter().any(|existing| {
+                matches!(existing, Selector::Parsed(_))
+                    && crate::equality::css_values_are_equal(ast, existing, selector)
+            })
+        {
+            duplicate_indices.push(index);
         }
     }
     if duplicate_indices.is_empty() {

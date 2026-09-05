@@ -602,18 +602,6 @@ fn container_impls(mode: Mode) -> TokenStream {
             }
             impl_leaf_visit!(bool, char, f32, i32, u8, u16, u32, usize);
 
-            impl<'a, 'ghost, T: ?Sized + #node_trait<'a, 'ghost>>
-                #node_trait<'a, 'ghost>
-                for rocketcss_common::boxed::Box<'a, T>
-            {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
-                    &self,
-                    visitor: &mut VisitorT,
-                    cx: &VisitContext<'_, 'a, 'ghost>,
-                ) {
-                    #node_trait::#visit(self.as_ref(), visitor, cx);
-                }
-            }
             impl<'a, 'ghost, T: #node_trait<'a, 'ghost> + Unpin>
                 #node_trait<'a, 'ghost>
                 for rocketcss_common::vec::Vec<'a, T>
@@ -666,18 +654,6 @@ fn container_impls(mode: Mode) -> TokenStream {
             }
             impl_leaf_visit_mut!(bool, char, f32, i32, u8, u16, u32, usize);
 
-            impl<'a, 'ghost, T: ?Sized + #node_trait<'a, 'ghost>>
-                #node_trait<'a, 'ghost>
-                for rocketcss_common::boxed::Box<'a, T>
-            {
-                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
-                    &mut self,
-                    visitor: &mut VisitorT,
-                    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-                ) {
-                    #node_trait::#visit(self.as_mut(), visitor, cx);
-                }
-            }
             impl<'a, 'ghost, T: #node_trait<'a, 'ghost> + Unpin>
                 #node_trait<'a, 'ghost>
                 for rocketcss_common::vec::Vec<'a, T>

@@ -2,14 +2,14 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum ContainerCondition<'a> {
-    Feature(Box<'a, ContainerSizeFeature<'a>>),
-    Not(Box<'a, ContainerCondition<'a>>),
+    Feature(NodeId<'a, ContainerSizeFeature<'a>>),
+    Not(NodeId<'a, ContainerCondition<'a>>),
     Operation {
         conditions: Vec<'a, ContainerCondition<'a>>,
         operator: Operator,
     },
-    Style(Box<'a, StyleQuery<'a>>),
-    ScrollState(Box<'a, ScrollStateQuery<'a>>),
+    Style(NodeId<'a, StyleQuery<'a>>),
+    ScrollState(NodeId<'a, ScrollStateQuery<'a>>),
     Unknown(Vec<'a, TokenOrValue<'a>>),
 }
 
@@ -27,9 +27,9 @@ pub enum ContainerSizeFeatureId {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum StyleQuery<'a> {
-    Declaration(Box<'a, Declaration<'a>>),
-    Property(Box<'a, PropertyId<'a>>),
-    Not(Box<'a, StyleQuery<'a>>),
+    Declaration(NodeId<'a, Declaration<'a>>),
+    Property(NodeId<'a, PropertyId<'a>>),
+    Not(NodeId<'a, StyleQuery<'a>>),
     Operation {
         conditions: Vec<'a, StyleQuery<'a>>,
         operator: Operator,
@@ -38,8 +38,8 @@ pub enum StyleQuery<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum ScrollStateQuery<'a> {
-    Feature(Box<'a, ScrollStateFeature<'a>>),
-    Not(Box<'a, ScrollStateQuery<'a>>),
+    Feature(NodeId<'a, ScrollStateFeature<'a>>),
+    Not(NodeId<'a, ScrollStateQuery<'a>>),
     Operation {
         conditions: Vec<'a, ScrollStateQuery<'a>>,
         operator: Operator,
@@ -59,5 +59,5 @@ pub enum ScrollStateFeatureId {
 #[derive(Debug, PartialEq, Visit)]
 pub struct Container<'a> {
     pub container_type: ContainerType,
-    pub name: Box<'a, ContainerNameList<'a>>,
+    pub name: NodeId<'a, ContainerNameList<'a>>,
 }

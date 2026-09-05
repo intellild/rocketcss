@@ -2,10 +2,10 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderRadius<'a> {
-    pub bottom_left: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
-    pub bottom_right: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
-    pub top_left: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
-    pub top_right: Box<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub bottom_left: NodeId<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub bottom_right: NodeId<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub top_left: NodeId<'a, Size2D<'a, LengthPercentage<'a>>>,
+    pub top_right: NodeId<'a, Size2D<'a, LengthPercentage<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -17,24 +17,24 @@ pub struct BorderImageRepeat {
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderImageSlice<'a> {
     pub fill: bool,
-    pub offsets: Box<'a, Rect<'a, NumberOrPercentage>>,
+    pub offsets: NodeId<'a, Rect<'a, NumberOrPercentage>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderImage<'a> {
-    pub outset: Box<'a, Rect<'a, LengthOrNumber<'a>>>,
+    pub outset: NodeId<'a, Rect<'a, LengthOrNumber<'a>>>,
     pub repeat: BorderImageRepeat,
-    pub slice: Box<'a, BorderImageSlice<'a>>,
-    pub source: Box<'a, Image<'a>>,
-    pub width: Box<'a, Rect<'a, BorderImageSideWidth<'a>>>,
+    pub slice: NodeId<'a, BorderImageSlice<'a>>,
+    pub source: NodeId<'a, Image<'a>>,
+    pub width: NodeId<'a, Rect<'a, BorderImageSideWidth<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderColor<'a> {
-    pub bottom: Box<'a, CssColor<'a>>,
-    pub left: Box<'a, CssColor<'a>>,
-    pub right: Box<'a, CssColor<'a>>,
-    pub top: Box<'a, CssColor<'a>>,
+    pub bottom: NodeId<'a, CssColor<'a>>,
+    pub left: NodeId<'a, CssColor<'a>>,
+    pub right: NodeId<'a, CssColor<'a>>,
+    pub top: NodeId<'a, CssColor<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -47,16 +47,16 @@ pub struct BorderStyle {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderWidth<'a> {
-    pub bottom: Box<'a, BorderSideWidth<'a>>,
-    pub left: Box<'a, BorderSideWidth<'a>>,
-    pub right: Box<'a, BorderSideWidth<'a>>,
-    pub top: Box<'a, BorderSideWidth<'a>>,
+    pub bottom: NodeId<'a, BorderSideWidth<'a>>,
+    pub left: NodeId<'a, BorderSideWidth<'a>>,
+    pub right: NodeId<'a, BorderSideWidth<'a>>,
+    pub top: NodeId<'a, BorderSideWidth<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderBlockColor<'a> {
-    pub end: Box<'a, CssColor<'a>>,
-    pub start: Box<'a, CssColor<'a>>,
+    pub end: NodeId<'a, CssColor<'a>>,
+    pub start: NodeId<'a, CssColor<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -67,14 +67,14 @@ pub struct BorderBlockStyle {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderBlockWidth<'a> {
-    pub end: Box<'a, BorderSideWidth<'a>>,
-    pub start: Box<'a, BorderSideWidth<'a>>,
+    pub end: NodeId<'a, BorderSideWidth<'a>>,
+    pub start: NodeId<'a, BorderSideWidth<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderInlineColor<'a> {
-    pub end: Box<'a, CssColor<'a>>,
-    pub start: Box<'a, CssColor<'a>>,
+    pub end: NodeId<'a, CssColor<'a>>,
+    pub start: NodeId<'a, CssColor<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -85,13 +85,13 @@ pub struct BorderInlineStyle {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct BorderInlineWidth<'a> {
-    pub end: Box<'a, BorderSideWidth<'a>>,
-    pub start: Box<'a, BorderSideWidth<'a>>,
+    pub end: NodeId<'a, BorderSideWidth<'a>>,
+    pub start: NodeId<'a, BorderSideWidth<'a>>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct GenericBorder<'a, S> {
-    pub color: Box<'a, CssColor<'a>>,
+    pub color: NodeId<'a, CssColor<'a>>,
     pub style: S,
-    pub width: Box<'a, BorderSideWidth<'a>>,
+    pub width: NodeId<'a, BorderSideWidth<'a>>,
 }

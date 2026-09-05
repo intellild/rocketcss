@@ -575,22 +575,39 @@ impl<'ghost> ToCss<'ghost> for PseudoElement<'_> {
             }
             Self::HighlightFunction { name } => write_element_function("highlight", name, dest),
             Self::WebKitScrollbar(value) => value.to_css(dest, _cx),
-            Self::CueFunction { selector } => write_selector_function("cue", selector, dest, _cx),
-            Self::CueRegionFunction { selector } => {
-                write_selector_function("cue-region", selector, dest, _cx)
+            Self::CueFunction { selector } => {
+                write_selector_function("cue", _cx.ast_context().resolve_node(*selector), dest, _cx)
             }
-            Self::ViewTransitionGroup { part } => {
-                write_part_function("view-transition-group", part, dest, _cx)
-            }
-            Self::ViewTransitionImagePair { part } => {
-                write_part_function("view-transition-image-pair", part, dest, _cx)
-            }
-            Self::ViewTransitionOld { part } => {
-                write_part_function("view-transition-old", part, dest, _cx)
-            }
-            Self::ViewTransitionNew { part } => {
-                write_part_function("view-transition-new", part, dest, _cx)
-            }
+            Self::CueRegionFunction { selector } => write_selector_function(
+                "cue-region",
+                _cx.ast_context().resolve_node(*selector),
+                dest,
+                _cx,
+            ),
+            Self::ViewTransitionGroup { part } => write_part_function(
+                "view-transition-group",
+                _cx.ast_context().resolve_node(*part),
+                dest,
+                _cx,
+            ),
+            Self::ViewTransitionImagePair { part } => write_part_function(
+                "view-transition-image-pair",
+                _cx.ast_context().resolve_node(*part),
+                dest,
+                _cx,
+            ),
+            Self::ViewTransitionOld { part } => write_part_function(
+                "view-transition-old",
+                _cx.ast_context().resolve_node(*part),
+                dest,
+                _cx,
+            ),
+            Self::ViewTransitionNew { part } => write_part_function(
+                "view-transition-new",
+                _cx.ast_context().resolve_node(*part),
+                dest,
+                _cx,
+            ),
             Self::PickerFunction { identifier } => {
                 write_element_function("picker", identifier, dest)
             }

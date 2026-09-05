@@ -14,4 +14,5 @@ mod values;
 
 pub use printer::{
     Delimiter, Printer, PrinterOptions, PrinterState, PrinterTrait, ToCss, ToCssContext,
+    css_value_matches_serialization, css_values_are_equal,
 };

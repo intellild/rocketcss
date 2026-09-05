@@ -406,6 +406,13 @@ impl<'arena, Domain: 'arena, T> DenseStore<'arena, Domain, T> {
         );
         self.values.reserve(additional);
     }
+
+    /// Discards entries allocated after `len` while preserving all earlier IDs.
+    #[doc(hidden)]
+    #[inline]
+    pub fn truncate(&mut self, len: usize) {
+        self.values.truncate(len);
+    }
 }
 
 impl<Domain, T: fmt::Debug> fmt::Debug for DenseStore<'_, Domain, T> {

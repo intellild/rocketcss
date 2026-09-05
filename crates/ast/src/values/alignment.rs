@@ -136,5 +136,5 @@ pub enum LegacyJustify {
 #[derive(Debug, PartialEq, Visit)]
 pub enum GapValue<'a> {
     Normal,
-    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
 }

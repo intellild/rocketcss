@@ -84,7 +84,7 @@ pub enum TextJustify {
 #[derive(Debug, PartialEq, Visit)]
 pub enum Spacing<'a> {
     Normal,
-    Length(Box<'a, Length<'a>>),
+    Length(NodeId<'a, Length<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -121,7 +121,7 @@ pub enum TextDecorationStyle {
 pub enum TextDecorationThickness<'a> {
     Auto,
     FromFont,
-    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

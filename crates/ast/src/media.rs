@@ -1,11 +1,11 @@
 use super::*;
 
-use rocketcss_common::{boxed::Box, vec::Vec};
+use rocketcss_common::vec::Vec;
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum MediaCondition<'a> {
-    Feature(Box<'a, MediaFeature<'a>>),
-    Not(Box<'a, MediaCondition<'a>>),
+    Feature(NodeId<'a, MediaFeature<'a>>),
+    Not(NodeId<'a, MediaCondition<'a>>),
     Operation {
         conditions: Vec<'a, MediaCondition<'a>>,
         operator: Operator,
@@ -28,10 +28,10 @@ pub enum QueryFeature<'a, FeatureId> {
         value: MediaFeatureValue<'a>,
     },
     Interval {
-        end: Box<'a, MediaFeatureValue<'a>>,
+        end: NodeId<'a, MediaFeatureValue<'a>>,
         end_operator: MediaFeatureComparison,
         name: MediaFeatureName<'a, FeatureId>,
-        start: Box<'a, MediaFeatureValue<'a>>,
+        start: NodeId<'a, MediaFeatureValue<'a>>,
         start_operator: MediaFeatureComparison,
     },
 }
@@ -99,7 +99,7 @@ pub enum MediaFeatureValue<'a> {
     Resolution(Resolution),
     Ratio(Ratio),
     Ident(&'a str),
-    Env(Box<'a, EnvironmentVariable<'a>>),
+    Env(NodeId<'a, EnvironmentVariable<'a>>),
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -133,11 +133,11 @@ pub enum Qualifier {
 
 #[derive(Debug, PartialEq, Visit)]
 pub enum SupportsCondition<'a> {
-    Not(Box<'a, SupportsCondition<'a>>),
+    Not(NodeId<'a, SupportsCondition<'a>>),
     And(Vec<'a, SupportsCondition<'a>>),
     Or(Vec<'a, SupportsCondition<'a>>),
     Declaration {
-        property_id: Box<'a, PropertyId<'a>>,
+        property_id: NodeId<'a, PropertyId<'a>>,
         value: &'a str,
     },
     Selector(&'a str),

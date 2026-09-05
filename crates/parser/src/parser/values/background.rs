@@ -1,16 +1,13 @@
 use crate::prelude::*;
 
 type PositionComponents<'i> = (
-    Box<'i, PositionComponent<'i, HorizontalPositionKeyword>>,
-    Box<'i, PositionComponent<'i, VerticalPositionKeyword>>,
+    NodeId<'i, PositionComponent<'i, HorizontalPositionKeyword>>,
+    NodeId<'i, PositionComponent<'i, VerticalPositionKeyword>>,
 );
 
-fn zero_position<'i, S>(
-    allocator: &'i Allocator,
-) -> rocketcss_common::boxed::Box<'i, PositionComponent<'i, S>> {
-    allocator.boxed(PositionComponent::Length(
-        allocator.boxed(DimensionPercentage::Percentage(0.0)),
-    ))
+fn zero_position<'i, S>(input: &mut Compiler<'i>) -> NodeId<'i, PositionComponent<'i, S>> {
+    let length = store_node(DimensionPercentage::Percentage(0.0), input);
+    store_node(PositionComponent::Length(length), input)
 }
 
 impl<'i> Parse<'i> for BackgroundRepeatKeyword {
@@ -70,27 +67,25 @@ impl<'i> Parse<'i> for BackgroundOrigin {
 
 impl<'i> Parse<'i> for Background<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
-        let color = CssColor::parse(input)?;
-
+        let color = parse_css_color(input)?;
+        let x = zero_position(input);
+        let y = zero_position(input);
+        let position = store_node(BackgroundPosition { x, y }, input);
+        let height = store_node(LengthPercentageOrAuto::Auto, input);
+        let width = store_node(LengthPercentageOrAuto::Auto, input);
+        let size = store_node(BackgroundSize::Explicit { height, width }, input);
         Ok(Self {
             attachment: BackgroundAttachment::Scroll,
             clip: BackgroundClip::BorderBox,
-            color: allocator.boxed(color),
-            image: allocator.boxed(Image::None),
+            color,
+            image: store_node(Image::None, input),
             origin: BackgroundOrigin::PaddingBox,
-            position: allocator.boxed(BackgroundPosition {
-                x: zero_position(allocator),
-                y: zero_position(allocator),
-            }),
+            position,
             repeat: BackgroundRepeat {
                 x: BackgroundRepeatKeyword::Repeat,
                 y: BackgroundRepeatKeyword::Repeat,
             },
-            size: allocator.boxed(BackgroundSize::Explicit {
-                height: allocator.boxed(LengthPercentageOrAuto::Auto),
-                width: allocator.boxed(LengthPercentageOrAuto::Auto),
-            }),
+            size,
         })
     }
 }
@@ -166,13 +161,12 @@ pub(super) fn parse_background_size<'i>(
         return Ok(BackgroundSize::Contain);
     }
 
-    let allocator = input.allocator();
-    let width = allocator.boxed(LengthPercentageOrAuto::parse(input)?);
+    let width = store_node(LengthPercentageOrAuto::parse(input)?, input);
     let height = input
         .try_parse(LengthPercentageOrAuto::parse)
         .unwrap_or(LengthPercentageOrAuto::Auto);
     Ok(BackgroundSize::Explicit {
-        height: allocator.boxed(height),
+        height: store_node(height, input),
         width,
     })
 }
@@ -205,15 +199,17 @@ pub(super) fn parse_position_components<'i>(
 fn parse_horizontal_first_position<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<PositionComponents<'i>, ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let x = allocator.boxed(parse_position_component::<HorizontalPositionKeyword>(
+    let x = store_node(
+        parse_position_component::<HorizontalPositionKeyword>(
+            input,
+            parse_horizontal_position_keyword,
+        )?,
         input,
-        parse_horizontal_position_keyword,
-    )?);
+    );
     let y = if input.is_exhausted() {
-        allocator.boxed(PositionComponent::Center)
+        store_node(PositionComponent::Center, input)
     } else {
-        allocator.boxed(
+        store_node(
             input
                 .try_parse(|input| {
                     parse_position_component::<VerticalPositionKeyword>(
@@ -222,6 +218,7 @@ fn parse_horizontal_first_position<'i>(
                     )
                 })
                 .unwrap_or(PositionComponent::Center),
+            input,
         )
     };
     Ok((x, y))
@@ -230,15 +227,17 @@ fn parse_horizontal_first_position<'i>(
 fn parse_vertical_first_position<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<PositionComponents<'i>, ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let y = allocator.boxed(parse_position_component::<VerticalPositionKeyword>(
+    let y = store_node(
+        parse_position_component::<VerticalPositionKeyword>(
+            input,
+            parse_vertical_position_keyword,
+        )?,
         input,
-        parse_vertical_position_keyword,
-    )?);
+    );
     let x = if input.is_exhausted() {
-        allocator.boxed(PositionComponent::Center)
+        store_node(PositionComponent::Center, input)
     } else {
-        allocator.boxed(
+        store_node(
             input
                 .try_parse(|input| {
                     parse_position_component::<HorizontalPositionKeyword>(
@@ -247,6 +246,7 @@ fn parse_vertical_first_position<'i>(
                     )
                 })
                 .unwrap_or(PositionComponent::Center),
+            input,
         )
     };
     Ok((x, y))
@@ -306,10 +306,11 @@ fn parse_position_component<'i, S>(
         let offset = input
             .try_parse(LengthPercentage::parse)
             .ok()
-            .map(|value| input.allocator().boxed(value));
+            .map(|value| store_node(value, input));
         return Ok(PositionComponent::Side { offset, side });
     }
-    Ok(PositionComponent::Length(
-        input.allocator().boxed(LengthPercentage::parse(input)?),
-    ))
+    Ok(PositionComponent::Length(store_node(
+        LengthPercentage::parse(input)?,
+        input,
+    )))
 }

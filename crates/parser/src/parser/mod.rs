@@ -5,7 +5,7 @@
 use std::fmt;
 use std::ops::{BitOr, Range};
 
-use rocketcss_ast::Token as ValueToken;
+use rocketcss_ast::{NodeCheckpoint, Token as ValueToken};
 
 use crate::tokenizer::TokenizerState;
 use crate::{Compiler, SourceLocation, SourcePosition, Span, Token, TokenAndSpan, Tokenizer};
@@ -23,6 +23,8 @@ mod token;
 mod traits;
 mod values;
 
+pub(crate) use color::parse_css_color;
+
 pub use traits::{Error, Parse, ParserError, ParserOptions};
 
 /// A capture of the parser position and pending nested-block state.
@@ -33,6 +35,7 @@ pub struct ParserState {
     comments_seen: u32,
     replay_generation: u32,
     replay_cursor: usize,
+    node_checkpoint: NodeCheckpoint,
 }
 
 impl ParserState {
@@ -557,6 +560,7 @@ impl<'i> Compiler<'i> {
             comments_seen: self.cursor.comments_seen,
             replay_generation: self.replay.generation,
             replay_cursor: self.replay.cursor,
+            node_checkpoint: self.compilation.node_checkpoint(),
         }
     }
 
@@ -573,6 +577,8 @@ impl<'i> Compiler<'i> {
             // its tokens in the current context.
             self.replay.cursor = 0;
         }
+        self.compilation
+            .restore_node_checkpoint(state.node_checkpoint);
     }
 
     #[inline]

@@ -1,93 +1,100 @@
-use super::{length::parse_length_unit, stylesheet::span_from, values::collect_tokens};
+use super::{length::parse_length_unit, values::collect_tokens};
 use crate::prelude::*;
 
 pub(super) fn parse_import_rule<'i>(
+    input: &mut Compiler<'i>,
     prelude: &'i str,
-    allocator: &'i Allocator,
-    start: &ParserState,
-    end: SourcePosition,
 ) -> Result<ImportRule<'i>, ParseError<'i, ParserError<'i>>> {
-    let mut parser = Compiler::new_with_source(prelude, allocator);
-    let url = parser.expect_url_or_string()?;
+    let allocator = input.allocator();
+    input.with_source(prelude, |input| {
+        let url = input.expect_url_or_string()?;
 
-    let layer = if parser
-        .try_parse(|input| input.expect_ident_matching("layer"))
-        .is_ok()
-    {
-        Some(allocator.vec())
-    } else if parser
-        .try_parse(|input| input.expect_function_matching("layer"))
-        .is_ok()
-    {
-        Some(parser.parse_nested_block(|input| {
-            let mut name = allocator.vec();
-            name.push(input.expect_ident()?);
-            while input.try_parse(|input| input.expect_delim('.')).is_ok() {
+        let layer = if input
+            .try_parse(|input| input.expect_ident_matching("layer"))
+            .is_ok()
+        {
+            Some(allocator.vec())
+        } else if input
+            .try_parse(|input| input.expect_function_matching("layer"))
+            .is_ok()
+        {
+            Some(input.parse_nested_block(|input| {
+                let mut name = allocator.vec();
                 name.push(input.expect_ident()?);
-            }
-            input.expect_exhausted()?;
-            Ok::<_, ParseError<'i, ParserError<'i>>>(name)
-        })?)
-    } else {
-        None
-    };
+                while input.try_parse(|input| input.expect_delim('.')).is_ok() {
+                    name.push(input.expect_ident()?);
+                }
+                input.expect_exhausted()?;
+                Ok::<_, ParseError<'i, ParserError<'i>>>(name)
+            })?)
+        } else {
+            None
+        };
 
-    let supports = if parser
-        .try_parse(|input| input.expect_function_matching("supports"))
-        .is_ok()
-    {
-        Some(allocator.boxed(parser.parse_nested_block(|input| {
-            let start = input.position();
-            input.expect_no_error_token()?;
-            let raw = input.slice_from(start).trim();
-            if raw.is_empty() {
-                return Err(input.new_custom_error(ParserError::InvalidValue));
-            }
-            Ok::<_, ParseError<'i, ParserError<'i>>>(parse_supports_condition(raw))
-        })?))
-    } else {
-        None
-    };
+        let supports = if input
+            .try_parse(|input| input.expect_function_matching("supports"))
+            .is_ok()
+        {
+            Some(store_node(
+                input.parse_nested_block(|input| {
+                    let start = input.position();
+                    input.expect_no_error_token()?;
+                    let raw = input.slice_from(start).trim();
+                    if raw.is_empty() {
+                        return Err(input.new_custom_error(ParserError::InvalidValue));
+                    }
+                    Ok::<_, ParseError<'i, ParserError<'i>>>(parse_supports_condition(raw))
+                })?,
+                input,
+            ))
+        } else {
+            None
+        };
 
-    let media = if parser.is_exhausted() {
-        None
-    } else {
-        let rest = parser
-            .slice(parser.position()..SourcePosition(prelude.len()))
-            .trim();
-        if rest.is_empty() {
+        let media = if input.is_exhausted() {
             None
         } else {
-            Some(allocator.boxed(parse_media_list(rest, allocator)?))
-        }
-    };
-    Ok(ImportRule {
-        layer,
-        span: span_from(start, end),
-        media,
-        supports,
-        url,
+            let rest = input
+                .slice(input.position()..SourcePosition(prelude.len()))
+                .trim();
+            if rest.is_empty() {
+                None
+            } else {
+                let media = parse_media_list(input, rest)?;
+                Some(store_node(media, input))
+            }
+        };
+        Ok(ImportRule {
+            layer,
+            media,
+            supports,
+            url,
+        })
     })
 }
 
 pub(super) fn parse_media_list<'i>(
+    input: &mut Compiler<'i>,
     source: &'i str,
-    allocator: &'i Allocator,
 ) -> Result<MediaList<'i>, ParseError<'i, ParserError<'i>>> {
+    let allocator = input.allocator();
     if source.trim().is_empty() {
         return Ok(MediaList {
             media_queries: allocator.vec(),
         });
     }
-    let mut parser = Compiler::new_with_source(source, allocator);
-    let parsed = parser.parse_comma_separated(|input| {
-        input
-            .try_parse(|input| parse_media_query(input, allocator))
-            .or_else(|_| parse_unknown_media_query(input, allocator))
-    })?;
-    let mut media_queries = allocator.vec();
-    media_queries.extend(parsed.into_iter().map(|query| allocator.boxed(query)));
-    Ok(MediaList { media_queries })
+    input.with_source(source, |input| {
+        let parsed = input.parse_comma_separated(|input| {
+            input
+                .try_parse(|input| parse_media_query(input, allocator))
+                .or_else(|_| parse_unknown_media_query(input, allocator))
+        })?;
+        let mut media_queries = allocator.vec();
+        for query in parsed {
+            media_queries.push(store_node(query, input));
+        }
+        Ok(MediaList { media_queries })
+    })
 }
 
 fn parse_media_query<'i>(
@@ -196,7 +203,7 @@ fn parse_media_condition<'i>(
         ValueToken::ParenthesisBlock => parse_parenthesized_condition(input, allocator)?,
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("not") => {
             let condition = parse_parenthesis(input, allocator)?;
-            return Ok(MediaCondition::Not(allocator.boxed(condition)));
+            return Ok(MediaCondition::Not(store_node(condition, input)));
         }
         _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
     };
@@ -261,9 +268,10 @@ fn parse_parenthesized_condition<'i>(
         {
             return Ok(condition);
         }
-        Ok(MediaCondition::Feature(
-            allocator.boxed(parse_media_feature(input, allocator)?),
-        ))
+        Ok(MediaCondition::Feature(store_node(
+            parse_media_feature(input, allocator)?,
+            input,
+        )))
     })
 }
 
@@ -349,10 +357,10 @@ fn parse_value_first_feature<'i>(
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
         Ok(QueryFeature::Interval {
-            end: allocator.boxed(end_value),
+            end: store_node(end_value, input),
             end_operator,
             name,
-            start: allocator.boxed(start_value),
+            start: store_node(start_value, input),
             start_operator,
         })
     } else {
@@ -644,7 +652,7 @@ fn parse_unknown_media_feature_value<'i>(
         return Ok(MediaFeatureValue::Resolution(value));
     }
     if let Ok(value) = input.try_parse(|input| parse_environment_variable(input, allocator)) {
-        return Ok(MediaFeatureValue::Env(allocator.boxed(value)));
+        return Ok(MediaFeatureValue::Env(store_node(value, input)));
     }
     Ok(MediaFeatureValue::Ident(input.expect_ident()?))
 }
@@ -727,9 +735,10 @@ fn parse_environment_variable<'i>(
     input.parse_nested_block(|input| {
         let ident = input.expect_ident()?;
         let name = if ident.starts_with("--") {
-            EnvironmentVariableName::Custom(
-                allocator.boxed(DashedIdentReference { from: None, ident }),
-            )
+            EnvironmentVariableName::Custom(store_node(
+                DashedIdentReference { from: None, ident },
+                input,
+            ))
         } else if let Some(name) = parse_ua_environment_variable(ident) {
             EnvironmentVariableName::UA(name)
         } else {
