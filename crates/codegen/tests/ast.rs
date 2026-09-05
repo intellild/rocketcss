@@ -3,30 +3,30 @@ use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_parser::{Compiler, ParserOptions};
 
-fn assert_radix_codegen_parity(source: &str) {
+fn assert_ast_codegen_parity(source: &str) {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         let options = ParserOptions::default();
-        let radix = Compiler::new(&allocator)
+        let ast = Compiler::new(&allocator)
             .parse(source, &mut token, options)
             .unwrap();
 
         for prettify in [false, true] {
             let printer_options = PrinterOptions { prettify };
-            let radix_output = radix
+            let ast_output = ast
                 .to_css_string(printer_options, &ToCssContext::new(&token))
                 .unwrap();
             let reparsed = Compiler::new(&allocator)
-                .parse(&radix_output, &mut token, options)
+                .parse(&ast_output, &mut token, options)
                 .unwrap_or_else(|error| {
                     panic!(
-                        "failed to reparse generated CSS for {source:?}: {error:?}\noutput: {radix_output}"
+                        "failed to reparse generated CSS for {source:?}: {error:?}\noutput: {ast_output}"
                     )
                 });
             let reparsed_output = reparsed
                 .to_css_string(printer_options, &ToCssContext::new(&token))
                 .unwrap();
-            assert_eq!(radix_output, reparsed_output, "source: {source}");
+            assert_eq!(ast_output, reparsed_output, "source: {source}");
         }
     });
 }
@@ -47,7 +47,7 @@ fn streams_flat_rules_and_declarations_without_reification() {
         "@font-feature-values 'Demo'{@styleset{nice:1 2;alt:3}@swash{fancy:4}}",
         "@property --space{syntax:'<length>';unknown:foo;syntax:'*';inherits:false;initial-value:10px}",
     ] {
-        assert_radix_codegen_parity(source);
+        assert_ast_codegen_parity(source);
     }
 }
 
@@ -56,24 +56,23 @@ fn streams_the_selector_value_published_by_an_ast_transaction() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         let options = ParserOptions::default();
-        let mut radix = Compiler::new(&allocator)
+        let mut ast = Compiler::new(&allocator)
             .parse("a{x:1}b{x:2}", &mut token, options)
             .unwrap();
-        let styles = radix
+        let styles = ast
             .rules_in_source_order()
             .filter_map(|(id, rule)| {
                 matches!(rule.payload(), CssRulePayload::Style(_)).then_some(id)
             })
             .collect::<std::vec::Vec<_>>();
-        let replacement = match radix.rule(styles[1]).unwrap().payload() {
+        let replacement = match ast.rule(styles[1]).unwrap().payload() {
             CssRulePayload::Style(payload) => payload.selector_value,
             _ => unreachable!(),
         };
-        radix
-            .replace_rule_selector_value(styles[0], replacement)
+        ast.replace_rule_selector_value(styles[0], replacement)
             .unwrap();
 
-        let actual = radix
+        let actual = ast
             .to_css_string(
                 PrinterOptions { prettify: false },
                 &ToCssContext::new(&token),
@@ -88,26 +87,25 @@ fn streams_an_adjacent_block_merge_directly_from_live_topology() {
     GhostToken::scope(|mut token| {
         let allocator = Allocator::new();
         let options = ParserOptions::default();
-        let mut radix = Compiler::new(&allocator)
+        let mut ast = Compiler::new(&allocator)
             .parse("a{color:red}a{color:blue}", &mut token, options)
             .unwrap();
-        let styles = radix
+        let styles = ast
             .rules_in_source_order()
             .filter_map(|(id, rule)| {
                 matches!(rule.payload(), CssRulePayload::Style(_)).then_some(id)
             })
             .collect::<std::vec::Vec<_>>();
-        radix
-            .merge_adjacent_rule_declaration_blocks(styles[0], styles[1])
+        ast.merge_adjacent_rule_declaration_blocks(styles[0], styles[1])
             .unwrap();
 
-        let actual = radix
+        let actual = ast
             .to_css_string(
                 PrinterOptions { prettify: false },
                 &ToCssContext::new(&token),
             )
             .unwrap();
         assert_eq!(actual, "a{color:red;color:blue}");
-        assert_eq!(radix.validate_ast(), Ok(()));
+        assert_eq!(ast.validate_ast(), Ok(()));
     });
 }

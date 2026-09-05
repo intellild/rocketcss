@@ -323,7 +323,7 @@ impl<W: Write> PrinterTrait for Printer<'_, W> {
 #[derive(Clone, Copy)]
 pub struct ToCssContext<'token, 'ast, 'ghost> {
     token: &'token GhostToken<'ghost>,
-    ast: Option<&'token rocketcss_ast::Compilation<'ast>>,
+    ast: Option<&'token rocketcss_ast::AstContext<'ast>>,
 }
 
 impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
@@ -336,7 +336,7 @@ impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
     #[inline]
     pub const fn with_ast(
         token: &'token GhostToken<'ghost>,
-        ast: &'token rocketcss_ast::Compilation<'ast>,
+        ast: &'token rocketcss_ast::AstContext<'ast>,
     ) -> Self {
         Self {
             token,
@@ -351,7 +351,7 @@ impl<'token, 'ast, 'ghost> ToCssContext<'token, 'ast, 'ghost> {
 
     /// Returns the AST context used to resolve typed node IDs.
     #[inline]
-    pub fn ast_context(&self) -> &'token rocketcss_ast::Compilation<'ast> {
+    pub fn ast_context(&self) -> &'token rocketcss_ast::AstContext<'ast> {
         self.ast
             .expect("serializing a NodeId requires its AstContext")
     }

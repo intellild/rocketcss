@@ -12,7 +12,7 @@ impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for Rename<'a> {
         &mut self,
         _id: rocketcss_ast::SelectorValueId<'a>,
         selectors: &mut SelectorList<'a>,
-        compilation: &mut Compilation<'a>,
+        compilation: &mut AstContext<'a>,
     ) {
         compilation.mutate_vec(*selectors, |selectors, compilation| {
             for selector in selectors {
@@ -42,7 +42,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordPlugin {
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _compilation: &mut AstContext<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         context
@@ -136,7 +136,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for FailingPlugin {
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _compilation: &mut AstContext<'a>,
         _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         Err(std::boxed::Box::new(ExpectedFailure))
@@ -177,7 +177,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordRadixPlugin {
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _compilation: &mut AstContext<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         context
@@ -203,7 +203,7 @@ impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for TombstoneProperties {
 }
 
 #[test]
-fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
+fn ast_plugins_run_on_one_authoritative_compilation_in_registration_order() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let mut compilation = rocketcss_parser::Compiler::new(&allocator)

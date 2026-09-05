@@ -1,6 +1,6 @@
 use crate::MinifyContext;
 use rocketcss_ast::{
-    CSSWideOr, Columns, Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
+    AstContext, CSSWideOr, Columns, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
     CssColor, Declaration, DeclarationBlockMutationScope, DeclarationPayload, Margin, Padding,
     PropertyId, ScopedDeclarationHandle, VendorPrefix, Visit, VisitContext, Visitor,
 };
@@ -196,7 +196,7 @@ struct DeclarationSequence<'scope, 'scratch, 'ast> {
 
 impl<'scope, 'scratch, 'ast> DeclarationSequence<'scope, 'scratch, 'ast> {
     #[inline]
-    fn radix(
+    fn ast(
         scope: DeclarationBlockMutationScope<'scope, 'ast>,
         allocator: &'scratch Allocator,
     ) -> Self {
@@ -281,12 +281,12 @@ impl<'scope, 'scratch, 'ast> DeclarationSequence<'scope, 'scratch, 'ast> {
     }
 
     #[inline]
-    fn ast_context(&self) -> &Compilation<'ast> {
+    fn ast_context(&self) -> &AstContext<'ast> {
         self.scope.ast_context()
     }
 
     #[inline]
-    fn ast_context_mut(&mut self) -> &mut Compilation<'ast> {
+    fn ast_context_mut(&mut self) -> &mut AstContext<'ast> {
         self.scope.ast_context_mut()
     }
 }
@@ -304,13 +304,13 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
 
     pub(crate) fn minify_compilation_block(
         &mut self,
-        compilation: &mut Compilation<'ast>,
+        compilation: &mut AstContext<'ast>,
         block: RadixDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         compilation
             .with_declaration_block_mutations(block, |scope| {
-                let mut sequence = DeclarationSequence::radix(scope, cx.allocator());
+                let mut sequence = DeclarationSequence::ast(scope, cx.allocator());
                 if sequence.block_len(0) >= 2 {
                     self.minify_non_trivial(&mut sequence, cx);
                 }
@@ -548,7 +548,7 @@ where
 #[inline]
 fn columns_property(
     declaration: &Declaration<'_>,
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
 ) -> Option<ColumnsProperty> {
     let property_id = match declaration {
         Declaration::Columns(_, prefix) => return Some(ColumnsProperty::Shorthand(*prefix)),
@@ -1009,7 +1009,7 @@ fn record_merged_longhands(
 
 fn declaration_skips_minification<'ast>(
     declaration: &Declaration<'ast>,
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> bool {
     matches!(declaration, Declaration::Unparsed(_))
         || functional_color_requires_history_barrier(declaration, ast)
@@ -1017,7 +1017,7 @@ fn declaration_skips_minification<'ast>(
 
 fn functional_color_requires_history_barrier<'ast>(
     declaration: &Declaration<'ast>,
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> bool {
     let mut visitor = FunctionalColorBarrierVisitor::default();
     GhostToken::scope(|token| {
@@ -1077,7 +1077,7 @@ mod tests {
     fn functional_color_barrier_walks_nested_color_values() {
         fn unresolved_color<'ast>(
             allocator: &'ast Allocator,
-            ast: &mut Compilation<'ast>,
+            ast: &mut AstContext<'ast>,
         ) -> rocketcss_ast::NodeId<'ast, CssColor<'ast>> {
             let arguments = ast.alloc_vec(rocketcss_common::vec::Vec::new_in(allocator));
             let function = ast.alloc_node_without_span(Function::new("color-mix", arguments));
@@ -1085,13 +1085,13 @@ mod tests {
         }
 
         fn known_color<'ast>(
-            ast: &mut Compilation<'ast>,
+            ast: &mut AstContext<'ast>,
         ) -> rocketcss_ast::NodeId<'ast, CssColor<'ast>> {
             ast.alloc_node_without_span(CssColor::Known(KnownColor::Red))
         }
 
         let allocator = Allocator::new();
-        let mut ast = Compilation::new_in(&allocator);
+        let mut ast = AstContext::new_in(&allocator);
         let direct = Declaration::Color(unresolved_color(&allocator, &mut ast));
         let bottom = known_color(&mut ast);
         let left = known_color(&mut ast);

@@ -7,11 +7,11 @@ fn parse_stylesheet<'a, 'ghost>(
     source: &'a str,
     allocator: &'a Allocator,
     token: &mut GhostToken<'ghost>,
-) -> Compilation<'a> {
+) -> AstContext<'a> {
     parse(source, allocator, token, ParserOptions::default()).unwrap()
 }
 
-fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteRuleId<'ast> {
+fn first_rule_id<'ast>(compilation: &AstContext<'ast>) -> ConcreteRuleId<'ast> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .unwrap()
@@ -20,7 +20,7 @@ fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteRuleId<'ast> 
         .0
 }
 
-fn first_block_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteDeclarationBlockId<'ast> {
+fn first_block_id<'ast>(compilation: &AstContext<'ast>) -> ConcreteDeclarationBlockId<'ast> {
     compilation
         .rule(first_rule_id(compilation))
         .and_then(|rule| rule.declaration_block())
@@ -28,7 +28,7 @@ fn first_block_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteDeclarationB
 }
 
 fn property_declarations<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     block: ConcreteDeclarationBlockId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
     compilation
@@ -633,7 +633,7 @@ fn font_family_lists_skip_tombstones_without_extra_commas() {
         families.push(FontFamily::Tombstone);
         families.push(FontFamily::Serif);
         families.push(FontFamily::Tombstone);
-        let mut ast = Compilation::new_in(&allocator);
+        let mut ast = AstContext::new_in(&allocator);
         let families = ast.alloc_vec(families);
 
         assert_eq!(

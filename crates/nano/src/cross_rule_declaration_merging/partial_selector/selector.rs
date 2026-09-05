@@ -10,7 +10,7 @@ pub(crate) fn materialize_selector_union<'ast>(
     right: &SelectorList<'ast>,
     preserve_compatibility: bool,
     scratch: &Allocator,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> Option<SelectorList<'ast>> {
     let left_compatibility = selector_compatibility(left, scratch, ast)?;
     let right_compatibility = selector_compatibility(right, scratch, ast)?;
@@ -84,7 +84,7 @@ impl<'scratch, 'ast> SelectorCompatibility<'scratch, 'ast> {
 fn selector_compatibility<'scratch, 'ast>(
     selectors: &SelectorList<'ast>,
     allocator: &'scratch Allocator,
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> Option<SelectorCompatibility<'scratch, 'ast>> {
     let mut compatibility = SelectorCompatibility::new_in(allocator);
     observe_selector_list_compatibility(selectors, &mut compatibility, ast)?;
@@ -94,7 +94,7 @@ fn selector_compatibility<'scratch, 'ast>(
 fn observe_selector_list_compatibility<'scratch, 'ast>(
     selectors: &SelectorList<'ast>,
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> Option<()> {
     for selector in ast.vec(*selectors) {
         match selector {
@@ -113,7 +113,7 @@ fn observe_selector_list_compatibility<'scratch, 'ast>(
 fn observe_selector_component_compatibility<'scratch, 'ast>(
     component: &SelectorComponent<'ast>,
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> Option<()> {
     use SelectorComponent as Component;
     use SelectorSyntaxFeatures as Feature;
@@ -237,7 +237,7 @@ fn observe_selector_component_compatibility<'scratch, 'ast>(
 fn observe_selector_compatibility<'scratch, 'ast>(
     selector: &Selector<'ast>,
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> Option<()> {
     let Selector::Parsed(components) = selector else {
         return matches!(selector, Selector::Tombstone).then_some(());
@@ -295,7 +295,7 @@ fn observe_pseudo_class_compatibility<'scratch, 'ast>(
 fn observe_pseudo_element_compatibility<'scratch, 'ast>(
     value: &PseudoElement<'ast>,
     compatibility: &mut SelectorCompatibility<'scratch, 'ast>,
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> Option<()> {
     use PseudoElement as Pseudo;
 
@@ -320,7 +320,7 @@ fn append_materialized_selectors<'ast>(
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
     output: &mut Vec<'ast, Selector<'ast>>,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> Option<()> {
     let source = Vec::from_iter_in(ast.vec(*source).iter().cloned(), allocator);
     for selector in &source {
@@ -342,7 +342,7 @@ fn clone_selector<'ast>(
     selector: &Selector<'ast>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> Option<Selector<'ast>> {
     let Selector::Parsed(components) = selector else {
         return None;
@@ -361,7 +361,7 @@ fn clone_selector_list<'ast>(
     selectors: &SelectorList<'ast>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> Option<SelectorList<'ast>> {
     let source = Vec::from_iter_in(ast.vec(*selectors).iter().cloned(), allocator);
     let mut cloned = Vec::with_capacity_in(source.len(), allocator);
@@ -375,7 +375,7 @@ fn clone_selector_component<'ast>(
     component: &SelectorComponent<'ast>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> Option<SelectorComponent<'ast>> {
     use SelectorComponent as Component;
     Some(match component {
@@ -472,7 +472,7 @@ fn clone_stored_selector<'ast>(
     selector: NodeId<'ast, Selector<'ast>>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> Option<NodeId<'ast, Selector<'ast>>> {
     let cloned = ast.clone_node(selector);
     ast.mutate_node(cloned, |selector, ast| {
@@ -515,7 +515,7 @@ fn clone_attribute_selector<'ast>(attribute: &AttrSelector<'ast>) -> AttrSelecto
 fn clone_pseudo_class<'ast>(
     value: NodeId<'ast, PseudoClass<'ast>>,
     prefixes: &mut VendorPrefix,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> Option<PseudoClass<'ast>> {
     use PseudoClass as Pseudo;
     if let Pseudo::Lang { languages } = ast.resolve_node(value) {
@@ -621,7 +621,7 @@ fn clone_pseudo_element<'ast>(
     value: NodeId<'ast, PseudoElement<'ast>>,
     allocator: &'ast Allocator,
     prefixes: &mut VendorPrefix,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> Option<PseudoElement<'ast>> {
     use PseudoElement as Pseudo;
 
@@ -707,7 +707,7 @@ fn clone_pseudo_element<'ast>(
 
 fn clone_view_transition_part<'ast>(
     part: NodeId<'ast, ViewTransitionPartSelector<'ast>>,
-    ast: &mut Compilation<'ast>,
+    ast: &mut AstContext<'ast>,
 ) -> NodeId<'ast, ViewTransitionPartSelector<'ast>> {
     let cloned = ast.clone_node(part);
     ast.mutate_node(cloned, |part, ast| {
@@ -726,7 +726,7 @@ mod tests {
 
     fn pseudo_class_id<'ast>(
         selector: &Selector<'ast>,
-        ast: &Compilation<'ast>,
+        ast: &AstContext<'ast>,
     ) -> NodeId<'ast, PseudoClass<'ast>> {
         ast.vec(selector.as_parsed().expect("expected parsed selector"))
             .iter()

@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use rocketcss_ast::{
-    Compilation, ConcreteRuleId, CssRulePayload, Declaration, EnvironmentVariableName, Function,
+    AstContext, ConcreteRuleId, CssRulePayload, Declaration, EnvironmentVariableName, Function,
     Mask, TokenOrValue, UnresolvedColor,
 };
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
@@ -9,7 +9,7 @@ use rocketcss_common::GhostToken;
 use rustc_hash::FxHasher;
 
 /// Compares the serialized value graph while resolving every stored node through its context.
-pub(crate) fn css_values_are_equal<T>(ast: &Compilation<'_>, left: &T, right: &T) -> bool
+pub(crate) fn css_values_are_equal<T>(ast: &AstContext<'_>, left: &T, right: &T) -> bool
 where
     T: for<'ghost> ToCss<'ghost> + PartialEq,
 {
@@ -19,7 +19,7 @@ where
     })
 }
 
-pub(crate) fn css_value_serialization<T>(ast: &Compilation<'_>, value: &T) -> Option<String>
+pub(crate) fn css_value_serialization<T>(ast: &AstContext<'_>, value: &T) -> Option<String>
 where
     T: for<'ghost> ToCss<'ghost>,
 {
@@ -34,7 +34,7 @@ where
 }
 
 pub(crate) fn css_value_matches_serialization<T>(
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
     expected: &str,
     value: &T,
 ) -> bool
@@ -56,7 +56,7 @@ where
 /// AST equality relation: distinct mask origin/clip pairs can serialize to the same one-value
 /// shorthand. Keep those outer fields exact and use serialization only for their stored children.
 pub(crate) fn declarations_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: &Declaration<'ast>,
     right: &Declaration<'ast>,
 ) -> bool {
@@ -68,7 +68,7 @@ pub(crate) fn declarations_are_equal<'ast>(
 /// entirely of the high-frequency token nodes handled here. `None` keeps uncommon typed graphs on
 /// the serialization fallback rather than weakening their equality semantics.
 pub(crate) fn known_declaration_structural_equality<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: &Declaration<'ast>,
     right: &Declaration<'ast>,
 ) -> Option<bool> {
@@ -105,7 +105,7 @@ pub(crate) fn known_declaration_structural_equality<'ast>(
 }
 
 fn token_lists_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: &[TokenOrValue<'ast>],
     right: &[TokenOrValue<'ast>],
 ) -> Option<bool> {
@@ -122,7 +122,7 @@ fn token_lists_are_equal<'ast>(
 }
 
 fn optional_token_lists_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: Option<&[TokenOrValue<'ast>]>,
     right: Option<&[TokenOrValue<'ast>]>,
 ) -> Option<bool> {
@@ -134,7 +134,7 @@ fn optional_token_lists_are_equal<'ast>(
 }
 
 fn token_or_value_equality<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: &TokenOrValue<'ast>,
     right: &TokenOrValue<'ast>,
 ) -> Option<bool> {
@@ -194,7 +194,7 @@ fn token_or_value_equality<'ast>(
 }
 
 fn environment_variable_names_are_equal(
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
     left: &EnvironmentVariableName<'_>,
     right: &EnvironmentVariableName<'_>,
 ) -> bool {
@@ -207,7 +207,7 @@ fn environment_variable_names_are_equal(
 }
 
 fn functions_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: &Function<'ast>,
     right: &Function<'ast>,
 ) -> Option<bool> {
@@ -225,7 +225,7 @@ fn functions_are_equal<'ast>(
 }
 
 fn unresolved_colors_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: &UnresolvedColor<'ast>,
     right: &UnresolvedColor<'ast>,
 ) -> Option<bool> {
@@ -281,7 +281,7 @@ fn unresolved_colors_are_equal<'ast>(
 
 /// Applies authored-structure guards after callers have established equal compact CSS.
 pub(crate) fn declarations_with_equal_css_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: &Declaration<'ast>,
     right: &Declaration<'ast>,
 ) -> bool {
@@ -294,7 +294,7 @@ pub(crate) fn declarations_with_equal_css_are_equal<'ast>(
 }
 
 fn masks_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: &[Mask<'ast>],
     right: &[Mask<'ast>],
 ) -> bool {
@@ -312,7 +312,7 @@ fn masks_are_equal<'ast>(
 }
 
 fn images_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: rocketcss_ast::NodeId<'ast, rocketcss_ast::Image<'ast>>,
     right: rocketcss_ast::NodeId<'ast, rocketcss_ast::Image<'ast>>,
 ) -> bool {
@@ -326,7 +326,7 @@ fn images_are_equal<'ast>(
 }
 
 fn stored_values_are_equal<'ast, T>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: rocketcss_ast::NodeId<'ast, T>,
     right: rocketcss_ast::NodeId<'ast, T>,
 ) -> bool
@@ -336,7 +336,7 @@ where
     css_values_are_equal(ast, ast.resolve_node(left), ast.resolve_node(right))
 }
 
-fn css_value_fingerprint<T>(ast: &Compilation<'_>, value: &T) -> u64
+fn css_value_fingerprint<T>(ast: &AstContext<'_>, value: &T) -> u64
 where
     T: for<'ghost> ToCss<'ghost> + PartialEq,
 {
@@ -363,7 +363,7 @@ impl std::fmt::Write for CssHashWriter<'_> {
 }
 
 pub(crate) fn context_frame_fingerprint<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     rule: ConcreteRuleId<'ast>,
 ) -> u64 {
     match ast
@@ -384,7 +384,7 @@ pub(crate) fn context_frame_fingerprint<'ast>(
 }
 
 pub(crate) fn context_frames_are_equal<'ast>(
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
     left: ConcreteRuleId<'ast>,
     right: ConcreteRuleId<'ast>,
 ) -> bool {

@@ -9,7 +9,7 @@ struct DeclarationRewritePreflight<'ast> {
     important: bool,
 }
 
-impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
+impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
     /// Appends a new rule record and links it as the direct sibling after
     /// `after`. Dense identity is independent from semantic source order.
     pub fn insert_rule_after(
@@ -133,7 +133,7 @@ impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast
     }
 }
 
-impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
+impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
     /// Returns whether a terminal transform can allocate `additional`
     /// declaration records without publishing a partial mutation.
     #[inline]
@@ -432,7 +432,7 @@ impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast
     }
 }
 
-impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
+impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
     /// Replaces one declaration payload through its owning block and bumps the
     /// block revision used by incremental Nano candidates.
     pub fn replace_declaration(
@@ -774,18 +774,18 @@ impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast
     }
 }
 
-impl<'ast> Compilation<'ast> {
+impl<'ast> AstContext<'ast> {
     /// Runs non-structural mutations through compact handles branded to one
     /// live declaration block. The higher-ranked scope prevents handles from
     /// escaping the callback.
     ///
     /// ```compile_fail
     /// use rocketcss_ast::{
-    ///     Compilation, ConcreteDeclarationBlockId, ScopedDeclarationHandle,
+    ///     AstContext, ConcreteDeclarationBlockId, ScopedDeclarationHandle,
     /// };
     ///
     /// fn escape<'ast>(
-    ///     compilation: &mut Compilation<'ast>,
+    ///     compilation: &mut AstContext<'ast>,
     ///     block: ConcreteDeclarationBlockId<'ast>,
     /// ) -> ScopedDeclarationHandle<'static, 'ast> {
     ///     compilation
@@ -941,13 +941,13 @@ impl<'ast> Compilation<'ast> {
 impl<'scope, 'ast> DeclarationBlockMutationScope<'scope, 'ast> {
     /// Returns the AST context that owns every declaration payload and node ID in this scope.
     #[inline]
-    pub fn ast_context(&self) -> &Compilation<'ast> {
+    pub fn ast_context(&self) -> &AstContext<'ast> {
         self.compilation
     }
 
     /// Returns unique access to the AST context when no declaration borrow is active.
     #[inline]
-    pub fn ast_context_mut(&mut self) -> &mut Compilation<'ast> {
+    pub fn ast_context_mut(&mut self) -> &mut AstContext<'ast> {
         self.compilation
     }
 

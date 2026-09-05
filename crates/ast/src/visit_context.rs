@@ -5,12 +5,12 @@ use std::{
     pin::Pin,
 };
 
-use crate::{AstVec, Compilation, NodeId};
+use crate::{AstContext, AstVec, NodeId};
 
 /// Shared GhostCell access carried through immutable value-AST traversal.
 pub struct VisitContext<'token, 'ast, 'ghost> {
     token: &'token GhostToken<'ghost>,
-    ast: Option<&'token Compilation<'ast>>,
+    ast: Option<&'token AstContext<'ast>>,
 }
 
 impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
@@ -22,7 +22,7 @@ impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
     #[inline]
     pub const fn with_ast(
         token: &'token GhostToken<'ghost>,
-        ast: &'token Compilation<'ast>,
+        ast: &'token AstContext<'ast>,
     ) -> Self {
         Self {
             token,
@@ -36,7 +36,7 @@ impl<'token, 'ast, 'ghost> VisitContext<'token, 'ast, 'ghost> {
     }
 
     #[inline]
-    pub fn ast_context(&self) -> &'token Compilation<'ast> {
+    pub fn ast_context(&self) -> &'token AstContext<'ast> {
         self.ast.expect("visiting a NodeId requires its AstContext")
     }
 
@@ -67,7 +67,7 @@ pub struct VisitMutContext<'token, 'ast, 'ghost> {
 enum VisitMutState<'token, 'ast, 'ghost> {
     Available {
         token: &'token mut GhostToken<'ghost>,
-        ast: Option<&'token mut Compilation<'ast>>,
+        ast: Option<&'token mut AstContext<'ast>>,
     },
     Borrowed,
 }
@@ -83,7 +83,7 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
     #[inline]
     pub const fn with_ast(
         token: &'token mut GhostToken<'ghost>,
-        ast: &'token mut Compilation<'ast>,
+        ast: &'token mut AstContext<'ast>,
     ) -> Self {
         Self {
             state: VisitMutState::Available {
@@ -103,7 +103,7 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
 
     /// Returns the AST context while no nested mutable node transaction is active.
     #[inline]
-    pub fn ast_context(&self) -> &Compilation<'ast> {
+    pub fn ast_context(&self) -> &AstContext<'ast> {
         let VisitMutState::Available { ast: Some(ast), .. } = &self.state else {
             panic!("visiting a NodeId requires its available AstContext");
         };
@@ -112,7 +112,7 @@ impl<'token, 'ast, 'ghost> VisitMutContext<'token, 'ast, 'ghost> {
 
     /// Returns unique access to the AST context while no nested transaction is active.
     #[inline]
-    pub fn ast_context_mut(&mut self) -> &mut Compilation<'ast> {
+    pub fn ast_context_mut(&mut self) -> &mut AstContext<'ast> {
         let VisitMutState::Available { ast: Some(ast), .. } = &mut self.state else {
             panic!("visiting a NodeId requires its available AstContext");
         };

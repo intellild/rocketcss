@@ -1,4 +1,4 @@
-use rocketcss_ast::{AstVec, Atom, Compilation, NodeId};
+use rocketcss_ast::{AstContext, AstVec, Atom, NodeId};
 use rocketcss_common::{Allocator, GhostToken, StringPool, vec::Vec};
 
 use crate::{
@@ -9,7 +9,7 @@ use crate::{
 /// Shared state for parsing CSS into one arena-owned compilation.
 pub struct Compiler<'alloc> {
     pub(crate) allocator: &'alloc Allocator,
-    pub(crate) compilation: Compilation<'alloc>,
+    pub(crate) compilation: AstContext<'alloc>,
     pub(crate) string_pool: StringPool<'alloc>,
     pub(crate) cursor: ParserCursor<'alloc>,
     pub(crate) replay: DeclarationTokenReplay<'alloc>,
@@ -21,7 +21,7 @@ impl<'alloc> Compiler<'alloc> {
     pub fn new(allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
-            compilation: Compilation::new_in(allocator),
+            compilation: AstContext::new_in(allocator),
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(""),
             replay: DeclarationTokenReplay::new(allocator),
@@ -34,7 +34,7 @@ impl<'alloc> Compiler<'alloc> {
     pub fn new_with_source(source: &'alloc str, allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
-            compilation: Compilation::new_in(allocator),
+            compilation: AstContext::new_in(allocator),
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(source),
             replay: DeclarationTokenReplay::new(allocator),
@@ -48,7 +48,7 @@ impl<'alloc> Compiler<'alloc> {
         source: &'alloc str,
         _token: &mut GhostToken<'ghost>,
         options: ParserOptions<'alloc>,
-    ) -> Result<Compilation<'alloc>, Error<'alloc>> {
+    ) -> Result<AstContext<'alloc>, Error<'alloc>> {
         let compilation = self.parse_compilation(source, options)?;
         self.source = options.filename;
         self.source_map_url = self.cursor.source_map_url;
@@ -62,19 +62,19 @@ impl<'alloc> Compiler<'alloc> {
 
     /// Returns the AST context that owns every node allocated by this parser.
     #[inline]
-    pub fn ast_context(&self) -> &Compilation<'alloc> {
+    pub fn ast_context(&self) -> &AstContext<'alloc> {
         &self.compilation
     }
 
     /// Returns the AST context that owns every node allocated by this parser.
     #[inline]
-    pub fn ast_context_mut(&mut self) -> &mut Compilation<'alloc> {
+    pub fn ast_context_mut(&mut self) -> &mut AstContext<'alloc> {
         &mut self.compilation
     }
 
     /// Finishes value parsing and transfers ownership of the node context to the caller.
     #[inline]
-    pub fn into_ast_context(self) -> Compilation<'alloc> {
+    pub fn into_ast_context(self) -> AstContext<'alloc> {
         self.compilation
     }
 

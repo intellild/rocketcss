@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn compares_nodes_while_ignoring_owned_tombstone_slots() {
         let allocator = Allocator::new();
-        let mut ast = Compilation::new_in(&allocator);
+        let mut ast = AstContext::new_in(&allocator);
         assert!(FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Tombstone, &ast));
         assert!(!FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Serif, &ast));
 
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn selector_uses_typed_lightningcss_components() {
         let allocator = Allocator::new();
-        let mut ast = Compilation::new_in(&allocator);
+        let mut ast = AstContext::new_in(&allocator);
         let mut selector = allocator.vec();
         selector.push(SelectorComponent::Nth(NthSelectorData {
             kind: NthType::Child,
@@ -184,7 +184,7 @@ mod tests {
     #[test]
     fn function_state_is_accessed_through_flags() {
         let allocator = Allocator::new();
-        let mut ast = Compilation::new_in(&allocator);
+        let mut ast = AstContext::new_in(&allocator);
         let arguments = ast.alloc_vec(allocator.vec());
         let mut function = Function::new("url", arguments);
 
@@ -214,7 +214,7 @@ mod tests {
             KnownFunction::LinearGradient,
         );
         assert_eq!(KnownFunction::from_name("-moz-calc"), KnownFunction::Calc,);
-        let mut ast = Compilation::new_in(&allocator);
+        let mut ast = AstContext::new_in(&allocator);
         let arguments = ast.alloc_vec(allocator.vec());
         let function = Function::new("-moz-calc", arguments);
         assert!(function.is_vendor_prefixed());

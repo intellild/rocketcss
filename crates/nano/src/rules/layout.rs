@@ -1,4 +1,4 @@
-use rocketcss_ast::{Compilation, Declaration, Margin, Padding, PropertyId};
+use rocketcss_ast::{AstContext, Declaration, Margin, Padding, PropertyId};
 
 pub(crate) const ALL_BOX_SIDES: u8 = 0b1111;
 
@@ -60,7 +60,7 @@ pub(crate) fn typed_box_property(declaration: &Declaration<'_>) -> Option<BoxPro
 #[inline]
 pub(crate) fn box_property(
     declaration: &Declaration<'_>,
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
 ) -> Option<BoxProperty> {
     if let Some(property) = typed_box_property(declaration) {
         return Some(property);
@@ -103,7 +103,7 @@ pub(crate) fn materialize_box_longhands<'ast>(
     declaration: &Declaration<'ast>,
     family: BoxFamily,
     live_effects: u8,
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> Option<std::vec::Vec<Declaration<'ast>>> {
     if live_effects == 0 || live_effects & !ALL_BOX_SIDES != 0 {
         return None;

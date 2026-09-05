@@ -57,9 +57,8 @@ No internal storage component should be called `radix` unless it actually
 implements a radix data structure. Historical analysis documents may keep the
 term when describing the removed design.
 
-`Compilation<'ast>` may remain temporarily as a deprecated compatibility alias
-to `AstContext<'ast>`. New APIs, fields, tests, and documentation use
-`AstContext` directly; the alias is removed after call sites migrate.
+The former `Compilation<'ast>` compatibility alias has no role in the target
+API. New APIs, fields, tests, and documentation use `AstContext` directly.
 
 ## Ownership and physical layout
 

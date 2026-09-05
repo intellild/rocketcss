@@ -143,7 +143,7 @@ fn print_css(source: &str) -> Result<String, String> {
 // canonicalized every named color to RGBA. Keep that comparison-only behavior
 // explicit without making normal codegen lossy again.
 fn canonicalize_known_colors<'ast, 'ghost>(
-    compilation: &mut rocketcss_ast::Compilation<'ast>,
+    compilation: &mut rocketcss_ast::AstContext<'ast>,
     token: &mut GhostToken<'ghost>,
 ) -> Result<(), String> {
     struct CanonicalizeKnownColors;

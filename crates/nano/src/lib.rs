@@ -28,7 +28,7 @@ pub trait Minify {
 
 /// Minifies the compiler-owned compilation in place.
 pub fn minify<'ast, 'ghost>(
-    compilation: &mut Compilation<'ast>,
+    compilation: &mut AstContext<'ast>,
     token: &mut GhostToken<'ghost>,
     options: MinifyOptions,
 ) -> MinifyStats {
@@ -38,7 +38,7 @@ pub fn minify<'ast, 'ghost>(
 
 /// Fallible entry point for structural transforms.
 pub fn try_minify<'ast, 'ghost>(
-    compilation: &mut Compilation<'ast>,
+    compilation: &mut AstContext<'ast>,
     token: &mut GhostToken<'ghost>,
     options: MinifyOptions,
 ) -> Result<MinifyStats, ConcreteMutationError<'ast>> {
@@ -249,7 +249,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for MinifyPlugin {
 
     fn transform(
         &mut self,
-        compilation: &mut Compilation<'a>,
+        compilation: &mut AstContext<'a>,
         cx: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         let stats = minify(compilation, cx.ghost_token(), self.options);

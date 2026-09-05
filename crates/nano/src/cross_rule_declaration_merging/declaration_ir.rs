@@ -1,7 +1,7 @@
 use std::hash::{Hash, Hasher};
 
 use rocketcss_ast::DeclarationRecord;
-use rocketcss_ast::{Compilation, Declaration, PropertyId};
+use rocketcss_ast::{AstContext, Declaration, PropertyId};
 use rocketcss_common::{
     Allocator,
     prelude::{HashMap, Vec},
@@ -32,7 +32,7 @@ impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
 
     pub(super) fn property_key(
         &mut self,
-        ast: &Compilation<'ast>,
+        ast: &AstContext<'ast>,
         declaration: &Declaration<'ast>,
         important: bool,
     ) -> Option<CompactPropertyKey> {
@@ -58,7 +58,7 @@ impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
 
     pub(super) fn movement_domain(
         &mut self,
-        ast: &Compilation<'ast>,
+        ast: &AstContext<'ast>,
         declaration: &Declaration<'ast>,
     ) -> Option<MovementDomain> {
         let property_id = declaration.property_id(ast)?;
@@ -80,11 +80,7 @@ impl CompactPropertyKey {
     const VENDOR_PREFIX_SHIFT: u32 = 1;
     const PROPERTY_ID_SHIFT: u32 = 6;
 
-    fn known(
-        ast: &Compilation<'_>,
-        declaration: &Declaration<'_>,
-        important: bool,
-    ) -> Option<Self> {
+    fn known(ast: &AstContext<'_>, declaration: &Declaration<'_>, important: bool) -> Option<Self> {
         if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix(ast) {
             let vendor_prefix = u32::from(vendor_prefix.bits());
             debug_assert!(property_id <= u32::MAX >> Self::PROPERTY_ID_SHIFT);
@@ -366,7 +362,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn freeze_block(
         &mut self,
-        compilation: &rocketcss_ast::Compilation<'ast>,
+        compilation: &rocketcss_ast::AstContext<'ast>,
         block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
     ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
         let mut summary = DeclarationBlockIr::default();
@@ -394,7 +390,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     fn publish_occurrence(
         &mut self,
-        compilation: &rocketcss_ast::Compilation<'ast>,
+        compilation: &rocketcss_ast::AstContext<'ast>,
         occurrence: PublishedOccurrence<'ast>,
         record: &DeclarationRecord<'ast, rocketcss_ast::DeclarationPayload<'ast>>,
         summary: &mut DeclarationBlockIr,
@@ -491,7 +487,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn publish_synthesized_declaration(
         &mut self,
-        compilation: &rocketcss_ast::Compilation<'ast>,
+        compilation: &rocketcss_ast::AstContext<'ast>,
         block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
         declaration: rocketcss_ast::DeclarationId<'ast>,
     ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
@@ -554,7 +550,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn compose(
         &mut self,
-        compilation: &rocketcss_ast::Compilation<'ast>,
+        compilation: &rocketcss_ast::AstContext<'ast>,
         left: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
         right: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
     ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {
@@ -599,7 +595,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn declarations_have_equal_css(
         &mut self,
-        compilation: &rocketcss_ast::Compilation<'ast>,
+        compilation: &rocketcss_ast::AstContext<'ast>,
         left: rocketcss_ast::DeclarationId<'ast>,
         right: rocketcss_ast::DeclarationId<'ast>,
     ) -> bool {
@@ -653,7 +649,7 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
 
     pub(super) fn live_declarations(
         &self,
-        compilation: &rocketcss_ast::Compilation<'ast>,
+        compilation: &rocketcss_ast::AstContext<'ast>,
         block: rocketcss_ast::ConcreteDeclarationBlockId<'ast>,
         output: &mut Vec<'scratch, rocketcss_ast::DeclarationId<'ast>>,
     ) -> Result<(), rocketcss_ast::ConcreteMutationError<'ast>> {

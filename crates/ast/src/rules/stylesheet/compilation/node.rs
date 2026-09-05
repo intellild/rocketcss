@@ -8,7 +8,7 @@ use rocketcss_common::{Allocator, DenseId, DenseRange, DenseStore, vec::Vec as A
 
 use crate::{DUMMY_SP, Span, Visit, VisitContext, VisitMut, VisitMutContext, Visitor, VisitorMut};
 
-use super::{CssRulePayload, DeclarationPayload, EffectiveKeyData, RadixCompilation};
+use super::{AstContext, AstNodeStorage, ExtraDataCompact};
 
 /// AST node identity. The node type itself is the dense identity domain.
 pub type NodeId<'ast, T> = DenseId<'ast, T>;
@@ -31,7 +31,7 @@ fn node_type_name<T>() -> &'static str {
 
 /// Hand-written, heterogeneous node table. Payloads live in the compilation arena while this
 /// table keeps their dense identity, borrow state, and aligned span sidecar.
-struct NodeStore<'ast> {
+pub(super) struct NodeStore<'ast> {
     allocator: &'ast Allocator,
     nodes: DenseStore<'ast, NodeStorageDomain, NodeSlot>,
     spans: DenseStore<'ast, NodeStorageDomain, Span>,
@@ -51,7 +51,7 @@ struct VecRangeSlot {
 /// Persistent list elements remain in one contiguous arena allocation. A compact
 /// dense element table maps every range position to one allocation slot, so the
 /// pointer, runtime type, and mutation borrow state are stored only once per list.
-struct VecStore<'ast> {
+pub(super) struct VecStore<'ast> {
     allocator: &'ast Allocator,
     elements: DenseStore<'ast, VecElementStorageDomain, DenseId<'ast, VecRangeStorageDomain>>,
     ranges: DenseStore<'ast, VecRangeStorageDomain, VecRangeSlot>,
@@ -107,7 +107,7 @@ impl<T> Drop for NodeMutation<'_, T> {
 }
 
 impl<'ast> NodeStore<'ast> {
-    fn new_in(allocator: &'ast Allocator) -> Self {
+    pub(super) fn new_in(allocator: &'ast Allocator) -> Self {
         Self {
             allocator,
             nodes: DenseStore::new_in(allocator),
@@ -225,7 +225,7 @@ impl<'ast> NodeStore<'ast> {
 }
 
 impl<'ast> VecStore<'ast> {
-    fn new_in(allocator: &'ast Allocator) -> Self {
+    pub(super) fn new_in(allocator: &'ast Allocator) -> Self {
         Self {
             allocator,
             elements: DenseStore::new_in(allocator),
@@ -386,80 +386,164 @@ impl<'ast> VecStore<'ast> {
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug)]
 pub struct NodeCheckpoint {
+    compact_node_len: usize,
+    extra_len: usize,
+    string_len: usize,
+    atom_len: usize,
     node_len: usize,
     vec_element_len: usize,
     vec_range_len: usize,
 }
 
-/// Storage extension used by the concrete AST context.
-#[doc(hidden)]
-pub struct AstNodeStores<'ast> {
-    nodes: NodeStore<'ast>,
-    vecs: VecStore<'ast>,
-}
+#[allow(dead_code)]
+impl<'ast> AstContext<'ast> {
+    /// Allocates one value through its hand-written fixed-width codec.
+    pub(crate) fn alloc_encoded_node<T: AstNodeStorage<'ast>>(
+        &mut self,
+        value: T,
+        span: Span,
+    ) -> NodeId<'ast, T> {
+        let payload = value.encode_new(self);
+        self.nodes.alloc(T::KIND, payload, span)
+    }
 
-/// Initializes the optional node-storage extension of a generic compilation.
-#[doc(hidden)]
-pub trait CompilationNodeStores<'ast>: Sized {
-    fn new_in(allocator: &'ast Allocator) -> Self;
-}
+    /// Decodes one value through its hand-written fixed-width codec.
+    #[inline]
+    pub(crate) fn encoded_node<T: AstNodeStorage<'ast>>(&self, id: NodeId<'ast, T>) -> T {
+        T::decode(self.nodes.payload(id, T::KIND), self)
+    }
 
-impl<'ast> CompilationNodeStores<'ast> for () {
-    fn new_in(_allocator: &'ast Allocator) -> Self {}
-}
+    /// Reconstructs a typed identity stored inside another encoded payload.
+    #[inline]
+    pub(crate) fn encoded_node_id_at<T>(&self, index: usize) -> NodeId<'ast, T> {
+        self.nodes.id_at(index)
+    }
 
-impl<'ast> CompilationNodeStores<'ast> for AstNodeStores<'ast> {
-    fn new_in(allocator: &'ast Allocator) -> Self {
-        Self {
-            nodes: NodeStore::new_in(allocator),
-            vecs: VecStore::new_in(allocator),
+    /// Mutates an encoded value transactionally without changing its identity.
+    pub(crate) fn mutate_encoded_node<T: AstNodeStorage<'ast>, R>(
+        &mut self,
+        id: NodeId<'ast, T>,
+        f: impl FnOnce(&mut T, &mut Self) -> R,
+    ) -> R {
+        let current = self.nodes.begin_mutation(id, T::KIND);
+        let mut value = T::decode(current, self);
+        let result = catch_unwind(AssertUnwindSafe(|| f(&mut value, self)));
+        let payload = value.encode_existing(current, self);
+        self.nodes.finish_mutation(id, T::KIND, payload);
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
         }
     }
-}
 
-type Context<'ast> = RadixCompilation<
-    'ast,
-    CssRulePayload<'ast>,
-    DeclarationPayload<'ast>,
-    EffectiveKeyData<'ast, CssRulePayload<'ast>>,
-    AstNodeStores<'ast>,
->;
+    #[inline]
+    pub(crate) fn encoded_node_span<T: AstNodeStorage<'ast>>(&self, id: NodeId<'ast, T>) -> Span {
+        self.nodes.span(id, T::KIND)
+    }
 
-impl<'ast> Context<'ast> {
+    #[inline]
+    pub(crate) fn set_encoded_node_span<T: AstNodeStorage<'ast>>(
+        &mut self,
+        id: NodeId<'ast, T>,
+        span: Span,
+    ) {
+        self.nodes.set_span(id, T::KIND, span);
+    }
+
+    pub(crate) fn alloc_encoded_vec<T: ExtraDataCompact<'ast>>(
+        &mut self,
+        values: impl ExactSizeIterator<Item = T>,
+    ) -> AstVec<'ast, T> {
+        let slots = values
+            .map(|value| value.encode_extra(self))
+            .collect::<std::vec::Vec<_>>();
+        self.extra.alloc(slots.into_iter())
+    }
+
+    #[inline]
+    pub(crate) fn encoded_vec_get<T: ExtraDataCompact<'ast>>(
+        &self,
+        range: AstVec<'ast, T>,
+        index: usize,
+    ) -> Option<T> {
+        self.extra
+            .get(range, index)
+            .map(|data| T::decode_extra(data, self))
+    }
+
+    #[inline]
+    pub(crate) fn encoded_vec_set<T: ExtraDataCompact<'ast>>(
+        &mut self,
+        range: AstVec<'ast, T>,
+        index: usize,
+        value: T,
+    ) {
+        let data = value.encode_extra(self);
+        self.extra.set(range, index, data);
+    }
+
+    #[inline]
+    pub(crate) fn store_string(&mut self, value: &'ast str) -> u32 {
+        self.strings.store_string(value)
+    }
+
+    #[inline]
+    pub(crate) fn resolve_string(&self, index: u64) -> &'ast str {
+        self.strings.resolve_string(index)
+    }
+
+    #[inline]
+    pub(crate) fn store_atom(&mut self, value: rocketcss_common::Atom<'ast>) -> u32 {
+        self.strings.store_atom(value)
+    }
+
+    #[inline]
+    pub(crate) fn resolve_atom(&self, index: u64) -> rocketcss_common::Atom<'ast> {
+        self.strings.resolve_atom(index)
+    }
+
     #[doc(hidden)]
     #[inline]
     pub fn node_checkpoint(&self) -> NodeCheckpoint {
+        let (string_len, atom_len) = self.strings.lengths();
         NodeCheckpoint {
-            node_len: self.node_stores.nodes.len(),
-            vec_element_len: self.node_stores.vecs.element_len(),
-            vec_range_len: self.node_stores.vecs.range_len(),
+            compact_node_len: self.nodes.len(),
+            extra_len: self.extra.len(),
+            string_len,
+            atom_len,
+            node_len: self.node_store.len(),
+            vec_element_len: self.vec_store.element_len(),
+            vec_range_len: self.vec_store.range_len(),
         }
     }
 
     #[doc(hidden)]
     #[inline]
     pub fn restore_node_checkpoint(&mut self, checkpoint: NodeCheckpoint) {
-        self.node_stores.nodes.truncate(checkpoint.node_len);
-        self.node_stores
-            .vecs
+        self.nodes.truncate(checkpoint.compact_node_len);
+        self.extra.truncate(checkpoint.extra_len);
+        self.strings
+            .truncate(checkpoint.string_len, checkpoint.atom_len);
+        self.node_store.truncate(checkpoint.node_len);
+        self.vec_store
             .truncate(checkpoint.vec_element_len, checkpoint.vec_range_len);
     }
 
     #[inline]
     pub fn alloc_node<T: 'ast>(&mut self, value: T, span: Span) -> NodeId<'ast, T> {
-        self.node_stores.nodes.alloc(value, span)
+        self.node_store.alloc(value, span)
     }
 
     /// Commits a construction-time arena vector to persistent AST range storage.
     #[inline]
     pub fn alloc_vec<T: 'ast + Unpin>(&mut self, values: ArenaVec<'ast, T>) -> AstVec<'ast, T> {
-        self.node_stores.vecs.alloc(values)
+        self.vec_store.alloc(values)
     }
 
     /// Resolves a persistent AST range to its contiguous elements.
     #[inline]
     pub fn vec<'id, T>(&self, range: AstVec<'id, T>) -> &[T] {
-        self.node_stores.vecs.get(range)
+        self.vec_store.get(range)
     }
 
     /// Clones a persistent list into a fresh dense range.
@@ -477,7 +561,7 @@ impl<'ast> Context<'ast> {
         range: AstVec<'ast, T>,
         f: impl FnOnce(&mut [T], &mut Self) -> R,
     ) -> R {
-        let mut mutation = self.node_stores.vecs.mutation(range);
+        let mut mutation = self.vec_store.mutation(range);
         f(mutation.values(), self)
     }
 
@@ -489,9 +573,9 @@ impl<'ast> Context<'ast> {
         range: &mut AstVec<'ast, T>,
         f: impl FnOnce(&mut ArenaVec<'ast, T>, &mut Self) -> R,
     ) -> R {
-        let mut values = self.node_stores.vecs.take(*range);
+        let mut values = self.vec_store.take(*range);
         let result = catch_unwind(AssertUnwindSafe(|| f(&mut values, self)));
-        *range = self.node_stores.vecs.alloc(values);
+        *range = self.vec_store.alloc(values);
         match result {
             Ok(result) => result,
             Err(payload) => resume_unwind(payload),
@@ -500,14 +584,14 @@ impl<'ast> Context<'ast> {
 
     #[inline]
     pub fn node<T>(&self, id: NodeId<'ast, T>) -> &T {
-        self.node_stores.nodes.get(id)
+        self.node_store.get(id)
     }
 
     /// Resolves a typed ID carried through an API whose AST lifetime is erased.
     #[doc(hidden)]
     #[inline]
     pub fn resolve_node<'id, T>(&self, id: NodeId<'id, T>) -> &T {
-        self.node_stores.nodes.get_at(id.index())
+        self.node_store.get_at(id.index())
     }
 
     /// Compares stored node payloads rather than their dense identities.
@@ -534,33 +618,33 @@ impl<'ast> Context<'ast> {
         id: NodeId<'ast, T>,
         f: impl FnOnce(&mut T, &mut Self) -> R,
     ) -> R {
-        let mut mutation = self.node_stores.nodes.mutation(id);
+        let mut mutation = self.node_store.mutation(id);
         f(mutation.value(), self)
     }
 
     #[inline]
     pub fn node_span<T>(&self, id: NodeId<'ast, T>) -> Span {
-        self.node_stores.nodes.span(id)
+        self.node_store.span(id)
     }
 
     #[inline]
     pub fn set_node_span<T>(&mut self, id: NodeId<'ast, T>, span: Span) {
-        self.node_stores.nodes.set_span(id, span);
+        self.node_store.set_span(id, span);
     }
 
     pub(crate) fn node_mutation<T>(&mut self, id: NodeId<'ast, T>) -> NodeMutation<'ast, T> {
-        self.node_stores.nodes.mutation(id)
+        self.node_store.mutation(id)
     }
 
     pub(crate) fn vec_mutation<T>(&mut self, range: AstVec<'ast, T>) -> VecMutation<'ast, T> {
-        self.node_stores.vecs.mutation(range)
+        self.vec_store.mutation(range)
     }
 
     pub(crate) fn take_vec<T: Unpin + 'ast>(
         &mut self,
         range: AstVec<'ast, T>,
     ) -> ArenaVec<'ast, T> {
-        self.node_stores.vecs.take(range)
+        self.vec_store.take(range)
     }
 
     #[inline]

@@ -27,7 +27,7 @@ pub(super) use font::parse_font_family_list;
 pub(super) use transform::parse_transform_list;
 
 pub(super) fn single_token<'context, 'i>(
-    ast: &'context Compilation<'i>,
+    ast: &'context AstContext<'i>,
     value: &[TokenOrValue<'i>],
 ) -> Option<&'context ValueToken<'i>> {
     if let [TokenOrValue::Token(token)] = value {
@@ -38,7 +38,7 @@ pub(super) fn single_token<'context, 'i>(
 }
 
 pub(super) fn token_values_contain_opaque<'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     values: &[TokenOrValue<'i>],
 ) -> bool {
     values.iter().any(|value| match value {
@@ -181,7 +181,7 @@ fn collect_tokens_impl<'i>(
 }
 
 pub(super) fn remove_important<'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     value: &mut Vec<'i, TokenOrValue<'i>>,
 ) -> bool {
     let Some(important_index) = previous_non_whitespace(ast, value, value.len()) else {
@@ -209,7 +209,7 @@ pub(super) fn remove_important<'i>(
 }
 
 pub(super) fn previous_non_whitespace<'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     value: &[TokenOrValue<'i>],
     before: usize,
 ) -> Option<usize> {
@@ -219,7 +219,7 @@ pub(super) fn previous_non_whitespace<'i>(
 }
 
 pub(super) fn trim_trailing_whitespace<'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     value: &mut Vec<'i, TokenOrValue<'i>>,
 ) {
     while matches!(value.last(), Some(TokenOrValue::Token(token)) if matches!(ast.node(*token), ValueToken::WhiteSpace(_)))
@@ -229,7 +229,7 @@ pub(super) fn trim_trailing_whitespace<'i>(
 }
 
 pub(super) fn trim_leading_whitespace<'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     value: &mut Vec<'i, TokenOrValue<'i>>,
 ) {
     while matches!(value.first(), Some(TokenOrValue::Token(token)) if matches!(ast.node(*token), ValueToken::WhiteSpace(_)))
@@ -238,7 +238,7 @@ pub(super) fn trim_leading_whitespace<'i>(
     }
 }
 
-pub(super) fn token_ident<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> Option<&'i str> {
+pub(super) fn token_ident<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> Option<&'i str> {
     match value {
         TokenOrValue::Token(token) => match ast.node(*token) {
             ValueToken::Ident(name) => Some(name),

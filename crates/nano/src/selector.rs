@@ -1,5 +1,5 @@
 use rocketcss_ast::{
-    Compilation, NthType, Selector, SelectorComponent, SelectorList, VisitMutContext,
+    AstContext, NthType, Selector, SelectorComponent, SelectorList, VisitMutContext,
 };
 use rocketcss_common::prelude::{Allocator, Vec};
 
@@ -55,11 +55,7 @@ pub(crate) fn minify_selector_list<'ast>(
     });
 }
 
-fn deduplicate(
-    selectors: &mut Vec<'_, Selector<'_>>,
-    allocator: &Allocator,
-    ast: &Compilation<'_>,
-) {
+fn deduplicate(selectors: &mut Vec<'_, Selector<'_>>, allocator: &Allocator, ast: &AstContext<'_>) {
     if selectors.len() < 2 {
         return;
     }

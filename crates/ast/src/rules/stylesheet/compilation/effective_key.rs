@@ -424,7 +424,7 @@ pub(crate) struct LayerContextRecord<'ast, P> {
     pub(super) occurrence: super::RuleId<'ast, P>,
 }
 
-impl<'ast> Compilation<'ast> {
+impl<'ast> AstContext<'ast> {
     /// Applies one local transform to every canonical selector value, then
     /// repairs selector paths and EffectiveKeys whose identities converge.
     ///
@@ -1385,7 +1385,7 @@ impl std::fmt::Write for DebugHashWriter<'_> {
 }
 
 fn selector_value_fingerprint(
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
     selectors: crate::SelectorList<'_>,
     kind: SelectorFrameKind,
     vendor_prefix: VendorPrefix,
@@ -1398,7 +1398,7 @@ fn selector_value_fingerprint(
 }
 
 fn selector_lists_are_equal(
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
     left: crate::SelectorList<'_>,
     right: crate::SelectorList<'_>,
 ) -> bool {
@@ -1412,7 +1412,7 @@ fn selector_lists_are_equal(
 }
 
 fn selectors_are_equal(
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
     left: &crate::Selector<'_>,
     right: &crate::Selector<'_>,
 ) -> bool {
@@ -1431,7 +1431,7 @@ fn selectors_are_equal(
 }
 
 fn selector_components_are_equal(
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
     left: &crate::SelectorComponent<'_>,
     right: &crate::SelectorComponent<'_>,
 ) -> bool {
@@ -1469,7 +1469,7 @@ fn selector_components_are_equal(
 }
 
 fn hash_selector_list(
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
     selectors: crate::SelectorList<'_>,
     hasher: &mut FxHasher,
 ) {
@@ -1490,7 +1490,7 @@ fn hash_selector_list(
 }
 
 fn hash_selector_component(
-    ast: &Compilation<'_>,
+    ast: &AstContext<'_>,
     component: &crate::SelectorComponent<'_>,
     hasher: &mut FxHasher,
 ) {
@@ -1526,7 +1526,7 @@ mod tests {
     #[test]
     fn selector_fingerprint_collisions_still_require_exact_equality() {
         let allocator = rocketcss_common::Allocator::new();
-        let mut compilation = Compilation::new_in(&allocator);
+        let mut compilation = AstContext::new_in(&allocator);
         let empty = compilation.alloc_vec(allocator.vec());
         let mut tombstone = allocator.vec();
         tombstone.push(Selector::Tombstone);
@@ -1555,7 +1555,7 @@ mod tests {
     #[test]
     fn selector_interning_compares_range_contents_instead_of_range_identity() {
         let allocator = rocketcss_common::Allocator::new();
-        let mut compilation = Compilation::new_in(&allocator);
+        let mut compilation = AstContext::new_in(&allocator);
 
         let first_components = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
             [crate::SelectorComponent::Empty],

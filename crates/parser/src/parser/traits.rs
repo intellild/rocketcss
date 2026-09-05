@@ -77,7 +77,7 @@ pub trait Parse<'i>: Sized {
     fn parse_string(
         source: &'i str,
         allocator: &'i Allocator,
-    ) -> Result<(Self, rocketcss_ast::Compilation<'i>), ParseError<'i, ParserError<'i>>> {
+    ) -> Result<(Self, rocketcss_ast::AstContext<'i>), ParseError<'i, ParserError<'i>>> {
         let mut compiler = Compiler::new_with_source(source, allocator);
         let value = compiler.parse_entirely(Self::parse)?;
         Ok((value, compiler.into_ast_context()))

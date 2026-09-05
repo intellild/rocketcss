@@ -10,6 +10,10 @@ mod effective_key;
 mod mutation;
 mod node;
 mod payload;
+// This allowance is removed when the last legacy node/list allocation is
+// routed through the compact storage APIs during this migration.
+#[allow(dead_code)]
+mod storage;
 mod topology;
 mod traversal;
 mod validation;
@@ -18,6 +22,9 @@ pub use effective_key::*;
 pub use node::*;
 pub use payload::*;
 pub use traversal::*;
+
+pub(crate) use storage::{AstNodeStorage, ExtraDataCompact, NodeKind, NodePayload};
+use storage::{ExtraDataStore, NodeData, StringData};
 
 /// Stable identity of one rule in the [`RuleStore`]. The type parameter is the
 /// rule payload, so `RuleId<'ast, P>` can only index an arena storing `RuleRecord<P>`.
@@ -54,7 +61,7 @@ pub type ContextValueId<'ast> = DenseId<'ast, ContextValueDomain>;
 pub type ContextPathId<'ast> = DenseId<'ast, ContextPathDomain>;
 pub type LayerContextId<'ast> = DenseId<'ast, LayerContextDomain>;
 
-/// Compilation-local label whose ordering matches semantic source order.
+/// AstContext-local label whose ordering matches semantic source order.
 ///
 /// Unlike [`RuleId`], this is not a storage identity. Local insertions allocate a
 /// label between their source neighbors, and the compilation may relabel every
@@ -82,28 +89,16 @@ pub type EffectiveKeyStore<'ast, P> = DenseStore<'ast, EffectiveKeyDomain, P>;
 pub type DeclarationStore<'ast, P> =
     DenseStore<'ast, DeclarationDomain, DeclarationRecord<'ast, P>>;
 
-/// Concrete compiler-owned AST context.
-pub type AstContext<'ast> = RadixCompilation<
-    'ast,
-    CssRulePayload<'ast>,
-    DeclarationPayload<'ast>,
-    EffectiveKeyData<'ast, CssRulePayload<'ast>>,
-    AstNodeStores<'ast>,
->;
-
-/// Compatibility name for the compiler-owned [`AstContext`].
-pub type Compilation<'ast> = AstContext<'ast>;
-
-/// Concrete rule identity for the compiler-owned [`Compilation`].
+/// Concrete rule identity for the compiler-owned [`AstContext`].
 pub type ConcreteRuleId<'ast> = RuleId<'ast, CssRulePayload<'ast>>;
 
-/// Concrete declaration-block identity for the compiler-owned [`Compilation`].
+/// Concrete declaration-block identity for the compiler-owned [`AstContext`].
 pub type ConcreteDeclarationBlockId<'ast> = DeclarationBlockId<'ast, CssRulePayload<'ast>>;
 
-/// Concrete effective-key payload for the compiler-owned [`Compilation`].
+/// Concrete effective-key payload for the compiler-owned [`AstContext`].
 pub type ConcreteEffectiveKey<'ast> = EffectiveKeyData<'ast, CssRulePayload<'ast>>;
 
-/// Concrete mutation error for the compiler-owned [`Compilation`].
+/// Concrete mutation error for the compiler-owned [`AstContext`].
 pub type ConcreteMutationError<'ast> = MutationError<'ast, CssRulePayload<'ast>>;
 
 impl<'ast> ConcreteMutationError<'ast> {
@@ -121,10 +116,10 @@ impl<'ast> ConcreteMutationError<'ast> {
     }
 }
 
-/// Concrete parser-local semantic context for the compiler-owned [`Compilation`].
+/// Concrete parser-local semantic context for the compiler-owned [`AstContext`].
 pub type ConcreteEffectiveContext<'ast> = EffectiveContext<'ast, CssRulePayload<'ast>>;
 
-/// Concrete effective-key history segment for the compiler-owned [`Compilation`].
+/// Concrete effective-key history segment for the compiler-owned [`AstContext`].
 pub type ConcreteHistorySegment<'ast> = HistorySegment<'ast, CssRulePayload<'ast>>;
 
 /// Initial capacities for the compiler-owned AST stores.
@@ -447,7 +442,7 @@ impl<'ast, P> DeclarationOccurrence<'ast, P> {
     }
 }
 
-/// Concrete declaration occurrence for the compiler-owned [`Compilation`].
+/// Concrete declaration occurrence for the compiler-owned [`AstContext`].
 pub type ConcreteDeclarationOccurrence<'ast> = DeclarationOccurrence<'ast, CssRulePayload<'ast>>;
 
 /// A compact declaration handle branded to one scoped block mutation view.
@@ -470,7 +465,7 @@ impl Copy for ScopedDeclarationHandle<'_, '_> {}
 
 /// Scoped O(1) access to declarations proven to belong to one live block.
 pub struct DeclarationBlockMutationScope<'scope, 'ast> {
-    compilation: &'scope mut Compilation<'ast>,
+    compilation: &'scope mut AstContext<'ast>,
     block: ConcreteDeclarationBlockId<'ast>,
 }
 
@@ -646,8 +641,18 @@ pub enum ValidationError<'ast, P> {
     InvalidSourceEndpoints,
 }
 
-/// `R` and `D` keep rule and declaration payloads independent from storage.
-pub struct RadixCompilation<'ast, R: Unpin, D, K, N = ()> {
+/// Compiler-owned AST data and the only access boundary for persistent storage.
+///
+/// The generic parameters keep the independently stored rule, declaration, and
+/// effective-key records reusable in focused topology tests. Production callers
+/// use the defaults and therefore get the concrete RocketCSS AST payloads and
+/// compact node storage.
+pub struct AstContext<
+    'ast,
+    R: Unpin = CssRulePayload<'ast>,
+    D = DeclarationPayload<'ast>,
+    K = EffectiveKeyData<'ast, CssRulePayload<'ast>>,
+> {
     allocator: &'ast Allocator,
     stylesheet: StyleSheet<'ast>,
     license_comments: rocketcss_common::vec::Vec<'ast, &'ast str>,
@@ -669,12 +674,16 @@ pub struct RadixCompilation<'ast, R: Unpin, D, K, N = ()> {
     context_path_ids: FxHashMap<ContextPathKey<'ast>, ContextPathId<'ast>>,
     layer_contexts: DenseStore<'ast, LayerContextDomain, LayerContextRecord<'ast, R>>,
     layer_context_ids: FxHashMap<LayerContextKey<'ast, R>, LayerContextId<'ast>>,
-    node_stores: N,
+    nodes: NodeData<'ast>,
+    extra: ExtraDataStore<'ast>,
+    strings: StringData<'ast>,
+    node_store: NodeStore<'ast>,
+    vec_store: VecStore<'ast>,
     first_rule_in_source: Option<RuleId<'ast, R>>,
     last_rule_in_source: Option<RuleId<'ast, R>>,
 }
 
-impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast, R, D, K, N> {
+impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
     const SOURCE_ORDER_STRIDE: u64 = 1_u64 << 32;
 
     /// Creates an empty compilation with one root rule list.
@@ -738,7 +747,11 @@ impl<'ast, R: Unpin, D, K, N: CompilationNodeStores<'ast>> RadixCompilation<'ast
                 capacity.contexts,
                 Default::default(),
             ),
-            node_stores: N::new_in(allocator),
+            nodes: NodeData::new_in(allocator),
+            extra: ExtraDataStore::new_in(allocator),
+            strings: StringData::new_in(allocator),
+            node_store: NodeStore::new_in(allocator),
+            vec_store: VecStore::new_in(allocator),
             first_rule_in_source: None,
             last_rule_in_source: None,
         }

@@ -1,5 +1,5 @@
 use super::*;
-use rocketcss_ast::Compilation;
+use rocketcss_ast::AstContext;
 
 pub(super) fn simple_calc_value(
     values: &[TokenOrValue<'_>],
@@ -255,7 +255,7 @@ pub(super) fn calc_linear_expression<'ast>(
 
 fn calc_linear_expression_in<'ast>(
     values: &[TokenOrValue<'ast>],
-    ast: &Compilation<'ast>,
+    ast: &AstContext<'ast>,
 ) -> Option<CalcLinear> {
     let mut parser = CalcLinearParser {
         index: 0,
@@ -274,7 +274,7 @@ fn calc_linear_expression_in<'ast>(
 struct CalcLinearParser<'values, 'context, 'arena> {
     index: usize,
     values: &'values [TokenOrValue<'arena>],
-    ast: &'context Compilation<'arena>,
+    ast: &'context AstContext<'arena>,
 }
 
 impl<'values, 'context, 'arena> CalcLinearParser<'values, 'context, 'arena> {
@@ -514,7 +514,7 @@ fn is_calc_whitespace(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_
     is_calc_whitespace_in(value, ast.ast_context())
 }
 
-fn is_calc_whitespace_in(value: &TokenOrValue<'_>, ast: &Compilation<'_>) -> bool {
+fn is_calc_whitespace_in(value: &TokenOrValue<'_>, ast: &AstContext<'_>) -> bool {
     matches!(value, TokenOrValue::Token(token)
         if matches!(ast.resolve_node(*token), Token::WhiteSpace(_) | Token::Comment(_)))
 }
@@ -609,7 +609,7 @@ fn calc_value(
     calc_value_in(value, ast.ast_context())
 }
 
-fn calc_value_in(value: &TokenOrValue<'_>, ast: &Compilation<'_>) -> Option<FunctionReplacement> {
+fn calc_value_in(value: &TokenOrValue<'_>, ast: &AstContext<'_>) -> Option<FunctionReplacement> {
     match value {
         TokenOrValue::Token(token) => match ast.resolve_node(*token) {
             Token::Number(value) => Some(FunctionReplacement::Number(*value)),

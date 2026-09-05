@@ -1,12 +1,7 @@
 //! Parser for the compiler-owned persistent AST.
 
-#[cfg(test)]
 use rocketcss_ast::{
-    CascadeOrigin, CascadePhase, ConcreteEffectiveKey, ConcreteHistorySegment, SelectorPathId,
-    SelectorValueId,
-};
-use rocketcss_ast::{
-    Compilation, CompilationCapacity, ConcreteDeclarationBlockId, ConcreteEffectiveContext,
+    AstContext, CompilationCapacity, ConcreteDeclarationBlockId, ConcreteEffectiveContext,
     ConcreteRuleId, ContainerRulePayload, CounterStyleRulePayload, CssRulePayload,
     DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, FontFaceRulePayload,
     FontFeatureSubrulePayload, FontFeatureValuesRulePayload, FontPaletteValuesRulePayload,
@@ -16,6 +11,11 @@ use rocketcss_ast::{
     PropertyRuleDescriptor, PropertyRulePayload, RuleListId, ScopeRulePayload, SelectorFrameKind,
     StartingStyleRulePayload, StyleRulePayload, SupportsRulePayload, UnknownAtRulePayload,
     ViewTransitionRulePayload, ViewportRulePayload,
+};
+#[cfg(test)]
+use rocketcss_ast::{
+    CascadeOrigin, CascadePhase, ConcreteEffectiveKey, ConcreteHistorySegment, SelectorPathId,
+    SelectorValueId,
 };
 
 use super::{
@@ -49,11 +49,11 @@ impl<'ast> Compiler<'ast> {
         &mut self,
         source: &'ast str,
         options: ParserOptions<'ast>,
-    ) -> Result<Compilation<'ast>, Error<'ast>> {
+    ) -> Result<AstContext<'ast>, Error<'ast>> {
         self.cursor = super::ParserCursor::new(source);
         self.replay.reset_for_new_source();
         self.compilation =
-            Compilation::with_capacity_in(self.allocator(), compilation_capacity(source.len()));
+            AstContext::with_capacity_in(self.allocator(), compilation_capacity(source.len()));
 
         let mut state = self.state();
         while let Ok(token) = self.next_including_whitespace_and_comments().cloned() {
@@ -79,7 +79,7 @@ impl<'ast> Compiler<'ast> {
         .map_err(|error| into_error(error, options.filename))?;
         Ok(std::mem::replace(
             &mut self.compilation,
-            Compilation::new_in(self.allocator),
+            AstContext::new_in(self.allocator),
         ))
     }
 }

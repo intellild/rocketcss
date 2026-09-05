@@ -47,13 +47,13 @@ impl<'i> Parse<'i> for CssColor<'i> {
     }
 }
 
-pub(super) fn validate_rgb_function<'i>(ast: &Compilation<'i>, function: &mut Function<'i>) {
+pub(super) fn validate_rgb_function<'i>(ast: &AstContext<'i>, function: &mut Function<'i>) {
     if matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
         function.set_valid_rgb(is_supported_rgb_function(ast, function));
     }
 }
 
-fn is_supported_rgb_function<'i>(ast: &Compilation<'i>, function: &Function<'i>) -> bool {
+fn is_supported_rgb_function<'i>(ast: &AstContext<'i>, function: &Function<'i>) -> bool {
     let mut components = ast.vec(function.arguments).iter().filter(|value| {
         !matches!(
             value,
@@ -76,7 +76,7 @@ fn is_supported_rgb_function<'i>(ast: &Compilation<'i>, function: &Function<'i>)
 }
 
 fn validate_legacy_rgb<'a, 'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     first: &'a TokenOrValue<'i>,
     components: &mut impl Iterator<Item = &'a TokenOrValue<'i>>,
 ) -> Option<bool> {
@@ -102,7 +102,7 @@ fn validate_legacy_rgb<'a, 'i>(
 }
 
 fn validate_modern_rgb<'a, 'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     first: &'a TokenOrValue<'i>,
     second: &'a TokenOrValue<'i>,
     components: &mut impl Iterator<Item = &'a TokenOrValue<'i>>,
@@ -125,15 +125,15 @@ fn validate_modern_rgb<'a, 'i>(
     }
 }
 
-fn is_modern_rgb_component<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
+fn is_modern_rgb_component<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     rgb_component_kind(ast, value).is_some() || is_none_keyword(ast, value)
 }
 
-fn is_modern_rgb_alpha<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
+fn is_modern_rgb_alpha<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     is_rgb_alpha(ast, value) || is_none_keyword(ast, value)
 }
 
-fn is_none_keyword<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
+fn is_none_keyword<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
         value,
         TokenOrValue::Token(token)
@@ -151,7 +151,7 @@ enum RgbComponentKind {
 }
 
 fn rgb_component_kind<'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     value: &TokenOrValue<'i>,
 ) -> Option<RgbComponentKind> {
     let TokenOrValue::Token(token) = value else {
@@ -164,7 +164,7 @@ fn rgb_component_kind<'i>(
     }
 }
 
-fn is_rgb_alpha<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
+fn is_rgb_alpha<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     let TokenOrValue::Token(token) = value else {
         return false;
     };
@@ -174,11 +174,11 @@ fn is_rgb_alpha<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
     )
 }
 
-fn is_comma<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
+fn is_comma<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(value, TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::Comma))
 }
 
-fn is_slash<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
+fn is_slash<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
         value, TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::Delim("/"))
     )

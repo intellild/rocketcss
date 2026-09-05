@@ -6,6 +6,7 @@ pub use rocketcss_visitor::{PluginContext, Plugins};
 pub use super::*;
 
 mod animations;
+mod ast_pipeline;
 mod at_rules;
 mod box_model;
 mod calc_units;
@@ -16,7 +17,6 @@ mod declarations;
 mod fonts;
 mod options_plugin;
 mod prefixes;
-mod radix_pipeline;
 mod rule_merge;
 mod selectors;
 mod transforms;
@@ -64,7 +64,7 @@ fn run_with_error_recovery(source: &str) -> String {
     })
 }
 
-fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteRuleId<'ast> {
+fn first_rule_id<'ast>(compilation: &AstContext<'ast>) -> ConcreteRuleId<'ast> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .expect("the root rule list remains valid")
@@ -74,7 +74,7 @@ fn first_rule_id<'ast>(compilation: &Compilation<'ast>) -> ConcreteRuleId<'ast> 
 }
 
 fn first_declaration_block_id<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
 ) -> ConcreteDeclarationBlockId<'ast> {
     compilation
         .rule(first_rule_id(compilation))
@@ -83,7 +83,7 @@ fn first_declaration_block_id<'ast>(
 }
 
 fn first_property_declaration<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
 ) -> &'tree Declaration<'ast> {
     compilation
         .declarations_in_block(first_declaration_block_id(compilation))

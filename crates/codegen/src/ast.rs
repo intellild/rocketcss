@@ -2,7 +2,7 @@
 
 use crate::{prelude::*, rules::NamedProperty};
 use rocketcss_ast::{
-    Compilation, ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId,
+    AstContext, ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId,
     CssRulePayload, DeclarationPayload, FontFeatureSubrulePayload, PageRulePayload,
     PropertyRuleDescriptor, PropertyRulePayload, RuleListId, RuleListIter, RuleRecord,
 };
@@ -13,14 +13,14 @@ enum LastSemicolon {
     Required,
 }
 
-impl<'ghost> ToCss<'ghost> for Compilation<'_> {
+impl<'ghost> ToCss<'ghost> for AstContext<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let cx = ToCssContext::with_ast(cx.token(), self);
-        let writer = RadixWriter(self);
+        let writer = AstWriter(self);
         for (index, comment) in self.license_comments().iter().enumerate() {
             dest.write_str("/*")?;
             dest.write_str(comment)?;
@@ -37,17 +37,17 @@ impl<'ghost> ToCss<'ghost> for Compilation<'_> {
     }
 }
 
-struct RadixWriter<'comp, 'ast>(&'comp Compilation<'ast>);
+struct AstWriter<'comp, 'ast>(&'comp AstContext<'ast>);
 
-impl<'ast> std::ops::Deref for RadixWriter<'_, 'ast> {
-    type Target = Compilation<'ast>;
+impl<'ast> std::ops::Deref for AstWriter<'_, 'ast> {
+    type Target = AstContext<'ast>;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl<'ast> RadixWriter<'_, 'ast> {
+impl<'ast> AstWriter<'_, 'ast> {
     fn root_is_empty(&self) -> bool {
         self.rule_list(self.stylesheet().root_rules())
             .is_none_or(|list| list.live_len() == 0)
@@ -637,7 +637,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<'ast, CssRulePayload<'ast>>);
 
 fn next_visible_rule<'comp, 'ast>(
-    compilation: &'comp Compilation<'ast>,
+    compilation: &'comp AstContext<'ast>,
     rules: &mut RuleListIter<'ast, 'comp, CssRulePayload<'ast>>,
 ) -> Option<VisibleRule<'comp, 'ast>> {
     for (id, rule) in rules {

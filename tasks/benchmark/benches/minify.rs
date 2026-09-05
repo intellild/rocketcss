@@ -12,7 +12,7 @@ use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::{Allocator, GhostToken};
-use rocketcss_parser::prelude::Compilation;
+use rocketcss_parser::prelude::AstContext;
 
 fn main() {
     divan::main();
@@ -117,7 +117,7 @@ const CROSS_RULE_IR_CASES: &[CrossRuleIrCase] = &[
 struct ParsedStyleSheet<'ghost> {
     // Fields are dropped in declaration order, so the stylesheet is dropped
     // before the allocator that owns its arena storage.
-    stylesheet: Compilation<'ghost>,
+    stylesheet: AstContext<'ghost>,
     _allocator: Box<Allocator>,
 }
 

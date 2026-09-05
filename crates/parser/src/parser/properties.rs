@@ -246,7 +246,7 @@ fn find_trailing_important(value: &str) -> Option<(Range<usize>, Range<usize>)> 
 }
 
 fn unparsed_reason<'i>(
-    ast: &Compilation<'i>,
+    ast: &AstContext<'i>,
     property_id: &PropertyId<'i>,
     value: &[TokenOrValue<'i>],
     typed_grammar_supported: bool,
@@ -272,7 +272,7 @@ fn unparsed_reason<'i>(
     UnparsedPropertyReason::InvalidValue
 }
 
-fn token_value_is_comment<'i>(ast: &Compilation<'i>, value: &TokenOrValue<'i>) -> bool {
+fn token_value_is_comment<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
         value,
         TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::Comment(_))

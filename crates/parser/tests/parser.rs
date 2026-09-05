@@ -2,7 +2,7 @@ use rocketcss_ast::{ConcreteRuleId as RuleId, CssRulePayload, DeclarationPayload
 use rocketcss_parser::parse;
 use rocketcss_parser::prelude::*;
 
-fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<'ast>> {
+fn root_rule_ids<'ast>(compilation: &AstContext<'ast>) -> std::vec::Vec<RuleId<'ast>> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .unwrap()
@@ -11,7 +11,7 @@ fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<
 }
 
 fn root_rule<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     index: usize,
 ) -> (RuleId<'ast>, &'tree RuleRecord<'ast, CssRulePayload<'ast>>) {
     let id = root_rule_ids(compilation)[index];
@@ -19,7 +19,7 @@ fn root_rule<'tree, 'ast>(
 }
 
 fn child_rule_ids<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     parent: RuleId<'ast>,
 ) -> std::vec::Vec<RuleId<'ast>> {
     let list = compilation.rule(parent).unwrap().child_list().unwrap();
@@ -31,7 +31,7 @@ fn child_rule_ids<'ast>(
 }
 
 fn style_selectors<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     rule: RuleId<'ast>,
 ) -> &'tree [Selector<'ast>] {
     let selector = match compilation.rule(rule).unwrap().payload() {
@@ -43,7 +43,7 @@ fn style_selectors<'tree, 'ast>(
 }
 
 fn selector_components<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     selector: &'tree Selector<'ast>,
 ) -> &'tree [SelectorComponent<'ast>] {
     let Selector::Parsed(components) = selector else {
@@ -53,7 +53,7 @@ fn selector_components<'tree, 'ast>(
 }
 
 fn property_declarations<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     rule: RuleId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
     let block = compilation
@@ -73,7 +73,7 @@ fn property_declarations<'tree, 'ast>(
 }
 
 fn declaration_values<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     rule: RuleId<'ast>,
 ) -> std::vec::Vec<&'tree Declaration<'ast>> {
     property_declarations(compilation, rule)
@@ -83,7 +83,7 @@ fn declaration_values<'tree, 'ast>(
 }
 
 fn expect_parse_error<'ast>(
-    result: Result<Compilation<'ast>, rocketcss_parser::Error<'ast>>,
+    result: Result<AstContext<'ast>, rocketcss_parser::Error<'ast>>,
 ) -> rocketcss_parser::Error<'ast> {
     match result {
         Ok(_) => panic!("expected parsing to fail"),

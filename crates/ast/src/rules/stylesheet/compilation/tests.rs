@@ -44,7 +44,7 @@ fn typed_ids_keep_compact_optional_layout() {
 #[test]
 fn ast_vec_access_clone_and_mutation_stay_on_the_context() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let original = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
         [1_u8, 2, 3],
         &allocator,
@@ -66,8 +66,8 @@ fn ast_vec_access_clone_and_mutation_stay_on_the_context() {
 #[test]
 fn ast_vec_rejects_cross_context_element_type_confusion() {
     let allocator = Allocator::new();
-    let mut first = Compilation::new_in(&allocator);
-    let mut second = Compilation::new_in(&allocator);
+    let mut first = AstContext::new_in(&allocator);
+    let mut second = AstContext::new_in(&allocator);
     let bytes = first.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([1_u8], &allocator));
     let _words = second.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
         [2_u16],
@@ -85,7 +85,7 @@ fn ast_vec_rejects_cross_context_element_type_confusion() {
 #[test]
 fn rewrite_vec_republishes_length_changes_after_unwind() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let mut values = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
         [1_u8, 2],
         &allocator,
@@ -105,7 +105,7 @@ fn rewrite_vec_republishes_length_changes_after_unwind() {
 #[test]
 fn mutate_vec_rejects_recursive_access_to_the_same_range() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let values =
         compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([1_u8], &allocator));
 
@@ -122,7 +122,7 @@ fn mutate_vec_rejects_recursive_access_to_the_same_range() {
 #[test]
 fn node_checkpoint_rolls_range_slots_back_with_nodes() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let committed =
         compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in([1_u8], &allocator));
     let checkpoint = compilation.node_checkpoint();
@@ -145,7 +145,7 @@ fn node_checkpoint_rolls_range_slots_back_with_nodes() {
 #[test]
 fn rule_spans_are_stored_in_an_aligned_sidecar() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<&str, (), ()>::new_in(&allocator);
+    let mut compilation = AstContext::<&str, (), ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let first = compilation
         .append_rule_with_span(root, "first", Span::new(3, 11))
@@ -163,7 +163,7 @@ fn rule_spans_are_stored_in_an_aligned_sidecar() {
 #[test]
 fn clone_node_creates_an_independent_id_and_preserves_its_span() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let original = compilation.alloc_node(String::from("original"), Span::new(3, 11));
     let cloned = compilation.clone_node(original);
 
@@ -182,7 +182,7 @@ fn clone_node_creates_an_independent_id_and_preserves_its_span() {
 #[test]
 fn node_checkpoint_rolls_payload_and_span_sidecars_back_together() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let committed = compilation.alloc_node(1_u8, Span::new(1, 2));
     let checkpoint = compilation.node_checkpoint();
     compilation.alloc_node(2_u8, Span::new(2, 3));
@@ -200,7 +200,7 @@ fn node_checkpoint_rolls_payload_and_span_sidecars_back_together() {
 #[test]
 fn mutate_node_restores_the_slot_after_unwind() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let node = compilation.alloc_node(vec![1_u8], DUMMY_SP);
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -217,7 +217,7 @@ fn mutate_node_restores_the_slot_after_unwind() {
 #[test]
 fn mutate_node_rejects_recursive_access_to_the_same_id() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let node = compilation.alloc_node(1_u8, DUMMY_SP);
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -233,7 +233,7 @@ fn mutate_node_rejects_recursive_access_to_the_same_id() {
 #[test]
 fn visitor_mutation_restores_the_node_after_nested_unwind() {
     let allocator = Allocator::new();
-    let mut compilation = Compilation::new_in(&allocator);
+    let mut compilation = AstContext::new_in(&allocator);
     let node = compilation.alloc_node(1_u8, DUMMY_SP);
 
     rocketcss_common::GhostToken::scope(|mut token| {
@@ -252,7 +252,7 @@ fn visitor_mutation_restores_the_node_after_nested_unwind() {
 }
 
 fn append_test_block<'ast>(
-    compilation: &mut RadixCompilation<'ast, u8, u8, &'static str>,
+    compilation: &mut AstContext<'ast, u8, u8, &'static str>,
     root: RuleListId<'ast>,
     key: EffectiveKeyId<'ast>,
     rule_payload: u8,
@@ -273,7 +273,7 @@ fn append_test_block<'ast>(
 #[test]
 fn lexical_order_and_direct_topology_are_independent() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<&str, &str, &str>::new_in(&allocator);
+    let mut compilation = AstContext::<&str, &str, &str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
 
     let outer = compilation.append_rule(root, "outer").unwrap();
@@ -347,7 +347,7 @@ fn lexical_order_and_direct_topology_are_independent() {
 #[test]
 fn direct_declaration_endpoints_iterators_and_links_agree() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (_, empty) = append_test_block(&mut compilation, root, key, 0, &[]);
@@ -387,7 +387,7 @@ fn direct_declaration_endpoints_iterators_and_links_agree() {
 #[test]
 fn occurrence_tokens_preserve_retained_members_and_reject_retired_blocks() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (left, left_block) = append_test_block(&mut compilation, root, key, 0, &[10]);
@@ -436,7 +436,7 @@ fn occurrence_tokens_preserve_retained_members_and_reject_retired_blocks() {
 #[test]
 fn validation_rejects_a_broken_mutual_link() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, (), ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let first = compilation.append_rule(root, 1).unwrap();
     let second = compilation.append_rule(root, 2).unwrap();
@@ -455,7 +455,7 @@ fn validation_rejects_a_broken_mutual_link() {
 #[test]
 fn validation_rejects_non_monotonic_source_order_ids() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, (), ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let first = compilation.append_rule(root, 1).unwrap();
     let second = compilation.append_rule(root, 2).unwrap();
@@ -475,13 +475,13 @@ fn validation_rejects_non_monotonic_source_order_ids() {
 #[test]
 fn declaration_block_source_iteration_skips_an_unresolved_block() {
     let allocator = Allocator::new();
-    let mut foreign = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut foreign = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let foreign_root = foreign.stylesheet().root_rules();
     let foreign_key = foreign.append_effective_key("foreign").unwrap();
     append_test_block(&mut foreign, foreign_root, foreign_key, 0, &[0]);
     let (_, unresolved) = append_test_block(&mut foreign, foreign_root, foreign_key, 1, &[1]);
 
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("target").unwrap();
     let broken_rule = compilation.append_rule(root, 0).unwrap();
@@ -500,7 +500,7 @@ fn declaration_block_source_iteration_skips_an_unresolved_block() {
 #[test]
 fn validation_rejects_a_declaration_cycle() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
@@ -520,7 +520,7 @@ fn validation_rejects_a_declaration_cycle() {
 #[test]
 fn validation_rejects_a_dangling_declaration_link() {
     let allocator = Allocator::new();
-    let mut foreign = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut foreign = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let foreign_root = foreign.stylesheet().root_rules();
     let foreign_key = foreign.append_effective_key("foreign").unwrap();
     append_test_block(&mut foreign, foreign_root, foreign_key, 0, &[0]);
@@ -531,7 +531,7 @@ fn validation_rejects_a_dangling_declaration_link() {
         .first_declaration
         .unwrap();
 
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("target").unwrap();
     let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
@@ -554,7 +554,7 @@ fn validation_rejects_a_dangling_declaration_link() {
 #[test]
 fn validation_rejects_declaration_count_and_endpoint_mismatches() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (_, block) = append_test_block(&mut compilation, root, key, 0, &[0]);
@@ -584,7 +584,7 @@ fn validation_rejects_declaration_count_and_endpoint_mismatches() {
 #[test]
 fn validation_rejects_last_mismatch_and_duplicate_declaration_ownership() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (_, left_block) = append_test_block(&mut compilation, root, key, 0, &[0, 1]);
@@ -634,7 +634,7 @@ fn validation_rejects_last_mismatch_and_duplicate_declaration_ownership() {
 #[test]
 fn child_list_is_owned_once() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<(), (), ()>::new_in(&allocator);
+    let mut compilation = AstContext::<(), (), ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let parent = compilation.append_rule(root, ()).unwrap();
     compilation.create_child_list(parent).unwrap();
@@ -649,7 +649,7 @@ fn child_list_is_owned_once() {
 #[test]
 fn validation_rejects_a_child_list_owned_by_another_rule() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<(), (), ()>::new_in(&allocator);
+    let mut compilation = AstContext::<(), (), ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let parent = compilation.append_rule(root, ()).unwrap();
     let other = compilation.append_rule(root, ()).unwrap();
@@ -670,7 +670,7 @@ fn validation_rejects_a_child_list_owned_by_another_rule() {
 #[test]
 fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
@@ -717,7 +717,7 @@ fn adjacent_equal_key_blocks_merge_without_a_previous_merged_chain() {
 #[test]
 fn synthesized_rule_and_block_keep_dense_ids_with_appended_declarations() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("shared").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
@@ -777,7 +777,7 @@ fn synthesized_rule_and_block_keep_dense_ids_with_appended_declarations() {
 #[test]
 fn repeated_local_insertions_relabel_source_order_without_remapping_dense_ids() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, (), ()>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, (), ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let left = compilation.append_rule(root, 0).unwrap();
     let right = compilation.append_rule(root, u8::MAX).unwrap();
@@ -798,7 +798,7 @@ fn repeated_local_insertions_relabel_source_order_without_remapping_dense_ids() 
 #[test]
 fn noncontiguous_small_merge_links_declarations_without_copying_payloads() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
@@ -854,7 +854,7 @@ fn noncontiguous_small_merge_links_declarations_without_copying_payloads() {
 #[test]
 fn noncontiguous_large_merge_links_declarations_without_copying_payloads() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
@@ -899,7 +899,7 @@ fn noncontiguous_large_merge_links_declarations_without_copying_payloads() {
 #[test]
 fn transformed_append_extends_the_noncontiguous_direct_chain() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let left = compilation.append_rule(root, 1).unwrap();
@@ -955,7 +955,7 @@ fn declaration_sequence_replacement_preserves_position_and_importance() {
     struct NonClone(&'static str);
 
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, NonClone, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, NonClone, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let rule = compilation.append_rule(root, 1).unwrap();
@@ -1022,7 +1022,7 @@ fn declaration_sequence_replacement_preserves_position_and_importance() {
 #[test]
 fn declaration_sequence_replacement_updates_first_and_last_origins() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let rule = compilation.append_rule(root, 1).unwrap();
@@ -1056,7 +1056,7 @@ fn declaration_sequence_replacement_updates_first_and_last_origins() {
 #[test]
 fn declaration_sequence_rewrite_is_atomic_on_capacity_failure() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, String, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, String, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let rule = compilation.append_rule(root, 1).unwrap();
@@ -1124,7 +1124,7 @@ fn declaration_sequence_rewrite_is_atomic_on_capacity_failure() {
 #[test]
 fn declaration_rewrite_preflight_validates_every_origin_without_mutation() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (_, block) = append_test_block(&mut compilation, root, key, 1, &[10, 20, 30]);
@@ -1174,7 +1174,7 @@ fn declaration_rewrite_preflight_validates_every_origin_without_mutation() {
 #[test]
 fn declaration_rewrite_preflight_rejects_a_truncated_chain() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let (_, block) = append_test_block(&mut compilation, root, key, 1, &[10, 20, 30]);
@@ -1201,7 +1201,7 @@ fn declaration_rewrite_preflight_rejects_a_truncated_chain() {
 #[test]
 fn declaration_sequence_replacement_preserves_nested_block_ownership() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<u8, &'static str, &'static str>::new_in(&allocator);
+    let mut compilation = AstContext::<u8, &'static str, &'static str>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let key = compilation.append_effective_key("same").unwrap();
     let outer = compilation.append_rule(root, 1).unwrap();
@@ -1251,7 +1251,7 @@ fn declaration_sequence_replacement_preserves_nested_block_ownership() {
 fn streaming_declaration_mutation_preserves_direct_chain_order() {
     let allocator = Allocator::new();
 
-    let mut contiguous = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut contiguous = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = contiguous.stylesheet().root_rules();
     let key = contiguous.append_effective_key("contiguous").unwrap();
     let rule = contiguous.append_rule(root, 0).unwrap();
@@ -1280,7 +1280,7 @@ fn streaming_declaration_mutation_preserves_direct_chain_order() {
         [11, 12, 13]
     );
 
-    let mut small_split = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut small_split = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = small_split.stylesheet().root_rules();
     let key = small_split.append_effective_key("small-split").unwrap();
     let left = small_split.append_rule(root, 0).unwrap();
@@ -1322,7 +1322,7 @@ fn streaming_declaration_mutation_preserves_direct_chain_order() {
         [11, 13]
     );
 
-    let mut large_split = RadixCompilation::<u8, u8, &'static str>::new_in(&allocator);
+    let mut large_split = AstContext::<u8, u8, &'static str>::new_in(&allocator);
     let root = large_split.stylesheet().root_rules();
     let key = large_split.append_effective_key("large-split").unwrap();
     let left = large_split.append_rule(root, 0).unwrap();
@@ -1377,7 +1377,7 @@ fn streaming_declaration_mutation_preserves_direct_chain_order() {
 #[test]
 fn a_rule_owns_at_most_one_declaration_block() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<(), (), ()>::new_in(&allocator);
+    let mut compilation = AstContext::<(), (), ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let owner = compilation.append_rule(root, ()).unwrap();
     let key = compilation.append_effective_key(()).unwrap();
@@ -1395,7 +1395,7 @@ fn a_rule_owns_at_most_one_declaration_block() {
 #[test]
 fn a_nonempty_authored_block_cannot_reopen_after_another_declaration_allocation() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<(), &str, ()>::new_in(&allocator);
+    let mut compilation = AstContext::<(), &str, ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let outer = compilation.append_rule(root, ()).unwrap();
     let nested = compilation.append_rule(root, ()).unwrap();
@@ -1425,7 +1425,7 @@ fn a_nonempty_authored_block_cannot_reopen_after_another_declaration_allocation(
 #[test]
 fn an_empty_authored_block_starts_at_the_current_declaration_store_tail() {
     let allocator = Allocator::new();
-    let mut compilation = RadixCompilation::<(), &str, ()>::new_in(&allocator);
+    let mut compilation = AstContext::<(), &str, ()>::new_in(&allocator);
     let root = compilation.stylesheet().root_rules();
     let outer = compilation.append_rule(root, ()).unwrap();
     let key = compilation.append_effective_key(()).unwrap();

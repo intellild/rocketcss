@@ -252,7 +252,7 @@ fn s5_output_is_byte_idempotent_after_reparse() {
 }
 
 fn unparsed_value_storage<'a>(
-    stylesheet: &Compilation<'a>,
+    stylesheet: &AstContext<'a>,
 ) -> (*const TokenOrValue<'a>, *const Token<'a>) {
     let Declaration::Unparsed(property) = first_property_declaration(stylesheet) else {
         panic!("expected unparsed property")

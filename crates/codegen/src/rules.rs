@@ -1659,11 +1659,11 @@ impl<'ghost> ToCss<'ghost> for FontFaceProperty<'_> {
 }
 
 pub(crate) trait NamedProperty {
-    fn css_name<'a>(&'a self, ast: &'a Compilation<'_>) -> &'a str;
+    fn css_name<'a>(&'a self, ast: &'a AstContext<'_>) -> &'a str;
 }
 
 impl NamedProperty for FontFaceProperty<'_> {
-    fn css_name<'a>(&'a self, ast: &'a Compilation<'_>) -> &'a str {
+    fn css_name<'a>(&'a self, ast: &'a AstContext<'_>) -> &'a str {
         match self {
             FontFaceProperty::Source(_) => "src",
             FontFaceProperty::FontFamily(_) => "font-family",
@@ -1773,7 +1773,7 @@ impl<'ghost> ToCss<'ghost> for FontPaletteValuesProperty<'_> {
 }
 
 impl NamedProperty for FontPaletteValuesProperty<'_> {
-    fn css_name<'a>(&'a self, ast: &'a Compilation<'_>) -> &'a str {
+    fn css_name<'a>(&'a self, ast: &'a AstContext<'_>) -> &'a str {
         match self {
             FontPaletteValuesProperty::FontFamily(_) => "font-family",
             FontPaletteValuesProperty::BasePalette(_) => "base-palette",
@@ -2110,7 +2110,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionProperty<'_> {
 }
 
 impl NamedProperty for ViewTransitionProperty<'_> {
-    fn css_name<'a>(&'a self, ast: &'a Compilation<'_>) -> &'a str {
+    fn css_name<'a>(&'a self, ast: &'a AstContext<'_>) -> &'a str {
         match self {
             ViewTransitionProperty::Navigation(_) => "navigation",
             ViewTransitionProperty::Types(_) => "types",
