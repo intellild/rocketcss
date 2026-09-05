@@ -8,7 +8,9 @@ use rocketcss_common::{Allocator, DenseId, DenseRange, DenseStore, vec::Vec as A
 
 use crate::{DUMMY_SP, Span, Visit, VisitContext, VisitMut, VisitMutContext, Visitor, VisitorMut};
 
-use super::{AstContext, AstNodeClone, AstNodeStorage, ExtraData, ExtraDataCompact};
+use super::{
+    AstContext, AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact,
+};
 
 /// AST node identity. The node type itself is the dense identity domain.
 pub type NodeId<'ast, T> = DenseId<'ast, T>;
@@ -16,6 +18,33 @@ pub type NodeId<'ast, T> = DenseId<'ast, T>;
 /// A persistent AST list. The handle stores only its dense `start..end` range;
 /// elements are resolved by the owning [`AstContext`](crate::AstContext).
 pub type AstVec<'ast, T> = DenseRange<'ast, T>;
+
+/// Value-decoding iterator over one compact `ExtraDataStore` range.
+pub(crate) struct EncodedVecIter<'context, 'ast, T> {
+    context: &'context AstContext<'ast>,
+    range: AstVec<'ast, T>,
+    index: usize,
+}
+
+impl<'context, 'ast, T: ExtraDataCompact<'ast>> Iterator for EncodedVecIter<'context, 'ast, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let value = self.context.encoded_vec_get(self.range, self.index)?;
+        self.index += 1;
+        Some(value)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.range.len() - self.index;
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'context, 'ast, T: ExtraDataCompact<'ast>> ExactSizeIterator
+    for EncodedVecIter<'context, 'ast, T>
+{
+}
 
 enum NodeStorageDomain {}
 
@@ -482,6 +511,18 @@ impl<'ast> AstContext<'ast> {
     }
 
     #[inline]
+    pub(crate) fn encoded_vec_iter<T: ExtraDataCompact<'ast>>(
+        &self,
+        range: AstVec<'ast, T>,
+    ) -> EncodedVecIter<'_, 'ast, T> {
+        EncodedVecIter {
+            context: self,
+            range,
+            index: 0,
+        }
+    }
+
+    #[inline]
     pub(crate) fn encoded_vec_set<T: ExtraDataCompact<'ast>>(
         &mut self,
         range: AstVec<'ast, T>,
@@ -490,6 +531,61 @@ impl<'ast> AstContext<'ast> {
     ) {
         let data = value.encode_extra(self);
         self.extra.set(range, index, data);
+    }
+
+    /// Deep-clones a compact list through each element's context-aware codec.
+    pub(crate) fn clone_encoded_vec<T>(&mut self, range: AstVec<'ast, T>) -> AstVec<'ast, T>
+    where
+        T: ExtraDataCompact<'ast> + ExtraDataClone<'ast>,
+    {
+        let values = self.encoded_vec_iter(range).collect::<std::vec::Vec<_>>();
+        let cloned = values
+            .into_iter()
+            .map(|value| value.clone_extra(self))
+            .collect::<std::vec::Vec<_>>();
+        self.alloc_encoded_vec(cloned.into_iter())
+    }
+
+    /// Mutates a compact list without changing its range.
+    pub(crate) fn mutate_encoded_vec<T, R>(
+        &mut self,
+        range: AstVec<'ast, T>,
+        f: impl FnOnce(&mut [T], &mut Self) -> R,
+    ) -> R
+    where
+        T: ExtraDataCompact<'ast>,
+    {
+        let mut values = self.encoded_vec_iter(range).collect::<std::vec::Vec<_>>();
+        let result = catch_unwind(AssertUnwindSafe(|| f(&mut values, self)));
+        for (index, value) in values.into_iter().enumerate() {
+            self.encoded_vec_set(range, index, value);
+        }
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
+    }
+
+    /// Applies a length-changing edit and publishes a fresh compact range.
+    pub(crate) fn rewrite_encoded_vec<T, R>(
+        &mut self,
+        range: &mut AstVec<'ast, T>,
+        f: impl FnOnce(&mut ArenaVec<'ast, T>, &mut Self) -> R,
+    ) -> R
+    where
+        T: ExtraDataCompact<'ast> + Unpin + 'ast,
+    {
+        let mut values = ArenaVec::from_iter_in(self.encoded_vec_iter(*range), self.allocator);
+        let result = catch_unwind(AssertUnwindSafe(|| f(&mut values, self)));
+        let slots = values
+            .into_iter()
+            .map(|value| value.encode_extra(self))
+            .collect::<std::vec::Vec<_>>();
+        *range = self.extra.alloc(slots.into_iter());
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
     #[inline]

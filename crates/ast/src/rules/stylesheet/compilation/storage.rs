@@ -144,6 +144,11 @@ pub(crate) trait ExtraDataCompact<'ast>: Sized {
     fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self;
 }
 
+/// Context-aware cloning for one logical value stored in `ExtraData`.
+pub(crate) trait ExtraDataClone<'ast>: ExtraDataCompact<'ast> {
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self;
+}
+
 macro_rules! impl_scalar_extra {
     ($type:ty, $encode:expr, $decode:expr) => {
         impl ExtraDataCompact<'_> for $type {
@@ -169,6 +174,21 @@ impl_scalar_extra!(i32, |value: i32| value as u32 as u64, |value: u64| {
 impl_scalar_extra!(f32, |value: f32| value.to_bits() as u64, |value: u64| {
     f32::from_bits(value as u32)
 });
+
+macro_rules! impl_copy_extra_clone {
+    ($($type:ty),+ $(,)?) => {
+        $(
+            impl ExtraDataClone<'_> for $type {
+                #[inline]
+                fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
+                    self
+                }
+            }
+        )+
+    };
+}
+
+impl_copy_extra_clone!(u8, u16, u32, i32, f32, bool);
 
 impl ExtraDataCompact<'_> for bool {
     #[inline]
@@ -199,6 +219,13 @@ impl<'ast, T> ExtraDataCompact<'ast> for DenseId<'ast, T> {
     }
 }
 
+impl<'ast, T: AstNodeClone<'ast>> ExtraDataClone<'ast> for DenseId<'ast, T> {
+    #[inline]
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        context.clone_encoded_node(self)
+    }
+}
+
 impl<'ast, T> ExtraDataCompact<'ast> for Option<DenseId<'ast, T>> {
     #[inline]
     fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
@@ -212,6 +239,13 @@ impl<'ast, T> ExtraDataCompact<'ast> for Option<DenseId<'ast, T>> {
     fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
         let index = u32::try_from(data.as_u64()).expect("optional AST node ID exceeds four bytes");
         (index != u32::MAX).then(|| context.encoded_node_id_at(index as usize))
+    }
+}
+
+impl<'ast, T: AstNodeClone<'ast>> ExtraDataClone<'ast> for Option<DenseId<'ast, T>> {
+    #[inline]
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        self.map(|id| context.clone_encoded_node(id))
     }
 }
 
@@ -233,6 +267,16 @@ impl<'ast, T> ExtraDataCompact<'ast> for DenseRange<'ast, T> {
     }
 }
 
+impl<'ast, T> ExtraDataClone<'ast> for DenseRange<'ast, T>
+where
+    T: ExtraDataCompact<'ast> + ExtraDataClone<'ast>,
+{
+    #[inline]
+    fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
+        context.clone_encoded_vec(self)
+    }
+}
+
 impl<'ast> ExtraDataCompact<'ast> for &'ast str {
     #[inline]
     fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData {
@@ -245,6 +289,13 @@ impl<'ast> ExtraDataCompact<'ast> for &'ast str {
     }
 }
 
+impl<'ast> ExtraDataClone<'ast> for &'ast str {
+    #[inline]
+    fn clone_extra(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
 impl<'ast> ExtraDataCompact<'ast> for Atom<'ast> {
     #[inline]
     fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData {
@@ -254,6 +305,13 @@ impl<'ast> ExtraDataCompact<'ast> for Atom<'ast> {
     #[inline]
     fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
         context.resolve_atom(data.as_u64())
+    }
+}
+
+impl<'ast> ExtraDataClone<'ast> for Atom<'ast> {
+    #[inline]
+    fn clone_extra(self, _context: &mut AstContext<'ast>) -> Self {
+        self
     }
 }
 
@@ -530,11 +588,14 @@ impl<'ast> ExtraDataStore<'ast> {
 
 #[cfg(test)]
 mod tests {
-    use std::mem::size_of;
+    use std::{
+        mem::size_of,
+        panic::{AssertUnwindSafe, catch_unwind},
+    };
 
     use rocketcss_common::Allocator;
 
-    use crate::{AstContext, DUMMY_SP, Span};
+    use crate::{AstContext, DUMMY_SP, Span, Token};
 
     use super::{ExtraData, ExtraDataStore, NodeData, NodeKind, NodePayload};
 
@@ -632,5 +693,72 @@ mod tests {
 
         context.restore_node_checkpoint(checkpoint);
         assert_eq!(context.encoded_vec_get(strings, 0), None);
+    }
+
+    #[test]
+    fn compact_list_context_api_iterates_mutates_and_rewrites() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let mut numbers = context.alloc_encoded_vec([3_i32, 5, 8].into_iter());
+
+        assert_eq!(
+            context
+                .encoded_vec_iter(numbers)
+                .collect::<std::vec::Vec<_>>(),
+            [3, 5, 8]
+        );
+        context.mutate_encoded_vec(numbers, |values, context| {
+            values[1] = 13;
+            let other = context.alloc_encoded_vec([21_i32].into_iter());
+            assert_eq!(context.encoded_vec_get(other, 0), Some(21));
+        });
+        assert_eq!(
+            context
+                .encoded_vec_iter(numbers)
+                .collect::<std::vec::Vec<_>>(),
+            [3, 13, 8]
+        );
+
+        context.rewrite_encoded_vec(&mut numbers, |values, _| {
+            values.remove(0);
+            values.push(34);
+        });
+        assert_eq!(
+            context
+                .encoded_vec_iter(numbers)
+                .collect::<std::vec::Vec<_>>(),
+            [13, 8, 34]
+        );
+    }
+
+    #[test]
+    fn compact_list_mutation_commits_before_resuming_an_unwind() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let numbers = context.alloc_encoded_vec([1_i32, 2].into_iter());
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            context.mutate_encoded_vec(numbers, |values, _| {
+                values[0] = 9;
+                panic!("stop list mutation");
+            });
+        }));
+
+        assert!(result.is_err());
+        assert_eq!(context.encoded_vec_get(numbers, 0), Some(9));
+        assert_eq!(context.encoded_vec_get(numbers, 1), Some(2));
+    }
+
+    #[test]
+    fn compact_list_clone_deep_clones_node_id_elements() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let source = context.alloc_encoded_node(Token::Ident("source"), Span::new(4, 10));
+        let values = context.alloc_encoded_vec([source].into_iter());
+        let cloned_values = context.clone_encoded_vec(values);
+        let cloned = context.encoded_vec_get(cloned_values, 0).unwrap();
+
+        assert_ne!(source, cloned);
+        assert_eq!(context.encoded_node(cloned), Token::Ident("source"));
+        assert_eq!(context.encoded_node_span(cloned), Span::new(4, 10));
     }
 }

@@ -24,7 +24,8 @@ pub use payload::*;
 pub use traversal::*;
 
 pub(crate) use storage::{
-    AstNodeClone, AstNodeStorage, ExtraData, ExtraDataCompact, NodeKind, NodePayload,
+    AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact, NodeKind,
+    NodePayload,
 };
 use storage::{ExtraDataStore, NodeData, StringData};
 

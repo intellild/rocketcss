@@ -267,6 +267,65 @@ must become a compact string ID/range before it can be stored directly in
 `ExtraData`, or remain behind a flattened node identity. Pointer packing is not
 an accepted substitute.
 
+### Current list-element inventory
+
+The following inventory covers persistent `Vec<'ast, T>` fields in the current
+AST. It classifies the compact logical representation, not Rust's in-memory
+`size_of::<T>()`; enum padding and borrowed string pointers are never copied
+into `ExtraData`.
+
+Already supported as one slot:
+
+```text
+u8, i32
+&str, Atom                         // context-owned compact string/atom ID
+NodeId<T>                          // dense node index
+AstVec<T>                          // nested start..end range
+TokenOrValue                      // hand-written tagged 8-byte codec
+```
+
+One-slot codecs are required for these values, but no node promotion is
+necessary because every variant has a lossless representation of at most eight
+bytes:
+
+```text
+Animation, AnimationComponent
+AnimationComposition, AnimationDirection, AnimationFillMode
+AnimationIterationCount, AnimationName, AnimationPlayState
+AnimationRange, AnimationRangeStart, AnimationRangeEnd, AnimationTimeline
+BackgroundAttachment, BackgroundClip, BackgroundOrigin, BackgroundPosition
+BackgroundRepeat
+FamilyName, FontFamily, FontTechnology
+GeometryBox, Image, KeyframeSelector, LengthPercentage
+MaskClip, MaskComposite, MaskMode
+Option<&str>, OtherTextDecorationLine, OverrideColors
+PagePseudoClass, Point, Position
+PositionComponent<HorizontalPositionKeyword>
+PositionComponent<VerticalPositionKeyword>
+PropertyId, Source, Symbol, SyntaxComponent, Time, UnicodeRange
+WebKitColorStop, WebKitMaskComposite, WebKitMaskSourceType
+```
+
+These elements cannot be represented losslessly in one slot. Their owning list
+field must become `AstVec<NodeId<T>>`, and parser construction must allocate
+each element through `AstContext::alloc_node`:
+
+```text
+Background, BackgroundSize, BoxShadow
+Calc<V>, ContainerCondition, CursorImage, EasingFunction
+Filter, GradientItem<Angle>, GradientItem<LengthValue>, ImageSetOption
+Mask, MediaCondition, PageSelector, ParsedComponent
+ScrollStateQuery, Selector, SelectorComponent
+StyleQuery, SupportsCondition, TextShadow
+TrackListItem, TrackSize, Transform, Transition
+```
+
+The inventory is intentionally based on the maximum encoded variant. For
+example, `Selector::Unparsed` is small, but `Selector::Parsed` needs a tag plus
+an eight-byte range, so every selector list stores `NodeId<Selector>`. In
+contrast, `AnimationComponent` uses a tag plus at most one compact scalar or
+node ID and therefore stays directly in `ExtraData`.
+
 ### List access and mutation
 
 Because the physical range contains `ExtraData`, it cannot safely expose
