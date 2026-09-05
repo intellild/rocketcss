@@ -307,13 +307,22 @@ WebKitColorStop, WebKitMaskComposite, WebKitMaskSourceType
 ```
 
 These elements cannot be represented losslessly in one slot. Their owning list
-field must become `AstVec<NodeId<T>>`, and parser construction must allocate
-each element through `AstContext::alloc_node`:
+field uses `AstVec<NodeId<T>>`, and parser construction allocates each element
+through `AstContext::alloc_node`.
+
+Promoted so far:
 
 ```text
-Background, BackgroundSize, BoxShadow
+Background                              // Declaration::Background
+ImageSetOption                          // ImageSet::options
+```
+
+Remaining promotion targets:
+
+```text
+BackgroundSize, BoxShadow
 Calc<V>, ContainerCondition, CursorImage, EasingFunction
-Filter, GradientItem<Angle>, GradientItem<LengthValue>, ImageSetOption
+Filter, GradientItem<Angle>, GradientItem<LengthValue>
 Mask, MediaCondition, PageSelector, ParsedComponent
 ScrollStateQuery, Selector, SelectorComponent
 StyleQuery, SupportsCondition, TextShadow
