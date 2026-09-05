@@ -26,8 +26,8 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         let ast = _cx.ast_context();
-        if let Some(condition) = &self.condition
-            && let MediaCondition::Unknown(tokens) = condition
+        if let Some(condition) = self.condition
+            && let MediaCondition::Unknown(tokens) = ast.resolve_node(condition)
         {
             let tokens = ast.vec(*tokens);
             if matches!(self.qualifier, Some(Qualifier::Not))
@@ -69,7 +69,8 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
             value => value.to_css(dest, _cx)?,
         }
 
-        if let Some(condition) = &self.condition {
+        if let Some(condition) = self.condition {
+            let condition = ast.resolve_node(condition);
             if has_type || self.qualifier.is_some() {
                 dest.write_str(" and ")?;
             }
@@ -146,7 +147,12 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
                         Operator::Or => " or ",
                     })?;
                 }
-                write_media_condition(condition, Some(operator), dest, cx)?;
+                write_media_condition(
+                    cx.ast_context().resolve_node(*condition),
+                    Some(operator),
+                    dest,
+                    cx,
+                )?;
             }
             if needs_parens {
                 dest.write_char(')')?;
@@ -336,14 +342,15 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
                     if index > 0 {
                         dest.write_str(operator)?;
                     }
+                    let resolved = _cx.ast_context().resolve_node(*value);
                     let needs_parens = matches!(
-                        (self, value),
+                        (self, resolved),
                         (Self::And(_), Self::Or(_)) | (Self::Or(_), Self::And(_))
                     );
                     if needs_parens {
                         dest.write_char('(')?;
                     }
-                    value.to_css(dest, _cx)?;
+                    resolved.to_css(dest, _cx)?;
                     if needs_parens {
                         dest.write_char(')')?;
                     }

@@ -12,9 +12,125 @@ pub struct MediaList<'a> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct MediaQuery<'a> {
-    pub condition: Option<MediaCondition<'a>>,
+    pub condition: Option<NodeId<'a, MediaCondition<'a>>>,
     pub media_type: MediaType<'a>,
     pub qualifier: Option<Qualifier>,
+}
+
+impl<'ast> AstNodeStorage<'ast> for MediaList<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x001a_000a);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            media_queries: context
+                .encoded_vec_range(read_u32(&bytes, 4) as usize, read_u32(&bytes, 8) as usize),
+        }
+    }
+
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        encode_media_list(self)
+    }
+
+    fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        encode_media_list(self)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for MediaList<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            media_queries: context.clone_encoded_vec(self.media_queries),
+        }
+    }
+}
+
+fn encode_media_list(value: MediaList<'_>) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    write_range(&mut bytes, 4, value.media_queries);
+    NodePayload::inline(&bytes)
+}
+
+impl<'ast> AstNodeStorage<'ast> for MediaQuery<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x001a_000b);
+
+    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let bytes = payload.bytes();
+        Self {
+            condition: match bytes[0] {
+                0 => None,
+                1 => Some(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
+                _ => panic!("invalid encoded MediaQuery condition flag"),
+            },
+            media_type: match bytes[1] {
+                0 => MediaType::All,
+                1 => MediaType::Print,
+                2 => MediaType::Screen,
+                3 => MediaType::Custom(context.resolve_string(read_u32(&bytes, 8) as u64)),
+                _ => panic!("invalid encoded MediaType variant"),
+            },
+            qualifier: match bytes[2] {
+                0 => None,
+                1 => Some(Qualifier::Only),
+                2 => Some(Qualifier::Not),
+                _ => panic!("invalid encoded MediaQuery qualifier"),
+            },
+        }
+    }
+
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_media_query(self, context)
+    }
+
+    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_media_query(self, context)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for MediaQuery<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            condition: self
+                .condition
+                .map(|condition| context.clone_encoded_node(condition)),
+            media_type: self.media_type,
+            qualifier: self.qualifier,
+        }
+    }
+}
+
+fn encode_media_query<'ast>(
+    value: MediaQuery<'ast>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    let mut bytes = [0; NodePayload::INLINE_BYTES];
+    if let Some(condition) = value.condition {
+        bytes[0] = 1;
+        write_u32(
+            &mut bytes,
+            4,
+            u32::try_from(condition.index()).expect("AST node ID exceeds four bytes"),
+        );
+    }
+    match value.media_type {
+        MediaType::All => bytes[1] = 0,
+        MediaType::Print => bytes[1] = 1,
+        MediaType::Screen => bytes[1] = 2,
+        MediaType::Custom(value) => {
+            bytes[1] = 3;
+            write_u32(&mut bytes, 8, context.store_string(value));
+        }
+    }
+    bytes[2] = match value.qualifier {
+        None => 0,
+        Some(Qualifier::Only) => 1,
+        Some(Qualifier::Not) => 2,
+    };
+    NodePayload::inline(&bytes)
 }
 
 #[derive(Debug, PartialEq, Visit)]

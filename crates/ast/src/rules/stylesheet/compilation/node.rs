@@ -9,7 +9,8 @@ use rocketcss_common::{Allocator, DenseId, DenseRange, DenseStore, vec::Vec as A
 use crate::{DUMMY_SP, Span, Visit, VisitContext, VisitMut, VisitMutContext, Visitor, VisitorMut};
 
 use super::{
-    AstContext, AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact,
+    AstContext, AstNodeClone, AstNodeStorage, DeclarationId, ExtraData, ExtraDataClone,
+    ExtraDataCompact,
 };
 
 /// AST node identity. The node type itself is the dense identity domain.
@@ -426,6 +427,13 @@ pub struct NodeCheckpoint {
 
 #[allow(dead_code)]
 impl<'ast> AstContext<'ast> {
+    #[inline]
+    pub(crate) fn encoded_declaration_id_at(&self, index: usize) -> DeclarationId<'ast> {
+        self.declarations
+            .id_at_offset(0, index)
+            .expect("declaration ID does not belong to this context")
+    }
+
     /// Allocates one value through its hand-written fixed-width codec.
     pub(crate) fn alloc_encoded_node<T: AstNodeStorage<'ast>>(
         &mut self,

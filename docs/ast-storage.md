@@ -318,7 +318,12 @@ EasingFunction                          // animation/transition timing-function 
 ImageSetOption                          // ImageSet::options
 Calc                                   // MathFunction min/max/hypot lists
 GradientItem                           // linear/radial/conic gradient stops and hints
+ContainerCondition                    // recursive container-condition operations
+MediaCondition                        // recursive media-condition operations
 ParsedComponent                        // recursive property-value components
+ScrollStateQuery                      // recursive scroll-state operations
+StyleQuery                            // recursive style-query operations
+SupportsCondition                     // recursive supports-condition operations
 Transform                              // Declaration::Transform and parsed transform lists
 ```
 
@@ -326,11 +331,11 @@ Remaining promotion targets:
 
 ```text
 BackgroundSize, BoxShadow
-ContainerCondition, CursorImage
+CursorImage
 Filter
-Mask, MediaCondition, PageSelector
-ScrollStateQuery, Selector, SelectorComponent
-StyleQuery, SupportsCondition, TextShadow
+Mask, PageSelector
+Selector, SelectorComponent
+TextShadow
 TrackListItem, TrackSize, Transition
 ```
 

@@ -865,6 +865,13 @@ impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
         self.declarations.try_get(id)
     }
 
+    /// Resolves an independently stored declaration from a compact encoded reference.
+    #[doc(hidden)]
+    #[inline]
+    pub fn declaration_at_index(&self, index: usize) -> Option<&DeclarationRecord<'ast, D>> {
+        self.declarations.as_slice().get(index)
+    }
+
     #[inline]
     pub fn effective_key(&self, id: EffectiveKeyId<'ast>) -> Option<&K> {
         self.effective_keys.try_get(id)

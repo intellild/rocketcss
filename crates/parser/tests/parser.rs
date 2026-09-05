@@ -646,31 +646,37 @@ fn parses_typed_media_conditions_and_features() {
             .collect::<std::vec::Vec<_>>();
         assert_eq!(queries.len(), 5);
 
+        let first_condition = sheet.resolve_node(queries[0].condition.unwrap());
+        let MediaCondition::Operation {
+            operator: Operator::And,
+            conditions,
+        } = first_condition
+        else {
+            panic!("expected and condition")
+        };
+        let MediaCondition::Feature(feature) = sheet.resolve_node(sheet.vec(*conditions)[0]) else {
+            panic!("expected width feature")
+        };
+        let QueryFeature::Range {
+            name: MediaFeatureName::Standard(MediaFeatureId::Width),
+            operator: MediaFeatureComparison::GreaterThanEqual,
+            value,
+        } = sheet.resolve_node(*feature)
+        else {
+            panic!("expected width range")
+        };
+        let MediaFeatureValue::Length(length) = sheet.resolve_node(*value) else {
+            panic!("expected length value")
+        };
         assert!(matches!(
-            queries[0].condition.as_ref(),
-            Some(MediaCondition::Operation {
-                operator: Operator::And,
-                conditions,
-            }) if matches!(
-                &sheet.vec(*conditions)[0],
-                MediaCondition::Feature(feature)
-                    if matches!(
-                        sheet.resolve_node(*feature),
-                        QueryFeature::Range {
-                            name: MediaFeatureName::Standard(MediaFeatureId::Width),
-                            operator: MediaFeatureComparison::GreaterThanEqual,
-                            value,
-                        } if matches!(
-                            value,
-                            MediaFeatureValue::Length(Length::Value(length))
-                                if length.value == 600.0 && length.unit == LengthUnit::Px
-                        )
-                    )
-            )
+            sheet.resolve_node(*length),
+            Length::Value(length)
+                if length.value == 600.0 && length.unit == LengthUnit::Px
         ));
+        let second_condition = sheet.resolve_node(queries[1].condition.unwrap());
         assert!(matches!(
-            queries[1].condition.as_ref(),
-            Some(MediaCondition::Not(condition))
+            second_condition,
+            MediaCondition::Not(condition)
                 if matches!(
                     sheet.resolve_node(*condition),
                     MediaCondition::Feature(feature)
@@ -682,9 +688,10 @@ fn parses_typed_media_conditions_and_features() {
                         )
                 )
         ));
+        let third_condition = sheet.resolve_node(queries[2].condition.unwrap());
         assert!(matches!(
-            queries[2].condition.as_ref(),
-            Some(MediaCondition::Feature(feature))
+            third_condition,
+            MediaCondition::Feature(feature)
                 if matches!(sheet.resolve_node(*feature), QueryFeature::Interval {
                     name: MediaFeatureName::Standard(MediaFeatureId::Width),
                     start_operator: MediaFeatureComparison::LessThan,
@@ -693,27 +700,32 @@ fn parses_typed_media_conditions_and_features() {
                 })
         ));
         assert!(matches!(queries[3].media_type, MediaType::Screen));
+        let fourth_condition = sheet.resolve_node(queries[3].condition.unwrap());
         assert!(matches!(
-            queries[3].condition.as_ref(),
-            Some(MediaCondition::Feature(feature))
+            fourth_condition,
+            MediaCondition::Feature(feature)
                 if matches!(
                     sheet.resolve_node(*feature),
                     QueryFeature::Plain {
                         name: MediaFeatureName::Standard(MediaFeatureId::Resolution),
                         value,
-                    } if matches!(value, MediaFeatureValue::Resolution(Resolution::Dppx(2.0)))
+                    } if matches!(
+                        sheet.resolve_node(*value),
+                        MediaFeatureValue::Resolution(Resolution::Dppx(2.0))
+                    )
                 )
         ));
+        let fifth_condition = sheet.resolve_node(queries[4].condition.unwrap());
         assert!(matches!(
-            queries[4].condition.as_ref(),
-            Some(MediaCondition::Feature(feature))
+            fifth_condition,
+            MediaCondition::Feature(feature)
                 if matches!(
                     sheet.resolve_node(*feature),
                     QueryFeature::Range {
                         name: MediaFeatureName::Standard(MediaFeatureId::Width),
                         operator: MediaFeatureComparison::LessThanEqual,
                         value,
-                    } if matches!(value, MediaFeatureValue::Env(_))
+                    } if matches!(sheet.resolve_node(*value), MediaFeatureValue::Env(_))
                 )
         ));
     })

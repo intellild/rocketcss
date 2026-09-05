@@ -131,6 +131,7 @@ fn parse_media_query<'i>(
         )
     };
 
+    let condition = condition.map(|condition| store_node(condition, input));
     input.expect_exhausted()?;
     Ok(MediaQuery {
         condition,
@@ -144,10 +145,10 @@ fn parse_unknown_media_query<'i>(
     allocator: &'i Allocator,
 ) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
     Ok(MediaQuery {
-        condition: Some(MediaCondition::Unknown(store_vec(
-            collect_tokens(input, allocator, 0)?,
+        condition: Some(store_node(
+            MediaCondition::Unknown(store_vec(collect_tokens(input, allocator, 0)?, input)),
             input,
-        ))),
+        )),
         media_type: MediaType::All,
         qualifier: None,
     })
@@ -220,8 +221,8 @@ fn parse_media_condition<'i>(
     }
 
     let mut conditions = allocator.vec();
-    conditions.push(first);
-    conditions.push(parse_parenthesis(input, allocator)?);
+    conditions.push(store_node(first, input));
+    conditions.push(store_node(parse_parenthesis(input, allocator)?, input));
     let delimiter = match operator {
         Operator::And => "and",
         Operator::Or => "or",
@@ -230,7 +231,7 @@ fn parse_media_condition<'i>(
         .try_parse(|input| input.expect_ident_matching(delimiter))
         .is_ok()
     {
-        conditions.push(parse_parenthesis(input, allocator)?);
+        conditions.push(store_node(parse_parenthesis(input, allocator)?, input));
     }
     Ok(MediaCondition::Operation {
         conditions: store_vec(conditions, input),
@@ -306,6 +307,7 @@ fn parse_name_first_feature<'i>(
     if !media_feature_value_matches(&value, value_type) {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
+    let value = store_node(value, input);
     if let Some(operator) = operator.or(legacy_operator) {
         if !value_type.allows_ranges() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
@@ -370,7 +372,7 @@ fn parse_value_first_feature<'i>(
         Ok(QueryFeature::Range {
             name,
             operator: opposite_comparison(start_operator),
-            value: start_value,
+            value: store_node(start_value, input),
         })
     }
 }
@@ -619,7 +621,9 @@ fn parse_known_media_feature_value<'i>(
     expected: MediaFeatureType,
 ) -> Result<MediaFeatureValue<'i>, ParseError<'i, ParserError<'i>>> {
     Ok(match expected {
-        MediaFeatureType::Length => MediaFeatureValue::Length(parse_length(input, allocator)?),
+        MediaFeatureType::Length => {
+            MediaFeatureValue::Length(store_node(parse_length(input, allocator)?, input))
+        }
         MediaFeatureType::Number => MediaFeatureValue::Number(input.expect_number()?),
         MediaFeatureType::Integer => MediaFeatureValue::Integer(input.expect_integer()?),
         MediaFeatureType::Boolean => {
@@ -649,7 +653,7 @@ fn parse_unknown_media_feature_value<'i>(
         return Ok(MediaFeatureValue::Number(value));
     }
     if let Ok(value) = input.try_parse(|input| parse_length(input, allocator)) {
-        return Ok(MediaFeatureValue::Length(value));
+        return Ok(MediaFeatureValue::Length(store_node(value, input)));
     }
     if let Ok(value) = input.try_parse(parse_resolution) {
         return Ok(MediaFeatureValue::Resolution(value));

@@ -2013,7 +2013,7 @@ impl<'ghost> ToCss<'ghost> for ContainerCondition<'_> {
                         operator.to_css(dest, _cx)?;
                         dest.write_char(' ')?;
                     }
-                    value.to_css(dest, _cx)?;
+                    _cx.ast_context().resolve_node(*value).to_css(dest, _cx)?;
                 }
                 Ok(())
             }
@@ -2041,7 +2041,12 @@ impl<'ghost> ToCss<'ghost> for StyleQuery<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
-            Self::Declaration(value) => value.to_css(dest, _cx),
+            Self::Declaration(value) => _cx
+                .ast_context()
+                .declaration_at_index(value.index())
+                .and_then(|record| record.payload().as_property())
+                .expect("a style query declaration must reference a property declaration")
+                .to_css(dest, _cx),
             Self::Property(value) => value.to_css(dest, _cx),
             Self::Not(value) => {
                 dest.write_str("not ")?;
@@ -2057,7 +2062,7 @@ impl<'ghost> ToCss<'ghost> for StyleQuery<'_> {
                         operator.to_css(dest, _cx)?;
                         dest.write_char(' ')?;
                     }
-                    value.to_css(dest, _cx)?;
+                    _cx.ast_context().resolve_node(*value).to_css(dest, _cx)?;
                 }
                 Ok(())
             }
@@ -2087,7 +2092,7 @@ impl<'ghost> ToCss<'ghost> for ScrollStateQuery<'_> {
                         operator.to_css(dest, _cx)?;
                         dest.write_char(' ')?;
                     }
-                    value.to_css(dest, _cx)?;
+                    _cx.ast_context().resolve_node(*value).to_css(dest, _cx)?;
                 }
                 Ok(())
             }

@@ -332,8 +332,8 @@ fn preserves_nonstandard_yahoo_media_query_prelude() {
         assert!(matches!(query.media_type, MediaType::All));
         assert!(query.qualifier.is_none());
         assert!(matches!(
-            query.condition.as_ref(),
-            Some(MediaCondition::Unknown(_))
+            stylesheet.resolve_node(query.condition.unwrap()),
+            MediaCondition::Unknown(_)
         ));
         assert_eq!(
             stylesheet

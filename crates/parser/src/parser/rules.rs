@@ -194,7 +194,7 @@ pub(super) fn parse_custom_media<'i>(
         let mut media_queries = allocator.vec();
         media_queries.push(store_node(
             MediaQuery {
-                condition: Some(condition),
+                condition: Some(store_node(condition, input)),
                 media_type: MediaType::All,
                 qualifier: None,
             },
