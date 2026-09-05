@@ -330,6 +330,12 @@ impl ExtraDataCompact<'_> for Time {
     }
 }
 
+impl ExtraDataClone<'_> for Time {
+    fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
+        self
+    }
+}
+
 #[cfg(test)]
 mod storage_tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};

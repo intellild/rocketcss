@@ -296,6 +296,28 @@ impl<'ast> ExtraDataClone<'ast> for &'ast str {
     }
 }
 
+impl<'ast> ExtraDataCompact<'ast> for Option<&'ast str> {
+    #[inline]
+    fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData {
+        let index = self.map_or(u32::MAX, |value| context.store_string(value));
+        ExtraData::from_u64(index as u64)
+    }
+
+    #[inline]
+    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
+        let index =
+            u32::try_from(data.as_u64()).expect("optional AST string ID exceeds four bytes");
+        (index != u32::MAX).then(|| context.resolve_string(index as u64))
+    }
+}
+
+impl<'ast> ExtraDataClone<'ast> for Option<&'ast str> {
+    #[inline]
+    fn clone_extra(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
 impl<'ast> ExtraDataCompact<'ast> for Atom<'ast> {
     #[inline]
     fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData {
@@ -690,6 +712,15 @@ mod tests {
         let strings = context.alloc_encoded_vec(["alpha", "beta"].into_iter());
         assert_eq!(context.encoded_vec_get(strings, 0), Some("alpha"));
         assert_eq!(context.encoded_vec_get(strings, 1), Some("beta"));
+
+        let optional_strings = context.alloc_encoded_vec([Some("named"), None::<&str>].into_iter());
+        let cloned_optional_strings = context.clone_encoded_vec(optional_strings);
+        assert_eq!(
+            context
+                .encoded_vec_iter(cloned_optional_strings)
+                .collect::<std::vec::Vec<_>>(),
+            [Some("named"), None]
+        );
 
         context.restore_node_checkpoint(checkpoint);
         assert_eq!(context.encoded_vec_get(strings, 0), None);

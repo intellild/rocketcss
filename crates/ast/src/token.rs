@@ -567,6 +567,12 @@ impl<'ast> ExtraDataCompact<'ast> for AnimationName<'ast> {
     }
 }
 
+impl<'ast> ExtraDataClone<'ast> for AnimationName<'ast> {
+    fn clone_extra(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
+}
+
 fn encode_animation_name_node<'ast>(
     value: AnimationName<'ast>,
     context: &mut AstContext<'ast>,
