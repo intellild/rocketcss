@@ -466,6 +466,23 @@ fn generate_visitor(
             ) {}
         }
     };
+    let ast_str_method = if matches!(mode, Mode::Read) {
+        quote! {
+            fn visit_ast_str(
+                &mut self,
+                _value: &AstStr<'a>,
+                _cx: &VisitContext<'_, 'a, 'ghost>,
+            ) {}
+        }
+    } else {
+        quote! {
+            fn visit_ast_str(
+                &mut self,
+                _value: &mut AstStr<'a>,
+                _cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+            ) {}
+        }
+    };
     let manual_methods = manual_methods(mode);
     let manual_impls = manual_impls(mode);
     let container_impls = container_impls(mode);
@@ -491,6 +508,7 @@ fn generate_visitor(
 
             #[inline]
             #atom_method
+            #ast_str_method
 
             #(#methods)*
             #(#alias_methods)*
@@ -672,6 +690,15 @@ fn container_impls(mode: Mode) -> TokenStream {
                     visitor.visit_atom(self, cx);
                 }
             }
+            impl<'a, 'ghost> #node_trait<'a, 'ghost> for rocketcss_common::AstStr<'a> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
+                    &self,
+                    visitor: &mut VisitorT,
+                    cx: &VisitContext<'_, 'a, 'ghost>,
+                ) {
+                    visitor.visit_ast_str(self, cx);
+                }
+            }
         }
     } else {
         quote! {
@@ -731,6 +758,15 @@ fn container_impls(mode: Mode) -> TokenStream {
                     cx: &mut VisitMutContext<'_, 'a, 'ghost>,
                 ) {
                     visitor.visit_atom(self, cx);
+                }
+            }
+            impl<'a, 'ghost> #node_trait<'a, 'ghost> for rocketcss_common::AstStr<'a> {
+                fn #visit<VisitorT: ?Sized + #visitor_trait<'a, 'ghost>>(
+                    &mut self,
+                    visitor: &mut VisitorT,
+                    cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+                ) {
+                    visitor.visit_ast_str(self, cx);
                 }
             }
         }
@@ -795,7 +831,9 @@ fn visit_type(
                 return quote!();
             };
             let name = segment.ident.to_string();
-            if name == "Atom" {
+            if name == "AstStr" {
+                quote!(visitor.visit_ast_str(#expression, cx);)
+            } else if name == "Atom" {
                 quote!(visitor.visit_atom(#expression, cx);)
             } else if name == "Pin" {
                 let Some(pin_target) = first_type_argument(&segment.arguments) else {

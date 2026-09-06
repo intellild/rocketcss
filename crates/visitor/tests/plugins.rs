@@ -22,9 +22,9 @@ impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for Rename<'a> {
                     };
                     compilation.mutate_vec(*components, |components, compilation| {
                         for component in components {
-                            compilation.mutate_node(*component, |component, _| {
+                            compilation.mutate_node(*component, |component, compilation| {
                                 if let SelectorComponent::Class(name) = component
-                                    && *name == self.from
+                                    && compilation.str(*name) == self.from
                                 {
                                     *name = self.to;
                                 }
@@ -69,8 +69,8 @@ fn plugins_run_in_registration_order_and_share_context() {
                 rocketcss_parser::ParserOptions::default(),
             )
             .unwrap();
-        let middle = compiler.intern("middle");
-        let last = compiler.intern("last");
+        let middle = sheet.intern("middle");
+        let last = sheet.intern("last");
         let mut context = PluginContext::new(&allocator, &mut token);
         context.insert(std::vec::Vec::<&'static str>::new());
         let mut plugins = Plugins::new();
@@ -115,7 +115,7 @@ fn plugins_run_in_registration_order_and_share_context() {
         };
         assert!(matches!(
             sheet.resolve_node(sheet.vec_snapshot(components)[0]),
-            SelectorComponent::Class(name) if name == "last"
+            SelectorComponent::Class(name) if sheet.str(name) == "last"
         ));
     });
 }

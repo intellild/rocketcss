@@ -26,7 +26,55 @@ macro_rules! match_ignore_ascii_case {
     }};
 }
 
-pub use rocketcss_common::Atom;
+// Shared direct storage for Copy nodes that fit in one payload. Layout and
+// KIND remain declared beside each owning AST type; this is not a schema.
+macro_rules! impl_inline_node {
+    ($type:ty, $kind:literal) => {
+        // SAFETY: this unique KIND always publishes and reads the same Copy type.
+        unsafe impl<'ast> crate::AstNodeStorage<'ast> for $type {
+            const KIND: crate::NodeKind = crate::NodeKind::new($kind);
+            #[inline]
+            unsafe fn decode(
+                payload: crate::NodePayload,
+                _context: &crate::AstContext<'ast>,
+            ) -> Self {
+                // SAFETY: the typed context validated KIND before handing us the slot.
+                unsafe { payload.read_value() }
+            }
+            #[inline]
+            fn encode_new(self, _context: &mut crate::AstContext<'ast>) -> crate::NodePayload {
+                crate::NodePayload::from_value(self)
+            }
+            #[inline]
+            unsafe fn encode_existing(
+                self,
+                _current: crate::NodePayload,
+                _context: &mut crate::AstContext<'ast>,
+            ) -> crate::NodePayload {
+                crate::NodePayload::from_value(self)
+            }
+        }
+    };
+}
+
+// Native Copy values that fit one extra slot need no context or byte codec.
+macro_rules! impl_inline_extra {
+    ($type:ty) => {
+        // SAFETY: typed lists publish and read this same native Copy type.
+        unsafe impl<'ast> crate::ExtraDataCompact<'ast> for $type {
+            #[inline]
+            fn encode_extra(self) -> crate::ExtraData {
+                crate::ExtraData::from_value(self)
+            }
+            #[inline]
+            unsafe fn decode_extra(data: crate::ExtraData) -> Self {
+                unsafe { data.read_value() }
+            }
+        }
+    };
+}
+
+pub use rocketcss_common::{AstStr, Atom};
 pub use rocketcss_macros::{CssKeyword, Visit};
 
 mod color;
@@ -58,7 +106,6 @@ pub use span::*;
 pub use token::*;
 pub use tombstone::*;
 pub use values::*;
-pub(crate) use values::{decode_line_style, encode_line_style};
 pub use visit_context::{VisitContext, VisitMutContext};
 
 /// Persistent AST list stored as a typed dense range in [`AstContext`].
@@ -72,12 +119,13 @@ const _: () = {
     assert!(size_of::<KnownFunction>() == 1);
     assert!(size_of::<AstVec<'_, u8>>() == 8);
     assert!(size_of::<Declaration<'_>>() == 20);
-    assert!(size_of::<TokenOrValue<'_>>() == 24);
-    assert!(size_of::<Token<'_>>() == 24);
+    assert!(size_of::<PropertyId<'_>>() == 12);
+    assert!(size_of::<TokenOrValue<'_>>() == 12);
+    assert!(size_of::<Token<'_>>() == 16);
     assert!(size_of::<CssColor<'_>>() == 8);
     assert!(size_of::<KnownColor>() == 1);
     assert!(size_of::<Length<'_>>() == 8);
-    assert!(size_of::<ParsedComponent<'_>>() == 24);
+    assert!(size_of::<ParsedComponent<'_>>() == 12);
     assert!(size_of::<AnimationComponent<'_>>() == 12);
     assert!(size_of::<Filter<'_>>() == 12);
     assert!(size_of::<Transform<'_>>() == 24);
@@ -100,10 +148,12 @@ mod tests {
         assert!(FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Tombstone, &ast));
         assert!(!FontFamily::Tombstone.eq_ignoring_tombstones(&FontFamily::Serif, &ast));
 
-        let left_custom = ast.alloc_node(FontFamily::Custom("A"), DUMMY_SP);
+        let a = ast.add_str("A");
+        let left_custom = ast.alloc_node(FontFamily::Custom(a), DUMMY_SP);
         let left_tombstone = ast.alloc_node(FontFamily::Tombstone, DUMMY_SP);
         let left_serif = ast.alloc_node(FontFamily::Serif, DUMMY_SP);
-        let right_custom = ast.alloc_node(FontFamily::Custom("A"), DUMMY_SP);
+        let another_a = ast.add_str("A");
+        let right_custom = ast.alloc_node(FontFamily::Custom(another_a), DUMMY_SP);
         let right_serif = ast.alloc_node(FontFamily::Serif, DUMMY_SP);
         let mut left_families = allocator.vec();
         left_families.extend([left_custom, left_tombstone, left_serif]);
@@ -141,7 +191,7 @@ mod tests {
         );
         assert!(PropertyId::All.known_id().is_some());
         assert_eq!(PropertyId::Unparsed.known_id(), None);
-        assert_eq!(PropertyId::Custom("unknown").known_id(), None);
+        assert_eq!(PropertyId::Custom(AstStr::EMPTY).known_id(), None);
 
         for (name, expected) in [
             ("CoLuMn-RuLe", PropertyId::ColumnRule(VendorPrefix::NONE)),
@@ -149,13 +199,13 @@ mod tests {
             ("GrId-CoLuMn-GaP", PropertyId::GridColumnGap),
             ("GrId-RoW-GaP", PropertyId::GridRowGap),
         ] {
-            let property_id = PropertyId::from_name(name);
+            let property_id = PropertyId::from_known_name(name).unwrap();
             assert_eq!(property_id, expected);
             assert!(property_id.known_id().is_some());
             assert_eq!(property_id.vendor_prefix(), VendorPrefix::NONE);
         }
         assert_eq!(
-            PropertyId::from_name("-WeBkIt-CoLuMnS"),
+            PropertyId::from_known_name("-WeBkIt-CoLuMnS").unwrap(),
             PropertyId::Columns(VendorPrefix::WEBKIT)
         );
     }
@@ -188,19 +238,19 @@ mod tests {
         let allocator = Allocator::new();
         let mut ast = AstContext::new_in(&allocator);
         let arguments = ast.alloc_vec(allocator.vec());
-        let mut function = Function::new("url", arguments);
+        let mut function = Function::new("url", arguments, &mut ast);
 
-        assert_eq!(function.name(), "url");
+        assert_eq!(ast.str(function.name()), "url");
         assert_eq!(function.kind(), KnownFunction::Url);
         assert!(!function.is_vendor_prefixed());
         assert!(!function.is_identifier());
         assert!(!function.is_unquoted_url());
 
-        function.set_name("VAR");
+        function.set_name("VAR", &mut ast);
         function.set_identifier(true);
         function.set_unquoted_url(true);
 
-        assert_eq!(function.name(), "VAR");
+        assert_eq!(ast.str(function.name()), "VAR");
         assert_eq!(function.kind(), KnownFunction::Var);
         assert!(!function.is_vendor_prefixed());
         assert!(function.is_identifier());
@@ -218,7 +268,7 @@ mod tests {
         assert_eq!(KnownFunction::from_name("-moz-calc"), KnownFunction::Calc,);
         let mut ast = AstContext::new_in(&allocator);
         let arguments = ast.alloc_vec(allocator.vec());
-        let function = Function::new("-moz-calc", arguments);
+        let function = Function::new("-moz-calc", arguments, &mut ast);
         assert!(function.is_vendor_prefixed());
         assert_eq!(
             KnownFunction::from_name("custom-function"),
@@ -234,9 +284,9 @@ mod tests {
             MediaFeatureId::WebkitDevicePixelRatio.as_css_str(),
             Some("-webkit-device-pixel-ratio"),
         );
-        assert_eq!(Appearance::NonStandard("textfield").as_css_str(), None);
-        assert_eq!(FontFormat::String("woff3").as_css_str(), None);
+        assert_eq!(Appearance::NonStandard(AstStr::EMPTY).as_css_str(), None);
+        assert_eq!(FontFormat::String(AstStr::EMPTY).as_css_str(), None);
         assert_eq!(FontFamily::SansSerif.as_css_str(), Some("sans-serif"));
-        assert_eq!(FontFamily::Custom("Inter").as_css_str(), None);
+        assert_eq!(FontFamily::Custom(AstStr::EMPTY).as_css_str(), None);
     }
 }

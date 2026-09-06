@@ -1,160 +1,7 @@
 use super::{length::parse_length_unit, values::collect_tokens};
 use crate::prelude::*;
 
-pub(super) fn parse_import_rule<'i>(
-    input: &mut Compiler<'i>,
-    prelude: &'i str,
-) -> Result<ImportRule<'i>, ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    input.with_source(prelude, |input| {
-        let url = input.expect_url_or_string()?;
-
-        let layer = if input
-            .try_parse(|input| input.expect_ident_matching("layer"))
-            .is_ok()
-        {
-            Some(allocator.vec())
-        } else if input
-            .try_parse(|input| input.expect_function_matching("layer"))
-            .is_ok()
-        {
-            Some(input.parse_nested_block(|input| {
-                let mut name = allocator.vec();
-                name.push(input.expect_ident()?);
-                while input.try_parse(|input| input.expect_delim('.')).is_ok() {
-                    name.push(input.expect_ident()?);
-                }
-                input.expect_exhausted()?;
-                Ok::<_, ParseError<'i, ParserError<'i>>>(name)
-            })?)
-        } else {
-            None
-        };
-        let layer = layer.map(|layer| store_vec(layer, input));
-
-        let supports = if input
-            .try_parse(|input| input.expect_function_matching("supports"))
-            .is_ok()
-        {
-            Some(store_node(
-                input.parse_nested_block(|input| {
-                    let start = input.position();
-                    input.expect_no_error_token()?;
-                    let raw = input.slice_from(start).trim();
-                    if raw.is_empty() {
-                        return Err(input.new_custom_error(ParserError::InvalidValue));
-                    }
-                    Ok::<_, ParseError<'i, ParserError<'i>>>(parse_supports_condition(raw))
-                })?,
-                input,
-            ))
-        } else {
-            None
-        };
-
-        let media = if input.is_exhausted() {
-            None
-        } else {
-            let rest = input
-                .slice(input.position()..SourcePosition(prelude.len()))
-                .trim();
-            if rest.is_empty() {
-                None
-            } else {
-                let media = parse_media_list(input, rest)?;
-                Some(store_node(media, input))
-            }
-        };
-        Ok(ImportRule {
-            layer,
-            media,
-            supports,
-            url,
-        })
-    })
-}
-
-pub(super) fn parse_media_list<'i>(
-    input: &mut Compiler<'i>,
-    source: &'i str,
-) -> Result<MediaList<'i>, ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    if source.trim().is_empty() {
-        return Ok(MediaList {
-            media_queries: store_vec(allocator.vec(), input),
-        });
-    }
-    input.with_source(source, |input| {
-        let parsed = input.parse_comma_separated(|input| {
-            input
-                .try_parse(|input| parse_media_query(input, allocator))
-                .or_else(|_| parse_unknown_media_query(input, allocator))
-        })?;
-        let mut media_queries = allocator.vec();
-        for query in parsed {
-            media_queries.push(store_node(query, input));
-        }
-        Ok(MediaList {
-            media_queries: store_vec(media_queries, input),
-        })
-    })
-}
-
-fn parse_media_query<'i>(
-    input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
-) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
-    // As in Lightning CSS, parse the qualifier and media type together. This
-    // is important for `not (color)`: `not` is part of the condition there,
-    // not a media query qualifier.
-    let explicit = input
-        .try_parse(|input| {
-            let qualifier = input.try_parse(parse_qualifier).ok();
-            let media_type = parse_media_type(input)?;
-            Ok::<_, ParseError<'i, ParserError<'i>>>((qualifier, media_type))
-        })
-        .ok();
-
-    let (qualifier, media_type, condition) = if let Some((qualifier, media_type)) = explicit {
-        let condition = if input.is_exhausted() {
-            None
-        } else {
-            input.expect_ident_matching("and")?;
-            Some(parse_media_condition_or_unknown(input, allocator, false)?)
-        };
-        (qualifier, media_type, condition)
-    } else {
-        (
-            None,
-            MediaType::All,
-            Some(parse_media_condition_or_unknown(input, allocator, true)?),
-        )
-    };
-
-    let condition = condition.map(|condition| store_node(condition, input));
-    input.expect_exhausted()?;
-    Ok(MediaQuery {
-        condition,
-        media_type,
-        qualifier,
-    })
-}
-
-fn parse_unknown_media_query<'i>(
-    input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
-) -> Result<MediaQuery<'i>, ParseError<'i, ParserError<'i>>> {
-    Ok(MediaQuery {
-        condition: Some(store_node(
-            MediaCondition::Unknown(store_vec(collect_tokens(input, allocator, 0)?, input)),
-            input,
-        )),
-        media_type: MediaType::All,
-        qualifier: None,
-    })
-}
-
-fn parse_qualifier<'i>(
+pub(super) fn parse_qualifier<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<Qualifier, ParseError<'i, ParserError<'i>>> {
     let name = input.expect_ident()?;
@@ -166,7 +13,7 @@ fn parse_qualifier<'i>(
     )
 }
 
-fn parse_media_type<'i>(
+pub(super) fn parse_media_type<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<MediaType<'i>, ParseError<'i, ParserError<'i>>> {
     let name = input.expect_ident()?;
@@ -178,11 +25,11 @@ fn parse_media_type<'i>(
         "and" | "or" | "not" | "only" => {
             Err(input.new_custom_error(ParserError::InvalidValue))
         },
-        _ => Ok(MediaType::Custom(name)),
+        _ => Ok(MediaType::Custom(input.add_str(name))),
     )
 }
 
-fn parse_media_condition_or_unknown<'i>(
+pub(super) fn parse_media_condition_or_unknown<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     allow_or: bool,
@@ -414,7 +261,7 @@ fn parse_media_feature_name<'i>(
 > {
     let ident = input.expect_ident()?;
     if ident.starts_with("--") {
-        return Ok((MediaFeatureName::Custom(ident), None));
+        return Ok((MediaFeatureName::Custom(input.add_str(ident)), None));
     }
 
     // WebKit historically places its prefix before min/max, e.g.
@@ -445,7 +292,7 @@ fn parse_media_feature_name<'i>(
     };
     match standard {
         Some(id) => Ok((MediaFeatureName::Standard(id), legacy_operator)),
-        None => Ok((MediaFeatureName::Unknown(ident), None)),
+        None => Ok((MediaFeatureName::Unknown(input.add_str(ident)), None)),
     }
 }
 
@@ -635,7 +482,10 @@ fn parse_known_media_feature_value<'i>(
         }
         MediaFeatureType::Resolution => MediaFeatureValue::Resolution(parse_resolution(input)?),
         MediaFeatureType::Ratio => MediaFeatureValue::Ratio(parse_ratio(input, false)?),
-        MediaFeatureType::Ident => MediaFeatureValue::Ident(input.expect_ident()?),
+        MediaFeatureType::Ident => {
+            let ident = input.expect_ident()?;
+            MediaFeatureValue::Ident(input.add_str(ident))
+        }
         MediaFeatureType::Unknown => {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
@@ -661,7 +511,10 @@ fn parse_unknown_media_feature_value<'i>(
     if let Ok(value) = input.try_parse(|input| parse_environment_variable(input, allocator)) {
         return Ok(MediaFeatureValue::Env(store_node(value, input)));
     }
-    Ok(MediaFeatureValue::Ident(input.expect_ident()?))
+    Ok({
+        let ident = input.expect_ident()?;
+        MediaFeatureValue::Ident(input.add_str(ident))
+    })
 }
 
 fn media_feature_value_matches(value: &MediaFeatureValue<'_>, expected: MediaFeatureType) -> bool {
@@ -743,13 +596,16 @@ fn parse_environment_variable<'i>(
         let ident = input.expect_ident()?;
         let name = if ident.starts_with("--") {
             EnvironmentVariableName::Custom(store_node(
-                DashedIdentReference { from: None, ident },
+                DashedIdentReference {
+                    from: None,
+                    ident: input.add_str(ident),
+                },
                 input,
             ))
         } else if let Some(name) = parse_ua_environment_variable(ident) {
             EnvironmentVariableName::UA(name)
         } else {
-            EnvironmentVariableName::Unknown(ident)
+            EnvironmentVariableName::Unknown(input.add_str(ident))
         };
         let mut indices = allocator.vec();
         while let Ok(index) = input.try_parse(|input| input.expect_integer()) {
@@ -788,6 +644,6 @@ fn parse_ua_environment_variable(name: &str) -> Option<UAEnvironmentVariable> {
     )
 }
 
-pub(super) fn parse_supports_condition(source: &str) -> SupportsCondition<'_> {
+pub(super) fn parse_supports_condition(source: AstStr<'_>) -> SupportsCondition<'_> {
     SupportsCondition::Unknown(source)
 }

@@ -5,7 +5,7 @@ use crate::{
     NodePayload,
 };
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Image<'a> {
     None,
     Url(NodeId<'a, Url<'a>>),
@@ -13,33 +13,7 @@ pub enum Image<'a> {
     ImageSet(NodeId<'a, ImageSet<'a>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for Image<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0003_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let id = read_u32(&bytes, 4) as usize;
-        match bytes[0] {
-            0 => Self::None,
-            1 => Self::Url(context.encoded_node_id_at(id)),
-            2 => Self::Gradient(context.encoded_node_id_at(id)),
-            3 => Self::ImageSet(context.encoded_node_id_at(id)),
-            _ => panic!("invalid encoded Image variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_image(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_image(self)
-    }
-}
+impl_inline_node!(Image<'ast>, 0x0003_0001);
 
 impl<'ast> AstNodeClone<'ast> for Image<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -52,26 +26,7 @@ impl<'ast> AstNodeClone<'ast> for Image<'ast> {
     }
 }
 
-fn encode_image(value: Image<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        Image::None => bytes[0] = 0,
-        Image::Url(value) => write_node_id(&mut bytes, 1, value),
-        Image::Gradient(value) => write_node_id(&mut bytes, 2, value),
-        Image::ImageSet(value) => write_node_id(&mut bytes, 3, value),
-    }
-    NodePayload::inline(&bytes)
-}
-
-impl<'ast> ExtraDataCompact<'ast> for Image<'ast> {
-    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
-        inline_payload_as_extra(encode_image(self))
-    }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        Self::decode(NodePayload::inline(&data.bytes()), context)
-    }
-}
+impl_inline_extra!(Image<'ast>);
 
 impl<'ast> ExtraDataClone<'ast> for Image<'ast> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
@@ -88,7 +43,7 @@ pub enum ObjectFit {
     ScaleDown,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Gradient<'a> {
     Linear {
         direction: LineDirection,
@@ -125,62 +80,303 @@ pub enum Gradient<'a> {
     WebKitGradient(NodeId<'a, WebKitGradient<'a>>),
 }
 
-// byte 0       variant
-// bytes 1..4   vendor/direction/angle tags
-// bytes 4..12  direction data, child IDs, or one angle plus one ID
-// bytes 12..16 first extra slot
-//
-// extra + 0    gradient-item range
-impl<'ast> AstNodeStorage<'ast> for Gradient<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0003_000e);
+// Flatten nested angle variants so the native header remains 16 bytes.
+#[repr(u8)]
+#[derive(Clone, Copy)]
+enum LineDirectionSlot {
+    Deg(f32),
+    Rad(f32),
+    Grad(f32),
+    Turn(f32),
+    Horizontal(HorizontalPositionKeyword),
+    Vertical(VerticalPositionKeyword),
+    Corner {
+        horizontal: HorizontalPositionKeyword,
+        vertical: VerticalPositionKeyword,
+    },
+}
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let items = context.extra_slot(payload.extra_start());
-        match bytes[0] {
-            0 => Self::Linear {
-                direction: decode_line_direction(&bytes),
-                items: decode_extra_range(items, context),
-                vendor_prefix: VendorPrefix::from_bits_retain(bytes[1]),
+impl From<LineDirection> for LineDirectionSlot {
+    fn from(value: LineDirection) -> Self {
+        match value {
+            LineDirection::Angle(Angle::Deg(value)) => Self::Deg(value),
+            LineDirection::Angle(Angle::Rad(value)) => Self::Rad(value),
+            LineDirection::Angle(Angle::Grad(value)) => Self::Grad(value),
+            LineDirection::Angle(Angle::Turn(value)) => Self::Turn(value),
+            LineDirection::Horizontal(value) => Self::Horizontal(value),
+            LineDirection::Vertical(value) => Self::Vertical(value),
+            LineDirection::Corner {
+                horizontal,
+                vertical,
+            } => Self::Corner {
+                horizontal,
+                vertical,
             },
-            1 => Self::RepeatingLinear {
-                direction: decode_line_direction(&bytes),
-                items: decode_extra_range(items, context),
-                vendor_prefix: VendorPrefix::from_bits_retain(bytes[1]),
-            },
-            2 => Self::Radial {
-                items: decode_extra_range(items, context),
-                position: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
-                shape: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
-                vendor_prefix: VendorPrefix::from_bits_retain(bytes[1]),
-            },
-            3 => Self::RepeatingRadial {
-                items: decode_extra_range(items, context),
-                position: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
-                shape: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
-                vendor_prefix: VendorPrefix::from_bits_retain(bytes[1]),
-            },
-            4 => Self::Conic {
-                angle: crate::token::decode_angle(bytes[1], f32::from_bits(read_u32(&bytes, 4))),
-                items: decode_extra_range(items, context),
-                position: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
-            },
-            5 => Self::RepeatingConic {
-                angle: crate::token::decode_angle(bytes[1], f32::from_bits(read_u32(&bytes, 4))),
-                items: decode_extra_range(items, context),
-                position: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
-            },
-            6 => Self::WebKitGradient(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            _ => panic!("invalid encoded Gradient variant"),
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_gradient(self, None, context)
+}
+impl From<LineDirectionSlot> for LineDirection {
+    fn from(value: LineDirectionSlot) -> Self {
+        match value {
+            LineDirectionSlot::Deg(value) => Self::Angle(Angle::Deg(value)),
+            LineDirectionSlot::Rad(value) => Self::Angle(Angle::Rad(value)),
+            LineDirectionSlot::Grad(value) => Self::Angle(Angle::Grad(value)),
+            LineDirectionSlot::Turn(value) => Self::Angle(Angle::Turn(value)),
+            LineDirectionSlot::Horizontal(value) => Self::Horizontal(value),
+            LineDirectionSlot::Vertical(value) => Self::Vertical(value),
+            LineDirectionSlot::Corner {
+                horizontal,
+                vertical,
+            } => Self::Corner {
+                horizontal,
+                vertical,
+            },
+        }
     }
+}
 
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_gradient(self, Some(current.extra_start()), context)
+#[derive(Clone, Copy)]
+enum GradientAngleUnit {
+    Deg,
+    Rad,
+    Grad,
+    Turn,
+}
+
+impl GradientAngleUnit {
+    fn split(angle: Angle) -> (Self, f32) {
+        match angle {
+            Angle::Deg(value) => (Self::Deg, value),
+            Angle::Rad(value) => (Self::Rad, value),
+            Angle::Grad(value) => (Self::Grad, value),
+            Angle::Turn(value) => (Self::Turn, value),
+        }
+    }
+    fn angle(self, value: f32) -> Angle {
+        match self {
+            Self::Deg => Angle::Deg(value),
+            Self::Rad => Angle::Rad(value),
+            Self::Grad => Angle::Grad(value),
+            Self::Turn => Angle::Turn(value),
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+enum GradientData<'ast> {
+    Linear {
+        repeating: bool,
+        vendor_prefix: VendorPrefix,
+        direction: LineDirectionSlot,
+    },
+    Radial {
+        repeating: bool,
+        vendor_prefix: VendorPrefix,
+        position: NodeId<'ast, Position<'ast>>,
+        shape: NodeId<'ast, EndingShape<'ast>>,
+    },
+    Conic {
+        repeating: bool,
+        unit: GradientAngleUnit,
+        value: f32,
+        position: NodeId<'ast, Position<'ast>>,
+    },
+    WebKitGradient(NodeId<'ast, WebKitGradient<'ast>>),
+}
+
+#[derive(Clone, Copy)]
+struct GradientHeader<'ast> {
+    data: GradientData<'ast>,
+    extra: u32,
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<LineDirectionSlot>() == 8);
+    assert!(std::mem::size_of::<GradientHeader<'_>>() == 16);
+};
+
+pub use gradient_access::{GradientItemsRead, GradientRead};
+mod gradient_access {
+    use super::*;
+    pub struct GradientItemsRead<'context, 'storage, 'id, D: DimensionValue> {
+        context: &'context AstContext<'storage>,
+        extra: u32,
+        marker: std::marker::PhantomData<NodeId<'id, GradientItem<'id, D>>>,
+    }
+    impl<'id, D: DimensionValue> GradientItemsRead<'_, '_, 'id, D> {
+        pub fn items(&self) -> Vec<'id, NodeId<'id, GradientItem<'id, D>>> {
+            // SAFETY: the matching gradient variant writes this typed range.
+            unsafe { self.context.extra_slot(self.extra as usize).read_value() }
+        }
+    }
+    pub enum GradientRead<'context, 'storage, 'id> {
+        Linear {
+            repeating: bool,
+            vendor_prefix: VendorPrefix,
+            direction: LineDirection,
+            items: GradientItemsRead<'context, 'storage, 'id, LengthValue>,
+        },
+        Radial {
+            repeating: bool,
+            vendor_prefix: VendorPrefix,
+            position: NodeId<'id, Position<'id>>,
+            shape: NodeId<'id, EndingShape<'id>>,
+            items: GradientItemsRead<'context, 'storage, 'id, LengthValue>,
+        },
+        Conic {
+            repeating: bool,
+            angle: Angle,
+            position: NodeId<'id, Position<'id>>,
+            items: GradientItemsRead<'context, 'storage, 'id, Angle>,
+        },
+        WebKitGradient(NodeId<'id, WebKitGradient<'id>>),
+    }
+    impl<'storage> AstContext<'storage> {
+        pub fn gradient<'id>(
+            &self,
+            id: NodeId<'id, Gradient<'id>>,
+        ) -> GradientRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload checks the kind before reading its native header.
+            let header: GradientHeader<'id> = unsafe { self.node_payload(id).read_value() };
+            match header.data {
+                GradientData::Linear {
+                    repeating,
+                    vendor_prefix,
+                    direction,
+                } => GradientRead::Linear {
+                    repeating,
+                    vendor_prefix,
+                    direction: direction.into(),
+                    items: GradientItemsRead {
+                        context: self,
+                        extra: header.extra,
+                        marker: std::marker::PhantomData,
+                    },
+                },
+                GradientData::Radial {
+                    repeating,
+                    vendor_prefix,
+                    position,
+                    shape,
+                } => GradientRead::Radial {
+                    repeating,
+                    vendor_prefix,
+                    position,
+                    shape,
+                    items: GradientItemsRead {
+                        context: self,
+                        extra: header.extra,
+                        marker: std::marker::PhantomData,
+                    },
+                },
+                GradientData::Conic {
+                    repeating,
+                    unit,
+                    value,
+                    position,
+                } => GradientRead::Conic {
+                    repeating,
+                    angle: unit.angle(value),
+                    position,
+                    items: GradientItemsRead {
+                        context: self,
+                        extra: header.extra,
+                        marker: std::marker::PhantomData,
+                    },
+                },
+                GradientData::WebKitGradient(value) => GradientRead::WebKitGradient(value),
+            }
+        }
+    }
+}
+
+// SAFETY: this kind always stores GradientHeader. Each variant writes its typed
+// item range before publishing the header; the WebKit variant never reads it.
+unsafe impl<'ast> AstNodeStorage<'ast> for Gradient<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0003_000e);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: GradientHeader<'ast> = unsafe { payload.read_value() };
+        match header.data {
+            GradientData::Linear {
+                repeating,
+                vendor_prefix,
+                direction,
+            } => {
+                let items = unsafe { context.extra_slot(header.extra as usize).read_value() };
+                let direction = direction.into();
+                if repeating {
+                    Self::RepeatingLinear {
+                        direction,
+                        items,
+                        vendor_prefix,
+                    }
+                } else {
+                    Self::Linear {
+                        direction,
+                        items,
+                        vendor_prefix,
+                    }
+                }
+            }
+            GradientData::Radial {
+                repeating,
+                vendor_prefix,
+                position,
+                shape,
+            } => {
+                let items = unsafe { context.extra_slot(header.extra as usize).read_value() };
+                if repeating {
+                    Self::RepeatingRadial {
+                        items,
+                        position,
+                        shape,
+                        vendor_prefix,
+                    }
+                } else {
+                    Self::Radial {
+                        items,
+                        position,
+                        shape,
+                        vendor_prefix,
+                    }
+                }
+            }
+            GradientData::Conic {
+                repeating,
+                unit,
+                value,
+                position,
+            } => {
+                let items = unsafe { context.extra_slot(header.extra as usize).read_value() };
+                let angle = unit.angle(value);
+                if repeating {
+                    Self::RepeatingConic {
+                        angle,
+                        items,
+                        position,
+                    }
+                } else {
+                    Self::Conic {
+                        angle,
+                        items,
+                        position,
+                    }
+                }
+            }
+            GradientData::WebKitGradient(value) => Self::WebKitGradient(value),
+        }
+    }
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        store_gradient(self, None, context)
+    }
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: GradientHeader<'ast> = unsafe { current.read_value() };
+        store_gradient(self, Some(header.extra as usize), context)
     }
 }
 
@@ -250,81 +446,98 @@ impl<'ast> AstNodeClone<'ast> for Gradient<'ast> {
     }
 }
 
-fn encode_gradient<'ast>(
+fn store_gradient<'ast>(
     value: Gradient<'ast>,
     existing_extra: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    let items = match value {
+    let (data, items) = match value {
         Gradient::Linear {
             direction,
             items,
             vendor_prefix,
-        } => {
-            bytes[0] = 0;
-            bytes[1] = vendor_prefix.bits();
-            encode_line_direction(direction, &mut bytes);
-            encode_extra_range(items)
-        }
+        } => (
+            GradientData::Linear {
+                repeating: false,
+                vendor_prefix,
+                direction: direction.into(),
+            },
+            ExtraData::from_value(items),
+        ),
         Gradient::RepeatingLinear {
             direction,
             items,
             vendor_prefix,
-        } => {
-            bytes[0] = 1;
-            bytes[1] = vendor_prefix.bits();
-            encode_line_direction(direction, &mut bytes);
-            encode_extra_range(items)
-        }
+        } => (
+            GradientData::Linear {
+                repeating: true,
+                vendor_prefix,
+                direction: direction.into(),
+            },
+            ExtraData::from_value(items),
+        ),
         Gradient::Radial {
             items,
             position,
             shape,
             vendor_prefix,
-        } => {
-            bytes[0] = 2;
-            bytes[1] = vendor_prefix.bits();
-            write_u32(&mut bytes, 4, node_index(position));
-            write_u32(&mut bytes, 8, node_index(shape));
-            encode_extra_range(items)
-        }
+        } => (
+            GradientData::Radial {
+                repeating: false,
+                vendor_prefix,
+                position,
+                shape,
+            },
+            ExtraData::from_value(items),
+        ),
         Gradient::RepeatingRadial {
             items,
             position,
             shape,
             vendor_prefix,
-        } => {
-            bytes[0] = 3;
-            bytes[1] = vendor_prefix.bits();
-            write_u32(&mut bytes, 4, node_index(position));
-            write_u32(&mut bytes, 8, node_index(shape));
-            encode_extra_range(items)
-        }
+        } => (
+            GradientData::Radial {
+                repeating: true,
+                vendor_prefix,
+                position,
+                shape,
+            },
+            ExtraData::from_value(items),
+        ),
         Gradient::Conic {
             angle,
             items,
             position,
         } => {
-            bytes[0] = 4;
-            encode_gradient_angle(angle, &mut bytes);
-            write_u32(&mut bytes, 8, node_index(position));
-            encode_extra_range(items)
+            let (unit, value) = GradientAngleUnit::split(angle);
+            (
+                GradientData::Conic {
+                    repeating: false,
+                    unit,
+                    value,
+                    position,
+                },
+                ExtraData::from_value(items),
+            )
         }
         Gradient::RepeatingConic {
             angle,
             items,
             position,
         } => {
-            bytes[0] = 5;
-            encode_gradient_angle(angle, &mut bytes);
-            write_u32(&mut bytes, 8, node_index(position));
-            encode_extra_range(items)
+            let (unit, value) = GradientAngleUnit::split(angle);
+            (
+                GradientData::Conic {
+                    repeating: true,
+                    unit,
+                    value,
+                    position,
+                },
+                ExtraData::from_value(items),
+            )
         }
         Gradient::WebKitGradient(value) => {
-            bytes[0] = 6;
-            write_u32(&mut bytes, 4, node_index(value));
-            ExtraData::default()
+            (GradientData::WebKitGradient(value), ExtraData::default())
         }
     };
     let extra = match existing_extra {
@@ -334,86 +547,10 @@ fn encode_gradient<'ast>(
         }
         None => context.alloc_extra_slots([items]),
     };
-    NodePayload::with_extra(&bytes, extra)
-}
-
-fn encode_gradient_angle(value: Angle, bytes: &mut [u8]) {
-    let (kind, value) = crate::token::encode_angle(value);
-    bytes[1] = kind;
-    write_u32(bytes, 4, value.to_bits());
-}
-
-fn encode_line_direction(value: LineDirection, bytes: &mut [u8]) {
-    match value {
-        LineDirection::Angle(value) => {
-            bytes[2] = 0;
-            let (kind, value) = crate::token::encode_angle(value);
-            bytes[3] = kind;
-            write_u32(bytes, 4, value.to_bits());
-        }
-        LineDirection::Horizontal(value) => {
-            bytes[2] = 1;
-            bytes[3] = encode_horizontal_position(value);
-        }
-        LineDirection::Vertical(value) => {
-            bytes[2] = 2;
-            bytes[3] = encode_vertical_position(value);
-        }
-        LineDirection::Corner {
-            horizontal,
-            vertical,
-        } => {
-            bytes[2] = 3;
-            bytes[3] = encode_horizontal_position(horizontal);
-            bytes[4] = encode_vertical_position(vertical);
-        }
-    }
-}
-
-fn decode_line_direction(bytes: &[u8]) -> LineDirection {
-    match bytes[2] {
-        0 => LineDirection::Angle(crate::token::decode_angle(
-            bytes[3],
-            f32::from_bits(read_u32(bytes, 4)),
-        )),
-        1 => LineDirection::Horizontal(decode_horizontal_position(bytes[3])),
-        2 => LineDirection::Vertical(decode_vertical_position(bytes[3])),
-        3 => LineDirection::Corner {
-            horizontal: decode_horizontal_position(bytes[3]),
-            vertical: decode_vertical_position(bytes[4]),
-        },
-        _ => panic!("invalid encoded LineDirection variant"),
-    }
-}
-
-fn encode_horizontal_position(value: HorizontalPositionKeyword) -> u8 {
-    match value {
-        HorizontalPositionKeyword::Left => 0,
-        HorizontalPositionKeyword::Right => 1,
-    }
-}
-
-fn decode_horizontal_position(value: u8) -> HorizontalPositionKeyword {
-    match value {
-        0 => HorizontalPositionKeyword::Left,
-        1 => HorizontalPositionKeyword::Right,
-        _ => panic!("invalid encoded horizontal position"),
-    }
-}
-
-fn encode_vertical_position(value: VerticalPositionKeyword) -> u8 {
-    match value {
-        VerticalPositionKeyword::Top => 0,
-        VerticalPositionKeyword::Bottom => 1,
-    }
-}
-
-fn decode_vertical_position(value: u8) -> VerticalPositionKeyword {
-    match value {
-        0 => VerticalPositionKeyword::Top,
-        1 => VerticalPositionKeyword::Bottom,
-        _ => panic!("invalid encoded vertical position"),
-    }
+    NodePayload::from_value(GradientHeader {
+        data,
+        extra: u32::try_from(extra).expect("extra index exceeds u32"),
+    })
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -432,45 +569,101 @@ pub enum WebKitGradient<'a> {
     },
 }
 
-// byte 0       variant
-// bytes 1..4   reserved
-// bytes 4..8   from point ID
-// bytes 8..12  to point ID
-// bytes 12..16 first extra slot
-//
-// extra + 0    start/end radii, or reserved
-// extra + 1    color-stop range
-impl<'ast> AstNodeStorage<'ast> for WebKitGradient<'ast> {
+// The header fits one payload; radii and the stop range each occupy one slot.
+#[derive(Clone, Copy)]
+struct WebKitGradientHeader<'ast> {
+    from: NodeId<'ast, WebKitGradientPoint>,
+    to: NodeId<'ast, WebKitGradientPoint>,
+    extra: u32,
+    radial: bool,
+}
+
+pub use webkit_gradient_access::WebKitGradientRead;
+mod webkit_gradient_access {
+    use super::*;
+    pub struct WebKitGradientRead<'context, 'storage, 'id> {
+        context: &'context AstContext<'storage>,
+        header: WebKitGradientHeader<'id>,
+    }
+    impl<'id> WebKitGradientRead<'_, '_, 'id> {
+        pub fn from(&self) -> NodeId<'id, WebKitGradientPoint> {
+            self.header.from
+        }
+        pub fn to(&self) -> NodeId<'id, WebKitGradientPoint> {
+            self.header.to
+        }
+        pub fn radii(&self) -> Option<[f32; 2]> {
+            self.header.radial.then(|| {
+                // SAFETY: the first extra slot is written as native [f32; 2].
+                unsafe {
+                    self.context
+                        .extra_slot(self.header.extra as usize)
+                        .read_value()
+                }
+            })
+        }
+        pub fn stops(&self) -> Vec<'id, WebKitColorStop<'id>> {
+            // SAFETY: the second extra slot is written as the native stop range.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize + 1)
+                    .read_value()
+            }
+        }
+    }
+    impl<'storage> AstContext<'storage> {
+        pub fn webkit_gradient<'id>(
+            &self,
+            id: NodeId<'id, WebKitGradient<'id>>,
+        ) -> WebKitGradientRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload checks the kind before the native header read.
+            WebKitGradientRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
+    }
+}
+
+// SAFETY: this kind always stores WebKitGradientHeader, followed by typed radii/range slots.
+unsafe impl<'ast> AstNodeStorage<'ast> for WebKitGradient<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0003_000f);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let extra = payload.extra_start();
-        let from = context.encoded_node_id_at(read_u32(&bytes, 4) as usize);
-        let to = context.encoded_node_id_at(read_u32(&bytes, 8) as usize);
-        let stops = decode_extra_range(context.extra_slot(extra + 1), context);
-        match bytes[0] {
-            0 => Self::Linear { from, to, stops },
-            1 => {
-                let radii = context.extra_slot(extra).bytes();
-                Self::Radial {
-                    from,
-                    start_radius: f32::from_bits(read_u32(&radii, 0)),
-                    to,
-                    end_radius: f32::from_bits(read_u32(&radii, 4)),
-                    stops,
-                }
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: WebKitGradientHeader<'ast> = unsafe { payload.read_value() };
+        let WebKitGradientHeader {
+            from,
+            to,
+            extra,
+            radial,
+        } = header;
+        let stops = unsafe { context.extra_slot(extra as usize + 1).read_value() };
+        if radial {
+            let [start_radius, end_radius]: [f32; 2] =
+                unsafe { context.extra_slot(extra as usize).read_value() };
+            Self::Radial {
+                from,
+                start_radius,
+                to,
+                end_radius,
+                stops,
             }
-            _ => panic!("invalid encoded WebKitGradient variant"),
+        } else {
+            Self::Linear { from, to, stops }
         }
     }
 
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_webkit_gradient(self, None, context)
+        store_webkit_gradient(self, None, context)
     }
 
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_webkit_gradient(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: WebKitGradientHeader<'ast> = unsafe { current.read_value() };
+        store_webkit_gradient(self, Some(header.extra as usize), context)
     }
 }
 
@@ -499,47 +692,40 @@ impl<'ast> AstNodeClone<'ast> for WebKitGradient<'ast> {
     }
 }
 
-fn encode_webkit_gradient<'ast>(
+fn store_webkit_gradient<'ast>(
     value: WebKitGradient<'ast>,
     existing_extra: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    let (radii, stops) = match value {
-        WebKitGradient::Linear { from, to, stops } => {
-            bytes[0] = 0;
-            write_u32(&mut bytes, 4, node_index(from));
-            write_u32(&mut bytes, 8, node_index(to));
-            (ExtraData::default(), encode_extra_range(stops))
-        }
+    let (from, to, radii, stops, radial) = match value {
+        WebKitGradient::Linear { from, to, stops } => (from, to, [0.0; 2], stops, false),
         WebKitGradient::Radial {
             from,
             start_radius,
             to,
             end_radius,
             stops,
-        } => {
-            bytes[0] = 1;
-            write_u32(&mut bytes, 4, node_index(from));
-            write_u32(&mut bytes, 8, node_index(to));
-            let mut radii = [0; ExtraData::BYTES];
-            write_u32(&mut radii, 0, start_radius.to_bits());
-            write_u32(&mut radii, 4, end_radius.to_bits());
-            (ExtraData::from_bytes(&radii), encode_extra_range(stops))
-        }
+        } => (from, to, [start_radius, end_radius], stops, true),
     };
+    let fields = [ExtraData::from_value(radii), ExtraData::from_value(stops)];
     let extra = match existing_extra {
         Some(index) => {
-            context.set_extra_slot(index, radii);
-            context.set_extra_slot(index + 1, stops);
+            for (offset, field) in fields.into_iter().enumerate() {
+                context.set_extra_slot(index + offset, field);
+            }
             index
         }
-        None => context.alloc_extra_slots([radii, stops]),
+        None => context.alloc_extra_slots(fields),
     };
-    NodePayload::with_extra(&bytes, extra)
+    NodePayload::from_value(WebKitGradientHeader {
+        from,
+        to,
+        extra: u32::try_from(extra).expect("extra index exceeds u32"),
+        radial,
+    })
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum LineDirection {
     Angle(Angle),
     Horizontal(HorizontalPositionKeyword),
@@ -550,20 +736,20 @@ pub enum LineDirection {
     },
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum HorizontalPositionKeyword {
     Left,
     Right,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum VerticalPositionKeyword {
     Top,
     Bottom,
 }
 
-#[derive(Debug, PartialEq, Visit)]
-pub enum GradientItem<'a, D: DimensionCodec> {
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
+pub enum GradientItem<'a, D: DimensionValue> {
     ColorStop {
         color: NodeId<'a, CssColor<'a>>,
         position: Option<NodeId<'a, DimensionPercentage<'a, D>>>,
@@ -571,40 +757,25 @@ pub enum GradientItem<'a, D: DimensionCodec> {
     Hint(NodeId<'a, DimensionPercentage<'a, D>>),
 }
 
-// byte 0      variant
-// bytes 1..4  reserved
-// bytes 4..8  color or hint node ID
-// bytes 8..12 optional position node ID
-// bytes 12..16 reserved
-impl<'ast, D: DimensionCodec> AstNodeStorage<'ast> for GradientItem<'ast, D> {
+// SAFETY: each supported dimension has a distinct kind; all child handles fit inline.
+unsafe impl<'ast, D: DimensionValue> AstNodeStorage<'ast> for GradientItem<'ast, D> {
     const KIND: NodeKind = D::GRADIENT_ITEM_KIND;
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => {
-                let position = read_u32(&bytes, 8);
-                Self::ColorStop {
-                    color: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
-                    position: (position != u32::MAX)
-                        .then(|| context.encoded_node_id_at(position as usize)),
-                }
-            }
-            1 => Self::Hint(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            _ => panic!("invalid encoded GradientItem variant"),
-        }
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
     fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_gradient_item(self)
+        NodePayload::from_value(self)
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
-impl<'ast, D: DimensionCodec> AstNodeClone<'ast> for GradientItem<'ast, D> {
+impl<'ast, D: DimensionValue> AstNodeClone<'ast> for GradientItem<'ast, D> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
         match self {
             Self::ColorStop { color, position } => Self::ColorStop {
@@ -616,24 +787,8 @@ impl<'ast, D: DimensionCodec> AstNodeClone<'ast> for GradientItem<'ast, D> {
     }
 }
 
-fn encode_gradient_item<D: DimensionCodec>(value: GradientItem<'_, D>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        GradientItem::ColorStop { color, position } => {
-            bytes[0] = 0;
-            write_u32(&mut bytes, 4, node_index(color));
-            write_u32(&mut bytes, 8, position.map_or(u32::MAX, node_index));
-        }
-        GradientItem::Hint(value) => {
-            bytes[0] = 1;
-            write_u32(&mut bytes, 4, node_index(value));
-        }
-    }
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
-pub enum DimensionPercentage<'a, D: DimensionCodec> {
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
+pub enum DimensionPercentage<'a, D: DimensionValue> {
     Dimension(D),
     Percentage(f32),
     /// A unitless zero produced by target-aware minification.
@@ -645,95 +800,53 @@ pub type LengthPercentage<'a> = DimensionPercentage<'a, LengthValue>;
 pub type AnglePercentage<'a> = DimensionPercentage<'a, Angle>;
 
 #[doc(hidden)]
-pub trait DimensionCodec: Sized {
+pub trait DimensionValue: Copy {
     const NODE_KIND: NodeKind;
     const CALC_KIND: NodeKind;
     const GRADIENT_ITEM_KIND: NodeKind;
     const MATH_FUNCTION_KIND: NodeKind;
-
-    fn encode(self) -> (u8, u32);
-
-    fn decode(kind: u8, value: u32) -> Self;
 }
 
-impl DimensionCodec for LengthValue {
+impl DimensionValue for LengthValue {
     const NODE_KIND: NodeKind = NodeKind::new(0x0003_0002);
     const CALC_KIND: NodeKind = NodeKind::new(0x0018_0002);
     const GRADIENT_ITEM_KIND: NodeKind = NodeKind::new(0x0003_000c);
     const MATH_FUNCTION_KIND: NodeKind = NodeKind::new(0x0019_0002);
-
-    fn encode(self) -> (u8, u32) {
-        (
-            crate::length::encode_length_unit(self.unit),
-            self.value.to_bits(),
-        )
-    }
-
-    fn decode(kind: u8, value: u32) -> Self {
-        Self {
-            unit: crate::length::decode_length_unit(kind),
-            value: f32::from_bits(value),
-        }
-    }
 }
 
-impl DimensionCodec for Angle {
+impl DimensionValue for Angle {
     const NODE_KIND: NodeKind = NodeKind::new(0x0003_0003);
     const CALC_KIND: NodeKind = NodeKind::new(0x0018_0003);
     const GRADIENT_ITEM_KIND: NodeKind = NodeKind::new(0x0003_000d);
     const MATH_FUNCTION_KIND: NodeKind = NodeKind::new(0x0019_0003);
-
-    fn encode(self) -> (u8, u32) {
-        let (kind, value) = crate::token::encode_angle(self);
-        (kind, value.to_bits())
-    }
-
-    fn decode(kind: u8, value: u32) -> Self {
-        crate::token::decode_angle(kind, f32::from_bits(value))
-    }
 }
 
-impl<D: DimensionCodec> crate::length::CalcValueCodec for DimensionPercentage<'_, D> {
+impl<D: DimensionValue> crate::length::CalcValueCodec for DimensionPercentage<'_, D> {
     const CALC_KIND: NodeKind = D::CALC_KIND;
     const MATH_FUNCTION_KIND: NodeKind = D::MATH_FUNCTION_KIND;
 }
 
-// Fixed payload layout for `DimensionPercentage<D>`:
-//
-// byte 0      variant
-// byte 1      dimension kind
-// bytes 2..4  reserved
-// bytes 4..8  dimension/percentage bits or Calc NodeId index
-// bytes 8..16 reserved
-impl<'ast, D: DimensionCodec> AstNodeStorage<'ast> for DimensionPercentage<'ast, D> {
+// Nodes and lists preserve the same native dimension enum. Capacity checks
+// at typed slot access reject generic instances larger than the target slot.
+// SAFETY: each dimension kind stores and reads the same native enum type.
+unsafe impl<'ast, D: DimensionValue> AstNodeStorage<'ast> for DimensionPercentage<'ast, D> {
     const KIND: NodeKind = D::NODE_KIND;
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let value = read_u32(&bytes, 4);
-        match bytes[0] {
-            0 => Self::Dimension(D::decode(bytes[1], value)),
-            1 => Self::Percentage(f32::from_bits(value)),
-            2 => Self::Zero,
-            3 => Self::Calc(context.encoded_node_id_at(value as usize)),
-            _ => panic!("invalid encoded DimensionPercentage variant"),
-        }
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
     fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_dimension_percentage(self)
+        NodePayload::from_value(self)
     }
-
-    fn encode_existing(
+    unsafe fn encode_existing(
         self,
         _current: NodePayload,
         _context: &mut AstContext<'ast>,
     ) -> NodePayload {
-        encode_dimension_percentage(self)
+        NodePayload::from_value(self)
     }
 }
 
-impl<'ast, D: DimensionCodec> AstNodeClone<'ast> for DimensionPercentage<'ast, D> {
+impl<'ast, D: DimensionValue> AstNodeClone<'ast> for DimensionPercentage<'ast, D> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
         match self {
             Self::Dimension(value) => Self::Dimension(value),
@@ -744,138 +857,66 @@ impl<'ast, D: DimensionCodec> AstNodeClone<'ast> for DimensionPercentage<'ast, D
     }
 }
 
-impl<'ast, D: DimensionCodec> ExtraDataCompact<'ast> for DimensionPercentage<'ast, D> {
-    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
-        inline_payload_as_extra(encode_dimension_percentage(self))
+// SAFETY: typed lists publish and read the same native Copy dimension enum.
+unsafe impl<'ast, D: DimensionValue> ExtraDataCompact<'ast> for DimensionPercentage<'ast, D> {
+    #[inline]
+    fn encode_extra(self) -> ExtraData {
+        ExtraData::from_value(self)
     }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        Self::decode(NodePayload::inline(&data.bytes()), context)
+    #[inline]
+    unsafe fn decode_extra(data: ExtraData) -> Self {
+        unsafe { data.read_value() }
     }
 }
 
-impl<'ast, D: DimensionCodec> ExtraDataClone<'ast> for DimensionPercentage<'ast, D> {
+impl<'ast, D: DimensionValue> ExtraDataClone<'ast> for DimensionPercentage<'ast, D> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
         self.clone_in_context(context)
     }
 }
 
-fn encode_dimension_percentage<D: DimensionCodec>(
-    value: DimensionPercentage<'_, D>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    let data = match value {
-        DimensionPercentage::Dimension(value) => {
-            bytes[0] = 0;
-            let (kind, value) = value.encode();
-            bytes[1] = kind;
-            value
-        }
-        DimensionPercentage::Percentage(value) => {
-            bytes[0] = 1;
-            value.to_bits()
-        }
-        DimensionPercentage::Zero => {
-            bytes[0] = 2;
-            0
-        }
-        DimensionPercentage::Calc(value) => {
-            bytes[0] = 3;
-            node_index(value)
-        }
-    };
-    write_u32(&mut bytes, 4, data);
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum PositionComponent<'a, S> {
     Center,
     Length(NodeId<'a, LengthPercentage<'a>>),
     Side {
-        offset: Option<NodeId<'a, LengthPercentage<'a>>>,
         side: S,
+        offset: Option<NodeId<'a, LengthPercentage<'a>>>,
     },
 }
 
-trait PositionSideCodec: Sized {
+trait PositionSide: Copy {
     const NODE_KIND: NodeKind;
-
-    fn encode(self) -> u8;
-
-    fn decode(value: u8) -> Self;
 }
 
-impl PositionSideCodec for HorizontalPositionKeyword {
+impl PositionSide for HorizontalPositionKeyword {
     const NODE_KIND: NodeKind = NodeKind::new(0x0003_0004);
-
-    fn encode(self) -> u8 {
-        match self {
-            Self::Left => 0,
-            Self::Right => 1,
-        }
-    }
-
-    fn decode(value: u8) -> Self {
-        match value {
-            0 => Self::Left,
-            1 => Self::Right,
-            _ => panic!("invalid encoded HorizontalPositionKeyword"),
-        }
-    }
 }
 
-impl PositionSideCodec for VerticalPositionKeyword {
+impl PositionSide for VerticalPositionKeyword {
     const NODE_KIND: NodeKind = NodeKind::new(0x0003_0005);
-
-    fn encode(self) -> u8 {
-        match self {
-            Self::Top => 0,
-            Self::Bottom => 1,
-        }
-    }
-
-    fn decode(value: u8) -> Self {
-        match value {
-            0 => Self::Top,
-            1 => Self::Bottom,
-            _ => panic!("invalid encoded VerticalPositionKeyword"),
-        }
-    }
 }
 
-// byte 0 variant, byte 1 side, bytes 4..8 optional offset or length NodeId.
-impl<'ast, S: PositionSideCodec> AstNodeStorage<'ast> for PositionComponent<'ast, S> {
+// SAFETY: each side type has a distinct node kind and uses its native representation.
+unsafe impl<'ast, S: PositionSide> AstNodeStorage<'ast> for PositionComponent<'ast, S> {
     const KIND: NodeKind = S::NODE_KIND;
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let id = read_u32(&bytes, 4);
-        match bytes[0] {
-            0 => Self::Center,
-            1 => Self::Length(context.encoded_node_id_at(id as usize)),
-            2 => Self::Side {
-                offset: (id != u32::MAX).then(|| context.encoded_node_id_at(id as usize)),
-                side: S::decode(bytes[1]),
-            },
-            _ => panic!("invalid encoded PositionComponent variant"),
-        }
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
     fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_position_component(self)
+        NodePayload::from_value(self)
     }
-
-    fn encode_existing(
+    unsafe fn encode_existing(
         self,
         _current: NodePayload,
         _context: &mut AstContext<'ast>,
     ) -> NodePayload {
-        encode_position_component(self)
+        NodePayload::from_value(self)
     }
 }
 
-impl<'ast, S: PositionSideCodec> AstNodeClone<'ast> for PositionComponent<'ast, S> {
+impl<'ast, S: PositionSide> AstNodeClone<'ast> for PositionComponent<'ast, S> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
         match self {
             Self::Center => Self::Center,
@@ -888,74 +929,29 @@ impl<'ast, S: PositionSideCodec> AstNodeClone<'ast> for PositionComponent<'ast, 
     }
 }
 
-impl<'ast, S: PositionSideCodec> ExtraDataCompact<'ast> for PositionComponent<'ast, S> {
-    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
-        inline_payload_as_extra(encode_position_component(self))
+// SAFETY: typed lists store and read the same native position type.
+unsafe impl<'ast, S: PositionSide> ExtraDataCompact<'ast> for PositionComponent<'ast, S> {
+    fn encode_extra(self) -> ExtraData {
+        ExtraData::from_value(self)
     }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        Self::decode(NodePayload::inline(&data.bytes()), context)
+    unsafe fn decode_extra(data: ExtraData) -> Self {
+        unsafe { data.read_value() }
     }
 }
 
-impl<'ast, S: PositionSideCodec> ExtraDataClone<'ast> for PositionComponent<'ast, S> {
+impl<'ast, S: PositionSide> ExtraDataClone<'ast> for PositionComponent<'ast, S> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
         self.clone_in_context(context)
     }
 }
 
-fn encode_position_component<S: PositionSideCodec>(value: PositionComponent<'_, S>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    let id = match value {
-        PositionComponent::Center => {
-            bytes[0] = 0;
-            0
-        }
-        PositionComponent::Length(value) => {
-            bytes[0] = 1;
-            node_index(value)
-        }
-        PositionComponent::Side { offset, side } => {
-            bytes[0] = 2;
-            bytes[1] = side.encode();
-            offset.map_or(u32::MAX, node_index)
-        }
-    };
-    write_u32(&mut bytes, 4, id);
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum EndingShape<'a> {
     Ellipse(NodeId<'a, Ellipse<'a>>),
     Circle(NodeId<'a, Circle<'a>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for EndingShape<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0003_0006);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let id = read_u32(&bytes, 4) as usize;
-        match bytes[0] {
-            0 => Self::Ellipse(context.encoded_node_id_at(id)),
-            1 => Self::Circle(context.encoded_node_id_at(id)),
-            _ => panic!("invalid encoded EndingShape variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_ending_shape(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_ending_shape(self)
-    }
-}
+impl_inline_node!(EndingShape<'ast>, 0x0003_0006);
 
 impl<'ast> AstNodeClone<'ast> for EndingShape<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -966,16 +962,7 @@ impl<'ast> AstNodeClone<'ast> for EndingShape<'ast> {
     }
 }
 
-fn encode_ending_shape(value: EndingShape<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        EndingShape::Ellipse(value) => write_node_id(&mut bytes, 0, value),
-        EndingShape::Circle(value) => write_node_id(&mut bytes, 1, value),
-    }
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Ellipse<'a> {
     Size {
         x: NodeId<'a, LengthPercentage<'a>>,
@@ -984,33 +971,7 @@ pub enum Ellipse<'a> {
     Extent(ShapeExtent),
 }
 
-impl<'ast> AstNodeStorage<'ast> for Ellipse<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0003_0007);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Size {
-                x: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
-                y: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
-            },
-            1 => Self::Extent(decode_shape_extent(bytes[1])),
-            _ => panic!("invalid encoded Ellipse variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_ellipse(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_ellipse(self)
-    }
-}
+impl_inline_node!(Ellipse<'ast>, 0x0003_0007);
 
 impl<'ast> AstNodeClone<'ast> for Ellipse<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -1024,23 +985,7 @@ impl<'ast> AstNodeClone<'ast> for Ellipse<'ast> {
     }
 }
 
-fn encode_ellipse(value: Ellipse<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        Ellipse::Size { x, y } => {
-            bytes[0] = 0;
-            write_u32(&mut bytes, 4, node_index(x));
-            write_u32(&mut bytes, 8, node_index(y));
-        }
-        Ellipse::Extent(value) => {
-            bytes[0] = 1;
-            bytes[1] = encode_shape_extent(value);
-        }
-    }
-    NodePayload::inline(&bytes)
-}
-
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum ShapeExtent {
     ClosestSide,
     FarthestSide,
@@ -1048,36 +993,13 @@ pub enum ShapeExtent {
     FarthestCorner,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Circle<'a> {
     Radius(NodeId<'a, Length<'a>>),
     Extent(ShapeExtent),
 }
 
-impl<'ast> AstNodeStorage<'ast> for Circle<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0003_0008);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Radius(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            1 => Self::Extent(decode_shape_extent(bytes[1])),
-            _ => panic!("invalid encoded Circle variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_circle(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_circle(self)
-    }
-}
+impl_inline_node!(Circle<'ast>, 0x0003_0008);
 
 impl<'ast> AstNodeClone<'ast> for Circle<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -1088,71 +1010,20 @@ impl<'ast> AstNodeClone<'ast> for Circle<'ast> {
     }
 }
 
-fn encode_circle(value: Circle<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        Circle::Radius(value) => write_node_id(&mut bytes, 0, value),
-        Circle::Extent(value) => {
-            bytes[0] = 1;
-            bytes[1] = encode_shape_extent(value);
-        }
-    }
-    NodePayload::inline(&bytes)
-}
-
-fn encode_shape_extent(value: ShapeExtent) -> u8 {
-    match value {
-        ShapeExtent::ClosestSide => 0,
-        ShapeExtent::FarthestSide => 1,
-        ShapeExtent::ClosestCorner => 2,
-        ShapeExtent::FarthestCorner => 3,
-    }
-}
-
-fn decode_shape_extent(value: u8) -> ShapeExtent {
-    match value {
-        0 => ShapeExtent::ClosestSide,
-        1 => ShapeExtent::FarthestSide,
-        2 => ShapeExtent::ClosestCorner,
-        3 => ShapeExtent::FarthestCorner,
-        _ => panic!("invalid encoded ShapeExtent"),
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum WebKitGradientPointComponent<S> {
     Center,
     Number(NumberOrPercentage),
     Side(S),
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum NumberOrPercentage {
     Number(f32),
     Percentage(f32),
 }
 
-impl AstNodeStorage<'_> for NumberOrPercentage {
-    const KIND: NodeKind = NodeKind::new(0x0003_000b);
-
-    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        let value = f32::from_bits(read_u32(&bytes, 4));
-        match bytes[0] {
-            0 => Self::Number(value),
-            1 => Self::Percentage(value),
-            _ => panic!("invalid encoded NumberOrPercentage variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
-        encode_number_or_percentage(self)
-    }
-
-    fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'_>) -> NodePayload {
-        encode_number_or_percentage(self)
-    }
-}
+impl_inline_node!(NumberOrPercentage, 0x0003_000b);
 
 impl AstNodeClone<'_> for NumberOrPercentage {
     fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
@@ -1160,18 +1031,7 @@ impl AstNodeClone<'_> for NumberOrPercentage {
     }
 }
 
-fn encode_number_or_percentage(value: NumberOrPercentage) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    let (kind, value) = match value {
-        NumberOrPercentage::Number(value) => (0, value),
-        NumberOrPercentage::Percentage(value) => (1, value),
-    };
-    bytes[0] = kind;
-    write_u32(&mut bytes, 4, value.to_bits());
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum BackgroundSize<'a> {
     Explicit {
         height: NodeId<'a, LengthPercentageOrAuto<'a>>,
@@ -1181,34 +1041,7 @@ pub enum BackgroundSize<'a> {
     Contain,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BackgroundSize<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0003_0009);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Explicit {
-                height: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
-                width: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
-            },
-            1 => Self::Cover,
-            2 => Self::Contain,
-            _ => panic!("invalid encoded BackgroundSize variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_background_size(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_background_size(self)
-    }
-}
+impl_inline_node!(BackgroundSize<'ast>, 0x0003_0009);
 
 impl<'ast> AstNodeClone<'ast> for BackgroundSize<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -1222,50 +1055,13 @@ impl<'ast> AstNodeClone<'ast> for BackgroundSize<'ast> {
     }
 }
 
-fn encode_background_size(value: BackgroundSize<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        BackgroundSize::Explicit { height, width } => {
-            bytes[0] = 0;
-            write_u32(&mut bytes, 4, node_index(height));
-            write_u32(&mut bytes, 8, node_index(width));
-        }
-        BackgroundSize::Cover => bytes[0] = 1,
-        BackgroundSize::Contain => bytes[0] = 2,
-    }
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum LengthPercentageOrAuto<'a> {
     Auto,
     LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for LengthPercentageOrAuto<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0003_000a);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Auto,
-            1 => Self::LengthPercentage(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            _ => panic!("invalid encoded LengthPercentageOrAuto variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_length_percentage_or_auto(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_length_percentage_or_auto(self)
-    }
-}
+impl_inline_node!(LengthPercentageOrAuto<'ast>, 0x0003_000a);
 
 impl<'ast> AstNodeClone<'ast> for LengthPercentageOrAuto<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -1278,55 +1074,6 @@ impl<'ast> AstNodeClone<'ast> for LengthPercentageOrAuto<'ast> {
     }
 }
 
-fn encode_length_percentage_or_auto(value: LengthPercentageOrAuto<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        LengthPercentageOrAuto::Auto => bytes[0] = 0,
-        LengthPercentageOrAuto::LengthPercentage(value) => {
-            write_node_id(&mut bytes, 1, value);
-        }
-    }
-    NodePayload::inline(&bytes)
-}
-
-fn node_index<T>(id: NodeId<'_, T>) -> u32 {
-    u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
-}
-
-fn write_node_id<T>(bytes: &mut [u8; NodePayload::INLINE_BYTES], tag: u8, id: NodeId<'_, T>) {
-    bytes[0] = tag;
-    write_u32(bytes, 4, node_index(id));
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(
-        bytes[offset..offset + 4]
-            .try_into()
-            .expect("compact image field is four bytes"),
-    )
-}
-
-fn encode_extra_range<T>(range: Vec<'_, T>) -> ExtraData {
-    let start = u32::try_from(range.start_index()).expect("AST range exceeds four bytes");
-    let end = u32::try_from(range.end_index()).expect("AST range exceeds four bytes");
-    ExtraData::from_u64((end as u64) << 32 | start as u64)
-}
-
-fn decode_extra_range<'ast, T>(data: ExtraData, context: &AstContext<'ast>) -> Vec<'ast, T> {
-    context.encoded_vec_range(
-        data.as_u64() as u32 as usize,
-        (data.as_u64() >> 32) as u32 as usize,
-    )
-}
-
-fn inline_payload_as_extra(payload: NodePayload) -> ExtraData {
-    ExtraData::from_bytes(&payload.bytes()[..ExtraData::BYTES])
-}
-
 #[cfg(test)]
 mod storage_tests {
     use rocketcss_common::Allocator;
@@ -1337,6 +1084,433 @@ mod storage_tests {
         LengthPercentageOrAuto, LineDirection, PositionComponent, ShapeExtent, Url, VendorPrefix,
         VerticalPositionKeyword,
     };
+
+    #[test]
+    fn native_gradient_switches_all_variants_without_growing_overflow() {
+        use crate::{
+            Angle, Position, WebKitGradient, WebKitGradientPoint, WebKitGradientPointComponent,
+        };
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let x = context.alloc_encoded_node(PositionComponent::Center, DUMMY_SP);
+        let y = context.alloc_encoded_node(PositionComponent::Center, DUMMY_SP);
+        let position = context.alloc_encoded_node(Position { x, y }, DUMMY_SP);
+        let circle =
+            context.alloc_encoded_node(Circle::Extent(ShapeExtent::FarthestCorner), DUMMY_SP);
+        let shape = context.alloc_encoded_node(EndingShape::Circle(circle), DUMMY_SP);
+        let length = context.alloc_encoded_node(DimensionPercentage::Percentage(25.0), DUMMY_SP);
+        let length_item = context.alloc_encoded_node(GradientItem::Hint(length), DUMMY_SP);
+        let items = context.alloc_encoded_vec([length_item].into_iter());
+        let angle =
+            context.alloc_encoded_node(DimensionPercentage::<Angle>::Percentage(50.0), DUMMY_SP);
+        let angle_item = context.alloc_encoded_node(GradientItem::Hint(angle), DUMMY_SP);
+        let angle_items = context.alloc_encoded_vec([angle_item].into_iter());
+        let point = context.alloc_encoded_node(
+            WebKitGradientPoint {
+                x: WebKitGradientPointComponent::Center,
+                y: WebKitGradientPointComponent::Center,
+            },
+            DUMMY_SP,
+        );
+        let stops = context.alloc_encoded_vec(std::iter::empty());
+        let webkit = context.alloc_encoded_node(
+            WebKitGradient::Linear {
+                from: point,
+                to: point,
+                stops,
+            },
+            DUMMY_SP,
+        );
+        let before = context.encoded_extra_len();
+        let node = context.alloc_encoded_node(Gradient::WebKitGradient(webkit), DUMMY_SP);
+        let vendor_prefix = VendorPrefix::WEBKIT | VendorPrefix::MOZ;
+        for direction in [
+            LineDirection::Angle(Angle::Deg(-0.0)),
+            LineDirection::Angle(Angle::Rad(1.5)),
+            LineDirection::Angle(Angle::Grad(-2.5)),
+            LineDirection::Angle(Angle::Turn(0.75)),
+            LineDirection::Horizontal(HorizontalPositionKeyword::Left),
+            LineDirection::Horizontal(HorizontalPositionKeyword::Right),
+            LineDirection::Vertical(VerticalPositionKeyword::Top),
+            LineDirection::Vertical(VerticalPositionKeyword::Bottom),
+            LineDirection::Corner {
+                horizontal: HorizontalPositionKeyword::Right,
+                vertical: VerticalPositionKeyword::Top,
+            },
+        ] {
+            for expected in [
+                Gradient::Linear {
+                    direction,
+                    items,
+                    vendor_prefix,
+                },
+                Gradient::RepeatingLinear {
+                    direction,
+                    items,
+                    vendor_prefix,
+                },
+                Gradient::Radial {
+                    items,
+                    position,
+                    shape,
+                    vendor_prefix,
+                },
+                Gradient::RepeatingRadial {
+                    items,
+                    position,
+                    shape,
+                    vendor_prefix,
+                },
+                Gradient::Conic {
+                    angle: Angle::Turn(-0.0),
+                    items: angle_items,
+                    position,
+                },
+                Gradient::RepeatingConic {
+                    angle: Angle::Grad(42.0),
+                    items: angle_items,
+                    position,
+                },
+                Gradient::WebKitGradient(webkit),
+            ] {
+                context.mutate_encoded_node(node, |value, _| *value = expected);
+                assert_eq!(context.encoded_node(node), expected);
+                assert_eq!(context.encoded_extra_len(), before + 1);
+            }
+        }
+        let checkpoint = context.node_checkpoint();
+        for bits in [
+            0,
+            0x8000_0000,
+            1,
+            0x7f7f_ffff,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fc0_1234,
+        ] {
+            let number = f32::from_bits(bits);
+            for angle in [
+                Angle::Deg(number),
+                Angle::Rad(number),
+                Angle::Grad(number),
+                Angle::Turn(number),
+            ] {
+                let check_angle = |actual: Angle| {
+                    assert_eq!(
+                        std::mem::discriminant(&actual),
+                        std::mem::discriminant(&angle)
+                    );
+                    let (Angle::Deg(value)
+                    | Angle::Rad(value)
+                    | Angle::Grad(value)
+                    | Angle::Turn(value)) = actual;
+                    assert_eq!(value.to_bits(), bits);
+                };
+                for repeating in [false, true] {
+                    context.mutate_encoded_node(node, |value, _| {
+                        *value = if repeating {
+                            Gradient::RepeatingConic {
+                                angle,
+                                items: angle_items,
+                                position,
+                            }
+                        } else {
+                            Gradient::Conic {
+                                angle,
+                                items: angle_items,
+                                position,
+                            }
+                        };
+                    });
+                    let owned = context.encoded_node(node);
+                    assert_eq!(matches!(owned, Gradient::RepeatingConic { .. }), repeating);
+                    let (Gradient::Conic {
+                        angle: actual,
+                        items: actual_items,
+                        position: actual_position,
+                    }
+                    | Gradient::RepeatingConic {
+                        angle: actual,
+                        items: actual_items,
+                        position: actual_position,
+                    }) = owned
+                    else {
+                        panic!("expected conic");
+                    };
+                    check_angle(actual);
+                    assert_eq!((actual_items, actual_position), (angle_items, position));
+                    let super::GradientRead::Conic {
+                        angle: actual,
+                        items: actual_items,
+                        position: actual_position,
+                        repeating: actual_repeating,
+                    } = context.gradient(node)
+                    else {
+                        panic!("expected conic view");
+                    };
+                    check_angle(actual);
+                    assert_eq!(actual_repeating, repeating);
+                    assert_eq!(
+                        (actual_items.items(), actual_position),
+                        (angle_items, position)
+                    );
+                    context.mutate_encoded_node(node, |value, _| {
+                        *value = if repeating {
+                            Gradient::RepeatingLinear {
+                                direction: LineDirection::Angle(angle),
+                                items,
+                                vendor_prefix,
+                            }
+                        } else {
+                            Gradient::Linear {
+                                direction: LineDirection::Angle(angle),
+                                items,
+                                vendor_prefix,
+                            }
+                        };
+                    });
+                    let owned = context.encoded_node(node);
+                    assert_eq!(matches!(owned, Gradient::RepeatingLinear { .. }), repeating);
+                    let (Gradient::Linear {
+                        direction: LineDirection::Angle(actual),
+                        items: actual_items,
+                        vendor_prefix: actual_prefix,
+                    }
+                    | Gradient::RepeatingLinear {
+                        direction: LineDirection::Angle(actual),
+                        items: actual_items,
+                        vendor_prefix: actual_prefix,
+                    }) = owned
+                    else {
+                        panic!("expected linear angle");
+                    };
+                    check_angle(actual);
+                    assert_eq!((actual_items, actual_prefix), (items, vendor_prefix));
+                    let super::GradientRead::Linear {
+                        direction: LineDirection::Angle(actual),
+                        items: actual_items,
+                        vendor_prefix: actual_prefix,
+                        repeating: actual_repeating,
+                    } = context.gradient(node)
+                    else {
+                        panic!("expected linear view");
+                    };
+                    check_angle(actual);
+                    assert_eq!(actual_repeating, repeating);
+                    assert_eq!(
+                        (actual_items.items(), actual_prefix),
+                        (items, vendor_prefix)
+                    );
+                    assert_eq!(context.node_checkpoint(), checkpoint);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_dimension_nodes_and_lists_preserve_float_bits() {
+        use super::DimensionValue;
+        use crate::{Angle, Calc, ExtraDataCompact, LengthPercentage, LengthUnit, LengthValue};
+        fn check<'ast, D: DimensionValue + 'ast, R: std::fmt::Debug + PartialEq>(
+            context: &mut AstContext<'ast>,
+            dimension: D,
+            describe: impl Fn(D) -> R,
+        ) {
+            let expected = describe(dimension);
+            let value = DimensionPercentage::Dimension(dimension);
+            let node = context.alloc_encoded_node(value, DUMMY_SP);
+            let slot = value.encode_extra();
+            let list_value = unsafe { DimensionPercentage::<D>::decode_extra(slot) };
+            for actual in [context.encoded_node(node), list_value] {
+                let DimensionPercentage::Dimension(actual) = actual else {
+                    panic!("expected dimension")
+                };
+                assert_eq!(describe(actual), expected);
+            }
+        }
+        assert_eq!(std::mem::size_of::<DimensionPercentage<'_, Angle>>(), 8);
+        assert_eq!(
+            std::mem::size_of::<DimensionPercentage<'_, LengthValue>>(),
+            8
+        );
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let calc = context.alloc_encoded_node(Calc::<LengthPercentage>::Number(1.0), DUMMY_SP);
+        for value in [LengthPercentage::Zero, LengthPercentage::Calc(calc)] {
+            let node = context.alloc_encoded_node(value, DUMMY_SP);
+            let slot = value.encode_extra();
+            assert_eq!(context.encoded_node(node), value);
+            assert_eq!(unsafe { LengthPercentage::decode_extra(slot) }, value);
+        }
+        for bits in [0, 0x8000_0000, 0x7f80_0000, 0xff80_0000, 0x7fc0_1234] {
+            let value = f32::from_bits(bits);
+            check(
+                &mut context,
+                LengthValue {
+                    unit: LengthUnit::Cqw,
+                    value,
+                },
+                |value| (value.unit, value.value.to_bits()),
+            );
+            for dimension in [
+                Angle::Deg(value),
+                Angle::Rad(value),
+                Angle::Grad(value),
+                Angle::Turn(value),
+            ] {
+                check(&mut context, dimension, |angle| {
+                    let value = match angle {
+                        Angle::Deg(value)
+                        | Angle::Rad(value)
+                        | Angle::Grad(value)
+                        | Angle::Turn(value) => value,
+                    };
+                    (std::mem::discriminant(&angle), value.to_bits())
+                });
+            }
+            let percentage = DimensionPercentage::<Angle>::Percentage(value);
+            let slot = percentage.encode_extra();
+            let DimensionPercentage::Percentage(actual) =
+                (unsafe { DimensionPercentage::<Angle>::decode_extra(slot) })
+            else {
+                panic!("expected percentage")
+            };
+            assert_eq!(actual.to_bits(), bits);
+        }
+    }
+
+    #[test]
+    fn native_position_slots_preserve_side_and_optional_zero_index() {
+        use crate::{ExtraDataCompact, NodePayload};
+        assert_eq!(
+            std::mem::size_of::<PositionComponent<'_, HorizontalPositionKeyword>>(),
+            8
+        );
+        assert_eq!(
+            std::mem::size_of::<PositionComponent<'_, VerticalPositionKeyword>>(),
+            8
+        );
+        assert_eq!(std::mem::size_of::<Image<'_>>(), 8);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let offset = context.alloc_encoded_node(DimensionPercentage::Percentage(-0.0), DUMMY_SP);
+        assert_eq!(offset.index(), 0);
+        for side in [
+            HorizontalPositionKeyword::Left,
+            HorizontalPositionKeyword::Right,
+        ] {
+            let values = [
+                PositionComponent::Center,
+                PositionComponent::Length(offset),
+                PositionComponent::Side { side, offset: None },
+                PositionComponent::Side {
+                    side,
+                    offset: Some(offset),
+                },
+            ];
+            let list = context.alloc_encoded_vec(values.into_iter());
+            for (index, expected) in values.into_iter().enumerate() {
+                assert_eq!(context.encoded_vec_get(list, index), Some(expected));
+                let payload = NodePayload::from_value(expected);
+                let actual: PositionComponent<'_, HorizontalPositionKeyword> =
+                    unsafe { payload.read_value() };
+                assert_eq!(actual, expected);
+            }
+        }
+        for side in [
+            VerticalPositionKeyword::Top,
+            VerticalPositionKeyword::Bottom,
+        ] {
+            for offset in [None, Some(offset)] {
+                let expected = PositionComponent::Side { side, offset };
+                let slot = expected.encode_extra();
+                let actual =
+                    unsafe { PositionComponent::<VerticalPositionKeyword>::decode_extra(slot) };
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn native_webkit_gradient_reuses_overflow_when_switching_variants() {
+        use crate::{WebKitGradient, WebKitGradientPoint, WebKitGradientPointComponent};
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let from = context.alloc_encoded_node(
+            WebKitGradientPoint {
+                x: WebKitGradientPointComponent::Center,
+                y: WebKitGradientPointComponent::Center,
+            },
+            DUMMY_SP,
+        );
+        let to = context.alloc_encoded_node(
+            WebKitGradientPoint {
+                x: WebKitGradientPointComponent::Side(HorizontalPositionKeyword::Right),
+                y: WebKitGradientPointComponent::Side(VerticalPositionKeyword::Bottom),
+            },
+            DUMMY_SP,
+        );
+        let stops = context.alloc_encoded_vec(std::iter::empty());
+        let before = context.encoded_extra_len();
+        let gradient =
+            context.alloc_encoded_node(WebKitGradient::Linear { from, to, stops }, DUMMY_SP);
+        assert_eq!(context.encoded_extra_len(), before + 2);
+        let checkpoint = context.node_checkpoint();
+        for bits in [
+            0,
+            0x8000_0000,
+            1,
+            0x7f7f_ffff,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fc0_1234,
+        ] {
+            for position in 0..2 {
+                let mut expected = [1.25_f32, -2.5].map(f32::to_bits);
+                expected[position] = bits;
+                let [first, second] = expected.map(f32::from_bits);
+                context.mutate_encoded_node(gradient, |value, _| {
+                    *value = WebKitGradient::Radial {
+                        from,
+                        to,
+                        stops,
+                        start_radius: first,
+                        end_radius: second,
+                    }
+                });
+                let WebKitGradient::Radial {
+                    from: actual_from,
+                    to: actual_to,
+                    stops: actual_stops,
+                    start_radius,
+                    end_radius,
+                } = context.encoded_node(gradient)
+                else {
+                    panic!("expected radial")
+                };
+                assert_eq!((actual_from, actual_to, actual_stops), (from, to, stops));
+                let view = context.webkit_gradient(gradient);
+                assert_eq!(view.from(), from);
+                assert_eq!(view.to(), to);
+                assert_eq!(view.stops(), stops);
+                assert_eq!(view.radii().unwrap().map(f32::to_bits), expected);
+                assert_eq!([start_radius, end_radius].map(f32::to_bits), expected);
+                context.mutate_encoded_node(gradient, |value, _| {
+                    *value = WebKitGradient::Linear { from, to, stops }
+                });
+                assert_eq!(
+                    context.encoded_node(gradient),
+                    WebKitGradient::Linear { from, to, stops }
+                );
+                let view = context.webkit_gradient(gradient);
+                assert!(view.radii().is_none());
+                assert_eq!(view.from(), from);
+                assert_eq!(view.to(), to);
+                assert_eq!(view.stops(), stops);
+                assert_eq!(context.node_checkpoint(), checkpoint);
+            }
+        }
+    }
 
     #[test]
     fn gradient_codec_deep_clones_promoted_item_nodes() {
@@ -1393,7 +1567,8 @@ mod storage_tests {
     fn image_and_dimension_codecs_round_trip_compact_variants() {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
-        let url = context.alloc_encoded_node(Url { url: "asset.webp" }, DUMMY_SP);
+        let text = context.add_str("asset.webp");
+        let url = context.alloc_encoded_node(Url { url: text }, DUMMY_SP);
         let image = context.alloc_encoded_node(Image::Url(url), DUMMY_SP);
         assert_eq!(context.encoded_node(image), Image::Url(url));
 
@@ -1485,7 +1660,7 @@ mod storage_tests {
     }
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum BackgroundRepeatKeyword {
     Repeat,
     Space,
@@ -1493,31 +1668,14 @@ pub enum BackgroundRepeatKeyword {
     NoRepeat,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum BackgroundAttachment {
     Scroll,
     Fixed,
     Local,
 }
 
-impl ExtraDataCompact<'_> for BackgroundAttachment {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        ExtraData::from_u64(match self {
-            Self::Scroll => 0,
-            Self::Fixed => 1,
-            Self::Local => 2,
-        })
-    }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        match data.as_u64() {
-            0 => Self::Scroll,
-            1 => Self::Fixed,
-            2 => Self::Local,
-            _ => panic!("invalid encoded BackgroundAttachment"),
-        }
-    }
-}
+impl_inline_extra!(BackgroundAttachment);
 
 impl ExtraDataClone<'_> for BackgroundAttachment {
     fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
@@ -1525,7 +1683,7 @@ impl ExtraDataClone<'_> for BackgroundAttachment {
     }
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum BackgroundClip {
     BorderBox,
     PaddingBox,
@@ -1534,28 +1692,7 @@ pub enum BackgroundClip {
     Text,
 }
 
-impl ExtraDataCompact<'_> for BackgroundClip {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        ExtraData::from_u64(match self {
-            Self::BorderBox => 0,
-            Self::PaddingBox => 1,
-            Self::ContentBox => 2,
-            Self::Border => 3,
-            Self::Text => 4,
-        })
-    }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        match data.as_u64() {
-            0 => Self::BorderBox,
-            1 => Self::PaddingBox,
-            2 => Self::ContentBox,
-            3 => Self::Border,
-            4 => Self::Text,
-            _ => panic!("invalid encoded BackgroundClip"),
-        }
-    }
-}
+impl_inline_extra!(BackgroundClip);
 
 impl ExtraDataClone<'_> for BackgroundClip {
     fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
@@ -1563,31 +1700,14 @@ impl ExtraDataClone<'_> for BackgroundClip {
     }
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum BackgroundOrigin {
     BorderBox,
     PaddingBox,
     ContentBox,
 }
 
-impl ExtraDataCompact<'_> for BackgroundOrigin {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        ExtraData::from_u64(match self {
-            Self::BorderBox => 0,
-            Self::PaddingBox => 1,
-            Self::ContentBox => 2,
-        })
-    }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        match data.as_u64() {
-            0 => Self::BorderBox,
-            1 => Self::PaddingBox,
-            2 => Self::ContentBox,
-            _ => panic!("invalid encoded BackgroundOrigin"),
-        }
-    }
-}
+impl_inline_extra!(BackgroundOrigin);
 
 impl ExtraDataClone<'_> for BackgroundOrigin {
     fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {

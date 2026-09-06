@@ -46,14 +46,14 @@ pub(super) fn minify_gradient_direction<'ast>(
     if items.next().is_some()
         || !matches!(to, TokenOrValue::Token(token)
             if matches!(ast.ast_context().resolve_node(*token), Token::Ident(value)
-                if match_ignore_ascii_case!(value, "to" => true, _ => false)))
+                if match_ignore_ascii_case!(ast.ast_context().str(value), "to" => true, _ => false)))
     {
         return false;
     }
     let Some(degrees) = (match direction {
         TokenOrValue::Token(token) => match ast.ast_context().resolve_node(*token) {
             Token::Ident(value) => match_ignore_ascii_case!(
-                value,
+                ast.ast_context().str(value),
                 "top" => Some(0.0),
                 "right" => Some(90.0),
                 "bottom" => Some(180.0),
@@ -94,7 +94,7 @@ pub(super) fn minify_gradient_stops<'ast>(
             )
         {
             ast.mutate_node(*function, |function, ast| {
-                function.set_name("transparent");
+                function.set_name("transparent", ast.ast_context_mut());
                 let mut arguments = function.arguments;
                 ast.rewrite_vec(&mut arguments, |arguments, _| arguments.clear());
                 function.arguments = arguments;
@@ -163,7 +163,7 @@ fn is_gradient_prelude(
             Token::Number(_) | Token::Percentage(_) => true,
             Token::Dimension { unit, .. } => !unit.is_length(),
             Token::Ident(value) => match_ignore_ascii_case!(
-                value,
+                ast.ast_context().str(value),
                 "at" | "to" | "center" | "circle" | "ellipse" | "closest-side" | "closest-corner" | "farthest-side" | "farthest-corner" | "contain" | "cover" => true,
                 _ => false,
             ),

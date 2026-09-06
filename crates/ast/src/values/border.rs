@@ -1,8 +1,6 @@
 use crate::*;
 
-use crate::{AstNodeStorage, NodeKind, NodePayload};
-
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum LineStyle {
     None,
     Hidden,
@@ -16,38 +14,7 @@ pub enum LineStyle {
     Double,
 }
 
-pub(crate) fn encode_line_style(value: LineStyle) -> u8 {
-    match value {
-        LineStyle::None => 0,
-        LineStyle::Hidden => 1,
-        LineStyle::Inset => 2,
-        LineStyle::Groove => 3,
-        LineStyle::Outset => 4,
-        LineStyle::Ridge => 5,
-        LineStyle::Dotted => 6,
-        LineStyle::Dashed => 7,
-        LineStyle::Solid => 8,
-        LineStyle::Double => 9,
-    }
-}
-
-pub(crate) fn decode_line_style(value: u8) -> LineStyle {
-    match value {
-        0 => LineStyle::None,
-        1 => LineStyle::Hidden,
-        2 => LineStyle::Inset,
-        3 => LineStyle::Groove,
-        4 => LineStyle::Outset,
-        5 => LineStyle::Ridge,
-        6 => LineStyle::Dotted,
-        7 => LineStyle::Dashed,
-        8 => LineStyle::Solid,
-        9 => LineStyle::Double,
-        _ => panic!("invalid encoded LineStyle"),
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum BorderSideWidth<'a> {
     Thin,
     Medium,
@@ -55,74 +22,15 @@ pub enum BorderSideWidth<'a> {
     Length(NodeId<'a, Length<'a>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderSideWidth<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0009_0001);
+impl_inline_node!(BorderSideWidth<'ast>, 0x0009_0001);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Thin,
-            1 => Self::Medium,
-            2 => Self::Thick,
-            3 => Self::Length(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            _ => panic!("invalid encoded BorderSideWidth variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_border_side_width(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_border_side_width(self)
-    }
-}
-
-fn encode_border_side_width(value: BorderSideWidth<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        BorderSideWidth::Thin => bytes[0] = 0,
-        BorderSideWidth::Medium => bytes[0] = 1,
-        BorderSideWidth::Thick => bytes[0] = 2,
-        BorderSideWidth::Length(value) => write_node_id(&mut bytes, 3, value),
-    }
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum LengthOrNumber<'a> {
     Number(f32),
     Length(NodeId<'a, Length<'a>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for LengthOrNumber<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0009_0002);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Number(f32::from_bits(read_u32(&bytes, 4))),
-            1 => Self::Length(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            _ => panic!("invalid encoded LengthOrNumber variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_length_or_number(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_length_or_number(self)
-    }
-}
+impl_inline_node!(LengthOrNumber<'ast>, 0x0009_0002);
 
 impl<'ast> AstNodeClone<'ast> for LengthOrNumber<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -133,19 +41,7 @@ impl<'ast> AstNodeClone<'ast> for LengthOrNumber<'ast> {
     }
 }
 
-fn encode_length_or_number(value: LengthOrNumber<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        LengthOrNumber::Number(value) => {
-            bytes[0] = 0;
-            write_u32(&mut bytes, 4, value.to_bits());
-        }
-        LengthOrNumber::Length(value) => write_node_id(&mut bytes, 1, value),
-    }
-    NodePayload::inline(&bytes)
-}
-
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum BorderImageRepeatKeyword {
     Stretch,
     Repeat,
@@ -153,38 +49,14 @@ pub enum BorderImageRepeatKeyword {
     Space,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum BorderImageSideWidth<'a> {
     Number(f32),
     LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
     Auto,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderImageSideWidth<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0009_0003);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Number(f32::from_bits(read_u32(&bytes, 4))),
-            1 => Self::LengthPercentage(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            2 => Self::Auto,
-            _ => panic!("invalid encoded BorderImageSideWidth variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_border_image_side_width(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_border_image_side_width(self)
-    }
-}
+impl_inline_node!(BorderImageSideWidth<'ast>, 0x0009_0003);
 
 impl<'ast> AstNodeClone<'ast> for BorderImageSideWidth<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -197,44 +69,10 @@ impl<'ast> AstNodeClone<'ast> for BorderImageSideWidth<'ast> {
     }
 }
 
-fn encode_border_image_side_width(value: BorderImageSideWidth<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        BorderImageSideWidth::Number(value) => {
-            bytes[0] = 0;
-            write_u32(&mut bytes, 4, value.to_bits());
-        }
-        BorderImageSideWidth::LengthPercentage(value) => write_node_id(&mut bytes, 1, value),
-        BorderImageSideWidth::Auto => bytes[0] = 2,
-    }
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Visit, Clone, Copy)]
 pub enum OutlineStyle {
     Auto,
     LineStyle(LineStyle),
-}
-
-fn write_node_id<T>(bytes: &mut [u8], tag: u8, id: NodeId<'_, T>) {
-    bytes[0] = tag;
-    write_u32(
-        bytes,
-        4,
-        u32::try_from(id.index()).expect("AST node ID exceeds four bytes"),
-    );
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(
-        bytes[offset..offset + 4]
-            .try_into()
-            .expect("compact border field is four bytes"),
-    )
 }
 
 #[cfg(test)]

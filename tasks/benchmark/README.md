@@ -11,6 +11,16 @@ both the Bootstrap and Tailwind cases. Each Bootstrap sample runs its stage 10
 times to reduce fixed-cost noise in CodSpeed's single-execution simulation mode;
 the larger Tailwind sample runs once to keep peak memory bounded.
 
+`codegen` serializes the minified AST; `codegen_raw` serializes the parsed AST
+without running minify. Both use compact output and exclude AST preparation.
+The pipeline stage benchmarks retain their existing by-value input lifecycle:
+dropping the prepared AST and its allocator at the end of each closure is included.
+For codegen this happens once after all of the case's serialization iterations.
+`end_to_end` measures parsing, minification, and serialization together;
+`end_to_end_raw` measures parsing and serialization without minification. These
+end-to-end measurements include allocator setup and teardown, output allocation,
+and AST teardown, rather than summing separately measured stage medians.
+
 Run the same pipeline benchmark locally with:
 
 ```sh

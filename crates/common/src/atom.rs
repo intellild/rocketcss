@@ -1,124 +1,80 @@
-use std::{
-    cmp::Ordering,
-    fmt::{Debug, Display},
-    hash::{Hash, Hasher},
-    ops::Deref,
-    ptr,
-};
+use std::{fmt::Debug, marker::PhantomData, ops::Deref};
 
 use crate::{
     CloneIn, FromIn,
     wtf8::{Wtf8, Wtf8Buf},
 };
 
-/// An interned string identity.
+/// A UTF-8 range in one StringPool. Equality compares ranges, not contents.
+/// Text ordering requires resolving through the owning pool; offsets do not
+/// define lexical order.
 ///
-/// Equality and hashing use the string allocation's pointer rather than its
-/// contents. Values compared as atoms must therefore originate from the same
-/// [`StringPool`](crate::StringPool). Use [`Atom::as_str`] when comparing
-/// values from different pools.
-#[derive(Clone, Copy)]
-pub struct Atom<'a>(&'a str);
+/// ```compile_fail
+/// use rocketcss_common::AstStr;
+/// let mut strings = [AstStr::EMPTY];
+/// strings.sort();
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct AstStr<'a> {
+    pub(crate) start: u32,
+    pub(crate) end: u32,
+    marker: PhantomData<&'a str>,
+}
 
-impl Atom<'static> {
-    #[inline]
-    pub fn empty() -> Self {
-        Self("")
+impl<'a> AstStr<'a> {
+    pub const EMPTY: Self = Self::new(0, 0);
+
+    pub(crate) const fn new(start: u32, end: u32) -> Self {
+        Self {
+            start,
+            end,
+            marker: PhantomData,
+        }
+    }
+
+    pub const fn len(self) -> u32 {
+        self.end - self.start
+    }
+    pub const fn is_empty(self) -> bool {
+        self.start == self.end
     }
 }
+
+/// Canonical string identity within one pool. Resolve text through that pool.
+/// Interning order is not lexical order, so atoms cannot be sorted directly.
+///
+/// ```compile_fail
+/// use rocketcss_common::Atom;
+/// let mut atoms = [Atom::empty()];
+/// atoms.sort();
+/// ```
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Atom<'a>(pub(crate) AstStr<'a>);
 
 impl<'a> Atom<'a> {
-    #[inline]
-    pub(crate) fn from_interned(s: &'a str) -> Self {
-        Self(s)
+    pub const fn empty() -> Self {
+        Self(AstStr::EMPTY)
     }
-
-    #[inline]
-    pub fn as_str(&self) -> &'a str {
-        self.0
+    pub const fn len(self) -> u32 {
+        self.0.len()
     }
-}
-
-impl AsRef<str> for Atom<'_> {
-    #[inline]
-    fn as_ref(&self) -> &str {
-        self.as_str()
+    pub const fn is_empty(self) -> bool {
+        self.0.is_empty()
     }
 }
 
-impl Deref for Atom<'_> {
-    type Target = str;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.as_str()
+impl<'a> From<Atom<'a>> for AstStr<'a> {
+    fn from(value: Atom<'a>) -> Self {
+        value.0
     }
 }
 
-impl Default for Atom<'_> {
-    #[inline]
-    fn default() -> Self {
-        Atom::empty()
-    }
-}
-
-impl PartialEq for Atom<'_> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        ptr::eq(self.0.as_ptr(), other.0.as_ptr())
-    }
-}
-
-impl Eq for Atom<'_> {}
-
-impl PartialOrd for Atom<'_> {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Atom<'_> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.0.as_ptr().cmp(&other.0.as_ptr())
-    }
-}
-
-impl Hash for Atom<'_> {
-    #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.as_ptr().hash(state);
-    }
-}
-
-impl Display for Atom<'_> {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(self.as_str(), f)
-    }
-}
-
-impl Debug for Atom<'_> {
-    #[inline]
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self.as_str(), f)
-    }
-}
-
-impl PartialEq<str> for Atom<'_> {
-    #[inline]
-    fn eq(&self, other: &str) -> bool {
-        self.as_str() == other
-    }
-}
-
-impl PartialEq<&str> for Atom<'_> {
-    #[inline]
-    fn eq(&self, other: &&str) -> bool {
-        self.as_str() == *other
-    }
-}
+const _: () = {
+    assert!(std::mem::size_of::<Atom<'static>>() == 8);
+    assert!(std::mem::size_of::<AstStr<'static>>() == 8);
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Wtf8Atom<'a>(&'a Wtf8);

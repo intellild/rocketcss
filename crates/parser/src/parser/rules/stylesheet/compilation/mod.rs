@@ -18,21 +18,30 @@ use rocketcss_ast::{
     SelectorValueId,
 };
 
-use super::{
+use crate::parser::{
     css_rule::{RuleBodyDelimiter, scan_rule_body},
-    media::{parse_import_rule, parse_media_list, parse_supports_condition},
+    media::parse_supports_condition,
     properties::parse_declaration_with_css_wide_hint,
+    rules::stylesheet::{check_depth, into_error, recover_declaration, recover_rule, span_from},
     rules::{
-        at_rule_vendor_prefix, font_feature_subrule_type, page_margin_box, parse_charset,
-        parse_container_prelude, parse_custom_media, parse_family_names,
-        parse_font_face_contents_into, parse_font_feature_declarations_into,
-        parse_font_palette_contents_into, parse_keyframe_selector, parse_keyframes_name,
-        parse_layer_names, parse_namespace, parse_page_selectors,
-        parse_property_rule_descriptors_into, parse_scope_prelude, parse_single_ident,
-        parse_view_transition_contents_into, validate_moz_document_prelude,
+        at_rule::{parse_charset, parse_custom_media, parse_namespace},
+        at_rule_vendor_prefix,
+        container::parse_container_prelude,
+        font::{
+            font_feature_subrule_type, parse_family_names, parse_font_face_contents_into,
+            parse_font_feature_declarations_into, parse_font_palette_contents_into,
+        },
+        keyframes::{parse_keyframe_selector, parse_keyframes_name},
+        page::{page_margin_box, parse_page_selectors},
+        parse_single_ident,
+        property::parse_property_rule_descriptors_into,
+        stylesheet::{
+            parse_import_rule, parse_layer_names, parse_media_list, parse_scope_prelude,
+            validate_moz_document_prelude,
+        },
+        view_transition::parse_view_transition_contents_into,
     },
     selector::{parse_selector_list, parse_selector_list_with_recovery, parse_selector_string},
-    stylesheet::{check_depth, into_error, recover_declaration, recover_rule, span_from},
     values::collect_tokens,
 };
 use crate::prelude::*;
@@ -50,16 +59,20 @@ impl<'ast> Compiler<'ast> {
         source: &'ast str,
         options: ParserOptions<'ast>,
     ) -> Result<AstContext<'ast>, Error<'ast>> {
-        self.cursor = super::ParserCursor::new(source);
+        self.cursor = crate::parser::ParserCursor::new(source);
         self.replay.reset_for_new_source();
-        self.compilation =
-            AstContext::with_capacity_in(self.allocator(), compilation_capacity(source.len()));
+        self.compilation = AstContext::with_source_in(
+            self.allocator(),
+            source,
+            compilation_capacity(source.len()),
+        );
 
         let mut state = self.state();
         while let Ok(token) = self.next_including_whitespace_and_comments().cloned() {
             match token {
                 ValueToken::WhiteSpace(_) => {}
                 ValueToken::Comment(comment) if comment.starts_with('!') => {
+                    let comment = self.compilation.add_str(comment);
                     self.compilation.push_license_comment(comment);
                 }
                 _ => break,
@@ -128,7 +141,7 @@ fn parse_rule_list<'ast>(
     loop {
         let start = input.state();
         let token = match input.next() {
-            Ok(token) => token.clone(),
+            Ok(token) => *token,
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };

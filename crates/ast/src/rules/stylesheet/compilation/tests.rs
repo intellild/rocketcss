@@ -3,6 +3,121 @@ use std::mem::size_of;
 use super::*;
 
 #[test]
+fn ordinary_text_leaf_equality_resolves_source_and_extra_ranges() {
+    use crate::*;
+
+    fn check<'ast, T>(
+        ast: &mut AstContext<'ast>,
+        strings: [AstStr<'ast>; 4],
+        make: impl Fn(AstStr<'ast>) -> T,
+    ) where
+        T: AstNodeStorage<'ast> + PartialEq + std::fmt::Debug + 'ast,
+    {
+        let ids = strings.map(|text| ast.alloc_node(make(text), DUMMY_SP));
+        let checkpoint = ast.node_checkpoint();
+        let bytes = ast.string_pool().extra_len();
+        let interned = ast.string_pool().len();
+        for _ in 0..3 {
+            assert!(
+                ast.nodes_eq(ids[0], ids[1]),
+                "{} source ranges",
+                std::any::type_name::<T>()
+            );
+            assert!(
+                ast.nodes_eq(ids[0], ids[2]),
+                "{} source/extra ranges",
+                std::any::type_name::<T>()
+            );
+            assert!(
+                !ast.nodes_eq(ids[0], ids[3]),
+                "{} distinct text",
+                std::any::type_name::<T>()
+            );
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+        assert_eq!(ast.string_pool().extra_len(), bytes);
+        assert_eq!(ast.string_pool().len(), interned);
+    }
+
+    let allocator = Allocator::new();
+    let mut ast = AstContext::with_source_in(&allocator, "same same", Default::default());
+    let first = ast.string_pool().source_range(0, 4);
+    let second = ast.string_pool().source_range(5, 9);
+    let extra = ast.add_str("same");
+    let different = ast.add_str("other");
+    assert_ne!(first, second);
+    assert_ne!(first, extra);
+    let strings = [first, second, extra, different];
+    // Previously published ranges must still compare by content after pool growth.
+    ast.add_str(&"é".repeat(8192));
+
+    macro_rules! check {
+        ($($make:expr),+ $(,)?) => { $(check(&mut ast, strings, $make);)+ };
+    }
+    check!(
+        Token::Ident,
+        Token::AtKeyword,
+        Token::Hash,
+        Token::IdHash,
+        Token::MinifiedHash,
+        Token::String,
+        Token::UnquotedFont,
+        Token::UnquotedUrl,
+        Token::Delim,
+        Token::WhiteSpace,
+        Token::Comment,
+        Token::Function,
+        Token::BadUrl,
+        Token::BadString,
+        |unit| Token::UnknownDimension { unit, value: -0.0 },
+        |value| DashedIdent { value },
+        Specifier::File,
+        AnimationName::Ident,
+        AnimationName::String,
+        CustomPropertyName::Custom,
+        CustomPropertyName::Unknown,
+        KeyframesName::Ident,
+        KeyframesName::Custom,
+        ListStyleType::String,
+        CounterStyle::Name,
+        Symbol::String,
+        AnimationTimeline::DashedIdent,
+        Appearance::NonStandard,
+        TextEmphasisStyle::String,
+        ViewTransitionName::Custom,
+        ViewTransitionGroup::Custom,
+        ParsedComponent::String,
+        ParsedComponent::CustomIdent,
+        ParsedComponent::Literal,
+        FontFormat::String,
+        MediaFeatureValue::Ident,
+        SupportsCondition::Selector,
+        SupportsCondition::Unknown,
+        |url| Url { url },
+        |media_type| MediaQuery {
+            media_type: MediaType::Custom(media_type),
+            qualifier: None,
+            condition: None
+        },
+        |name| GridLine::Area { name },
+        |name| GridLine::Line {
+            index: -1,
+            name: Some(name)
+        },
+        |name| GridLine::Span {
+            index: 2,
+            name: Some(name)
+        },
+    );
+    let ident = ast.alloc_node(Token::Ident(first), DUMMY_SP);
+    let quoted = ast.alloc_node(Token::String(second), DUMMY_SP);
+    assert!(!ast.nodes_eq(ident, quoted));
+    let ident = ast.alloc_node(AnimationName::Ident(first), DUMMY_SP);
+    let quoted = ast.alloc_node(AnimationName::String(extra), DUMMY_SP);
+    assert!(!ast.nodes_eq(ident, quoted));
+}
+
+#[test]
 fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<NodeId<'_, u8>>(), size_of::<u32>());
     assert_eq!(size_of::<AstVec<'_, u8>>(), 2 * size_of::<u32>());
@@ -29,11 +144,11 @@ fn typed_ids_keep_compact_optional_layout() {
     assert_eq!(size_of::<SourceOrderId>(), size_of::<u64>());
     assert_eq!(
         size_of::<RuleRecord<'static, CssRulePayload<'static>>>(),
-        96
+        80
     );
     assert_eq!(
         size_of::<DeclarationRecord<'static, DeclarationPayload<'static>>>(),
-        40
+        28
     );
     assert_eq!(
         size_of::<DeclarationBlockRecord<'static, CssRulePayload<'static>>>(),
@@ -82,8 +197,13 @@ fn rewrite_vec_republishes_length_changes_after_unwind() {
     ));
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        compilation.rewrite_vec(&mut values, |values, _| {
-            values.push(3);
+        compilation.rewrite_vec(&mut values, |values, ast| {
+            let nested = ast.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+                [99_u8; 32],
+                &allocator,
+            ));
+            assert_eq!(ast.vec_len(nested), 32);
+            values.extend(3..=32);
             panic!("stop list rewrite");
         });
     }));
@@ -91,7 +211,7 @@ fn rewrite_vec_republishes_length_changes_after_unwind() {
     assert!(result.is_err());
     assert_eq!(
         compilation.vec_iter(values).collect::<std::vec::Vec<_>>(),
-        [1, 2, 3]
+        (1..=32).collect::<std::vec::Vec<_>>()
     );
 }
 
@@ -165,21 +285,20 @@ fn rule_spans_are_stored_in_an_aligned_sidecar() {
 fn clone_node_creates_an_independent_id_and_preserves_its_span() {
     let allocator = Allocator::new();
     let mut compilation = AstContext::new_in(&allocator);
-    let original = compilation.alloc_node(crate::FontFamily::Custom("original"), Span::new(3, 11));
+    let name = compilation.add_str("original");
+    let original = compilation.alloc_node(crate::FontFamily::Custom(name), Span::new(3, 11));
     let cloned = compilation.clone_node(original);
 
     assert_ne!(original, cloned);
     assert_eq!(compilation.node_span(cloned), Span::new(3, 11));
     compilation.mutate_node(cloned, |value, ast| {
         *value = crate::FontFamily::Serif;
-        let child = ast.alloc_node(crate::KeyframesName::Ident("child"), Span::new(5, 6));
-        assert_eq!(ast.node(child), crate::KeyframesName::Ident("child"));
+        let name = ast.add_str("child");
+        let child = ast.alloc_node(crate::KeyframesName::Ident(name), Span::new(5, 6));
+        assert_eq!(ast.node(child), crate::KeyframesName::Ident(name));
     });
 
-    assert_eq!(
-        compilation.node(original),
-        crate::FontFamily::Custom("original")
-    );
+    assert_eq!(compilation.node(original), crate::FontFamily::Custom(name));
     assert_eq!(compilation.node(cloned), crate::FontFamily::Serif);
 }
 
@@ -1462,4 +1581,132 @@ fn an_empty_authored_block_starts_at_the_current_declaration_store_tail() {
         ["outer"]
     );
     assert_eq!(compilation.validate_ast(), Ok(()));
+}
+
+#[test]
+fn container_context_identity_compares_text_at_different_ranges() {
+    let allocator = Allocator::new();
+    let mut ast = AstContext::new_in(&allocator);
+    let first = ast.add_str("面板");
+    let second = ast.add_str("面板");
+    assert_ne!(first, second);
+    let root = ast.stylesheet().root_rules();
+    let first_rule = ast
+        .append_rule(
+            root,
+            CssRulePayload::Container(ContainerRulePayload {
+                name: Some(first),
+                condition: None,
+            }),
+        )
+        .unwrap();
+    let second_rule = ast
+        .append_rule(
+            root,
+            CssRulePayload::Container(ContainerRulePayload {
+                name: Some(second),
+                condition: None,
+            }),
+        )
+        .unwrap();
+    let left = ast
+        .enter_wrapper_context(EffectiveContext::default(), first_rule)
+        .unwrap();
+    let right = ast
+        .enter_wrapper_context(EffectiveContext::default(), second_rule)
+        .unwrap();
+    assert_eq!(left, right);
+    let source_left = {
+        let source_key = String::from("面板 (width>1px)");
+        ast.enter_wrapper_context_with_source_key(
+            EffectiveContext::default(),
+            first_rule,
+            Some(&source_key),
+        )
+        .unwrap()
+    };
+    ast.add_str(&"x".repeat(32768));
+    let bytes = ast.string_pool().extra_len();
+    let source_right = ast
+        .enter_wrapper_context_with_source_key(
+            EffectiveContext::default(),
+            second_rule,
+            Some("面板 (width>1px)"),
+        )
+        .unwrap();
+    assert_eq!(source_left, source_right);
+    assert_eq!(ast.string_pool().extra_len(), bytes);
+}
+
+#[test]
+fn visitor_keeps_ordinary_ranges_separate_from_interned_atoms() {
+    use crate::{AstStr, Atom, SelectorComponent, Url, VisitMut, VisitMutContext, VisitorMut};
+    struct Rewrite {
+        replace: bool,
+        strings: usize,
+        atoms: usize,
+    }
+    impl<'a, 'ghost> VisitorMut<'a, 'ghost> for Rewrite {
+        fn visit_ast_str(
+            &mut self,
+            value: &mut AstStr<'a>,
+            cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+        ) {
+            self.strings += 1;
+            assert_eq!(cx.ast_context().str(*value), "same");
+            if self.replace {
+                *value = cx.ast_context_mut().add_str("changed");
+            }
+        }
+        fn visit_atom(&mut self, value: &mut Atom<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>) {
+            self.atoms += 1;
+            assert_eq!(cx.ast_context().str(*value), "same");
+        }
+    }
+    let allocator = Allocator::new();
+    let mut ast = AstContext::with_source_in(&allocator, "same same", Default::default());
+    let first = ast.string_pool().source_range(0, 4);
+    let second = ast.string_pool().source_range(5, 9);
+    let extra = ast.add_str("same");
+    assert_ne!(first, second);
+    assert_ne!(first, extra);
+    let mut urls = [first, second, extra].map(|url| ast.alloc_node(Url { url }, DUMMY_SP));
+    let atom = ast.intern("same");
+    let mut class = ast.alloc_node(SelectorComponent::Class(atom), DUMMY_SP);
+    let checkpoint = ast.node_checkpoint();
+    let interned = ast.string_pool().len();
+    let bytes = ast.string_pool().extra_len();
+    rocketcss_common::GhostToken::scope(|mut token| {
+        for replace in [false, true] {
+            let mut visitor = Rewrite {
+                replace,
+                strings: 0,
+                atoms: 0,
+            };
+            {
+                let mut cx = VisitMutContext::with_ast(&mut token, &mut ast);
+                for url in &mut urls {
+                    url.visit_mut(&mut visitor, &mut cx);
+                }
+                class.visit_mut(&mut visitor, &mut cx);
+            }
+            assert_eq!((visitor.strings, visitor.atoms), (3, 1));
+            assert_eq!(ast.node_checkpoint(), checkpoint);
+            assert_eq!(ast.string_pool().len(), interned);
+            assert_eq!(ast.resolve_node(class), SelectorComponent::Class(atom));
+            if !replace {
+                assert_eq!(
+                    urls.map(|id| ast.resolve_node(id).url),
+                    [first, second, extra]
+                );
+                assert_eq!(ast.string_pool().extra_len(), bytes);
+            }
+        }
+    });
+    let rewritten = urls.map(|id| ast.resolve_node(id).url);
+    assert_ne!(rewritten[0], rewritten[1]);
+    assert_ne!(rewritten[1], rewritten[2]);
+    assert_eq!(rewritten.map(|value| ast.str(value)), ["changed"; 3]);
+    assert_eq!(ast.string_pool().extra_len(), bytes + 3 * "changed".len());
+    assert_eq!(ast.str(atom), "same");
 }

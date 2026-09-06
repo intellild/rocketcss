@@ -530,7 +530,9 @@ fn visit_type(
                 ));
             };
             let name = segment.ident.to_string();
-            if name == "Atom" {
+            if name == "AstStr" {
+                Ok(quote!(visitor.visit_ast_str(#expression, cx);))
+            } else if name == "Atom" {
                 Ok(quote!(visitor.visit_atom(#expression, cx);))
             } else if name == "Pin" {
                 let Some(pin_target) = first_type_argument(&segment.arguments) else {

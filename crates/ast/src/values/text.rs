@@ -1,6 +1,6 @@
 use crate::*;
 
-use crate::{AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact, NodeKind, NodePayload};
+use crate::{AstNodeStorage, ExtraDataClone, NodeKind, NodePayload};
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum TextTransformCase {
@@ -83,37 +83,13 @@ pub enum TextJustify {
     InterCharacter,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Spacing<'a> {
     Normal,
     Length(NodeId<'a, Length<'a>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for Spacing<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0010_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Normal,
-            1 => Self::Length(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            _ => panic!("invalid encoded Spacing variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        match self {
-            Self::Normal => bytes[0] = 0,
-            Self::Length(value) => write_node(&mut bytes, 1, value),
-        }
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(Spacing<'ast>, 0x00100001);
 
 impl<'ast> AstNodeClone<'ast> for Spacing<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -124,46 +100,13 @@ impl<'ast> AstNodeClone<'ast> for Spacing<'ast> {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum TextDecorationLine<'a> {
     ExclusiveTextDecorationLine(ExclusiveTextDecorationLine),
     Value(Vec<'a, OtherTextDecorationLine>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for TextDecorationLine<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0010_0002);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::ExclusiveTextDecorationLine(decode_exclusive_line(bytes[1])),
-            1 => Self::Value(
-                context
-                    .encoded_vec_range(read_u32(&bytes, 4) as usize, read_u32(&bytes, 8) as usize),
-            ),
-            _ => panic!("invalid encoded TextDecorationLine variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        match self {
-            Self::ExclusiveTextDecorationLine(value) => {
-                bytes[0] = 0;
-                bytes[1] = encode_exclusive_line(value);
-            }
-            Self::Value(value) => {
-                bytes[0] = 1;
-                write_range(&mut bytes, 4, value);
-            }
-        }
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(TextDecorationLine<'ast>, 0x00100002);
 
 impl<'ast> AstNodeClone<'ast> for TextDecorationLine<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -174,14 +117,14 @@ impl<'ast> AstNodeClone<'ast> for TextDecorationLine<'ast> {
     }
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum ExclusiveTextDecorationLine {
     None,
     SpellingError,
     GrammarError,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum OtherTextDecorationLine {
     Underline,
     Overline,
@@ -189,26 +132,7 @@ pub enum OtherTextDecorationLine {
     Blink,
 }
 
-impl ExtraDataCompact<'_> for OtherTextDecorationLine {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        ExtraData::from_u64(match self {
-            Self::Underline => 0,
-            Self::Overline => 1,
-            Self::LineThrough => 2,
-            Self::Blink => 3,
-        })
-    }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        match data.as_u64() {
-            0 => Self::Underline,
-            1 => Self::Overline,
-            2 => Self::LineThrough,
-            3 => Self::Blink,
-            _ => panic!("invalid encoded OtherTextDecorationLine"),
-        }
-    }
-}
+impl_inline_extra!(OtherTextDecorationLine);
 
 impl ExtraDataClone<'_> for OtherTextDecorationLine {
     fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
@@ -216,7 +140,7 @@ impl ExtraDataClone<'_> for OtherTextDecorationLine {
     }
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum TextDecorationStyle {
     Solid,
     Double,
@@ -225,40 +149,14 @@ pub enum TextDecorationStyle {
     Wavy,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum TextDecorationThickness<'a> {
     Auto,
     FromFont,
     LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for TextDecorationThickness<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0010_0003);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Auto,
-            1 => Self::FromFont,
-            2 => Self::LengthPercentage(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            _ => panic!("invalid encoded TextDecorationThickness variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        match self {
-            Self::Auto => bytes[0] = 0,
-            Self::FromFont => bytes[0] = 1,
-            Self::LengthPercentage(value) => write_node(&mut bytes, 2, value),
-        }
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(TextDecorationThickness<'ast>, 0x00100003);
 
 impl<'ast> AstNodeClone<'ast> for TextDecorationThickness<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -271,53 +169,6 @@ impl<'ast> AstNodeClone<'ast> for TextDecorationThickness<'ast> {
     }
 }
 
-fn write_node<T>(bytes: &mut [u8], tag: u8, value: NodeId<'_, T>) {
-    bytes[0] = tag;
-    write_u32(
-        bytes,
-        4,
-        u32::try_from(value.index()).expect("AST node ID exceeds four bytes"),
-    );
-}
-
-fn write_range<T>(bytes: &mut [u8], offset: usize, value: Vec<'_, T>) {
-    write_u32(
-        bytes,
-        offset,
-        u32::try_from(value.start_index()).expect("AST range start exceeds four bytes"),
-    );
-    write_u32(
-        bytes,
-        offset + 4,
-        u32::try_from(value.end_index()).expect("AST range end exceeds four bytes"),
-    );
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
-}
-
-fn encode_exclusive_line(value: ExclusiveTextDecorationLine) -> u8 {
-    match value {
-        ExclusiveTextDecorationLine::None => 0,
-        ExclusiveTextDecorationLine::SpellingError => 1,
-        ExclusiveTextDecorationLine::GrammarError => 2,
-    }
-}
-
-fn decode_exclusive_line(value: u8) -> ExclusiveTextDecorationLine {
-    match value {
-        0 => ExclusiveTextDecorationLine::None,
-        1 => ExclusiveTextDecorationLine::SpellingError,
-        2 => ExclusiveTextDecorationLine::GrammarError,
-        _ => panic!("invalid encoded ExclusiveTextDecorationLine"),
-    }
-}
-
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum TextDecorationSkipInk {
     Auto,
@@ -325,73 +176,37 @@ pub enum TextDecorationSkipInk {
     All,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum TextEmphasisStyle<'a> {
     None,
     Keyword {
         fill: TextEmphasisFillMode,
         shape: Option<TextEmphasisShape>,
     },
-    String(&'a str),
+    String(AstStr<'a>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for TextEmphasisStyle<'ast> {
+// SAFETY: this KIND always publishes and reads the same native Copy type.
+unsafe impl<'ast> AstNodeStorage<'ast> for TextEmphasisStyle<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0010_0004);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::None,
-            1 => Self::Keyword {
-                fill: match bytes[1] {
-                    0 => TextEmphasisFillMode::Filled,
-                    1 => TextEmphasisFillMode::Open,
-                    _ => panic!("invalid encoded TextEmphasisFillMode"),
-                },
-                shape: match bytes[2] {
-                    0 => None,
-                    1 => Some(TextEmphasisShape::Dot),
-                    2 => Some(TextEmphasisShape::Circle),
-                    3 => Some(TextEmphasisShape::DoubleCircle),
-                    4 => Some(TextEmphasisShape::Triangle),
-                    5 => Some(TextEmphasisShape::Sesame),
-                    _ => panic!("invalid encoded TextEmphasisShape"),
-                },
-            },
-            2 => Self::String(context.resolve_string(read_u32(&bytes, 4) as u64)),
-            _ => panic!("invalid encoded TextEmphasisStyle variant"),
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::String(a), Self::String(b)) => context.str(*a) == context.str(*b),
+            _ => self == other,
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        match self {
-            Self::None => bytes[0] = 0,
-            Self::Keyword { fill, shape } => {
-                bytes[0] = 1;
-                bytes[1] = match fill {
-                    TextEmphasisFillMode::Filled => 0,
-                    TextEmphasisFillMode::Open => 1,
-                };
-                bytes[2] = match shape {
-                    None => 0,
-                    Some(TextEmphasisShape::Dot) => 1,
-                    Some(TextEmphasisShape::Circle) => 2,
-                    Some(TextEmphasisShape::DoubleCircle) => 3,
-                    Some(TextEmphasisShape::Triangle) => 4,
-                    Some(TextEmphasisShape::Sesame) => 5,
-                };
-            }
-            Self::String(value) => {
-                bytes[0] = 2;
-                write_u32(&mut bytes, 4, context.store_string(value));
-            }
-        }
-        NodePayload::inline(&bytes)
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -401,13 +216,13 @@ impl<'ast> AstNodeClone<'ast> for TextEmphasisStyle<'ast> {
     }
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum TextEmphasisFillMode {
     Filled,
     Open,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum TextEmphasisShape {
     Dot,
     Circle,
@@ -451,32 +266,12 @@ pub enum UnicodeBidi {
     Plaintext,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct Content<'a> {
     pub value: Vec<'a, TokenOrValue<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Content<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0010_0005);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            value: context
-                .encoded_vec_range(read_u32(&bytes, 4) as usize, read_u32(&bytes, 8) as usize),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        write_range(&mut bytes, 4, self.value);
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(Content<'ast>, 0x00100005);
 
 impl<'ast> AstNodeClone<'ast> for Content<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {

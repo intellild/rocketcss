@@ -114,19 +114,20 @@ fn minify_function_arguments<'ast, 'cx, 'ghost>(
     }
     if function.kind() == KnownFunction::Url {
         if cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any) {
-            function.set_name("url");
-            let allocator = ast.ast_allocator();
+            function.set_name("url", ast.ast_context_mut());
             if let [TokenOrValue::Token(token)] = arguments.as_mut_slice() {
                 let mut normalized_value = None;
                 let mut unquoted_url = false;
-                ast.mutate_node(*token, |token, _| {
+                ast.mutate_node(*token, |token, context| {
                     let Token::String(value) = token else {
                         return;
                     };
-                    if let Some(normalized) = normalize_url_text(value) {
-                        *value = allocator.alloc_str(&normalized);
+                    if let Some(normalized) = normalize_url_text(context.ast_context().str(*value))
+                    {
+                        *value = context.ast_context_mut().add_str(&normalized);
                         normalized_value = Some(());
                     }
+                    let value = context.ast_context().str(*value);
                     unquoted_url = !value.get(..5).is_some_and(
                         |prefix| match_ignore_ascii_case!(prefix, "data:" => true, _ => false),
                     ) && can_unquote_url(value);
@@ -138,10 +139,10 @@ fn minify_function_arguments<'ast, 'cx, 'ghost>(
             }
         } else if matches!(arguments.as_slice(), [TokenOrValue::Token(token)]
                 if matches!(ast.ast_context().resolve_node(*token), Token::String(value)
-                    if !value.get(..5).is_some_and(|prefix| {
+                    if !ast.ast_context().str(value).get(..5).is_some_and(|prefix| {
                         match_ignore_ascii_case!(prefix, "data:" => true, _ => false)
                     })
-                        && can_unquote_url(value)))
+                        && can_unquote_url(ast.ast_context().str(value))))
         {
             function.set_unquoted_url(true);
             cx.record_value_normalized();
@@ -167,7 +168,7 @@ fn minify_function_arguments<'ast, 'cx, 'ghost>(
         _ => None,
     };
     if let Some(replacement) = replacement {
-        function.set_name(replacement);
+        function.set_name(replacement, ast.ast_context_mut());
         arguments.clear();
         function.set_identifier(true);
         cx.record_value_normalized();

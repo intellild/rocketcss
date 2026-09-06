@@ -1,7 +1,6 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 
 use rocketcss_common::{DenseId, DenseRange, vec::Vec as ArenaVec};
-use smallvec::SmallVec;
 
 use crate::{DUMMY_SP, Span, Visit, VisitContext, VisitMut, VisitMutContext, Visitor, VisitorMut};
 
@@ -46,12 +45,10 @@ impl<'context, 'ast, T: ExtraDataCompact<'ast>> ExactSizeIterator
 
 /// Tail position of the node table captured by a speculative parser state.
 #[doc(hidden)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NodeCheckpoint {
     compact_node_len: usize,
     extra_len: usize,
-    string_len: usize,
-    atom_len: usize,
 }
 
 #[allow(dead_code)]
@@ -76,7 +73,16 @@ impl<'ast> AstContext<'ast> {
     /// Decodes one value through its hand-written fixed-width codec.
     #[inline]
     pub(crate) fn encoded_node<T: AstNodeStorage<'ast>>(&self, id: NodeId<'ast, T>) -> T {
-        T::decode(self.nodes.payload(id, T::KIND), self)
+        unsafe { T::decode(self.nodes.payload(id, T::KIND), self) }
+    }
+
+    /// Reads a kind-checked payload for an AST module's typed field accessor.
+    #[inline]
+    pub(crate) fn node_payload<'id, T: AstNodeStorage<'id>>(
+        &self,
+        id: NodeId<'id, T>,
+    ) -> NodePayload {
+        self.nodes.payload(id, T::KIND)
     }
 
     /// Reconstructs a typed identity stored inside another encoded payload.
@@ -92,9 +98,9 @@ impl<'ast> AstContext<'ast> {
         f: impl FnOnce(&mut T, &mut Self) -> R,
     ) -> R {
         let current = self.nodes.begin_mutation(id, T::KIND);
-        let mut value = T::decode(current, self);
+        let mut value = unsafe { T::decode(current, self) };
         let result = catch_unwind(AssertUnwindSafe(|| f(&mut value, self)));
-        let payload = value.encode_existing(current, self);
+        let payload = unsafe { value.encode_existing(current, self) };
         self.nodes.finish_mutation(id, T::KIND, payload);
         match result {
             Ok(result) => result,
@@ -109,7 +115,7 @@ impl<'ast> AstContext<'ast> {
         id: NodeId<'ast, T>,
     ) -> (NodePayload, T) {
         let current = self.nodes.begin_mutation(id, T::KIND);
-        let value = T::decode(current, self);
+        let value = unsafe { T::decode(current, self) };
         (current, value)
     }
 
@@ -120,7 +126,7 @@ impl<'ast> AstContext<'ast> {
         current: NodePayload,
         value: T,
     ) {
-        let payload = value.encode_existing(current, self);
+        let payload = unsafe { value.encode_existing(current, self) };
         self.nodes.finish_mutation(id, T::KIND, payload);
     }
 
@@ -152,10 +158,7 @@ impl<'ast> AstContext<'ast> {
         &mut self,
         values: impl ExactSizeIterator<Item = T>,
     ) -> AstVec<'ast, T> {
-        let slots = values
-            .map(|value| value.encode_extra(self))
-            .collect::<SmallVec<[ExtraData; 8]>>();
-        self.extra.alloc(slots.into_iter())
+        self.extra.alloc(values.map(T::encode_extra))
     }
 
     #[inline]
@@ -166,7 +169,7 @@ impl<'ast> AstContext<'ast> {
     ) -> Option<T> {
         self.extra
             .get(range, index)
-            .map(|data| T::decode_extra(data, self))
+            .map(|data| unsafe { T::decode_extra(data) })
     }
 
     #[inline]
@@ -188,7 +191,7 @@ impl<'ast> AstContext<'ast> {
         index: usize,
         value: T,
     ) {
-        let data = value.encode_extra(self);
+        let data = value.encode_extra();
         self.extra.set(range, index, data);
     }
 
@@ -236,35 +239,11 @@ impl<'ast> AstContext<'ast> {
     {
         let mut values = ArenaVec::from_iter_in(self.encoded_vec_iter(*range), self.allocator);
         let result = catch_unwind(AssertUnwindSafe(|| f(&mut values, self)));
-        let slots = values
-            .into_iter()
-            .map(|value| value.encode_extra(self))
-            .collect::<SmallVec<[ExtraData; 8]>>();
-        *range = self.extra.alloc(slots.into_iter());
+        *range = self.extra.alloc(values.into_iter().map(T::encode_extra));
         match result {
             Ok(result) => result,
             Err(payload) => resume_unwind(payload),
         }
-    }
-
-    #[inline]
-    pub(crate) fn store_string(&mut self, value: &'ast str) -> u32 {
-        self.strings.store_string(value)
-    }
-
-    #[inline]
-    pub(crate) fn resolve_string(&self, index: u64) -> &'ast str {
-        self.strings.resolve_string(index)
-    }
-
-    #[inline]
-    pub(crate) fn store_atom(&mut self, value: rocketcss_common::Atom<'ast>) -> u32 {
-        self.strings.store_atom(value)
-    }
-
-    #[inline]
-    pub(crate) fn resolve_atom(&self, index: u64) -> rocketcss_common::Atom<'ast> {
-        self.strings.resolve_atom(index)
     }
 
     pub(crate) fn alloc_extra_slots<const N: usize>(&mut self, slots: [ExtraData; N]) -> usize {
@@ -295,15 +274,17 @@ impl<'ast> AstContext<'ast> {
         self.extra.len()
     }
 
+    #[cfg(test)]
+    pub(crate) fn encoded_node_len(&self) -> usize {
+        self.nodes.len()
+    }
+
     #[doc(hidden)]
     #[inline]
     pub fn node_checkpoint(&self) -> NodeCheckpoint {
-        let (string_len, atom_len) = self.strings.lengths();
         NodeCheckpoint {
             compact_node_len: self.nodes.len(),
             extra_len: self.extra.len(),
-            string_len,
-            atom_len,
         }
     }
 
@@ -312,8 +293,6 @@ impl<'ast> AstContext<'ast> {
     pub fn restore_node_checkpoint(&mut self, checkpoint: NodeCheckpoint) {
         self.nodes.truncate(checkpoint.compact_node_len);
         self.extra.truncate(checkpoint.extra_len);
-        self.strings
-            .truncate(checkpoint.string_len, checkpoint.atom_len);
     }
 
     #[inline]
@@ -343,11 +322,11 @@ impl<'ast> AstContext<'ast> {
         range: AstVec<'id, T>,
         index: usize,
     ) -> Option<T> {
-        // SAFETY: like `resolve_node`, this restores the lifetime erased by an
-        // API boundary. The range is valid only with the AstContext that
-        // allocated it, and decoded references originate in that context.
-        let context = unsafe { &*(self as *const Self).cast::<AstContext<'id>>() };
-        context.encoded_vec_get(range, index)
+        self.extra.get(range, index).map(|data| {
+            // SAFETY: this typed range identifies slots written for T. Decoding
+            // copies the stored value; it does not borrow from the context.
+            unsafe { T::decode_extra(data) }
+        })
     }
 
     /// Iterates decoded values from a persistent AST range.
@@ -430,7 +409,7 @@ impl<'ast> AstContext<'ast> {
         // AstContext; all references decoded here originate in that context's
         // allocator and are merely restored to the ID's erased lifetime.
         let context = unsafe { &*(self as *const Self).cast::<AstContext<'id>>() };
-        T::decode(payload, context)
+        unsafe { T::decode(payload, context) }
     }
 
     /// Compares stored node payloads rather than their dense identities.
@@ -441,7 +420,8 @@ impl<'ast> AstContext<'ast> {
         first: NodeId<'id, T>,
         second: NodeId<'id, T>,
     ) -> bool {
-        self.resolve_node(first) == self.resolve_node(second)
+        self.resolve_node(first)
+            .eq_in_context(&self.resolve_node(second), self)
     }
 
     /// Clones a stored payload into a fresh dense ID and carries its detached span.

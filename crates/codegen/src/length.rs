@@ -1,18 +1,5 @@
 use crate::prelude::*;
 
-impl<'ghost> ToCss<'ghost> for LengthValue {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        if self.value == 0.0 && !dest.in_calc() {
-            return dest.write_char('0');
-        }
-        serialize_dimension(self.value, &self.unit, dest, _cx)
-    }
-}
-
 impl<'ghost> ToCss<'ghost> for LengthUnit {
     fn to_css<PrinterT: PrinterTrait>(
         &self,

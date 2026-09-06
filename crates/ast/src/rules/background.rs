@@ -1,35 +1,14 @@
 use crate::*;
 
-use crate::{
-    AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact, NodeKind,
-    NodePayload,
-};
+use crate::{AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, NodeKind, NodePayload};
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct Position<'a> {
     pub x: NodeId<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
     pub y: NodeId<'a, PositionComponent<'a, VerticalPositionKeyword>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Position<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0006_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        decode_position(&payload.bytes(), context)
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_position(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_position(self)
-    }
-}
+impl_inline_node!(Position<'ast>, 0x0006_0001);
 
 impl<'ast> AstNodeClone<'ast> for Position<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -40,15 +19,7 @@ impl<'ast> AstNodeClone<'ast> for Position<'ast> {
     }
 }
 
-impl<'ast> ExtraDataCompact<'ast> for Position<'ast> {
-    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
-        payload_as_extra(encode_position(self))
-    }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        decode_position(&data.bytes(), context)
-    }
-}
+impl_inline_extra!(Position<'ast>);
 
 impl<'ast> ExtraDataClone<'ast> for Position<'ast> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
@@ -56,45 +27,14 @@ impl<'ast> ExtraDataClone<'ast> for Position<'ast> {
     }
 }
 
-fn encode_position(value: Position<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_u32(&mut bytes, 0, node_index(value.x));
-    write_u32(&mut bytes, 4, node_index(value.y));
-    NodePayload::inline(&bytes)
-}
-
-fn decode_position<'ast>(bytes: &[u8], context: &AstContext<'ast>) -> Position<'ast> {
-    Position {
-        x: context.encoded_node_id_at(read_u32(bytes, 0) as usize),
-        y: context.encoded_node_id_at(read_u32(bytes, 4) as usize),
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct WebKitGradientPoint {
     pub x: WebKitGradientPointComponent<HorizontalPositionKeyword>,
     pub y: WebKitGradientPointComponent<VerticalPositionKeyword>,
 }
 
-impl AstNodeStorage<'_> for WebKitGradientPoint {
-    const KIND: NodeKind = NodeKind::new(0x0006_0002);
-
-    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            x: decode_gradient_point_component::<HorizontalPositionKeyword>(&bytes, 0),
-            y: decode_gradient_point_component::<VerticalPositionKeyword>(&bytes, 8),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
-        encode_webkit_gradient_point(self)
-    }
-
-    fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'_>) -> NodePayload {
-        encode_webkit_gradient_point(self)
-    }
-}
+// The complete native point fits one payload, including both nested enums.
+impl_inline_node!(WebKitGradientPoint, 0x0006_0002);
 
 impl AstNodeClone<'_> for WebKitGradientPoint {
     fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
@@ -102,114 +42,13 @@ impl AstNodeClone<'_> for WebKitGradientPoint {
     }
 }
 
-fn encode_webkit_gradient_point(value: WebKitGradientPoint) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    encode_gradient_point_component(value.x, &mut bytes, 0);
-    encode_gradient_point_component(value.y, &mut bytes, 8);
-    NodePayload::inline(&bytes)
-}
-
-trait GradientPointSide: Sized {
-    fn encode(self) -> u8;
-
-    fn decode(value: u8) -> Self;
-}
-
-impl GradientPointSide for HorizontalPositionKeyword {
-    fn encode(self) -> u8 {
-        match self {
-            Self::Left => 0,
-            Self::Right => 1,
-        }
-    }
-
-    fn decode(value: u8) -> Self {
-        match value {
-            0 => Self::Left,
-            1 => Self::Right,
-            _ => panic!("invalid encoded horizontal gradient point side"),
-        }
-    }
-}
-
-impl GradientPointSide for VerticalPositionKeyword {
-    fn encode(self) -> u8 {
-        match self {
-            Self::Top => 0,
-            Self::Bottom => 1,
-        }
-    }
-
-    fn decode(value: u8) -> Self {
-        match value {
-            0 => Self::Top,
-            1 => Self::Bottom,
-            _ => panic!("invalid encoded vertical gradient point side"),
-        }
-    }
-}
-
-fn encode_gradient_point_component<S: GradientPointSide>(
-    value: WebKitGradientPointComponent<S>,
-    bytes: &mut [u8],
-    offset: usize,
-) {
-    match value {
-        WebKitGradientPointComponent::Center => bytes[offset] = 0,
-        WebKitGradientPointComponent::Number(value) => {
-            bytes[offset] = 1;
-            let (kind, value) = match value {
-                NumberOrPercentage::Number(value) => (0, value),
-                NumberOrPercentage::Percentage(value) => (1, value),
-            };
-            bytes[offset + 1] = kind;
-            write_u32(bytes, offset + 4, value.to_bits());
-        }
-        WebKitGradientPointComponent::Side(value) => {
-            bytes[offset] = 2;
-            bytes[offset + 1] = value.encode();
-        }
-    }
-}
-
-fn decode_gradient_point_component<S: GradientPointSide>(
-    bytes: &[u8],
-    offset: usize,
-) -> WebKitGradientPointComponent<S> {
-    match bytes[offset] {
-        0 => WebKitGradientPointComponent::Center,
-        1 => WebKitGradientPointComponent::Number(match bytes[offset + 1] {
-            0 => NumberOrPercentage::Number(f32::from_bits(read_u32(bytes, offset + 4))),
-            1 => NumberOrPercentage::Percentage(f32::from_bits(read_u32(bytes, offset + 4))),
-            _ => panic!("invalid encoded gradient point number variant"),
-        }),
-        2 => WebKitGradientPointComponent::Side(S::decode(bytes[offset + 1])),
-        _ => panic!("invalid encoded WebKitGradientPointComponent variant"),
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct WebKitColorStop<'a> {
     pub color: NodeId<'a, CssColor<'a>>,
     pub position: f32,
 }
 
-impl<'ast> ExtraDataCompact<'ast> for WebKitColorStop<'ast> {
-    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
-        let mut bytes = [0; ExtraData::BYTES];
-        write_u32(&mut bytes, 0, node_index(self.color));
-        write_u32(&mut bytes, 4, self.position.to_bits());
-        ExtraData::from_bytes(&bytes)
-    }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        let bytes = data.bytes();
-        Self {
-            color: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
-            position: f32::from_bits(read_u32(&bytes, 4)),
-        }
-    }
-}
+impl_inline_extra!(WebKitColorStop<'ast>);
 
 impl<'ast> ExtraDataClone<'ast> for WebKitColorStop<'ast> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
@@ -220,36 +59,13 @@ impl<'ast> ExtraDataClone<'ast> for WebKitColorStop<'ast> {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct ImageSet<'a> {
     pub options: Vec<'a, NodeId<'a, ImageSetOption<'a>>>,
     pub vendor_prefix: VendorPrefix,
 }
 
-impl<'ast> AstNodeStorage<'ast> for ImageSet<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0006_0003);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            options: context
-                .encoded_vec_range(read_u32(&bytes, 0) as usize, read_u32(&bytes, 4) as usize),
-            vendor_prefix: VendorPrefix::from_bits_retain(bytes[8]),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_image_set(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_image_set(self)
-    }
-}
+impl_inline_node!(ImageSet<'ast>, 0x0006_0003);
 
 impl<'ast> AstNodeClone<'ast> for ImageSet<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -260,47 +76,102 @@ impl<'ast> AstNodeClone<'ast> for ImageSet<'ast> {
     }
 }
 
-fn encode_image_set(value: ImageSet<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_range(&mut bytes, 0, value.options);
-    bytes[8] = value.vendor_prefix.bits();
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct ImageSetOption<'a> {
-    pub file_type: Option<&'a str>,
+    pub file_type: Option<AstStr<'a>>,
     pub image: NodeId<'a, Image<'a>>,
     pub resolution: Resolution,
 }
 
-// byte 0 file type presence, byte 1 resolution kind, bytes 4..8 image ID,
-// bytes 8..12 resolution value, bytes 12..16 compact file-type string ID.
-impl<'ast> AstNodeStorage<'ast> for ImageSetOption<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0006_0004);
+#[derive(Clone, Copy)]
+struct ImageSetOptionHeader<'a> {
+    image: NodeId<'a, Image<'a>>,
+    resolution: Resolution,
+    // u32::MAX means no slot allocated yet. An allocated slot stores Option<AstStr>.
+    file_type_extra: u32,
+}
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            file_type: match bytes[0] {
-                0 => None,
-                1 => Some(context.resolve_string(read_u32(&bytes, 12) as u64)),
-                _ => panic!("invalid encoded ImageSetOption file type flag"),
-            },
-            image: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
-            resolution: crate::token::decode_resolution(
-                bytes[1],
-                f32::from_bits(read_u32(&bytes, 8)),
-            ),
+impl<'ast> ImageSetOptionHeader<'ast> {
+    fn file_type(self, context: &AstContext<'_>) -> Option<AstStr<'ast>> {
+        if self.file_type_extra == u32::MAX {
+            None
+        } else {
+            // SAFETY: this header owns a slot written by Option<AstStr>::encode_extra.
+            unsafe {
+                Option::<AstStr<'ast>>::decode_extra(
+                    context.extra_slot(self.file_type_extra as usize),
+                )
+            }
+        }
+    }
+}
+
+pub use image_set_access::ImageSetOptionRead;
+
+// Transient storage views do not participate in persistent AST visitor generation.
+mod image_set_access {
+    use super::*;
+
+    pub struct ImageSetOptionRead<'context, 'storage, 'ast> {
+        context: &'context AstContext<'storage>,
+        header: ImageSetOptionHeader<'ast>,
+    }
+
+    impl<'ast> ImageSetOptionRead<'_, '_, 'ast> {
+        pub fn image(&self) -> NodeId<'ast, Image<'ast>> {
+            self.header.image
+        }
+
+        pub fn resolution(&self) -> Resolution {
+            self.header.resolution
+        }
+
+        pub fn file_type(&self) -> Option<AstStr<'ast>> {
+            self.header.file_type(self.context)
         }
     }
 
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_image_set_option(self, context)
+    impl<'storage> AstContext<'storage> {
+        pub fn image_set_option<'id>(
+            &self,
+            id: NodeId<'id, ImageSetOption<'id>>,
+        ) -> ImageSetOptionRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload checks the kind before reading this header.
+            ImageSetOptionRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
     }
+}
 
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_image_set_option(self, context)
+// SAFETY: KIND identifies the native header and its Option<AstStr> extra slot.
+unsafe impl<'ast> AstNodeStorage<'ast> for ImageSetOption<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0006_0004);
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        self.image == other.image
+            && self.resolution == other.resolution
+            && self.file_type.map(|value| context.str(value))
+                == other.file_type.map(|value| context.str(value))
+    }
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: ImageSetOptionHeader<'ast> = unsafe { payload.read_value() };
+        Self {
+            image: header.image,
+            resolution: header.resolution,
+            file_type: header.file_type(context),
+        }
+    }
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        encode_image_set_option(self, u32::MAX, context)
+    }
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: ImageSetOptionHeader<'ast> = unsafe { current.read_value() };
+        encode_image_set_option(self, header.file_type_extra, context)
     }
 }
 
@@ -316,46 +187,36 @@ impl<'ast> AstNodeClone<'ast> for ImageSetOption<'ast> {
 
 fn encode_image_set_option<'ast>(
     value: ImageSetOption<'ast>,
+    current: u32,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    if let Some(file_type) = value.file_type {
-        bytes[0] = 1;
-        let file_type = context.store_string(file_type);
-        write_u32(&mut bytes, 12, file_type);
-    }
-    let (resolution_kind, resolution) = crate::token::encode_resolution(value.resolution);
-    bytes[1] = resolution_kind;
-    write_u32(&mut bytes, 4, node_index(value.image));
-    write_u32(&mut bytes, 8, resolution.to_bits());
-    NodePayload::inline(&bytes)
+    let file_type_extra = if current != u32::MAX {
+        context.set_extra_slot(current as usize, value.file_type.encode_extra());
+        current
+    } else if value.file_type.is_some() {
+        let extra = context.alloc_extra_slots([value.file_type.encode_extra()]);
+        assert!(
+            extra < u32::MAX as usize,
+            "image-set file type index exceeds available u32 range"
+        );
+        extra as u32
+    } else {
+        u32::MAX
+    };
+    NodePayload::from_value(ImageSetOptionHeader {
+        image: value.image,
+        resolution: value.resolution,
+        file_type_extra,
+    })
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BackgroundPosition<'a> {
     pub x: NodeId<'a, PositionComponent<'a, HorizontalPositionKeyword>>,
     pub y: NodeId<'a, PositionComponent<'a, VerticalPositionKeyword>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BackgroundPosition<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0006_0005);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        decode_background_position(&payload.bytes(), context)
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_background_position(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_background_position(self)
-    }
-}
+impl_inline_node!(BackgroundPosition<'ast>, 0x0006_0005);
 
 impl<'ast> AstNodeClone<'ast> for BackgroundPosition<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -366,15 +227,7 @@ impl<'ast> AstNodeClone<'ast> for BackgroundPosition<'ast> {
     }
 }
 
-impl<'ast> ExtraDataCompact<'ast> for BackgroundPosition<'ast> {
-    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
-        payload_as_extra(encode_background_position(self))
-    }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        decode_background_position(&data.bytes(), context)
-    }
-}
+impl_inline_extra!(BackgroundPosition<'ast>);
 
 impl<'ast> ExtraDataClone<'ast> for BackgroundPosition<'ast> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
@@ -382,119 +235,13 @@ impl<'ast> ExtraDataClone<'ast> for BackgroundPosition<'ast> {
     }
 }
 
-fn encode_background_position(value: BackgroundPosition<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_u32(&mut bytes, 0, node_index(value.x));
-    write_u32(&mut bytes, 4, node_index(value.y));
-    NodePayload::inline(&bytes)
-}
-
-fn decode_background_position<'ast>(
-    bytes: &[u8],
-    context: &AstContext<'ast>,
-) -> BackgroundPosition<'ast> {
-    BackgroundPosition {
-        x: context.encoded_node_id_at(read_u32(bytes, 0) as usize),
-        y: context.encoded_node_id_at(read_u32(bytes, 4) as usize),
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BackgroundRepeat {
     pub x: BackgroundRepeatKeyword,
     pub y: BackgroundRepeatKeyword,
 }
 
-impl ExtraDataCompact<'_> for BackgroundRepeat {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        ExtraData::from_bytes(&[
-            encode_background_repeat_keyword(self.x),
-            encode_background_repeat_keyword(self.y),
-        ])
-    }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        let bytes = data.bytes();
-        Self {
-            x: decode_background_repeat_keyword(bytes[0]),
-            y: decode_background_repeat_keyword(bytes[1]),
-        }
-    }
-}
-
-fn encode_background_repeat_keyword(value: BackgroundRepeatKeyword) -> u8 {
-    match value {
-        BackgroundRepeatKeyword::Repeat => 0,
-        BackgroundRepeatKeyword::Space => 1,
-        BackgroundRepeatKeyword::Round => 2,
-        BackgroundRepeatKeyword::NoRepeat => 3,
-    }
-}
-
-fn decode_background_repeat_keyword(value: u8) -> BackgroundRepeatKeyword {
-    match value {
-        0 => BackgroundRepeatKeyword::Repeat,
-        1 => BackgroundRepeatKeyword::Space,
-        2 => BackgroundRepeatKeyword::Round,
-        3 => BackgroundRepeatKeyword::NoRepeat,
-        _ => panic!("invalid encoded BackgroundRepeatKeyword"),
-    }
-}
-
-fn encode_background_attachment(value: BackgroundAttachment) -> u8 {
-    match value {
-        BackgroundAttachment::Scroll => 0,
-        BackgroundAttachment::Fixed => 1,
-        BackgroundAttachment::Local => 2,
-    }
-}
-
-fn decode_background_attachment(value: u8) -> BackgroundAttachment {
-    match value {
-        0 => BackgroundAttachment::Scroll,
-        1 => BackgroundAttachment::Fixed,
-        2 => BackgroundAttachment::Local,
-        _ => panic!("invalid encoded BackgroundAttachment"),
-    }
-}
-
-fn encode_background_clip(value: BackgroundClip) -> u8 {
-    match value {
-        BackgroundClip::BorderBox => 0,
-        BackgroundClip::PaddingBox => 1,
-        BackgroundClip::ContentBox => 2,
-        BackgroundClip::Border => 3,
-        BackgroundClip::Text => 4,
-    }
-}
-
-fn decode_background_clip(value: u8) -> BackgroundClip {
-    match value {
-        0 => BackgroundClip::BorderBox,
-        1 => BackgroundClip::PaddingBox,
-        2 => BackgroundClip::ContentBox,
-        3 => BackgroundClip::Border,
-        4 => BackgroundClip::Text,
-        _ => panic!("invalid encoded BackgroundClip"),
-    }
-}
-
-fn encode_background_origin(value: BackgroundOrigin) -> u8 {
-    match value {
-        BackgroundOrigin::BorderBox => 0,
-        BackgroundOrigin::PaddingBox => 1,
-        BackgroundOrigin::ContentBox => 2,
-    }
-}
-
-fn decode_background_origin(value: u8) -> BackgroundOrigin {
-    match value {
-        0 => BackgroundOrigin::BorderBox,
-        1 => BackgroundOrigin::PaddingBox,
-        2 => BackgroundOrigin::ContentBox,
-        _ => panic!("invalid encoded BackgroundOrigin"),
-    }
-}
+impl_inline_extra!(BackgroundRepeat);
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct Background<'a> {
@@ -508,72 +255,145 @@ pub struct Background<'a> {
     pub size: NodeId<'a, BackgroundSize<'a>>,
 }
 
-// Fixed payload layout for `Background`:
-//
-// bytes 0..4   color NodeId
-// bytes 4..8   image NodeId
-// bytes 8..12  position NodeId
-// bytes 12..16 first extra slot
-//
-// extra + 0    size NodeId
-// extra + 1    attachment/clip/origin/repeat-x/repeat-y
-impl<'ast> AstNodeStorage<'ast> for Background<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0006_0006);
+#[derive(Clone, Copy)]
+struct BackgroundHeader<'a> {
+    color: NodeId<'a, CssColor<'a>>,
+    image: NodeId<'a, Image<'a>>,
+    position: NodeId<'a, BackgroundPosition<'a>>,
+    extra: u32,
+}
+#[derive(Clone, Copy)]
+struct BackgroundKeywords {
+    attachment: BackgroundAttachment,
+    clip: BackgroundClip,
+    origin: BackgroundOrigin,
+    repeat: BackgroundRepeat,
+}
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let extra = payload.extra_start();
-        let enums = context.extra_slot(extra + 1).bytes();
-        Self {
-            attachment: decode_background_attachment(enums[0]),
-            clip: decode_background_clip(enums[1]),
-            color: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
-            image: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
-            origin: decode_background_origin(enums[2]),
-            position: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
-            repeat: BackgroundRepeat {
-                x: decode_background_repeat_keyword(enums[3]),
-                y: decode_background_repeat_keyword(enums[4]),
-            },
-            size: context.encoded_node_id_at(context.extra_slot(extra).as_u64() as usize),
+pub use background_access::{BackgroundKeywordsRead, BackgroundRead};
+mod background_access {
+    use super::*;
+    pub struct BackgroundRead<'context, 'storage, 'id> {
+        context: &'context AstContext<'storage>,
+        header: BackgroundHeader<'id>,
+    }
+    pub struct BackgroundKeywordsRead(BackgroundKeywords);
+    impl BackgroundKeywordsRead {
+        pub fn attachment(&self) -> BackgroundAttachment {
+            self.0.attachment
+        }
+        pub fn clip(&self) -> BackgroundClip {
+            self.0.clip
+        }
+        pub fn origin(&self) -> BackgroundOrigin {
+            self.0.origin
+        }
+        pub fn repeat(&self) -> BackgroundRepeat {
+            self.0.repeat
         }
     }
+    impl<'id> BackgroundRead<'_, '_, 'id> {
+        pub fn color(&self) -> NodeId<'id, CssColor<'id>> {
+            self.header.color
+        }
+        pub fn image(&self) -> NodeId<'id, Image<'id>> {
+            self.header.image
+        }
+        pub fn position(&self) -> NodeId<'id, BackgroundPosition<'id>> {
+            self.header.position
+        }
+        pub fn size(&self) -> NodeId<'id, BackgroundSize<'id>> {
+            // SAFETY: this kind writes a native size handle to its first extra slot.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            }
+        }
+        pub fn keywords(&self) -> BackgroundKeywordsRead {
+            // SAFETY: the second extra slot is written as BackgroundKeywords.
+            BackgroundKeywordsRead(unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize + 1)
+                    .read_value()
+            })
+        }
+    }
+    impl<'storage> AstContext<'storage> {
+        pub fn background<'id>(
+            &self,
+            id: NodeId<'id, Background<'id>>,
+        ) -> BackgroundRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload checks the owning kind before the native header read.
+            BackgroundRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
+    }
+}
 
+// SAFETY: this kind stores BackgroundHeader, then a native size handle and keyword slot.
+unsafe impl<'ast> AstNodeStorage<'ast> for Background<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0006_0006);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: BackgroundHeader<'ast> = unsafe { payload.read_value() };
+        let size = unsafe { context.extra_slot(header.extra as usize).read_value() };
+        let fields: BackgroundKeywords =
+            unsafe { context.extra_slot(header.extra as usize + 1).read_value() };
+        Self {
+            color: header.color,
+            image: header.image,
+            position: header.position,
+            size,
+            attachment: fields.attachment,
+            clip: fields.clip,
+            origin: fields.origin,
+            repeat: fields.repeat,
+        }
+    }
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
         encode_background(self, None, context)
     }
-
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_background(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: BackgroundHeader<'ast> = unsafe { current.read_value() };
+        encode_background(self, Some(header.extra as usize), context)
     }
 }
 
 fn encode_background<'ast>(
     value: Background<'ast>,
-    existing_extra: Option<usize>,
+    existing: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut inline = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    write_u32(&mut inline, 0, node_index(value.color));
-    write_u32(&mut inline, 4, node_index(value.image));
-    write_u32(&mut inline, 8, node_index(value.position));
-    let size = ExtraData::from_u64(node_index(value.size) as u64);
-    let enums = ExtraData::from_bytes(&[
-        encode_background_attachment(value.attachment),
-        encode_background_clip(value.clip),
-        encode_background_origin(value.origin),
-        encode_background_repeat_keyword(value.repeat.x),
-        encode_background_repeat_keyword(value.repeat.y),
-    ]);
-    let extra = match existing_extra {
+    let slots = [
+        ExtraData::from_value(value.size),
+        ExtraData::from_value(BackgroundKeywords {
+            attachment: value.attachment,
+            clip: value.clip,
+            origin: value.origin,
+            repeat: value.repeat,
+        }),
+    ];
+    let extra = match existing {
         Some(extra) => {
-            context.set_extra_slot(extra, size);
-            context.set_extra_slot(extra + 1, enums);
+            for (i, slot) in slots.into_iter().enumerate() {
+                context.set_extra_slot(extra + i, slot);
+            }
             extra
         }
-        None => context.alloc_extra_slots([size, enums]),
+        None => context.alloc_extra_slots(slots),
     };
-    NodePayload::with_extra(&inline, extra)
+    NodePayload::from_value(BackgroundHeader {
+        color: value.color,
+        image: value.image,
+        position: value.position,
+        extra: u32::try_from(extra).expect("AST extra index exceeds u32"),
+    })
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -586,28 +406,84 @@ pub struct BoxShadow<'a> {
     pub y_offset: NodeId<'a, Length<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BoxShadow<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0006_0007);
+#[derive(Clone, Copy)]
+struct BoxShadowHeader<'a> {
+    blur: NodeId<'a, Length<'a>>,
+    color: NodeId<'a, CssColor<'a>>,
+    x_offset: NodeId<'a, Length<'a>>,
+    extra: u32,
+}
+pub use box_shadow_access::BoxShadowRead;
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let offsets = context.extra_slot(payload.extra_start()).as_u64();
-        Self {
-            blur: context.encoded_node_id_at(read_u32(&bytes, 0) as usize),
-            color: context.encoded_node_id_at(read_u32(&bytes, 4) as usize),
-            inset: context.extra_slot(payload.extra_start() + 1).as_u64() != 0,
-            spread: context.encoded_node_id_at((offsets >> 32) as u32 as usize),
-            x_offset: context.encoded_node_id_at(read_u32(&bytes, 8) as usize),
-            y_offset: context.encoded_node_id_at(offsets as u32 as usize),
+mod box_shadow_access {
+    use super::*;
+
+    pub struct BoxShadowRead<'context, 'storage, 'id> {
+        context: &'context AstContext<'storage>,
+        header: BoxShadowHeader<'id>,
+    }
+    impl<'id> BoxShadowRead<'_, '_, 'id> {
+        pub fn offsets(&self) -> [NodeId<'id, Length<'id>>; 4] {
+            // SAFETY: the first slot stores the native y-offset/spread handle pair.
+            let (y, spread) = unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            };
+            [self.header.x_offset, y, self.header.blur, spread]
+        }
+        pub fn color(&self) -> NodeId<'id, CssColor<'id>> {
+            self.header.color
+        }
+        pub fn inset(&self) -> bool {
+            // SAFETY: the second slot is written as a native bool.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize + 1)
+                    .read_value()
+            }
         }
     }
+    impl<'storage> AstContext<'storage> {
+        pub fn box_shadow<'id>(
+            &self,
+            id: NodeId<'id, BoxShadow<'id>>,
+        ) -> BoxShadowRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload validates the owning kind before the header read.
+            BoxShadowRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
+    }
+}
 
+// SAFETY: this kind stores BoxShadowHeader, a native handle pair, and a bool slot.
+unsafe impl<'ast> AstNodeStorage<'ast> for BoxShadow<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0006_0007);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: BoxShadowHeader<'ast> = unsafe { payload.read_value() };
+        let (y_offset, spread) = unsafe { context.extra_slot(header.extra as usize).read_value() };
+        let inset = unsafe { context.extra_slot(header.extra as usize + 1).read_value() };
+        Self {
+            blur: header.blur,
+            color: header.color,
+            x_offset: header.x_offset,
+            y_offset,
+            spread,
+            inset,
+        }
+    }
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
         encode_box_shadow(self, None, context)
     }
-
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_box_shadow(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: BoxShadowHeader<'ast> = unsafe { current.read_value() };
+        encode_box_shadow(self, Some(header.extra as usize), context)
     }
 }
 
@@ -626,65 +502,33 @@ impl<'ast> AstNodeClone<'ast> for BoxShadow<'ast> {
 
 fn encode_box_shadow<'ast>(
     value: BoxShadow<'ast>,
-    existing_extra: Option<usize>,
+    existing: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    write_u32(&mut bytes, 0, node_index(value.blur));
-    write_u32(&mut bytes, 4, node_index(value.color));
-    write_u32(&mut bytes, 8, node_index(value.x_offset));
     let slots = [
-        ExtraData::from_u64(
-            node_index(value.y_offset) as u64 | (node_index(value.spread) as u64) << 32,
-        ),
-        ExtraData::from_u64(value.inset as u64),
+        ExtraData::from_value((value.y_offset, value.spread)),
+        ExtraData::from_value(value.inset),
     ];
-    let extra = match existing_extra {
+    let extra = match existing {
         Some(extra) => {
-            context.set_extra_slot(extra, slots[0]);
-            context.set_extra_slot(extra + 1, slots[1]);
+            for (i, slot) in slots.into_iter().enumerate() {
+                context.set_extra_slot(extra + i, slot);
+            }
             extra
         }
         None => context.alloc_extra_slots(slots),
     };
-    NodePayload::with_extra(&bytes, extra)
-}
-
-fn node_index<T>(id: NodeId<'_, T>) -> u32 {
-    u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(
-        bytes[offset..offset + 4]
-            .try_into()
-            .expect("compact background field is four bytes"),
-    )
-}
-
-fn write_range<T>(bytes: &mut [u8], offset: usize, range: Vec<'_, T>) {
-    write_u32(
-        bytes,
-        offset,
-        u32::try_from(range.start_index()).expect("AST range start exceeds four bytes"),
-    );
-    write_u32(
-        bytes,
-        offset + 4,
-        u32::try_from(range.end_index()).expect("AST range end exceeds four bytes"),
-    );
-}
-
-fn payload_as_extra(payload: NodePayload) -> ExtraData {
-    ExtraData::from_bytes(&payload.bytes()[..ExtraData::BYTES])
+    NodePayload::from_value(BoxShadowHeader {
+        blur: value.blur,
+        color: value.color,
+        x_offset: value.x_offset,
+        extra: u32::try_from(extra).expect("AST extra index exceeds u32"),
+    })
 }
 
 #[cfg(test)]
 mod storage_tests {
+    use super::ImageSetOptionHeader;
     use rocketcss_common::Allocator;
 
     use crate::{
@@ -695,6 +539,128 @@ mod storage_tests {
         VerticalPositionKeyword, WebKitColorStop, WebKitGradientPoint,
         WebKitGradientPointComponent,
     };
+
+    #[test]
+    fn box_shadow_native_fields_preserve_boolean_and_handle_changes() {
+        use crate::{BoxShadow, Length, LengthUnit, LengthValue};
+        let allocator = Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let length = ast.alloc_node(
+            Length::Value(LengthValue {
+                unit: LengthUnit::Px,
+                value: 1.0,
+            }),
+            DUMMY_SP,
+        );
+        let other = ast.alloc_node(
+            Length::Value(LengthValue {
+                unit: LengthUnit::Px,
+                value: 2.0,
+            }),
+            DUMMY_SP,
+        );
+        let color = ast.alloc_node(CssColor::CurrentColor, DUMMY_SP);
+        let node = ast.alloc_node(
+            BoxShadow {
+                blur: length,
+                color,
+                inset: false,
+                spread: other,
+                x_offset: length,
+                y_offset: other,
+            },
+            DUMMY_SP,
+        );
+        let checkpoint = ast.node_checkpoint();
+        for inset in [true, false, true] {
+            ast.mutate_node(node, |value, _| {
+                value.inset = inset;
+                value.y_offset = length;
+                value.spread = other;
+            });
+            let value = ast.resolve_node(node);
+            assert_eq!(value.inset, inset);
+            assert_eq!(value.y_offset, length);
+            assert_eq!(value.spread, other);
+            assert_eq!(value.color, color);
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+    }
+
+    #[test]
+    fn image_set_type_ranges_preserve_optional_empty_and_reuse_storage() {
+        assert_eq!(std::mem::size_of::<ImageSetOptionHeader<'_>>(), 16);
+        assert_eq!(std::mem::size_of::<ImageSet<'_>>(), 12);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let image = context.alloc_encoded_node(Image::None, DUMMY_SP);
+        let text = context.add_str("image/avif");
+        let duplicate = context.add_str("image/avif");
+        let node = context.alloc_encoded_node(
+            ImageSetOption {
+                image,
+                resolution: Resolution::Dpi(-0.0),
+                file_type: None,
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(context.encoded_extra_len(), 0);
+        context.mutate_encoded_node(node, |value, _| {
+            value.file_type = Some(crate::AstStr::EMPTY)
+        });
+        assert_eq!(context.encoded_extra_len(), 1);
+        let second_image = context.alloc_encoded_node(Image::None, DUMMY_SP);
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for file_type in [
+            Some(text),
+            None,
+            Some(duplicate),
+            Some(crate::AstStr::EMPTY),
+        ] {
+            for bits in [
+                0,
+                0x8000_0000,
+                1,
+                0x7f7f_ffff,
+                0x7f80_0000,
+                0xff80_0000,
+                0x7fc0_1234,
+            ] {
+                let f = f32::from_bits(bits);
+                for resolution in [Resolution::Dpi(f), Resolution::Dpcm(f), Resolution::Dppx(f)] {
+                    for image in [image, second_image] {
+                        context.mutate_encoded_node(node, |value, _| {
+                            value.file_type = file_type;
+                            value.resolution = resolution;
+                            value.image = image;
+                        });
+                        let value = context.encoded_node(node);
+                        assert_eq!(value.file_type, file_type);
+                        assert_eq!(value.image, image);
+                        let view = context.image_set_option(node);
+                        assert_eq!(view.image(), image);
+                        assert_eq!(view.file_type(), file_type);
+                        for actual in [view.resolution(), value.resolution] {
+                            assert_eq!(
+                                std::mem::discriminant(&actual),
+                                std::mem::discriminant(&resolution)
+                            );
+                            let (Resolution::Dpi(f) | Resolution::Dpcm(f) | Resolution::Dppx(f)) =
+                                actual;
+                            assert_eq!(f.to_bits(), bits);
+                        }
+                        assert_eq!(context.node_checkpoint(), checkpoint);
+                    }
+                }
+            }
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
+        context.mutate_encoded_node(node, |value, _| value.file_type = None);
+        assert_eq!(context.encoded_node(node).file_type, None);
+        assert_eq!(context.encoded_extra_len(), 1);
+    }
 
     #[test]
     fn position_codecs_share_the_same_inline_id_layout_in_nodes_and_lists() {
@@ -720,11 +686,13 @@ mod storage_tests {
     fn image_set_codecs_keep_ranges_prefixes_strings_and_resolution() {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
-        let url = context.alloc_encoded_node(Url { url: "image.avif" }, DUMMY_SP);
+        let text = context.add_str("image.avif");
+        let url = context.alloc_encoded_node(Url { url: text }, DUMMY_SP);
         let image = context.alloc_encoded_node(Image::Url(url), DUMMY_SP);
+        let mime = context.add_str("image/avif");
         let option = context.alloc_encoded_node(
             ImageSetOption {
-                file_type: Some("image/avif"),
+                file_type: Some(mime),
                 image,
                 resolution: Resolution::Dppx(2.0),
             },
@@ -733,7 +701,7 @@ mod storage_tests {
         assert_eq!(
             context.encoded_node(option),
             ImageSetOption {
-                file_type: Some("image/avif"),
+                file_type: Some(mime),
                 image,
                 resolution: Resolution::Dppx(2.0),
             }
@@ -829,46 +797,122 @@ mod storage_tests {
         );
         assert_eq!(context.encoded_extra_len(), before + 2);
 
-        context.mutate_encoded_node(background, |value, _| {
-            value.attachment = BackgroundAttachment::Local;
-            value.repeat.y = BackgroundRepeatKeyword::NoRepeat;
-        });
-        assert_eq!(context.encoded_extra_len(), before + 2);
-        assert_eq!(
-            context.encoded_node(background),
-            Background {
-                attachment: BackgroundAttachment::Local,
-                clip: BackgroundClip::Text,
-                color,
-                image,
-                origin: BackgroundOrigin::ContentBox,
-                position,
-                repeat: BackgroundRepeat {
-                    x: BackgroundRepeatKeyword::Round,
-                    y: BackgroundRepeatKeyword::NoRepeat,
-                },
-                size,
+        let checkpoint = context.node_checkpoint();
+        for attachment in [
+            BackgroundAttachment::Scroll,
+            BackgroundAttachment::Fixed,
+            BackgroundAttachment::Local,
+        ] {
+            for clip in [
+                BackgroundClip::BorderBox,
+                BackgroundClip::PaddingBox,
+                BackgroundClip::ContentBox,
+                BackgroundClip::Border,
+                BackgroundClip::Text,
+            ] {
+                for origin in [
+                    BackgroundOrigin::BorderBox,
+                    BackgroundOrigin::PaddingBox,
+                    BackgroundOrigin::ContentBox,
+                ] {
+                    let repeats = [
+                        BackgroundRepeatKeyword::Repeat,
+                        BackgroundRepeatKeyword::Space,
+                        BackgroundRepeatKeyword::Round,
+                        BackgroundRepeatKeyword::NoRepeat,
+                    ];
+                    for x in repeats {
+                        for y in repeats {
+                            let repeat = BackgroundRepeat { x, y };
+                            context.mutate_encoded_node(background, |value, _| {
+                                value.attachment = attachment;
+                                value.clip = clip;
+                                value.origin = origin;
+                                value.repeat = repeat;
+                            });
+                            assert_eq!(
+                                context.encoded_node(background),
+                                Background {
+                                    attachment,
+                                    clip,
+                                    origin,
+                                    repeat,
+                                    color,
+                                    image,
+                                    position,
+                                    size,
+                                }
+                            );
+                            let view = context.background(background);
+                            assert_eq!(view.color(), color);
+                            assert_eq!(view.image(), image);
+                            assert_eq!(view.position(), position);
+                            assert_eq!(view.size(), size);
+                            let keywords = view.keywords();
+                            assert_eq!(keywords.attachment(), attachment);
+                            assert_eq!(keywords.clip(), clip);
+                            assert_eq!(keywords.origin(), origin);
+                            assert_eq!(keywords.repeat(), repeat);
+                            assert_eq!(context.node_checkpoint(), checkpoint);
+                        }
+                    }
+                }
             }
-        );
+        }
     }
 
     #[test]
-    fn webkit_gradient_point_codec_preserves_component_variants() {
+    fn native_webkit_gradient_point_preserves_all_component_variants() {
+        use crate::NumberOrPercentage;
+        use WebKitGradientPointComponent::{Center, Number, Side};
+        fn check<S: std::fmt::Debug + PartialEq>(
+            actual: WebKitGradientPointComponent<S>,
+            expected: WebKitGradientPointComponent<S>,
+        ) {
+            match (actual, expected) {
+                (Number(NumberOrPercentage::Number(a)), Number(NumberOrPercentage::Number(b)))
+                | (
+                    Number(NumberOrPercentage::Percentage(a)),
+                    Number(NumberOrPercentage::Percentage(b)),
+                ) => assert_eq!(a.to_bits(), b.to_bits()),
+                (actual, expected) => assert_eq!(actual, expected),
+            }
+        }
+        assert_eq!(std::mem::size_of::<WebKitGradientPoint>(), 16);
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
-        let point = WebKitGradientPoint {
-            x: WebKitGradientPointComponent::Side(HorizontalPositionKeyword::Right),
-            y: WebKitGradientPointComponent::Number(crate::NumberOrPercentage::Percentage(25.0)),
-        };
-        let id = context.alloc_encoded_node(point, DUMMY_SP);
-        assert_eq!(
-            context.encoded_node(id),
+        let id = context.alloc_encoded_node(
             WebKitGradientPoint {
-                x: WebKitGradientPointComponent::Side(HorizontalPositionKeyword::Right),
-                y: WebKitGradientPointComponent::Number(crate::NumberOrPercentage::Percentage(
-                    25.0
-                )),
-            }
+                x: Center,
+                y: Center,
+            },
+            DUMMY_SP,
         );
+        let checkpoint = context.node_checkpoint();
+        for bits in [0, 0x8000_0000, 1, 0x7f80_0000, 0xff80_0000, 0x7fc0_0123] {
+            let value = f32::from_bits(bits);
+            for x in [
+                Center,
+                Number(NumberOrPercentage::Number(value)),
+                Number(NumberOrPercentage::Percentage(value)),
+                Side(HorizontalPositionKeyword::Left),
+                Side(HorizontalPositionKeyword::Right),
+            ] {
+                for y in [
+                    Center,
+                    Number(NumberOrPercentage::Number(value)),
+                    Number(NumberOrPercentage::Percentage(value)),
+                    Side(VerticalPositionKeyword::Top),
+                    Side(VerticalPositionKeyword::Bottom),
+                ] {
+                    context
+                        .mutate_encoded_node(id, |point, _| *point = WebKitGradientPoint { x, y });
+                    let actual = context.encoded_node(id);
+                    check(actual.x, x);
+                    check(actual.y, y);
+                    assert_eq!(context.node_checkpoint(), checkpoint);
+                }
+            }
+        }
     }
 }

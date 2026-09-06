@@ -82,7 +82,7 @@ pub(super) fn parse_mixed_style_contents<'ast>(
     loop {
         let start = input.state();
         let token = match input.next() {
-            Ok(token) => token.clone(),
+            Ok(token) => *token,
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };

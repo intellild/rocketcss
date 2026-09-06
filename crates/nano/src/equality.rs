@@ -81,7 +81,8 @@ pub(crate) fn known_declaration_structural_equality<'ast>(
             let left = ast.resolve_node(*left);
             let right = ast.resolve_node(*right);
             if left.reason != right.reason
-                || left.raw_value != right.raw_value
+                || left.raw_value.map(|value| ast.str(value))
+                    != right.raw_value.map(|value| ast.str(value))
                 || !ast.nodes_eq(left.property_id, right.property_id)
             {
                 return Some(false);
@@ -191,7 +192,9 @@ fn token_or_value_equality<'ast>(
         (TokenOrValue::Angle(left), TokenOrValue::Angle(right)) => Some(left == right),
         (TokenOrValue::Time(left), TokenOrValue::Time(right)) => Some(left == right),
         (TokenOrValue::Resolution(left), TokenOrValue::Resolution(right)) => Some(left == right),
-        (TokenOrValue::DashedIdent(left), TokenOrValue::DashedIdent(right)) => Some(left == right),
+        (TokenOrValue::DashedIdent(left), TokenOrValue::DashedIdent(right)) => {
+            Some(ast.nodes_eq(*left, *right))
+        }
         _ if std::mem::discriminant(left) != std::mem::discriminant(right) => Some(false),
         _ => None,
     }
@@ -206,6 +209,9 @@ fn environment_variable_names_are_equal(
         (EnvironmentVariableName::Custom(left), EnvironmentVariableName::Custom(right)) => {
             ast.nodes_eq(*left, *right)
         }
+        (EnvironmentVariableName::Unknown(left), EnvironmentVariableName::Unknown(right)) => {
+            ast.str(*left) == ast.str(*right)
+        }
         _ => left == right,
     }
 }
@@ -215,7 +221,7 @@ fn functions_are_equal<'ast>(
     left: &Function<'ast>,
     right: &Function<'ast>,
 ) -> Option<bool> {
-    if left.name() != right.name()
+    if ast.str(left.name()) != ast.str(right.name())
         || left.kind() != right.kind()
         || left.replacement != right.replacement
         || left.is_vendor_prefixed() != right.is_vendor_prefixed()
@@ -335,8 +341,7 @@ fn images_are_equal<'ast>(
 ) -> bool {
     match (ast.resolve_node(left), ast.resolve_node(right)) {
         (rocketcss_ast::Image::Url(left), rocketcss_ast::Image::Url(right)) => {
-            ast.node_span(left) == ast.node_span(right)
-                && ast.resolve_node(left) == ast.resolve_node(right)
+            ast.node_span(left) == ast.node_span(right) && ast.nodes_eq(left, right)
         }
         (left, right) => css_values_are_equal(ast, &left, &right),
     }
@@ -392,7 +397,7 @@ pub(crate) fn context_frame_fingerprint<'ast>(
         CssRulePayload::Supports(payload) => css_value_fingerprint(ast, &payload.condition),
         CssRulePayload::Container(payload) => {
             let mut hasher = FxHasher::default();
-            payload.name.hash(&mut hasher);
+            payload.name.map(|name| ast.str(name)).hash(&mut hasher);
             css_value_fingerprint(ast, &payload.condition).hash(&mut hasher);
             hasher.finish()
         }
@@ -421,8 +426,267 @@ pub(crate) fn context_frames_are_equal<'ast>(
             css_values_are_equal(ast, &left.condition, &right.condition)
         }
         (CssRulePayload::Container(left), CssRulePayload::Container(right)) => {
-            left.name == right.name && css_values_are_equal(ast, &left.condition, &right.condition)
+            left.name.map(|name| ast.str(name)) == right.name.map(|name| ast.str(name))
+                && css_values_are_equal(ast, &left.condition, &right.condition)
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::images_are_equal;
+    use rocketcss_ast::{AstContext, DUMMY_SP, Image, Span, Url};
+    use rocketcss_common::Allocator;
+
+    #[test]
+    fn nested_declaration_equality_resolves_text_and_preserves_structure() {
+        use super::known_declaration_structural_equality as equal;
+        use rocketcss_ast::{
+            AstStr, AstVec, Declaration, EnvironmentVariable, EnvironmentVariableName, Function,
+            NodeId, PropertyId, Token, TokenOrValue, UnparsedProperty, UnparsedPropertyReason,
+        };
+        use rocketcss_common::vec::Vec;
+        fn graph<'a>(
+            ast: &mut AstContext<'a>,
+            allocator: &'a Allocator,
+            text: AstStr<'a>,
+        ) -> (
+            Declaration<'a>,
+            NodeId<'a, Function<'a>>,
+            NodeId<'a, EnvironmentVariable<'a>>,
+            AstVec<'a, TokenOrValue<'a>>,
+        ) {
+            let leaf = ast.alloc_node(Token::Ident(text), DUMMY_SP);
+            let fallback = ast.alloc_vec(Vec::from_iter_in([TokenOrValue::Token(leaf)], allocator));
+            let indices = ast.alloc_vec(Vec::from_iter_in([1, 2], allocator));
+            let env = ast.alloc_node(
+                EnvironmentVariable {
+                    name: EnvironmentVariableName::Unknown(text),
+                    indices,
+                    fallback: Some(fallback),
+                },
+                DUMMY_SP,
+            );
+            let arguments = ast.alloc_vec(Vec::from_iter_in([TokenOrValue::Env(env)], allocator));
+            let function = Function::new("Fn", arguments, ast);
+            let function = ast.alloc_node(function, DUMMY_SP);
+            let value = ast.alloc_vec(Vec::from_iter_in(
+                [TokenOrValue::Function(function)],
+                allocator,
+            ));
+            let property_id = ast.alloc_node(PropertyId::Custom(text), DUMMY_SP);
+            let declaration = ast.alloc_node(
+                UnparsedProperty {
+                    property_id,
+                    reason: UnparsedPropertyReason::OpaqueValue,
+                    raw_value: Some(text),
+                    value,
+                },
+                DUMMY_SP,
+            );
+            (Declaration::Unparsed(declaration), function, env, fallback)
+        }
+        let allocator = Allocator::new();
+        let mut ast = AstContext::with_source_in(&allocator, "same same SAME", Default::default());
+        let first = ast.string_pool().source_range(0, 4);
+        let second = ast.string_pool().source_range(5, 9);
+        let uppercase = ast.string_pool().source_range(10, 14);
+        let extra = ast.add_str("same");
+        assert_ne!(first, second);
+        assert_ne!(first, extra);
+        let (left, _, _, _) = graph(&mut ast, &allocator, first);
+        let (right, function, env, fallback) = graph(&mut ast, &allocator, second);
+        let (third, _, _, _) = graph(&mut ast, &allocator, extra);
+        let empty = ast.alloc_vec(allocator.vec::<TokenOrValue<'_>>());
+        let reversed_indices = ast.alloc_vec(Vec::from_iter_in([2, 1], &allocator));
+        let original_indices = ast.resolve_node(env).indices;
+        let checkpoint = ast.node_checkpoint();
+        let bytes = ast.string_pool().extra_len();
+        assert_eq!(equal(&ast, &left, &right), Some(true));
+        assert_eq!(equal(&ast, &left, &third), Some(true));
+        for changed in [None, Some(empty), Some(fallback)] {
+            ast.mutate_node(env, |value, _| value.fallback = changed);
+            assert_eq!(equal(&ast, &left, &right), Some(changed == Some(fallback)));
+        }
+        for indices in [reversed_indices, original_indices] {
+            ast.mutate_node(env, |value, _| value.indices = indices);
+            assert_eq!(
+                equal(&ast, &left, &right),
+                Some(indices == original_indices)
+            );
+        }
+        for name in [uppercase, second] {
+            ast.mutate_node(env, |value, _| {
+                value.name = EnvironmentVariableName::Unknown(name)
+            });
+            assert_eq!(equal(&ast, &left, &right), Some(name == second));
+        }
+        for identifier in [true, false] {
+            ast.mutate_node(function, |value, _| value.set_identifier(identifier));
+            assert_eq!(equal(&ast, &left, &right), Some(!identifier));
+        }
+        let Declaration::Unparsed(root) = right else {
+            unreachable!()
+        };
+        for raw in [None, Some(AstStr::EMPTY), Some(second)] {
+            ast.mutate_node(root, |value, _| value.raw_value = raw);
+            assert_eq!(equal(&ast, &left, &right), Some(raw == Some(second)));
+        }
+        for reason in [
+            UnparsedPropertyReason::InvalidValue,
+            UnparsedPropertyReason::OpaqueValue,
+        ] {
+            ast.mutate_node(root, |value, _| value.reason = reason);
+            assert_eq!(
+                equal(&ast, &left, &right),
+                Some(reason == UnparsedPropertyReason::OpaqueValue)
+            );
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+        assert_eq!(ast.string_pool().extra_len(), bytes);
+    }
+
+    #[test]
+    fn ordinary_name_lists_compare_contents_and_preserve_order_and_duplicates() {
+        use super::css_values_are_equal;
+        use rocketcss_ast::{ContainerNameList, NoneOrCustomIdentList};
+        let allocator = Allocator::new();
+        let mut ast =
+            AstContext::with_source_in(&allocator, "alpha alpha beta", Default::default());
+        let first = ast.string_pool().source_range(0, 5);
+        let second = ast.string_pool().source_range(6, 11);
+        let beta = ast.string_pool().source_range(12, 16);
+        let extra = ast.add_str("alpha");
+        assert_ne!(first, second);
+        assert_ne!(first, extra);
+        let lists = [
+            std::vec![first, beta, first],
+            std::vec![second, beta, extra],
+            std::vec![first, first, beta],
+            std::vec![first, beta],
+        ]
+        .map(|items| {
+            ast.alloc_vec({
+                let mut values = allocator.vec();
+                values.extend(items);
+                values
+            })
+        });
+        let containers =
+            lists.map(|names| ast.alloc_node(ContainerNameList::Names(names), DUMMY_SP));
+        let transitions =
+            lists.map(|names| ast.alloc_node(NoneOrCustomIdentList::Idents(names), DUMMY_SP));
+        let checkpoint = ast.node_checkpoint();
+        let bytes = ast.string_pool().extra_len();
+        let interned = ast.string_pool().len();
+        // Distinct list handles need the actual content fallback in Nano equality.
+        assert_ne!(lists[0], lists[1]);
+        for _ in 0..3 {
+            assert!(css_values_are_equal(&ast, &containers[0], &containers[1]));
+            assert!(css_values_are_equal(&ast, &transitions[0], &transitions[1]));
+            for index in [2, 3] {
+                assert!(!css_values_are_equal(
+                    &ast,
+                    &containers[0],
+                    &containers[index]
+                ));
+                assert!(!css_values_are_equal(
+                    &ast,
+                    &transitions[0],
+                    &transitions[index]
+                ));
+            }
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+        assert_eq!(ast.string_pool().extra_len(), bytes);
+        assert_eq!(ast.string_pool().len(), interned);
+    }
+
+    #[test]
+    fn context_fingerprints_resolve_source_and_extra_strings() {
+        use super::{context_frame_fingerprint, context_frames_are_equal};
+        use rocketcss_ast::{
+            AstStr, ContainerRulePayload, CssRulePayload, SupportsCondition, SupportsRulePayload,
+        };
+        let allocator = Allocator::new();
+        let mut ast = AstContext::with_source_in(&allocator, "same same", Default::default());
+        let first = ast.string_pool().source_range(0, 4);
+        let second = ast.string_pool().source_range(5, 9);
+        let extra = ast.add_str("same");
+        let different = ast.add_str("other");
+        assert_ne!(first, second);
+        assert_ne!(first, extra);
+        let root = ast.stylesheet().root_rules();
+        let supports = [first, second, extra, different].map(|value| {
+            ast.append_rule(
+                root,
+                CssRulePayload::Supports(SupportsRulePayload {
+                    condition: SupportsCondition::Unknown(value),
+                }),
+            )
+            .unwrap()
+        });
+        let containers = [
+            Some(first),
+            Some(second),
+            Some(extra),
+            Some(different),
+            None,
+            Some(AstStr::EMPTY),
+        ]
+        .map(|name| {
+            ast.append_rule(
+                root,
+                CssRulePayload::Container(ContainerRulePayload {
+                    name,
+                    condition: None,
+                }),
+            )
+            .unwrap()
+        });
+        let checkpoint = ast.node_checkpoint();
+        let bytes = ast.string_pool().extra_len();
+        let interned = ast.string_pool().len();
+        for _ in 0..3 {
+            for rules in [&supports[..], &containers[..]] {
+                for index in [1, 2] {
+                    assert!(context_frames_are_equal(&ast, rules[0], rules[index]));
+                    assert_eq!(
+                        context_frame_fingerprint(&ast, rules[0]),
+                        context_frame_fingerprint(&ast, rules[index])
+                    );
+                }
+                assert!(!context_frames_are_equal(&ast, rules[0], rules[3]));
+            }
+            assert!(!context_frames_are_equal(
+                &ast,
+                containers[4],
+                containers[5]
+            ));
+            assert_eq!(ast.node_checkpoint(), checkpoint);
+            assert_eq!(ast.string_pool().extra_len(), bytes);
+            assert_eq!(ast.string_pool().len(), interned);
+        }
+    }
+
+    #[test]
+    fn image_url_equality_resolves_text_but_preserves_source_span() {
+        let allocator = Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let first = ast.add_str("icons/é.svg");
+        let second = ast.add_str("icons/é.svg");
+        let different = ast.add_str("icons/other.svg");
+        assert_ne!(first, second);
+        let first_url = ast.alloc_node(Url { url: first }, DUMMY_SP);
+        let second_url = ast.alloc_node(Url { url: second }, DUMMY_SP);
+        let different_url = ast.alloc_node(Url { url: different }, DUMMY_SP);
+        let first = ast.alloc_node(Image::Url(first_url), DUMMY_SP);
+        let second = ast.alloc_node(Image::Url(second_url), DUMMY_SP);
+        let different = ast.alloc_node(Image::Url(different_url), DUMMY_SP);
+        assert!(images_are_equal(&ast, first, second));
+        assert!(!images_are_equal(&ast, first, different));
+        ast.set_node_span(second_url, Span::new(1, 12));
+        assert!(!images_are_equal(&ast, first, second));
     }
 }

@@ -14,67 +14,23 @@ pub struct Overflow {
     pub y: OverflowKeyword,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct InsetBlock<'a> {
     pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for InsetBlock<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0001);
+impl_inline_node!(InsetBlock<'ast>, 0x000a_0001);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            block_end: read_node_id(&bytes, 0, context),
-            block_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.block_end, self.block_start)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_two_ids(self.block_end, self.block_start)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct InsetInline<'a> {
     pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for InsetInline<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0002);
+impl_inline_node!(InsetInline<'ast>, 0x000a_0002);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            inline_end: read_node_id(&bytes, 0, context),
-            inline_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.inline_end, self.inline_start)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_two_ids(self.inline_end, self.inline_start)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct Inset<'a> {
     pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
@@ -82,57 +38,15 @@ pub struct Inset<'a> {
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Inset<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0003);
+impl_inline_node!(Inset<'ast>, 0x000a_0003);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom: read_node_id(&bytes, 0, context),
-            left: read_node_id(&bytes, 4, context),
-            right: read_node_id(&bytes, 8, context),
-            top: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(self.bottom, self.left, self.right, self.top)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_four_ids(self.bottom, self.left, self.right, self.top)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Visit, Clone, Copy)]
 pub struct FlexFlow {
     pub direction: FlexDirection,
     pub wrap: FlexWrap,
 }
 
-impl AstNodeStorage<'_> for FlexFlow {
-    const KIND: NodeKind = NodeKind::new(0x000a_0004);
-
-    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            direction: decode_flex_direction(bytes[0]),
-            wrap: decode_flex_wrap(bytes[1]),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
-        encode_flex_flow(self)
-    }
-
-    fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'_>) -> NodePayload {
-        encode_flex_flow(self)
-    }
-}
+impl_inline_node!(FlexFlow, 0x000a_0004);
 
 impl AstNodeClone<'_> for FlexFlow {
     fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
@@ -140,52 +54,14 @@ impl AstNodeClone<'_> for FlexFlow {
     }
 }
 
-fn encode_flex_flow(value: FlexFlow) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    bytes[0] = encode_flex_direction(value.direction);
-    bytes[1] = encode_flex_wrap(value.wrap);
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct Flex<'a> {
     pub basis: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub grow: f32,
     pub shrink: f32,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Flex<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0005);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            basis: read_node_id(&bytes, 0, context),
-            grow: f32::from_bits(read_u32(&bytes, 4)),
-            shrink: f32::from_bits(read_u32(&bytes, 8)),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_flex(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_flex(self)
-    }
-}
-
-fn encode_flex(value: Flex<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_node_id(&mut bytes, 0, value.basis);
-    write_u32(&mut bytes, 4, value.grow.to_bits());
-    write_u32(&mut bytes, 8, value.shrink.to_bits());
-    NodePayload::inline(&bytes)
-}
+impl_inline_node!(Flex<'ast>, 0x000a_0005);
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct PlaceContent {
@@ -205,158 +81,57 @@ pub struct PlaceItems {
     pub justify: JustifyItems,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct Gap<'a> {
     pub column: NodeId<'a, GapValue<'a>>,
     pub row: NodeId<'a, GapValue<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Gap<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0006);
+impl_inline_node!(Gap<'ast>, 0x000a_0006);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            column: read_node_id(&bytes, 0, context),
-            row: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.column, self.row)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_two_ids(self.column, self.row)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Visit, Clone, Copy)]
 pub struct ColumnRule<'a> {
     pub color: Option<NodeId<'a, CssColor<'a>>>,
     pub style: Option<LineStyle>,
     pub width: Option<NodeId<'a, BorderSideWidth<'a>>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for ColumnRule<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0007);
+impl_inline_node!(ColumnRule<'ast>, 0x000a_0007);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            color: read_optional_node_id(&bytes, 0, context),
-            style: (bytes[8] != u8::MAX).then(|| decode_line_style(bytes[8])),
-            width: read_optional_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_column_rule(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_column_rule(self)
-    }
-}
-
-fn encode_column_rule(value: ColumnRule<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_optional_node_id(&mut bytes, 0, value.color);
-    write_optional_node_id(&mut bytes, 4, value.width);
-    bytes[8] = value.style.map_or(u8::MAX, encode_line_style);
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Visit, Clone, Copy)]
 pub enum ColumnWidth<'a> {
     Auto,
     Length(NodeId<'a, Length<'a>>),
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Visit, Clone, Copy)]
 pub enum ColumnCount {
     Auto,
     Integer(i32),
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, PartialEq, Visit, Clone, Copy)]
 pub struct Columns<'a> {
     pub count: ColumnCount,
     pub width: ColumnWidth<'a>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Columns<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0008);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let count = match bytes[0] {
-            0 => ColumnCount::Auto,
-            1 => ColumnCount::Integer(read_u32(&bytes, 4) as i32),
-            _ => panic!("invalid encoded ColumnCount variant"),
-        };
-        let width = match bytes[1] {
-            0 => ColumnWidth::Auto,
-            1 => ColumnWidth::Length(read_node_id(&bytes, 8, context)),
-            _ => panic!("invalid encoded ColumnWidth variant"),
-        };
-        Self { count, width }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_columns(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_columns(self)
-    }
-}
-
-fn encode_columns(value: Columns<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value.count {
-        ColumnCount::Auto => bytes[0] = 0,
-        ColumnCount::Integer(value) => {
-            bytes[0] = 1;
-            write_u32(&mut bytes, 4, value as u32);
-        }
-    }
-    match value.width {
-        ColumnWidth::Auto => bytes[1] = 0,
-        ColumnWidth::Length(value) => {
-            bytes[1] = 1;
-            write_node_id(&mut bytes, 8, value);
-        }
-    }
-    NodePayload::inline(&bytes)
-}
+impl_inline_node!(Columns<'ast>, 0x000a_0008);
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct TrackRepeat<'a> {
     pub count: RepeatCount,
-    pub line_names: Vec<'a, Vec<'a, &'a str>>,
+    pub line_names: Vec<'a, Vec<'a, AstStr<'a>>>,
     pub track_sizes: Vec<'a, NodeId<'a, TrackSize<'a>>>,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct GridAutoFlow {
     pub dense: bool,
     pub direction: AutoFlowDirection,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct GridTemplate<'a> {
     pub areas: NodeId<'a, GridTemplateAreas<'a>>,
     pub columns: NodeId<'a, TrackSizing<'a>>,
@@ -373,19 +148,19 @@ pub struct Grid<'a> {
     pub rows: NodeId<'a, TrackSizing<'a>>,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct GridRow<'a> {
     pub end: NodeId<'a, GridLine<'a>>,
     pub start: NodeId<'a, GridLine<'a>>,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct GridColumn<'a> {
     pub end: NodeId<'a, GridLine<'a>>,
     pub start: NodeId<'a, GridLine<'a>>,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct GridArea<'a> {
     pub column_end: NodeId<'a, GridLine<'a>>,
     pub column_start: NodeId<'a, GridLine<'a>>,
@@ -393,29 +168,77 @@ pub struct GridArea<'a> {
     pub row_start: NodeId<'a, GridLine<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for TrackRepeat<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0015);
+#[derive(Clone, Copy)]
+struct TrackRepeatHeader {
+    count: RepeatCount,
+    extra: u32,
+}
+pub use track_repeat_access::TrackRepeatRead;
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            count: match bytes[0] {
-                0 => RepeatCount::Number(f32::from_bits(read_u32(&bytes, 4))),
-                1 => RepeatCount::AutoFill,
-                2 => RepeatCount::AutoFit,
-                _ => panic!("invalid encoded RepeatCount variant"),
-            },
-            line_names: decode_range(context.extra_slot(payload.extra_start()), context),
-            track_sizes: decode_range(context.extra_slot(payload.extra_start() + 1), context),
+mod track_repeat_access {
+    use super::*;
+    pub struct TrackRepeatRead<'context, 'storage, 'id> {
+        context: &'context AstContext<'storage>,
+        header: TrackRepeatHeader,
+        marker: std::marker::PhantomData<&'id ()>,
+    }
+    impl<'id> TrackRepeatRead<'_, '_, 'id> {
+        pub fn count(&self) -> RepeatCount {
+            self.header.count
+        }
+        pub fn line_names(&self) -> Vec<'id, Vec<'id, AstStr<'id>>> {
+            // SAFETY: the first slot stores the nested line-name range.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            }
+        }
+        pub fn track_sizes(&self) -> Vec<'id, NodeId<'id, TrackSize<'id>>> {
+            // SAFETY: the second slot stores the track-size handle range.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize + 1)
+                    .read_value()
+            }
         }
     }
+    impl<'storage> AstContext<'storage> {
+        pub fn track_repeat<'id>(
+            &self,
+            id: NodeId<'id, TrackRepeat<'id>>,
+        ) -> TrackRepeatRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload checks the owning kind before reading its header.
+            TrackRepeatRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+                marker: std::marker::PhantomData,
+            }
+        }
+    }
+}
 
+// SAFETY: this kind stores TrackRepeatHeader and two independently typed ranges.
+unsafe impl<'ast> AstNodeStorage<'ast> for TrackRepeat<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_0015);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: TrackRepeatHeader = unsafe { payload.read_value() };
+        Self {
+            count: header.count,
+            line_names: unsafe { context.extra_slot(header.extra as usize).read_value() },
+            track_sizes: unsafe { context.extra_slot(header.extra as usize + 1).read_value() },
+        }
+    }
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
         encode_track_repeat(self, None, context)
     }
-
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_track_repeat(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: TrackRepeatHeader = unsafe { current.read_value() };
+        encode_track_repeat(self, Some(header.extra as usize), context)
     }
 }
 
@@ -431,55 +254,29 @@ impl<'ast> AstNodeClone<'ast> for TrackRepeat<'ast> {
 
 fn encode_track_repeat<'ast>(
     value: TrackRepeat<'ast>,
-    existing_extra: Option<usize>,
+    existing: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    match value.count {
-        RepeatCount::Number(value) => write_u32(&mut bytes, 4, value.to_bits()),
-        RepeatCount::AutoFill => bytes[0] = 1,
-        RepeatCount::AutoFit => bytes[0] = 2,
-    }
     let slots = [
-        encode_range(value.line_names),
-        encode_range(value.track_sizes),
+        ExtraData::from_value(value.line_names),
+        ExtraData::from_value(value.track_sizes),
     ];
-    let extra_start = match existing_extra {
-        Some(extra_start) => {
-            for (offset, slot) in slots.into_iter().enumerate() {
-                context.set_extra_slot(extra_start + offset, slot);
+    let extra = match existing {
+        Some(extra) => {
+            for (i, slot) in slots.into_iter().enumerate() {
+                context.set_extra_slot(extra + i, slot);
             }
-            extra_start
+            extra
         }
         None => context.alloc_extra_slots(slots),
     };
-    NodePayload::with_extra(&bytes, extra_start)
+    NodePayload::from_value(TrackRepeatHeader {
+        count: value.count,
+        extra: u32::try_from(extra).expect("AST extra index exceeds u32"),
+    })
 }
 
-impl<'ast> AstNodeStorage<'ast> for GridTemplate<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0016);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            areas: read_node_id(&bytes, 0, context),
-            columns: read_node_id(&bytes, 4, context),
-            rows: read_node_id(&bytes, 8, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        write_node_id(&mut bytes, 0, self.areas);
-        write_node_id(&mut bytes, 4, self.columns);
-        write_node_id(&mut bytes, 8, self.rows);
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(GridTemplate<'ast>, 0x000a_0016);
 
 impl<'ast> AstNodeClone<'ast> for GridTemplate<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -491,32 +288,91 @@ impl<'ast> AstNodeClone<'ast> for GridTemplate<'ast> {
     }
 }
 
-impl<'ast> AstNodeStorage<'ast> for Grid<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0017);
+#[derive(Clone, Copy)]
+struct GridHeader<'a> {
+    areas: NodeId<'a, GridTemplateAreas<'a>>,
+    columns: NodeId<'a, TrackSizing<'a>>,
+    rows: NodeId<'a, TrackSizing<'a>>,
+    extra: u32,
+}
+pub use grid_access::GridRead;
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            areas: read_node_id(&bytes, 4, context),
-            auto_columns: decode_range(context.extra_slot(payload.extra_start() + 1), context),
-            auto_flow: GridAutoFlow {
-                dense: bytes[1] != 0,
-                direction: decode_auto_flow_direction(bytes[0]),
-            },
-            auto_rows: decode_range(context.extra_slot(payload.extra_start() + 2), context),
-            columns: read_node_id(&bytes, 8, context),
-            rows: context.encoded_node_id_at(
-                context.extra_slot(payload.extra_start()).as_u64() as u32 as usize
-            ),
+mod grid_access {
+    use super::*;
+    pub struct GridRead<'context, 'storage, 'id> {
+        context: &'context AstContext<'storage>,
+        header: GridHeader<'id>,
+    }
+    impl<'id> GridRead<'_, '_, 'id> {
+        pub fn rows(&self) -> NodeId<'id, TrackSizing<'id>> {
+            self.header.rows
+        }
+        pub fn columns(&self) -> NodeId<'id, TrackSizing<'id>> {
+            self.header.columns
+        }
+        pub fn areas(&self) -> NodeId<'id, GridTemplateAreas<'id>> {
+            self.header.areas
+        }
+        pub fn auto_columns(&self) -> Vec<'id, NodeId<'id, TrackSize<'id>>> {
+            // SAFETY: slot zero stores the auto-column range.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            }
+        }
+        pub fn auto_rows(&self) -> Vec<'id, NodeId<'id, TrackSize<'id>>> {
+            // SAFETY: slot one stores the auto-row range.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize + 1)
+                    .read_value()
+            }
+        }
+        pub fn auto_flow(&self) -> GridAutoFlow {
+            // SAFETY: slot two stores native GridAutoFlow, including its bool.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize + 2)
+                    .read_value()
+            }
         }
     }
+    impl<'storage> AstContext<'storage> {
+        pub fn grid<'id>(&self, id: NodeId<'id, Grid<'id>>) -> GridRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload validates the owning kind before reading the header.
+            GridRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
+    }
+}
 
+// SAFETY: this kind stores GridHeader, two native ranges and native GridAutoFlow.
+unsafe impl<'ast> AstNodeStorage<'ast> for Grid<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000a_0017);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: GridHeader<'ast> = unsafe { payload.read_value() };
+        Self {
+            areas: header.areas,
+            columns: header.columns,
+            rows: header.rows,
+            auto_columns: unsafe { context.extra_slot(header.extra as usize).read_value() },
+            auto_rows: unsafe { context.extra_slot(header.extra as usize + 1).read_value() },
+            auto_flow: unsafe { context.extra_slot(header.extra as usize + 2).read_value() },
+        }
+    }
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
         encode_grid(self, None, context)
     }
-
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_grid(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: GridHeader<'ast> = unsafe { current.read_value() };
+        encode_grid(self, Some(header.extra as usize), context)
     }
 }
 
@@ -535,50 +391,32 @@ impl<'ast> AstNodeClone<'ast> for Grid<'ast> {
 
 fn encode_grid<'ast>(
     value: Grid<'ast>,
-    existing_extra: Option<usize>,
+    existing: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    bytes[0] = encode_auto_flow_direction(value.auto_flow.direction);
-    bytes[1] = value.auto_flow.dense as u8;
-    write_node_id(&mut bytes, 4, value.areas);
-    write_node_id(&mut bytes, 8, value.columns);
     let slots = [
-        ExtraData::from_u64(value.rows.index() as u64),
-        encode_range(value.auto_columns),
-        encode_range(value.auto_rows),
+        ExtraData::from_value(value.auto_columns),
+        ExtraData::from_value(value.auto_rows),
+        ExtraData::from_value(value.auto_flow),
     ];
-    let extra_start = match existing_extra {
-        Some(extra_start) => {
-            for (offset, slot) in slots.into_iter().enumerate() {
-                context.set_extra_slot(extra_start + offset, slot);
+    let extra = match existing {
+        Some(extra) => {
+            for (i, slot) in slots.into_iter().enumerate() {
+                context.set_extra_slot(extra + i, slot);
             }
-            extra_start
+            extra
         }
         None => context.alloc_extra_slots(slots),
     };
-    NodePayload::with_extra(&bytes, extra_start)
+    NodePayload::from_value(GridHeader {
+        areas: value.areas,
+        columns: value.columns,
+        rows: value.rows,
+        extra: u32::try_from(extra).expect("AST extra index exceeds u32"),
+    })
 }
 
-impl<'ast> AstNodeStorage<'ast> for GridRow<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0018);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            end: read_node_id(&bytes, 0, context),
-            start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.end, self.start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(GridRow<'ast>, 0x000a_0018);
 
 impl<'ast> AstNodeClone<'ast> for GridRow<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -589,25 +427,7 @@ impl<'ast> AstNodeClone<'ast> for GridRow<'ast> {
     }
 }
 
-impl<'ast> AstNodeStorage<'ast> for GridColumn<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0019);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            end: read_node_id(&bytes, 0, context),
-            start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.end, self.start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(GridColumn<'ast>, 0x000a_0019);
 
 impl<'ast> AstNodeClone<'ast> for GridColumn<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -618,32 +438,7 @@ impl<'ast> AstNodeClone<'ast> for GridColumn<'ast> {
     }
 }
 
-impl<'ast> AstNodeStorage<'ast> for GridArea<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_001a);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            column_end: read_node_id(&bytes, 0, context),
-            column_start: read_node_id(&bytes, 4, context),
-            row_end: read_node_id(&bytes, 8, context),
-            row_start: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(
-            self.column_end,
-            self.column_start,
-            self.row_end,
-            self.row_start,
-        )
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(GridArea<'ast>, 0x000a_001a);
 
 impl<'ast> AstNodeClone<'ast> for GridArea<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -656,59 +451,23 @@ impl<'ast> AstNodeClone<'ast> for GridArea<'ast> {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct MarginBlock<'a> {
     pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for MarginBlock<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0009);
+impl_inline_node!(MarginBlock<'ast>, 0x000a_0009);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            block_end: read_node_id(&bytes, 0, context),
-            block_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.block_end, self.block_start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct MarginInline<'a> {
     pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for MarginInline<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_000a);
+impl_inline_node!(MarginInline<'ast>, 0x000a_000a);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            inline_end: read_node_id(&bytes, 0, context),
-            inline_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.inline_end, self.inline_start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct Margin<'a> {
     pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
@@ -716,81 +475,25 @@ pub struct Margin<'a> {
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Margin<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_000b);
+impl_inline_node!(Margin<'ast>, 0x000a_000b);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom: read_node_id(&bytes, 0, context),
-            left: read_node_id(&bytes, 4, context),
-            right: read_node_id(&bytes, 8, context),
-            top: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(self.bottom, self.left, self.right, self.top)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct PaddingBlock<'a> {
     pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for PaddingBlock<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_000c);
+impl_inline_node!(PaddingBlock<'ast>, 0x000a_000c);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            block_end: read_node_id(&bytes, 0, context),
-            block_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.block_end, self.block_start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct PaddingInline<'a> {
     pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for PaddingInline<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_000d);
+impl_inline_node!(PaddingInline<'ast>, 0x000a_000d);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            inline_end: read_node_id(&bytes, 0, context),
-            inline_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.inline_end, self.inline_start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct Padding<'a> {
     pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
@@ -798,81 +501,25 @@ pub struct Padding<'a> {
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Padding<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_000e);
+impl_inline_node!(Padding<'ast>, 0x000a_000e);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom: read_node_id(&bytes, 0, context),
-            left: read_node_id(&bytes, 4, context),
-            right: read_node_id(&bytes, 8, context),
-            top: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(self.bottom, self.left, self.right, self.top)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct ScrollMarginBlock<'a> {
     pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for ScrollMarginBlock<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_000f);
+impl_inline_node!(ScrollMarginBlock<'ast>, 0x000a_000f);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            block_end: read_node_id(&bytes, 0, context),
-            block_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.block_end, self.block_start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct ScrollMarginInline<'a> {
     pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for ScrollMarginInline<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0010);
+impl_inline_node!(ScrollMarginInline<'ast>, 0x000a_0010);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            inline_end: read_node_id(&bytes, 0, context),
-            inline_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.inline_end, self.inline_start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct ScrollMargin<'a> {
     pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
@@ -880,81 +527,25 @@ pub struct ScrollMargin<'a> {
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for ScrollMargin<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0011);
+impl_inline_node!(ScrollMargin<'ast>, 0x000a_0011);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom: read_node_id(&bytes, 0, context),
-            left: read_node_id(&bytes, 4, context),
-            right: read_node_id(&bytes, 8, context),
-            top: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(self.bottom, self.left, self.right, self.top)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct ScrollPaddingBlock<'a> {
     pub block_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub block_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for ScrollPaddingBlock<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0012);
+impl_inline_node!(ScrollPaddingBlock<'ast>, 0x000a_0012);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            block_end: read_node_id(&bytes, 0, context),
-            block_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.block_end, self.block_start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct ScrollPaddingInline<'a> {
     pub inline_end: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub inline_start: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for ScrollPaddingInline<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0013);
+impl_inline_node!(ScrollPaddingInline<'ast>, 0x000a_0013);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            inline_end: read_node_id(&bytes, 0, context),
-            inline_start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.inline_end, self.inline_start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct ScrollPadding<'a> {
     pub bottom: NodeId<'a, LengthPercentageOrAuto<'a>>,
     pub left: NodeId<'a, LengthPercentageOrAuto<'a>>,
@@ -962,159 +553,7 @@ pub struct ScrollPadding<'a> {
     pub top: NodeId<'a, LengthPercentageOrAuto<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for ScrollPadding<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000a_0014);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom: read_node_id(&bytes, 0, context),
-            left: read_node_id(&bytes, 4, context),
-            right: read_node_id(&bytes, 8, context),
-            top: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(self.bottom, self.left, self.right, self.top)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-fn encode_range<T>(range: Vec<'_, T>) -> ExtraData {
-    let start = u32::try_from(range.start_index()).expect("AST range start exceeds four bytes");
-    let end = u32::try_from(range.end_index()).expect("AST range end exceeds four bytes");
-    ExtraData::from_u64((end as u64) << 32 | start as u64)
-}
-
-fn decode_range<'ast, T>(data: ExtraData, context: &AstContext<'ast>) -> Vec<'ast, T> {
-    context.encoded_vec_range(
-        data.as_u64() as u32 as usize,
-        (data.as_u64() >> 32) as usize,
-    )
-}
-
-fn encode_auto_flow_direction(value: AutoFlowDirection) -> u8 {
-    match value {
-        AutoFlowDirection::Row => 0,
-        AutoFlowDirection::Column => 1,
-    }
-}
-
-fn decode_auto_flow_direction(value: u8) -> AutoFlowDirection {
-    match value {
-        0 => AutoFlowDirection::Row,
-        1 => AutoFlowDirection::Column,
-        _ => panic!("invalid encoded AutoFlowDirection"),
-    }
-}
-
-fn encode_two_ids<T>(first: NodeId<'_, T>, second: NodeId<'_, T>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_node_id(&mut bytes, 0, first);
-    write_node_id(&mut bytes, 4, second);
-    NodePayload::inline(&bytes)
-}
-
-fn encode_four_ids<T>(
-    first: NodeId<'_, T>,
-    second: NodeId<'_, T>,
-    third: NodeId<'_, T>,
-    fourth: NodeId<'_, T>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_node_id(&mut bytes, 0, first);
-    write_node_id(&mut bytes, 4, second);
-    write_node_id(&mut bytes, 8, third);
-    write_node_id(&mut bytes, 12, fourth);
-    NodePayload::inline(&bytes)
-}
-
-fn write_node_id<T>(bytes: &mut [u8], offset: usize, id: NodeId<'_, T>) {
-    write_u32(
-        bytes,
-        offset,
-        u32::try_from(id.index()).expect("AST node ID exceeds four bytes"),
-    );
-}
-
-fn write_optional_node_id<T>(bytes: &mut [u8], offset: usize, id: Option<NodeId<'_, T>>) {
-    write_u32(
-        bytes,
-        offset,
-        id.map_or(u32::MAX, |id| {
-            u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
-        }),
-    );
-}
-
-fn read_node_id<'ast, T>(
-    bytes: &[u8],
-    offset: usize,
-    context: &AstContext<'ast>,
-) -> NodeId<'ast, T> {
-    context.encoded_node_id_at(read_u32(bytes, offset) as usize)
-}
-
-fn read_optional_node_id<'ast, T>(
-    bytes: &[u8],
-    offset: usize,
-    context: &AstContext<'ast>,
-) -> Option<NodeId<'ast, T>> {
-    let index = read_u32(bytes, offset);
-    (index != u32::MAX).then(|| context.encoded_node_id_at(index as usize))
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(
-        bytes[offset..offset + 4]
-            .try_into()
-            .expect("compact layout field is four bytes"),
-    )
-}
-
-fn encode_flex_direction(value: FlexDirection) -> u8 {
-    match value {
-        FlexDirection::Row => 0,
-        FlexDirection::RowReverse => 1,
-        FlexDirection::Column => 2,
-        FlexDirection::ColumnReverse => 3,
-    }
-}
-
-fn decode_flex_direction(value: u8) -> FlexDirection {
-    match value {
-        0 => FlexDirection::Row,
-        1 => FlexDirection::RowReverse,
-        2 => FlexDirection::Column,
-        3 => FlexDirection::ColumnReverse,
-        _ => panic!("invalid encoded FlexDirection"),
-    }
-}
-
-fn encode_flex_wrap(value: FlexWrap) -> u8 {
-    match value {
-        FlexWrap::Nowrap => 0,
-        FlexWrap::Wrap => 1,
-        FlexWrap::WrapReverse => 2,
-    }
-}
-
-fn decode_flex_wrap(value: u8) -> FlexWrap {
-    match value {
-        0 => FlexWrap::Nowrap,
-        1 => FlexWrap::Wrap,
-        2 => FlexWrap::WrapReverse,
-        _ => panic!("invalid encoded FlexWrap"),
-    }
-}
+impl_inline_node!(ScrollPadding<'ast>, 0x000a_0014);
 
 #[cfg(test)]
 mod storage_tests {
@@ -1125,6 +564,114 @@ mod storage_tests {
         FlexFlow, FlexWrap, Gap, GapValue, Length, LengthPercentageOrAuto, LengthUnit, LengthValue,
         LineStyle, Margin,
     };
+
+    #[test]
+    fn grid_and_repeat_native_overflow_reuses_typed_ranges() {
+        use crate::{
+            AutoFlowDirection, Grid, GridAutoFlow, GridTemplateAreas, RepeatCount, TrackRepeat,
+            TrackSizing,
+        };
+        let allocator = Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let line_names = ast.alloc_encoded_vec(std::iter::empty());
+        let tracks = ast.alloc_encoded_vec(std::iter::empty());
+        let before = ast.encoded_extra_len();
+        let repeat = ast.alloc_node(
+            TrackRepeat {
+                count: RepeatCount::AutoFill,
+                line_names,
+                track_sizes: tracks,
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(ast.encoded_extra_len(), before + 2);
+        let areas = ast.alloc_node(GridTemplateAreas::None, DUMMY_SP);
+        let columns = ast.alloc_node(TrackSizing::None, DUMMY_SP);
+        let rows = ast.alloc_node(TrackSizing::None, DUMMY_SP);
+        let grid = ast.alloc_node(
+            Grid {
+                areas,
+                columns,
+                rows,
+                auto_columns: tracks,
+                auto_rows: tracks,
+                auto_flow: GridAutoFlow {
+                    dense: false,
+                    direction: AutoFlowDirection::Row,
+                },
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(ast.encoded_extra_len(), before + 5);
+        let checkpoint = ast.node_checkpoint();
+        for count in [
+            RepeatCount::AutoFill,
+            RepeatCount::AutoFit,
+            RepeatCount::Number(-0.0),
+        ] {
+            ast.mutate_node(repeat, |value, _| value.count = count);
+            let value = ast.resolve_node(repeat);
+            assert_eq!(value.count, count);
+            if let RepeatCount::Number(value) = value.count {
+                assert_eq!(value.to_bits(), (-0.0f32).to_bits());
+            }
+            assert_eq!(value.line_names, line_names);
+            assert_eq!(value.track_sizes, tracks);
+            let view = ast.track_repeat(repeat);
+            assert_eq!(view.count(), count);
+            if let RepeatCount::Number(value) = view.count() {
+                assert_eq!(value.to_bits(), (-0.0f32).to_bits());
+            }
+            assert_eq!(view.line_names(), line_names);
+            assert_eq!(view.track_sizes(), tracks);
+            ast.mutate_node(grid, |value, _| {
+                value.auto_flow.dense = !value.auto_flow.dense;
+                value.auto_flow.direction = AutoFlowDirection::Column;
+            });
+            let value = ast.resolve_node(grid);
+            assert_eq!(value.auto_flow.direction, AutoFlowDirection::Column);
+            assert_eq!(
+                (value.areas, value.columns, value.rows),
+                (areas, columns, rows)
+            );
+            assert_eq!(value.auto_columns, tracks);
+            assert_eq!(value.auto_rows, tracks);
+            let view = ast.grid(grid);
+            assert_eq!(
+                (view.areas(), view.columns(), view.rows()),
+                (areas, columns, rows)
+            );
+            assert_eq!(view.auto_flow(), value.auto_flow);
+            assert_eq!(view.auto_rows(), tracks);
+            assert_eq!(view.auto_columns(), tracks);
+        }
+        for bits in [
+            0,
+            0x8000_0000,
+            1,
+            0x7f7f_ffff,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fc0_1234,
+        ] {
+            ast.mutate_node(repeat, |value, _| {
+                value.count = RepeatCount::Number(f32::from_bits(bits))
+            });
+            for count in [
+                ast.resolve_node(repeat).count,
+                ast.track_repeat(repeat).count(),
+            ] {
+                let RepeatCount::Number(value) = count else {
+                    panic!("expected number");
+                };
+                assert_eq!(value.to_bits(), bits);
+            }
+            assert_eq!(ast.track_repeat(repeat).line_names(), line_names);
+            assert_eq!(ast.track_repeat(repeat).track_sizes(), tracks);
+            assert_eq!(ast.node_checkpoint(), checkpoint);
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+    }
 
     #[test]
     fn layout_node_codecs_preserve_optional_and_scalar_fields() {

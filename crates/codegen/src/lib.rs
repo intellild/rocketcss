@@ -1,6 +1,5 @@
 //! CSS serialization for [`rocketcss_ast`] syntax trees.
 
-mod ast;
 mod color;
 mod length;
 mod media;

@@ -874,7 +874,7 @@ fn unknown_at_rules_remain_opaque_and_lossless() {
     let CssRulePayload::Unknown(ast_top) = ast.rule(ids[0]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(ast_top.name, "foo");
+    assert_eq!(ast.str(ast_top.name), "foo");
     assert!(!ast_top.prelude.is_empty());
     assert!(ast_top.block.is_none());
     assert!(ast.rule(ids[0]).unwrap().child_list().is_none());
@@ -882,7 +882,7 @@ fn unknown_at_rules_remain_opaque_and_lossless() {
     let CssRulePayload::Unknown(ast_nested) = ast.rule(ids[2]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(ast_nested.name, "bar");
+    assert_eq!(ast.str(ast_nested.name), "bar");
     assert!(!ast_nested.prelude.is_empty());
     assert!(
         ast_nested
@@ -1060,7 +1060,7 @@ fn top_level_statements_preserve_payloads_and_ordering_state() {
     let CssRulePayload::Charset(ast_charset) = ast.rule(ids[0]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(ast_charset.encoding, "UTF-8");
+    assert_eq!(ast.str(ast_charset.encoding), "UTF-8");
 
     let CssRulePayload::LayerStatement(ast_layer) = ast.rule(ids[1]).unwrap().payload() else {
         unreachable!()
@@ -1068,31 +1068,34 @@ fn top_level_statements_preserve_payloads_and_ordering_state() {
     assert_eq!(ast.vec_len(ast_layer.names), 1);
     let layer_name = ast.vec_get(ast_layer.names, 0).unwrap();
     assert_eq!(
-        ast.vec_iter(layer_name).collect::<std::vec::Vec<_>>(),
+        ast.vec_iter(layer_name)
+            .map(|part| ast.str(part))
+            .collect::<std::vec::Vec<_>>(),
         ["base"]
     );
 
     let CssRulePayload::Import(ast_import) = ast.rule(ids[2]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(ast_import.url, "a.css");
+    assert_eq!(ast.str(ast_import.url), "a.css");
     assert_eq!(
-        ast_import
-            .layer
-            .map(|layer| ast.vec_iter(layer).collect::<std::vec::Vec<_>>()),
+        ast_import.layer.map(|layer| ast
+            .vec_iter(layer)
+            .map(|part| ast.str(part))
+            .collect::<std::vec::Vec<_>>()),
         Some(vec!["theme"])
     );
 
     let CssRulePayload::Namespace(ast_namespace) = ast.rule(ids[3]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(ast_namespace.prefix, Some("svg"));
-    assert_eq!(ast_namespace.url, "http://www.w3.org/2000/svg");
+    assert_eq!(ast_namespace.prefix.map(|name| ast.str(name)), Some("svg"));
+    assert_eq!(ast.str(ast_namespace.url), "http://www.w3.org/2000/svg");
 
     let CssRulePayload::CustomMedia(ast_custom_media) = ast.rule(ids[4]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(ast_custom_media.name, "--narrow");
+    assert_eq!(ast.str(ast_custom_media.name), "--narrow");
     assert_eq!(ast.validate_ast(), Ok(()));
 }
 
@@ -1147,7 +1150,7 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
     };
     assert!(matches!(
         ast.resolve_node(ast_keyframes.name),
-        KeyframesName::Ident("fade")
+        KeyframesName::Ident(value) if ast.str(value) == "fade"
     ));
     assert_eq!(ast_keyframes.vendor_prefix, VendorPrefix::WEBKIT);
     let CssRulePayload::Keyframe(first_frame) = ast.rule(frames[0]).unwrap().payload() else {
@@ -1217,12 +1220,13 @@ fn page_margin_rules_split_parent_declaration_blocks() {
     };
     let selector = ast.resolve_node(ast.vec_get(ast_page.selectors, 0).unwrap());
     let PageSelector {
-        name: Some("invoice"),
+        name: Some(name),
         pseudo_classes,
     } = selector
     else {
         panic!("expected the parsed page selector");
     };
+    assert_eq!(ast.str(name), "invoice");
     assert!(matches!(
         ast.vec_iter(pseudo_classes)
             .collect::<std::vec::Vec<_>>()
@@ -1377,7 +1381,7 @@ fn font_feature_subrules_and_declarations_are_flattened() {
         ast.vec_iter(ast_features.name)
             .collect::<std::vec::Vec<_>>()
             .as_slice(),
-        [FamilyName("Demo")]
+        [FamilyName(value)] if ast.str(*value) == "Demo"
     ));
     for (subrule, expected_name, expected_len) in [
         (rules[1].0, FontFeatureSubruleType::Styleset, 2),
@@ -1439,7 +1443,7 @@ fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
     assert_eq!(property.inherits.unwrap().index(), 3);
     assert_eq!(property.initial_value.unwrap().index(), 4);
 
-    assert_eq!(property.name, "--space");
+    assert_eq!(ast.str(property.name), "--space");
     let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Syntax(syntax)) =
         ast.declaration(property.syntax.unwrap()).unwrap().payload()
     else {
@@ -1642,8 +1646,8 @@ fn unsupported_grammar_property_stays_on_the_inactive_fast_path() {
 #[test]
 fn capacity_estimates_cover_benchmark_corpora() {
     for source in [
-        include_str!("../../../../../tasks/benchmark/files/bootstrap.css"),
-        include_str!("../../../../../tasks/benchmark/files/tailwind.css"),
+        include_str!("../../../../../../../tasks/benchmark/files/bootstrap.css"),
+        include_str!("../../../../../../../tasks/benchmark/files/tailwind.css"),
     ] {
         let allocator = Allocator::new();
         let mut compiler = Compiler::new(&allocator);

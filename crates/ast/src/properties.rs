@@ -38,15 +38,6 @@ macro_rules! property_id_with_vendor_prefix {
     };
 }
 
-macro_rules! property_id_from_storage {
-    ($name:path, $prefix:expr) => {
-        $name
-    };
-    ($name:path, $prefix:expr, $vendor_prefix:ty) => {
-        $name($prefix)
-    };
-}
-
 macro_rules! declaration_pattern {
     ($name:path, $value:ident) => {
         $name($value)
@@ -131,7 +122,7 @@ macro_rules! define_properties {
                 $property$(($vp))?,
             )+
             Unparsed,
-            Custom(&'a str),
+            Custom(AstStr<'a>),
         }
 
         // Generated from the same source as `PropertyId`, so compact lookup IDs
@@ -158,14 +149,22 @@ macro_rules! define_properties {
 
         impl<'a> PropertyId<'a> {
             /// Resolves a property name while retaining unknown names for lossless parsing.
-            pub fn from_name(name: &'a str) -> Self {
+            #[inline]
+            pub fn from_name(name: &str, context: &mut AstContext<'a>) -> Self {
+                Self::from_known_name(name).unwrap_or_else(|| Self::Custom(context.add_str(name)))
+            }
+
+            /// Resolves known metadata without constructing or storing unknown text.
+            pub fn from_known_name(name: &str) -> Option<Self> {
+                // Dashed names belong to the custom-property namespace.
+                if name.starts_with("--") { return None; }
                 let property_id = match_ignore_ascii_case!(
                     name,
                     $($name => Some(Self::$property$( (<$vp>::default()) )?),)+
                     _ => None,
                 );
                 if let Some(property_id) = property_id {
-                    return property_id;
+                    return Some(property_id);
                 }
 
                 if let Some((prefix, unprefixed_name)) = VendorPrefix::split_from_name(name) {
@@ -175,19 +174,27 @@ macro_rules! define_properties {
                         _ => None,
                     );
                     if let Some(property_id) = property_id {
-                        return property_id;
+                        return Some(property_id);
                     }
                 }
 
-                Self::Custom(name)
+                None
             }
 
-            /// Returns the canonical CSS property name.
-            pub fn name(&self) -> &'a str {
+            /// Returns a static metadata name without borrowing a string pool.
+            pub fn known_name(&self) -> Option<&'static str> {
                 match self {
-                    $(property_id_pattern!(Self::$property$(, $vp)?) => $name,)+
-                    Self::Unparsed => "",
-                    Self::Custom(name) => name,
+                    $(property_id_pattern!(Self::$property$(, $vp)?) => Some($name),)+
+                    Self::Unparsed => Some(""),
+                    Self::Custom(_) => None,
+                }
+            }
+
+            /// Returns the canonical metadata name or lossless unknown text.
+            pub fn name<'cx>(&self, context: &'cx AstContext<'_>) -> &'cx str {
+                match self {
+                    Self::Custom(name) => context.str(*name),
+                    _ => self.known_name().expect("non-custom property has a metadata name"),
                 }
             }
 
@@ -243,91 +250,32 @@ macro_rules! define_properties {
                 }
             }
 
-            fn encode_storage(self, context: &mut AstContext<'a>) -> NodePayload {
-                let mut bytes = [0; NodePayload::INLINE_BYTES];
-                match self.known_id_and_prefix() {
-                    Some((id, prefix)) => {
-                        bytes[0] = 0;
-                        bytes[1] = prefix.bits();
-                        bytes[4..8].copy_from_slice(&id.to_le_bytes());
-                    }
-                    None => match self {
-                        Self::Unparsed => bytes[0] = 1,
-                        Self::Custom(name) => {
-                            bytes[0] = 2;
-                            bytes[4..8]
-                                .copy_from_slice(&context.store_string(name).to_le_bytes());
-                        }
-                        _ => unreachable!("known property IDs have a generated discriminant"),
-                    },
-                }
-                NodePayload::inline(&bytes)
-            }
-
-            fn decode_storage(bytes: &[u8], context: &AstContext<'a>) -> Self {
-                let value = u32::from_le_bytes(
-                    bytes[4..8]
-                        .try_into()
-                        .expect("compact property ID field is four bytes"),
-                );
-                match bytes[0] {
-                    0 => {
-                        let prefix = VendorPrefix::from_bits_retain(bytes[1]);
-                        match value {
-                            $(value if value == KnownPropertyDiscriminant::$property as u32 => {
-                                property_id_from_storage!(Self::$property, prefix$(, $vp)?)
-                            },)+
-                            _ => panic!("invalid encoded known PropertyId"),
-                        }
-                    }
-                    1 => Self::Unparsed,
-                    2 => Self::Custom(context.resolve_string(value as u64)),
-                    _ => panic!("invalid encoded PropertyId variant"),
-                }
-            }
         }
 
-        // byte 0 variant, byte 1 vendor-prefix bits, bytes 4..8 generated
-        // known-property discriminant or compact custom-name string ID.
-        impl<'ast> AstNodeStorage<'ast> for PropertyId<'ast> {
+        unsafe impl<'ast> AstNodeStorage<'ast> for PropertyId<'ast> {
             const KIND: NodeKind = NodeKind::new(0x0007_0001);
-
-            fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-                Self::decode_storage(&payload.bytes(), context)
+            #[inline]
+            unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+                unsafe { payload.read_value() }
             }
-
-            fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-                self.encode_storage(context)
+            #[inline]
+            fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+                NodePayload::from_value(self)
             }
-
-            fn encode_existing(
-                self,
-                _current: NodePayload,
-                context: &mut AstContext<'ast>,
-            ) -> NodePayload {
-                self.encode_storage(context)
+            #[inline]
+            unsafe fn encode_existing(self, _current: NodePayload, _context: &mut AstContext<'ast>) -> NodePayload {
+                NodePayload::from_value(self)
+            }
+            fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+                match (self, other) {
+                    (Self::Custom(left), Self::Custom(right)) => left == right || context.str(*left) == context.str(*right),
+                    _ => self == other,
+                }
             }
         }
 
         impl<'ast> AstNodeClone<'ast> for PropertyId<'ast> {
             fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
-                self
-            }
-        }
-
-        impl<'ast> ExtraDataCompact<'ast> for PropertyId<'ast> {
-            fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData {
-                let payload = self.encode_storage(context);
-                ExtraData::from_bytes(&payload.bytes()[..ExtraData::BYTES])
-            }
-
-            fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-                Self::decode_storage(&data.bytes(), context)
-            }
-        }
-
-        impl<'ast> ExtraDataClone<'ast> for PropertyId<'ast> {
-            fn clone_extra(self, _context: &mut AstContext<'ast>) -> Self {
                 self
             }
         }
@@ -341,7 +289,7 @@ macro_rules! define_properties {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some((KnownPropertyDiscriminant::$property as u32, declaration_prefix!($(vendor_prefix: $vp)?))),)+
                     Self::CSSWide(property_id, _) => ast.resolve_node(*property_id).known_id_and_prefix(),
-                    Self::Unparsed(value) => ast.resolve_node(ast.resolve_node(*value).property_id).known_id_and_prefix(),
+                    Self::Unparsed(value) => ast.resolve_node(ast.unparsed_property(*value).property_id()).known_id_and_prefix(),
                     Self::Custom(_) | Self::Tombstone => None,
                 }
             }
@@ -352,7 +300,7 @@ macro_rules! define_properties {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => Some(declaration_property_id!(PropertyId::$property$(, vendor_prefix: $vp)?)),)+
                     Self::CSSWide(property_id, _) => Some(ast.resolve_node(*property_id)),
-                    Self::Unparsed(value) => Some(ast.resolve_node(ast.resolve_node(*value).property_id)),
+                    Self::Unparsed(value) => Some(ast.resolve_node(ast.unparsed_property(*value).property_id())),
                     Self::Custom(value) => Some(PropertyId::Custom(match ast.resolve_node(ast.resolve_node(*value).name) {
                         CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
                     })),
@@ -361,13 +309,13 @@ macro_rules! define_properties {
             }
 
             /// Returns the canonical CSS property name.
-            pub fn name(&self, ast: &AstContext<'_>) -> &'a str {
+            pub fn name<'cx>(&self, ast: &'cx AstContext<'_>) -> &'cx str {
                 match self {
                     $(Self::$property(..) => $name,)+
-                    Self::CSSWide(property_id, _) => ast.resolve_node(*property_id).name(),
-                    Self::Unparsed(value) => ast.resolve_node(ast.resolve_node(*value).property_id).name(),
+                    Self::CSSWide(property_id, _) => ast.resolve_node(*property_id).name(ast),
+                    Self::Unparsed(value) => ast.resolve_node(ast.unparsed_property(*value).property_id()).name(ast),
                     Self::Custom(value) => match ast.resolve_node(ast.resolve_node(*value).name) {
-                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => ast.str(name),
                     },
                     Self::Tombstone => "",
                 }
@@ -378,7 +326,7 @@ macro_rules! define_properties {
                 match self {
                     $(declaration_pattern!(Self::$property, _value$(, vendor_prefix: $vp)?) => declaration_prefix!($(vendor_prefix: $vp)?),)+
                     Self::CSSWide(property_id, _) => ast.resolve_node(*property_id).vendor_prefix(),
-                    Self::Unparsed(value) => ast.resolve_node(ast.resolve_node(*value).property_id).vendor_prefix(),
+                    Self::Unparsed(value) => ast.resolve_node(ast.unparsed_property(*value).property_id()).vendor_prefix(),
                     Self::Custom(_) | Self::Tombstone => VendorPrefix::NONE,
                 }
             }
@@ -739,12 +687,12 @@ macro_rules! for_each_property {
     "font": Font(NodeId<'a, Font<'a>>) [unsupported],
     "vertical-align": VerticalAlign(NodeId<'a, VerticalAlign<'a>>) [unsupported],
     "font-palette": FontPalette(NodeId<'a, DashedIdentReference<'a>>) [unsupported],
-    "transition-property": TransitionProperty(Vec<'a, PropertyId<'a>>, VendorPrefix) [custom: parse_transition_property],
+    "transition-property": TransitionProperty(Vec<'a, NodeId<'a, PropertyId<'a>>>, VendorPrefix) [custom: parse_transition_property],
     "transition-duration": TransitionDuration(Vec<'a, Time>, VendorPrefix) [custom: parse_transition_duration],
     "transition-delay": TransitionDelay(Vec<'a, Time>, VendorPrefix) [custom: parse_transition_delay],
     "transition-timing-function": TransitionTimingFunction(Vec<'a, NodeId<'a, EasingFunction>>, VendorPrefix) [custom: parse_transition_timing],
     "transition": Transition(Vec<'a, NodeId<'a, Transition<'a>>>, VendorPrefix) [custom: parse_transition],
-    "animation-name": AnimationName(Vec<'a, AnimationName<'a>>, VendorPrefix) [custom: parse_animation_name],
+    "animation-name": AnimationName(Vec<'a, NodeId<'a, AnimationName<'a>>>, VendorPrefix) [custom: parse_animation_name],
     "animation-duration": AnimationDuration(Vec<'a, Time>, VendorPrefix) [custom: parse_animation_duration],
     "animation-timing-function": AnimationTimingFunction(Vec<'a, NodeId<'a, EasingFunction>>, VendorPrefix) [custom: parse_animation_timing],
     "animation-iteration-count": AnimationIterationCount(Vec<'a, AnimationIterationCount>, VendorPrefix) [custom: parse_animation_iteration],
@@ -753,7 +701,7 @@ macro_rules! for_each_property {
     "animation-delay": AnimationDelay(Vec<'a, Time>, VendorPrefix) [custom: parse_animation_delay],
     "animation-fill-mode": AnimationFillMode(Vec<'a, AnimationFillMode>, VendorPrefix) [custom: parse_animation_fill],
     "animation-composition": AnimationComposition(Vec<'a, AnimationComposition>) [unsupported],
-    "animation-timeline": AnimationTimeline(Vec<'a, AnimationTimeline<'a>>) [unsupported],
+    "animation-timeline": AnimationTimeline(Vec<'a, NodeId<'a, AnimationTimeline<'a>>>) [unsupported],
     "animation-range-start": AnimationRangeStart(Vec<'a, AnimationRangeStart<'a>>) [unsupported],
     "animation-range-end": AnimationRangeEnd(Vec<'a, AnimationRangeEnd<'a>>) [unsupported],
     "animation-range": AnimationRange(Vec<'a, AnimationRange<'a>>) [unsupported],
@@ -901,36 +849,55 @@ mod tests {
             PropertyId::BackgroundClip(VendorPrefix::WEBKIT | VendorPrefix::MOZ)
         );
 
-        let custom_id = context.alloc_encoded_node(PropertyId::Custom("--theme"), DUMMY_SP);
+        let custom = context.add_str("--theme");
+        let custom_id = context.alloc_encoded_node(PropertyId::Custom(custom), DUMMY_SP);
         let cloned = context.clone_encoded_node(custom_id);
         assert_ne!(custom_id, cloned);
-        assert_eq!(context.encoded_node(cloned), PropertyId::Custom("--theme"));
+        assert_eq!(context.encoded_node(cloned), PropertyId::Custom(custom));
 
-        let values = context.alloc_encoded_vec(
-            [
-                PropertyId::Width,
-                PropertyId::Unparsed,
-                PropertyId::Custom("x-widget"),
-            ]
-            .into_iter(),
-        );
+        let custom = context.add_str("x-widget");
+        let expected = [
+            PropertyId::Width,
+            PropertyId::Unparsed,
+            PropertyId::Custom(custom),
+        ];
+        let nodes = expected.map(|value| context.alloc_encoded_node(value, DUMMY_SP));
+        let values = context.alloc_encoded_vec(nodes.into_iter());
         assert_eq!(
             context
                 .encoded_vec_iter(values)
+                .map(|id| context.encoded_node(id))
                 .collect::<std::vec::Vec<_>>(),
-            [
-                PropertyId::Width,
-                PropertyId::Unparsed,
-                PropertyId::Custom("x-widget"),
-            ]
+            expected,
         );
+    }
+
+    #[test]
+    fn ordinary_property_names_compare_by_content_without_storage_growth() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let left = PropertyId::from_name("FuTuRe-Property", &mut context);
+        let right = PropertyId::from_name("FuTuRe-Property", &mut context);
+        assert_ne!(left, right);
+        assert_eq!(context.string_pool().len(), 0);
+        let left = context.alloc_encoded_node(left, DUMMY_SP);
+        let right = context.alloc_encoded_node(right, DUMMY_SP);
+        assert!(context.nodes_eq(left, right));
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for _ in 0..100 {
+            assert_eq!(context.encoded_node(left).name(&context), "FuTuRe-Property");
+            context.mutate_encoded_node(left, |_, _| {});
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
     }
 
     macro_rules! assert_webkit_round_trip {
         ($name:literal, $property:ident, $vendor_prefix:ty) => {{
             let prefixed_name = concat!("-webkit-", $name);
             assert!(matches!(
-                PropertyId::from_name(prefixed_name),
+                PropertyId::from_known_name(prefixed_name).unwrap(),
                 PropertyId::$property(prefix) if prefix == VendorPrefix::WEBKIT
             ));
         }};
@@ -952,12 +919,16 @@ mod tests {
         ) => {
             #[test]
             fn every_property_entry_has_one_generated_identity_and_strategy() {
+                let allocator = Allocator::new();
+                let mut context = AstContext::new_in(&allocator);
                 $(
-                    let property_id = PropertyId::from_name($name);
+                    let property_id = PropertyId::from_known_name($name).unwrap();
                     assert!(matches!(
                         property_id,
                         property_id_pattern!(PropertyId::$property $(, $vp)?)
                     ));
+                    let node = context.alloc_encoded_node(property_id, DUMMY_SP);
+                    assert_eq!(context.encoded_node(node), property_id);
                     assert!(property_id.known_id().is_some(), "{name} has no known ID", name = $name);
                     assert_eq!(
                         property_id.parser_strategy(),
@@ -970,7 +941,7 @@ mod tests {
                     assert_webkit_round_trip!($name, $property $(, $vp)?);
 
                     let uppercase_name = $name.to_ascii_uppercase();
-                    let uppercase_id = PropertyId::from_name(&uppercase_name);
+                    let uppercase_id = PropertyId::from_known_name(&uppercase_name).unwrap();
                     assert_eq!(property_id.known_id(), uppercase_id.known_id(), "{name}", name = $name);
                 )+
             }

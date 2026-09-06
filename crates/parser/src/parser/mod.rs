@@ -5,12 +5,12 @@
 use std::fmt;
 use std::ops::{BitOr, Range};
 
-use rocketcss_ast::{NodeCheckpoint, Token as ValueToken};
+use rocketcss_ast::NodeCheckpoint;
+pub use token::ValueToken;
 
 use crate::tokenizer::TokenizerState;
 use crate::{Compiler, SourceLocation, SourcePosition, Span, Token, TokenAndSpan, Tokenizer};
 
-mod ast;
 mod color;
 mod css_rule;
 mod length;
@@ -18,12 +18,13 @@ mod media;
 mod properties;
 mod rules;
 mod selector;
-pub(crate) mod stylesheet;
 mod token;
 mod traits;
 mod values;
 
 pub(crate) use color::parse_css_color;
+
+pub use rules::stylesheet::parse;
 
 pub use traits::{Error, Parse, ParserError, ParserOptions};
 
@@ -271,10 +272,8 @@ impl<'ast> DeclarationTokenReplay<'ast> {
             let entry = &self.entries[self.cursor];
             let entry_start = entry.lexical.span.start as usize;
             if entry_start == position {
-                let (lexical, value, end_state) = {
-                    let entry = &self.entries[self.cursor];
-                    (entry.lexical, entry.value.clone(), entry.end_state.clone())
-                };
+                let (lexical, value, end_state) =
+                    (entry.lexical, entry.value, entry.end_state.clone());
                 self.cursor += 1;
                 #[cfg(test)]
                 {
@@ -690,15 +689,13 @@ impl<'i> Compiler<'i> {
             return Ok(self.cursor.cached_value());
         }
 
-        let use_cache = self
+        if let Some(cached) = self
             .cursor
             .cached_token
             .as_ref()
-            .is_some_and(|cached| cached.lexical.span.start as usize == start.byte_index());
-
-        if use_cache {
-            let end_state = self.cursor.cached_token.as_ref().unwrap().end_state.clone();
-            self.cursor.tokenizer.reset(&end_state);
+            .filter(|cached| cached.lexical.span.start as usize == start.byte_index())
+        {
+            self.cursor.tokenizer.reset(&cached.end_state);
         } else {
             let lexical = self
                 .cursor
@@ -725,7 +722,7 @@ impl<'i> Compiler<'i> {
                     let cached = self.cursor.cached_token.as_ref().unwrap();
                     self.replay.record(DecodedTokenEntry {
                         lexical: cached.lexical,
-                        value: cached.value.clone(),
+                        value: cached.value,
                         end_state: cached.end_state.clone(),
                     });
                 }

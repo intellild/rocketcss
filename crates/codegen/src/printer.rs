@@ -365,6 +365,20 @@ pub trait ToCss<'ghost> {
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result;
 
+    /// Serializes a stored node, allowing overflow-bearing nodes to read fields
+    /// on demand. Inline nodes retain their native typed-value access.
+    #[inline]
+    fn to_css_node<'id, PrinterT: PrinterTrait>(
+        id: rocketcss_ast::NodeId<'id, Self>,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result
+    where
+        Self: Sized + rocketcss_ast::AstNodeStorage<'id>,
+    {
+        cx.ast_context().resolve_node(id).to_css(dest, cx)
+    }
+
     #[inline]
     fn to_css_string(
         &self,
@@ -456,7 +470,7 @@ where
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        cx.ast_context().resolve_node(*self).to_css(dest, cx)
+        T::to_css_node(*self, dest, cx)
     }
 }
 

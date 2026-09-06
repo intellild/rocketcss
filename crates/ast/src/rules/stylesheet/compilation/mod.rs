@@ -28,7 +28,7 @@ pub use storage::{
     AstNodeClone, AstNodeStorage, ExtraData, ExtraDataClone, ExtraDataCompact, NodeKind,
     NodePayload,
 };
-use storage::{ExtraDataStore, NodeData, StringData};
+use storage::{ExtraDataStore, NodeData};
 
 /// Stable identity of one rule in the [`RuleStore`]. The type parameter is the
 /// rule payload, so `RuleId<'ast, P>` can only index an arena storing `RuleRecord<P>`.
@@ -659,7 +659,7 @@ pub struct AstContext<
 > {
     allocator: &'ast Allocator,
     stylesheet: StyleSheet<'ast>,
-    license_comments: rocketcss_common::vec::Vec<'ast, &'ast str>,
+    license_comments: rocketcss_common::vec::Vec<'ast, rocketcss_common::AstStr<'ast>>,
     rules: RuleStore<'ast, R>,
     rule_spans: DenseStore<'ast, RuleRecord<'ast, R>, Span>,
     rule_lists: RuleListStore<'ast, R>,
@@ -680,7 +680,7 @@ pub struct AstContext<
     layer_context_ids: FxHashMap<LayerContextKey<'ast, R>, LayerContextId<'ast>>,
     nodes: NodeData<'ast>,
     extra: ExtraDataStore<'ast>,
-    strings: StringData<'ast>,
+    string_pool: rocketcss_common::StringPool<'ast>,
     first_rule_in_source: Option<RuleId<'ast, R>>,
     last_rule_in_source: Option<RuleId<'ast, R>>,
 }
@@ -693,8 +693,41 @@ impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
         Self::with_capacity_in(allocator, CompilationCapacity::default())
     }
 
-    /// Creates an empty compilation with capacity for the expected authored
-    /// AST shape.
+    /// Creates a compilation whose string ranges share an immutable root source.
+    pub fn with_source_in(
+        allocator: &'ast Allocator,
+        source: &'ast str,
+        capacity: CompilationCapacity,
+    ) -> Self {
+        let mut context = Self::with_capacity_in(allocator, capacity);
+        context.string_pool = rocketcss_common::StringPool::with_source_in(allocator, source);
+        context
+    }
+
+    #[inline]
+    pub fn string_pool(&self) -> &rocketcss_common::StringPool<'ast> {
+        &self.string_pool
+    }
+    #[inline]
+    pub fn string_pool_mut(&mut self) -> &mut rocketcss_common::StringPool<'ast> {
+        &mut self.string_pool
+    }
+    #[inline]
+    pub fn str<'range>(&self, value: impl Into<rocketcss_common::AstStr<'range>>) -> &str {
+        self.string_pool.get(value)
+    }
+    #[inline]
+    pub fn intern(&mut self, value: &str) -> rocketcss_common::Atom<'ast> {
+        self.string_pool.intern(value)
+    }
+
+    /// Stores ordinary text without interning it.
+    #[inline]
+    pub fn add_str(&mut self, value: &str) -> rocketcss_common::AstStr<'ast> {
+        self.string_pool.add(value)
+    }
+
+    /// Creates an empty compilation with capacity for the expected authored AST shape.
     pub fn with_capacity_in(allocator: &'ast Allocator, capacity: CompilationCapacity) -> Self {
         let mut rule_lists = RuleListStore::with_capacity_in(allocator, capacity.rule_lists.max(1));
         let root_rules = rule_lists.push(RuleList {
@@ -751,7 +784,7 @@ impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
             ),
             nodes: NodeData::new_in(allocator),
             extra: ExtraDataStore::new_in(allocator),
-            strings: StringData::new_in(allocator),
+            string_pool: rocketcss_common::StringPool::new_in(allocator),
             first_rule_in_source: None,
             last_rule_in_source: None,
         }
@@ -773,12 +806,12 @@ impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
     }
 
     #[inline]
-    pub fn license_comments(&self) -> &[&'ast str] {
+    pub fn license_comments(&self) -> &[rocketcss_common::AstStr<'ast>] {
         &self.license_comments
     }
 
     #[inline]
-    pub fn push_license_comment(&mut self, comment: &'ast str) {
+    pub fn push_license_comment(&mut self, comment: rocketcss_common::AstStr<'ast>) {
         self.license_comments.push(comment);
     }
 

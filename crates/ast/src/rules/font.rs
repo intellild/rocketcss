@@ -11,31 +11,13 @@ pub enum FontFaceProperty<'a> {
     Custom(NodeId<'a, CustomProperty<'a>>),
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Source<'a> {
     Url(NodeId<'a, UrlSource<'a>>),
     Local(NodeId<'a, FontFamily<'a>>),
 }
 
-impl<'ast> ExtraDataCompact<'ast> for Source<'ast> {
-    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
-        let (tag, id) = match self {
-            Self::Url(value) => (0, node_index(value)),
-            Self::Local(value) => (1, node_index(value)),
-        };
-        ExtraData::from_u64((id as u64) << 8 | tag)
-    }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        let encoded = data.as_u64();
-        let id = (encoded >> 8) as u32 as usize;
-        match encoded as u8 {
-            0 => Self::Url(context.encoded_node_id_at(id)),
-            1 => Self::Local(context.encoded_node_id_at(id)),
-            _ => panic!("invalid encoded font source"),
-        }
-    }
-}
+impl_inline_extra!(Source<'ast>);
 
 impl<'ast> ExtraDataClone<'ast> for Source<'ast> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
@@ -46,7 +28,7 @@ impl<'ast> ExtraDataClone<'ast> for Source<'ast> {
     }
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum FontFormat<'a> {
     Woff,
     Woff2,
@@ -55,47 +37,30 @@ pub enum FontFormat<'a> {
     EmbeddedOpentype,
     Collection,
     Svg,
-    String(&'a str),
+    String(AstStr<'a>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for FontFormat<'ast> {
+// SAFETY: this KIND always stores and reads native FontFormat values.
+unsafe impl<'ast> AstNodeStorage<'ast> for FontFormat<'ast> {
     const KIND: NodeKind = NodeKind::new(0x001f_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Woff,
-            1 => Self::Woff2,
-            2 => Self::Truetype,
-            3 => Self::Opentype,
-            4 => Self::EmbeddedOpentype,
-            5 => Self::Collection,
-            6 => Self::Svg,
-            7 => Self::String(context.resolve_string(read_u32(&bytes, 4) as u64)),
-            _ => panic!("invalid encoded FontFormat variant"),
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::String(a), Self::String(b)) => context.str(*a) == context.str(*b),
+            _ => self == other,
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        match self {
-            Self::Woff => bytes[0] = 0,
-            Self::Woff2 => bytes[0] = 1,
-            Self::Truetype => bytes[0] = 2,
-            Self::Opentype => bytes[0] = 3,
-            Self::EmbeddedOpentype => bytes[0] = 4,
-            Self::Collection => bytes[0] = 5,
-            Self::Svg => bytes[0] = 6,
-            Self::String(value) => {
-                bytes[0] = 7;
-                write_u32(&mut bytes, 4, context.store_string(value));
-            }
-        }
-        NodePayload::inline(&bytes)
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -105,7 +70,7 @@ impl<'ast> AstNodeClone<'ast> for FontFormat<'ast> {
     }
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum FontTechnology {
     FeaturesOpentype,
     FeaturesAat,
@@ -120,15 +85,7 @@ pub enum FontTechnology {
     Incremental,
 }
 
-impl ExtraDataCompact<'_> for FontTechnology {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        ExtraData::from_u64(encode_font_technology(self) as u64)
-    }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        decode_font_technology(data.as_u64() as u8)
-    }
-}
+impl_inline_extra!(FontTechnology);
 
 impl ExtraDataClone<'_> for FontTechnology {
     fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
@@ -136,43 +93,14 @@ impl ExtraDataClone<'_> for FontTechnology {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum FontFaceStyle<'a> {
     Normal,
     Italic,
     Oblique(NodeId<'a, Size2D<'a, Angle>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for FontFaceStyle<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001f_0002);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Normal,
-            1 => Self::Italic,
-            2 => Self::Oblique(read_node_id(&bytes, 4, context)),
-            _ => panic!("invalid encoded FontFaceStyle variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        match self {
-            Self::Normal => bytes[0] = 0,
-            Self::Italic => bytes[0] = 1,
-            Self::Oblique(value) => {
-                bytes[0] = 2;
-                write_u32(&mut bytes, 4, node_index(value));
-            }
-        }
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(FontFaceStyle<'ast>, 0x001f_0002);
 
 impl<'ast> AstNodeClone<'ast> for FontFaceStyle<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -191,43 +119,14 @@ pub enum FontPaletteValuesProperty<'a> {
     Custom(NodeId<'a, CustomProperty<'a>>),
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum BasePalette {
     Light,
     Dark,
     Integer(u16),
 }
 
-impl AstNodeStorage<'_> for BasePalette {
-    const KIND: NodeKind = NodeKind::new(0x001f_0003);
-
-    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Light,
-            1 => Self::Dark,
-            2 => Self::Integer(u16::from_le_bytes([bytes[2], bytes[3]])),
-            _ => panic!("invalid encoded BasePalette variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        match self {
-            Self::Light => bytes[0] = 0,
-            Self::Dark => bytes[0] = 1,
-            Self::Integer(value) => {
-                bytes[0] = 2;
-                bytes[2..4].copy_from_slice(&value.to_le_bytes());
-            }
-        }
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(BasePalette, 0x001f_0003);
 
 impl AstNodeClone<'_> for BasePalette {
     fn clone_in_context(self, _context: &mut AstContext<'_>) -> Self {
@@ -257,33 +156,99 @@ pub struct Font<'a> {
     pub weight: NodeId<'a, FontWeight>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for Font<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001f_0004);
+#[derive(Clone, Copy)]
+struct FontHeader<'ast> {
+    line_height: NodeId<'ast, LineHeight<'ast>>,
+    size: NodeId<'ast, FontSize<'ast>>,
+    extra: u32,
+    variant_caps: FontVariantCaps,
+}
+pub use font_access::FontRead;
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let family = context.extra_slot(payload.extra_start()).as_u64();
-        let ids = context.extra_slot(payload.extra_start() + 1).as_u64();
-        let stretch = context.extra_slot(payload.extra_start() + 2).bytes();
-        let (style, weight) = unpack_ids(ids);
-        Self {
-            family: context
-                .encoded_vec_range(family as u32 as usize, (family >> 32) as u32 as usize),
-            line_height: read_node_id(&bytes, 4, context),
-            size: read_node_id(&bytes, 8, context),
-            stretch: decode_font_stretch(&stretch),
-            style: context.encoded_node_id_at(style),
-            variant_caps: decode_font_variant_caps(bytes[0]),
-            weight: context.encoded_node_id_at(weight),
+// Transient read view, excluded from persistent AST visitor generation.
+mod font_access {
+    use super::*;
+
+    pub struct FontRead<'context, 'storage, 'id> {
+        context: &'context AstContext<'storage>,
+        header: FontHeader<'id>,
+    }
+
+    impl<'id> FontRead<'_, '_, 'id> {
+        pub fn style_and_weight(&self) -> (NodeId<'id, FontStyle>, NodeId<'id, FontWeight>) {
+            // SAFETY: slot one stores this native handle pair.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize + 1)
+                    .read_value()
+            }
+        }
+        pub fn family(&self) -> Vec<'id, NodeId<'id, FontFamily<'id>>> {
+            // SAFETY: slot zero stores the family range.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            }
+        }
+        pub fn stretch(&self) -> FontStretch {
+            // SAFETY: slot two stores the native FontStretch enum.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize + 2)
+                    .read_value()
+            }
+        }
+        pub fn variant_caps(&self) -> FontVariantCaps {
+            self.header.variant_caps
+        }
+        pub fn size(&self) -> NodeId<'id, FontSize<'id>> {
+            self.header.size
+        }
+        pub fn line_height(&self) -> NodeId<'id, LineHeight<'id>> {
+            self.header.line_height
         }
     }
 
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_font(self, None, context)
+    impl<'storage> AstContext<'storage> {
+        pub fn font<'id>(&self, id: NodeId<'id, Font<'id>>) -> FontRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload checks the owning Font kind before reading its header.
+            FontRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
     }
+}
 
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_font(self, Some(current.extra_start()), context)
+// SAFETY: this kind stores FontHeader plus a family range, handle pair and
+// FontStretch in three separately typed slots.
+unsafe impl<'ast> AstNodeStorage<'ast> for Font<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x001f_0004);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: FontHeader<'ast> = unsafe { payload.read_value() };
+        let extra = header.extra as usize;
+        let (style, weight) = unsafe { context.extra_slot(extra + 1).read_value() };
+        Self {
+            family: unsafe { context.extra_slot(extra).read_value() },
+            line_height: header.line_height,
+            size: header.size,
+            stretch: unsafe { context.extra_slot(extra + 2).read_value() },
+            style,
+            variant_caps: header.variant_caps,
+            weight,
+        }
+    }
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        store_font(self, None, context)
+    }
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: FontHeader<'ast> = unsafe { current.read_value() };
+        store_font(self, Some(header.extra as usize), context)
     }
 }
 
@@ -301,64 +266,41 @@ impl<'ast> AstNodeClone<'ast> for Font<'ast> {
     }
 }
 
-fn encode_font<'ast>(
+fn store_font<'ast>(
     value: Font<'ast>,
-    existing_extra: Option<usize>,
+    existing: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    bytes[0] = encode_font_variant_caps(value.variant_caps);
-    write_u32(&mut bytes, 4, node_index(value.line_height));
-    write_u32(&mut bytes, 8, node_index(value.size));
     let slots = [
-        ExtraData::from_u64(pack_ids(
-            value.family.start_index(),
-            value.family.end_index(),
-        )),
-        ExtraData::from_u64(pack_ids(value.style.index(), value.weight.index())),
-        ExtraData::from_bytes(&encode_font_stretch(value.stretch)),
+        ExtraData::from_value(value.family),
+        ExtraData::from_value((value.style, value.weight)),
+        ExtraData::from_value(value.stretch),
     ];
-    let extra_start = match existing_extra {
-        Some(extra_start) => {
+    let extra = match existing {
+        Some(index) => {
             for (offset, slot) in slots.into_iter().enumerate() {
-                context.set_extra_slot(extra_start + offset, slot);
+                context.set_extra_slot(index + offset, slot);
             }
-            extra_start
+            index
         }
         None => context.alloc_extra_slots(slots),
     };
-    NodePayload::with_extra(&bytes, extra_start)
+    NodePayload::from_value(FontHeader {
+        line_height: value.line_height,
+        size: value.size,
+        variant_caps: value.variant_caps,
+        extra: u32::try_from(extra).expect("extra index exceeds u32"),
+    })
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct UrlSource<'a> {
     pub format: Option<NodeId<'a, FontFormat<'a>>>,
     pub tech: Vec<'a, FontTechnology>,
     pub url: NodeId<'a, Url<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for UrlSource<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001f_0005);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let tech = context.extra_slot(payload.extra_start()).as_u64();
-        Self {
-            format: (read_u32(&bytes, 4) != u32::MAX)
-                .then(|| context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-            tech: context.encoded_vec_range(tech as u32 as usize, (tech >> 32) as u32 as usize),
-            url: read_node_id(&bytes, 8, context),
-        }
-    }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_url_source(self, None, context)
-    }
-
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_url_source(self, Some(current.extra_start()), context)
-    }
-}
+impl_inline_node!(UrlSource<'ast>, 0x001f_0005);
 
 impl<'ast> AstNodeClone<'ast> for UrlSource<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -370,43 +312,13 @@ impl<'ast> AstNodeClone<'ast> for UrlSource<'ast> {
     }
 }
 
-fn encode_url_source<'ast>(
-    value: UrlSource<'ast>,
-    existing_extra: Option<usize>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    write_u32(&mut bytes, 4, value.format.map_or(u32::MAX, node_index));
-    write_u32(&mut bytes, 8, node_index(value.url));
-    let slot = ExtraData::from_u64(pack_ids(value.tech.start_index(), value.tech.end_index()));
-    let extra_start = match existing_extra {
-        Some(extra_start) => {
-            context.set_extra_slot(extra_start, slot);
-            extra_start
-        }
-        None => context.alloc_extra_slots([slot]),
-    };
-    NodePayload::with_extra(&bytes, extra_start)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct UnicodeRange {
     pub end: u32,
     pub start: u32,
 }
 
-impl ExtraDataCompact<'_> for UnicodeRange {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        ExtraData::from_u64((self.end as u64) << 32 | self.start as u64)
-    }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        Self {
-            end: (data.as_u64() >> 32) as u32,
-            start: data.as_u64() as u32,
-        }
-    }
-}
+impl_inline_extra!(UnicodeRange);
 
 impl ExtraDataClone<'_> for UnicodeRange {
     fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
@@ -414,24 +326,13 @@ impl ExtraDataClone<'_> for UnicodeRange {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct OverrideColors<'a> {
     pub color: NodeId<'a, CssColor<'a>>,
     pub index: u16,
 }
 
-impl<'ast> ExtraDataCompact<'ast> for OverrideColors<'ast> {
-    fn encode_extra(self, _context: &mut AstContext<'ast>) -> ExtraData {
-        ExtraData::from_u64((node_index(self.color) as u64) << 16 | self.index as u64)
-    }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        Self {
-            color: context.encoded_node_id_at((data.as_u64() >> 16) as u32 as usize),
-            index: data.as_u64() as u16,
-        }
-    }
-}
+impl_inline_extra!(OverrideColors<'ast>);
 
 impl<'ast> ExtraDataClone<'ast> for OverrideColors<'ast> {
     fn clone_extra(self, context: &mut AstContext<'ast>) -> Self {
@@ -444,20 +345,20 @@ impl<'ast> ExtraDataClone<'ast> for OverrideColors<'ast> {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct FontFeatureDeclaration<'a> {
-    pub name: &'a str,
+    pub name: AstStr<'a>,
     pub values: Vec<'a, i32>,
 }
 
-#[derive(Debug, PartialEq, Visit)]
-pub struct FamilyName<'a>(pub &'a str);
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
+pub struct FamilyName<'a>(pub AstStr<'a>);
 
-impl<'ast> ExtraDataCompact<'ast> for FamilyName<'ast> {
-    fn encode_extra(self, context: &mut AstContext<'ast>) -> ExtraData {
-        ExtraData::from_u64(context.store_string(self.0) as u64)
+// SAFETY: FamilyName slots preserve the native eight-byte range value.
+unsafe impl<'ast> ExtraDataCompact<'ast> for FamilyName<'ast> {
+    fn encode_extra(self) -> ExtraData {
+        ExtraData::from_value(self)
     }
-
-    fn decode_extra(data: ExtraData, context: &AstContext<'ast>) -> Self {
-        Self(context.resolve_string(data.as_u64()))
+    unsafe fn decode_extra(data: ExtraData) -> Self {
+        unsafe { data.read_value() }
     }
 }
 
@@ -467,134 +368,240 @@ impl<'ast> ExtraDataClone<'ast> for FamilyName<'ast> {
     }
 }
 
-fn node_index<T>(id: NodeId<'_, T>) -> u32 {
-    u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
-}
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+    use rocketcss_common::Allocator;
 
-fn read_node_id<'ast, T>(
-    bytes: &[u8],
-    offset: usize,
-    context: &AstContext<'ast>,
-) -> NodeId<'ast, T> {
-    context.encoded_node_id_at(read_u32(bytes, offset) as usize)
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("u32 field"))
-}
-
-fn pack_ids(first: usize, second: usize) -> u64 {
-    let first = u32::try_from(first).expect("AST compact index exceeds four bytes");
-    let second = u32::try_from(second).expect("AST compact index exceeds four bytes");
-    (second as u64) << 32 | first as u64
-}
-
-fn unpack_ids(value: u64) -> (usize, usize) {
-    (value as u32 as usize, (value >> 32) as u32 as usize)
-}
-
-fn encode_font_stretch(value: FontStretch) -> [u8; ExtraData::BYTES] {
-    let mut bytes = [0; ExtraData::BYTES];
-    match value {
-        FontStretch::Keyword(value) => {
-            bytes[0] = 0;
-            bytes[1] = match value {
-                FontStretchKeyword::Normal => 0,
-                FontStretchKeyword::UltraCondensed => 1,
-                FontStretchKeyword::ExtraCondensed => 2,
-                FontStretchKeyword::Condensed => 3,
-                FontStretchKeyword::SemiCondensed => 4,
-                FontStretchKeyword::SemiExpanded => 5,
-                FontStretchKeyword::Expanded => 6,
-                FontStretchKeyword::ExtraExpanded => 7,
-                FontStretchKeyword::UltraExpanded => 8,
+    #[test]
+    fn native_font_storage_preserves_float_bits_and_reuses_overflow() {
+        let allocator = Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let family_node = ast.alloc_node(FontFamily::Serif, DUMMY_SP);
+        let family = ast.alloc_encoded_vec([family_node].into_iter());
+        let line_height = ast.alloc_node(LineHeight::Normal, DUMMY_SP);
+        let size = ast.alloc_node(FontSize::Absolute(AbsoluteFontSize::Medium), DUMMY_SP);
+        let style = ast.alloc_node(FontStyle::Normal, DUMMY_SP);
+        let weight = ast.alloc_node(FontWeight::Absolute(AbsoluteFontWeight::Normal), DUMMY_SP);
+        let before = ast.encoded_extra_len();
+        let font = ast.alloc_node(
+            Font {
+                family,
+                line_height,
+                size,
+                stretch: FontStretch::Keyword(FontStretchKeyword::Normal),
+                style,
+                variant_caps: FontVariantCaps::Normal,
+                weight,
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(ast.encoded_extra_len(), before + 3);
+        let checkpoint = ast.node_checkpoint();
+        for bits in [0x8000_0000, 0x7f80_0000, 0xff80_0000, 0x7fc0_1234] {
+            let number = f32::from_bits(bits);
+            ast.mutate_node(font, |value, _| {
+                value.stretch = FontStretch::Percentage(number);
+                value.variant_caps = FontVariantCaps::AllSmallCaps;
+            });
+            ast.mutate_node(weight, |value, _| {
+                *value = FontWeight::Absolute(AbsoluteFontWeight::Weight(number))
+            });
+            ast.mutate_node(style, |value, _| {
+                *value = FontStyle::Oblique(Angle::Turn(number))
+            });
+            ast.mutate_node(line_height, |value, _| *value = LineHeight::Number(number));
+            let actual = ast.resolve_node(font);
+            assert_eq!(
+                (
+                    actual.family,
+                    actual.line_height,
+                    actual.size,
+                    actual.style,
+                    actual.weight
+                ),
+                (family, line_height, size, style, weight)
+            );
+            assert_eq!(actual.variant_caps, FontVariantCaps::AllSmallCaps);
+            let view = ast.font(font);
+            assert_eq!(view.family(), family);
+            assert_eq!(view.style_and_weight(), (style, weight));
+            assert_eq!(view.size(), size);
+            assert_eq!(view.line_height(), line_height);
+            assert_eq!(view.variant_caps(), FontVariantCaps::AllSmallCaps);
+            let FontStretch::Percentage(stretch) = view.stretch() else {
+                panic!("expected percentage view")
             };
+            assert_eq!(stretch.to_bits(), bits);
+            let FontStretch::Percentage(value) = actual.stretch else {
+                panic!("expected percentage")
+            };
+            assert_eq!(value.to_bits(), bits);
+            let FontWeight::Absolute(AbsoluteFontWeight::Weight(value)) = ast.resolve_node(weight)
+            else {
+                panic!("expected numeric weight")
+            };
+            assert_eq!(value.to_bits(), bits);
+            let FontStyle::Oblique(Angle::Turn(value)) = ast.resolve_node(style) else {
+                panic!("expected turns")
+            };
+            assert_eq!(value.to_bits(), bits);
+            let LineHeight::Number(value) = ast.resolve_node(line_height) else {
+                panic!("expected number")
+            };
+            assert_eq!(value.to_bits(), bits);
         }
-        FontStretch::Percentage(value) => {
-            bytes[0] = 1;
-            write_u32(&mut bytes, 4, value.to_bits());
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+        for caps in [
+            FontVariantCaps::Normal,
+            FontVariantCaps::SmallCaps,
+            FontVariantCaps::AllSmallCaps,
+            FontVariantCaps::PetiteCaps,
+            FontVariantCaps::AllPetiteCaps,
+            FontVariantCaps::Unicase,
+            FontVariantCaps::TitlingCaps,
+        ] {
+            for keyword in [
+                FontStretchKeyword::Normal,
+                FontStretchKeyword::UltraCondensed,
+                FontStretchKeyword::ExtraCondensed,
+                FontStretchKeyword::Condensed,
+                FontStretchKeyword::SemiCondensed,
+                FontStretchKeyword::SemiExpanded,
+                FontStretchKeyword::Expanded,
+                FontStretchKeyword::ExtraExpanded,
+                FontStretchKeyword::UltraExpanded,
+            ] {
+                ast.mutate_node(font, |value, _| {
+                    value.variant_caps = caps;
+                    value.stretch = FontStretch::Keyword(keyword);
+                });
+                let actual = ast.resolve_node(font);
+                assert_eq!(actual.variant_caps, caps);
+                assert_eq!(actual.stretch, FontStretch::Keyword(keyword));
+                let view = ast.font(font);
+                assert_eq!(view.variant_caps(), caps);
+                assert_eq!(view.stretch(), FontStretch::Keyword(keyword));
+                assert_eq!(view.family(), family);
+                assert_eq!(view.style_and_weight(), (style, weight));
+                assert_eq!(ast.node_checkpoint(), checkpoint);
+            }
         }
+        let clone = ast.clone_node(font);
+        let cloned_family = ast.resolve_node(clone).family;
+        let cloned_name = ast.encoded_vec_get(cloned_family, 0).unwrap();
+        assert_ne!(cloned_name, family_node);
+        ast.mutate_node(cloned_name, |value, _| *value = FontFamily::Monospace);
+        assert_eq!(ast.resolve_node(family_node), FontFamily::Serif);
     }
-    bytes
-}
 
-fn decode_font_stretch(bytes: &[u8]) -> FontStretch {
-    match bytes[0] {
-        0 => FontStretch::Keyword(match bytes[1] {
-            0 => FontStretchKeyword::Normal,
-            1 => FontStretchKeyword::UltraCondensed,
-            2 => FontStretchKeyword::ExtraCondensed,
-            3 => FontStretchKeyword::Condensed,
-            4 => FontStretchKeyword::SemiCondensed,
-            5 => FontStretchKeyword::SemiExpanded,
-            6 => FontStretchKeyword::Expanded,
-            7 => FontStretchKeyword::ExtraExpanded,
-            8 => FontStretchKeyword::UltraExpanded,
-            _ => panic!("invalid encoded FontStretchKeyword"),
-        }),
-        1 => FontStretch::Percentage(f32::from_bits(read_u32(bytes, 4))),
-        _ => panic!("invalid encoded FontStretch"),
+    #[test]
+    fn native_font_source_and_palette_slots_preserve_boundaries() {
+        let allocator = Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let format = ast.alloc_node(FontFormat::Woff2, DUMMY_SP);
+        let text = ast.add_str("font.woff2");
+        let url = ast.alloc_node(Url { url: text }, DUMMY_SP);
+        let tech = ast.alloc_encoded_vec(
+            [
+                FontTechnology::FeaturesOpentype,
+                FontTechnology::Incremental,
+            ]
+            .into_iter(),
+        );
+        let before = ast.encoded_extra_len();
+        let source = ast.alloc_node(
+            UrlSource {
+                format: None,
+                tech,
+                url,
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(ast.encoded_extra_len(), before);
+        let checkpoint = ast.node_checkpoint();
+        for format in [Some(format), None] {
+            let expected = UrlSource { format, tech, url };
+            ast.mutate_node(source, |value, _| *value = expected);
+            assert_eq!(ast.resolve_node(source), expected);
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+        let sources = ast.alloc_encoded_vec([Source::Url(source)].into_iter());
+        assert_eq!(ast.encoded_vec_get(sources, 0), Some(Source::Url(source)));
+        let ranges = ast.alloc_encoded_vec(
+            [
+                UnicodeRange {
+                    start: 0,
+                    end: 0x10ffff,
+                },
+                UnicodeRange {
+                    start: u32::MAX,
+                    end: u32::MAX,
+                },
+            ]
+            .into_iter(),
+        );
+        assert_eq!(
+            ast.encoded_vec_get(ranges, 0),
+            Some(UnicodeRange {
+                start: 0,
+                end: 0x10ffff
+            })
+        );
+        assert_eq!(
+            ast.encoded_vec_get(ranges, 1),
+            Some(UnicodeRange {
+                start: u32::MAX,
+                end: u32::MAX
+            })
+        );
+        let color = ast.alloc_node(CssColor::CurrentColor, DUMMY_SP);
+        let overrides = ast.alloc_encoded_vec(
+            [OverrideColors {
+                color,
+                index: u16::MAX,
+            }]
+            .into_iter(),
+        );
+        assert_eq!(
+            ast.encoded_vec_get(overrides, 0),
+            Some(OverrideColors {
+                color,
+                index: u16::MAX
+            })
+        );
     }
-}
 
-fn encode_font_variant_caps(value: FontVariantCaps) -> u8 {
-    match value {
-        FontVariantCaps::Normal => 0,
-        FontVariantCaps::SmallCaps => 1,
-        FontVariantCaps::AllSmallCaps => 2,
-        FontVariantCaps::PetiteCaps => 3,
-        FontVariantCaps::AllPetiteCaps => 4,
-        FontVariantCaps::Unicase => 5,
-        FontVariantCaps::TitlingCaps => 6,
-    }
-}
-
-fn decode_font_variant_caps(value: u8) -> FontVariantCaps {
-    match value {
-        0 => FontVariantCaps::Normal,
-        1 => FontVariantCaps::SmallCaps,
-        2 => FontVariantCaps::AllSmallCaps,
-        3 => FontVariantCaps::PetiteCaps,
-        4 => FontVariantCaps::AllPetiteCaps,
-        5 => FontVariantCaps::Unicase,
-        6 => FontVariantCaps::TitlingCaps,
-        _ => panic!("invalid encoded FontVariantCaps"),
-    }
-}
-
-fn encode_font_technology(value: FontTechnology) -> u8 {
-    match value {
-        FontTechnology::FeaturesOpentype => 0,
-        FontTechnology::FeaturesAat => 1,
-        FontTechnology::FeaturesGraphite => 2,
-        FontTechnology::ColorColrv0 => 3,
-        FontTechnology::ColorColrv1 => 4,
-        FontTechnology::ColorSvg => 5,
-        FontTechnology::ColorSbix => 6,
-        FontTechnology::ColorCbdt => 7,
-        FontTechnology::Variations => 8,
-        FontTechnology::Palettes => 9,
-        FontTechnology::Incremental => 10,
-    }
-}
-
-fn decode_font_technology(value: u8) -> FontTechnology {
-    match value {
-        0 => FontTechnology::FeaturesOpentype,
-        1 => FontTechnology::FeaturesAat,
-        2 => FontTechnology::FeaturesGraphite,
-        3 => FontTechnology::ColorColrv0,
-        4 => FontTechnology::ColorColrv1,
-        5 => FontTechnology::ColorSvg,
-        6 => FontTechnology::ColorSbix,
-        7 => FontTechnology::ColorCbdt,
-        8 => FontTechnology::Variations,
-        9 => FontTechnology::Palettes,
-        10 => FontTechnology::Incremental,
-        _ => panic!("invalid encoded FontTechnology"),
+    #[test]
+    fn font_format_and_family_slots_keep_ranges_without_reference_rows() {
+        assert_eq!(std::mem::size_of::<FontFormat<'_>>(), 12);
+        assert_eq!(std::mem::size_of::<FamilyName<'_>>(), 8);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let first = context.add_str("woff3");
+        let second = context.add_str("woff3");
+        let format = context.alloc_encoded_node(FontFormat::String(first), DUMMY_SP);
+        let equal = context.alloc_encoded_node(FontFormat::String(second), DUMMY_SP);
+        assert!(context.nodes_eq(format, equal));
+        let names = context.alloc_encoded_vec([FamilyName(first), FamilyName(second)].into_iter());
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for value in [
+            FontFormat::Woff,
+            FontFormat::Woff2,
+            FontFormat::Truetype,
+            FontFormat::Opentype,
+            FontFormat::EmbeddedOpentype,
+            FontFormat::Collection,
+            FontFormat::Svg,
+            FontFormat::String(second),
+        ] {
+            context.mutate_encoded_node(format, |node, _| *node = value);
+            assert_eq!(context.encoded_node(format), value);
+            assert_eq!(context.encoded_vec_get(names, 0), Some(FamilyName(first)));
+            assert_eq!(context.encoded_vec_get(names, 1), Some(FamilyName(second)));
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
     }
 }

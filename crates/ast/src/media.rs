@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum MediaCondition<'a> {
     Feature(NodeId<'a, MediaFeature<'a>>),
     Not(NodeId<'a, MediaCondition<'a>>),
@@ -11,7 +11,7 @@ pub enum MediaCondition<'a> {
     Unknown(Vec<'a, TokenOrValue<'a>>),
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum QueryFeature<'a, FeatureId> {
     Plain {
         name: MediaFeatureName<'a, FeatureId>,
@@ -34,17 +34,17 @@ pub enum QueryFeature<'a, FeatureId> {
     },
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum MediaFeatureName<'a, FeatureId> {
     Standard(FeatureId),
-    Custom(&'a str),
-    Unknown(&'a str),
+    Custom(AstStr<'a>),
+    Unknown(AstStr<'a>),
 }
 
 pub type MediaFeature<'a> = QueryFeature<'a, MediaFeatureId>;
 
 #[repr(u8)]
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum MediaFeatureId {
     Width,
     Height,
@@ -89,7 +89,7 @@ pub enum MediaFeatureId {
     MozDevicePixelRatio,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum MediaFeatureValue<'a> {
     Length(NodeId<'a, Length<'a>>),
     Number(f32),
@@ -97,11 +97,11 @@ pub enum MediaFeatureValue<'a> {
     Boolean(bool),
     Resolution(Resolution),
     Ratio(Ratio),
-    Ident(&'a str),
+    Ident(AstStr<'a>),
     Env(NodeId<'a, EnvironmentVariable<'a>>),
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum MediaFeatureComparison {
     Equal,
     GreaterThan,
@@ -110,68 +110,40 @@ pub enum MediaFeatureComparison {
     LessThanEqual,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Operator {
     And,
     Or,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum MediaType<'a> {
     All,
     Print,
     Screen,
-    Custom(&'a str),
+    Custom(AstStr<'a>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Qualifier {
     Only,
     Not,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum SupportsCondition<'a> {
     Not(NodeId<'a, SupportsCondition<'a>>),
     And(Vec<'a, NodeId<'a, SupportsCondition<'a>>>),
     Or(Vec<'a, NodeId<'a, SupportsCondition<'a>>>),
     Declaration {
         property_id: NodeId<'a, PropertyId<'a>>,
-        value: &'a str,
+        value: AstStr<'a>,
     },
-    Selector(&'a str),
-    Unknown(&'a str),
+    Selector(AstStr<'a>),
+    Unknown(AstStr<'a>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for MediaCondition<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001a_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Feature(read_node_id(&bytes, context)),
-            1 => Self::Not(read_node_id(&bytes, context)),
-            2 => Self::Operation {
-                conditions: read_range(&bytes, context),
-                operator: decode_operator(bytes[1]),
-            },
-            3 => Self::Unknown(read_range(&bytes, context)),
-            _ => panic!("invalid encoded MediaCondition variant"),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_media_condition(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_media_condition(self)
-    }
-}
+impl_inline_node!(MediaCondition<'ast>, 0x001a_0001);
 
 impl<'ast> AstNodeClone<'ast> for MediaCondition<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -190,122 +162,447 @@ impl<'ast> AstNodeClone<'ast> for MediaCondition<'ast> {
     }
 }
 
-fn encode_media_condition(value: MediaCondition<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        MediaCondition::Feature(value) => write_node_id(&mut bytes, 0, value),
-        MediaCondition::Not(value) => write_node_id(&mut bytes, 1, value),
-        MediaCondition::Operation {
-            conditions,
-            operator,
-        } => {
-            write_range(&mut bytes, 2, conditions);
-            bytes[1] = encode_operator(operator);
-        }
-        MediaCondition::Unknown(values) => write_range(&mut bytes, 3, values),
-    }
-    NodePayload::inline(&bytes)
-}
-
-pub(crate) trait QueryFeatureIdCodec: Sized {
+pub trait QueryFeatureId: Copy + PartialEq + feature_access::Sealed {
     const KIND: NodeKind;
-
-    fn encode(self) -> u8;
-
-    fn decode(value: u8) -> Self;
 }
-
-impl QueryFeatureIdCodec for MediaFeatureId {
+impl QueryFeatureId for MediaFeatureId {
     const KIND: NodeKind = NodeKind::new(0x001a_0002);
+}
 
-    fn encode(self) -> u8 {
-        self as u8
+// Flatten the name and predicate tags to keep ordinary queries inline. Only
+// interval queries with a string name exceed the payload and spill that range.
+#[repr(u8)]
+#[derive(Clone, Copy)]
+enum QueryFeatureSlot<'a, F> {
+    StandardPlain {
+        name: F,
+        value: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+    StandardBoolean {
+        name: F,
+    },
+    StandardRange {
+        operator: MediaFeatureComparison,
+        name: F,
+        value: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+    StandardInterval {
+        start_operator: MediaFeatureComparison,
+        end_operator: MediaFeatureComparison,
+        name: F,
+        start: NodeId<'a, MediaFeatureValue<'a>>,
+        end: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+    CustomPlain {
+        name: AstStr<'a>,
+        value: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+    CustomBoolean {
+        name: AstStr<'a>,
+    },
+    CustomRange {
+        operator: MediaFeatureComparison,
+        name: AstStr<'a>,
+        value: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+    CustomInterval {
+        start_operator: MediaFeatureComparison,
+        end_operator: MediaFeatureComparison,
+        extra: u32,
+        start: NodeId<'a, MediaFeatureValue<'a>>,
+        end: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+    UnknownPlain {
+        name: AstStr<'a>,
+        value: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+    UnknownBoolean {
+        name: AstStr<'a>,
+    },
+    UnknownRange {
+        operator: MediaFeatureComparison,
+        name: AstStr<'a>,
+        value: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+    UnknownInterval {
+        start_operator: MediaFeatureComparison,
+        end_operator: MediaFeatureComparison,
+        extra: u32,
+        start: NodeId<'a, MediaFeatureValue<'a>>,
+        end: NodeId<'a, MediaFeatureValue<'a>>,
+    },
+}
+
+pub use feature_access::{QueryFeaturePredicate, QueryFeatureRead};
+
+// These borrowed field views are not persistent AST or visitor targets.
+mod feature_access {
+    use super::*;
+
+    pub trait Sealed {}
+    impl Sealed for MediaFeatureId {}
+    impl Sealed for ContainerSizeFeatureId {}
+    impl Sealed for ScrollStateFeatureId {}
+
+    pub enum QueryFeaturePredicate<'id> {
+        Boolean,
+        Plain(NodeId<'id, MediaFeatureValue<'id>>),
+        Range {
+            operator: MediaFeatureComparison,
+            value: NodeId<'id, MediaFeatureValue<'id>>,
+        },
+        Interval {
+            start: NodeId<'id, MediaFeatureValue<'id>>,
+            start_operator: MediaFeatureComparison,
+            end: NodeId<'id, MediaFeatureValue<'id>>,
+            end_operator: MediaFeatureComparison,
+        },
     }
 
-    fn decode(value: u8) -> Self {
-        match value {
-            0 => Self::Width,
-            1 => Self::Height,
-            2 => Self::AspectRatio,
-            3 => Self::Orientation,
-            4 => Self::OverflowBlock,
-            5 => Self::OverflowInline,
-            6 => Self::HorizontalViewportSegments,
-            7 => Self::VerticalViewportSegments,
-            8 => Self::DisplayMode,
-            9 => Self::Resolution,
-            10 => Self::Scan,
-            11 => Self::Grid,
-            12 => Self::Update,
-            13 => Self::EnvironmentBlending,
-            14 => Self::Color,
-            15 => Self::ColorIndex,
-            16 => Self::Monochrome,
-            17 => Self::ColorGamut,
-            18 => Self::DynamicRange,
-            19 => Self::InvertedColors,
-            20 => Self::Pointer,
-            21 => Self::Hover,
-            22 => Self::AnyPointer,
-            23 => Self::AnyHover,
-            24 => Self::NavControls,
-            25 => Self::VideoColorGamut,
-            26 => Self::VideoDynamicRange,
-            27 => Self::Scripting,
-            28 => Self::PrefersReducedMotion,
-            29 => Self::PrefersReducedTransparency,
-            30 => Self::PrefersContrast,
-            31 => Self::ForcedColors,
-            32 => Self::PrefersColorScheme,
-            33 => Self::PrefersReducedData,
-            34 => Self::DeviceWidth,
-            35 => Self::DeviceHeight,
-            36 => Self::DeviceAspectRatio,
-            37 => Self::WebkitDevicePixelRatio,
-            38 => Self::MozDevicePixelRatio,
-            _ => panic!("invalid encoded MediaFeatureId"),
+    pub struct QueryFeatureRead<'context, 'storage, 'id, F> {
+        context: &'context AstContext<'storage>,
+        slot: QueryFeatureSlot<'id, F>,
+    }
+
+    impl<'id, F: QueryFeatureId> QueryFeatureRead<'_, '_, 'id, F> {
+        pub fn name(&self) -> MediaFeatureName<'id, F> {
+            use QueryFeatureSlot as S;
+            match self.slot {
+                S::StandardPlain { name, .. }
+                | S::StandardBoolean { name }
+                | S::StandardRange { name, .. }
+                | S::StandardInterval { name, .. } => MediaFeatureName::Standard(name),
+                S::CustomPlain { name, .. }
+                | S::CustomBoolean { name }
+                | S::CustomRange { name, .. } => MediaFeatureName::Custom(name),
+                S::UnknownPlain { name, .. }
+                | S::UnknownBoolean { name }
+                | S::UnknownRange { name, .. } => MediaFeatureName::Unknown(name),
+                S::CustomInterval { extra, .. } => {
+                    // SAFETY: this interval variant owns one AstStr overflow slot.
+                    MediaFeatureName::Custom(unsafe {
+                        self.context.extra_slot(extra as usize).read_value()
+                    })
+                }
+                S::UnknownInterval { extra, .. } => {
+                    // SAFETY: this interval variant owns one AstStr overflow slot.
+                    MediaFeatureName::Unknown(unsafe {
+                        self.context.extra_slot(extra as usize).read_value()
+                    })
+                }
+            }
+        }
+
+        pub fn predicate(&self) -> QueryFeaturePredicate<'id> {
+            use QueryFeatureSlot as S;
+            match self.slot {
+                S::StandardBoolean { .. } | S::CustomBoolean { .. } | S::UnknownBoolean { .. } => {
+                    QueryFeaturePredicate::Boolean
+                }
+                S::StandardPlain { value, .. }
+                | S::CustomPlain { value, .. }
+                | S::UnknownPlain { value, .. } => QueryFeaturePredicate::Plain(value),
+                S::StandardRange {
+                    operator, value, ..
+                }
+                | S::CustomRange {
+                    operator, value, ..
+                }
+                | S::UnknownRange {
+                    operator, value, ..
+                } => QueryFeaturePredicate::Range { operator, value },
+                S::StandardInterval {
+                    start,
+                    start_operator,
+                    end,
+                    end_operator,
+                    ..
+                }
+                | S::CustomInterval {
+                    start,
+                    start_operator,
+                    end,
+                    end_operator,
+                    ..
+                }
+                | S::UnknownInterval {
+                    start,
+                    start_operator,
+                    end,
+                    end_operator,
+                    ..
+                } => QueryFeaturePredicate::Interval {
+                    start,
+                    start_operator,
+                    end,
+                    end_operator,
+                },
+            }
+        }
+    }
+
+    impl<'storage> AstContext<'storage> {
+        pub fn query_feature<'id, F: QueryFeatureId>(
+            &self,
+            id: NodeId<'id, QueryFeature<'id, F>>,
+        ) -> QueryFeatureRead<'_, 'storage, 'id, F> {
+            // SAFETY: the sealed feature ID selects the checked kind and native slot type.
+            QueryFeatureRead {
+                context: self,
+                slot: unsafe { self.node_payload(id).read_value() },
+            }
         }
     }
 }
 
-impl<'ast, FeatureId: QueryFeatureIdCodec> AstNodeStorage<'ast> for QueryFeature<'ast, FeatureId> {
-    const KIND: NodeKind = FeatureId::KIND;
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let name = decode_feature_name(&bytes, context);
-        match bytes[0] {
-            0 => Self::Plain {
-                name,
-                value: read_node_id_at(&bytes, 8, context),
+// SAFETY: each FeatureId owns a distinct KIND with its native slot type;
+// the only overflow is an AstStr written and read as AstStr.
+unsafe impl<'ast, F: QueryFeatureId> AstNodeStorage<'ast> for QueryFeature<'ast, F> {
+    const KIND: NodeKind = F::KIND;
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        let mut other = *other;
+        let name = match self {
+            Self::Plain { name, .. }
+            | Self::Boolean { name }
+            | Self::Range { name, .. }
+            | Self::Interval { name, .. } => name,
+        };
+        let other_name = match &mut other {
+            Self::Plain { name, .. }
+            | Self::Boolean { name }
+            | Self::Range { name, .. }
+            | Self::Interval { name, .. } => name,
+        };
+        match (*name, *other_name) {
+            (MediaFeatureName::Custom(a), MediaFeatureName::Custom(b))
+            | (MediaFeatureName::Unknown(a), MediaFeatureName::Unknown(b))
+                if context.str(a) == context.str(b) =>
+            {
+                *other_name = *name
+            }
+            _ => {}
+        }
+        *self == other
+    }
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        use QueryFeatureSlot as S;
+        match unsafe { payload.read_value::<S<'ast, F>>() } {
+            S::StandardPlain { name, value } => Self::Plain {
+                name: MediaFeatureName::Standard(name),
+                value,
             },
-            1 => Self::Boolean { name },
-            2 => Self::Range {
-                name,
-                operator: decode_comparison(bytes[2]),
-                value: read_node_id_at(&bytes, 8, context),
+            S::StandardBoolean { name } => Self::Boolean {
+                name: MediaFeatureName::Standard(name),
             },
-            3 => Self::Interval {
-                end: read_node_id_at(&bytes, 12, context),
-                end_operator: decode_comparison(bytes[3]),
+            S::StandardRange {
+                operator,
                 name,
-                start: read_node_id_at(&bytes, 8, context),
-                start_operator: decode_comparison(bytes[2]),
+                value,
+            } => Self::Range {
+                name: MediaFeatureName::Standard(name),
+                operator,
+                value,
             },
-            _ => panic!("invalid encoded QueryFeature variant"),
+            S::StandardInterval {
+                start_operator,
+                end_operator,
+                name,
+                start,
+                end,
+            } => Self::Interval {
+                name: MediaFeatureName::Standard(name),
+                start_operator,
+                end_operator,
+                start,
+                end,
+            },
+            S::CustomPlain { name, value } => Self::Plain {
+                name: MediaFeatureName::Custom(name),
+                value,
+            },
+            S::CustomBoolean { name } => Self::Boolean {
+                name: MediaFeatureName::Custom(name),
+            },
+            S::CustomRange {
+                operator,
+                name,
+                value,
+            } => Self::Range {
+                name: MediaFeatureName::Custom(name),
+                operator,
+                value,
+            },
+            S::CustomInterval {
+                start_operator,
+                end_operator,
+                extra,
+                start,
+                end,
+            } => Self::Interval {
+                name: MediaFeatureName::Custom(unsafe {
+                    context.extra_slot(extra as usize).read_value()
+                }),
+                start_operator,
+                end_operator,
+                start,
+                end,
+            },
+            S::UnknownPlain { name, value } => Self::Plain {
+                name: MediaFeatureName::Unknown(name),
+                value,
+            },
+            S::UnknownBoolean { name } => Self::Boolean {
+                name: MediaFeatureName::Unknown(name),
+            },
+            S::UnknownRange {
+                operator,
+                name,
+                value,
+            } => Self::Range {
+                name: MediaFeatureName::Unknown(name),
+                operator,
+                value,
+            },
+            S::UnknownInterval {
+                start_operator,
+                end_operator,
+                extra,
+                start,
+                end,
+            } => Self::Interval {
+                name: MediaFeatureName::Unknown(unsafe {
+                    context.extra_slot(extra as usize).read_value()
+                }),
+                start_operator,
+                end_operator,
+                start,
+                end,
+            },
         }
     }
-
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_query_feature(self, context)
+        query_payload(self, None, context)
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_query_feature(self, context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        query_payload(self, Some(unsafe { current.read_value() }), context)
     }
 }
+fn query_payload<'ast, F: QueryFeatureId>(
+    value: QueryFeature<'ast, F>,
+    current: Option<QueryFeatureSlot<'ast, F>>,
+    context: &mut AstContext<'ast>,
+) -> NodePayload {
+    use QueryFeatureSlot as S;
+    NodePayload::from_value(match value {
+        QueryFeature::Plain {
+            name: MediaFeatureName::Standard(name),
+            value,
+        } => S::StandardPlain { name, value },
+        QueryFeature::Boolean {
+            name: MediaFeatureName::Standard(name),
+        } => S::StandardBoolean { name },
+        QueryFeature::Range {
+            name: MediaFeatureName::Standard(name),
+            operator,
+            value,
+        } => S::StandardRange {
+            name,
+            operator,
+            value,
+        },
+        QueryFeature::Interval {
+            name: MediaFeatureName::Standard(name),
+            start_operator,
+            end_operator,
+            start,
+            end,
+        } => S::StandardInterval {
+            name,
+            start_operator,
+            end_operator,
+            start,
+            end,
+        },
+        QueryFeature::Plain {
+            name: MediaFeatureName::Custom(name),
+            value,
+        } => S::CustomPlain { name, value },
+        QueryFeature::Boolean {
+            name: MediaFeatureName::Custom(name),
+        } => S::CustomBoolean { name },
+        QueryFeature::Range {
+            name: MediaFeatureName::Custom(name),
+            operator,
+            value,
+        } => S::CustomRange {
+            name,
+            operator,
+            value,
+        },
+        QueryFeature::Interval {
+            name: MediaFeatureName::Custom(name),
+            start_operator,
+            end_operator,
+            start,
+            end,
+        } => S::CustomInterval {
+            extra: match current {
+                Some(S::CustomInterval { extra, .. }) => {
+                    context.set_extra_slot(extra as usize, ExtraData::from_value(name));
+                    extra
+                }
+                _ => u32::try_from(context.alloc_extra_slots([ExtraData::from_value(name)]))
+                    .expect("query overflow index exceeds u32"),
+            },
+            start_operator,
+            end_operator,
+            start,
+            end,
+        },
+        QueryFeature::Plain {
+            name: MediaFeatureName::Unknown(name),
+            value,
+        } => S::UnknownPlain { name, value },
+        QueryFeature::Boolean {
+            name: MediaFeatureName::Unknown(name),
+        } => S::UnknownBoolean { name },
+        QueryFeature::Range {
+            name: MediaFeatureName::Unknown(name),
+            operator,
+            value,
+        } => S::UnknownRange {
+            name,
+            operator,
+            value,
+        },
+        QueryFeature::Interval {
+            name: MediaFeatureName::Unknown(name),
+            start_operator,
+            end_operator,
+            start,
+            end,
+        } => S::UnknownInterval {
+            extra: match current {
+                Some(S::UnknownInterval { extra, .. }) => {
+                    context.set_extra_slot(extra as usize, ExtraData::from_value(name));
+                    extra
+                }
+                _ => u32::try_from(context.alloc_extra_slots([ExtraData::from_value(name)]))
+                    .expect("query overflow index exceeds u32"),
+            },
+            start_operator,
+            end_operator,
+            start,
+            end,
+        },
+    })
+}
 
-impl<'ast, FeatureId: QueryFeatureIdCodec> AstNodeClone<'ast> for QueryFeature<'ast, FeatureId> {
+impl<'ast, FeatureId: QueryFeatureId> AstNodeClone<'ast> for QueryFeature<'ast, FeatureId> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
         match self {
             Self::Plain { name, value } => Self::Plain {
@@ -339,115 +636,27 @@ impl<'ast, FeatureId: QueryFeatureIdCodec> AstNodeClone<'ast> for QueryFeature<'
     }
 }
 
-fn encode_query_feature<'ast, FeatureId: QueryFeatureIdCodec>(
-    value: QueryFeature<'ast, FeatureId>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        QueryFeature::Plain { name, value } => {
-            bytes[0] = 0;
-            encode_feature_name(name, &mut bytes, context);
-            write_id_at(&mut bytes, 8, value);
-        }
-        QueryFeature::Boolean { name } => {
-            bytes[0] = 1;
-            encode_feature_name(name, &mut bytes, context);
-        }
-        QueryFeature::Range {
-            name,
-            operator,
-            value,
-        } => {
-            bytes[0] = 2;
-            bytes[2] = encode_comparison(operator);
-            encode_feature_name(name, &mut bytes, context);
-            write_id_at(&mut bytes, 8, value);
-        }
-        QueryFeature::Interval {
-            end,
-            end_operator,
-            name,
-            start,
-            start_operator,
-        } => {
-            bytes[0] = 3;
-            bytes[2] = encode_comparison(start_operator);
-            bytes[3] = encode_comparison(end_operator);
-            encode_feature_name(name, &mut bytes, context);
-            write_id_at(&mut bytes, 8, start);
-            write_id_at(&mut bytes, 12, end);
-        }
-    }
-    NodePayload::inline(&bytes)
-}
-
-fn encode_feature_name<'ast, FeatureId: QueryFeatureIdCodec>(
-    name: MediaFeatureName<'ast, FeatureId>,
-    bytes: &mut [u8],
-    context: &mut AstContext<'ast>,
-) {
-    let (kind, data) = match name {
-        MediaFeatureName::Standard(value) => (0, value.encode() as u32),
-        MediaFeatureName::Custom(value) => (1, context.store_string(value)),
-        MediaFeatureName::Unknown(value) => (2, context.store_string(value)),
-    };
-    bytes[1] = kind;
-    write_u32(bytes, 4, data);
-}
-
-fn decode_feature_name<'ast, FeatureId: QueryFeatureIdCodec>(
-    bytes: &[u8],
-    context: &AstContext<'ast>,
-) -> MediaFeatureName<'ast, FeatureId> {
-    let data = read_u32(bytes, 4);
-    match bytes[1] {
-        0 => MediaFeatureName::Standard(FeatureId::decode(data as u8)),
-        1 => MediaFeatureName::Custom(context.resolve_string(data as u64)),
-        2 => MediaFeatureName::Unknown(context.resolve_string(data as u64)),
-        _ => panic!("invalid encoded MediaFeatureName variant"),
-    }
-}
-
-impl<'ast> AstNodeStorage<'ast> for MediaFeatureValue<'ast> {
+// SAFETY: this KIND always stores and reads the same native Copy type.
+unsafe impl<'ast> AstNodeStorage<'ast> for MediaFeatureValue<'ast> {
     const KIND: NodeKind = NodeKind::new(0x001a_0003);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let data = read_u32(&bytes, 4);
-        match bytes[0] {
-            0 => Self::Length(context.encoded_node_id_at(data as usize)),
-            1 => Self::Number(f32::from_bits(data)),
-            2 => Self::Integer(data as i32),
-            3 => Self::Boolean(match data {
-                0 => false,
-                1 => true,
-                _ => panic!("invalid encoded MediaFeatureValue boolean"),
-            }),
-            4 => Self::Resolution(crate::token::decode_resolution(
-                bytes[1],
-                f32::from_bits(data),
-            )),
-            5 => Self::Ratio(Ratio {
-                denominator: match bytes[1] {
-                    0 => None,
-                    1 => Some(f32::from_bits(read_u32(&bytes, 8))),
-                    _ => panic!("invalid encoded Ratio denominator flag"),
-                },
-                numerator: f32::from_bits(data),
-            }),
-            6 => Self::Ident(context.resolve_string(data as u64)),
-            7 => Self::Env(context.encoded_node_id_at(data as usize)),
-            _ => panic!("invalid encoded MediaFeatureValue variant"),
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::Ident(a), Self::Ident(b)) => context.str(*a) == context.str(*b),
+            _ => self == other,
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_media_feature_value(self, context)
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_media_feature_value(self, context)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -461,61 +670,39 @@ impl<'ast> AstNodeClone<'ast> for MediaFeatureValue<'ast> {
     }
 }
 
-fn encode_media_feature_value<'ast>(
-    value: MediaFeatureValue<'ast>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        MediaFeatureValue::Length(value) => write_node_id(&mut bytes, 0, value),
-        MediaFeatureValue::Number(value) => write_tagged_u32(&mut bytes, 1, value.to_bits()),
-        MediaFeatureValue::Integer(value) => write_tagged_u32(&mut bytes, 2, value as u32),
-        MediaFeatureValue::Boolean(value) => write_tagged_u32(&mut bytes, 3, value as u32),
-        MediaFeatureValue::Resolution(value) => {
-            let (kind, value) = crate::token::encode_resolution(value);
-            write_tagged_u32(&mut bytes, 4, value.to_bits());
-            bytes[1] = kind;
-        }
-        MediaFeatureValue::Ratio(value) => {
-            write_tagged_u32(&mut bytes, 5, value.numerator.to_bits());
-            if let Some(denominator) = value.denominator {
-                bytes[1] = 1;
-                write_u32(&mut bytes, 8, denominator.to_bits());
-            }
-        }
-        MediaFeatureValue::Ident(value) => {
-            write_tagged_u32(&mut bytes, 6, context.store_string(value));
-        }
-        MediaFeatureValue::Env(value) => write_node_id(&mut bytes, 7, value),
-    }
-    NodePayload::inline(&bytes)
-}
-
-impl<'ast> AstNodeStorage<'ast> for SupportsCondition<'ast> {
+// SAFETY: this KIND always stores and reads the same native Copy type.
+unsafe impl<'ast> AstNodeStorage<'ast> for SupportsCondition<'ast> {
     const KIND: NodeKind = NodeKind::new(0x001a_0004);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Not(read_node_id(&bytes, context)),
-            1 => Self::And(read_range(&bytes, context)),
-            2 => Self::Or(read_range(&bytes, context)),
-            3 => Self::Declaration {
-                property_id: read_node_id(&bytes, context),
-                value: context.resolve_string(read_u32(&bytes, 8) as u64),
-            },
-            4 => Self::Selector(context.resolve_string(read_u32(&bytes, 4) as u64)),
-            5 => Self::Unknown(context.resolve_string(read_u32(&bytes, 4) as u64)),
-            _ => panic!("invalid encoded SupportsCondition variant"),
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::Selector(a), Self::Selector(b)) | (Self::Unknown(a), Self::Unknown(b)) => {
+                context.str(*a) == context.str(*b)
+            }
+            (
+                Self::Declaration {
+                    property_id: a,
+                    value: av,
+                },
+                Self::Declaration {
+                    property_id: b,
+                    value: bv,
+                },
+            ) => a == b && context.str(*av) == context.str(*bv),
+            _ => self == other,
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_supports_condition(self, context)
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_supports_condition(self, context)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -535,121 +722,6 @@ impl<'ast> AstNodeClone<'ast> for SupportsCondition<'ast> {
     }
 }
 
-fn encode_supports_condition<'ast>(
-    value: SupportsCondition<'ast>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        SupportsCondition::Not(value) => write_node_id(&mut bytes, 0, value),
-        SupportsCondition::And(values) => write_range(&mut bytes, 1, values),
-        SupportsCondition::Or(values) => write_range(&mut bytes, 2, values),
-        SupportsCondition::Declaration { property_id, value } => {
-            write_node_id(&mut bytes, 3, property_id);
-            write_u32(&mut bytes, 8, context.store_string(value));
-        }
-        SupportsCondition::Selector(value) => {
-            write_tagged_u32(&mut bytes, 4, context.store_string(value));
-        }
-        SupportsCondition::Unknown(value) => {
-            write_tagged_u32(&mut bytes, 5, context.store_string(value));
-        }
-    }
-    NodePayload::inline(&bytes)
-}
-
-fn encode_comparison(value: MediaFeatureComparison) -> u8 {
-    match value {
-        MediaFeatureComparison::Equal => 0,
-        MediaFeatureComparison::GreaterThan => 1,
-        MediaFeatureComparison::GreaterThanEqual => 2,
-        MediaFeatureComparison::LessThan => 3,
-        MediaFeatureComparison::LessThanEqual => 4,
-    }
-}
-
-fn decode_comparison(value: u8) -> MediaFeatureComparison {
-    match value {
-        0 => MediaFeatureComparison::Equal,
-        1 => MediaFeatureComparison::GreaterThan,
-        2 => MediaFeatureComparison::GreaterThanEqual,
-        3 => MediaFeatureComparison::LessThan,
-        4 => MediaFeatureComparison::LessThanEqual,
-        _ => panic!("invalid encoded MediaFeatureComparison"),
-    }
-}
-
-fn encode_operator(value: Operator) -> u8 {
-    match value {
-        Operator::And => 0,
-        Operator::Or => 1,
-    }
-}
-
-fn decode_operator(value: u8) -> Operator {
-    match value {
-        0 => Operator::And,
-        1 => Operator::Or,
-        _ => panic!("invalid encoded Operator"),
-    }
-}
-
-fn write_node_id<T>(bytes: &mut [u8], tag: u8, value: NodeId<'_, T>) {
-    bytes[0] = tag;
-    write_id_at(bytes, 4, value);
-}
-
-fn write_id_at<T>(bytes: &mut [u8], offset: usize, value: NodeId<'_, T>) {
-    write_u32(
-        bytes,
-        offset,
-        u32::try_from(value.index()).expect("AST node ID exceeds four bytes"),
-    );
-}
-
-fn read_node_id<'ast, T>(bytes: &[u8], context: &AstContext<'ast>) -> NodeId<'ast, T> {
-    read_node_id_at(bytes, 4, context)
-}
-
-fn read_node_id_at<'ast, T>(
-    bytes: &[u8],
-    offset: usize,
-    context: &AstContext<'ast>,
-) -> NodeId<'ast, T> {
-    context.encoded_node_id_at(read_u32(bytes, offset) as usize)
-}
-
-fn write_range<T>(bytes: &mut [u8], tag: u8, value: Vec<'_, T>) {
-    bytes[0] = tag;
-    write_u32(
-        bytes,
-        4,
-        u32::try_from(value.start_index()).expect("AST range start exceeds four bytes"),
-    );
-    write_u32(
-        bytes,
-        8,
-        u32::try_from(value.end_index()).expect("AST range end exceeds four bytes"),
-    );
-}
-
-fn read_range<'ast, T>(bytes: &[u8], context: &AstContext<'ast>) -> Vec<'ast, T> {
-    context.encoded_vec_range(read_u32(bytes, 4) as usize, read_u32(bytes, 8) as usize)
-}
-
-fn write_tagged_u32(bytes: &mut [u8], tag: u8, value: u32) {
-    bytes[0] = tag;
-    write_u32(bytes, 4, value);
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("u32 field"))
-}
-
 #[cfg(test)]
 mod storage_tests {
     use rocketcss_common::Allocator;
@@ -657,6 +729,202 @@ mod storage_tests {
     use crate::{AstContext, DUMMY_SP, Length, LengthUnit, LengthValue};
 
     use super::*;
+
+    #[test]
+    fn query_feature_names_compare_contents_across_all_storage_forms() {
+        fn check<'ast, F: QueryFeatureId + std::fmt::Debug + 'ast>(
+            context: &mut AstContext<'ast>,
+            strings: [AstStr<'ast>; 4],
+        ) {
+            let start = context.alloc_node(MediaFeatureValue::Integer(1), DUMMY_SP);
+            let end = context.alloc_node(MediaFeatureValue::Integer(2), DUMMY_SP);
+            for variant in 0..4 {
+                let make = |name| match variant {
+                    0 => QueryFeature::<F>::Boolean { name },
+                    1 => QueryFeature::Plain { name, value: start },
+                    2 => QueryFeature::Range {
+                        name,
+                        value: start,
+                        operator: MediaFeatureComparison::GreaterThan,
+                    },
+                    _ => QueryFeature::Interval {
+                        name,
+                        start,
+                        end,
+                        start_operator: MediaFeatureComparison::LessThan,
+                        end_operator: MediaFeatureComparison::LessThanEqual,
+                    },
+                };
+                let custom = strings
+                    .map(|text| context.alloc_node(make(MediaFeatureName::Custom(text)), DUMMY_SP));
+                let unknown = strings.map(|text| {
+                    context.alloc_node(make(MediaFeatureName::Unknown(text)), DUMMY_SP)
+                });
+                let checkpoint = context.node_checkpoint();
+                let bytes = context.string_pool().extra_len();
+                let interned = context.string_pool().len();
+                for _ in 0..3 {
+                    for ids in [custom, unknown] {
+                        assert!(context.nodes_eq(ids[0], ids[1]));
+                        assert!(context.nodes_eq(ids[0], ids[2]));
+                        assert!(!context.nodes_eq(ids[0], ids[3]));
+                    }
+                    assert!(!context.nodes_eq(custom[0], unknown[1]));
+                }
+                assert_eq!(context.node_checkpoint(), checkpoint);
+                assert_eq!(context.string_pool().extra_len(), bytes);
+                assert_eq!(context.string_pool().len(), interned);
+                if variant == 3 {
+                    context.mutate_node(custom[1], |node, _| {
+                        let QueryFeature::Interval { end_operator, .. } = node else {
+                            unreachable!()
+                        };
+                        *end_operator = MediaFeatureComparison::LessThan;
+                    });
+                    assert!(!context.nodes_eq(custom[0], custom[1]));
+                }
+            }
+        }
+
+        let allocator = Allocator::new();
+        let mut context = AstContext::with_source_in(&allocator, "name name", Default::default());
+        let first = context.string_pool().source_range(0, 4);
+        let second = context.string_pool().source_range(5, 9);
+        let extra = context.add_str("name");
+        let other = context.add_str("other");
+        context.add_str(&"é".repeat(8192));
+        let strings = [first, second, extra, other];
+        check::<MediaFeatureId>(&mut context, strings);
+        check::<crate::ContainerSizeFeatureId>(&mut context, strings);
+        check::<crate::ScrollStateFeatureId>(&mut context, strings);
+    }
+
+    #[test]
+    fn query_slots_preserve_names_predicates_and_reuse_interval_overflow() {
+        assert_eq!(
+            std::mem::size_of::<QueryFeatureSlot<'_, MediaFeatureId>>(),
+            16
+        );
+        assert_eq!(
+            std::mem::size_of::<QueryFeatureSlot<'_, ContainerSizeFeatureId>>(),
+            16
+        );
+        assert_eq!(
+            std::mem::size_of::<QueryFeatureSlot<'_, ScrollStateFeatureId>>(),
+            16
+        );
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let text = context.add_str("--feature");
+        let duplicate = context.add_str("--feature");
+        let start = context.alloc_encoded_node(MediaFeatureValue::Integer(1), DUMMY_SP);
+        let end = context.alloc_encoded_node(MediaFeatureValue::Integer(3), DUMMY_SP);
+        for name in [
+            MediaFeatureName::Standard(MediaFeatureId::Width),
+            MediaFeatureName::Custom(text),
+            MediaFeatureName::Unknown(text),
+        ] {
+            for expected in [
+                QueryFeature::Boolean { name },
+                QueryFeature::Plain { name, value: start },
+                QueryFeature::Range {
+                    name,
+                    operator: MediaFeatureComparison::GreaterThan,
+                    value: start,
+                },
+                QueryFeature::Interval {
+                    name,
+                    start,
+                    end,
+                    start_operator: MediaFeatureComparison::LessThan,
+                    end_operator: MediaFeatureComparison::LessThanEqual,
+                },
+            ] {
+                let before = context.encoded_extra_len();
+                let node = context.alloc_encoded_node(expected, DUMMY_SP);
+                let extra = usize::from(matches!(
+                    expected,
+                    QueryFeature::Interval {
+                        name: MediaFeatureName::Custom(_) | MediaFeatureName::Unknown(_),
+                        ..
+                    }
+                ));
+                assert_eq!(context.encoded_extra_len(), before + extra);
+                let checkpoint = context.node_checkpoint();
+                let bytes = context.string_pool().extra_len();
+                for _ in 0..4 {
+                    assert_eq!(context.encoded_node(node), expected);
+                    context.mutate_encoded_node(node, |stored, _| *stored = expected);
+                }
+                assert_eq!(context.node_checkpoint(), checkpoint);
+                assert_eq!(context.string_pool().extra_len(), bytes);
+            }
+        }
+        let left = context.alloc_encoded_node(
+            QueryFeature::<MediaFeatureId>::Boolean {
+                name: MediaFeatureName::Custom(text),
+            },
+            DUMMY_SP,
+        );
+        let right = context.alloc_encoded_node(
+            QueryFeature::<MediaFeatureId>::Boolean {
+                name: MediaFeatureName::Custom(duplicate),
+            },
+            DUMMY_SP,
+        );
+        let unknown = context.alloc_encoded_node(
+            QueryFeature::<MediaFeatureId>::Boolean {
+                name: MediaFeatureName::Unknown(duplicate),
+            },
+            DUMMY_SP,
+        );
+        assert!(context.nodes_eq(left, right));
+        assert!(!context.nodes_eq(left, unknown));
+    }
+
+    #[test]
+    fn native_media_strings_compare_contents_and_reuse_storage() {
+        assert!(std::mem::size_of::<MediaCondition<'_>>() <= 16);
+        assert!(std::mem::size_of::<MediaFeatureValue<'_>>() <= 16);
+        assert!(std::mem::size_of::<SupportsCondition<'_>>() <= 16);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let first = context.add_str("λ-value");
+        let second = context.add_str("λ-value");
+        assert_ne!(first, second);
+        let left = context.alloc_encoded_node(MediaFeatureValue::Ident(first), DUMMY_SP);
+        let right = context.alloc_encoded_node(MediaFeatureValue::Ident(second), DUMMY_SP);
+        assert!(context.nodes_eq(left, right));
+        let a = context.alloc_encoded_node(SupportsCondition::Unknown(first), DUMMY_SP);
+        let b = context.alloc_encoded_node(SupportsCondition::Unknown(second), DUMMY_SP);
+        assert!(context.nodes_eq(a, b));
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for value in [first, second, AstStr::EMPTY, first] {
+            context.mutate_encoded_node(a, |node, _| *node = SupportsCondition::Selector(value));
+            assert_eq!(context.encoded_node(a), SupportsCondition::Selector(value));
+            context.mutate_encoded_node(left, |node, _| *node = MediaFeatureValue::Ident(value));
+            assert_eq!(context.encoded_node(left), MediaFeatureValue::Ident(value));
+        }
+        for denominator in [None, Some(-0.0), Some(2.0)] {
+            context.mutate_encoded_node(left, |node, _| {
+                *node = MediaFeatureValue::Ratio(Ratio {
+                    numerator: -0.0,
+                    denominator,
+                });
+            });
+            let MediaFeatureValue::Ratio(ratio) = context.encoded_node(left) else {
+                panic!("expected ratio")
+            };
+            assert_eq!(ratio.numerator.to_bits(), (-0.0f32).to_bits());
+            assert_eq!(
+                ratio.denominator.map(f32::to_bits),
+                denominator.map(f32::to_bits)
+            );
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
+    }
 
     #[test]
     fn media_query_codec_deep_clones_condition_tree() {
@@ -717,8 +985,8 @@ mod storage_tests {
     fn supports_condition_codec_clones_node_ranges() {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
-        let child =
-            context.alloc_encoded_node(SupportsCondition::Unknown("(display:grid)"), DUMMY_SP);
+        let text = context.add_str("(display:grid)");
+        let child = context.alloc_encoded_node(SupportsCondition::Unknown(text), DUMMY_SP);
         let values = context.alloc_encoded_vec([child].into_iter());
         let condition = context.alloc_encoded_node(SupportsCondition::And(values), DUMMY_SP);
         let cloned = context.clone_encoded_node(condition);

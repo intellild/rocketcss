@@ -23,7 +23,7 @@ impl<'ghost> ToCss<'ghost> for AstContext<'_> {
         let writer = AstWriter(self);
         for (index, comment) in self.license_comments().iter().enumerate() {
             dest.write_str("/*")?;
-            dest.write_str(comment)?;
+            dest.write_str(self.str(*comment))?;
             dest.write_str("*/")?;
             if index + 1 < self.license_comments().len() || !writer.root_is_empty() {
                 dest.new_line()?;
@@ -122,7 +122,7 @@ impl<'ast> AstWriter<'_, 'ast> {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
-                    write_layer_name(self.vec_iter(name), dest)?;
+                    write_layer_name(self.vec_iter(name).map(|part| self.str(part)), dest)?;
                 }
                 dest.write_char(';')
             }
@@ -130,7 +130,7 @@ impl<'ast> AstWriter<'_, 'ast> {
                 dest.write_str("@layer")?;
                 if let Some(name) = &payload.name {
                     dest.write_char(' ')?;
-                    write_layer_name(self.vec_iter(*name), dest)?;
+                    write_layer_name(self.vec_iter(*name).map(|part| self.str(part)), dest)?;
                 }
                 self.write_child_rule_block(rule, dest, cx)
             }
@@ -138,7 +138,7 @@ impl<'ast> AstWriter<'_, 'ast> {
                 dest.write_str("@container")?;
                 if let Some(name) = payload.name {
                     dest.write_char(' ')?;
-                    serialize_identifier(name, dest)?;
+                    serialize_identifier(self.str(name), dest)?;
                 }
                 if let Some(condition) = &payload.condition {
                     dest.write_char(' ')?;
@@ -166,16 +166,18 @@ impl<'ast> AstWriter<'_, 'ast> {
             }
             CssRulePayload::Unknown(payload) => {
                 dest.write_char('@')?;
-                serialize_identifier(payload.name, dest)?;
+                serialize_identifier(self.str(payload.name), dest)?;
                 if !payload.prelude.is_empty() {
                     dest.write_char(' ')?;
-                    let prelude = self.vec_iter(payload.prelude).collect::<std::vec::Vec<_>>();
-                    crate::token::write_token_list_without_outer_whitespace(&prelude, dest, cx)?;
+                    crate::token::write_token_list_without_outer_whitespace(
+                        payload.prelude,
+                        dest,
+                        cx,
+                    )?;
                 }
                 if let Some(block) = &payload.block {
                     write_block(dest, |dest| {
-                        let block = self.vec_iter(*block).collect::<std::vec::Vec<_>>();
-                        crate::token::write_token_list_without_outer_whitespace(&block, dest, cx)
+                        crate::token::write_token_list_without_outer_whitespace(*block, dest, cx)
                     })
                 } else {
                     dest.write_char(';')
@@ -183,7 +185,7 @@ impl<'ast> AstWriter<'_, 'ast> {
             }
             CssRulePayload::CounterStyle(payload) => {
                 dest.write_str("@counter-style ")?;
-                serialize_identifier(payload.name, dest)?;
+                serialize_identifier(self.str(payload.name), dest)?;
                 self.write_property_block(rule, dest, cx)
             }
             CssRulePayload::Viewport(payload) => {
@@ -196,7 +198,9 @@ impl<'ast> AstWriter<'_, 'ast> {
                 dest.write_str("@position-try ")?;
                 dest.write_str("--")?;
                 serialize_name(
-                    payload.name.strip_prefix("--").unwrap_or(payload.name),
+                    self.str(payload.name)
+                        .strip_prefix("--")
+                        .unwrap_or(self.str(payload.name)),
                     dest,
                 )?;
                 self.write_property_block(rule, dest, cx)
@@ -207,7 +211,7 @@ impl<'ast> AstWriter<'_, 'ast> {
             }
             CssRulePayload::FontPaletteValues(payload) => {
                 dest.write_str("@font-palette-values ")?;
-                serialize_identifier(payload.name, dest)?;
+                serialize_identifier(self.str(payload.name), dest)?;
                 self.write_named_property_block(id, dest, cx, NamedKind::FontPalette)
             }
             CssRulePayload::ViewTransition(_) => {
@@ -562,7 +566,9 @@ impl<'ast> AstWriter<'_, 'ast> {
         dest.write_str("@property ")?;
         dest.write_str("--")?;
         serialize_name(
-            payload.name.strip_prefix("--").unwrap_or(payload.name),
+            self.str(payload.name)
+                .strip_prefix("--")
+                .unwrap_or(self.str(payload.name)),
             dest,
         )?;
         write_block(dest, |dest| {

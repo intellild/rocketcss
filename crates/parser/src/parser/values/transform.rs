@@ -1,15 +1,5 @@
 use crate::prelude::*;
 
-impl<'i> Parse<'i> for NumberOrPercentage {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        match input.next()?.clone() {
-            ValueToken::Number(value) => Ok(Self::Number(value)),
-            ValueToken::Percentage(value) => Ok(Self::Percentage(value)),
-            _ => Err(input.new_custom_error(ParserError::InvalidValue)),
-        }
-    }
-}
-
 impl<'i> Parse<'i> for Transform<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let function = input.expect_function()?;
@@ -295,18 +285,5 @@ impl<'i> Parse<'i> for Scale {
         };
         input.expect_exhausted()?;
         Ok(Self::Xyz { x, y, z })
-    }
-}
-
-impl<'i> Parse<'i> for Rotate {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let angle = Angle::parse(input)?;
-        input.expect_exhausted()?;
-        Ok(Self {
-            angle,
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        })
     }
 }

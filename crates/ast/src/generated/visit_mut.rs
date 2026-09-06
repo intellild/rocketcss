@@ -16,6 +16,12 @@ pub trait VisitorMut<'a, 'ghost> {
     fn visit_str(&mut self, _value: &mut &'a str, _cx: &mut VisitMutContext<'_, 'a, 'ghost>) {}
     #[inline]
     fn visit_atom(&mut self, _value: &mut Atom<'a>, _cx: &mut VisitMutContext<'_, 'a, 'ghost>) {}
+    fn visit_ast_str(
+        &mut self,
+        _value: &mut AstStr<'a>,
+        _cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+    }
     #[inline]
     fn visit_css_color(&mut self, node: &mut CssColor<'a>, cx: &mut VisitMutContext<'_, 'a, 'ghost>)
     where
@@ -1298,7 +1304,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut DashedIdentReference<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Specifier<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -1580,12 +1588,21 @@ pub trait VisitorMut<'a, 'ghost> {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
+    fn visit_custom_pseudo_function(
+        &mut self,
+        node: &mut CustomPseudoFunction<'a>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
     fn visit_pseudo_class(
         &mut self,
         node: &mut PseudoClass<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) where
         Selector<'a>: AstNodeStorage<'a>,
+        CustomPseudoFunction<'a>: AstNodeStorage<'a>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -1605,6 +1622,7 @@ pub trait VisitorMut<'a, 'ghost> {
     ) where
         Selector<'a>: AstNodeStorage<'a>,
         ViewTransitionPartSelector<'a>: AstNodeStorage<'a>,
+        CustomPseudoFunction<'a>: AstNodeStorage<'a>,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -1641,8 +1659,17 @@ pub trait VisitorMut<'a, 'ghost> {
         Variable<'a>: AstNodeStorage<'a>,
         EnvironmentVariable<'a>: AstNodeStorage<'a>,
         Function<'a>: AstNodeStorage<'a>,
+        DashedIdent<'a>: AstNodeStorage<'a>,
         AnimationName<'a>: AstNodeStorage<'a>,
     {
+        VisitMut::visit_mut_children(node, self, cx);
+    }
+    #[inline]
+    fn visit_dashed_ident(
+        &mut self,
+        node: &mut DashedIdent<'a>,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -2376,7 +2403,7 @@ pub trait VisitorMut<'a, 'ghost> {
         D: VisitMut<'a, 'ghost>,
         CssColor<'a>: AstNodeStorage<'a>,
         DimensionPercentage<'a, D>: AstNodeStorage<'a>,
-        D: DimensionCodec,
+        D: DimensionValue,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -2388,7 +2415,7 @@ pub trait VisitorMut<'a, 'ghost> {
     ) where
         D: VisitMut<'a, 'ghost>,
         Calc<'a, DimensionPercentage<'a, D>>: AstNodeStorage<'a>,
-        D: DimensionCodec,
+        D: DimensionValue,
     {
         VisitMut::visit_mut_children(node, self, cx);
     }
@@ -2521,7 +2548,9 @@ pub trait VisitorMut<'a, 'ghost> {
         &mut self,
         node: &mut CounterStyle<'a>,
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
-    ) {
+    ) where
+        Symbol<'a>: AstNodeStorage<'a>,
+    {
         VisitMut::visit_mut_children(node, self, cx);
     }
     #[inline]
@@ -3375,6 +3404,15 @@ impl<'a, 'ghost> VisitMut<'a, 'ghost> for rocketcss_common::Atom<'a> {
         cx: &mut VisitMutContext<'_, 'a, 'ghost>,
     ) {
         visitor.visit_atom(self, cx);
+    }
+}
+impl<'a, 'ghost> VisitMut<'a, 'ghost> for rocketcss_common::AstStr<'a> {
+    fn visit_mut<VisitorT: ?Sized + VisitorMut<'a, 'ghost>>(
+        &mut self,
+        visitor: &mut VisitorT,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        visitor.visit_ast_str(self, cx);
     }
 }
 impl<'a, 'ghost> VisitMut<'a, 'ghost> for VendorPrefix {

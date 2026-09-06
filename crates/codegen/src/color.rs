@@ -124,6 +124,24 @@ fn write_components<PrinterT: PrinterTrait>(
 }
 
 impl<'ghost> ToCss<'ghost> for LABColor {
+    fn to_css_node<'id, PrinterT: PrinterTrait>(
+        id: NodeId<'id, Self>,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result
+    where
+        Self: AstNodeStorage<'id>,
+    {
+        let color = cx.ast_context().lab_color(id);
+        let ([lightness, second, third], alpha) = color.components();
+        let first = if color.has_cie_lightness() {
+            lightness / 100.0
+        } else {
+            lightness
+        };
+        write_components(color.space_name(), first, second, third, alpha, true, dest)
+    }
+
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -147,6 +165,19 @@ impl<'ghost> ToCss<'ghost> for LABColor {
 }
 
 impl<'ghost> ToCss<'ghost> for PredefinedColor {
+    fn to_css_node<'id, PrinterT: PrinterTrait>(
+        id: NodeId<'id, Self>,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result
+    where
+        Self: AstNodeStorage<'id>,
+    {
+        let value = cx.ast_context().predefined_color(id);
+        let (components, alpha) = value.components();
+        write_predefined_color(value.space_name(), components, alpha, dest)
+    }
+
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -162,21 +193,47 @@ impl<'ghost> ToCss<'ghost> for PredefinedColor {
             Self::XyzD50 { alpha, x, y, z } => ("xyz-d50", *x, *y, *z, *alpha),
             Self::XyzD65 { alpha, x, y, z } => ("xyz-d65", *x, *y, *z, *alpha),
         };
-        dest.write_str("color(")?;
-        dest.write_str(space)?;
-        for value in [first, second, third] {
-            dest.write_char(' ')?;
-            serialize_number(value, dest)?;
-        }
-        if alpha != 1.0 {
-            dest.write_str(" / ")?;
-            serialize_number(alpha, dest)?;
-        }
-        dest.write_char(')')
+        write_predefined_color(space, [first, second, third], alpha, dest)
     }
 }
 
+fn write_predefined_color<PrinterT: PrinterTrait>(
+    space: &str,
+    components: [f32; 3],
+    alpha: f32,
+    dest: &mut PrinterT,
+) -> fmt::Result {
+    dest.write_str("color(")?;
+    dest.write_str(space)?;
+    for value in components {
+        dest.write_char(' ')?;
+        serialize_number(value, dest)?;
+    }
+    if alpha != 1.0 {
+        dest.write_str(" / ")?;
+        serialize_number(alpha, dest)?;
+    }
+    dest.write_char(')')
+}
+
 impl<'ghost> ToCss<'ghost> for FloatColor {
+    fn to_css_node<'id, PrinterT: PrinterTrait>(
+        id: NodeId<'id, Self>,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result
+    where
+        Self: AstNodeStorage<'id>,
+    {
+        let color = cx.ast_context().float_color(id);
+        let ([first, second, third], alpha) = color.components();
+        if color.is_rgb() {
+            write_components("rgb", first, second, third, alpha, true, dest)
+        } else {
+            write_hue_color(color.space_name(), first, second, third, alpha, dest)
+        }
+    }
+
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
@@ -184,36 +241,33 @@ impl<'ghost> ToCss<'ghost> for FloatColor {
     ) -> fmt::Result {
         match self {
             Self::Rgb { alpha, b, g, r } => write_components("rgb", *r, *g, *b, *alpha, true, dest),
-            Self::Hsl { alpha, h, l, s } => {
-                dest.write_str("hsl(")?;
-                serialize_number(*h, dest)?;
-                dest.write_char(' ')?;
-                serialize_number(*s * 100.0, dest)?;
-                dest.write_str("% ")?;
-                serialize_number(*l * 100.0, dest)?;
-                dest.write_char('%')?;
-                if *alpha != 1.0 {
-                    dest.write_str(" / ")?;
-                    serialize_number(*alpha, dest)?;
-                }
-                dest.write_char(')')
-            }
-            Self::Hwb { alpha, b, h, w } => {
-                dest.write_str("hwb(")?;
-                serialize_number(*h, dest)?;
-                dest.write_char(' ')?;
-                serialize_number(*w * 100.0, dest)?;
-                dest.write_str("% ")?;
-                serialize_number(*b * 100.0, dest)?;
-                dest.write_char('%')?;
-                if *alpha != 1.0 {
-                    dest.write_str(" / ")?;
-                    serialize_number(*alpha, dest)?;
-                }
-                dest.write_char(')')
-            }
+            Self::Hsl { alpha, h, l, s } => write_hue_color("hsl", *h, *s, *l, *alpha, dest),
+            Self::Hwb { alpha, b, h, w } => write_hue_color("hwb", *h, *w, *b, *alpha, dest),
         }
     }
+}
+
+fn write_hue_color<PrinterT: PrinterTrait>(
+    name: &str,
+    hue: f32,
+    second: f32,
+    third: f32,
+    alpha: f32,
+    dest: &mut PrinterT,
+) -> fmt::Result {
+    dest.write_str(name)?;
+    dest.write_char('(')?;
+    serialize_number(hue, dest)?;
+    dest.write_char(' ')?;
+    serialize_number(second * 100.0, dest)?;
+    dest.write_str("% ")?;
+    serialize_number(third * 100.0, dest)?;
+    dest.write_char('%')?;
+    if alpha != 1.0 {
+        dest.write_str(" / ")?;
+        serialize_number(alpha, dest)?;
+    }
+    dest.write_char(')')
 }
 
 impl<'ghost> ToCss<'ghost> for LightDark<'_> {
@@ -284,41 +338,71 @@ impl<'ghost> ToCss<'ghost> for SystemColor {
 }
 
 impl<'ghost> ToCss<'ghost> for UnresolvedColor<'_> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
+    fn to_css_node<'id, PrinterT: PrinterTrait>(
+        id: NodeId<'id, Self>,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        match self {
-            Self::Rgb { alpha, b, g, r } => {
-                dest.write_str("rgb(")?;
-                serialize_number(*r, dest)?;
-                dest.write_char(' ')?;
-                serialize_number(*g, dest)?;
-                dest.write_char(' ')?;
-                serialize_number(*b, dest)?;
-                dest.write_str(" / ")?;
-                crate::token::write_token_list(_cx.ast_context().vec_iter(*alpha), dest, _cx)?;
-                dest.write_char(')')
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result
+    where
+        Self: AstNodeStorage<'id>,
+    {
+        match cx.ast_context().unresolved_color(id) {
+            UnresolvedColorRead::Rgb { b, g, tail } => {
+                write_unresolved_components(false, [tail.scalar(), g, b], || tail.alpha(), dest, cx)
             }
-            Self::Hsl { alpha, h, l, s } => {
-                dest.write_str("hsl(")?;
-                serialize_number(*h, dest)?;
-                dest.write_char(' ')?;
-                serialize_number(*s * 100.0, dest)?;
-                dest.write_str("% ")?;
-                serialize_number(*l * 100.0, dest)?;
-                dest.write_str("% / ")?;
-                crate::token::write_token_list(_cx.ast_context().vec_iter(*alpha), dest, _cx)?;
-                dest.write_char(')')
+            UnresolvedColorRead::Hsl { h, l, tail } => {
+                write_unresolved_components(true, [h, tail.scalar(), l], || tail.alpha(), dest, cx)
             }
-            Self::LightDark { dark, light } => {
-                dest.write_str("light-dark(")?;
-                crate::token::write_token_list(_cx.ast_context().vec_iter(*light), dest, _cx)?;
-                dest.delim(Delimiter::Comma)?;
-                crate::token::write_token_list(_cx.ast_context().vec_iter(*dark), dest, _cx)?;
-                dest.write_char(')')
+            UnresolvedColorRead::LightDark { dark, light } => {
+                write_unresolved_light_dark(light.tokens(), dark, dest, cx)
             }
         }
     }
+
+    fn to_css<PrinterT: PrinterTrait>(
+        &self,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result {
+        match self {
+            Self::Rgb { alpha, b, g, r } => {
+                write_unresolved_components(false, [*r, *g, *b], || *alpha, dest, cx)
+            }
+            Self::Hsl { alpha, h, l, s } => {
+                write_unresolved_components(true, [*h, *s, *l], || *alpha, dest, cx)
+            }
+            Self::LightDark { dark, light } => write_unresolved_light_dark(*light, *dark, dest, cx),
+        }
+    }
+}
+
+fn write_unresolved_components<'ast, 'ghost, PrinterT: PrinterTrait>(
+    hsl: bool,
+    [first, second, third]: [f32; 3],
+    alpha: impl FnOnce() -> AstVec<'ast, TokenOrValue<'ast>>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    dest.write_str(if hsl { "hsl(" } else { "rgb(" })?;
+    serialize_number(first, dest)?;
+    dest.write_char(' ')?;
+    serialize_number(if hsl { second * 100.0 } else { second }, dest)?;
+    dest.write_str(if hsl { "% " } else { " " })?;
+    serialize_number(if hsl { third * 100.0 } else { third }, dest)?;
+    dest.write_str(if hsl { "% / " } else { " / " })?;
+    crate::token::write_token_list(cx.ast_context().vec_iter(alpha()), dest, cx)?;
+    dest.write_char(')')
+}
+
+fn write_unresolved_light_dark<'ast, 'ghost, PrinterT: PrinterTrait>(
+    light: AstVec<'ast, TokenOrValue<'ast>>,
+    dark: AstVec<'ast, TokenOrValue<'ast>>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    dest.write_str("light-dark(")?;
+    crate::token::write_token_list(cx.ast_context().vec_iter(light), dest, cx)?;
+    dest.delim(Delimiter::Comma)?;
+    crate::token::write_token_list(cx.ast_context().vec_iter(dark), dest, cx)?;
+    dest.write_char(')')
 }

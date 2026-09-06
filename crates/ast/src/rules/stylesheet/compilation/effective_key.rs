@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use rocketcss_common::Allocator;
 use rustc_hash::FxHasher;
 
-use crate::VendorPrefix;
+use crate::{AstNodeStorage, VendorPrefix};
 
 use super::{ConcreteMutationError, ConcreteRuleId as RuleId, *};
 
@@ -335,7 +335,7 @@ pub(crate) struct SelectorPathRecord<'ast> {
 pub(crate) struct ContextValueRecord<'ast, P> {
     pub(super) representative: super::RuleId<'ast, P>,
     pub(super) fingerprint: u64,
-    source_key: Option<&'ast str>,
+    source_key: Option<rocketcss_common::AstStr<'ast>>,
     fingerprint_is_source: bool,
 }
 
@@ -858,7 +858,7 @@ impl<'ast> AstContext<'ast> {
         &mut self,
         context: EffectiveContext<'ast, CssRulePayload<'ast>>,
         rule: RuleId<'ast>,
-        source_key: Option<&'ast str>,
+        source_key: Option<&str>,
     ) -> Result<EffectiveContext<'ast, CssRulePayload<'ast>>, MutationError<'ast>> {
         if matches!(
             self.rule(rule).map(RuleRecord::payload),
@@ -1254,7 +1254,7 @@ impl<'ast> AstContext<'ast> {
     fn intern_context_value(
         &mut self,
         rule: RuleId<'ast>,
-        source_key: Option<&'ast str>,
+        source_key: Option<&str>,
     ) -> Result<ContextValueId<'ast>, MutationError<'ast>> {
         let kind = self
             .context_frame_kind(rule)
@@ -1275,7 +1275,10 @@ impl<'ast> AstContext<'ast> {
                     && if kind.is_opaque() {
                         state.representative == rule
                     } else if let Some(source_key) = source_key {
-                        self.context_values[state.id].source_key == Some(source_key)
+                        self.context_values[state.id]
+                            .source_key
+                            .map(|key| self.str(key))
+                            == Some(source_key)
                     } else {
                         self.context_frames_equal(state.representative, rule, kind)
                     }
@@ -1283,6 +1286,7 @@ impl<'ast> AstContext<'ast> {
         {
             return Ok(state.id);
         }
+        let source_key = source_key.map(|key| self.add_str(key));
         let id = self
             .context_values
             .try_push(ContextValueRecord {
@@ -1325,10 +1329,10 @@ impl<'ast> AstContext<'ast> {
                     debug_hash(&mut hasher, &payload.query);
                 }
                 CssRulePayload::Supports(payload) => {
-                    debug_hash(&mut hasher, &payload.condition);
+                    hash_supports_condition(self, &payload.condition, &mut hasher);
                 }
                 CssRulePayload::Container(payload) => {
-                    debug_hash(&mut hasher, &payload.name);
+                    debug_hash(&mut hasher, &payload.name.map(|name| self.str(name)));
                     debug_hash(&mut hasher, &payload.condition);
                 }
                 _ => unreachable!("typed context kind and payload remain aligned"),
@@ -1354,20 +1358,43 @@ impl<'ast> AstContext<'ast> {
                 left.query == right.query
             }
             (Some(CssRulePayload::Supports(left)), Some(CssRulePayload::Supports(right))) => {
-                left.condition == right.condition
+                left.condition.eq_in_context(&right.condition, self)
             }
             (Some(CssRulePayload::Container(left)), Some(CssRulePayload::Container(right))) => {
-                left.name == right.name && left.condition == right.condition
+                left.name.map(|name| self.str(name)) == right.name.map(|name| self.str(name))
+                    && left.condition == right.condition
             }
             _ => false,
         }
     }
 }
 
-/// Hashes a complete semantic context value without allocating a temporary
-/// formatted string. The context payload types intentionally do not implement
-/// `Hash`, while their derived `Debug` output includes every field used by the
-/// exact equality checks above. The resulting value is still only a bucket
+// Supports leaf text is an ordinary range, so fingerprinting must resolve it
+// just like SupportsCondition::eq_in_context. Nested node/list identity remains
+// unchanged here; the caller can provide a richer semantic context comparer.
+fn hash_supports_condition(
+    ast: &AstContext<'_>,
+    condition: &crate::SupportsCondition<'_>,
+    hasher: &mut FxHasher,
+) {
+    use crate::SupportsCondition;
+    std::mem::discriminant(condition).hash(hasher);
+    match condition {
+        SupportsCondition::Selector(value) | SupportsCondition::Unknown(value) => {
+            ast.str(*value).hash(hasher)
+        }
+        SupportsCondition::Declaration { property_id, value } => {
+            property_id.hash(hasher);
+            ast.str(*value).hash(hasher);
+        }
+        _ => debug_hash(hasher, condition),
+    }
+}
+
+/// Hashes identity-based context fields without allocating a temporary formatted
+/// string. Ordinary string ranges must be resolved before reaching this helper;
+/// their Debug representation identifies storage locations rather than text.
+/// The formatted fields must agree with the equality checks above. The resulting value is still only a bucket
 /// filter; canonicalization always calls `context_frames_equal` on collisions.
 fn debug_hash<T: std::fmt::Debug>(hasher: &mut FxHasher, value: &T) {
     let mut writer = DebugHashWriter(hasher);
@@ -1530,6 +1557,63 @@ mod tests {
     use crate::Selector;
 
     use super::*;
+
+    #[test]
+    fn supports_context_identity_uses_string_contents_across_ranges() {
+        use crate::{PropertyId, SupportsCondition, SupportsRulePayload};
+        let allocator = rocketcss_common::Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let root = ast.stylesheet().root_rules();
+        let property = ast.alloc_node(PropertyId::Width, crate::DUMMY_SP);
+        let first = ast.add_str("same text");
+        let second = ast.add_str("same text");
+        let different = ast.add_str("different text");
+        assert_ne!(first, second);
+        for variant in 0..3 {
+            let condition = |value| match variant {
+                0 => SupportsCondition::Selector(value),
+                1 => SupportsCondition::Unknown(value),
+                _ => SupportsCondition::Declaration {
+                    property_id: property,
+                    value,
+                },
+            };
+            let mut rules = std::vec::Vec::new();
+            for value in [first, second, different] {
+                rules.push(
+                    ast.append_rule(
+                        root,
+                        CssRulePayload::Supports(SupportsRulePayload {
+                            condition: condition(value),
+                        }),
+                    )
+                    .unwrap(),
+                );
+            }
+            assert!(ast.context_frames_equal(rules[0], rules[1], ContextFrameKind::Supports));
+            assert_eq!(
+                ast.hash_context_frame(rules[0], ContextFrameKind::Supports),
+                ast.hash_context_frame(rules[1], ContextFrameKind::Supports)
+            );
+            assert!(!ast.context_frames_equal(rules[0], rules[2], ContextFrameKind::Supports));
+            let left = ast.intern_context_value(rules[0], None).unwrap();
+            let right = ast.intern_context_value(rules[1], None).unwrap();
+            let other = ast.intern_context_value(rules[2], None).unwrap();
+            assert_eq!(left, right);
+            assert_ne!(left, other);
+            let source_left = ast
+                .intern_context_value(rules[0], Some(&format!("first prelude {variant}")))
+                .unwrap();
+            let source_right = ast
+                .intern_context_value(rules[1], Some(&format!("second prelude {variant}")))
+                .unwrap();
+            assert_ne!(source_left, source_right);
+            ast.refresh_context_value_identities().unwrap();
+            let refreshed_left = ast.intern_context_value(rules[0], None).unwrap();
+            let refreshed_right = ast.intern_context_value(rules[1], None).unwrap();
+            assert_eq!(refreshed_left, refreshed_right);
+        }
+    }
 
     #[test]
     fn selector_fingerprint_collisions_still_require_exact_equality() {

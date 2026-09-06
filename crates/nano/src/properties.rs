@@ -1,4 +1,4 @@
-use rocketcss_ast::{PropertyId, match_ignore_ascii_case};
+use rocketcss_ast::{AstContext, PropertyId, match_ignore_ascii_case};
 
 use crate::{
     MinifyContext, Options, OptionsOp,
@@ -7,6 +7,7 @@ use crate::{
 
 #[allow(dead_code)]
 pub(crate) fn value_context(
+    ast: &AstContext<'_>,
     property_id: &PropertyId<'_>,
     order_values: bool,
     convert_zero_percentages: bool,
@@ -57,7 +58,7 @@ pub(crate) fn value_context(
     );
     cx.set_enabled(
         ValueContextFlags::MINIFY_COLORS,
-        should_minify_colors(property_id),
+        should_minify_colors(ast, property_id),
     );
     cx
 }
@@ -91,7 +92,7 @@ fn property_context(property_id: &PropertyId<'_>) -> PropertyContext {
 }
 
 #[allow(dead_code)]
-fn should_minify_colors(property_id: &PropertyId<'_>) -> bool {
+fn should_minify_colors(ast: &AstContext<'_>, property_id: &PropertyId<'_>) -> bool {
     match property_id {
         PropertyId::FontWeight
         | PropertyId::FontSize
@@ -104,6 +105,7 @@ fn should_minify_colors(property_id: &PropertyId<'_>) -> bool {
         | PropertyId::Filter(_)
         | PropertyId::Composes => false,
         PropertyId::Custom(name) => {
+            let name = ast.str(*name);
             !(match_ignore_ascii_case!(
                 name,
                 "src" | "-webkit-tap-highlight-color" => true,

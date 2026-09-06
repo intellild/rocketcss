@@ -2,17 +2,17 @@ use crate::*;
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct CharsetRule<'a> {
-    pub encoding: &'a str,
+    pub encoding: AstStr<'a>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct NamespaceRule<'a> {
-    pub prefix: Option<&'a str>,
-    pub url: &'a str,
+    pub prefix: Option<AstStr<'a>>,
+    pub url: AstStr<'a>,
 }
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct CustomMediaRule<'a> {
-    pub name: &'a str,
+    pub name: AstStr<'a>,
     pub query: MediaList<'a>,
 }

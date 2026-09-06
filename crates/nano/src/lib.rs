@@ -148,9 +148,9 @@ pub fn try_minify<'ast, 'ghost>(
     Ok(minifier.cx.stats())
 }
 
-fn minify_rule_payload<'ast, 'ghost>(
+fn minify_rule_payload<'ast: 'cx, 'cx, 'ghost>(
     payload: &mut CssRulePayload<'ast>,
-    minifier: &mut Minifier<'ast, '_>,
+    minifier: &mut Minifier<'cx>,
     cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
 ) {
     use CssRulePayload;
@@ -202,9 +202,9 @@ fn minify_rule_payload<'ast, 'ghost>(
     }
 }
 
-fn minify_descriptor<'ast, 'ghost>(
+fn minify_descriptor<'ast: 'cx, 'cx, 'ghost>(
     descriptor: &mut DeclarationPayload<'ast>,
-    minifier: &mut Minifier<'ast, '_>,
+    minifier: &mut Minifier<'cx>,
     cx: &mut VisitMutContext<'_, 'ast, 'ghost>,
 ) {
     use {DeclarationPayload, PropertyRuleDescriptor};
@@ -258,13 +258,13 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for MinifyPlugin {
     }
 }
 
-struct Minifier<'ast, 'cx> {
+struct Minifier<'cx> {
     cx: MinifyContext<'cx>,
-    declaration_blocks: rules::DeclarationBlockMinifier<'cx, 'ast>,
+    declaration_blocks: rules::DeclarationBlockMinifier<'cx>,
 }
 
-impl<'ast, 'cx> Minifier<'ast, 'cx> {
-    fn minify_unknown_token_lists<'ghost>(
+impl<'cx> Minifier<'cx> {
+    fn minify_unknown_token_lists<'ast: 'cx, 'ghost>(
         &mut self,
         prelude: &mut rocketcss_ast::Vec<'ast, TokenOrValue<'ast>>,
         mut block: Option<&mut rocketcss_ast::Vec<'ast, TokenOrValue<'ast>>>,
@@ -293,12 +293,12 @@ impl<'ast, 'cx> Minifier<'ast, 'cx> {
     }
 }
 
-impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
+impl<'ast: 'cx, 'cx, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'cx> {
     fn visit_url(&mut self, node: &mut Url<'ast>, cx: &mut VisitMutContext<'_, 'ast, 'ghost>) {
         if self.cx.is_enabled(Options::NORMALIZE_URLS, OptionsOp::Any)
-            && let Some(normalized) = rules::normalize_url_text(node.url)
+            && let Some(normalized) = rules::normalize_url_text(cx.ast_context().str(node.url))
         {
-            node.url = cx.ast_allocator().alloc_str(&normalized);
+            node.url = cx.ast_context_mut().add_str(&normalized);
             self.cx.record_value_normalized();
         }
     }
@@ -342,7 +342,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
                 .iter()
                 .map(|id| cx.ast_context().resolve_node(*id))
                 .collect::<std::vec::Vec<_>>();
-            values.minify(&mut self.cx);
+            crate::values::font::minify_font_families(&mut values, &mut self.cx, cx.ast_context());
             let remove = values.iter().all(FontFamily::is_tombstone);
             for (id, value) in ids.into_iter().zip(values) {
                 cx.ast_context_mut()
@@ -413,7 +413,9 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
         let previous = self.cx.value_context;
         self.cx.value_context = properties::custom_property_context(&self.cx);
         let name = match cx.ast_context().resolve_node(node.name) {
-            CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+            CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => {
+                cx.ast_context().str(name)
+            }
         };
         if match_ignore_ascii_case!(name, "--font-family" => true, _ => false) {
             self.cx.value_context.property = context::PropertyContext::Font;
@@ -544,7 +546,7 @@ impl<'ast, 'ghost> VisitorMut<'ast, 'ghost> for Minifier<'ast, '_> {
 
     fn visit_token(&mut self, node: &mut Token<'ast>, cx: &mut VisitMutContext<'_, 'ast, 'ghost>) {
         node.visit_mut_children(self, cx);
-        node.minify(&mut self.cx);
+        token::minify_token(node, &mut self.cx, cx.ast_context_mut());
     }
 
     fn visit_length_value(

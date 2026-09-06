@@ -1,6 +1,5 @@
+use crate::parser::length::parse_length_unit;
 use crate::prelude::*;
-
-use super::background::parse_position_components;
 
 impl<'i> Parse<'i> for ObjectFit {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
@@ -20,10 +19,11 @@ impl<'i> Parse<'i> for ObjectFit {
 impl<'i> Parse<'i> for Image<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let span = input.current_token_span().unwrap_or_default();
-        let token = input.next()?.clone();
+        let token = *input.next()?;
         match token {
             ValueToken::Ident(name) if name.eq_ignore_ascii_case("none") => Ok(Self::None),
             ValueToken::UnquotedUrl(url) => {
+                let url = input.add_str(url);
                 let url = input.ast_context_mut().alloc_node(Url { url }, span);
                 Ok(Self::Url(url))
             }
@@ -33,6 +33,7 @@ impl<'i> Parse<'i> for Image<'i> {
                     input.expect_exhausted()?;
                     Ok(url)
                 })?;
+                let url = input.add_str(url);
                 let url = input.ast_context_mut().alloc_node(Url { url }, span);
                 Ok(Self::Url(url))
             }
@@ -122,7 +123,7 @@ fn parse_image_set<'i>(
     input: &mut Compiler<'i>,
     vendor_prefix: VendorPrefix,
 ) -> Result<ImageSet<'i>, ParseError<'i, ParserError<'i>>> {
-    let options = super::animation::parse_comma_separated(input, |input| {
+    let options = super::parse_comma_separated(input, |input| {
         let option = parse_image_set_option(input, vendor_prefix)?;
         Ok(store_node(option, input))
     })?;
@@ -138,6 +139,7 @@ fn parse_image_set_option<'i>(
 ) -> Result<ImageSetOption<'i>, ParseError<'i, ParserError<'i>>> {
     let span = input.current_token_span().unwrap_or_default();
     let image = if let Ok(url) = input.try_parse(Compiler::expect_string) {
+        let url = input.add_str(url);
         let url = input.ast_context_mut().alloc_node(Url { url }, span);
         Image::Url(url)
     } else {
@@ -162,7 +164,7 @@ fn parse_image_set_option<'i>(
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
     Ok(ImageSetOption {
-        file_type,
+        file_type: file_type.map(|value| input.add_str(value)),
         image: store_node(image, input),
         resolution,
     })
@@ -171,7 +173,7 @@ fn parse_image_set_option<'i>(
 fn parse_image_resolution<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<Resolution, ParseError<'i, ParserError<'i>>> {
-    match input.next()?.clone() {
+    match *input.next()? {
         ValueToken::Dimension {
             unit: Unit::Dpi,
             value,
@@ -512,7 +514,7 @@ fn parse_line_direction<'i>(
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
 
-    let token = input.next()?.clone();
+    let token = *input.next()?;
     let ValueToken::Dimension { unit, value } = token else {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     };
@@ -561,7 +563,7 @@ fn parse_conic_gradient_item<'i>(
 fn parse_angle_percentage<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<AnglePercentage<'i>, ParseError<'i, ParserError<'i>>> {
-    match input.next()?.clone() {
+    match *input.next()? {
         ValueToken::Percentage(value) => Ok(DimensionPercentage::Percentage(value)),
         ValueToken::Number(0.0) => Ok(DimensionPercentage::Dimension(Angle::Deg(0.0))),
         ValueToken::Dimension { unit, value } => {
@@ -575,5 +577,282 @@ fn parse_angle_percentage<'i>(
             Ok(DimensionPercentage::Dimension(angle))
         }
         _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+    }
+}
+
+type PositionComponents<'i> = (
+    NodeId<'i, PositionComponent<'i, HorizontalPositionKeyword>>,
+    NodeId<'i, PositionComponent<'i, VerticalPositionKeyword>>,
+);
+
+pub(in crate::parser) fn zero_position<'i, S>(
+    input: &mut Compiler<'i>,
+) -> NodeId<'i, PositionComponent<'i, S>>
+where
+    PositionComponent<'i, S>: AstNodeStorage<'i>,
+{
+    let length = store_node(DimensionPercentage::Percentage(0.0), input);
+    store_node(PositionComponent::Length(length), input)
+}
+
+impl<'i> Parse<'i> for BackgroundRepeatKeyword {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let ident = input.expect_ident()?;
+        match_ignore_ascii_case!(
+            ident,
+            "repeat" => Ok(Self::Repeat),
+            "space" => Ok(Self::Space),
+            "round" => Ok(Self::Round),
+            "no-repeat" => Ok(Self::NoRepeat),
+            _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+        )
+    }
+}
+
+impl<'i> Parse<'i> for BackgroundAttachment {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let ident = input.expect_ident()?;
+        match_ignore_ascii_case!(
+            ident,
+            "scroll" => Ok(Self::Scroll),
+            "fixed" => Ok(Self::Fixed),
+            "local" => Ok(Self::Local),
+            _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+        )
+    }
+}
+
+impl<'i> Parse<'i> for BackgroundClip {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let ident = input.expect_ident()?;
+        match_ignore_ascii_case!(
+            ident,
+            "border-box" => Ok(Self::BorderBox),
+            "padding-box" => Ok(Self::PaddingBox),
+            "content-box" => Ok(Self::ContentBox),
+            "border" => Ok(Self::Border),
+            "text" => Ok(Self::Text),
+            _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+        )
+    }
+}
+
+impl<'i> Parse<'i> for BackgroundOrigin {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let ident = input.expect_ident()?;
+        match_ignore_ascii_case!(
+            ident,
+            "border-box" => Ok(Self::BorderBox),
+            "padding-box" => Ok(Self::PaddingBox),
+            "content-box" => Ok(Self::ContentBox),
+            _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+        )
+    }
+}
+
+impl<'i> Parse<'i> for BackgroundSize<'i> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let value = parse_background_size(input)?;
+        input.expect_exhausted()?;
+        Ok(value)
+    }
+}
+
+pub(in crate::parser) fn parse_background_size<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<BackgroundSize<'i>, ParseError<'i, ParserError<'i>>> {
+    if input
+        .try_parse(|input| input.expect_ident_matching("cover"))
+        .is_ok()
+    {
+        return Ok(BackgroundSize::Cover);
+    }
+    if input
+        .try_parse(|input| input.expect_ident_matching("contain"))
+        .is_ok()
+    {
+        return Ok(BackgroundSize::Contain);
+    }
+
+    let width = store_node(LengthPercentageOrAuto::parse(input)?, input);
+    let height = input
+        .try_parse(LengthPercentageOrAuto::parse)
+        .unwrap_or(LengthPercentageOrAuto::Auto);
+    Ok(BackgroundSize::Explicit {
+        height: store_node(height, input),
+        width,
+    })
+}
+
+pub(in crate::parser) fn parse_position_components<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<PositionComponents<'i>, ParseError<'i, ParserError<'i>>> {
+    if let Ok(components) = input.try_parse(parse_horizontal_first_position) {
+        return Ok(components);
+    }
+    parse_vertical_first_position(input)
+}
+
+fn parse_horizontal_first_position<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<PositionComponents<'i>, ParseError<'i, ParserError<'i>>> {
+    let x = store_node(
+        parse_position_component::<HorizontalPositionKeyword>(
+            input,
+            parse_horizontal_position_keyword,
+        )?,
+        input,
+    );
+    let y = if input.is_exhausted() {
+        store_node(PositionComponent::Center, input)
+    } else {
+        store_node(
+            input
+                .try_parse(|input| {
+                    parse_position_component::<VerticalPositionKeyword>(
+                        input,
+                        parse_vertical_position_keyword,
+                    )
+                })
+                .unwrap_or(PositionComponent::Center),
+            input,
+        )
+    };
+    Ok((x, y))
+}
+
+fn parse_vertical_first_position<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<PositionComponents<'i>, ParseError<'i, ParserError<'i>>> {
+    let y = store_node(
+        parse_position_component::<VerticalPositionKeyword>(
+            input,
+            parse_vertical_position_keyword,
+        )?,
+        input,
+    );
+    let x = if input.is_exhausted() {
+        store_node(PositionComponent::Center, input)
+    } else {
+        store_node(
+            input
+                .try_parse(|input| {
+                    parse_position_component::<HorizontalPositionKeyword>(
+                        input,
+                        parse_horizontal_position_keyword,
+                    )
+                })
+                .unwrap_or(PositionComponent::Center),
+            input,
+        )
+    };
+    Ok((x, y))
+}
+
+fn parse_horizontal_position_keyword<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<HorizontalPositionKeyword, ParseError<'i, ParserError<'i>>> {
+    let ident = input.expect_ident()?;
+    match_ignore_ascii_case!(
+        ident,
+        "left" => Ok(HorizontalPositionKeyword::Left),
+        "right" => Ok(HorizontalPositionKeyword::Right),
+        _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+    )
+}
+
+fn parse_vertical_position_keyword<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<VerticalPositionKeyword, ParseError<'i, ParserError<'i>>> {
+    let ident = input.expect_ident()?;
+    match_ignore_ascii_case!(
+        ident,
+        "top" => Ok(VerticalPositionKeyword::Top),
+        "bottom" => Ok(VerticalPositionKeyword::Bottom),
+        _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+    )
+}
+
+impl<'i> Parse<'i> for PositionComponent<'i, HorizontalPositionKeyword> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let value = parse_position_component(input, parse_horizontal_position_keyword)?;
+        input.expect_exhausted()?;
+        Ok(value)
+    }
+}
+
+impl<'i> Parse<'i> for PositionComponent<'i, VerticalPositionKeyword> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let value = parse_position_component(input, parse_vertical_position_keyword)?;
+        input.expect_exhausted()?;
+        Ok(value)
+    }
+}
+
+fn parse_position_component<'i, S>(
+    input: &mut Compiler<'i>,
+    mut parse_side: impl FnMut(&mut Compiler<'i>) -> Result<S, ParseError<'i, ParserError<'i>>>,
+) -> Result<PositionComponent<'i, S>, ParseError<'i, ParserError<'i>>> {
+    if input
+        .try_parse(|input| input.expect_ident_matching("center"))
+        .is_ok()
+    {
+        return Ok(PositionComponent::Center);
+    }
+    if let Ok(side) = input.try_parse(&mut parse_side) {
+        let offset = input
+            .try_parse(LengthPercentage::parse)
+            .ok()
+            .map(|value| store_node(value, input));
+        return Ok(PositionComponent::Side { offset, side });
+    }
+    Ok(PositionComponent::Length(store_node(
+        LengthPercentage::parse(input)?,
+        input,
+    )))
+}
+pub(in crate::parser) fn is_non_negative_length_percentage(value: &LengthPercentage<'_>) -> bool {
+    match value {
+        LengthPercentage::Dimension(value) => value.value >= 0.0,
+        LengthPercentage::Percentage(value) => *value >= 0.0,
+        LengthPercentage::Zero | LengthPercentage::Calc(_) => true,
+    }
+}
+
+impl<'i> Parse<'i> for NumberOrPercentage {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        match *input.next()? {
+            ValueToken::Number(value) => Ok(Self::Number(value)),
+            ValueToken::Percentage(value) => Ok(Self::Percentage(value)),
+            _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+        }
+    }
+}
+
+impl<'i> Parse<'i> for LengthPercentageOrAuto<'i> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        if input
+            .try_parse(|input| input.expect_ident_matching("auto"))
+            .is_ok()
+        {
+            return Ok(Self::Auto);
+        }
+        LengthPercentage::parse(input).map(|value| Self::LengthPercentage(store_node(value, input)))
+    }
+}
+
+impl<'i> Parse<'i> for LengthPercentage<'i> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let location = input.current_source_location();
+        match *input.next()? {
+            ValueToken::Percentage(value) => Ok(Self::Percentage(value)),
+            ValueToken::Dimension { unit, value } => {
+                let unit = parse_length_unit(&unit)
+                    .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
+                Ok(Self::Dimension(LengthValue { unit, value }))
+            }
+            ValueToken::Number(0.0) => Ok(Self::Zero),
+            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
+        }
     }
 }

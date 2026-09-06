@@ -1,4 +1,4 @@
-use super::{stylesheet::check_depth, values::collect_tokens};
+use super::{rules::stylesheet::check_depth, values::collect_tokens};
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for SelectorList<'i> {
@@ -68,7 +68,7 @@ pub(super) fn parse_selector<'i>(
 
     loop {
         let token = match input.next_including_whitespace() {
-            Ok(token) => token.clone(),
+            Ok(token) => *token,
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };
@@ -168,7 +168,7 @@ fn local_name<'i>(name: &str, input: &mut Compiler<'i>) -> SelectorComponent<'i>
 fn parse_type_selector<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
-    match input.next()?.clone() {
+    match *input.next()? {
         ValueToken::Ident(name) => Ok(local_name(name, input)),
         ValueToken::Delim("*") => Ok(SelectorComponent::ExplicitUniversalType),
         _ => Err(input.new_custom_error(ParserError::InvalidSelector)),
@@ -181,7 +181,7 @@ pub(super) fn parse_pseudo<'i>(
     depth: usize,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
     let is_element = input.try_parse(Compiler::expect_colon).is_ok();
-    let token = input.next()?.clone();
+    let token = *input.next()?;
 
     match token {
         ValueToken::Ident(name) if is_element => Ok(SelectorComponent::PseudoElement(store_node(
@@ -205,8 +205,13 @@ pub(super) fn parse_pseudo<'i>(
             let arguments = store_vec(arguments, input);
             Ok(SelectorComponent::PseudoElement(store_node(
                 PseudoElement::CustomFunction {
-                    name: input.intern(name),
-                    arguments,
+                    function: store_node(
+                        CustomPseudoFunction {
+                            name: input.intern(name),
+                            arguments,
+                        },
+                        input,
+                    ),
                 },
                 input,
             )))
@@ -263,8 +268,13 @@ pub(super) fn parse_pseudo<'i>(
                     let arguments = store_vec(arguments, input);
                     SelectorComponent::PseudoClass(store_node(
                         PseudoClass::CustomFunction {
-                            name: input.intern(name),
-                            arguments,
+                            function: store_node(
+                                CustomPseudoFunction {
+                                    name: input.intern(name),
+                                    arguments,
+                                },
+                                input,
+                            ),
                         },
                         input,
                     ))
@@ -325,7 +335,7 @@ pub(super) fn parse_attribute<'i>(
     input: &mut Compiler<'i>,
     _allocator: &'i Allocator,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
-    let first = input.next()?.clone();
+    let first = *input.next()?;
     let (namespace, name) = match first {
         ValueToken::Delim("|") => (None, input.expect_ident()?),
         ValueToken::Delim("*") => {

@@ -4,77 +4,75 @@ use rocketcss_ast::{
 use rocketcss_common::vec::Vec;
 
 use crate::{
-    Minify, MinifyContext, Options, OptionsOp,
+    MinifyContext, Options, OptionsOp,
     context::{PropertyContext, ValueContextFlags},
     length,
 };
 
-impl Minify for Token<'_> {
-    /// Normalizes one stored token node in place.
-    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
+pub(crate) fn minify_token<'ast>(
+    node: &mut Token<'ast>,
+    cx: &mut MinifyContext<'_>,
+    ast: &mut rocketcss_ast::AstContext<'ast>,
+) {
+    if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
+        || cx
+            .value_context
+            .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
+        || (cx
+            .value_context
+            .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS))
     {
-        if cx.is_enabled(Options::NORMALIZE_VALUES, OptionsOp::None)
-            || cx
-                .value_context
-                .is_enabled(ValueContextFlags::SKIP_VALUE_TRANSFORMS)
-            || (cx
-                .value_context
-                .is_enabled(ValueContextFlags::SKIP_RAW_TOKEN_TRANSFORMS))
-        {
-            return;
-        }
+        return;
+    }
 
-        match self {
-            Token::Number(value) if *value == 0.0 && value.is_sign_negative() => {
-                *value = 0.0;
-                cx.record_value_normalized();
-            }
-            Token::String(value)
-                if cx.value_context.property == PropertyContext::Font
-                    && can_unquote_font(value) =>
-            {
-                *self = Token::UnquotedFont(value);
-                cx.record_value_normalized();
-            }
-            Token::Hash(value) | Token::IdHash(value)
-                if cx
-                    .value_context
-                    .is_enabled(ValueContextFlags::MINIFY_COLORS)
-                    && is_hex_color(value) =>
-            {
-                *self = minify_hex_color(value);
-                cx.record_value_normalized();
-            }
-            Token::Dimension { unit, value } => {
-                if *value == 0.0
-                    && cx
-                        .value_context
-                        .is_enabled(ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH)
-                    && unit.is_length()
-                {
-                    *self = Token::Number(0.0);
-                    cx.record_value_normalized();
-                } else if let Some((number, normalized_unit)) =
-                    length::minify_dimension(*value, *unit, cx)
-                    && (number != *value || normalized_unit != *unit)
-                {
-                    *value = number;
-                    *unit = normalized_unit;
-                }
-            }
-            Token::Percentage(value)
-                if *value == 0.0
-                    && cx
-                        .value_context
-                        .is_enabled(ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE) =>
-            {
-                *self = Token::Number(0.0);
-                cx.record_value_normalized();
-            }
-            _ => {}
+    match node {
+        Token::Number(value) if *value == 0.0 && value.is_sign_negative() => {
+            *value = 0.0;
+            cx.record_value_normalized();
         }
+        Token::String(value)
+            if cx.value_context.property == PropertyContext::Font
+                && can_unquote_font(ast.str(*value)) =>
+        {
+            *node = Token::UnquotedFont(*value);
+            cx.record_value_normalized();
+        }
+        Token::Hash(value) | Token::IdHash(value)
+            if cx
+                .value_context
+                .is_enabled(ValueContextFlags::MINIFY_COLORS)
+                && is_hex_color(ast.str(*value)) =>
+        {
+            *node = minify_hex_color(*value, ast);
+            cx.record_value_normalized();
+        }
+        Token::Dimension { unit, value } => {
+            if *value == 0.0
+                && cx
+                    .value_context
+                    .is_enabled(ValueContextFlags::ALLOW_UNITLESS_ZERO_LENGTH)
+                && unit.is_length()
+            {
+                *node = Token::Number(0.0);
+                cx.record_value_normalized();
+            } else if let Some((number, normalized_unit)) =
+                length::minify_dimension(*value, *unit, cx)
+                && (number != *value || normalized_unit != *unit)
+            {
+                *value = number;
+                *unit = normalized_unit;
+            }
+        }
+        Token::Percentage(value)
+            if *value == 0.0
+                && cx
+                    .value_context
+                    .is_enabled(ValueContextFlags::ALLOW_UNITLESS_ZERO_PERCENTAGE) =>
+        {
+            *node = Token::Number(0.0);
+            cx.record_value_normalized();
+        }
+        _ => {}
     }
 }
 
@@ -82,14 +80,20 @@ fn is_hex_color(value: &str) -> bool {
     matches!(value.len(), 3 | 4 | 6 | 8) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn minify_hex_color<'a>(value: &'a str) -> Token<'a> {
-    match_ignore_ascii_case!(
-        value,
-        "ff0000" | "f00" => Token::Ident("red"),
-        "f0ffff" => Token::Ident("azure"),
-        "808080" => Token::Ident("gray"),
-        _ => Token::MinifiedHash(value),
-    )
+fn minify_hex_color<'a>(
+    value: rocketcss_ast::AstStr<'a>,
+    ast: &mut rocketcss_ast::AstContext<'a>,
+) -> Token<'a> {
+    let keyword = match_ignore_ascii_case!(ast.str(value),
+        "ff0000" | "f00" => Some("red"),
+        "f0ffff" => Some("azure"),
+        "808080" => Some("gray"),
+        _ => None,
+    );
+    match keyword {
+        Some(keyword) => Token::Ident(ast.add_str(keyword)),
+        None => Token::MinifiedHash(value),
+    }
 }
 
 pub(crate) fn can_unquote_font(value: &str) -> bool {
@@ -126,7 +130,7 @@ pub(crate) fn can_unquote_font(value: &str) -> bool {
 }
 
 fn is_generic_font_family(value: &str) -> bool {
-    FontFamily::from_name(value).is_generic()
+    FontFamily::from_known_name(value).is_some_and(|family| family.is_generic())
 }
 
 pub(crate) fn minify_token_values<'a, 'cx, 'ghost>(
@@ -357,7 +361,9 @@ fn minify_display<'ast>(
             let TokenOrValue::Token(token) = &mut values[2] else {
                 unreachable!()
             };
-            ast.mutate_node(*token, |token, _| *token = Token::Ident("list-item"));
+            ast.mutate_node(*token, |token, cx| {
+                *token = Token::Ident(cx.ast_context_mut().add_str("list-item"))
+            });
             values.truncate(3);
             cx.record_value_normalized();
             return;
@@ -370,7 +376,9 @@ fn minify_display<'ast>(
     let TokenOrValue::Token(token) = &mut values[0] else {
         return;
     };
-    ast.mutate_node(*token, |token, _| *token = Token::Ident(replacement));
+    ast.mutate_node(*token, |token, cx| {
+        *token = Token::Ident(cx.ast_context_mut().add_str(replacement))
+    });
     values.truncate(1);
     cx.record_value_normalized();
 }
@@ -547,7 +555,7 @@ fn is_position_component(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_,
         TokenOrValue::Token(token) => {
             matches!(
                 ast.ast_context().resolve_node(*token),
-                Token::Ident(value) if position_keyword(value).is_some()
+                Token::Ident(value) if position_keyword(ast.ast_context().str(value)).is_some()
             ) || matches!(
                 ast.ast_context().resolve_node(*token),
                 Token::Number(_)
@@ -582,7 +590,7 @@ fn is_comma(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> bool
 }
 
 fn is_slash(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> bool {
-    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::Delim("/")))
+    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if ast.ast_context().str(value) == "/"))
 }
 
 fn compact_comments_and_whitespace_with<'a>(
@@ -757,12 +765,14 @@ fn set_normalized_whitespace<'ast>(
     let TokenOrValue::Token(token) = value else {
         unreachable!("separator nodes are tokens")
     };
-    ast.mutate_node(*token, |token, _| *token = Token::WhiteSpace(" "));
+    ast.mutate_node(*token, |token, cx| {
+        *token = Token::WhiteSpace(cx.ast_context_mut().add_str(" "))
+    });
 }
 
 #[inline]
 fn is_normalized_whitespace(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> bool {
-    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(" ")))
+    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(value) if ast.ast_context().str(value) == " "))
 }
 
 fn record_value_normalized(cx: &mut MinifyContext, count: usize) {
@@ -788,7 +798,7 @@ fn multiplication_requires_whitespace(
 }
 
 fn is_delim(value: &TokenOrValue<'_>, expected: &str, ast: &VisitMutContext<'_, '_, '_>) -> bool {
-    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if value == expected))
+    matches!(value, TokenOrValue::Token(token) if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if ast.ast_context().str(value) == expected))
 }
 
 fn is_open_parenthesis(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> bool {
@@ -975,7 +985,7 @@ fn is_timing_value(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) 
         // → `ease`) keeps its timing rank even though its kind was reclassified.
         || (ast.ast_context().resolve_node(*function).is_identifier()
             && match_ignore_ascii_case!(
-                ast.ast_context().resolve_node(*function).name(),
+                ast.ast_context().str(ast.ast_context().resolve_node(*function).name()),
                 "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end" => true,
                 _ => false,
             )))
@@ -1212,7 +1222,7 @@ fn border_value_rank(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>
             Token::Number(_) | Token::Dimension { .. } => Some(0),
             Token::Ident(value)
                 if match_ignore_ascii_case!(
-                    value,
+                    ast.ast_context().str(value),
                     "thin" | "medium" | "thick" => true,
                     _ => false,
                 ) =>
@@ -1221,14 +1231,19 @@ fn border_value_rank(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>
             }
             Token::Ident(value)
                 if match_ignore_ascii_case!(
-                    value,
+                    ast.ast_context().str(value),
                     "none" | "hidden" | "dotted" | "dashed" | "solid" | "double" | "groove" | "ridge" | "inset" | "outset" | "auto" => true,
                     _ => false,
                 ) =>
             {
                 Some(1)
             }
-            Token::Ident(value) if value.starts_with('_') || value.ends_with('_') => None,
+            Token::Ident(value)
+                if ast.ast_context().str(value).starts_with('_')
+                    || ast.ast_context().str(value).ends_with('_') =>
+            {
+                None
+            }
             Token::Ident(_) | Token::Hash(_) | Token::IdHash(_) | Token::MinifiedHash(_) => Some(2),
             _ => None,
         },
@@ -1430,7 +1445,7 @@ fn minify_font_weight<'ast>(
         return;
     };
     let weight = match_ignore_ascii_case!(
-        value,
+        ast.ast_context().str(value),
         "normal" => 400.0,
         "bold" => 700.0,
         _ => return,
@@ -1448,7 +1463,7 @@ fn minify_font<'ast>(
         let TokenOrValue::Token(token) = value else {
             continue;
         };
-        if matches!(ast.ast_context().resolve_node(*token), Token::Ident(value) if match_ignore_ascii_case!(value, "bold" => true, _ => false))
+        if matches!(ast.ast_context().resolve_node(*token), Token::Ident(value) if match_ignore_ascii_case!(ast.ast_context().str(value), "bold" => true, _ => false))
         {
             ast.mutate_node(*token, |token, _| *token = Token::Number(700.0));
             cx.record_value_normalized();
@@ -1498,15 +1513,20 @@ fn minify_font<'ast>(
 }
 
 fn font_family_name<'a>(
-    value: &'a TokenOrValue<'a>,
-    ast: &VisitMutContext<'_, '_, '_>,
+    value: &TokenOrValue<'_>,
+    ast: &'a VisitMutContext<'_, '_, '_>,
 ) -> Option<(&'a str, bool)> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
     match ast.ast_context().resolve_node(*token) {
-        Token::Ident(value) => Some((value, is_generic_font_family(value))),
-        Token::String(value) | Token::UnquotedFont(value) => Some((value, false)),
+        Token::Ident(value) => Some((
+            ast.ast_context().str(value),
+            is_generic_font_family(ast.ast_context().str(value)),
+        )),
+        Token::String(value) | Token::UnquotedFont(value) => {
+            Some((ast.ast_context().str(value), false))
+        }
         _ => None,
     }
 }
@@ -1552,7 +1572,9 @@ fn minify_repeat_style<'ast>(
         let TokenOrValue::Token(token) = &mut values[index] else {
             unreachable!("repeat value was classified as a token")
         };
-        ast.mutate_node(*token, |token, _| *token = Token::Ident(replacement));
+        ast.mutate_node(*token, |token, cx| {
+            *token = Token::Ident(cx.ast_context_mut().add_str(replacement))
+        });
         drop(values.drain(index + 1..=index + 2));
         cx.record_value_normalized();
     }
@@ -1569,12 +1591,15 @@ fn canonical_repeat(value: &str) -> Option<&'static str> {
     )
 }
 
-fn token_ident<'a>(value: &TokenOrValue<'a>, ast: &VisitMutContext<'_, '_, '_>) -> Option<&'a str> {
+fn token_ident<'a>(
+    value: &TokenOrValue<'_>,
+    ast: &'a VisitMutContext<'_, '_, '_>,
+) -> Option<&'a str> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
     match ast.ast_context().resolve_node(*token) {
-        Token::Ident(value) => Some(value),
+        Token::Ident(value) => Some(ast.ast_context().str(value)),
         _ => None,
     }
 }
@@ -1611,7 +1636,7 @@ fn ends_with_open_punctuation(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_
                     | Token::ParenthesisBlock
                     | Token::SquareBracketBlock
                     | Token::CurlyBracketBlock
-            ) || matches!(ast.ast_context().resolve_node(*token), Token::Delim("/") | Token::Delim("*"))
+            ) || matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if matches!(ast.ast_context().str(value), "/" | "*"))
     )
 }
 
@@ -1630,6 +1655,6 @@ fn starts_with_close_punctuation(
                     | Token::CloseParenthesis
                     | Token::CloseSquareBracket
                     | Token::CloseCurlyBracket
-            ) || matches!(ast.ast_context().resolve_node(*token), Token::Delim("/") | Token::Delim("*"))
+            ) || matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if matches!(ast.ast_context().str(value), "/" | "*"))
     )
 }

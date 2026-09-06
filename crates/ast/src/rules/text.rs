@@ -9,42 +9,14 @@ pub struct TextTransform {
     pub full_width: bool,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct TextIndent<'a> {
     pub each_line: bool,
     pub hanging: bool,
     pub value: NodeId<'a, LengthPercentage<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for TextIndent<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0011_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            each_line: decode_bool(bytes[0]),
-            hanging: decode_bool(bytes[1]),
-            value: context
-                .encoded_node_id_at(u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        bytes[0] = self.each_line as u8;
-        bytes[1] = self.hanging as u8;
-        bytes[4..8].copy_from_slice(
-            &u32::try_from(self.value.index())
-                .expect("AST node ID exceeds four bytes")
-                .to_le_bytes(),
-        );
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(TextIndent<'ast>, 0x00110001);
 
 impl<'ast> AstNodeClone<'ast> for TextIndent<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -56,15 +28,7 @@ impl<'ast> AstNodeClone<'ast> for TextIndent<'ast> {
     }
 }
 
-fn decode_bool(value: u8) -> bool {
-    match value {
-        0 => false,
-        1 => true,
-        _ => panic!("invalid encoded bool"),
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct TextDecoration<'a> {
     pub color: NodeId<'a, CssColor<'a>>,
     pub line: NodeId<'a, TextDecorationLine<'a>>,
@@ -72,32 +36,7 @@ pub struct TextDecoration<'a> {
     pub thickness: NodeId<'a, TextDecorationThickness<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for TextDecoration<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0011_0002);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            color: read_node_id(&bytes, 4, context),
-            line: read_node_id(&bytes, 8, context),
-            style: decode_decoration_style(bytes[0]),
-            thickness: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        bytes[0] = encode_decoration_style(self.style);
-        write_node_id(&mut bytes, 4, self.color);
-        write_node_id(&mut bytes, 8, self.line);
-        write_node_id(&mut bytes, 12, self.thickness);
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(TextDecoration<'ast>, 0x00110002);
 
 impl<'ast> AstNodeClone<'ast> for TextDecoration<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -110,34 +49,13 @@ impl<'ast> AstNodeClone<'ast> for TextDecoration<'ast> {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct TextEmphasis<'a> {
     pub color: NodeId<'a, CssColor<'a>>,
     pub style: NodeId<'a, TextEmphasisStyle<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for TextEmphasis<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0011_0003);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            color: read_node_id(&bytes, 0, context),
-            style: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        write_node_id(&mut bytes, 0, self.color);
-        write_node_id(&mut bytes, 4, self.style);
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(TextEmphasis<'ast>, 0x00110003);
 
 impl<'ast> AstNodeClone<'ast> for TextEmphasis<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -163,27 +81,85 @@ pub struct TextShadow<'a> {
     pub y_offset: NodeId<'a, Length<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for TextShadow<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0011_0004);
+#[derive(Clone, Copy)]
+struct TextShadowHeader<'ast> {
+    blur: NodeId<'ast, Length<'ast>>,
+    color: NodeId<'ast, CssColor<'ast>>,
+    x_offset: NodeId<'ast, Length<'ast>>,
+    extra: u32,
+}
+#[derive(Clone, Copy)]
+struct TextShadowFields<'ast> {
+    y_offset: NodeId<'ast, Length<'ast>>,
+    spread: NodeId<'ast, Length<'ast>>,
+}
+pub use text_shadow_access::TextShadowRead;
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let offsets = context.extra_slot(payload.extra_start()).as_u64();
-        Self {
-            blur: read_node_id(&bytes, 0, context),
-            color: read_node_id(&bytes, 4, context),
-            spread: context.encoded_node_id_at((offsets >> 32) as u32 as usize),
-            x_offset: read_node_id(&bytes, 8, context),
-            y_offset: context.encoded_node_id_at(offsets as u32 as usize),
+mod text_shadow_access {
+    use super::*;
+
+    pub struct TextShadowRead<'context, 'storage, 'id> {
+        context: &'context AstContext<'storage>,
+        header: TextShadowHeader<'id>,
+    }
+    impl<'id> TextShadowRead<'_, '_, 'id> {
+        pub fn offsets(&self) -> [NodeId<'id, Length<'id>>; 4] {
+            // SAFETY: this kind owns one native TextShadowFields slot.
+            let fields: TextShadowFields<'id> = unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            };
+            [
+                self.header.x_offset,
+                fields.y_offset,
+                self.header.blur,
+                fields.spread,
+            ]
+        }
+        pub fn color(&self) -> NodeId<'id, CssColor<'id>> {
+            self.header.color
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_text_shadow(self, None, context)
+    impl<'storage> AstContext<'storage> {
+        pub fn text_shadow<'id>(
+            &self,
+            id: NodeId<'id, TextShadow<'id>>,
+        ) -> TextShadowRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload validates the owning kind before the header read.
+            TextShadowRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
     }
+}
 
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_text_shadow(self, Some(current.extra_start()), context)
+// SAFETY: this kind stores the native header and one typed y-offset/spread slot.
+unsafe impl<'ast> AstNodeStorage<'ast> for TextShadow<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0011_0004);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: TextShadowHeader<'ast> = unsafe { payload.read_value() };
+        let fields: TextShadowFields<'ast> =
+            unsafe { context.extra_slot(header.extra as usize).read_value() };
+        Self {
+            blur: header.blur,
+            color: header.color,
+            x_offset: header.x_offset,
+            y_offset: fields.y_offset,
+            spread: fields.spread,
+        }
+    }
+    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
+        store_text_shadow(self, None, context)
+    }
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: TextShadowHeader<'ast> = unsafe { current.read_value() };
+        store_text_shadow(self, Some(header.extra as usize), context)
     }
 }
 
@@ -199,62 +175,162 @@ impl<'ast> AstNodeClone<'ast> for TextShadow<'ast> {
     }
 }
 
-fn encode_text_shadow<'ast>(
+fn store_text_shadow<'ast>(
     value: TextShadow<'ast>,
-    existing_extra: Option<usize>,
+    existing: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    write_node_id(&mut bytes, 0, value.blur);
-    write_node_id(&mut bytes, 4, value.color);
-    write_node_id(&mut bytes, 8, value.x_offset);
-    let offsets =
-        ExtraData::from_u64(value.y_offset.index() as u64 | (value.spread.index() as u64) << 32);
-    let extra = match existing_extra {
-        Some(extra) => {
-            context.set_extra_slot(extra, offsets);
-            extra
+    let fields = ExtraData::from_value(TextShadowFields {
+        y_offset: value.y_offset,
+        spread: value.spread,
+    });
+    let extra = match existing {
+        Some(index) => {
+            context.set_extra_slot(index, fields);
+            index
         }
-        None => context.alloc_extra_slots([offsets]),
+        None => context.alloc_extra_slots([fields]),
     };
-    NodePayload::with_extra(&bytes, extra)
+    NodePayload::from_value(TextShadowHeader {
+        blur: value.blur,
+        color: value.color,
+        x_offset: value.x_offset,
+        extra: u32::try_from(extra).expect("extra index exceeds u32"),
+    })
 }
 
-fn write_node_id<T>(bytes: &mut [u8], offset: usize, value: NodeId<'_, T>) {
-    bytes[offset..offset + 4].copy_from_slice(
-        &u32::try_from(value.index())
-            .expect("AST node ID exceeds four bytes")
-            .to_le_bytes(),
-    );
-}
+#[cfg(test)]
+mod native_tests {
+    use super::*;
 
-fn read_node_id<'ast, T>(
-    bytes: &[u8],
-    offset: usize,
-    context: &AstContext<'ast>,
-) -> NodeId<'ast, T> {
-    context.encoded_node_id_at(u32::from_le_bytes(
-        bytes[offset..offset + 4].try_into().expect("u32 field"),
-    ) as usize)
-}
-
-fn encode_decoration_style(value: TextDecorationStyle) -> u8 {
-    match value {
-        TextDecorationStyle::Solid => 0,
-        TextDecorationStyle::Double => 1,
-        TextDecorationStyle::Dotted => 2,
-        TextDecorationStyle::Dashed => 3,
-        TextDecorationStyle::Wavy => 4,
-    }
-}
-
-fn decode_decoration_style(value: u8) -> TextDecorationStyle {
-    match value {
-        0 => TextDecorationStyle::Solid,
-        1 => TextDecorationStyle::Double,
-        2 => TextDecorationStyle::Dotted,
-        3 => TextDecorationStyle::Dashed,
-        4 => TextDecorationStyle::Wavy,
-        _ => panic!("invalid encoded TextDecorationStyle"),
+    #[test]
+    fn native_text_fields_preserve_flags_order_and_shadow_overflow() {
+        let allocator = rocketcss_common::Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let lengths = [1.0, 2.0, 3.0, 4.0].map(|value| {
+            ast.alloc_node(
+                Length::Value(LengthValue {
+                    unit: LengthUnit::Px,
+                    value,
+                }),
+                DUMMY_SP,
+            )
+        });
+        let color = ast.alloc_node(CssColor::CurrentColor, DUMMY_SP);
+        let percentage = ast.alloc_node(LengthPercentage::Percentage(25.0), DUMMY_SP);
+        let indent = ast.alloc_node(
+            TextIndent {
+                each_line: false,
+                hanging: false,
+                value: percentage,
+            },
+            DUMMY_SP,
+        );
+        let lines = ast.alloc_encoded_vec(
+            [
+                OtherTextDecorationLine::Underline,
+                OtherTextDecorationLine::Overline,
+                OtherTextDecorationLine::Underline,
+            ]
+            .into_iter(),
+        );
+        let line = ast.alloc_node(TextDecorationLine::Value(lines), DUMMY_SP);
+        let thickness = ast.alloc_node(TextDecorationThickness::FromFont, DUMMY_SP);
+        let decoration = ast.alloc_node(
+            TextDecoration {
+                color,
+                line,
+                style: TextDecorationStyle::Solid,
+                thickness,
+            },
+            DUMMY_SP,
+        );
+        let before = ast.encoded_extra_len();
+        let shadow = ast.alloc_node(
+            TextShadow {
+                blur: lengths[0],
+                color,
+                spread: lengths[1],
+                x_offset: lengths[2],
+                y_offset: lengths[3],
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(ast.encoded_extra_len(), before + 1);
+        let checkpoint = ast.node_checkpoint();
+        for each_line in [false, true] {
+            for hanging in [false, true] {
+                let expected = TextIndent {
+                    each_line,
+                    hanging,
+                    value: percentage,
+                };
+                ast.mutate_node(indent, |value, _| *value = expected);
+                assert_eq!(ast.resolve_node(indent), expected);
+            }
+        }
+        for style in [
+            TextDecorationStyle::Solid,
+            TextDecorationStyle::Double,
+            TextDecorationStyle::Dotted,
+            TextDecorationStyle::Dashed,
+            TextDecorationStyle::Wavy,
+        ] {
+            ast.mutate_node(decoration, |value, _| value.style = style);
+            assert_eq!(
+                ast.resolve_node(decoration),
+                TextDecoration {
+                    color,
+                    line,
+                    style,
+                    thickness
+                }
+            );
+        }
+        assert_eq!(
+            ast.encoded_vec_get(lines, 0),
+            Some(OtherTextDecorationLine::Underline)
+        );
+        assert_eq!(
+            ast.encoded_vec_get(lines, 1),
+            Some(OtherTextDecorationLine::Overline)
+        );
+        assert_eq!(
+            ast.encoded_vec_get(lines, 2),
+            Some(OtherTextDecorationLine::Underline)
+        );
+        for (y_offset, spread) in [(lengths[3], lengths[1]), (lengths[1], lengths[3])] {
+            ast.mutate_node(shadow, |value, _| {
+                value.y_offset = y_offset;
+                value.spread = spread;
+            });
+            assert_eq!(
+                ast.resolve_node(shadow),
+                TextShadow {
+                    blur: lengths[0],
+                    color,
+                    spread,
+                    x_offset: lengths[2],
+                    y_offset
+                }
+            );
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+        let cloned = ast.clone_node(shadow);
+        let cloned_spread = ast.resolve_node(cloned).spread;
+        assert_ne!(cloned_spread, lengths[3]);
+        ast.mutate_node(cloned_spread, |value, _| {
+            *value = Length::Value(LengthValue {
+                unit: LengthUnit::Px,
+                value: 99.0,
+            })
+        });
+        assert_eq!(
+            ast.resolve_node(lengths[3]),
+            Length::Value(LengthValue {
+                unit: LengthUnit::Px,
+                value: 4.0
+            })
+        );
     }
 }

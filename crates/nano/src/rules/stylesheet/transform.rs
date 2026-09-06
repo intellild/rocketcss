@@ -1,12 +1,12 @@
 use super::*;
 
-pub(super) fn minify_transform_function(
-    function: &mut Function<'_>,
-    arguments: &mut Vec<'_, TokenOrValue<'_>>,
-    ast: &VisitMutContext<'_, '_, '_>,
+pub(super) fn minify_transform_function<'ast>(
+    function: &mut Function<'ast>,
+    arguments: &mut Vec<'ast, TokenOrValue<'ast>>,
+    ast: &mut VisitMutContext<'_, 'ast, '_>,
 ) -> bool {
     if function.kind() == KnownFunction::RotateZ && arguments.len() == 1 {
-        function.set_name("rotate");
+        function.set_name("rotate", ast.ast_context_mut());
         return true;
     }
     if function.kind() == KnownFunction::Matrix3d {
@@ -23,7 +23,7 @@ pub(super) fn minify_transform_function(
             && number_at(values, 28, ast) == Some(0.0)
             && number_at(values, 30, ast) == Some(1.0)
         {
-            function.set_name("matrix");
+            function.set_name("matrix", ast.ast_context_mut());
             compact_arguments(arguments, &[0, 1, 2, 3, 8, 9, 10, 11, 24, 25, 26]);
             return true;
         }
@@ -40,7 +40,7 @@ pub(super) fn minify_transform_function(
             (Some(0.0), Some(0.0), Some(1.0)) => "rotate",
             _ => return false,
         };
-        function.set_name(name);
+        function.set_name(name, ast.ast_context_mut());
         compact_arguments(arguments, &[6]);
         return true;
     }
@@ -58,12 +58,12 @@ pub(super) fn minify_transform_function(
             return true;
         }
         if second == Some(1.0) {
-            function.set_name("scaleX");
+            function.set_name("scaleX", ast.ast_context_mut());
             arguments.truncate(1);
             return true;
         }
         if first == Some(1.0) {
-            function.set_name("scaleY");
+            function.set_name("scaleY", ast.ast_context_mut());
             compact_arguments(arguments, &[2]);
             return true;
         }
@@ -84,7 +84,7 @@ pub(super) fn minify_transform_function(
         } else {
             return false;
         };
-        function.set_name(name);
+        function.set_name(name, ast.ast_context_mut());
         compact_arguments(arguments, &[index]);
         return true;
     }
@@ -94,7 +94,7 @@ pub(super) fn minify_transform_function(
             return true;
         }
         if number_at(arguments, 0, ast) == Some(0.0) {
-            function.set_name("translateY");
+            function.set_name("translateY", ast.ast_context_mut());
             compact_arguments(arguments, &[2]);
             return true;
         }
@@ -105,7 +105,7 @@ pub(super) fn minify_transform_function(
         && number_at(arguments, 0, ast) == Some(0.0)
         && number_at(arguments, 2, ast) == Some(0.0)
     {
-        function.set_name("translateZ");
+        function.set_name("translateZ", ast.ast_context_mut());
         compact_arguments(arguments, &[4]);
         return true;
     }

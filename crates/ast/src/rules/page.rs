@@ -19,7 +19,7 @@ pub enum PageMarginBox {
     BottomRightCorner,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum PagePseudoClass {
     Left,
     Right,
@@ -28,26 +28,13 @@ pub enum PagePseudoClass {
     Blank,
 }
 
-impl ExtraDataCompact<'_> for PagePseudoClass {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        ExtraData::from_u64(match self {
-            Self::Left => 0,
-            Self::Right => 1,
-            Self::First => 2,
-            Self::Last => 3,
-            Self::Blank => 4,
-        })
+// SAFETY: each slot contains the same native PagePseudoClass value.
+unsafe impl ExtraDataCompact<'_> for PagePseudoClass {
+    fn encode_extra(self) -> ExtraData {
+        ExtraData::from_value(self)
     }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        match data.as_u64() {
-            0 => Self::Left,
-            1 => Self::Right,
-            2 => Self::First,
-            3 => Self::Last,
-            4 => Self::Blank,
-            _ => panic!("invalid encoded PagePseudoClass"),
-        }
+    unsafe fn decode_extra(data: ExtraData) -> Self {
+        unsafe { data.read_value() }
     }
 }
 
@@ -57,47 +44,51 @@ impl ExtraDataClone<'_> for PagePseudoClass {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct PageSelector<'a> {
-    pub name: Option<&'a str>,
+    pub name: Option<AstStr<'a>>,
     pub pseudo_classes: Vec<'a, PagePseudoClass>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for PageSelector<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0025_0001);
+#[derive(Clone, Copy)]
+struct PageSelectorSlot<'a> {
+    // Reuse the checked optional-string representation, including Some(EMPTY).
+    name: ExtraData,
+    pseudo_classes: Vec<'a, PagePseudoClass>,
+}
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let name = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
-        let start = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
-        let end = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+// SAFETY: KIND identifies PageSelectorSlot. Its name field is always written
+// by Option<AstStr>::encode_extra and read through the matching decode_extra.
+unsafe impl<'ast> AstNodeStorage<'ast> for PageSelector<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0025_0001);
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        self.pseudo_classes == other.pseudo_classes
+            && self.name.map(|name| context.str(name)) == other.name.map(|name| context.str(name))
+    }
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        let slot: PageSelectorSlot<'ast> = unsafe { payload.read_value() };
         Self {
-            name: (name != u32::MAX).then(|| context.resolve_string(name as u64)),
-            pseudo_classes: context.encoded_vec_range(start, end),
+            name: unsafe { Option::<AstStr<'ast>>::decode_extra(slot.name) },
+            pseudo_classes: slot.pseudo_classes,
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        let name = self
-            .name
-            .map_or(u32::MAX, |name| context.store_string(name));
-        bytes[0..4].copy_from_slice(&name.to_le_bytes());
-        bytes[4..8].copy_from_slice(
-            &u32::try_from(self.pseudo_classes.start_index())
-                .expect("AST range start exceeds four bytes")
-                .to_le_bytes(),
-        );
-        bytes[8..12].copy_from_slice(
-            &u32::try_from(self.pseudo_classes.end_index())
-                .expect("AST range end exceeds four bytes")
-                .to_le_bytes(),
-        );
-        NodePayload::inline(&bytes)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        self.into_payload()
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        self.into_payload()
+    }
+}
+impl PageSelector<'_> {
+    fn into_payload(self) -> NodePayload {
+        NodePayload::from_value(PageSelectorSlot {
+            name: self.name.encode_extra(),
+            pseudo_classes: self.pseudo_classes,
+        })
     }
 }
 
@@ -107,5 +98,82 @@ impl<'ast> AstNodeClone<'ast> for PageSelector<'ast> {
             name: self.name,
             pseudo_classes: context.clone_encoded_vec(self.pseudo_classes),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rocketcss_common::Allocator;
+
+    #[test]
+    fn page_names_preserve_optional_empty_without_overflow() {
+        assert_eq!(std::mem::size_of::<PageSelectorSlot<'_>>(), 16);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let names = [
+            context.add_str("Invoice"),
+            context.add_str("Invoice"),
+            AstStr::EMPTY,
+        ];
+        let pseudo_classes = context.alloc_encoded_vec(
+            [
+                PagePseudoClass::Left,
+                PagePseudoClass::Right,
+                PagePseudoClass::First,
+                PagePseudoClass::Last,
+                PagePseudoClass::Blank,
+            ]
+            .into_iter(),
+        );
+        let before = context.encoded_extra_len();
+        let node = context.alloc_encoded_node(
+            PageSelector {
+                name: None,
+                pseudo_classes,
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(context.encoded_extra_len(), before);
+        context.mutate_encoded_node(node, |value, _| value.name = Some(AstStr::EMPTY));
+        assert_eq!(context.encoded_extra_len(), before);
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for name in [
+            None,
+            Some(names[0]),
+            None,
+            Some(names[1]),
+            Some(AstStr::EMPTY),
+        ] {
+            context.mutate_encoded_node(node, |value, _| value.name = name);
+            assert_eq!(context.encoded_node(node).name, name);
+            assert_eq!(context.encoded_node(node).pseudo_classes, pseudo_classes);
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
+        context.mutate_encoded_node(node, |value, _| value.name = None);
+        assert_eq!(context.encoded_node(node).name, None);
+        assert_eq!(context.encoded_extra_len(), before);
+        let first = context.alloc_encoded_node(
+            PageSelector {
+                name: Some(names[0]),
+                pseudo_classes,
+            },
+            DUMMY_SP,
+        );
+        let second = context.alloc_encoded_node(
+            PageSelector {
+                name: Some(names[1]),
+                pseudo_classes,
+            },
+            DUMMY_SP,
+        );
+        assert!(context.nodes_eq(first, second));
+        assert_eq!(context.encoded_extra_len(), before);
+        assert_eq!(
+            context.encoded_vec_get(pseudo_classes, 4),
+            Some(PagePseudoClass::Blank)
+        );
     }
 }

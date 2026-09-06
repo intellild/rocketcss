@@ -1,4 +1,4 @@
-use super::stylesheet::span_from;
+use super::rules::stylesheet::span_from;
 use super::values::{collect_tokens, token_values_contain_opaque};
 use crate::prelude::*;
 
@@ -14,7 +14,7 @@ pub(crate) fn parse_css_color<'i>(
 impl<'i> Parse<'i> for CssColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
-        let token = input.next()?.clone();
+        let token = *input.next()?;
         match token {
             ValueToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => {
                 Ok(CssColor::CurrentColor)
@@ -33,7 +33,7 @@ impl<'i> Parse<'i> for CssColor<'i> {
                     return Err(location.new_custom_error(ParserError::InvalidValue));
                 }
                 let arguments = store_vec(arguments, input);
-                let mut function = Function::new(name, arguments);
+                let mut function = Function::new(name, arguments, input.ast_context_mut());
                 if matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
                     if !is_supported_rgb_function(input.ast_context(), &function) {
                         return Err(location.new_custom_error(ParserError::InvalidValue));
@@ -60,7 +60,7 @@ fn is_supported_rgb_function<'i>(ast: &AstContext<'i>, function: &Function<'i>) 
     let mut components = components.iter().filter(|value| {
         !matches!(
             value,
-            TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::WhiteSpace(_))
+            TokenOrValue::Token(token) if matches!(ValueToken::from_ast(ast.node(*token), ast), ValueToken::WhiteSpace(_))
         )
     });
     let Some(first) = components.next() else {
@@ -141,7 +141,7 @@ fn is_none_keyword<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
         value,
         TokenOrValue::Token(token)
             if matches!(
-                ast.node(*token),
+                ValueToken::from_ast(ast.node(*token), ast),
                 ValueToken::Ident(value) if value.eq_ignore_ascii_case("none")
             )
     )
@@ -160,7 +160,7 @@ fn rgb_component_kind<'i>(
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    match ast.node(*token) {
+    match ValueToken::from_ast(ast.node(*token), ast) {
         ValueToken::Number(_) => Some(RgbComponentKind::Number),
         ValueToken::Percentage(_) => Some(RgbComponentKind::Percentage),
         _ => None,
@@ -172,18 +172,18 @@ fn is_rgb_alpha<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
         return false;
     };
     matches!(
-        ast.node(*token),
+        ValueToken::from_ast(ast.node(*token), ast),
         ValueToken::Number(_) | ValueToken::Percentage(_)
     )
 }
 
 fn is_comma<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
-    matches!(value, TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::Comma))
+    matches!(value, TokenOrValue::Token(token) if matches!(ValueToken::from_ast(ast.node(*token), ast), ValueToken::Comma))
 }
 
 fn is_slash<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
-        value, TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::Delim("/"))
+        value, TokenOrValue::Token(token) if matches!(ValueToken::from_ast(ast.node(*token), ast), ValueToken::Delim("/"))
     )
 }
 

@@ -10,7 +10,6 @@ use crate::{
 pub struct Compiler<'alloc> {
     pub(crate) allocator: &'alloc Allocator,
     pub(crate) compilation: AstContext<'alloc>,
-    pub(crate) string_pool: StringPool<'alloc>,
     pub(crate) cursor: ParserCursor<'alloc>,
     pub(crate) replay: DeclarationTokenReplay<'alloc>,
     source: &'alloc str,
@@ -22,7 +21,6 @@ impl<'alloc> Compiler<'alloc> {
         Self {
             allocator,
             compilation: AstContext::new_in(allocator),
-            string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(""),
             replay: DeclarationTokenReplay::new(allocator),
             source: "",
@@ -34,8 +32,7 @@ impl<'alloc> Compiler<'alloc> {
     pub fn new_with_source(source: &'alloc str, allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
-            compilation: AstContext::new_in(allocator),
-            string_pool: StringPool::new_in(allocator),
+            compilation: AstContext::with_source_in(allocator, source, Default::default()),
             cursor: ParserCursor::new(source),
             replay: DeclarationTokenReplay::new(allocator),
             source: "",
@@ -80,17 +77,24 @@ impl<'alloc> Compiler<'alloc> {
 
     #[inline]
     pub fn string_pool(&self) -> &StringPool<'alloc> {
-        &self.string_pool
+        self.compilation.string_pool()
     }
 
     #[inline]
     pub fn intern(&mut self, value: &str) -> Atom<'alloc> {
-        self.string_pool.intern(value)
+        self.compilation.intern(value)
     }
 
     #[inline]
     pub fn intern_ascii_lowercase(&mut self, value: &str) -> Atom<'alloc> {
-        self.string_pool.intern_ascii_lowercase(value)
+        self.compilation
+            .string_pool_mut()
+            .intern_ascii_lowercase(value)
+    }
+
+    #[inline]
+    pub fn add_str(&mut self, value: &str) -> rocketcss_common::AstStr<'alloc> {
+        self.compilation.add_str(value)
     }
 
     pub(crate) fn with_source<T>(
@@ -120,12 +124,33 @@ impl<'alloc> Compiler<'alloc> {
     }
 }
 
+/// Converts parser-only values at the persistent AST construction boundary.
+pub(crate) trait IntoAstNode<'alloc> {
+    type Stored: rocketcss_ast::AstNodeStorage<'alloc> + 'alloc;
+    fn into_ast_node(self, input: &mut Compiler<'alloc>) -> Self::Stored;
+}
+
+impl<'alloc, T: rocketcss_ast::AstNodeStorage<'alloc> + 'alloc> IntoAstNode<'alloc> for T {
+    type Stored = T;
+    fn into_ast_node(self, _input: &mut Compiler<'alloc>) -> T {
+        self
+    }
+}
+
+impl<'alloc> IntoAstNode<'alloc> for crate::ValueToken<'alloc> {
+    type Stored = rocketcss_ast::Token<'alloc>;
+    fn into_ast_node(self, input: &mut Compiler<'alloc>) -> Self::Stored {
+        self.into_ast(input.ast_context_mut())
+    }
+}
+
 /// Stores a parsed value after its construction has released any temporary compiler borrow.
 #[inline]
-pub(crate) fn store_node<'alloc, T: 'alloc + rocketcss_ast::AstNodeStorage<'alloc>>(
+pub(crate) fn store_node<'alloc, T: IntoAstNode<'alloc>>(
     value: T,
     input: &mut Compiler<'alloc>,
-) -> NodeId<'alloc, T> {
+) -> NodeId<'alloc, T::Stored> {
+    let value = value.into_ast_node(input);
     let span = input.current_token_span().unwrap_or_default();
     input.ast_context_mut().alloc_node(value, span)
 }
@@ -145,9 +170,11 @@ pub(crate) fn store_node_vec<'alloc, T: 'alloc + Unpin + rocketcss_ast::AstNodeS
     values: Vec<'alloc, T>,
     input: &mut Compiler<'alloc>,
 ) -> AstVec<'alloc, NodeId<'alloc, T>> {
-    let mut ids = input.ast_context().allocator().vec();
+    let span = input.current_token_span().unwrap_or_default();
+    let ast = input.ast_context_mut();
+    let mut ids = Vec::with_capacity_in(values.len(), ast.allocator());
     for value in values {
-        ids.push(store_node(value, input));
+        ids.push(ast.alloc_node(value, span));
     }
-    store_vec(ids, input)
+    ast.alloc_vec(ids)
 }

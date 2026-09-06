@@ -179,7 +179,7 @@ fn parses_style_rule_selectors_and_declarations() {
             )
             .unwrap();
 
-        assert_eq!(sheet.license_comments(), ["! license "]);
+        assert_eq!(sheet.license_comments().iter().map(|comment| sheet.str(*comment)).collect::<std::vec::Vec<_>>(), ["! license "]);
         assert_eq!(compiler.source(), "input.css");
         assert_eq!(root_rule_ids(&sheet).len(), 1);
         let (rule_id, rule) = root_rule(&sheet, 0);
@@ -191,7 +191,7 @@ fn parses_style_rule_selectors_and_declarations() {
         assert_eq!(selectors.len(), 2);
         assert!(matches!(
             &selector_components(&sheet, &selectors[0])[0],
-            SelectorComponent::Class(name) if *name == "Foo"
+            SelectorComponent::Class(name) if sheet.str(*name) == "Foo"
         ));
         assert!(matches!(
             &selector_components(&sheet, &selectors[1])[1],
@@ -216,7 +216,7 @@ fn parses_style_rule_selectors_and_declarations() {
             Declaration::Custom(value)
                 if matches!(
                     sheet.resolve_node(sheet.resolve_node(*value).name),
-                    CustomPropertyName::Custom("--gap")
+                    CustomPropertyName::Custom(name) if sheet.str(name) == "--gap"
                 )
         ));
         assert_eq!(
@@ -402,7 +402,7 @@ fn review_regressions_preserve_invalid_and_commented_declarations() {
                             && sheet.vec_snapshot(value.value).iter().any(|value| matches!(
                                 value,
                                 TokenOrValue::Token(token)
-                                    if matches!(sheet.resolve_node(*token), ValueToken::Comment(_))
+                                    if matches!(sheet.resolve_node(*token), rocketcss_ast::Token::Comment(_))
                             ))
                         }
                 ),
@@ -483,7 +483,7 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
         let selectors = style_selectors(&sheet, rule);
         assert!(matches!(
             &selector_components(&sheet, &selectors[0])[0],
-            SelectorComponent::Class(name) if name == "foo"
+            SelectorComponent::Class(name) if sheet.str(*name) == "foo"
         ));
 
         let declarations = property_declarations(&sheet, rule);
@@ -499,7 +499,7 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
         assert!(sheet.vec_snapshot(width.value).iter().any(|value| matches!(
             value,
             TokenOrValue::Function(function)
-                if sheet.resolve_node(*function).name() == "calc"
+                if sheet.str(sheet.resolve_node(*function).name()) == "calc"
         )));
     })
 }
@@ -526,7 +526,7 @@ fn compiler_interns_equal_selector_strings_to_one_atom() {
         };
 
         assert_eq!(first, second);
-        assert!(std::ptr::eq(first.as_str(), second.as_str()));
+        assert!(std::ptr::eq(sheet.str(*first), sheet.str(*second)));
     })
 }
 
@@ -561,7 +561,10 @@ fn scope_prelude_reuses_the_compiler_string_pool() {
         };
 
         assert_eq!(scope_class, rule_class);
-        assert!(std::ptr::eq(scope_class.as_str(), rule_class.as_str()));
+        assert!(std::ptr::eq(
+            sheet.str(*scope_class),
+            sheet.str(*rule_class)
+        ));
     })
 }
 
@@ -581,7 +584,7 @@ fn parses_import_media_unknown_and_font_face_rules() {
         let CssRulePayload::Import(rule) = root_rule(&sheet, 0).1.payload() else {
             panic!("expected import")
         };
-        assert_eq!(rule.url, "a.css");
+        assert_eq!(sheet.str(rule.url), "a.css");
         let import_media = sheet.resolve_node(rule.media.unwrap());
         let import_query = sheet.resolve_node(sheet.vec_snapshot(import_media.media_queries)[0]);
         assert!(matches!(import_query.media_type, MediaType::Screen));
@@ -614,14 +617,14 @@ fn parses_import_media_unknown_and_font_face_rules() {
             DeclarationPayload::FontFace(FontFaceProperty::Custom(value))
                 if matches!(
                     sheet.resolve_node(sheet.resolve_node(*value).name),
-                    CustomPropertyName::Unknown("font-family")
+                    CustomPropertyName::Unknown(name) if sheet.str(name) == "font-family"
                 )
         ));
 
         let CssRulePayload::Unknown(rule) = root_rule(&sheet, 3).1.payload() else {
             panic!("expected unknown at-rule")
         };
-        assert_eq!(rule.name, "unknown");
+        assert_eq!(sheet.str(rule.name), "unknown");
         assert!(rule.block.is_some());
     })
 }
@@ -777,7 +780,7 @@ fn selector_error_recovery_preserves_a_pure_invalid_selector() {
         let selectors = style_selectors(&sheet, rule);
         assert!(matches!(
             sheet.resolve_node(selectors[0]),
-            Selector::Unparsed(raw) if raw == "(font-[family-name:var(--font-*)])"
+            Selector::Unparsed(raw) if sheet.str(raw) == "(font-[family-name:var(--font-*)])"
         ));
         assert!(matches!(
             property_declarations(&sheet, rule)[0].0,
@@ -809,7 +812,7 @@ fn selector_error_recovery_continues_at_commas() {
         ));
         assert!(matches!(
             sheet.resolve_node(selectors[1]),
-            Selector::Unparsed(raw) if raw == "(font-[family-name:var(--font-*)])"
+            Selector::Unparsed(raw) if sheet.str(raw) == "(font-[family-name:var(--font-*)])"
         ));
         assert!(matches!(
             sheet.resolve_node(selectors[2]),
@@ -841,7 +844,7 @@ fn selector_error_recovery_consumes_multiple_invalid_tokens() {
         ));
         assert!(matches!(
             sheet.resolve_node(selectors[1]),
-            Selector::Unparsed(raw) if raw == ".broken ?? trailing"
+            Selector::Unparsed(raw) if sheet.str(raw) == ".broken ?? trailing"
         ));
         assert!(matches!(
             sheet.resolve_node(selectors[2]),
@@ -911,7 +914,7 @@ fn parses_namespace_deep_and_empty_where_selectors() {
         [
             SelectorComponent::ExplicitNoNamespace,
             SelectorComponent::LocalName { name, .. }
-        ] if name == "e"
+        ] if ast.str(*name) == "e"
     ));
     assert!(matches!(
         selector_components(ast, &selectors[1]).as_slice(),
@@ -925,14 +928,14 @@ fn parses_namespace_deep_and_empty_where_selectors() {
         [
             SelectorComponent::Namespace { prefix, .. },
             SelectorComponent::LocalName { name, .. }
-        ] if prefix == "svg" && name == "circle"
+        ] if ast.str(*prefix) == "svg" && ast.str(*name) == "circle"
     ));
     assert!(matches!(
         &selector_components(ast, &selectors[3])[0],
         SelectorComponent::AttributeOther(attribute)
             if matches!(
                 &ast.resolve_node(*attribute).namespace,
-                Some(NamespaceConstraint::Specific { prefix, .. }) if prefix == "svg"
+                Some(NamespaceConstraint::Specific { prefix, .. }) if ast.str(*prefix) == "svg"
             )
     ));
     assert!(matches!(
@@ -941,12 +944,12 @@ fn parses_namespace_deep_and_empty_where_selectors() {
             SelectorComponent::Class(left),
             SelectorComponent::Combinator(Combinator::Deep),
             SelectorComponent::Class(right)
-        ] if left == "a" && right == "b"
+        ] if ast.str(*left) == "a" && ast.str(*right) == "b"
     ));
     assert!(matches!(
         selector_components(ast, &selectors[5]).as_slice(),
         [SelectorComponent::LocalName { name, .. }, SelectorComponent::Where(list)]
-            if name == "foo" && list.is_empty()
+            if ast.str(*name) == "foo" && list.is_empty()
     ));
 }
 
@@ -1034,13 +1037,13 @@ fn parses_lightningcss_rule_families() {
         assert!(matches!(
             sheet.rule(roots[0]).unwrap().payload(),
             CssRulePayload::Namespace(rule)
-                if rule.prefix == Some("svg") && rule.url == "http://www.w3.org/2000/svg"
+                if rule.prefix.map(|name| sheet.str(name)) == Some("svg") && sheet.str(rule.url) == "http://www.w3.org/2000/svg"
         ));
         assert!(matches!(
             sheet.rule(roots[1]).unwrap().payload(),
             CssRulePayload::LayerStatement(rule)
                 if rule.names.len() == 2
-                    && sheet.vec_snapshot(sheet.vec_snapshot(rule.names)[1]) == ["theme", "base"]
+                    && sheet.vec_iter(sheet.vec_snapshot(rule.names)[1]).map(|part| sheet.str(part)).eq(["theme", "base"])
         ));
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
@@ -1050,14 +1053,14 @@ fn parses_lightningcss_rule_families() {
         assert!(matches!(
             sheet.rule(roots[3]).unwrap().payload(),
             CssRulePayload::CustomMedia(rule)
-                if rule.name == "--narrow" && rule.query.media_queries.len() == 1
+                if sheet.str(rule.name) == "--narrow" && rule.query.media_queries.len() == 1
         ));
         assert!(matches!(
             sheet.rule(roots[4]).unwrap().payload(),
             CssRulePayload::Keyframes(rule)
                 if matches!(
                     sheet.resolve_node(rule.name),
-                    rocketcss_ast::KeyframesName::Ident("fade")
+                    rocketcss_ast::KeyframesName::Ident(value) if sheet.str(value) == "fade"
                 )
         ));
         let frames = child_rule_ids(&sheet, roots[4]);
@@ -1077,11 +1080,11 @@ fn parses_lightningcss_rule_families() {
         ));
         assert!(matches!(
             sheet.rule(roots[7]).unwrap().payload(),
-            CssRulePayload::PositionTry(rule) if rule.name == "--fallback"
+            CssRulePayload::PositionTry(rule) if sheet.str(rule.name) == "--fallback"
         ));
         assert!(matches!(
             sheet.rule(roots[8]).unwrap().payload(),
-            CssRulePayload::Container(rule) if rule.name == Some("card") && rule.condition.is_some()
+            CssRulePayload::Container(rule) if rule.name.map(|name| sheet.str(name)) == Some("card") && rule.condition.is_some()
         ));
         assert!(matches!(
             sheet.rule(roots[9]).unwrap().payload(),
@@ -1108,7 +1111,10 @@ fn parses_import_modifiers_scope_and_page() {
             panic!("expected import")
         };
         assert_eq!(
-            import.layer.map(|layer| sheet.vec_snapshot(layer)),
+            import.layer.map(|layer| sheet
+                .vec_iter(layer)
+                .map(|part| sheet.str(part))
+                .collect::<std::vec::Vec<_>>()),
             Some(std::vec!["theme", "base"])
         );
         assert!(import.supports.is_some());
@@ -1168,7 +1174,7 @@ fn enforces_import_and_namespace_order_like_lightningcss() {
         let (charset_id, charset) = root_rule(&valid, 0);
         assert!(matches!(
             charset.payload(),
-            CssRulePayload::Charset(rule) if rule.encoding == "UTF-8"
+            CssRulePayload::Charset(rule) if valid.str(rule.encoding) == "UTF-8"
         ));
         assert_eq!(valid.rule_span(charset_id), Some(Span::new(0, 17)));
 
@@ -1220,7 +1226,7 @@ fn parses_charset_as_a_typed_rule() {
         let (charset_id, charset) = root_rule(&sheet, 0);
         assert!(matches!(
             charset.payload(),
-            CssRulePayload::Charset(rule) if rule.encoding == "UTF-8"
+            CssRulePayload::Charset(rule) if sheet.str(rule.encoding) == "UTF-8"
         ));
         assert_eq!(sheet.rule_span(charset_id), Some(Span::new(0, 20)));
 
@@ -1796,12 +1802,12 @@ fn parses_font_family_into_typed_ast_nodes() {
                     .collect::<std::vec::Vec<_>>()
                     .as_slice(),
                 [
-                    FontFamily::Custom("serif"),
+                    FontFamily::Custom(serif),
                     FontFamily::SansSerif,
-                    FontFamily::Custom("Fancy Font"),
-                    FontFamily::Custom("A"),
-                    FontFamily::Custom("slab inherit"),
-                ]
+                    FontFamily::Custom(fancy),
+                    FontFamily::Custom(a),
+                    FontFamily::Custom(slab),
+                ] if sheet.str(*serif) == "serif" && sheet.str(*fancy) == "Fancy Font" && sheet.str(*a) == "A" && sheet.str(*slab) == "slab inherit"
             )
     ));
     assert!(matches!(
@@ -1934,7 +1940,7 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
             Declaration::Unparsed(value)
                 if matches!(
                     sheet.resolve_node(sheet.resolve_node(*value).property_id),
-                    PropertyId::Custom("future-property")
+                    PropertyId::Custom(name) if sheet.str(name) == "future-property"
                 )
         ));
         assert!(matches!(
@@ -1942,10 +1948,10 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
             Declaration::Custom(value)
                 if {
                     let value = sheet.resolve_node(*value);
-                    matches!(sheet.resolve_node(value.name), CustomPropertyName::Custom("--theme"))
+                    matches!(sheet.resolve_node(value.name), CustomPropertyName::Custom(name) if sheet.str(name) == "--theme")
                         && sheet.vec_snapshot(value.value).iter().any(|token| matches!(token,
                             TokenOrValue::Function(function)
-                                if sheet.resolve_node(*function).name() == "fn"))
+                                if sheet.str(sheet.resolve_node(*function).name()) == "fn"))
                 }
         ));
         assert!(declarations[4].1);
@@ -2145,7 +2151,7 @@ fn recognizes_overlay_as_a_known_property() {
                         Declaration::Unparsed(value)
                             if matches!(
                                 sheet.resolve_node(sheet.resolve_node(*value).property_id),
-                                PropertyId::Custom("overlay")
+                                PropertyId::Custom(name) if sheet.str(name) == "overlay"
                             )
                     )
                 })
@@ -2174,7 +2180,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         let CssRulePayload::Property(property) = sheet.rule(roots[0]).unwrap().payload() else {
             panic!("expected property rule")
         };
-        assert_eq!(property.name, "--brand-color");
+        assert_eq!(sheet.str(property.name), "--brand-color");
         assert!(property.initial_value.is_some());
         assert!(matches!(
             sheet.declaration(property.syntax.unwrap()).unwrap().payload(),
@@ -2200,7 +2206,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         );
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
-            CssRulePayload::FontPaletteValues(rule) if rule.name == "--dark"
+            CssRulePayload::FontPaletteValues(rule) if sheet.str(rule.name) == "--dark"
         ));
         assert_eq!(
             sheet
@@ -2215,7 +2221,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         };
         assert!(matches!(
             sheet.vec_snapshot(features.name).as_slice(),
-            [FamilyName("Demo Sans")]
+            [FamilyName(value)] if sheet.str(*value) == "Demo Sans"
         ));
         let feature_rule = child_rule_ids(&sheet, roots[3])[0];
         let feature_block = sheet
@@ -2339,7 +2345,7 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name, .. } if name == "select"
+            SelectorComponent::LocalName { name, .. } if sheet.str(*name) == "select"
         ));
 
         assert!(matches!(
@@ -2347,7 +2353,7 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
             SelectorComponent::PseudoElement(element)
                 if matches!(
                     sheet.resolve_node(*element),
-                    PseudoElement::CustomFunction { name, .. } if name == "picker"
+                    PseudoElement::CustomFunction { function } if sheet.str(sheet.resolve_node(function).name) == "picker"
                 )
         ));
         assert!(matches!(&selector[2], SelectorComponent::Negation(_)));
@@ -2376,7 +2382,7 @@ fn preserves_details_content_chained_with_before_pseudo_element() {
             SelectorComponent::PseudoElement(element)
                 if matches!(
                     sheet.resolve_node(*element),
-                    PseudoElement::Custom { name } if name == "details-content"
+                    PseudoElement::Custom { name } if sheet.str(name) == "details-content"
                 )
         ));
 
@@ -2407,7 +2413,7 @@ fn preserves_has_slotted_pseudo_class() {
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name, .. } if name == "slot"
+            SelectorComponent::LocalName { name, .. } if sheet.str(*name) == "slot"
         ));
 
         assert!(matches!(
@@ -2415,7 +2421,7 @@ fn preserves_has_slotted_pseudo_class() {
             SelectorComponent::PseudoClass(pc)
                 if matches!(
                     sheet.resolve_node(*pc),
-                    PseudoClass::Custom { name } if name == "has-slotted"
+                    PseudoClass::Custom { name } if sheet.str(name) == "has-slotted"
                 )
         ));
     })
@@ -2436,7 +2442,7 @@ fn preserves_pseudo_element_arg_inside_has_selector() {
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name, .. } if name == "video"
+            SelectorComponent::LocalName { name, .. } if sheet.str(*name) == "video"
         ));
 
         assert!(matches!(&selector[1], SelectorComponent::Negation(_)));
@@ -2458,7 +2464,7 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
             SelectorComponent::PseudoElement(element)
                 if matches!(
                     sheet.resolve_node(*element),
-                    PseudoElement::Custom { name } if name == "scroll-button"
+                    PseudoElement::Custom { name } if sheet.str(name) == "scroll-button"
                 )
         ));
 
@@ -2468,8 +2474,27 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
             SelectorComponent::PseudoElement(element)
                 if matches!(
                     sheet.resolve_node(*element),
-                    PseudoElement::Custom { name } if name == "scroll-marker"
+                    PseudoElement::Custom { name } if sheet.str(name) == "scroll-marker"
                 )
         ));
     })
+}
+
+#[test]
+fn escaped_custom_property_name_is_added_to_the_pool_once() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = Compiler::new(&allocator)
+            .parse(r"a{--\78:1}", &mut token, ParserOptions::default())
+            .unwrap();
+        let declarations = property_declarations(&sheet, root_rule(&sheet, 0).0);
+        let Declaration::Custom(property) = declarations[0].0 else {
+            panic!("expected custom property");
+        };
+        assert!(
+            matches!(sheet.resolve_node(sheet.resolve_node(*property).name),
+            CustomPropertyName::Custom(name) if sheet.str(name) == "--x")
+        );
+        assert_eq!(sheet.string_pool().extra_len(), "--x".len());
+    });
 }

@@ -2,7 +2,13 @@ use crate::*;
 
 use crate::{AstNodeClone, AstNodeStorage, ExtraData, NodeKind, NodePayload};
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Clone, Copy)]
+struct MatrixHeader {
+    values: [f32; 3],
+    extra: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct MatrixForFloat {
     pub a: f32,
     pub b: f32,
@@ -12,28 +18,39 @@ pub struct MatrixForFloat {
     pub f: f32,
 }
 
-impl AstNodeStorage<'_> for MatrixForFloat {
+// SAFETY: this kind stores MatrixHeader and a native tail array in 2 opaque slots.
+unsafe impl AstNodeStorage<'_> for MatrixForFloat {
     const KIND: NodeKind = NodeKind::new(0x000f_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        let extra = payload.extra_start();
-        Self {
-            a: read_inline_float(&bytes, 0),
-            b: read_inline_float(&bytes, 4),
-            c: read_inline_float(&bytes, 8),
-            d: read_extra_float(context, extra),
-            e: read_extra_float(context, extra + 1),
-            f: read_extra_float(context, extra + 2),
-        }
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'_>) -> Self {
+        let header: MatrixHeader = unsafe { payload.read_value() };
+        let [a, b, c] = header.values;
+        let [d, e, f]: [f32; 3] = unsafe {
+            ExtraData::read_value_array::<_, 2>(std::array::from_fn(|i| {
+                context.extra_slot(header.extra as usize + i)
+            }))
+        };
+        Self { a, b, c, d, e, f }
     }
-
     fn encode_new(self, context: &mut AstContext<'_>) -> NodePayload {
-        encode_matrix(self, None, context)
+        self.store(None, context)
     }
-
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
-        encode_matrix(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'_>,
+    ) -> NodePayload {
+        let header: MatrixHeader = unsafe { current.read_value() };
+        self.store(Some(header.extra as usize), context)
+    }
+}
+impl MatrixForFloat {
+    fn store(self, existing: Option<usize>, context: &mut AstContext<'_>) -> NodePayload {
+        let fields = ExtraData::from_value_array::<_, 2>([self.d, self.e, self.f]);
+        let extra = write_fixed_extra(existing, fields, context);
+        NodePayload::from_value(MatrixHeader {
+            values: [self.a, self.b, self.c],
+            extra: u32::try_from(extra).expect("extra index exceeds u32"),
+        })
     }
 }
 
@@ -43,21 +60,7 @@ impl AstNodeClone<'_> for MatrixForFloat {
     }
 }
 
-fn encode_matrix(
-    value: MatrixForFloat,
-    existing_extra: Option<usize>,
-    context: &mut AstContext<'_>,
-) -> NodePayload {
-    let mut inline = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    write_float(&mut inline, 0, value.a);
-    write_float(&mut inline, 4, value.b);
-    write_float(&mut inline, 8, value.c);
-    let extra_values = [value.d, value.e, value.f].map(float_extra);
-    let extra = write_fixed_extra(existing_extra, extra_values, context);
-    NodePayload::with_extra(&inline, extra)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct Matrix3DForFloat {
     pub m11: f32,
     pub m12: f32,
@@ -77,23 +80,13 @@ pub struct Matrix3DForFloat {
     pub m44: f32,
 }
 
-impl AstNodeStorage<'_> for Matrix3DForFloat {
+// SAFETY: this kind stores MatrixHeader and a native tail array in 7 opaque slots.
+unsafe impl AstNodeStorage<'_> for Matrix3DForFloat {
     const KIND: NodeKind = NodeKind::new(0x000f_0002);
-
-    fn decode(payload: NodePayload, context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        let extra = payload.extra_start();
-        let mut values = [0.0; 16];
-        values[0] = read_inline_float(&bytes, 0);
-        values[1] = read_inline_float(&bytes, 4);
-        values[2] = read_inline_float(&bytes, 8);
-        for (offset, value) in values[3..].iter_mut().enumerate() {
-            *value = read_extra_float(context, extra + offset);
-        }
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'_>) -> Self {
+        let header: MatrixHeader = unsafe { payload.read_value() };
+        let [m11, m12, m13] = header.values;
         let [
-            m11,
-            m12,
-            m13,
             m14,
             m21,
             m22,
@@ -107,7 +100,11 @@ impl AstNodeStorage<'_> for Matrix3DForFloat {
             m42,
             m43,
             m44,
-        ] = values;
+        ]: [f32; 13] = unsafe {
+            ExtraData::read_value_array::<_, 7>(std::array::from_fn(|i| {
+                context.extra_slot(header.extra as usize + i)
+            }))
+        };
         Self {
             m11,
             m12,
@@ -127,13 +124,29 @@ impl AstNodeStorage<'_> for Matrix3DForFloat {
             m44,
         }
     }
-
     fn encode_new(self, context: &mut AstContext<'_>) -> NodePayload {
-        encode_matrix_3d(self, None, context)
+        self.store(None, context)
     }
-
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
-        encode_matrix_3d(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'_>,
+    ) -> NodePayload {
+        let header: MatrixHeader = unsafe { current.read_value() };
+        self.store(Some(header.extra as usize), context)
+    }
+}
+impl Matrix3DForFloat {
+    fn store(self, existing: Option<usize>, context: &mut AstContext<'_>) -> NodePayload {
+        let fields = ExtraData::from_value_array::<_, 7>([
+            self.m14, self.m21, self.m22, self.m23, self.m24, self.m31, self.m32, self.m33,
+            self.m34, self.m41, self.m42, self.m43, self.m44,
+        ]);
+        let extra = write_fixed_extra(existing, fields, context);
+        NodePayload::from_value(MatrixHeader {
+            values: [self.m11, self.m12, self.m13],
+            extra: u32::try_from(extra).expect("extra index exceeds u32"),
+        })
     }
 }
 
@@ -143,26 +156,34 @@ impl AstNodeClone<'_> for Matrix3DForFloat {
     }
 }
 
-fn encode_matrix_3d(
-    value: Matrix3DForFloat,
-    existing_extra: Option<usize>,
-    context: &mut AstContext<'_>,
-) -> NodePayload {
-    let values = [
-        value.m11, value.m12, value.m13, value.m14, value.m21, value.m22, value.m23, value.m24,
-        value.m31, value.m32, value.m33, value.m34, value.m41, value.m42, value.m43, value.m44,
-    ];
-    let mut inline = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    for (offset, value) in values[..3].iter().copied().enumerate() {
-        write_float(&mut inline, offset * 4, value);
+impl AstContext<'_> {
+    /// Returns matrix components in serialization order without rebuilding the node.
+    #[inline]
+    pub fn matrix_components(&self, id: NodeId<'_, MatrixForFloat>) -> ([f32; 3], [f32; 3]) {
+        // SAFETY: node_payload validates the matrix kind, which stores this header.
+        let header: MatrixHeader = unsafe { self.node_payload(id).read_value() };
+        // SAFETY: this kind writes a native [f32; 3] across its two overflow slots.
+        let tail = unsafe {
+            ExtraData::read_value_array::<_, 2>(std::array::from_fn(|i| {
+                self.extra_slot(header.extra as usize + i)
+            }))
+        };
+        (header.values, tail)
     }
-    let extra_values = [
-        values[3], values[4], values[5], values[6], values[7], values[8], values[9], values[10],
-        values[11], values[12], values[13], values[14], values[15],
-    ]
-    .map(float_extra);
-    let extra = write_fixed_extra(existing_extra, extra_values, context);
-    NodePayload::with_extra(&inline, extra)
+
+    /// Returns 3D matrix components in serialization order without rebuilding the node.
+    #[inline]
+    pub fn matrix_3d_components(&self, id: NodeId<'_, Matrix3DForFloat>) -> ([f32; 3], [f32; 13]) {
+        // SAFETY: node_payload validates the 3D matrix kind, which stores this header.
+        let header: MatrixHeader = unsafe { self.node_payload(id).read_value() };
+        // SAFETY: this kind writes a native [f32; 13] across its seven overflow slots.
+        let tail = unsafe {
+            ExtraData::read_value_array::<_, 7>(std::array::from_fn(|i| {
+                self.extra_slot(header.extra as usize + i)
+            }))
+        };
+        (header.values, tail)
+    }
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -189,26 +210,6 @@ fn write_fixed_extra<const N: usize>(
     }
 }
 
-fn float_extra(value: f32) -> ExtraData {
-    ExtraData::from_u64(value.to_bits() as u64)
-}
-
-fn read_extra_float(context: &AstContext<'_>, index: usize) -> f32 {
-    f32::from_bits(context.extra_slot(index).as_u64() as u32)
-}
-
-fn write_float(bytes: &mut [u8], offset: usize, value: f32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_bits().to_le_bytes());
-}
-
-fn read_inline_float(bytes: &[u8], offset: usize) -> f32 {
-    f32::from_bits(u32::from_le_bytes(
-        bytes[offset..offset + 4]
-            .try_into()
-            .expect("compact transform field is four bytes"),
-    ))
-}
-
 #[cfg(test)]
 mod storage_tests {
     use rocketcss_common::Allocator;
@@ -231,15 +232,66 @@ mod storage_tests {
             },
             DUMMY_SP,
         );
-        assert_eq!(context.encoded_extra_len(), before + 3);
+        assert_eq!(context.encoded_extra_len(), before + 2);
         context.mutate_encoded_node(matrix, |value, _| value.f = 60.0);
-        assert_eq!(context.encoded_extra_len(), before + 3);
+        assert_eq!(context.encoded_extra_len(), before + 2);
         assert_eq!(context.encoded_node(matrix).f, 60.0);
 
         let before_3d = context.encoded_extra_len();
         let matrix_3d_id = context.alloc_encoded_node(matrix_3d(), DUMMY_SP);
-        assert_eq!(context.encoded_extra_len(), before_3d + 13);
+        assert_eq!(context.encoded_extra_len(), before_3d + 7);
         assert_eq!(context.encoded_node(matrix_3d_id), matrix_3d());
+        let checkpoint = context.node_checkpoint();
+        for bits in [0x8000_0000, 0x7f80_0000, 0xff80_0000, 0x7fc0_1234] {
+            let number = f32::from_bits(bits);
+            context.mutate_encoded_node(matrix, |value, _| {
+                value.a = number;
+                value.d = number;
+                value.f = number;
+            });
+            let value = context.encoded_node(matrix);
+            let (head, tail) = context.matrix_components(matrix);
+            assert_eq!(
+                head.map(f32::to_bits),
+                [bits, 2.0_f32.to_bits(), 3.0_f32.to_bits()]
+            );
+            assert_eq!(tail.map(f32::to_bits), [bits, 5.0_f32.to_bits(), bits]);
+            assert_eq!(
+                [value.a.to_bits(), value.d.to_bits(), value.f.to_bits()],
+                [bits; 3]
+            );
+            assert_eq!((value.b, value.c, value.e), (2.0, 3.0, 5.0));
+            context.mutate_encoded_node(matrix_3d_id, |value, _| {
+                value.m11 = number;
+                value.m14 = number;
+                value.m44 = number;
+            });
+            let value = context.encoded_node(matrix_3d_id);
+            let (head, tail) = context.matrix_3d_components(matrix_3d_id);
+            assert_eq!(
+                head.map(f32::to_bits),
+                [bits, 2.0_f32.to_bits(), 3.0_f32.to_bits()]
+            );
+            assert_eq!(tail[0].to_bits(), bits);
+            assert_eq!(tail[12].to_bits(), bits);
+            assert_eq!(
+                &tail[1..12],
+                &[5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0]
+            );
+            assert_eq!(
+                [
+                    value.m11.to_bits(),
+                    value.m14.to_bits(),
+                    value.m44.to_bits()
+                ],
+                [bits; 3]
+            );
+            assert_eq!(
+                (value.m12, value.m13, value.m21, value.m43),
+                (2.0, 3.0, 5.0, 15.0)
+            );
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
     }
 
     fn matrix_3d() -> Matrix3DForFloat {

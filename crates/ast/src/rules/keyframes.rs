@@ -1,6 +1,6 @@
 use crate::*;
 use crate::{AstNodeClone, AstNodeStorage, NodeKind, NodePayload};
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum KeyframeSelector {
     Percentage(f32),
     From,
@@ -8,40 +8,8 @@ pub enum KeyframeSelector {
     TimelineRangePercentage(TimelineRangePercentage),
 }
 
-impl ExtraDataCompact<'_> for KeyframeSelector {
-    fn encode_extra(self, _context: &mut AstContext<'_>) -> ExtraData {
-        let mut bytes = [0; ExtraData::BYTES];
-        match self {
-            Self::Percentage(value) => {
-                bytes[0] = 0;
-                bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
-            }
-            Self::From => bytes[0] = 1,
-            Self::To => bytes[0] = 2,
-            Self::TimelineRangePercentage(value) => {
-                bytes[0] = 3;
-                bytes[1] = encode_timeline_range_name(value.name);
-                bytes[4..8].copy_from_slice(&value.percentage.to_bits().to_le_bytes());
-            }
-        }
-        ExtraData::from_bytes(&bytes)
-    }
-
-    fn decode_extra(data: ExtraData, _context: &AstContext<'_>) -> Self {
-        let bytes = data.bytes();
-        let percentage = f32::from_bits(u32::from_le_bytes(bytes[4..8].try_into().unwrap()));
-        match bytes[0] {
-            0 => Self::Percentage(percentage),
-            1 => Self::From,
-            2 => Self::To,
-            3 => Self::TimelineRangePercentage(TimelineRangePercentage {
-                name: decode_timeline_range_name(bytes[1]),
-                percentage,
-            }),
-            _ => panic!("invalid encoded KeyframeSelector"),
-        }
-    }
-}
+// Rust's native enum layout fits the full selector in one extra slot.
+impl_inline_extra!(KeyframeSelector);
 
 impl ExtraDataClone<'_> for KeyframeSelector {
     fn clone_extra(self, _context: &mut AstContext<'_>) -> Self {
@@ -49,62 +17,35 @@ impl ExtraDataClone<'_> for KeyframeSelector {
     }
 }
 
-fn encode_timeline_range_name(value: TimelineRangeName) -> u8 {
-    match value {
-        TimelineRangeName::Cover => 0,
-        TimelineRangeName::Contain => 1,
-        TimelineRangeName::Entry => 2,
-        TimelineRangeName::Exit => 3,
-        TimelineRangeName::EntryCrossing => 4,
-        TimelineRangeName::ExitCrossing => 5,
-    }
-}
-
-fn decode_timeline_range_name(value: u8) -> TimelineRangeName {
-    match value {
-        0 => TimelineRangeName::Cover,
-        1 => TimelineRangeName::Contain,
-        2 => TimelineRangeName::Entry,
-        3 => TimelineRangeName::Exit,
-        4 => TimelineRangeName::EntryCrossing,
-        5 => TimelineRangeName::ExitCrossing,
-        _ => panic!("invalid encoded TimelineRangeName"),
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum KeyframesName<'a> {
-    Ident(&'a str),
-    Custom(&'a str),
+    Ident(AstStr<'a>),
+    Custom(AstStr<'a>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for KeyframesName<'ast> {
+// SAFETY: this KIND always stores and reads the same native Copy type.
+unsafe impl<'ast> AstNodeStorage<'ast> for KeyframesName<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0015_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let value =
-            context.resolve_string(u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as u64);
-        match bytes[0] {
-            0 => Self::Ident(value),
-            1 => Self::Custom(value),
-            _ => panic!("invalid encoded KeyframesName variant"),
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::Custom(a), Self::Custom(b)) | (Self::Ident(a), Self::Ident(b)) => {
+                context.str(*a) == context.str(*b)
+            }
+            _ => self == other,
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        let (kind, value) = match self {
-            Self::Ident(value) => (0, value),
-            Self::Custom(value) => (1, value),
-        };
-        bytes[0] = kind;
-        bytes[4..8].copy_from_slice(&context.store_string(value).to_le_bytes());
-        NodePayload::inline(&bytes)
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -114,8 +55,61 @@ impl<'ast> AstNodeClone<'ast> for KeyframesName<'ast> {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct TimelineRangePercentage {
     pub name: TimelineRangeName,
     pub percentage: f32,
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::*;
+
+    #[test]
+    fn keyframe_slots_preserve_keywords_and_timeline_percentage_bits() {
+        assert_eq!(std::mem::size_of::<KeyframeSelector>(), 8);
+        let allocator = rocketcss_common::Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let values =
+            ast.alloc_encoded_vec([KeyframeSelector::From, KeyframeSelector::To].into_iter());
+        assert_eq!(ast.encoded_vec_get(values, 0), Some(KeyframeSelector::From));
+        assert_eq!(ast.encoded_vec_get(values, 1), Some(KeyframeSelector::To));
+        let checkpoint = ast.node_checkpoint();
+        for bits in [0, 0x8000_0000, 1, 0x7f80_0000, 0x7fc0_0123] {
+            ast.encoded_vec_set(
+                values,
+                0,
+                KeyframeSelector::Percentage(f32::from_bits(bits)),
+            );
+            let Some(KeyframeSelector::Percentage(value)) = ast.encoded_vec_get(values, 0) else {
+                panic!()
+            };
+            assert_eq!(value.to_bits(), bits);
+            for name in [
+                TimelineRangeName::Cover,
+                TimelineRangeName::Contain,
+                TimelineRangeName::Entry,
+                TimelineRangeName::Exit,
+                TimelineRangeName::EntryCrossing,
+                TimelineRangeName::ExitCrossing,
+            ] {
+                ast.encoded_vec_set(
+                    values,
+                    1,
+                    KeyframeSelector::TimelineRangePercentage(TimelineRangePercentage {
+                        name,
+                        percentage: f32::from_bits(bits),
+                    }),
+                );
+                let Some(KeyframeSelector::TimelineRangePercentage(value)) =
+                    ast.encoded_vec_get(values, 1)
+                else {
+                    panic!()
+                };
+                assert_eq!(value.name, name);
+                assert_eq!(value.percentage.to_bits(), bits);
+            }
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+    }
 }

@@ -2,7 +2,7 @@ use crate::*;
 
 use crate::{AstNodeStorage, NodeKind, NodePayload};
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderRadius<'a> {
     pub bottom_left: NodeId<'a, Size2D<'a, LengthPercentage<'a>>>,
     pub bottom_right: NodeId<'a, Size2D<'a, LengthPercentage<'a>>>,
@@ -10,36 +10,7 @@ pub struct BorderRadius<'a> {
     pub top_right: NodeId<'a, Size2D<'a, LengthPercentage<'a>>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderRadius<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom_left: read_node_id(&bytes, 0, context),
-            bottom_right: read_node_id(&bytes, 4, context),
-            top_left: read_node_id(&bytes, 8, context),
-            top_right: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(
-            self.bottom_left,
-            self.bottom_right,
-            self.top_left,
-            self.top_right,
-        )
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        self.encode_new(_context)
-    }
-}
+impl_inline_node!(BorderRadius<'ast>, 0x000e_0001);
 
 impl<'ast> AstNodeClone<'ast> for BorderRadius<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -52,40 +23,19 @@ impl<'ast> AstNodeClone<'ast> for BorderRadius<'ast> {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderImageRepeat {
     pub horizontal: BorderImageRepeatKeyword,
     pub vertical: BorderImageRepeatKeyword,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderImageSlice<'a> {
     pub fill: bool,
     pub offsets: NodeId<'a, Rect<'a, NumberOrPercentage>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderImageSlice<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_0016);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            fill: bytes[0] != 0,
-            offsets: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        bytes[0] = self.fill as u8;
-        write_u32(&mut bytes, 4, node_index(self.offsets));
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
+impl_inline_node!(BorderImageSlice<'ast>, 0x000e_0016);
 
 impl<'ast> AstNodeClone<'ast> for BorderImageSlice<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -96,7 +46,7 @@ impl<'ast> AstNodeClone<'ast> for BorderImageSlice<'ast> {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderImage<'a> {
     pub outset: NodeId<'a, Rect<'a, LengthOrNumber<'a>>>,
     pub repeat: BorderImageRepeat,
@@ -105,37 +55,92 @@ pub struct BorderImage<'a> {
     pub width: NodeId<'a, Rect<'a, BorderImageSideWidth<'a>>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderImage<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_0017);
+#[derive(Clone, Copy)]
+struct BorderImageHeader<'a> {
+    outset: NodeId<'a, Rect<'a, LengthOrNumber<'a>>>,
+    slice: NodeId<'a, BorderImageSlice<'a>>,
+    repeat: BorderImageRepeat,
+    extra: u32,
+}
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            outset: read_node_id(&bytes, 4, context),
-            repeat: BorderImageRepeat {
-                horizontal: decode_border_image_repeat(bytes[0]),
-                vertical: decode_border_image_repeat(bytes[1]),
-            },
-            slice: read_node_id(&bytes, 8, context),
-            source: read_node_id(
-                &context.extra_slot(payload.extra_start()).bytes(),
-                0,
-                context,
-            ),
-            width: read_node_id(
-                &context.extra_slot(payload.extra_start()).bytes(),
-                4,
-                context,
-            ),
+#[derive(Clone, Copy)]
+struct BorderImageFields<'a> {
+    source: NodeId<'a, Image<'a>>,
+    width: NodeId<'a, Rect<'a, BorderImageSideWidth<'a>>>,
+}
+
+pub use border_image_access::BorderImageRead;
+
+mod border_image_access {
+    use super::*;
+    pub struct BorderImageRead<'context, 'storage, 'id> {
+        context: &'context AstContext<'storage>,
+        header: BorderImageHeader<'id>,
+    }
+    impl<'id> BorderImageRead<'_, '_, 'id> {
+        pub fn source_and_width(
+            &self,
+        ) -> (
+            NodeId<'id, Image<'id>>,
+            NodeId<'id, Rect<'id, BorderImageSideWidth<'id>>>,
+        ) {
+            // SAFETY: this kind owns one native BorderImageFields slot.
+            let fields: BorderImageFields<'id> = unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            };
+            (fields.source, fields.width)
+        }
+        pub fn slice(&self) -> NodeId<'id, BorderImageSlice<'id>> {
+            self.header.slice
+        }
+        pub fn outset(&self) -> NodeId<'id, Rect<'id, LengthOrNumber<'id>>> {
+            self.header.outset
+        }
+        pub fn repeat(&self) -> BorderImageRepeat {
+            self.header.repeat
         }
     }
+    impl<'storage> AstContext<'storage> {
+        pub fn border_image<'id>(
+            &self,
+            id: NodeId<'id, BorderImage<'id>>,
+        ) -> BorderImageRead<'_, 'storage, 'id> {
+            // SAFETY: node_payload checks the owning kind before the native header read.
+            BorderImageRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
+    }
+}
 
+// SAFETY: this kind stores BorderImageHeader with a typed BorderImageFields slot.
+unsafe impl<'ast> AstNodeStorage<'ast> for BorderImage<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x000e_0017);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: BorderImageHeader<'ast> = unsafe { payload.read_value() };
+        let fields: BorderImageFields<'ast> =
+            unsafe { context.extra_slot(header.extra as usize).read_value() };
+        Self {
+            outset: header.outset,
+            repeat: header.repeat,
+            slice: header.slice,
+            source: fields.source,
+            width: fields.width,
+        }
+    }
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
         encode_border_image(self, None, context)
     }
-
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_border_image(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: BorderImageHeader<'ast> = unsafe { current.read_value() };
+        encode_border_image(self, Some(header.extra as usize), context)
     }
 }
 
@@ -156,26 +161,26 @@ fn encode_border_image<'ast>(
     existing_extra: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    bytes[0] = encode_border_image_repeat(value.repeat.horizontal);
-    bytes[1] = encode_border_image_repeat(value.repeat.vertical);
-    write_u32(&mut bytes, 4, node_index(value.outset));
-    write_u32(&mut bytes, 8, node_index(value.slice));
-    let mut extra = [0; ExtraData::BYTES];
-    write_u32(&mut extra, 0, node_index(value.source));
-    write_u32(&mut extra, 4, node_index(value.width));
-    let extra = ExtraData::from_bytes(&extra);
-    let extra_start = match existing_extra {
-        Some(extra_start) => {
-            context.set_extra_slot(extra_start, extra);
-            extra_start
+    let fields = ExtraData::from_value(BorderImageFields {
+        source: value.source,
+        width: value.width,
+    });
+    let extra = match existing_extra {
+        Some(extra) => {
+            context.set_extra_slot(extra, fields);
+            extra
         }
-        None => context.alloc_extra_slots([extra]),
+        None => context.alloc_extra_slots([fields]),
     };
-    NodePayload::with_extra(&bytes, extra_start)
+    NodePayload::from_value(BorderImageHeader {
+        outset: value.outset,
+        repeat: value.repeat,
+        slice: value.slice,
+        extra: u32::try_from(extra).expect("AST extra index exceeds u32"),
+    })
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderColor<'a> {
     pub bottom: NodeId<'a, CssColor<'a>>,
     pub left: NodeId<'a, CssColor<'a>>,
@@ -183,33 +188,9 @@ pub struct BorderColor<'a> {
     pub top: NodeId<'a, CssColor<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderColor<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_0002);
+impl_inline_node!(BorderColor<'ast>, 0x000e_0002);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom: read_node_id(&bytes, 0, context),
-            left: read_node_id(&bytes, 4, context),
-            right: read_node_id(&bytes, 8, context),
-            top: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(self.bottom, self.left, self.right, self.top)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        self.encode_new(_context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderStyle {
     pub bottom: LineStyle,
     pub left: LineStyle,
@@ -217,34 +198,9 @@ pub struct BorderStyle {
     pub top: LineStyle,
 }
 
-impl AstNodeStorage<'_> for BorderStyle {
-    const KIND: NodeKind = NodeKind::new(0x000e_0003);
+impl_inline_node!(BorderStyle, 0x000e_0003);
 
-    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom: decode_line_style(bytes[0]),
-            left: decode_line_style(bytes[1]),
-            right: decode_line_style(bytes[2]),
-            top: decode_line_style(bytes[3]),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
-        NodePayload::inline(&[
-            encode_line_style(self.bottom),
-            encode_line_style(self.left),
-            encode_line_style(self.right),
-            encode_line_style(self.top),
-        ])
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderWidth<'a> {
     pub bottom: NodeId<'a, BorderSideWidth<'a>>,
     pub left: NodeId<'a, BorderSideWidth<'a>>,
@@ -252,323 +208,66 @@ pub struct BorderWidth<'a> {
     pub top: NodeId<'a, BorderSideWidth<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderWidth<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_0004);
+impl_inline_node!(BorderWidth<'ast>, 0x000e_0004);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            bottom: read_node_id(&bytes, 0, context),
-            left: read_node_id(&bytes, 4, context),
-            right: read_node_id(&bytes, 8, context),
-            top: read_node_id(&bytes, 12, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_four_ids(self.bottom, self.left, self.right, self.top)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        self.encode_new(_context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderBlockColor<'a> {
     pub end: NodeId<'a, CssColor<'a>>,
     pub start: NodeId<'a, CssColor<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderBlockColor<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_0005);
+impl_inline_node!(BorderBlockColor<'ast>, 0x000e_0005);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            end: read_node_id(&bytes, 0, context),
-            start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.end, self.start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderBlockStyle {
     pub end: LineStyle,
     pub start: LineStyle,
 }
 
-impl AstNodeStorage<'_> for BorderBlockStyle {
-    const KIND: NodeKind = NodeKind::new(0x000e_0006);
+impl_inline_node!(BorderBlockStyle, 0x000e_0006);
 
-    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            end: decode_line_style(bytes[0]),
-            start: decode_line_style(bytes[1]),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
-        NodePayload::inline(&[encode_line_style(self.end), encode_line_style(self.start)])
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderBlockWidth<'a> {
     pub end: NodeId<'a, BorderSideWidth<'a>>,
     pub start: NodeId<'a, BorderSideWidth<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderBlockWidth<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_0007);
+impl_inline_node!(BorderBlockWidth<'ast>, 0x000e_0007);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            end: read_node_id(&bytes, 0, context),
-            start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.end, self.start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderInlineColor<'a> {
     pub end: NodeId<'a, CssColor<'a>>,
     pub start: NodeId<'a, CssColor<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderInlineColor<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_0008);
+impl_inline_node!(BorderInlineColor<'ast>, 0x000e_0008);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            end: read_node_id(&bytes, 0, context),
-            start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.end, self.start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderInlineStyle {
     pub end: LineStyle,
     pub start: LineStyle,
 }
 
-impl AstNodeStorage<'_> for BorderInlineStyle {
-    const KIND: NodeKind = NodeKind::new(0x000e_0009);
+impl_inline_node!(BorderInlineStyle, 0x000e_0009);
 
-    fn decode(payload: NodePayload, _context: &AstContext<'_>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            end: decode_line_style(bytes[0]),
-            start: decode_line_style(bytes[1]),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'_>) -> NodePayload {
-        NodePayload::inline(&[encode_line_style(self.end), encode_line_style(self.start)])
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'_>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct BorderInlineWidth<'a> {
     pub end: NodeId<'a, BorderSideWidth<'a>>,
     pub start: NodeId<'a, BorderSideWidth<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for BorderInlineWidth<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x000e_000a);
+impl_inline_node!(BorderInlineWidth<'ast>, 0x000e_000a);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            end: read_node_id(&bytes, 0, context),
-            start: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_two_ids(self.end, self.start)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct GenericBorder<'a, S> {
     pub color: NodeId<'a, CssColor<'a>>,
     pub style: S,
     pub width: NodeId<'a, BorderSideWidth<'a>>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for GenericBorder<'ast, LineStyle> {
-    const KIND: NodeKind = NodeKind::new(0x000e_000b);
+impl_inline_node!(GenericBorder<'ast, LineStyle>, 0x000e_000b);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            color: read_node_id(&bytes, 0, context),
-            style: decode_line_style(bytes[8]),
-            width: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = encode_generic_border_ids(self.color, self.width);
-        bytes[8] = encode_line_style(self.style);
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-impl<'ast> AstNodeStorage<'ast> for GenericBorder<'ast, OutlineStyle> {
-    const KIND: NodeKind = NodeKind::new(0x000e_000c);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            color: read_node_id(&bytes, 0, context),
-            style: match bytes[8] {
-                0 => OutlineStyle::Auto,
-                1..=10 => OutlineStyle::LineStyle(decode_line_style(bytes[8] - 1)),
-                _ => panic!("invalid encoded OutlineStyle"),
-            },
-            width: read_node_id(&bytes, 4, context),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = encode_generic_border_ids(self.color, self.width);
-        bytes[8] = match self.style {
-            OutlineStyle::Auto => 0,
-            OutlineStyle::LineStyle(value) => encode_line_style(value) + 1,
-        };
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
-    }
-}
-
-fn encode_generic_border_ids<C, W>(
-    color: NodeId<'_, C>,
-    width: NodeId<'_, W>,
-) -> [u8; NodePayload::INLINE_BYTES] {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_node_id(&mut bytes, 0, color);
-    write_node_id(&mut bytes, 4, width);
-    bytes
-}
-
-fn encode_two_ids<T>(first: NodeId<'_, T>, second: NodeId<'_, T>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_node_id(&mut bytes, 0, first);
-    write_node_id(&mut bytes, 4, second);
-    NodePayload::inline(&bytes)
-}
-
-fn encode_four_ids<T>(
-    first: NodeId<'_, T>,
-    second: NodeId<'_, T>,
-    third: NodeId<'_, T>,
-    fourth: NodeId<'_, T>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_node_id(&mut bytes, 0, first);
-    write_node_id(&mut bytes, 4, second);
-    write_node_id(&mut bytes, 8, third);
-    write_node_id(&mut bytes, 12, fourth);
-    NodePayload::inline(&bytes)
-}
-
-fn write_node_id<T>(bytes: &mut [u8], offset: usize, id: NodeId<'_, T>) {
-    bytes[offset..offset + 4].copy_from_slice(
-        &u32::try_from(id.index())
-            .expect("AST node ID exceeds four bytes")
-            .to_le_bytes(),
-    );
-}
-
-fn read_node_id<'ast, T>(
-    bytes: &[u8],
-    offset: usize,
-    context: &AstContext<'ast>,
-) -> NodeId<'ast, T> {
-    context.encoded_node_id_at(
-        u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize,
-    )
-}
-
-fn node_index<T>(id: NodeId<'_, T>) -> u32 {
-    u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn encode_border_image_repeat(value: BorderImageRepeatKeyword) -> u8 {
-    match value {
-        BorderImageRepeatKeyword::Stretch => 0,
-        BorderImageRepeatKeyword::Repeat => 1,
-        BorderImageRepeatKeyword::Round => 2,
-        BorderImageRepeatKeyword::Space => 3,
-    }
-}
-
-fn decode_border_image_repeat(value: u8) -> BorderImageRepeatKeyword {
-    match value {
-        0 => BorderImageRepeatKeyword::Stretch,
-        1 => BorderImageRepeatKeyword::Repeat,
-        2 => BorderImageRepeatKeyword::Round,
-        3 => BorderImageRepeatKeyword::Space,
-        _ => panic!("invalid encoded BorderImageRepeatKeyword"),
-    }
-}
+impl_inline_node!(GenericBorder<'ast, OutlineStyle>, 0x000e_000c);
 
 #[cfg(test)]
 mod storage_tests {
@@ -578,6 +277,87 @@ mod storage_tests {
         AstContext, BorderBlockStyle, BorderSideWidth, BorderStyle, CssColor, DUMMY_SP,
         GenericBorder, LineStyle, OutlineStyle,
     };
+
+    #[test]
+    fn border_image_native_overflow_preserves_children_and_repeat_updates() {
+        use crate::{
+            BorderImage, BorderImageRepeat, BorderImageRepeatKeyword, BorderImageSideWidth,
+            BorderImageSlice, Image, LengthOrNumber, NumberOrPercentage, Rect,
+        };
+        let allocator = Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let n = ast.alloc_node(LengthOrNumber::Number(0.0), DUMMY_SP);
+        let outset = ast.alloc_node(Rect(n, n, n, n), DUMMY_SP);
+        let n = ast.alloc_node(NumberOrPercentage::Number(1.0), DUMMY_SP);
+        let offsets = ast.alloc_node(Rect(n, n, n, n), DUMMY_SP);
+        let slice = ast.alloc_node(
+            BorderImageSlice {
+                fill: false,
+                offsets,
+            },
+            DUMMY_SP,
+        );
+        let n = ast.alloc_node(BorderImageSideWidth::Auto, DUMMY_SP);
+        let width = ast.alloc_node(Rect(n, n, n, n), DUMMY_SP);
+        let source = ast.alloc_node(Image::None, DUMMY_SP);
+        let before = ast.encoded_extra_len();
+        let node = ast.alloc_node(
+            BorderImage {
+                outset,
+                slice,
+                width,
+                source,
+                repeat: BorderImageRepeat {
+                    horizontal: BorderImageRepeatKeyword::Stretch,
+                    vertical: BorderImageRepeatKeyword::Repeat,
+                },
+            },
+            DUMMY_SP,
+        );
+        assert_eq!(ast.encoded_extra_len(), before + 1);
+        let checkpoint = ast.node_checkpoint();
+        let repeats = [
+            BorderImageRepeatKeyword::Stretch,
+            BorderImageRepeatKeyword::Repeat,
+            BorderImageRepeatKeyword::Round,
+            BorderImageRepeatKeyword::Space,
+        ];
+        for (horizontal, vertical) in repeats
+            .into_iter()
+            .flat_map(|horizontal| repeats.map(|vertical| (horizontal, vertical)))
+        {
+            ast.mutate_node(node, |value, _| {
+                value.repeat = BorderImageRepeat {
+                    horizontal,
+                    vertical,
+                }
+            });
+            ast.mutate_node(slice, |value, _| value.fill = !value.fill);
+            let value = ast.resolve_node(node);
+            assert_eq!(
+                value.repeat,
+                BorderImageRepeat {
+                    horizontal,
+                    vertical
+                }
+            );
+            let view = ast.border_image(node);
+            assert_eq!(view.repeat(), value.repeat);
+            assert_eq!(view.source_and_width(), (source, width));
+            assert_eq!(view.slice(), slice);
+            assert_eq!(view.outset(), outset);
+            assert_eq!(
+                (value.outset, value.slice, value.width, value.source),
+                (outset, slice, width, source)
+            );
+        }
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+        let clone = ast.clone_node(node);
+        let cloned = ast.resolve_node(clone);
+        assert_ne!(cloned.slice, slice);
+        ast.mutate_node(cloned.slice, |value, _| value.fill = true);
+        assert!(!ast.resolve_node(slice).fill);
+    }
 
     #[test]
     fn border_aggregate_codecs_preserve_order_and_style_domains() {

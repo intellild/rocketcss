@@ -1,9 +1,9 @@
 use crate::{
-    CharsetRule, ContainerCondition, CustomMediaRule, CustomProperty, Declaration, FamilyName,
-    FontFaceProperty, FontFeatureDeclaration, FontFeatureSubruleType, FontPaletteValuesProperty,
-    ImportRule, KeyframeSelector, KeyframesName, MediaList, NamespaceRule, NodeId, PageMarginBox,
-    PageSelector, ParsedComponent, SelectorList, SupportsCondition, SyntaxString, TokenOrValue,
-    Vec, VendorPrefix, ViewTransitionProperty,
+    AstStr, CharsetRule, ContainerCondition, CustomMediaRule, CustomProperty, Declaration,
+    FamilyName, FontFaceProperty, FontFeatureDeclaration, FontFeatureSubruleType,
+    FontPaletteValuesProperty, ImportRule, KeyframeSelector, KeyframesName, MediaList,
+    NamespaceRule, NodeId, PageMarginBox, PageSelector, ParsedComponent, SelectorList,
+    SupportsCondition, SyntaxString, TokenOrValue, Vec, VendorPrefix, ViewTransitionProperty,
 };
 
 use super::{DeclarationId, SelectorValueId};
@@ -120,17 +120,17 @@ pub struct StartingStyleRulePayload;
 
 #[derive(Debug, PartialEq)]
 pub struct LayerStatementRulePayload<'ast> {
-    pub names: Vec<'ast, Vec<'ast, &'ast str>>,
+    pub names: Vec<'ast, Vec<'ast, AstStr<'ast>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct LayerBlockRulePayload<'ast> {
-    pub name: Option<Vec<'ast, &'ast str>>,
+    pub name: Option<Vec<'ast, AstStr<'ast>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ContainerRulePayload<'ast> {
-    pub name: Option<&'ast str>,
+    pub name: Option<AstStr<'ast>>,
     pub condition: Option<NodeId<'ast, ContainerCondition<'ast>>>,
 }
 
@@ -145,14 +145,14 @@ pub struct MozDocumentRulePayload;
 
 #[derive(Debug, PartialEq)]
 pub struct UnknownAtRulePayload<'ast> {
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
     pub prelude: Vec<'ast, TokenOrValue<'ast>>,
     pub block: Option<Vec<'ast, TokenOrValue<'ast>>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CounterStyleRulePayload<'ast> {
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,7 +162,7 @@ pub struct ViewportRulePayload {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PositionTryRulePayload<'ast> {
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,7 +170,7 @@ pub struct FontFaceRulePayload;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FontPaletteValuesRulePayload<'ast> {
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,7 +217,7 @@ pub struct FontFeatureSubrulePayload {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PropertyRulePayload<'ast> {
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
     pub syntax: Option<DeclarationId<'ast>>,
     pub inherits: Option<DeclarationId<'ast>>,
     pub initial_value: Option<DeclarationId<'ast>>,

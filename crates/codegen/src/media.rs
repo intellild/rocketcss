@@ -1,99 +1,5 @@
 use crate::prelude::*;
 
-impl<'ghost> ToCss<'ghost> for MediaList<'_> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        if self.media_queries.is_empty() {
-            return dest.write_str("not all");
-        }
-        for (index, query) in _cx.ast_context().vec_iter(self.media_queries).enumerate() {
-            if index > 0 {
-                dest.delim(Delimiter::Comma)?;
-            }
-            query.to_css(dest, _cx)?;
-        }
-        Ok(())
-    }
-}
-
-impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        let ast = _cx.ast_context();
-        if let Some(condition) = self.condition
-            && let MediaCondition::Unknown(tokens) = ast.resolve_node(condition)
-        {
-            let tokens = ast.vec_iter(tokens).collect::<std::vec::Vec<_>>();
-            if matches!(self.qualifier, Some(Qualifier::Not))
-                && matches!(self.media_type, MediaType::All)
-                && matches!(
-                    tokens.iter().find(|value| {
-                        !matches!(value, TokenOrValue::Token(token) if matches!(ast.resolve_node(*token), Token::WhiteSpace(_)))
-                    }),
-                    Some(TokenOrValue::Token(token)) if matches!(ast.resolve_node(*token), Token::ParenthesisBlock)
-                )
-            {
-                dest.write_str("not ")?;
-                return crate::token::write_token_list_trimmed(&tokens, dest, _cx);
-            }
-
-            if let Some(qualifier) = &self.qualifier {
-                qualifier.to_css(dest, _cx)?;
-                dest.write_char(' ')?;
-            }
-            let wrote_type = !matches!(self.media_type, MediaType::All);
-            if wrote_type || self.qualifier.is_some() {
-                self.media_type.to_css(dest, _cx)?;
-                dest.write_char(' ')?;
-            }
-            return crate::token::write_token_list_trimmed(&tokens, dest, _cx);
-        }
-
-        if let Some(qualifier) = &self.qualifier {
-            qualifier.to_css(dest, _cx)?;
-            dest.write_char(' ')?;
-        }
-
-        let has_type = !matches!(self.media_type, MediaType::All);
-        match &self.media_type {
-            MediaType::All if self.qualifier.is_some() || self.condition.is_none() => {
-                dest.write_str("all")?
-            }
-            MediaType::All => {}
-            value => value.to_css(dest, _cx)?,
-        }
-
-        if let Some(condition) = self.condition {
-            let condition = ast.resolve_node(condition);
-            if has_type || self.qualifier.is_some() {
-                dest.write_str(" and ")?;
-            }
-            let needs_parens = (has_type || self.qualifier.is_some())
-                && matches!(
-                    condition,
-                    MediaCondition::Operation {
-                        operator: Operator::Or,
-                        ..
-                    }
-                );
-            if needs_parens {
-                dest.write_char('(')?;
-            }
-            condition.to_css(dest, _cx)?;
-            if needs_parens {
-                dest.write_char(')')?;
-            }
-        }
-        Ok(())
-    }
-}
-
 impl<'ghost> ToCss<'ghost> for MediaCondition<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
@@ -165,45 +71,87 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
     }
 }
 
-impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for QueryFeature<'_, FeatureId> {
+impl<'ghost, FeatureId: ToCss<'ghost> + QueryFeatureId> ToCss<'ghost>
+    for QueryFeature<'_, FeatureId>
+{
+    fn to_css_node<'id, PrinterT: PrinterTrait>(
+        id: NodeId<'id, Self>,
+        dest: &mut PrinterT,
+        cx: &ToCssContext<'_, '_, 'ghost>,
+    ) -> fmt::Result
+    where
+        Self: AstNodeStorage<'id>,
+    {
+        let feature = cx.ast_context().query_feature(id);
+        write_query_feature(|| feature.name(), feature.predicate(), dest, cx)
+    }
+
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        dest.write_char('(')?;
-        match self {
-            Self::Plain { name, value } => {
-                name.to_css(dest, _cx)?;
-                dest.delim(Delimiter::Colon)?;
-                value.to_css(dest, _cx)?;
-            }
-            Self::Boolean { name } => name.to_css(dest, _cx)?,
+        let (name, predicate) = match *self {
+            Self::Plain { name, value } => (name, QueryFeaturePredicate::Plain(value)),
+            Self::Boolean { name } => (name, QueryFeaturePredicate::Boolean),
             Self::Range {
                 name,
                 operator,
                 value,
-            } => {
-                name.to_css(dest, _cx)?;
-                operator.to_css(dest, _cx)?;
-                value.to_css(dest, _cx)?;
-            }
+            } => (name, QueryFeaturePredicate::Range { operator, value }),
             Self::Interval {
-                end,
-                end_operator,
                 name,
                 start,
                 start_operator,
-            } => {
-                start.to_css(dest, _cx)?;
-                start_operator.to_css(dest, _cx)?;
-                name.to_css(dest, _cx)?;
-                end_operator.to_css(dest, _cx)?;
-                end.to_css(dest, _cx)?;
-            }
-        }
-        dest.write_char(')')
+                end,
+                end_operator,
+            } => (
+                name,
+                QueryFeaturePredicate::Interval {
+                    start,
+                    start_operator,
+                    end,
+                    end_operator,
+                },
+            ),
+        };
+        write_query_feature(|| name, predicate, dest, cx)
     }
+}
+
+fn write_query_feature<'id, 'ghost, F: ToCss<'ghost>, PrinterT: PrinterTrait>(
+    name: impl FnOnce() -> MediaFeatureName<'id, F>,
+    predicate: QueryFeaturePredicate<'id>,
+    dest: &mut PrinterT,
+    cx: &ToCssContext<'_, '_, 'ghost>,
+) -> fmt::Result {
+    dest.write_char('(')?;
+    match predicate {
+        QueryFeaturePredicate::Plain(value) => {
+            name().to_css(dest, cx)?;
+            dest.delim(Delimiter::Colon)?;
+            value.to_css(dest, cx)?;
+        }
+        QueryFeaturePredicate::Boolean => name().to_css(dest, cx)?,
+        QueryFeaturePredicate::Range { operator, value } => {
+            name().to_css(dest, cx)?;
+            operator.to_css(dest, cx)?;
+            value.to_css(dest, cx)?;
+        }
+        QueryFeaturePredicate::Interval {
+            start,
+            start_operator,
+            end,
+            end_operator,
+        } => {
+            start.to_css(dest, cx)?;
+            start_operator.to_css(dest, cx)?;
+            name().to_css(dest, cx)?;
+            end_operator.to_css(dest, cx)?;
+            end.to_css(dest, cx)?;
+        }
+    }
+    dest.write_char(')')
 }
 
 impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for MediaFeatureName<'_, FeatureId> {
@@ -215,10 +163,11 @@ impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for MediaFeatureName<'_, Fe
         match self {
             Self::Standard(value) => value.to_css(dest, _cx),
             Self::Custom(value) => {
+                let value = _cx.ast_context().str(*value);
                 dest.write_str("--")?;
                 serialize_name(value.strip_prefix("--").unwrap_or(value), dest)
             }
-            Self::Unknown(value) => serialize_identifier(value, dest),
+            Self::Unknown(value) => serialize_identifier(_cx.ast_context().str(*value), dest),
         }
     }
 }
@@ -249,7 +198,7 @@ impl<'ghost> ToCss<'ghost> for MediaFeatureValue<'_> {
             Self::Boolean(value) => dest.write_char(if *value { '1' } else { '0' }),
             Self::Resolution(value) => value.to_css(dest, _cx),
             Self::Ratio(value) => value.to_css(dest, _cx),
-            Self::Ident(value) => serialize_identifier(value, dest),
+            Self::Ident(value) => serialize_identifier(_cx.ast_context().str(*value), dest),
             Self::Env(value) => value.to_css(dest, _cx),
         }
     }
@@ -290,7 +239,7 @@ impl<'ghost> ToCss<'ghost> for MediaType<'_> {
         _cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
-            Self::Custom(value) => serialize_identifier(value, dest),
+            Self::Custom(value) => serialize_identifier(_cx.ast_context().str(*value), dest),
             value => dest.write_str(
                 value
                     .as_css_str()
@@ -319,10 +268,8 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
         match self {
             Self::Not(value) => {
                 dest.write_str("not ")?;
-                let needs_parens = matches!(
-                    _cx.ast_context().resolve_node(*value),
-                    Self::And(_) | Self::Or(_)
-                );
+                let value = _cx.ast_context().resolve_node(*value);
+                let needs_parens = matches!(value, Self::And(_) | Self::Or(_));
                 if needs_parens {
                     dest.write_char('(')?;
                 }
@@ -361,15 +308,15 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
                 dest.write_char('(')?;
                 property_id.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Colon)?;
-                dest.write_str(value)?;
+                dest.write_str(_cx.ast_context().str(*value))?;
                 dest.write_char(')')
             }
             Self::Selector(value) => {
                 dest.write_str("selector(")?;
-                dest.write_str(value)?;
+                dest.write_str(_cx.ast_context().str(*value))?;
                 dest.write_char(')')
             }
-            Self::Unknown(value) => dest.write_str(value),
+            Self::Unknown(value) => dest.write_str(_cx.ast_context().str(*value)),
         }
     }
 }

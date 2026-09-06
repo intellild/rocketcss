@@ -4,7 +4,7 @@ use super::*;
 pub type SelectorList<'a> = Vec<'a, NodeId<'a, Selector<'a>>>;
 
 /// A complex selector, a losslessly preserved invalid selector, or a removed selector.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
 pub enum Selector<'a> {
     /// A valid selector. Components are stored in parse order.
     Parsed(Vec<'a, NodeId<'a, SelectorComponent<'a>>>),
@@ -43,27 +43,7 @@ impl<'a> Selector<'a> {
     }
 }
 
-impl<'ast> AstNodeStorage<'ast> for Selector<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001b_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Parsed(read_range(&bytes, context)),
-            1 => Self::Unparsed(context.resolve_atom(read_u32(&bytes, 4) as u64)),
-            2 => Self::Tombstone,
-            _ => panic!("invalid encoded Selector variant"),
-        }
-    }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_selector(self, context)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_selector(self, context)
-    }
-}
+impl_inline_node!(Selector<'ast>, 0x001b_0001);
 
 impl<'ast> AstNodeClone<'ast> for Selector<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -73,19 +53,6 @@ impl<'ast> AstNodeClone<'ast> for Selector<'ast> {
             Self::Tombstone => Self::Tombstone,
         }
     }
-}
-
-fn encode_selector<'ast>(value: Selector<'ast>, context: &mut AstContext<'ast>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        Selector::Parsed(components) => write_range(&mut bytes, 0, components),
-        Selector::Unparsed(value) => {
-            bytes[0] = 1;
-            write_u32(&mut bytes, 4, context.store_atom(value));
-        }
-        Selector::Tombstone => bytes[0] = 2,
-    }
-    NodePayload::inline(&bytes)
 }
 
 /// A CSS simple selector or combinator.
@@ -150,76 +117,494 @@ pub enum SelectorComponent<'a> {
     Nesting,
 }
 
-impl<'ast> AstNodeStorage<'ast> for SelectorComponent<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001b_0002);
+// The native slot keeps common variants inline. Only fields that exceed the
+// payload capacity use typed overflow slots; no string reference IDs are stored.
+#[derive(Clone, Copy)]
+enum SelectorComponentSlot<'a> {
+    Combinator(Combinator),
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Combinator(decode_combinator(bytes[1])),
-            1 => Self::ExplicitAnyNamespace,
-            2 => Self::ExplicitNoNamespace,
-            3 => Self::DefaultNamespace(context.resolve_atom(read_u32(&bytes, 4) as u64)),
-            4 => Self::Namespace {
-                prefix: context.resolve_atom(read_u32(&bytes, 4) as u64),
-                url: context.resolve_atom(read_u32(&bytes, 8) as u64),
-            },
-            5 => Self::ExplicitUniversalType,
-            6 => Self::LocalName {
-                name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-                lower_name: context.resolve_atom(read_u32(&bytes, 8) as u64),
-            },
-            7 => Self::Id(context.resolve_atom(read_u32(&bytes, 4) as u64)),
-            8 => Self::Class(context.resolve_atom(read_u32(&bytes, 4) as u64)),
-            9 => Self::AttributeInNoNamespaceExists {
-                local_name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-                local_name_lower: context.resolve_atom(read_u32(&bytes, 8) as u64),
-            },
-            10 => Self::AttributeInNoNamespace {
-                local_name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-                operator: decode_attr_operator(bytes[2]),
-                value: context.resolve_atom(read_u32(&bytes, 8) as u64),
-                case_sensitivity: decode_case_sensitivity(bytes[3]),
-                never_matches: bytes[1] != 0,
-            },
-            11 => Self::AttributeOther(read_node_id(&bytes, context)),
-            12 => Self::Negation(read_range(&bytes, context)),
-            13 => Self::Root,
-            14 => Self::Empty,
-            15 => Self::Scope,
-            16 => Self::Nth(decode_nth_data(&bytes)),
-            17 => Self::NthOf {
-                data: decode_nth_data(&bytes),
-                selectors: decode_extra_range(context.extra_slot(payload.extra_start()), context),
-            },
-            18 => Self::PseudoClass(read_node_id(&bytes, context)),
-            19 => Self::Slotted(read_node_id(&bytes, context)),
-            20 => Self::Part(read_range(&bytes, context)),
-            21 => Self::Host(match bytes[1] {
-                0 => None,
-                1 => Some(read_node_id(&bytes, context)),
-                _ => panic!("invalid encoded SelectorComponent host flag"),
-            }),
-            22 => Self::Where(read_range(&bytes, context)),
-            23 => Self::Is(read_range(&bytes, context)),
-            24 => Self::Any {
-                vendor_prefix: VendorPrefix::from_bits_retain(bytes[1]),
-                selectors: read_range(&bytes, context),
-            },
-            25 => Self::Has(read_range(&bytes, context)),
-            26 => Self::PseudoElement(read_node_id(&bytes, context)),
-            27 => Self::Nesting,
-            _ => panic!("invalid encoded SelectorComponent variant"),
+    ExplicitAnyNamespace,
+    ExplicitNoNamespace,
+    DefaultNamespace(Atom<'a>),
+    Namespace {
+        prefix: Atom<'a>,
+        extra: u32,
+    },
+
+    ExplicitUniversalType,
+    LocalName {
+        name: Atom<'a>,
+        extra: u32,
+    },
+
+    Id(Atom<'a>),
+    Class(Atom<'a>),
+
+    AttributeInNoNamespaceExists {
+        local_name: Atom<'a>,
+        extra: u32,
+    },
+    AttributeInNoNamespace {
+        local_name: Atom<'a>,
+        extra: u32,
+    },
+    AttributeOther(NodeId<'a, AttrSelector<'a>>),
+
+    Negation(Vec<'a, NodeId<'a, Selector<'a>>>),
+    Root,
+    Empty,
+    Scope,
+    Nth(NthSelectorData),
+    NthOf {
+        extra: u32,
+        selectors: Vec<'a, NodeId<'a, Selector<'a>>>,
+    },
+    PseudoClass(NodeId<'a, PseudoClass<'a>>),
+    Slotted(NodeId<'a, Selector<'a>>),
+    Part(Vec<'a, Atom<'a>>),
+    Host(Option<NodeId<'a, Selector<'a>>>),
+    Where(Vec<'a, NodeId<'a, Selector<'a>>>),
+    Is(Vec<'a, NodeId<'a, Selector<'a>>>),
+    Any {
+        vendor_prefix: VendorPrefix,
+        selectors: Vec<'a, NodeId<'a, Selector<'a>>>,
+    },
+    Has(Vec<'a, NodeId<'a, Selector<'a>>>),
+    PseudoElement(NodeId<'a, PseudoElement<'a>>),
+    Nesting,
+}
+
+pub use component_access::SelectorComponentSyntax;
+// Transient authored syntax omits matching-only fields and does not enter visitor generation.
+mod component_access {
+    use super::*;
+    pub enum SelectorComponentSyntax<'a> {
+        Combinator(Combinator),
+
+        ExplicitAnyNamespace,
+        ExplicitNoNamespace,
+        DefaultNamespace,
+        NamespacePrefix(Atom<'a>),
+
+        ExplicitUniversalType,
+        LocalName(Atom<'a>),
+
+        IdName(Atom<'a>),
+        ClassName(Atom<'a>),
+
+        AttributeExists(Atom<'a>),
+        AttributeInNoNamespace {
+            local_name: Atom<'a>,
+            operator: AttrSelectorOperator,
+            value: Atom<'a>,
+            case_sensitivity: ParsedCaseSensitivity,
+        },
+        AttributeOther(NodeId<'a, AttrSelector<'a>>),
+
+        Negation(Vec<'a, NodeId<'a, Selector<'a>>>),
+        Root,
+        Empty,
+        Scope,
+        Nth(NthSelectorData),
+        NthOf {
+            data: NthSelectorData,
+            selectors: Vec<'a, NodeId<'a, Selector<'a>>>,
+        },
+        PseudoClass(NodeId<'a, PseudoClass<'a>>),
+        Slotted(NodeId<'a, Selector<'a>>),
+        Part(Vec<'a, Atom<'a>>),
+        Host(Option<NodeId<'a, Selector<'a>>>),
+        Where(Vec<'a, NodeId<'a, Selector<'a>>>),
+        Is(Vec<'a, NodeId<'a, Selector<'a>>>),
+        Any {
+            vendor_prefix: VendorPrefix,
+            selectors: Vec<'a, NodeId<'a, Selector<'a>>>,
+        },
+        Has(Vec<'a, NodeId<'a, Selector<'a>>>),
+        PseudoElement(NodeId<'a, PseudoElement<'a>>),
+        Nesting,
+    }
+
+    impl<'a> From<&SelectorComponent<'a>> for SelectorComponentSyntax<'a> {
+        fn from(value: &SelectorComponent<'a>) -> Self {
+            match *value {
+                SelectorComponent::Combinator(value) => Self::Combinator(value),
+                SelectorComponent::AttributeOther(value) => Self::AttributeOther(value),
+                SelectorComponent::Negation(value) => Self::Negation(value),
+                SelectorComponent::Nth(value) => Self::Nth(value),
+                SelectorComponent::PseudoClass(value) => Self::PseudoClass(value),
+                SelectorComponent::Slotted(value) => Self::Slotted(value),
+                SelectorComponent::Part(value) => Self::Part(value),
+                SelectorComponent::Host(value) => Self::Host(value),
+                SelectorComponent::Where(value) => Self::Where(value),
+                SelectorComponent::Is(value) => Self::Is(value),
+                SelectorComponent::Has(value) => Self::Has(value),
+                SelectorComponent::PseudoElement(value) => Self::PseudoElement(value),
+                SelectorComponent::ExplicitAnyNamespace => Self::ExplicitAnyNamespace,
+                SelectorComponent::ExplicitNoNamespace => Self::ExplicitNoNamespace,
+                SelectorComponent::ExplicitUniversalType => Self::ExplicitUniversalType,
+                SelectorComponent::Root => Self::Root,
+                SelectorComponent::Empty => Self::Empty,
+                SelectorComponent::Scope => Self::Scope,
+                SelectorComponent::Nesting => Self::Nesting,
+                SelectorComponent::DefaultNamespace(_) => Self::DefaultNamespace,
+                SelectorComponent::Namespace { prefix, .. } => Self::NamespacePrefix(prefix),
+                SelectorComponent::LocalName { name, .. } => Self::LocalName(name),
+                SelectorComponent::Id(value) => Self::IdName(value),
+                SelectorComponent::Class(value) => Self::ClassName(value),
+                SelectorComponent::AttributeInNoNamespaceExists { local_name, .. } => {
+                    Self::AttributeExists(local_name)
+                }
+                SelectorComponent::AttributeInNoNamespace {
+                    local_name,
+                    operator,
+                    value,
+                    case_sensitivity,
+                    ..
+                } => Self::AttributeInNoNamespace {
+                    local_name,
+                    operator,
+                    value,
+                    case_sensitivity,
+                },
+                SelectorComponent::NthOf { data, selectors } => Self::NthOf { data, selectors },
+                SelectorComponent::Any {
+                    vendor_prefix,
+                    selectors,
+                } => Self::Any {
+                    vendor_prefix,
+                    selectors,
+                },
+            }
         }
+    }
+    impl AstContext<'_> {
+        /// Tests only the native component tag, without reading matching or syntax overflow.
+        #[inline]
+        pub fn selector_component_is_combinator_or_type(
+            &self,
+            id: NodeId<'_, SelectorComponent<'_>>,
+        ) -> bool {
+            // SAFETY: node_payload validates the owning kind before reading its native slot.
+            matches!(
+                unsafe { self.node_payload(id).read_value::<SelectorComponentSlot>() },
+                SelectorComponentSlot::Combinator(_)
+                    | SelectorComponentSlot::LocalName { .. }
+                    | SelectorComponentSlot::ExplicitUniversalType
+            )
+        }
+
+        #[inline]
+        pub fn selector_component_syntax<'id>(
+            &self,
+            id: NodeId<'id, SelectorComponent<'id>>,
+        ) -> SelectorComponentSyntax<'id> {
+            // SAFETY: node_payload validates the kind; each overflow branch reads its matching native type.
+            let slot: SelectorComponentSlot<'id> = unsafe { self.node_payload(id).read_value() };
+            match slot {
+                SelectorComponentSlot::Combinator(value) => {
+                    SelectorComponentSyntax::Combinator(value)
+                }
+                SelectorComponentSlot::ExplicitAnyNamespace => {
+                    SelectorComponentSyntax::ExplicitAnyNamespace
+                }
+                SelectorComponentSlot::ExplicitNoNamespace => {
+                    SelectorComponentSyntax::ExplicitNoNamespace
+                }
+                SelectorComponentSlot::DefaultNamespace(_) => {
+                    SelectorComponentSyntax::DefaultNamespace
+                }
+                SelectorComponentSlot::Namespace { prefix, .. } => {
+                    SelectorComponentSyntax::NamespacePrefix(prefix)
+                }
+                SelectorComponentSlot::ExplicitUniversalType => {
+                    SelectorComponentSyntax::ExplicitUniversalType
+                }
+                SelectorComponentSlot::LocalName { name, .. } => {
+                    SelectorComponentSyntax::LocalName(name)
+                }
+                SelectorComponentSlot::Id(value) => SelectorComponentSyntax::IdName(value),
+                SelectorComponentSlot::Class(value) => SelectorComponentSyntax::ClassName(value),
+                SelectorComponentSlot::AttributeInNoNamespaceExists { local_name, .. } => {
+                    SelectorComponentSyntax::AttributeExists(local_name)
+                }
+                SelectorComponentSlot::AttributeInNoNamespace { local_name, extra } => {
+                    let (value, operator, case_sensitivity, _) = unsafe {
+                        read_component_extra::<
+                            (Atom<'id>, AttrSelectorOperator, ParsedCaseSensitivity, bool),
+                            2,
+                        >(extra, self)
+                    };
+                    SelectorComponentSyntax::AttributeInNoNamespace {
+                        local_name,
+                        value,
+                        operator,
+                        case_sensitivity,
+                    }
+                }
+                SelectorComponentSlot::AttributeOther(value) => {
+                    SelectorComponentSyntax::AttributeOther(value)
+                }
+                SelectorComponentSlot::Negation(value) => SelectorComponentSyntax::Negation(value),
+                SelectorComponentSlot::Root => SelectorComponentSyntax::Root,
+                SelectorComponentSlot::Empty => SelectorComponentSyntax::Empty,
+                SelectorComponentSlot::Scope => SelectorComponentSyntax::Scope,
+                SelectorComponentSlot::Nth(value) => SelectorComponentSyntax::Nth(value),
+                SelectorComponentSlot::NthOf { selectors, extra } => {
+                    SelectorComponentSyntax::NthOf {
+                        selectors,
+                        data: unsafe { read_component_extra::<NthSelectorData, 2>(extra, self) },
+                    }
+                }
+                SelectorComponentSlot::PseudoClass(value) => {
+                    SelectorComponentSyntax::PseudoClass(value)
+                }
+                SelectorComponentSlot::Slotted(value) => SelectorComponentSyntax::Slotted(value),
+                SelectorComponentSlot::Part(value) => SelectorComponentSyntax::Part(value),
+                SelectorComponentSlot::Host(value) => SelectorComponentSyntax::Host(value),
+                SelectorComponentSlot::Where(value) => SelectorComponentSyntax::Where(value),
+                SelectorComponentSlot::Is(value) => SelectorComponentSyntax::Is(value),
+                SelectorComponentSlot::Any {
+                    vendor_prefix,
+                    selectors,
+                } => SelectorComponentSyntax::Any {
+                    vendor_prefix,
+                    selectors,
+                },
+                SelectorComponentSlot::Has(value) => SelectorComponentSyntax::Has(value),
+                SelectorComponentSlot::PseudoElement(value) => {
+                    SelectorComponentSyntax::PseudoElement(value)
+                }
+                SelectorComponentSlot::Nesting => SelectorComponentSyntax::Nesting,
+            }
+        }
+    }
+}
+
+// SAFETY: KIND identifies SelectorComponentSlot; each overflow variant writes
+// and reads its own fixed Copy type and slot count.
+unsafe impl<'ast> AstNodeStorage<'ast> for SelectorComponent<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x001b_0002);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let slot = unsafe { payload.read_value() };
+        unsafe { Self::from_slot(slot, context) }
     }
 
     fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_selector_component(self, None, context)
+        self.into_payload(None, context)
+    }
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        self.into_payload(Some(unsafe { current.read_value() }), context)
+    }
+}
+impl<'ast> SelectorComponent<'ast> {
+    // SAFETY: slot and its overflow must originate in this context with this kind.
+    unsafe fn from_slot(slot: SelectorComponentSlot<'ast>, context: &AstContext<'_>) -> Self {
+        use SelectorComponentSlot as S;
+        match slot {
+            S::Combinator(value) => Self::Combinator(value),
+            S::ExplicitAnyNamespace => Self::ExplicitAnyNamespace,
+            S::ExplicitNoNamespace => Self::ExplicitNoNamespace,
+            S::DefaultNamespace(value) => Self::DefaultNamespace(value),
+            S::Namespace { prefix, extra } => Self::Namespace {
+                prefix,
+                url: unsafe { read_component_extra::<Atom<'ast>, 1>(extra, context) },
+            },
+            S::ExplicitUniversalType => Self::ExplicitUniversalType,
+            S::LocalName { name, extra } => Self::LocalName {
+                name,
+                lower_name: unsafe { read_component_extra::<Atom<'ast>, 1>(extra, context) },
+            },
+            S::Id(value) => Self::Id(value),
+            S::Class(value) => Self::Class(value),
+            S::AttributeInNoNamespaceExists { local_name, extra } => {
+                Self::AttributeInNoNamespaceExists {
+                    local_name,
+                    local_name_lower: unsafe {
+                        read_component_extra::<Atom<'ast>, 1>(extra, context)
+                    },
+                }
+            }
+            S::AttributeInNoNamespace { local_name, extra } => {
+                let (value, operator, case_sensitivity, never_matches) = unsafe {
+                    read_component_extra::<
+                        (
+                            Atom<'ast>,
+                            AttrSelectorOperator,
+                            ParsedCaseSensitivity,
+                            bool,
+                        ),
+                        2,
+                    >(extra, context)
+                };
+                Self::AttributeInNoNamespace {
+                    local_name,
+                    value,
+                    operator,
+                    case_sensitivity,
+                    never_matches,
+                }
+            }
+            S::AttributeOther(value) => Self::AttributeOther(value),
+            S::Negation(value) => Self::Negation(value),
+            S::Root => Self::Root,
+            S::Empty => Self::Empty,
+            S::Scope => Self::Scope,
+            S::Nth(value) => Self::Nth(value),
+            S::NthOf { selectors, extra } => Self::NthOf {
+                selectors,
+                data: unsafe { read_component_extra::<NthSelectorData, 2>(extra, context) },
+            },
+            S::PseudoClass(value) => Self::PseudoClass(value),
+            S::Slotted(value) => Self::Slotted(value),
+            S::Part(value) => Self::Part(value),
+            S::Host(value) => Self::Host(value),
+            S::Where(value) => Self::Where(value),
+            S::Is(value) => Self::Is(value),
+            S::Any {
+                vendor_prefix,
+                selectors,
+            } => Self::Any {
+                vendor_prefix,
+                selectors,
+            },
+            S::Has(value) => Self::Has(value),
+            S::PseudoElement(value) => Self::PseudoElement(value),
+            S::Nesting => Self::Nesting,
+        }
     }
 
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        let extra = (current.bytes()[0] == 17).then(|| current.extra_start());
-        encode_selector_component(self, extra, context)
+    fn into_payload(
+        self,
+        current: Option<SelectorComponentSlot<'ast>>,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        use SelectorComponentSlot as S;
+        NodePayload::from_value(match self {
+            Self::Combinator(value) => S::Combinator(value),
+            Self::ExplicitAnyNamespace => S::ExplicitAnyNamespace,
+            Self::ExplicitNoNamespace => S::ExplicitNoNamespace,
+            Self::DefaultNamespace(value) => S::DefaultNamespace(value),
+            Self::Namespace { prefix, url } => S::Namespace {
+                prefix,
+                extra: write_component_extra::<_, 1>(
+                    url,
+                    match current {
+                        Some(S::Namespace { extra, .. }) => Some(extra),
+                        _ => None,
+                    },
+                    context,
+                ),
+            },
+            Self::ExplicitUniversalType => S::ExplicitUniversalType,
+            Self::LocalName { name, lower_name } => S::LocalName {
+                name,
+                extra: write_component_extra::<_, 1>(
+                    lower_name,
+                    match current {
+                        Some(S::LocalName { extra, .. }) => Some(extra),
+                        _ => None,
+                    },
+                    context,
+                ),
+            },
+            Self::Id(value) => S::Id(value),
+            Self::Class(value) => S::Class(value),
+            Self::AttributeInNoNamespaceExists {
+                local_name,
+                local_name_lower,
+            } => S::AttributeInNoNamespaceExists {
+                local_name,
+                extra: write_component_extra::<_, 1>(
+                    local_name_lower,
+                    match current {
+                        Some(S::AttributeInNoNamespaceExists { extra, .. }) => Some(extra),
+                        _ => None,
+                    },
+                    context,
+                ),
+            },
+            Self::AttributeInNoNamespace {
+                local_name,
+                value,
+                operator,
+                case_sensitivity,
+                never_matches,
+            } => S::AttributeInNoNamespace {
+                local_name,
+                extra: write_component_extra::<_, 2>(
+                    (value, operator, case_sensitivity, never_matches),
+                    match current {
+                        Some(S::AttributeInNoNamespace { extra, .. }) => Some(extra),
+                        _ => None,
+                    },
+                    context,
+                ),
+            },
+            Self::AttributeOther(value) => S::AttributeOther(value),
+            Self::Negation(value) => S::Negation(value),
+            Self::Root => S::Root,
+            Self::Empty => S::Empty,
+            Self::Scope => S::Scope,
+            Self::Nth(value) => S::Nth(value),
+            Self::NthOf { selectors, data } => S::NthOf {
+                selectors,
+                extra: write_component_extra::<_, 2>(
+                    data,
+                    match current {
+                        Some(S::NthOf { extra, .. }) => Some(extra),
+                        _ => None,
+                    },
+                    context,
+                ),
+            },
+            Self::PseudoClass(value) => S::PseudoClass(value),
+            Self::Slotted(value) => S::Slotted(value),
+            Self::Part(value) => S::Part(value),
+            Self::Host(value) => S::Host(value),
+            Self::Where(value) => S::Where(value),
+            Self::Is(value) => S::Is(value),
+            Self::Any {
+                vendor_prefix,
+                selectors,
+            } => S::Any {
+                vendor_prefix,
+                selectors,
+            },
+            Self::Has(value) => S::Has(value),
+            Self::PseudoElement(value) => S::PseudoElement(value),
+            Self::Nesting => S::Nesting,
+        })
+    }
+}
+
+fn write_component_extra<T: Copy, const N: usize>(
+    value: T,
+    current: Option<u32>,
+    context: &mut AstContext<'_>,
+) -> u32 {
+    let slots = ExtraData::from_value_array::<T, N>(value);
+    match current {
+        Some(extra) => {
+            for (i, slot) in slots.into_iter().enumerate() {
+                context.set_extra_slot(extra as usize + i, slot);
+            }
+            extra
+        }
+        None => u32::try_from(context.alloc_extra_slots(slots))
+            .expect("selector overflow index exceeds u32"),
+    }
+}
+// SAFETY: caller must identify the matching writer type and slot count.
+unsafe fn read_component_extra<T: Copy, const N: usize>(extra: u32, context: &AstContext<'_>) -> T {
+    unsafe {
+        ExtraData::read_value_array::<T, N>(std::array::from_fn(|i| {
+            context.extra_slot(extra as usize + i)
+        }))
     }
 }
 
@@ -252,106 +637,6 @@ impl<'ast> AstNodeClone<'ast> for SelectorComponent<'ast> {
     }
 }
 
-fn encode_selector_component<'ast>(
-    value: SelectorComponent<'ast>,
-    existing_extra: Option<usize>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        SelectorComponent::Combinator(value) => {
-            bytes[0] = 0;
-            bytes[1] = encode_combinator(value);
-        }
-        SelectorComponent::ExplicitAnyNamespace => bytes[0] = 1,
-        SelectorComponent::ExplicitNoNamespace => bytes[0] = 2,
-        SelectorComponent::DefaultNamespace(value) => write_atom(&mut bytes, 3, 4, value, context),
-        SelectorComponent::Namespace { prefix, url } => {
-            bytes[0] = 4;
-            write_u32(&mut bytes, 4, context.store_atom(prefix));
-            write_u32(&mut bytes, 8, context.store_atom(url));
-        }
-        SelectorComponent::ExplicitUniversalType => bytes[0] = 5,
-        SelectorComponent::LocalName { name, lower_name } => {
-            bytes[0] = 6;
-            write_u32(&mut bytes, 4, context.store_atom(name));
-            write_u32(&mut bytes, 8, context.store_atom(lower_name));
-        }
-        SelectorComponent::Id(value) => write_atom(&mut bytes, 7, 4, value, context),
-        SelectorComponent::Class(value) => write_atom(&mut bytes, 8, 4, value, context),
-        SelectorComponent::AttributeInNoNamespaceExists {
-            local_name,
-            local_name_lower,
-        } => {
-            bytes[0] = 9;
-            write_u32(&mut bytes, 4, context.store_atom(local_name));
-            write_u32(&mut bytes, 8, context.store_atom(local_name_lower));
-        }
-        SelectorComponent::AttributeInNoNamespace {
-            local_name,
-            operator,
-            value,
-            case_sensitivity,
-            never_matches,
-        } => {
-            bytes[0] = 10;
-            bytes[1] = never_matches as u8;
-            bytes[2] = encode_attr_operator(operator);
-            bytes[3] = encode_case_sensitivity(case_sensitivity);
-            write_u32(&mut bytes, 4, context.store_atom(local_name));
-            write_u32(&mut bytes, 8, context.store_atom(value));
-        }
-        SelectorComponent::AttributeOther(value) => write_node_id(&mut bytes, 11, value),
-        SelectorComponent::Negation(values) => write_range(&mut bytes, 12, values),
-        SelectorComponent::Root => bytes[0] = 13,
-        SelectorComponent::Empty => bytes[0] = 14,
-        SelectorComponent::Scope => bytes[0] = 15,
-        SelectorComponent::Nth(value) => {
-            bytes[0] = 16;
-            encode_nth_data(value, &mut bytes);
-        }
-        SelectorComponent::NthOf { data, selectors } => {
-            bytes[0] = 17;
-            encode_nth_data(data, &mut bytes);
-            let extra = encode_range_as_extra(selectors);
-            let extra_start = match existing_extra {
-                Some(extra_start) => {
-                    context.set_extra_slot(extra_start, extra);
-                    extra_start
-                }
-                None => context.alloc_extra_slots([extra]),
-            };
-            return NodePayload::with_extra(
-                &bytes[..NodePayload::PARTIAL_INLINE_BYTES],
-                extra_start,
-            );
-        }
-        SelectorComponent::PseudoClass(value) => write_node_id(&mut bytes, 18, value),
-        SelectorComponent::Slotted(value) => write_node_id(&mut bytes, 19, value),
-        SelectorComponent::Part(values) => write_range(&mut bytes, 20, values),
-        SelectorComponent::Host(value) => {
-            bytes[0] = 21;
-            if let Some(value) = value {
-                bytes[1] = 1;
-                write_id_at(&mut bytes, 4, value);
-            }
-        }
-        SelectorComponent::Where(values) => write_range(&mut bytes, 22, values),
-        SelectorComponent::Is(values) => write_range(&mut bytes, 23, values),
-        SelectorComponent::Any {
-            vendor_prefix,
-            selectors,
-        } => {
-            write_range(&mut bytes, 24, selectors);
-            bytes[1] = vendor_prefix.bits();
-        }
-        SelectorComponent::Has(values) => write_range(&mut bytes, 25, values),
-        SelectorComponent::PseudoElement(value) => write_node_id(&mut bytes, 26, value),
-        SelectorComponent::Nesting => bytes[0] = 27,
-    }
-    NodePayload::inline(&bytes)
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum Combinator {
     Child,
@@ -365,7 +650,7 @@ pub enum Combinator {
     Deep,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub struct AttrSelector<'a> {
     pub namespace: Option<NamespaceConstraint<'a>>,
     pub local_name: Atom<'a>,
@@ -374,41 +659,37 @@ pub struct AttrSelector<'a> {
     pub never_matches: bool,
 }
 
-impl<'ast> AstNodeStorage<'ast> for AttrSelector<'ast> {
+#[derive(Clone, Copy)]
+struct AttrSelectorHeader<'a> {
+    local_name: Atom<'a>,
+    extra: u32,
+    never_matches: bool,
+}
+
+#[derive(Clone, Copy)]
+struct AttrSelectorFields<'a> {
+    namespace: Option<NamespaceConstraint<'a>>,
+    operation: AttrOperation<'a>,
+}
+
+// SAFETY: this KIND stores a native header, one Atom slot, then four opaque
+// slots written and read as the same AttrSelectorFields type.
+unsafe impl<'ast> AstNodeStorage<'ast> for AttrSelector<'ast> {
     const KIND: NodeKind = NodeKind::new(0x001b_0003);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let namespace = match bytes[0] {
-            0 => None,
-            1 => Some(NamespaceConstraint::Any),
-            2 => {
-                let extra = context.extra_slot(payload.extra_start()).bytes();
-                Some(NamespaceConstraint::Specific {
-                    prefix: context.resolve_atom(read_u32(&extra, 0) as u64),
-                    url: context.resolve_atom(read_u32(&extra, 4) as u64),
-                })
-            }
-            _ => panic!("invalid encoded NamespaceConstraint variant"),
-        };
-        let operation = match bytes[1] {
-            0 => AttrOperation::Exists,
-            1 => AttrOperation::WithValue {
-                operator: decode_attr_operator(bytes[2]),
-                case_sensitivity: decode_case_sensitivity(bytes[3] & 0x7f),
-                expected_value: context.resolve_atom(read_u32(
-                    &context.extra_slot(payload.extra_start() + 1).bytes(),
-                    0,
-                ) as u64),
-            },
-            _ => panic!("invalid encoded AttrOperation variant"),
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: AttrSelectorHeader<'ast> = unsafe { payload.read_value() };
+        let fields: AttrSelectorFields<'ast> = unsafe {
+            ExtraData::read_value_array::<_, 4>(std::array::from_fn(|i| {
+                context.extra_slot(header.extra as usize + 1 + i)
+            }))
         };
         Self {
-            namespace,
-            local_name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-            local_name_lower: context.resolve_atom(read_u32(&bytes, 8) as u64),
-            operation,
-            never_matches: bytes[3] & 0x80 != 0,
+            local_name: header.local_name,
+            never_matches: header.never_matches,
+            local_name_lower: unsafe { context.extra_slot(header.extra as usize).read_value() },
+            namespace: fields.namespace,
+            operation: fields.operation,
         }
     }
 
@@ -416,8 +697,34 @@ impl<'ast> AstNodeStorage<'ast> for AttrSelector<'ast> {
         encode_attr_selector(self, None, context)
     }
 
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_attr_selector(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: AttrSelectorHeader<'ast> = unsafe { current.read_value() };
+        encode_attr_selector(self, Some(header.extra as usize), context)
+    }
+}
+
+impl AstContext<'_> {
+    /// Reads authored attribute-selector fields without loading the lowercase
+    /// matching name. The typed ID validates the node kind before slot access.
+    pub fn attr_selector_syntax<'id>(
+        &self,
+        id: NodeId<'id, AttrSelector<'id>>,
+    ) -> (
+        Atom<'id>,
+        Option<NamespaceConstraint<'id>>,
+        AttrOperation<'id>,
+    ) {
+        let header: AttrSelectorHeader<'id> = unsafe { self.node_payload(id).read_value() };
+        let fields: AttrSelectorFields<'id> = unsafe {
+            ExtraData::read_value_array::<_, 4>(std::array::from_fn(|i| {
+                self.extra_slot(header.extra as usize + 1 + i)
+            }))
+        };
+        (header.local_name, fields.namespace, fields.operation)
     }
 }
 
@@ -432,56 +739,34 @@ fn encode_attr_selector<'ast>(
     existing_extra: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut bytes = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    write_u32(&mut bytes, 4, context.store_atom(value.local_name));
-    write_u32(&mut bytes, 8, context.store_atom(value.local_name_lower));
-    let mut namespace = [0; ExtraData::BYTES];
-    match value.namespace {
-        None => bytes[0] = 0,
-        Some(NamespaceConstraint::Any) => bytes[0] = 1,
-        Some(NamespaceConstraint::Specific { prefix, url }) => {
-            bytes[0] = 2;
-            write_u32(&mut namespace, 0, context.store_atom(prefix));
-            write_u32(&mut namespace, 4, context.store_atom(url));
-        }
-    }
-    let mut operation = [0; ExtraData::BYTES];
-    match value.operation {
-        AttrOperation::Exists => bytes[1] = 0,
-        AttrOperation::WithValue {
-            operator,
-            case_sensitivity,
-            expected_value,
-        } => {
-            bytes[1] = 1;
-            bytes[2] = encode_attr_operator(operator);
-            bytes[3] = encode_case_sensitivity(case_sensitivity);
-            write_u32(&mut operation, 0, context.store_atom(expected_value));
-        }
-    }
-    bytes[3] |= (value.never_matches as u8) << 7;
-    let slots = [
-        ExtraData::from_bytes(&namespace),
-        ExtraData::from_bytes(&operation),
-    ];
-    let extra_start = match existing_extra {
-        Some(extra_start) => {
-            context.set_extra_slot(extra_start, slots[0]);
-            context.set_extra_slot(extra_start + 1, slots[1]);
-            extra_start
+    let [a, b, c, d] = ExtraData::from_value_array::<_, 4>(AttrSelectorFields {
+        namespace: value.namespace,
+        operation: value.operation,
+    });
+    let slots = [ExtraData::from_value(value.local_name_lower), a, b, c, d];
+    let extra = match existing_extra {
+        Some(extra) => {
+            for (i, slot) in slots.into_iter().enumerate() {
+                context.set_extra_slot(extra + i, slot);
+            }
+            extra
         }
         None => context.alloc_extra_slots(slots),
     };
-    NodePayload::with_extra(&bytes, extra_start)
+    NodePayload::from_value(AttrSelectorHeader {
+        local_name: value.local_name,
+        never_matches: value.never_matches,
+        extra: u32::try_from(extra).expect("AttrSelector overflow index exceeds u32"),
+    })
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum NamespaceConstraint<'a> {
     Any,
     Specific { prefix: Atom<'a>, url: Atom<'a> },
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum AttrOperation<'a> {
     Exists,
     WithValue {
@@ -536,7 +821,25 @@ pub enum Direction {
     Rtl,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+/// Name and arguments of an authored custom pseudo function.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
+pub struct CustomPseudoFunction<'a> {
+    pub name: Atom<'a>,
+    pub arguments: Vec<'a, TokenOrValue<'a>>,
+}
+
+impl_inline_node!(CustomPseudoFunction<'ast>, 0x001b_0008);
+
+impl<'ast> AstNodeClone<'ast> for CustomPseudoFunction<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            name: self.name,
+            arguments: context.clone_encoded_vec(self.arguments),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum PseudoClass<'a> {
     Lang {
         languages: Vec<'a, Atom<'a>>,
@@ -612,64 +915,11 @@ pub enum PseudoClass<'a> {
         name: Atom<'a>,
     },
     CustomFunction {
-        name: Atom<'a>,
-        arguments: Vec<'a, TokenOrValue<'a>>,
+        function: NodeId<'a, CustomPseudoFunction<'a>>,
     },
 }
 
-impl<'ast> AstNodeStorage<'ast> for PseudoClass<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001b_0004);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        if let Some(value) = decode_unit_pseudo_class(bytes[0]) {
-            return value;
-        }
-        match bytes[0] {
-            240 => Self::Lang {
-                languages: read_range(&bytes, context),
-            },
-            241 => Self::Dir {
-                direction: decode_direction(bytes[1]),
-            },
-            242 => Self::Fullscreen(VendorPrefix::from_bits_retain(bytes[1])),
-            243 => Self::AnyLink(VendorPrefix::from_bits_retain(bytes[1])),
-            244 => Self::ReadOnly(VendorPrefix::from_bits_retain(bytes[1])),
-            245 => Self::ReadWrite(VendorPrefix::from_bits_retain(bytes[1])),
-            246 => Self::PlaceholderShown(VendorPrefix::from_bits_retain(bytes[1])),
-            247 => Self::Autofill(VendorPrefix::from_bits_retain(bytes[1])),
-            248 => Self::ActiveViewTransitionType {
-                kinds: read_range(&bytes, context),
-            },
-            249 => Self::State {
-                state: context.resolve_atom(read_u32(&bytes, 4) as u64),
-            },
-            250 => Self::Local {
-                selector: read_node_id(&bytes, context),
-            },
-            251 => Self::Global {
-                selector: read_node_id(&bytes, context),
-            },
-            252 => Self::WebKitScrollbar(decode_webkit_scrollbar_pseudo_class(bytes[1])),
-            253 => Self::Custom {
-                name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-            },
-            254 => Self::CustomFunction {
-                name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-                arguments: read_range_at(&bytes, 8, context),
-            },
-            _ => panic!("invalid encoded PseudoClass variant"),
-        }
-    }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_pseudo_class(self, context)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_pseudo_class(self, context)
-    }
-}
+impl_inline_node!(PseudoClass<'ast>, 0x001b_0004);
 
 impl<'ast> AstNodeClone<'ast> for PseudoClass<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -686,118 +936,12 @@ impl<'ast> AstNodeClone<'ast> for PseudoClass<'ast> {
             Self::Global { selector } => Self::Global {
                 selector: context.clone_encoded_node(selector),
             },
-            Self::CustomFunction { name, arguments } => Self::CustomFunction {
-                name,
-                arguments: context.clone_encoded_vec(arguments),
+            Self::CustomFunction { function } => Self::CustomFunction {
+                function: context.clone_encoded_node(function),
             },
             value => value,
         }
     }
-}
-
-fn encode_pseudo_class<'ast>(
-    value: PseudoClass<'ast>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    if let Some(tag) = encode_unit_pseudo_class(&value) {
-        bytes[0] = tag;
-        return NodePayload::inline(&bytes);
-    }
-    match value {
-        PseudoClass::Lang { languages } => write_range(&mut bytes, 240, languages),
-        PseudoClass::Dir { direction } => {
-            bytes[0] = 241;
-            bytes[1] = encode_direction(direction);
-        }
-        PseudoClass::Fullscreen(value) => write_vendor_prefix(&mut bytes, 242, value),
-        PseudoClass::AnyLink(value) => write_vendor_prefix(&mut bytes, 243, value),
-        PseudoClass::ReadOnly(value) => write_vendor_prefix(&mut bytes, 244, value),
-        PseudoClass::ReadWrite(value) => write_vendor_prefix(&mut bytes, 245, value),
-        PseudoClass::PlaceholderShown(value) => write_vendor_prefix(&mut bytes, 246, value),
-        PseudoClass::Autofill(value) => write_vendor_prefix(&mut bytes, 247, value),
-        PseudoClass::ActiveViewTransitionType { kinds } => write_range(&mut bytes, 248, kinds),
-        PseudoClass::State { state } => write_atom(&mut bytes, 249, 4, state, context),
-        PseudoClass::Local { selector } => write_node_id(&mut bytes, 250, selector),
-        PseudoClass::Global { selector } => write_node_id(&mut bytes, 251, selector),
-        PseudoClass::WebKitScrollbar(value) => {
-            bytes[0] = 252;
-            bytes[1] = encode_webkit_scrollbar_pseudo_class(value);
-        }
-        PseudoClass::Custom { name } => write_atom(&mut bytes, 253, 4, name, context),
-        PseudoClass::CustomFunction { name, arguments } => {
-            bytes[0] = 254;
-            write_u32(&mut bytes, 4, context.store_atom(name));
-            write_range_at(&mut bytes, 8, arguments);
-        }
-        _ => unreachable!("unit pseudo class handled before data variants"),
-    }
-    NodePayload::inline(&bytes)
-}
-
-macro_rules! unit_pseudo_class_codec {
-    ($($tag:literal => $variant:ident),+ $(,)?) => {
-        fn encode_unit_pseudo_class(value: &PseudoClass<'_>) -> Option<u8> {
-            match value {
-                $(PseudoClass::$variant => Some($tag),)+
-                _ => None,
-            }
-        }
-
-        fn decode_unit_pseudo_class<'ast>(tag: u8) -> Option<PseudoClass<'ast>> {
-            match tag {
-                $($tag => Some(PseudoClass::$variant),)+
-                _ => None,
-            }
-        }
-    };
-}
-
-unit_pseudo_class_codec! {
-    0 => Hover,
-    1 => Active,
-    2 => Focus,
-    3 => FocusVisible,
-    4 => FocusWithin,
-    5 => Current,
-    6 => Past,
-    7 => Future,
-    8 => Playing,
-    9 => Paused,
-    10 => Seeking,
-    11 => Buffering,
-    12 => Stalled,
-    13 => Muted,
-    14 => VolumeLocked,
-    15 => Open,
-    16 => Closed,
-    17 => Modal,
-    18 => PictureInPicture,
-    19 => PopoverOpen,
-    20 => Defined,
-    21 => Link,
-    22 => LocalLink,
-    23 => Target,
-    24 => TargetCurrent,
-    25 => TargetBefore,
-    26 => TargetAfter,
-    27 => TargetWithin,
-    28 => Visited,
-    29 => Enabled,
-    30 => Disabled,
-    31 => Default,
-    32 => Checked,
-    33 => Indeterminate,
-    34 => Blank,
-    35 => Valid,
-    36 => Invalid,
-    37 => InRange,
-    38 => OutOfRange,
-    39 => Required,
-    40 => Optional,
-    41 => UserValid,
-    42 => UserInvalid,
-    43 => ActiveViewTransition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
@@ -815,7 +959,7 @@ pub enum WebKitScrollbarPseudoClass {
     WindowInactive,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
 pub enum PseudoElement<'a> {
     After,
     Before,
@@ -865,68 +1009,11 @@ pub enum PseudoElement<'a> {
         name: Atom<'a>,
     },
     CustomFunction {
-        name: Atom<'a>,
-        arguments: Vec<'a, TokenOrValue<'a>>,
+        function: NodeId<'a, CustomPseudoFunction<'a>>,
     },
 }
 
-impl<'ast> AstNodeStorage<'ast> for PseudoElement<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001b_0006);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        if let Some(value) = decode_unit_pseudo_element(bytes[0]) {
-            return value;
-        }
-        match bytes[0] {
-            240 => Self::Selection(VendorPrefix::from_bits_retain(bytes[1])),
-            241 => Self::Placeholder(VendorPrefix::from_bits_retain(bytes[1])),
-            242 => Self::HighlightFunction {
-                name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-            },
-            243 => Self::Backdrop(VendorPrefix::from_bits_retain(bytes[1])),
-            244 => Self::FileSelectorButton(VendorPrefix::from_bits_retain(bytes[1])),
-            245 => Self::WebKitScrollbar(decode_webkit_scrollbar_pseudo_element(bytes[1])),
-            246 => Self::CueFunction {
-                selector: read_node_id(&bytes, context),
-            },
-            247 => Self::CueRegionFunction {
-                selector: read_node_id(&bytes, context),
-            },
-            248 => Self::ViewTransitionGroup {
-                part: read_node_id(&bytes, context),
-            },
-            249 => Self::ViewTransitionImagePair {
-                part: read_node_id(&bytes, context),
-            },
-            250 => Self::ViewTransitionOld {
-                part: read_node_id(&bytes, context),
-            },
-            251 => Self::ViewTransitionNew {
-                part: read_node_id(&bytes, context),
-            },
-            252 => Self::PickerFunction {
-                identifier: context.resolve_atom(read_u32(&bytes, 4) as u64),
-            },
-            253 => Self::Custom {
-                name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-            },
-            254 => Self::CustomFunction {
-                name: context.resolve_atom(read_u32(&bytes, 4) as u64),
-                arguments: read_range_at(&bytes, 8, context),
-            },
-            _ => panic!("invalid encoded PseudoElement variant"),
-        }
-    }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_pseudo_element(self, context)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_pseudo_element(self, context)
-    }
-}
+impl_inline_node!(PseudoElement<'ast>, 0x001b_0006);
 
 impl<'ast> AstNodeClone<'ast> for PseudoElement<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -949,88 +1036,12 @@ impl<'ast> AstNodeClone<'ast> for PseudoElement<'ast> {
             Self::ViewTransitionNew { part } => Self::ViewTransitionNew {
                 part: context.clone_encoded_node(part),
             },
-            Self::CustomFunction { name, arguments } => Self::CustomFunction {
-                name,
-                arguments: context.clone_encoded_vec(arguments),
+            Self::CustomFunction { function } => Self::CustomFunction {
+                function: context.clone_encoded_node(function),
             },
             value => value,
         }
     }
-}
-
-fn encode_pseudo_element<'ast>(
-    value: PseudoElement<'ast>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    if let Some(tag) = encode_unit_pseudo_element(&value) {
-        bytes[0] = tag;
-        return NodePayload::inline(&bytes);
-    }
-    match value {
-        PseudoElement::Selection(value) => write_vendor_prefix(&mut bytes, 240, value),
-        PseudoElement::Placeholder(value) => write_vendor_prefix(&mut bytes, 241, value),
-        PseudoElement::HighlightFunction { name } => write_atom(&mut bytes, 242, 4, name, context),
-        PseudoElement::Backdrop(value) => write_vendor_prefix(&mut bytes, 243, value),
-        PseudoElement::FileSelectorButton(value) => write_vendor_prefix(&mut bytes, 244, value),
-        PseudoElement::WebKitScrollbar(value) => {
-            bytes[0] = 245;
-            bytes[1] = encode_webkit_scrollbar_pseudo_element(value);
-        }
-        PseudoElement::CueFunction { selector } => write_node_id(&mut bytes, 246, selector),
-        PseudoElement::CueRegionFunction { selector } => write_node_id(&mut bytes, 247, selector),
-        PseudoElement::ViewTransitionGroup { part } => write_node_id(&mut bytes, 248, part),
-        PseudoElement::ViewTransitionImagePair { part } => write_node_id(&mut bytes, 249, part),
-        PseudoElement::ViewTransitionOld { part } => write_node_id(&mut bytes, 250, part),
-        PseudoElement::ViewTransitionNew { part } => write_node_id(&mut bytes, 251, part),
-        PseudoElement::PickerFunction { identifier } => {
-            write_atom(&mut bytes, 252, 4, identifier, context)
-        }
-        PseudoElement::Custom { name } => write_atom(&mut bytes, 253, 4, name, context),
-        PseudoElement::CustomFunction { name, arguments } => {
-            bytes[0] = 254;
-            write_u32(&mut bytes, 4, context.store_atom(name));
-            write_range_at(&mut bytes, 8, arguments);
-        }
-        _ => unreachable!("unit pseudo element handled before data variants"),
-    }
-    NodePayload::inline(&bytes)
-}
-
-macro_rules! unit_pseudo_element_codec {
-    ($($tag:literal => $variant:ident),+ $(,)?) => {
-        fn encode_unit_pseudo_element(value: &PseudoElement<'_>) -> Option<u8> {
-            match value {
-                $(PseudoElement::$variant => Some($tag),)+
-                _ => None,
-            }
-        }
-
-        fn decode_unit_pseudo_element<'ast>(tag: u8) -> Option<PseudoElement<'ast>> {
-            match tag {
-                $($tag => Some(PseudoElement::$variant),)+
-                _ => None,
-            }
-        }
-    };
-}
-
-unit_pseudo_element_codec! {
-    0 => After,
-    1 => Before,
-    2 => FirstLine,
-    3 => FirstLetter,
-    4 => DetailsContent,
-    5 => TargetText,
-    6 => SearchText,
-    7 => Marker,
-    8 => Cue,
-    9 => CueRegion,
-    10 => ViewTransition,
-    11 => PickerIcon,
-    12 => Checkmark,
-    13 => GrammarError,
-    14 => SpellingError,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Visit)]
@@ -1044,32 +1055,13 @@ pub enum WebKitScrollbarPseudoElement {
     Resizer,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Visit)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Visit)]
 pub enum ViewTransitionPartName<'a> {
     All,
     Name(Atom<'a>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for ViewTransitionPartName<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001b_0007);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::All,
-            1 => Self::Name(context.resolve_atom(read_u32(&bytes, 4) as u64)),
-            _ => panic!("invalid encoded ViewTransitionPartName variant"),
-        }
-    }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_view_transition_part_name(self, context)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_view_transition_part_name(self, context)
-    }
-}
+impl_inline_node!(ViewTransitionPartName<'ast>, 0x001b_0007);
 
 impl<'ast> AstNodeClone<'ast> for ViewTransitionPartName<'ast> {
     fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
@@ -1077,305 +1069,166 @@ impl<'ast> AstNodeClone<'ast> for ViewTransitionPartName<'ast> {
     }
 }
 
-fn encode_view_transition_part_name<'ast>(
-    value: ViewTransitionPartName<'ast>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    match value {
-        ViewTransitionPartName::All => bytes[0] = 0,
-        ViewTransitionPartName::Name(value) => write_atom(&mut bytes, 1, 4, value, context),
-    }
-    NodePayload::inline(&bytes)
-}
-
-fn encode_combinator(value: Combinator) -> u8 {
-    match value {
-        Combinator::Child => 0,
-        Combinator::Descendant => 1,
-        Combinator::NextSibling => 2,
-        Combinator::LaterSibling => 3,
-        Combinator::PseudoElement => 4,
-        Combinator::SlotAssignment => 5,
-        Combinator::Part => 6,
-        Combinator::DeepDescendant => 7,
-        Combinator::Deep => 8,
-    }
-}
-
-fn decode_combinator(value: u8) -> Combinator {
-    match value {
-        0 => Combinator::Child,
-        1 => Combinator::Descendant,
-        2 => Combinator::NextSibling,
-        3 => Combinator::LaterSibling,
-        4 => Combinator::PseudoElement,
-        5 => Combinator::SlotAssignment,
-        6 => Combinator::Part,
-        7 => Combinator::DeepDescendant,
-        8 => Combinator::Deep,
-        _ => panic!("invalid encoded Combinator"),
-    }
-}
-
-fn encode_attr_operator(value: AttrSelectorOperator) -> u8 {
-    match value {
-        AttrSelectorOperator::Equal => 0,
-        AttrSelectorOperator::Includes => 1,
-        AttrSelectorOperator::DashMatch => 2,
-        AttrSelectorOperator::Prefix => 3,
-        AttrSelectorOperator::Substring => 4,
-        AttrSelectorOperator::Suffix => 5,
-    }
-}
-
-fn decode_attr_operator(value: u8) -> AttrSelectorOperator {
-    match value {
-        0 => AttrSelectorOperator::Equal,
-        1 => AttrSelectorOperator::Includes,
-        2 => AttrSelectorOperator::DashMatch,
-        3 => AttrSelectorOperator::Prefix,
-        4 => AttrSelectorOperator::Substring,
-        5 => AttrSelectorOperator::Suffix,
-        _ => panic!("invalid encoded AttrSelectorOperator"),
-    }
-}
-
-fn encode_case_sensitivity(value: ParsedCaseSensitivity) -> u8 {
-    match value {
-        ParsedCaseSensitivity::ExplicitCaseSensitive => 0,
-        ParsedCaseSensitivity::AsciiCaseInsensitive => 1,
-        ParsedCaseSensitivity::CaseSensitive => 2,
-        ParsedCaseSensitivity::AsciiCaseInsensitiveIfInHtmlElementInHtmlDocument => 3,
-    }
-}
-
-fn decode_case_sensitivity(value: u8) -> ParsedCaseSensitivity {
-    match value {
-        0 => ParsedCaseSensitivity::ExplicitCaseSensitive,
-        1 => ParsedCaseSensitivity::AsciiCaseInsensitive,
-        2 => ParsedCaseSensitivity::CaseSensitive,
-        3 => ParsedCaseSensitivity::AsciiCaseInsensitiveIfInHtmlElementInHtmlDocument,
-        _ => panic!("invalid encoded ParsedCaseSensitivity"),
-    }
-}
-
-fn encode_direction(value: Direction) -> u8 {
-    match value {
-        Direction::Ltr => 0,
-        Direction::Rtl => 1,
-    }
-}
-
-fn decode_direction(value: u8) -> Direction {
-    match value {
-        0 => Direction::Ltr,
-        1 => Direction::Rtl,
-        _ => panic!("invalid encoded Direction"),
-    }
-}
-
-fn encode_webkit_scrollbar_pseudo_class(value: WebKitScrollbarPseudoClass) -> u8 {
-    match value {
-        WebKitScrollbarPseudoClass::Horizontal => 0,
-        WebKitScrollbarPseudoClass::Vertical => 1,
-        WebKitScrollbarPseudoClass::Decrement => 2,
-        WebKitScrollbarPseudoClass::Increment => 3,
-        WebKitScrollbarPseudoClass::Start => 4,
-        WebKitScrollbarPseudoClass::End => 5,
-        WebKitScrollbarPseudoClass::DoubleButton => 6,
-        WebKitScrollbarPseudoClass::SingleButton => 7,
-        WebKitScrollbarPseudoClass::NoButton => 8,
-        WebKitScrollbarPseudoClass::CornerPresent => 9,
-        WebKitScrollbarPseudoClass::WindowInactive => 10,
-    }
-}
-
-fn decode_webkit_scrollbar_pseudo_class(value: u8) -> WebKitScrollbarPseudoClass {
-    match value {
-        0 => WebKitScrollbarPseudoClass::Horizontal,
-        1 => WebKitScrollbarPseudoClass::Vertical,
-        2 => WebKitScrollbarPseudoClass::Decrement,
-        3 => WebKitScrollbarPseudoClass::Increment,
-        4 => WebKitScrollbarPseudoClass::Start,
-        5 => WebKitScrollbarPseudoClass::End,
-        6 => WebKitScrollbarPseudoClass::DoubleButton,
-        7 => WebKitScrollbarPseudoClass::SingleButton,
-        8 => WebKitScrollbarPseudoClass::NoButton,
-        9 => WebKitScrollbarPseudoClass::CornerPresent,
-        10 => WebKitScrollbarPseudoClass::WindowInactive,
-        _ => panic!("invalid encoded WebKitScrollbarPseudoClass"),
-    }
-}
-
-fn encode_webkit_scrollbar_pseudo_element(value: WebKitScrollbarPseudoElement) -> u8 {
-    match value {
-        WebKitScrollbarPseudoElement::Scrollbar => 0,
-        WebKitScrollbarPseudoElement::Button => 1,
-        WebKitScrollbarPseudoElement::Track => 2,
-        WebKitScrollbarPseudoElement::TrackPiece => 3,
-        WebKitScrollbarPseudoElement::Thumb => 4,
-        WebKitScrollbarPseudoElement::Corner => 5,
-        WebKitScrollbarPseudoElement::Resizer => 6,
-    }
-}
-
-fn decode_webkit_scrollbar_pseudo_element(value: u8) -> WebKitScrollbarPseudoElement {
-    match value {
-        0 => WebKitScrollbarPseudoElement::Scrollbar,
-        1 => WebKitScrollbarPseudoElement::Button,
-        2 => WebKitScrollbarPseudoElement::Track,
-        3 => WebKitScrollbarPseudoElement::TrackPiece,
-        4 => WebKitScrollbarPseudoElement::Thumb,
-        5 => WebKitScrollbarPseudoElement::Corner,
-        6 => WebKitScrollbarPseudoElement::Resizer,
-        _ => panic!("invalid encoded WebKitScrollbarPseudoElement"),
-    }
-}
-
-fn encode_nth_type(value: NthType) -> u8 {
-    match value {
-        NthType::Child => 0,
-        NthType::LastChild => 1,
-        NthType::OnlyChild => 2,
-        NthType::OfType => 3,
-        NthType::LastOfType => 4,
-        NthType::OnlyOfType => 5,
-        NthType::Col => 6,
-        NthType::LastCol => 7,
-    }
-}
-
-fn decode_nth_type(value: u8) -> NthType {
-    match value {
-        0 => NthType::Child,
-        1 => NthType::LastChild,
-        2 => NthType::OnlyChild,
-        3 => NthType::OfType,
-        4 => NthType::LastOfType,
-        5 => NthType::OnlyOfType,
-        6 => NthType::Col,
-        7 => NthType::LastCol,
-        _ => panic!("invalid encoded NthType"),
-    }
-}
-
-fn encode_nth_data(value: NthSelectorData, bytes: &mut [u8]) {
-    bytes[1] = encode_nth_type(value.kind);
-    bytes[2] = value.is_function as u8;
-    write_u32(bytes, 4, value.a as u32);
-    write_u32(bytes, 8, value.b as u32);
-}
-
-fn decode_nth_data(bytes: &[u8]) -> NthSelectorData {
-    NthSelectorData {
-        kind: decode_nth_type(bytes[1]),
-        is_function: match bytes[2] {
-            0 => false,
-            1 => true,
-            _ => panic!("invalid encoded NthSelectorData function flag"),
-        },
-        a: read_u32(bytes, 4) as i32,
-        b: read_u32(bytes, 8) as i32,
-    }
-}
-
-fn write_vendor_prefix(bytes: &mut [u8], tag: u8, value: VendorPrefix) {
-    bytes[0] = tag;
-    bytes[1] = value.bits();
-}
-
-fn write_atom<'ast>(
-    bytes: &mut [u8],
-    tag: u8,
-    offset: usize,
-    value: Atom<'ast>,
-    context: &mut AstContext<'ast>,
-) {
-    bytes[0] = tag;
-    write_u32(bytes, offset, context.store_atom(value));
-}
-
-fn write_node_id<T>(bytes: &mut [u8], tag: u8, value: NodeId<'_, T>) {
-    bytes[0] = tag;
-    write_id_at(bytes, 4, value);
-}
-
-fn write_id_at<T>(bytes: &mut [u8], offset: usize, value: NodeId<'_, T>) {
-    write_u32(
-        bytes,
-        offset,
-        u32::try_from(value.index()).expect("AST node ID exceeds four bytes"),
-    );
-}
-
-fn read_node_id<'ast, T>(bytes: &[u8], context: &AstContext<'ast>) -> NodeId<'ast, T> {
-    context.encoded_node_id_at(read_u32(bytes, 4) as usize)
-}
-
-fn write_range<T>(bytes: &mut [u8], tag: u8, value: Vec<'_, T>) {
-    bytes[0] = tag;
-    write_range_at(bytes, 4, value);
-}
-
-fn write_range_at<T>(bytes: &mut [u8], offset: usize, value: Vec<'_, T>) {
-    write_u32(
-        bytes,
-        offset,
-        u32::try_from(value.start_index()).expect("AST range start exceeds four bytes"),
-    );
-    write_u32(
-        bytes,
-        offset + 4,
-        u32::try_from(value.end_index()).expect("AST range end exceeds four bytes"),
-    );
-}
-
-fn read_range<'ast, T>(bytes: &[u8], context: &AstContext<'ast>) -> Vec<'ast, T> {
-    read_range_at(bytes, 4, context)
-}
-
-fn read_range_at<'ast, T>(bytes: &[u8], offset: usize, context: &AstContext<'ast>) -> Vec<'ast, T> {
-    context.encoded_vec_range(
-        read_u32(bytes, offset) as usize,
-        read_u32(bytes, offset + 4) as usize,
-    )
-}
-
-fn encode_range_as_extra<T>(value: Vec<'_, T>) -> ExtraData {
-    let start = u32::try_from(value.start_index()).expect("AST range start exceeds four bytes");
-    let end = u32::try_from(value.end_index()).expect("AST range end exceeds four bytes");
-    ExtraData::from_u64((end as u64) << 32 | start as u64)
-}
-
-fn decode_extra_range<'ast, T>(data: ExtraData, context: &AstContext<'ast>) -> Vec<'ast, T> {
-    let value = data.as_u64();
-    context.encoded_vec_range(value as u32 as usize, (value >> 32) as u32 as usize)
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("u32 field"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rocketcss_common::{Allocator, StringPool};
+    use rocketcss_common::Allocator;
+
+    #[test]
+    fn component_native_layout_reuses_overflow_and_keeps_simple_variants_inline() {
+        assert_eq!(std::mem::size_of::<SelectorComponentSlot<'_>>(), 16);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let first = context.intern("Name");
+        let second = context.intern("name");
+        let node = context.alloc_encoded_node(SelectorComponent::Class(first), DUMMY_SP);
+        assert_eq!(context.encoded_extra_len(), 0);
+        let checkpoint = context.node_checkpoint();
+        for value in [
+            SelectorComponent::Id(second),
+            SelectorComponent::Root,
+            SelectorComponent::Host(None),
+            SelectorComponent::Combinator(Combinator::Deep),
+            SelectorComponent::DefaultNamespace(first),
+            SelectorComponent::Class(second),
+        ] {
+            context.mutate_encoded_node(node, |stored, _| *stored = value.clone());
+            assert_eq!(context.encoded_node(node), value);
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        for (value, slots) in [
+            (
+                SelectorComponent::Namespace {
+                    prefix: first,
+                    url: second,
+                },
+                1,
+            ),
+            (
+                SelectorComponent::LocalName {
+                    name: first,
+                    lower_name: second,
+                },
+                1,
+            ),
+            (
+                SelectorComponent::AttributeInNoNamespaceExists {
+                    local_name: first,
+                    local_name_lower: second,
+                },
+                1,
+            ),
+            (
+                SelectorComponent::AttributeInNoNamespace {
+                    local_name: first,
+                    value: second,
+                    operator: AttrSelectorOperator::Suffix,
+                    case_sensitivity: ParsedCaseSensitivity::ExplicitCaseSensitive,
+                    never_matches: true,
+                },
+                2,
+            ),
+        ] {
+            let before = context.encoded_extra_len();
+            context.mutate_encoded_node(node, |stored, _| *stored = value.clone());
+            assert_eq!(context.encoded_extra_len(), before + slots);
+            let checkpoint = context.node_checkpoint();
+            let pool_bytes = context.string_pool().extra_len();
+            for _ in 0..4 {
+                assert_eq!(context.encoded_node(node), value);
+                context.mutate_encoded_node(node, |stored, _| *stored = value.clone());
+            }
+            assert_eq!(context.node_checkpoint(), checkpoint);
+            assert_eq!(context.string_pool().extra_len(), pool_bytes);
+        }
+    }
+
+    #[test]
+    fn native_pseudos_reuse_storage_and_clone_custom_arguments() {
+        assert!(std::mem::size_of::<PseudoClass<'_>>() <= 16);
+        assert!(std::mem::size_of::<PseudoElement<'_>>() <= 16);
+        assert_eq!(std::mem::size_of::<CustomPseudoFunction<'_>>(), 16);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let name = context.intern("custom");
+        let arguments =
+            context.alloc_encoded_vec([TokenOrValue::Angle(Angle::Deg(45.0))].into_iter());
+        let function =
+            context.alloc_encoded_node(CustomPseudoFunction { name, arguments }, DUMMY_SP);
+        let class = context.alloc_encoded_node(PseudoClass::Hover, DUMMY_SP);
+        let element = context.alloc_encoded_node(PseudoElement::Before, DUMMY_SP);
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for _ in 0..4 {
+            context.mutate_encoded_node(class, |value, _| {
+                *value = PseudoClass::CustomFunction { function }
+            });
+            context.mutate_encoded_node(element, |value, _| {
+                *value = PseudoElement::CustomFunction { function }
+            });
+            assert_eq!(
+                context.encoded_node(class),
+                PseudoClass::CustomFunction { function }
+            );
+            assert_eq!(
+                context.encoded_node(element),
+                PseudoElement::CustomFunction { function }
+            );
+            context.mutate_encoded_node(class, |value, _| {
+                *value = PseudoClass::State { state: name }
+            });
+            context.mutate_encoded_node(element, |value, _| {
+                *value = PseudoElement::HighlightFunction { name }
+            });
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
+        let cloned = context.clone_encoded_node(function);
+        let cloned = context.encoded_node(cloned);
+        assert_eq!(cloned.name, name);
+        assert_ne!(cloned.arguments, arguments);
+        assert_eq!(
+            context.encoded_vec_get(cloned.arguments, 0),
+            context.encoded_vec_get(arguments, 0)
+        );
+    }
+
+    #[test]
+    fn inline_selector_names_do_not_allocate_reference_rows() {
+        assert_eq!(std::mem::size_of::<Selector<'_>>(), 12);
+        assert_eq!(std::mem::size_of::<ViewTransitionPartName<'_>>(), 12);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let name = context.intern("named");
+        let selector = context.alloc_encoded_node(Selector::Tombstone, DUMMY_SP);
+        let part = context.alloc_encoded_node(ViewTransitionPartName::All, DUMMY_SP);
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for _ in 0..4 {
+            context.mutate_encoded_node(selector, |value, _| *value = Selector::Unparsed(name));
+            context.mutate_encoded_node(part, |value, _| {
+                *value = ViewTransitionPartName::Name(name);
+            });
+            assert_eq!(context.encoded_node(selector), Selector::Unparsed(name));
+            assert_eq!(
+                context.encoded_node(part),
+                ViewTransitionPartName::Name(name)
+            );
+            context.mutate_encoded_node(selector, |value, _| *value = Selector::Tombstone);
+            context.mutate_encoded_node(part, |value, _| *value = ViewTransitionPartName::All);
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
+    }
 
     #[test]
     fn selector_clone_recursively_clones_node_graph() {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
-        let mut strings = StringPool::new_in(&allocator);
 
-        let nested_component = context.alloc_encoded_node(
-            SelectorComponent::Class(strings.intern("nested")),
-            Span::new(1, 7),
-        );
+        let nested = context.intern("nested");
+        let nested_component =
+            context.alloc_encoded_node(SelectorComponent::Class(nested), Span::new(1, 7));
         let nested_components = context.alloc_encoded_vec([nested_component].into_iter());
         let nested_selector =
             context.alloc_encoded_node(Selector::Parsed(nested_components), Span::new(1, 7));
@@ -1419,19 +1272,21 @@ mod tests {
 
     #[test]
     fn selector_overflow_mutation_reuses_fixed_extra_slots() {
+        assert!(std::mem::size_of::<AttrSelectorHeader<'_>>() <= 16);
+        assert_eq!(std::mem::size_of::<AttrSelectorFields<'_>>(), 32);
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
-        let mut strings = StringPool::new_in(&allocator);
-        let prefix = strings.intern("svg");
-        let url = strings.intern("urn:svg");
-        let local_name = strings.intern("href");
-        let expected_value = strings.intern("icon");
+        let prefix = context.intern("svg");
+        let url = context.intern("urn:svg");
+        let local_name = context.intern("HREF");
+        let lower_name = context.intern("href");
+        let expected_value = context.intern("icon");
         let before = context.encoded_extra_len();
         let attribute = context.alloc_encoded_node(
             AttrSelector {
                 namespace: Some(NamespaceConstraint::Specific { prefix, url }),
                 local_name,
-                local_name_lower: local_name,
+                local_name_lower: lower_name,
                 operation: AttrOperation::WithValue {
                     operator: AttrSelectorOperator::Prefix,
                     case_sensitivity: ParsedCaseSensitivity::AsciiCaseInsensitive,
@@ -1441,7 +1296,52 @@ mod tests {
             },
             DUMMY_SP,
         );
-        assert_eq!(context.encoded_extra_len(), before + 2);
+        assert_eq!(context.encoded_extra_len(), before + 5);
+        let checkpoint = context.node_checkpoint();
+        let pool_bytes = context.string_pool().extra_len();
+        for namespace in [
+            None,
+            Some(NamespaceConstraint::Any),
+            Some(NamespaceConstraint::Specific { prefix, url }),
+        ] {
+            for operator in [
+                AttrSelectorOperator::Equal,
+                AttrSelectorOperator::Includes,
+                AttrSelectorOperator::DashMatch,
+                AttrSelectorOperator::Prefix,
+                AttrSelectorOperator::Substring,
+                AttrSelectorOperator::Suffix,
+            ] {
+                for case_sensitivity in [
+                    ParsedCaseSensitivity::ExplicitCaseSensitive,
+                    ParsedCaseSensitivity::AsciiCaseInsensitive,
+                    ParsedCaseSensitivity::CaseSensitive,
+                    ParsedCaseSensitivity::AsciiCaseInsensitiveIfInHtmlElementInHtmlDocument,
+                ] {
+                    let operation = AttrOperation::WithValue {
+                        operator,
+                        case_sensitivity,
+                        expected_value,
+                    };
+                    context.mutate_encoded_node(attribute, |value, _| {
+                        value.namespace = namespace;
+                        value.operation = operation;
+                    });
+                    let decoded = context.encoded_node(attribute);
+                    assert_eq!(decoded.namespace, namespace);
+                    assert_eq!(decoded.operation, operation);
+                    assert_eq!(decoded.local_name, local_name);
+                    assert_eq!(decoded.local_name_lower, lower_name);
+                    assert_eq!(
+                        context.attr_selector_syntax(attribute),
+                        (local_name, namespace, operation)
+                    );
+                    assert!(decoded.never_matches);
+                }
+            }
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), pool_bytes);
 
         context.mutate_encoded_node(attribute, |attribute, _| {
             attribute.namespace = Some(NamespaceConstraint::Any);
@@ -1449,13 +1349,13 @@ mod tests {
             attribute.never_matches = false;
         });
 
-        assert_eq!(context.encoded_extra_len(), before + 2);
+        assert_eq!(context.encoded_extra_len(), before + 5);
         assert_eq!(
             context.encoded_node(attribute),
             AttrSelector {
                 namespace: Some(NamespaceConstraint::Any),
                 local_name,
-                local_name_lower: local_name,
+                local_name_lower: lower_name,
                 operation: AttrOperation::Exists,
                 never_matches: false,
             }
@@ -1481,7 +1381,7 @@ mod tests {
             },
             DUMMY_SP,
         );
-        assert_eq!(context.encoded_extra_len(), before + 1);
+        assert_eq!(context.encoded_extra_len(), before + 2);
 
         context.mutate_encoded_node(component, |component, _| {
             let SelectorComponent::NthOf { data, .. } = component else {
@@ -1490,7 +1390,7 @@ mod tests {
             data.b = -1;
         });
 
-        assert_eq!(context.encoded_extra_len(), before + 1);
+        assert_eq!(context.encoded_extra_len(), before + 2);
         assert!(matches!(
             context.encoded_node(component),
             SelectorComponent::NthOf {

@@ -5,41 +5,19 @@ use bitflags::bitflags;
 mod compilation;
 pub use compilation::*;
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct MediaList<'a> {
     pub media_queries: Vec<'a, NodeId<'a, MediaQuery<'a>>>,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub struct MediaQuery<'a> {
     pub condition: Option<NodeId<'a, MediaCondition<'a>>>,
     pub media_type: MediaType<'a>,
     pub qualifier: Option<Qualifier>,
 }
 
-impl<'ast> AstNodeStorage<'ast> for MediaList<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x001a_000a);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            media_queries: context
-                .encoded_vec_range(read_u32(&bytes, 4) as usize, read_u32(&bytes, 8) as usize),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_media_list(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_media_list(self)
-    }
-}
+impl_inline_node!(MediaList<'ast>, 0x001a_000a);
 
 impl<'ast> AstNodeClone<'ast> for MediaList<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -49,45 +27,114 @@ impl<'ast> AstNodeClone<'ast> for MediaList<'ast> {
     }
 }
 
-fn encode_media_list(value: MediaList<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    write_range(&mut bytes, 4, value.media_queries);
-    NodePayload::inline(&bytes)
+// repr(u8) places the qualifier beside the tag before aligned handles/ranges.
+// This compresses the logical query without serializing primitive fields.
+#[repr(u8)]
+#[derive(Clone, Copy)]
+enum MediaQuerySlot<'a> {
+    All {
+        qualifier: Option<Qualifier>,
+        condition: Option<NodeId<'a, MediaCondition<'a>>>,
+    },
+    Print {
+        qualifier: Option<Qualifier>,
+        condition: Option<NodeId<'a, MediaCondition<'a>>>,
+    },
+    Screen {
+        qualifier: Option<Qualifier>,
+        condition: Option<NodeId<'a, MediaCondition<'a>>>,
+    },
+    Custom {
+        qualifier: Option<Qualifier>,
+        condition: Option<NodeId<'a, MediaCondition<'a>>>,
+        name: AstStr<'a>,
+    },
 }
-
-impl<'ast> AstNodeStorage<'ast> for MediaQuery<'ast> {
+// SAFETY: this KIND always stores and reads MediaQuerySlot.
+unsafe impl<'ast> AstNodeStorage<'ast> for MediaQuery<'ast> {
     const KIND: NodeKind = NodeKind::new(0x001a_000b);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            condition: match bytes[0] {
-                0 => None,
-                1 => Some(context.encoded_node_id_at(read_u32(&bytes, 4) as usize)),
-                _ => panic!("invalid encoded MediaQuery condition flag"),
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        self.condition == other.condition
+            && self.qualifier == other.qualifier
+            && match (self.media_type, other.media_type) {
+                (MediaType::Custom(a), MediaType::Custom(b)) => context.str(a) == context.str(b),
+                (a, b) => a == b,
+            }
+    }
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        match unsafe { payload.read_value::<MediaQuerySlot<'ast>>() } {
+            MediaQuerySlot::All {
+                qualifier,
+                condition,
+            } => Self {
+                qualifier,
+                condition,
+                media_type: MediaType::All,
             },
-            media_type: match bytes[1] {
-                0 => MediaType::All,
-                1 => MediaType::Print,
-                2 => MediaType::Screen,
-                3 => MediaType::Custom(context.resolve_string(read_u32(&bytes, 8) as u64)),
-                _ => panic!("invalid encoded MediaType variant"),
+            MediaQuerySlot::Print {
+                qualifier,
+                condition,
+            } => Self {
+                qualifier,
+                condition,
+                media_type: MediaType::Print,
             },
-            qualifier: match bytes[2] {
-                0 => None,
-                1 => Some(Qualifier::Only),
-                2 => Some(Qualifier::Not),
-                _ => panic!("invalid encoded MediaQuery qualifier"),
+            MediaQuerySlot::Screen {
+                qualifier,
+                condition,
+            } => Self {
+                qualifier,
+                condition,
+                media_type: MediaType::Screen,
+            },
+            MediaQuerySlot::Custom {
+                qualifier,
+                condition,
+                name,
+            } => Self {
+                qualifier,
+                condition,
+                media_type: MediaType::Custom(name),
             },
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_media_query(self, context)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        self.into_payload()
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_media_query(self, context)
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        self.into_payload()
+    }
+}
+impl MediaQuery<'_> {
+    fn into_payload(self) -> NodePayload {
+        let Self {
+            condition,
+            qualifier,
+            media_type,
+        } = self;
+        NodePayload::from_value(match media_type {
+            MediaType::All => MediaQuerySlot::All {
+                qualifier,
+                condition,
+            },
+            MediaType::Print => MediaQuerySlot::Print {
+                qualifier,
+                condition,
+            },
+            MediaType::Screen => MediaQuerySlot::Screen {
+                qualifier,
+                condition,
+            },
+            MediaType::Custom(name) => MediaQuerySlot::Custom {
+                qualifier,
+                condition,
+                name,
+            },
+        })
     }
 }
 
@@ -103,37 +150,7 @@ impl<'ast> AstNodeClone<'ast> for MediaQuery<'ast> {
     }
 }
 
-fn encode_media_query<'ast>(
-    value: MediaQuery<'ast>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    if let Some(condition) = value.condition {
-        bytes[0] = 1;
-        write_u32(
-            &mut bytes,
-            4,
-            u32::try_from(condition.index()).expect("AST node ID exceeds four bytes"),
-        );
-    }
-    match value.media_type {
-        MediaType::All => bytes[1] = 0,
-        MediaType::Print => bytes[1] = 1,
-        MediaType::Screen => bytes[1] = 2,
-        MediaType::Custom(value) => {
-            bytes[1] = 3;
-            write_u32(&mut bytes, 8, context.store_string(value));
-        }
-    }
-    bytes[2] = match value.qualifier {
-        None => 0,
-        Some(Qualifier::Only) => 1,
-        Some(Qualifier::Not) => 2,
-    };
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Clone, Copy, Debug, PartialEq, Visit)]
 pub struct LengthValue {
     pub unit: LengthUnit,
     pub value: f32,
@@ -146,35 +163,76 @@ pub struct EnvironmentVariable<'a> {
     pub name: EnvironmentVariableName<'a>,
 }
 
-// Fixed payload layout for `EnvironmentVariable`:
-//
-// byte 0       fallback range presence
-// bytes 1..4   reserved
-// bytes 4..8   fallback range start
-// bytes 8..12  fallback range end
-// bytes 12..16 first extra slot
-//
-// extra + 0    indices range
-// extra + 1    EnvironmentVariableName
-impl<'ast> AstNodeStorage<'ast> for EnvironmentVariable<'ast> {
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct EnvironmentVariableHeader<'a> {
+    name: EnvironmentVariableName<'a>,
+    extra: u32,
+}
+
+pub use environment_access::EnvironmentVariableRead;
+
+// Transient field views are excluded from persistent AST visitor generation.
+mod environment_access {
+    use super::*;
+
+    pub struct EnvironmentVariableRead<'context, 'storage, 'ast> {
+        context: &'context AstContext<'storage>,
+        header: EnvironmentVariableHeader<'ast>,
+    }
+
+    impl<'ast> EnvironmentVariableRead<'_, '_, 'ast> {
+        pub fn name(&self) -> EnvironmentVariableName<'ast> {
+            self.header.name
+        }
+
+        pub fn indices(&self) -> Vec<'ast, i32> {
+            // SAFETY: the first overflow slot stores the native indices range.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            }
+        }
+
+        pub fn fallback(&self) -> Option<Vec<'ast, TokenOrValue<'ast>>> {
+            // SAFETY: the second slot uses the matching optional-range layout.
+            unsafe {
+                Option::<Vec<'ast, TokenOrValue<'ast>>>::decode_extra(
+                    self.context.extra_slot(self.header.extra as usize + 1),
+                )
+            }
+        }
+    }
+
+    impl<'storage> AstContext<'storage> {
+        pub fn environment_variable<'id>(
+            &self,
+            id: NodeId<'id, EnvironmentVariable<'id>>,
+        ) -> EnvironmentVariableRead<'_, 'storage, 'id> {
+            // SAFETY: the typed node validates the kind before reading its header.
+            EnvironmentVariableRead {
+                context: self,
+                header: unsafe { self.node_payload(id).read_value() },
+            }
+        }
+    }
+}
+
+// SAFETY: KIND stores EnvironmentVariableHeader. Its two overflow slots hold
+// a native indices range and an Option<AstVec> written by encode_extra.
+unsafe impl<'ast> AstNodeStorage<'ast> for EnvironmentVariable<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0004_0005);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let fallback_start = read_u32(&bytes, 4) as usize;
-        let fallback_end = read_u32(&bytes, 8) as usize;
-        let fallback = match bytes[0] {
-            0 => None,
-            1 => Some(context.encoded_vec_range(fallback_start, fallback_end)),
-            _ => panic!("invalid encoded EnvironmentVariable fallback flag"),
-        };
-        let extra = payload.extra_start();
-        let indices = decode_range(context.extra_slot(extra), context);
-        let name = decode_environment_variable_name(context.extra_slot(extra + 1), context);
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        let header: EnvironmentVariableHeader<'ast> = unsafe { payload.read_value() };
+        let extra = header.extra as usize;
         Self {
-            fallback,
-            indices,
-            name,
+            name: header.name,
+            indices: unsafe { context.extra_slot(extra).read_value() },
+            fallback: unsafe {
+                Option::<Vec<'ast, TokenOrValue<'ast>>>::decode_extra(context.extra_slot(extra + 1))
+            },
         }
     }
 
@@ -182,8 +240,25 @@ impl<'ast> AstNodeStorage<'ast> for EnvironmentVariable<'ast> {
         encode_environment_variable(self, None, context)
     }
 
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_environment_variable(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: EnvironmentVariableHeader<'ast> = unsafe { current.read_value() };
+        encode_environment_variable(self, Some(header.extra as usize), context)
+    }
+
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        self.fallback == other.fallback
+            && self.indices == other.indices
+            && match (&self.name, &other.name) {
+                (
+                    EnvironmentVariableName::Unknown(left),
+                    EnvironmentVariableName::Unknown(right),
+                ) => left == right || context.str(*left) == context.str(*right),
+                _ => self.name == other.name,
+            }
     }
 }
 
@@ -210,113 +285,51 @@ fn encode_environment_variable<'ast>(
     existing_extra: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut inline = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    if let Some(fallback) = value.fallback {
-        inline[0] = 1;
-        write_range(&mut inline, 4, fallback);
-    }
-    let indices = encode_range(value.indices);
-    let name = encode_environment_variable_name(value.name, context);
+    let indices = ExtraData::from_value(value.indices);
+    let fallback = value.fallback.encode_extra();
     let extra = match existing_extra {
         Some(extra) => {
             context.set_extra_slot(extra, indices);
-            context.set_extra_slot(extra + 1, name);
+            context.set_extra_slot(extra + 1, fallback);
             extra
         }
-        None => context.alloc_extra_slots([indices, name]),
+        None => context.alloc_extra_slots([indices, fallback]),
     };
-    NodePayload::with_extra(&inline, extra)
+    NodePayload::from_value(EnvironmentVariableHeader {
+        name: value.name,
+        extra: u32::try_from(extra).expect("EnvironmentVariable overflow index exceeds u32"),
+    })
 }
 
-fn encode_environment_variable_name<'ast>(
-    name: EnvironmentVariableName<'ast>,
-    context: &mut AstContext<'ast>,
-) -> ExtraData {
-    let mut bytes = [0; ExtraData::BYTES];
-    let data = match name {
-        EnvironmentVariableName::UA(name) => {
-            bytes[0] = 0;
-            encode_ua_environment_variable(name) as u32
-        }
-        EnvironmentVariableName::Custom(name) => {
-            bytes[0] = 1;
-            compact_node_index(name)
-        }
-        EnvironmentVariableName::Unknown(name) => {
-            bytes[0] = 2;
-            context.store_string(name)
-        }
-    };
-    bytes[4..].copy_from_slice(&data.to_le_bytes());
-    ExtraData::from_bytes(&bytes)
-}
-
-fn decode_environment_variable_name<'ast>(
-    data: ExtraData,
-    context: &AstContext<'ast>,
-) -> EnvironmentVariableName<'ast> {
-    let bytes = data.bytes();
-    let data = read_u32(&bytes, 4);
-    match bytes[0] {
-        0 => EnvironmentVariableName::UA(decode_ua_environment_variable(data as u8)),
-        1 => EnvironmentVariableName::Custom(context.encoded_node_id_at(data as usize)),
-        2 => EnvironmentVariableName::Unknown(context.resolve_string(data as u64)),
-        _ => panic!("invalid encoded EnvironmentVariableName variant"),
-    }
-}
-
-fn encode_ua_environment_variable(name: UAEnvironmentVariable) -> u8 {
-    match name {
-        UAEnvironmentVariable::SafeAreaInsetTop => 0,
-        UAEnvironmentVariable::SafeAreaInsetRight => 1,
-        UAEnvironmentVariable::SafeAreaInsetBottom => 2,
-        UAEnvironmentVariable::SafeAreaInsetLeft => 3,
-        UAEnvironmentVariable::ViewportSegmentWidth => 4,
-        UAEnvironmentVariable::ViewportSegmentHeight => 5,
-        UAEnvironmentVariable::ViewportSegmentTop => 6,
-        UAEnvironmentVariable::ViewportSegmentLeft => 7,
-        UAEnvironmentVariable::ViewportSegmentBottom => 8,
-        UAEnvironmentVariable::ViewportSegmentRight => 9,
-    }
-}
-
-fn decode_ua_environment_variable(name: u8) -> UAEnvironmentVariable {
-    match name {
-        0 => UAEnvironmentVariable::SafeAreaInsetTop,
-        1 => UAEnvironmentVariable::SafeAreaInsetRight,
-        2 => UAEnvironmentVariable::SafeAreaInsetBottom,
-        3 => UAEnvironmentVariable::SafeAreaInsetLeft,
-        4 => UAEnvironmentVariable::ViewportSegmentWidth,
-        5 => UAEnvironmentVariable::ViewportSegmentHeight,
-        6 => UAEnvironmentVariable::ViewportSegmentTop,
-        7 => UAEnvironmentVariable::ViewportSegmentLeft,
-        8 => UAEnvironmentVariable::ViewportSegmentBottom,
-        9 => UAEnvironmentVariable::ViewportSegmentRight,
-        _ => panic!("invalid encoded UAEnvironmentVariable"),
-    }
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Visit)]
 pub struct Url<'a> {
-    pub url: &'a str,
+    pub url: AstStr<'a>,
 }
 
-// bytes 0..4 compact string ID; remaining bytes reserved.
-impl<'ast> AstNodeStorage<'ast> for Url<'ast> {
+unsafe impl<'ast> AstNodeStorage<'ast> for Url<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0004_0002);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        Self {
-            url: context.resolve_string(read_u32(&payload.bytes(), 0) as u64),
-        }
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        self.url == other.url || context.str(self.url) == context.str(other.url)
     }
 
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_url(self, context)
+    #[inline]
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
 
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_url(self, context)
+    #[inline]
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+
+    #[inline]
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -326,54 +339,13 @@ impl<'ast> AstNodeClone<'ast> for Url<'ast> {
     }
 }
 
-fn encode_url<'ast>(url: Url<'ast>, context: &mut AstContext<'ast>) -> NodePayload {
-    NodePayload::inline(&context.store_string(url.url).to_le_bytes())
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Clone, Copy, Debug, PartialEq, Visit)]
 pub struct Variable<'a> {
     pub fallback: Option<Vec<'a, TokenOrValue<'a>>>,
     pub name: NodeId<'a, DashedIdentReference<'a>>,
 }
 
-// Fixed payload layout for `Variable`:
-//
-// byte 0       fallback range presence
-// bytes 1..4   reserved
-// bytes 4..8   fallback range start
-// bytes 8..12  fallback range end
-// bytes 12..16 DashedIdentReference NodeId
-impl<'ast> AstNodeStorage<'ast> for Variable<'ast> {
-    const KIND: NodeKind = NodeKind::new(0x0004_0003);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let fallback = match bytes[0] {
-            0 => None,
-            1 => Some(
-                context
-                    .encoded_vec_range(read_u32(&bytes, 4) as usize, read_u32(&bytes, 8) as usize),
-            ),
-            _ => panic!("invalid encoded Variable fallback flag"),
-        };
-        Self {
-            fallback,
-            name: context.encoded_node_id_at(read_u32(&bytes, 12) as usize),
-        }
-    }
-
-    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        encode_variable(self)
-    }
-
-    fn encode_existing(
-        self,
-        _current: NodePayload,
-        _context: &mut AstContext<'ast>,
-    ) -> NodePayload {
-        encode_variable(self)
-    }
-}
+impl_inline_node!(Variable<'ast>, 0x0004_0003);
 
 impl<'ast> AstNodeClone<'ast> for Variable<'ast> {
     fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
@@ -386,133 +358,47 @@ impl<'ast> AstNodeClone<'ast> for Variable<'ast> {
     }
 }
 
-fn encode_variable(variable: Variable<'_>) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    if let Some(fallback) = variable.fallback {
-        bytes[0] = 1;
-        write_range(&mut bytes, 4, fallback);
-    }
-    write_u32(&mut bytes, 12, compact_node_index(variable.name));
-    NodePayload::inline(&bytes)
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Clone, Copy, Debug, PartialEq, Visit)]
 pub struct DashedIdentReference<'a> {
-    pub from: Option<Specifier<'a>>,
-    pub ident: &'a str,
+    pub from: Option<NodeId<'a, Specifier<'a>>>,
+    pub ident: AstStr<'a>,
 }
 
-// Fixed payload layout for `DashedIdentReference`:
-//
-// byte 0       optional Specifier variant
-// bytes 1..4   reserved
-// bytes 4..8   Specifier compact string ID/source index
-// bytes 8..12  ident compact string ID
-// bytes 12..16 reserved
-impl<'ast> AstNodeStorage<'ast> for DashedIdentReference<'ast> {
+unsafe impl<'ast> AstNodeStorage<'ast> for DashedIdentReference<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0004_0004);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        Self {
-            from: decode_specifier(bytes[0], read_u32(&bytes, 4), context),
-            ident: context.resolve_string(read_u32(&bytes, 8) as u64),
-        }
+    #[inline]
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_dashed_ident_reference(self, context)
+    #[inline]
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_dashed_ident_reference(self, context)
+    #[inline]
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        (self.ident == other.ident || context.str(self.ident) == context.str(other.ident))
+            && match (self.from, other.from) {
+                (None, None) => true,
+                (Some(left), Some(right)) => context.nodes_eq(left, right),
+                _ => false,
+            }
     }
 }
 
 impl<'ast> AstNodeClone<'ast> for DashedIdentReference<'ast> {
-    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
-        self
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        Self {
+            ident: self.ident,
+            from: self.from.map(|from| context.clone_encoded_node(from)),
+        }
     }
-}
-
-fn encode_dashed_ident_reference<'ast>(
-    value: DashedIdentReference<'ast>,
-    context: &mut AstContext<'ast>,
-) -> NodePayload {
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    let (tag, data) = encode_specifier(value.from, context);
-    bytes[0] = tag;
-    write_u32(&mut bytes, 4, data);
-    write_u32(&mut bytes, 8, context.store_string(value.ident));
-    NodePayload::inline(&bytes)
-}
-
-fn encode_specifier<'ast>(
-    value: Option<Specifier<'ast>>,
-    context: &mut AstContext<'ast>,
-) -> (u8, u32) {
-    match value {
-        None => (0, 0),
-        Some(Specifier::Global) => (1, 0),
-        Some(Specifier::File(value)) => (2, context.store_string(value)),
-        Some(Specifier::SourceIndex(value)) => (3, value),
-    }
-}
-
-fn decode_specifier<'ast>(
-    tag: u8,
-    data: u32,
-    context: &AstContext<'ast>,
-) -> Option<Specifier<'ast>> {
-    match tag {
-        0 => None,
-        1 => Some(Specifier::Global),
-        2 => Some(Specifier::File(context.resolve_string(data as u64))),
-        3 => Some(Specifier::SourceIndex(data)),
-        _ => panic!("invalid encoded Specifier variant"),
-    }
-}
-
-fn compact_node_index<T>(id: NodeId<'_, T>) -> u32 {
-    u32::try_from(id.index()).expect("AST node ID exceeds four bytes")
-}
-
-fn encode_range<T>(range: Vec<'_, T>) -> ExtraData {
-    let start = u32::try_from(range.start_index()).expect("AST range start exceeds four bytes");
-    let end = u32::try_from(range.end_index()).expect("AST range end exceeds four bytes");
-    ExtraData::from_u64((end as u64) << 32 | start as u64)
-}
-
-fn decode_range<'ast, T>(data: ExtraData, context: &AstContext<'ast>) -> Vec<'ast, T> {
-    context.encoded_vec_range(
-        data.as_u64() as u32 as usize,
-        (data.as_u64() >> 32) as u32 as usize,
-    )
-}
-
-fn write_range<T>(bytes: &mut [u8], offset: usize, range: Vec<'_, T>) {
-    write_u32(
-        bytes,
-        offset,
-        u32::try_from(range.start_index()).expect("AST range start exceeds four bytes"),
-    );
-    write_u32(
-        bytes,
-        offset + 4,
-        u32::try_from(range.end_index()).expect("AST range end exceeds four bytes"),
-    );
-}
-
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(
-        bytes[offset..offset + 4]
-            .try_into()
-            .expect("compact field is four bytes"),
-    )
 }
 
 #[derive(Debug, PartialEq, Visit)]
@@ -522,47 +408,114 @@ pub struct Function<'a> {
     flags: FunctionFlags,
     #[visit(skip)]
     kind: KnownFunction,
-    name: &'a str,
+    name: AstStr<'a>,
     /// A simple value serialized from this existing function node.
     pub replacement: Option<FunctionReplacement>,
 }
 
-// Fixed payload layout for `Function`:
-//
-// bytes 0..4   arguments range start
-// bytes 4..8   arguments range end
-// byte 8       FunctionFlags
-// bytes 9..12  reserved
-// bytes 12..16 first extra slot
-//
-// extra + 0    compact string ID for the lossless function name
-// extra + 1..3 fixed-width optional FunctionReplacement
-impl<'ast> AstNodeStorage<'ast> for Function<'ast> {
+// The native header fits one payload. The lossless name occupies one extra
+// slot and the optional replacement occupies two opaque extra slots.
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct FunctionHeader<'a> {
+    arguments: Vec<'a, TokenOrValue<'a>>,
+    extra: u32,
+    flags: FunctionFlags,
+    kind: KnownFunction,
+    has_replacement: bool,
+}
+
+pub use access::FunctionRef;
+
+// Access views are storage infrastructure, not persistent visitor nodes.
+mod access {
+    use super::*;
+
+    /// Read-only access to a stored function without reconstructing its overflow.
+    pub struct FunctionRef<'context, 'storage, 'ast> {
+        context: &'context AstContext<'storage>,
+        header: FunctionHeader<'ast>,
+    }
+
+    impl<'ast> AstContext<'ast> {
+        #[inline]
+        pub fn function<'id>(&self, id: NodeId<'_, Function<'id>>) -> FunctionRef<'_, 'ast, 'id> {
+            // SAFETY: the checked node kind stores this header. Its ranges are
+            // branded with the ID's lifetime; it contains no references.
+            let header = unsafe { self.node_payload(id).read_value() };
+            FunctionRef {
+                context: self,
+                header,
+            }
+        }
+    }
+
+    impl<'ast> FunctionRef<'_, '_, 'ast> {
+        #[inline]
+        pub fn name(&self) -> AstStr<'ast> {
+            // SAFETY: the first overflow slot is written as an AstStr.
+            unsafe {
+                self.context
+                    .extra_slot(self.header.extra as usize)
+                    .read_value()
+            }
+        }
+
+        #[inline]
+        pub fn arguments(&self) -> Vec<'ast, TokenOrValue<'ast>> {
+            self.header.arguments
+        }
+
+        #[inline]
+        pub fn kind(&self) -> KnownFunction {
+            self.header.kind
+        }
+
+        #[inline]
+        pub fn is_identifier(&self) -> bool {
+            self.header.flags.contains(FunctionFlags::IS_IDENTIFIER)
+        }
+
+        #[inline]
+        pub fn is_unquoted_url(&self) -> bool {
+            self.header.flags.contains(FunctionFlags::UNQUOTED_URL)
+        }
+
+        #[inline]
+        pub fn replacement(&self) -> Option<FunctionReplacement> {
+            if !self.header.has_replacement {
+                return None;
+            }
+            let extra = self.header.extra as usize;
+            // SAFETY: these two slots contain the native optional replacement.
+            unsafe {
+                ExtraData::read_value_array([
+                    self.context.extra_slot(extra + 1),
+                    self.context.extra_slot(extra + 2),
+                ])
+            }
+        }
+    }
+}
+
+unsafe impl<'ast> AstNodeStorage<'ast> for Function<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0004_0001);
 
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let start = u32::from_le_bytes(
-            bytes[..4]
-                .try_into()
-                .expect("Function range start is four bytes"),
-        ) as usize;
-        let end = u32::from_le_bytes(
-            bytes[4..8]
-                .try_into()
-                .expect("Function range end is four bytes"),
-        ) as usize;
-        let extra = payload.extra_start();
-        let name = context.resolve_string(context.extra_slot(extra).as_u64());
+    unsafe fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
+        // SAFETY: this node kind is always written as FunctionHeader.
+        let header: FunctionHeader<'ast> = unsafe { payload.read_value() };
+        let extra = header.extra as usize;
         Self {
-            arguments: context.encoded_vec_range(start, end),
-            flags: FunctionFlags::from_bits_retain(bytes[8]),
-            kind: KnownFunction::from_name(name),
-            name,
-            replacement: decode_function_replacement(
-                context.extra_slot(extra + 1),
-                context.extra_slot(extra + 2),
-            ),
+            arguments: header.arguments,
+            flags: header.flags,
+            kind: header.kind,
+            name: unsafe { context.extra_slot(extra).read_value() },
+            replacement: unsafe {
+                ExtraData::read_value_array([
+                    context.extra_slot(extra + 1),
+                    context.extra_slot(extra + 2),
+                ])
+            },
         }
     }
 
@@ -570,8 +523,21 @@ impl<'ast> AstNodeStorage<'ast> for Function<'ast> {
         encode_function(self, None, context)
     }
 
-    fn encode_existing(self, current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_function(self, Some(current.extra_start()), context)
+    unsafe fn encode_existing(
+        self,
+        current: NodePayload,
+        context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        let header: FunctionHeader<'ast> = unsafe { current.read_value() };
+        encode_function(self, Some(header.extra as usize), context)
+    }
+
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        self.arguments == other.arguments
+            && self.flags == other.flags
+            && self.kind == other.kind
+            && self.replacement == other.replacement
+            && (self.name == other.name || context.str(self.name) == context.str(other.name))
     }
 }
 
@@ -592,12 +558,8 @@ fn encode_function<'ast>(
     existing_extra: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let start = u32::try_from(function.arguments.start_index())
-        .expect("Function argument range start exceeds four bytes");
-    let end = u32::try_from(function.arguments.end_index())
-        .expect("Function argument range end exceeds four bytes");
-    let name = ExtraData::from_u64(context.store_string(function.name) as u64);
-    let (replacement_low, replacement_high) = encode_function_replacement(function.replacement);
+    let name = ExtraData::from_value(function.name);
+    let [replacement_low, replacement_high] = ExtraData::from_value_array(function.replacement);
     let extra = match existing_extra {
         Some(extra) => {
             context.set_extra_slot(extra, name);
@@ -607,106 +569,13 @@ fn encode_function<'ast>(
         }
         None => context.alloc_extra_slots([name, replacement_low, replacement_high]),
     };
-
-    let mut inline = [0; NodePayload::PARTIAL_INLINE_BYTES];
-    inline[..4].copy_from_slice(&start.to_le_bytes());
-    inline[4..8].copy_from_slice(&end.to_le_bytes());
-    inline[8] = function.flags.bits();
-    NodePayload::with_extra(&inline, extra)
-}
-
-fn encode_function_replacement(replacement: Option<FunctionReplacement>) -> (ExtraData, ExtraData) {
-    let mut bytes = [0; 16];
-    match replacement {
-        None => {}
-        Some(FunctionReplacement::GrayAlpha { alpha, lightness }) => {
-            bytes[0] = 1;
-            bytes[4..8].copy_from_slice(&alpha.to_bits().to_le_bytes());
-            bytes[8..12].copy_from_slice(&lightness.to_bits().to_le_bytes());
-        }
-        Some(FunctionReplacement::Number(value)) => {
-            bytes[0] = 2;
-            bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
-        }
-        Some(FunctionReplacement::Dimension { unit, value }) => {
-            bytes[0] = 3;
-            bytes[1] = crate::token::encode_unit(unit);
-            bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
-        }
-        Some(FunctionReplacement::Percentage(value)) => {
-            bytes[0] = 4;
-            bytes[4..8].copy_from_slice(&value.to_bits().to_le_bytes());
-        }
-        Some(FunctionReplacement::Rgb { blue, green, red }) => {
-            bytes[0] = 5;
-            bytes[1] = red;
-            bytes[2] = green;
-            bytes[3] = blue;
-        }
-        Some(FunctionReplacement::Rgba {
-            alpha,
-            blue,
-            green,
-            red,
-            use_hex,
-        }) => {
-            bytes[0] = 6;
-            bytes[1] = red;
-            bytes[2] = green;
-            bytes[3] = blue;
-            bytes[4..8].copy_from_slice(&alpha.to_bits().to_le_bytes());
-            bytes[8] = use_hex as u8;
-        }
-    }
-    (
-        ExtraData::from_bytes(&bytes[..8]),
-        ExtraData::from_bytes(&bytes[8..]),
-    )
-}
-
-fn decode_function_replacement(low: ExtraData, high: ExtraData) -> Option<FunctionReplacement> {
-    let mut bytes = [0; 16];
-    bytes[..8].copy_from_slice(&low.bytes());
-    bytes[8..].copy_from_slice(&high.bytes());
-    let value = f32::from_bits(u32::from_le_bytes(
-        bytes[4..8]
-            .try_into()
-            .expect("Function replacement value is four bytes"),
-    ));
-    match bytes[0] {
-        0 => None,
-        1 => Some(FunctionReplacement::GrayAlpha {
-            alpha: value,
-            lightness: f32::from_bits(u32::from_le_bytes(
-                bytes[8..12]
-                    .try_into()
-                    .expect("Function lightness is four bytes"),
-            )),
-        }),
-        2 => Some(FunctionReplacement::Number(value)),
-        3 => Some(FunctionReplacement::Dimension {
-            unit: crate::token::decode_unit(bytes[1]),
-            value,
-        }),
-        4 => Some(FunctionReplacement::Percentage(value)),
-        5 => Some(FunctionReplacement::Rgb {
-            blue: bytes[3],
-            green: bytes[2],
-            red: bytes[1],
-        }),
-        6 => Some(FunctionReplacement::Rgba {
-            alpha: value,
-            blue: bytes[3],
-            green: bytes[2],
-            red: bytes[1],
-            use_hex: match bytes[8] {
-                0 => false,
-                1 => true,
-                _ => panic!("invalid encoded FunctionReplacement::Rgba flag"),
-            },
-        }),
-        _ => panic!("invalid encoded FunctionReplacement variant"),
-    }
+    NodePayload::from_value(FunctionHeader {
+        arguments: function.arguments,
+        extra: u32::try_from(extra).expect("Function overflow index exceeds u32"),
+        flags: function.flags,
+        kind: function.kind,
+        has_replacement: function.replacement.is_some(),
+    })
 }
 
 /// A function name recognized by RocketCSS.
@@ -931,7 +800,11 @@ bitflags! {
 impl<'a> Function<'a> {
     /// Creates a function with no minifier serialization state.
     #[inline]
-    pub fn new(name: &'a str, arguments: Vec<'a, TokenOrValue<'a>>) -> Self {
+    pub fn new(
+        name: &str,
+        arguments: Vec<'a, TokenOrValue<'a>>,
+        context: &mut AstContext<'a>,
+    ) -> Self {
         let (kind, vendor_prefixed) = KnownFunction::classify(name);
         let mut flags = FunctionFlags::empty();
         flags.set(FunctionFlags::VENDOR_PREFIXED, vendor_prefixed);
@@ -939,14 +812,14 @@ impl<'a> Function<'a> {
             arguments,
             flags,
             kind,
-            name,
+            name: context.add_str(name),
             replacement: None,
         }
     }
 
     /// Returns the original function name.
     #[inline]
-    pub const fn name(&self) -> &'a str {
+    pub const fn name(&self) -> AstStr<'a> {
         self.name
     }
 
@@ -958,9 +831,11 @@ impl<'a> Function<'a> {
 
     /// Updates the lossless function name and its recognized identity together.
     #[inline]
-    pub fn set_name(&mut self, name: &'a str) {
+    pub fn set_name(&mut self, name: &str, context: &mut AstContext<'a>) {
         let (kind, vendor_prefixed) = KnownFunction::classify(name);
-        self.name = name;
+        if context.str(self.name) != name {
+            self.name = context.add_str(name);
+        }
         self.kind = kind;
         self.flags
             .set(FunctionFlags::VENDOR_PREFIXED, vendor_prefixed);
@@ -1040,14 +915,15 @@ pub enum FunctionReplacement {
 
 #[derive(Debug, PartialEq, Visit)]
 pub struct ImportRule<'a> {
-    pub layer: Option<Vec<'a, &'a str>>,
+    pub layer: Option<Vec<'a, AstStr<'a>>>,
     pub media: Option<NodeId<'a, MediaList<'a>>>,
     pub supports: Option<NodeId<'a, SupportsCondition<'a>>>,
-    pub url: &'a str,
+    pub url: AstStr<'a>,
 }
 
 #[cfg(test)]
 mod storage_tests {
+    use super::{MediaList, MediaQuery, MediaQuerySlot, MediaType, Qualifier};
     use rocketcss_common::Allocator;
 
     use crate::{
@@ -1057,11 +933,63 @@ mod storage_tests {
     };
 
     #[test]
-    fn function_codec_uses_fixed_overflow_slots_and_compact_string_ids() {
+    fn media_query_native_slot_preserves_qualifiers_and_custom_text() {
+        assert_eq!(std::mem::size_of::<MediaQuerySlot<'_>>(), 16);
+        assert_eq!(std::mem::size_of::<MediaList<'_>>(), 8);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let first = context.add_str("FutureMedia");
+        let second = context.add_str("FutureMedia");
+        assert_ne!(first, second);
+        let query = MediaQuery {
+            condition: None,
+            media_type: MediaType::Custom(first),
+            qualifier: None,
+        };
+        let node = context.alloc_encoded_node(query, DUMMY_SP);
+        let equal = context.alloc_encoded_node(
+            MediaQuery {
+                media_type: MediaType::Custom(second),
+                ..query
+            },
+            DUMMY_SP,
+        );
+        assert!(context.nodes_eq(node, equal));
+        let child = context.alloc_encoded_node(
+            crate::MediaCondition::Unknown(context.encoded_vec_range(0, 0)),
+            DUMMY_SP,
+        );
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for condition in [None, Some(child)] {
+            for qualifier in [None, Some(Qualifier::Only), Some(Qualifier::Not)] {
+                for media_type in [
+                    MediaType::All,
+                    MediaType::Print,
+                    MediaType::Screen,
+                    MediaType::Custom(first),
+                    MediaType::Custom(second),
+                ] {
+                    let value = MediaQuery {
+                        condition,
+                        qualifier,
+                        media_type,
+                    };
+                    context.mutate_encoded_node(node, |stored, _| *stored = value);
+                    assert_eq!(context.encoded_node(node), value);
+                }
+            }
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
+    }
+
+    #[test]
+    fn function_storage_preserves_native_state_and_reuses_overflow() {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
         let arguments = context.alloc_vec(allocator.vec());
-        let mut function = Function::new("-webkit-calc", arguments);
+        let mut function = Function::new("-webkit-calc", arguments, &mut context);
         function.set_identifier(true);
         function.set_valid_rgb(true);
         function.replacement = Some(FunctionReplacement::Dimension {
@@ -1072,7 +1000,7 @@ mod storage_tests {
 
         let decoded = context.encoded_node(id);
         assert_eq!(decoded.arguments, arguments);
-        assert_eq!(decoded.name(), "-webkit-calc");
+        assert_eq!(context.str(decoded.name()), "-webkit-calc");
         assert_eq!(decoded.kind(), KnownFunction::Calc);
         assert!(decoded.is_vendor_prefixed());
         assert!(decoded.is_identifier());
@@ -1086,8 +1014,8 @@ mod storage_tests {
         );
         assert_eq!(context.encoded_extra_len(), 3);
 
-        context.mutate_encoded_node(id, |function, _| {
-            function.set_name("rgb");
+        context.mutate_encoded_node(id, |function, context| {
+            function.set_name("rgb", context);
             function.set_identifier(false);
             function.replacement = Some(FunctionReplacement::Rgba {
                 alpha: 0.5,
@@ -1099,7 +1027,7 @@ mod storage_tests {
         });
 
         let decoded = context.encoded_node(id);
-        assert_eq!(decoded.name(), "rgb");
+        assert_eq!(context.str(decoded.name()), "rgb");
         assert_eq!(decoded.kind(), KnownFunction::Rgb);
         assert!(!decoded.is_vendor_prefixed());
         assert!(!decoded.is_identifier());
@@ -1121,36 +1049,221 @@ mod storage_tests {
     }
 
     #[test]
+    fn function_replacements_preserve_all_variants_bits_and_flags() {
+        use FunctionReplacement as R;
+        fn snapshot(value: Option<R>) -> (u8, [u32; 5], Option<Unit>) {
+            match value {
+                None => (0, [0; 5], None),
+                Some(R::Number(value)) => (1, [value.to_bits(), 0, 0, 0, 0], None),
+                Some(R::Percentage(value)) => (2, [value.to_bits(), 0, 0, 0, 0], None),
+                Some(R::Dimension { unit, value }) => {
+                    (3, [value.to_bits(), 0, 0, 0, 0], Some(unit))
+                }
+                Some(R::GrayAlpha { alpha, lightness }) => {
+                    (4, [alpha.to_bits(), lightness.to_bits(), 0, 0, 0], None)
+                }
+                Some(R::Rgb { red, green, blue }) => {
+                    (5, [red.into(), green.into(), blue.into(), 0, 0], None)
+                }
+                Some(R::Rgba {
+                    red,
+                    green,
+                    blue,
+                    alpha,
+                    use_hex,
+                }) => (
+                    6,
+                    [
+                        red.into(),
+                        green.into(),
+                        blue.into(),
+                        alpha.to_bits(),
+                        use_hex.into(),
+                    ],
+                    None,
+                ),
+            }
+        }
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let arguments = context.alloc_encoded_vec(std::iter::empty());
+        let function = Function::new("FuN", arguments, &mut context);
+        let name = function.name();
+        let id = context.alloc_node(function, DUMMY_SP);
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for bits in [
+            0,
+            0x8000_0000,
+            1,
+            0x7f7f_ffff,
+            0x7f80_0000,
+            0xff80_0000,
+            0x7fc0_1234,
+        ] {
+            let f = f32::from_bits(bits);
+            for flags in 0..8 {
+                for replacement in [
+                    None,
+                    Some(R::Number(f)),
+                    Some(R::Percentage(f)),
+                    Some(R::Dimension {
+                        unit: Unit::Length(crate::LengthUnit::Cqmax),
+                        value: f,
+                    }),
+                    Some(R::GrayAlpha {
+                        alpha: f,
+                        lightness: 0.25,
+                    }),
+                    Some(R::GrayAlpha {
+                        alpha: 0.75,
+                        lightness: f,
+                    }),
+                    Some(R::Rgb {
+                        red: 0,
+                        green: 127,
+                        blue: 255,
+                    }),
+                    Some(R::Rgba {
+                        red: 255,
+                        green: 127,
+                        blue: 0,
+                        alpha: f,
+                        use_hex: false,
+                    }),
+                    Some(R::Rgba {
+                        red: 1,
+                        green: 2,
+                        blue: 3,
+                        alpha: f,
+                        use_hex: true,
+                    }),
+                    None,
+                ]
+                .into_iter()
+                .chain(
+                    [
+                        Unit::Deg,
+                        Unit::Rad,
+                        Unit::Grad,
+                        Unit::Turn,
+                        Unit::Seconds,
+                        Unit::Milliseconds,
+                        Unit::Hertz,
+                        Unit::Kilohertz,
+                        Unit::Dpi,
+                        Unit::Dpcm,
+                        Unit::Dppx,
+                        Unit::ResolutionX,
+                        Unit::Flex,
+                    ]
+                    .map(|unit| Some(R::Dimension { unit, value: f })),
+                ) {
+                    context.mutate_node(id, |value, _| {
+                        value.set_identifier(flags & 1 != 0);
+                        value.set_valid_rgb(flags & 2 != 0);
+                        value.set_unquoted_url(flags & 4 != 0);
+                        value.replacement = replacement;
+                    });
+                    let value = context.resolve_node(id);
+                    assert_eq!(snapshot(value.replacement), snapshot(replacement));
+                    assert_eq!(value.is_identifier(), flags & 1 != 0);
+                    assert_eq!(value.is_valid_rgb(), flags & 2 != 0);
+                    assert_eq!(value.is_unquoted_url(), flags & 4 != 0);
+                    assert_eq!(value.name(), name);
+                    assert_eq!(value.arguments, arguments);
+                    let view = context.function(id);
+                    assert_eq!(snapshot(view.replacement()), snapshot(replacement));
+                    assert_eq!(view.is_identifier(), flags & 1 != 0);
+                    assert_eq!(view.is_unquoted_url(), flags & 4 != 0);
+                    assert_eq!(view.kind(), value.kind());
+                    assert_eq!(view.name(), name);
+                    assert_eq!(view.arguments(), arguments);
+                    assert_eq!(context.node_checkpoint(), checkpoint);
+                    assert_eq!(context.string_pool().extra_len(), bytes);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn function_names_are_non_interned_and_unchanged_writes_do_not_allocate() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let arguments = context.alloc_vec(allocator.vec());
+        let first = Function::new("FuN", arguments, &mut context);
+        let second = Function::new("FuN", arguments, &mut context);
+        assert_ne!(first.name(), second.name());
+        assert_eq!(context.string_pool().len(), 0);
+        let first = context.alloc_encoded_node(first, DUMMY_SP);
+        let second = context.alloc_encoded_node(second, DUMMY_SP);
+        assert!(context.nodes_eq(first, second));
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for _ in 0..100 {
+            assert_eq!(context.str(context.encoded_node(first).name()), "FuN");
+            context.mutate_encoded_node(first, |function, context| {
+                function.set_name("FuN", context);
+            });
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
+    }
+
+    #[test]
+    fn url_range_reads_and_unchanged_writes_do_not_allocate() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let text = context.add_str("asset.svg#icon");
+        let url = context.alloc_encoded_node(Url { url: text }, DUMMY_SP);
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for _ in 0..100 {
+            assert_eq!(context.str(context.encoded_node(url).url), "asset.svg#icon");
+            context.mutate_encoded_node(url, |_, _| {});
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
+        assert_eq!(std::mem::size_of::<Url<'_>>(), 8);
+    }
+
+    #[test]
     fn url_and_variable_codecs_keep_strings_ranges_and_owned_node_ids() {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
-        let url = context.alloc_encoded_node(
-            Url {
-                url: "asset.svg#icon",
-            },
-            DUMMY_SP,
-        );
+        let text = context.add_str("asset.svg#icon");
+        let url = context.alloc_encoded_node(Url { url: text }, DUMMY_SP);
         let cloned_url = context.clone_encoded_node(url);
         assert_ne!(url, cloned_url);
-        assert_eq!(
-            context.encoded_node(cloned_url),
-            Url {
-                url: "asset.svg#icon"
-            }
-        );
+        assert_eq!(context.encoded_node(cloned_url), Url { url: text });
 
+        let file = context.add_str("theme.css");
+        let file = context.alloc_encoded_node(Specifier::File(file), DUMMY_SP);
+        let ident = context.add_str("--accent");
         let name = context.alloc_encoded_node(
             DashedIdentReference {
-                from: Some(Specifier::File("theme.css")),
-                ident: "--accent",
+                from: Some(file),
+                ident,
             },
             DUMMY_SP,
         );
+        let fallback_ident = context.add_str("--fallback");
+        let fallback_ident = context.alloc_encoded_node(
+            crate::DashedIdent {
+                value: fallback_ident,
+            },
+            DUMMY_SP,
+        );
+        let cloned_name = context.clone_encoded_node(name);
+        let cloned_file = context.encoded_node(cloned_name).from.unwrap();
+        assert_ne!(cloned_file, file);
+        assert!(context.nodes_eq(cloned_name, name));
+        assert!(context.nodes_eq(cloned_file, file));
         let comma = context.alloc_encoded_node(Token::Comma, DUMMY_SP);
         let fallback = context.alloc_encoded_vec(
             [
                 TokenOrValue::Token(comma),
-                TokenOrValue::DashedIdent("--fallback"),
+                TokenOrValue::DashedIdent(fallback_ident),
             ]
             .into_iter(),
         );
@@ -1166,19 +1279,56 @@ mod storage_tests {
         assert_eq!(
             context.encoded_node(decoded.name),
             DashedIdentReference {
-                from: Some(Specifier::File("theme.css")),
-                ident: "--accent",
+                from: Some(file),
+                ident,
             }
         );
+    }
+
+    #[test]
+    fn variable_and_environment_storage_distinguish_absent_and_empty_fallback() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let ident = context.add_str("--name");
+        let name = context.alloc_encoded_node(DashedIdentReference { ident, from: None }, DUMMY_SP);
+        let empty = context.alloc_encoded_vec(std::iter::empty::<TokenOrValue<'_>>());
+        let variable = context.alloc_encoded_node(
+            Variable {
+                name,
+                fallback: None,
+            },
+            DUMMY_SP,
+        );
+        let indices = context.alloc_encoded_vec(std::iter::empty::<i32>());
+        let env = context.alloc_encoded_node(
+            EnvironmentVariable {
+                name: EnvironmentVariableName::Unknown(ident),
+                indices,
+                fallback: None,
+            },
+            DUMMY_SP,
+        );
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for fallback in [Some(empty), None, Some(empty)] {
+            context.mutate_encoded_node(variable, |node, _| node.fallback = fallback);
+            context.mutate_encoded_node(env, |node, _| node.fallback = fallback);
+            assert_eq!(context.encoded_node(variable).fallback, fallback);
+            assert_eq!(context.encoded_node(env).fallback, fallback);
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
     }
 
     #[test]
     fn environment_variable_codec_round_trips_fixed_overflow_fields() {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
-        let fallback =
-            context.alloc_encoded_vec([TokenOrValue::DashedIdent("--fallback")].into_iter());
+        let ident = context.add_str("--fallback");
+        let ident = context.alloc_encoded_node(crate::DashedIdent { value: ident }, DUMMY_SP);
+        let fallback = context.alloc_encoded_vec([TokenOrValue::DashedIdent(ident)].into_iter());
         let indices = context.alloc_encoded_vec([2_i32, 4].into_iter());
+        let before = context.encoded_extra_len();
         let id = context.alloc_encoded_node(
             EnvironmentVariable {
                 fallback: Some(fallback),
@@ -1188,6 +1338,7 @@ mod storage_tests {
             DUMMY_SP,
         );
 
+        assert_eq!(context.encoded_extra_len(), before + 2);
         let decoded = context.encoded_node(id);
         assert_eq!(decoded.fallback, Some(fallback));
         assert_eq!(decoded.indices, indices);
@@ -1196,15 +1347,47 @@ mod storage_tests {
             EnvironmentVariableName::UA(UAEnvironmentVariable::ViewportSegmentWidth)
         );
 
+        let unknown = context.add_str("viewport-custom");
         context.mutate_encoded_node(id, |value, _| {
             value.fallback = None;
-            value.name = EnvironmentVariableName::Unknown("viewport-custom");
+            value.name = EnvironmentVariableName::Unknown(unknown);
         });
         let decoded = context.encoded_node(id);
         assert_eq!(decoded.fallback, None);
-        assert_eq!(
-            decoded.name,
-            EnvironmentVariableName::Unknown("viewport-custom")
-        );
+        assert_eq!(decoded.name, EnvironmentVariableName::Unknown(unknown));
+        assert_eq!(context.encoded_extra_len(), before + 2);
+        let empty_fallback = context.alloc_encoded_vec(std::iter::empty());
+        let boundary_indices =
+            context.alloc_encoded_vec([i32::MIN, 0, i32::MAX, i32::MIN].into_iter());
+        let empty_indices = context.alloc_encoded_vec(std::iter::empty());
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for (indices, expected) in [
+            (indices, &[2, 4][..]),
+            (empty_indices, &[][..]),
+            (boundary_indices, &[i32::MIN, 0, i32::MAX, i32::MIN][..]),
+        ] {
+            for fallback in [None, Some(empty_fallback), Some(fallback), None] {
+                context.mutate_node(id, |value, _| {
+                    value.indices = indices;
+                    value.fallback = fallback;
+                });
+                let actual = context.resolve_node(id);
+                assert_eq!(actual.indices, indices);
+                assert_eq!(actual.fallback, fallback);
+                assert_eq!(actual.name, EnvironmentVariableName::Unknown(unknown));
+                let view = context.environment_variable(id);
+                assert_eq!(view.indices(), indices);
+                assert_eq!(view.fallback(), fallback);
+                assert_eq!(view.name(), EnvironmentVariableName::Unknown(unknown));
+                assert!(
+                    context
+                        .vec_iter(view.indices())
+                        .eq(expected.iter().copied())
+                );
+                assert_eq!(context.node_checkpoint(), checkpoint);
+                assert_eq!(context.string_pool().extra_len(), bytes);
+            }
+        }
     }
 }

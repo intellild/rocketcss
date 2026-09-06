@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum FlexDirection {
     Row,
     RowReverse,
@@ -8,7 +8,7 @@ pub enum FlexDirection {
     ColumnReverse,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, PartialEq, Visit, Clone, Copy)]
 pub enum FlexWrap {
     Nowrap,
     Wrap,

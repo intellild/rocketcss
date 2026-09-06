@@ -23,7 +23,7 @@ pub(super) fn simple_calc_value(
     let Token::Delim(operator) = ast.ast_context().resolve_node(*operator) else {
         return None;
     };
-    calculate_values(left, operator, right).map(unitless_calc_zero)
+    calculate_values(left, ast.ast_context().str(operator), right).map(unitless_calc_zero)
 }
 
 const MAX_CALC_TERMS: usize = 16;
@@ -206,15 +206,16 @@ impl CalcLinear {
         let mut output = 0;
         for (index, term) in self.terms[..self.len].iter().copied().enumerate() {
             if index != 0 {
-                set_calc_token(&mut arguments[output], Token::WhiteSpace(" "), ast);
+                let space = ast.ast_context_mut().add_str(" ");
+                set_calc_token(&mut arguments[output], Token::WhiteSpace(space), ast);
                 output += 1;
-                set_calc_token(
-                    &mut arguments[output],
-                    Token::Delim(if term.value < 0.0 { "-" } else { "+" }),
-                    ast,
-                );
+                let operator =
+                    ast.ast_context_mut()
+                        .add_str(if term.value < 0.0 { "-" } else { "+" });
+                set_calc_token(&mut arguments[output], Token::Delim(operator), ast);
                 output += 1;
-                set_calc_token(&mut arguments[output], Token::WhiteSpace(" "), ast);
+                let space = ast.ast_context_mut().add_str(" ");
+                set_calc_token(&mut arguments[output], Token::WhiteSpace(space), ast);
                 output += 1;
             }
             let value = if index == 0 {
@@ -388,7 +389,7 @@ impl<'values, 'context, 'arena> CalcLinearParser<'values, 'context, 'arena> {
         let operator = allowed
             .iter()
             .copied()
-            .find(|allowed| operator == *allowed)?;
+            .find(|allowed| self.ast.str(operator) == *allowed)?;
         self.index += 1;
         Some(operator)
     }
@@ -431,7 +432,7 @@ pub(super) fn minify_flat_calc_operations<'ast>(
             let Token::Delim(operator) = ast.ast_context().resolve_node(*operator) else {
                 continue;
             };
-            if !matches!(operator, "*" | "/") {
+            if !matches!(ast.ast_context().str(operator), "*" | "/") {
                 continue;
             }
             let Some(left_index) = values[..operator_index]
@@ -449,7 +450,9 @@ pub(super) fn minify_flat_calc_operations<'ast>(
             };
             let Some(result) = calc_value(&values[left_index], ast)
                 .zip(calc_value(&values[right_index], ast))
-                .and_then(|(left, right)| calculate_values(left, operator, right))
+                .and_then(|(left, right)| {
+                    calculate_values(left, ast.ast_context().str(operator), right)
+                })
             else {
                 continue;
             };
@@ -475,7 +478,7 @@ pub(super) fn minify_flat_calc_operations<'ast>(
             let Token::Delim(operator) = ast.ast_context().resolve_node(*operator) else {
                 continue;
             };
-            if !matches!(operator, "+" | "-") {
+            if !matches!(ast.ast_context().str(operator), "+" | "-") {
                 continue;
             }
             let Some(left_index) = values[..operator_index]
@@ -592,11 +595,11 @@ pub(super) fn remove_redundant_calc_parentheses(
     });
     let preceded_by_addition = previous.is_none_or(|value| {
         matches!(value, TokenOrValue::Token(token)
-            if matches!(ast.ast_context().resolve_node(*token), Token::Delim("+") | Token::Delim("-")))
+            if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if matches!(ast.ast_context().str(value), "+" | "-")))
     });
     let contains_addition = values[open + 1..close].iter().any(|value| {
         matches!(value, TokenOrValue::Token(token)
-            if matches!(ast.ast_context().resolve_node(*token), Token::Delim("+") | Token::Delim("-")))
+            if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if matches!(ast.ast_context().str(value), "+" | "-")))
     });
     if !preceded_by_addition || contains_addition {
         return false;

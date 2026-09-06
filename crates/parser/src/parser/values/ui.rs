@@ -1,20 +1,5 @@
 use crate::prelude::*;
 
-macro_rules! keyword_parse {
-    ($ty:ty, $($name:literal => $variant:expr),+ $(,)?) => {
-        impl<'i> Parse<'i> for $ty {
-            fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-                let ident = input.expect_ident()?;
-                match_ignore_ascii_case!(
-                    ident,
-                    $( $name => Ok($variant), )+
-                    _ => Err(input.new_custom_error(ParserError::InvalidValue)),
-                )
-            }
-        }
-    };
-}
-
 keyword_parse!(
     PointerEvents,
     "auto" => Self::Auto,
@@ -95,3 +80,13 @@ impl<'i> Parse<'i> for ScrollbarColor<'i> {
         Ok(Self::Colors(first, second))
     }
 }
+
+keyword_parse!(
+    Resize,
+    "none" => Self::None,
+    "both" => Self::Both,
+    "horizontal" => Self::Horizontal,
+    "vertical" => Self::Vertical,
+    "block" => Self::Block,
+    "inline" => Self::Inline,
+);

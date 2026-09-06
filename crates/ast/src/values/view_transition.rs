@@ -2,36 +2,34 @@ use crate::*;
 
 use crate::{AstNodeClone, AstNodeStorage, NodeKind, NodePayload};
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum ViewTransitionName<'a> {
     None,
     Auto,
-    Custom(&'a str),
+    Custom(AstStr<'a>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for ViewTransitionName<'ast> {
+// SAFETY: this KIND always stores and reads the same native Copy type.
+unsafe impl<'ast> AstNodeStorage<'ast> for ViewTransitionName<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0016_0002);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::None,
-            1 => Self::Auto,
-            2 => Self::Custom(context.resolve_string(read_u32(&bytes, 4) as u64)),
-            _ => panic!("invalid encoded ViewTransitionName variant"),
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::Custom(a), Self::Custom(b)) => context.str(*a) == context.str(*b),
+            _ => self == other,
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_string_enum(self, context, |value| match value {
-            Self::None => (0, None),
-            Self::Auto => (1, None),
-            Self::Custom(value) => (2, Some(value)),
-        })
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -41,50 +39,31 @@ impl<'ast> AstNodeClone<'ast> for ViewTransitionName<'ast> {
     }
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Clone, Copy, Debug, PartialEq, Visit)]
 pub enum NoneOrCustomIdentList<'a> {
     None,
-    Idents(Vec<'a, &'a str>),
+    Idents(Vec<'a, AstStr<'a>>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for NoneOrCustomIdentList<'ast> {
+// SAFETY: this KIND publishes native NoneOrCustomIdentList values.
+unsafe impl<'ast> AstNodeStorage<'ast> for NoneOrCustomIdentList<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0016_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::None,
-            1 => Self::Idents(
-                context
-                    .encoded_vec_range(read_u32(&bytes, 4) as usize, read_u32(&bytes, 8) as usize),
-            ),
-            _ => panic!("invalid encoded NoneOrCustomIdentList variant"),
-        }
+    #[inline]
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        // SAFETY: the typed context validated KIND.
+        unsafe { payload.read_value() }
     }
-
+    #[inline]
     fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        match self {
-            Self::None => bytes[0] = 0,
-            Self::Idents(values) => {
-                bytes[0] = 1;
-                write_u32(
-                    &mut bytes,
-                    4,
-                    u32::try_from(values.start_index()).expect("AST range exceeds four bytes"),
-                );
-                write_u32(
-                    &mut bytes,
-                    8,
-                    u32::try_from(values.end_index()).expect("AST range exceeds four bytes"),
-                );
-            }
-        }
-        NodePayload::inline(&bytes)
+        NodePayload::from_value(self)
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
+    #[inline]
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -97,47 +76,35 @@ impl<'ast> AstNodeClone<'ast> for NoneOrCustomIdentList<'ast> {
     }
 }
 
-fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
-    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
-}
-
-fn read_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
-}
-
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum ViewTransitionGroup<'a> {
     Normal,
     Contain,
     Nearest,
-    Custom(&'a str),
+    Custom(AstStr<'a>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for ViewTransitionGroup<'ast> {
+// SAFETY: this KIND always stores and reads the same native Copy type.
+unsafe impl<'ast> AstNodeStorage<'ast> for ViewTransitionGroup<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0016_0003);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        match bytes[0] {
-            0 => Self::Normal,
-            1 => Self::Contain,
-            2 => Self::Nearest,
-            3 => Self::Custom(context.resolve_string(read_u32(&bytes, 4) as u64)),
-            _ => panic!("invalid encoded ViewTransitionGroup variant"),
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::Custom(a), Self::Custom(b)) => context.str(*a) == context.str(*b),
+            _ => self == other,
         }
     }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        encode_string_enum(self, context, |value| match value {
-            Self::Normal => (0, None),
-            Self::Contain => (1, None),
-            Self::Nearest => (2, None),
-            Self::Custom(value) => (3, Some(value)),
-        })
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
     }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
     }
 }
 
@@ -147,16 +114,50 @@ impl<'ast> AstNodeClone<'ast> for ViewTransitionGroup<'ast> {
     }
 }
 
-fn encode_string_enum<'ast, T>(
-    value: T,
-    context: &mut AstContext<'ast>,
-    classify: impl FnOnce(T) -> (u8, Option<&'ast str>),
-) -> NodePayload {
-    let (tag, string) = classify(value);
-    let mut bytes = [0; NodePayload::INLINE_BYTES];
-    bytes[0] = tag;
-    if let Some(string) = string {
-        write_u32(&mut bytes, 4, context.store_string(string));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rocketcss_common::Allocator;
+
+    #[test]
+    fn transition_names_compare_contents_and_reuse_slots() {
+        assert_eq!(std::mem::size_of::<ViewTransitionName<'_>>(), 12);
+        assert_eq!(std::mem::size_of::<ViewTransitionGroup<'_>>(), 12);
+        assert_eq!(std::mem::size_of::<KeyframesName<'_>>(), 12);
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let first = context.add_str("名称");
+        let second = context.add_str("名称");
+        assert_ne!(first, second);
+        let name = context.alloc_encoded_node(ViewTransitionName::Custom(first), DUMMY_SP);
+        let equal = context.alloc_encoded_node(ViewTransitionName::Custom(second), DUMMY_SP);
+        assert!(context.nodes_eq(name, equal));
+        let group = context.alloc_encoded_node(ViewTransitionGroup::Custom(first), DUMMY_SP);
+        let equal_group = context.alloc_encoded_node(ViewTransitionGroup::Custom(second), DUMMY_SP);
+        assert!(context.nodes_eq(group, equal_group));
+        let ident = context.alloc_encoded_node(KeyframesName::Ident(first), DUMMY_SP);
+        let string = context.alloc_encoded_node(KeyframesName::Custom(second), DUMMY_SP);
+        assert!(!context.nodes_eq(ident, string));
+        let checkpoint = context.node_checkpoint();
+        let bytes = context.string_pool().extra_len();
+        for value in [
+            ViewTransitionName::None,
+            ViewTransitionName::Auto,
+            ViewTransitionName::Custom(second),
+        ] {
+            context.mutate_encoded_node(name, |node, _| *node = value);
+            assert_eq!(context.encoded_node(name), value);
+        }
+        for value in [
+            ViewTransitionGroup::Normal,
+            ViewTransitionGroup::Contain,
+            ViewTransitionGroup::Nearest,
+            ViewTransitionGroup::Custom(second),
+        ] {
+            context.mutate_encoded_node(group, |node, _| *node = value);
+            assert_eq!(context.encoded_node(group), value);
+        }
+        assert_eq!(context.node_checkpoint(), checkpoint);
+        assert_eq!(context.string_pool().extra_len(), bytes);
     }
-    NodePayload::inline(&bytes)
 }

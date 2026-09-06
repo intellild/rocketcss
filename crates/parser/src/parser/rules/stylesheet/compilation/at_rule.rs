@@ -300,6 +300,7 @@ fn parse_unknown_at_rule<'ast>(
     let span = span_from(start, input.position());
     let prelude = store_vec(prelude, input);
     let block = block.map(|block| store_vec(block, input));
+    let name = input.add_str(name);
     input
         .ast_context_mut()
         .append_rule_with_span(
@@ -325,16 +326,15 @@ fn parse_top_level_statement_rule<'ast>(
     if ending == AtRuleEnding::Block {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(name)));
     }
-    let allocator = input.allocator();
     let span = span_from(start, input.position());
     let payload = if name.eq_ignore_ascii_case("import") {
         CssRulePayload::Import(parse_import_rule(input, prelude)?)
     } else if name.eq_ignore_ascii_case("charset") {
         CssRulePayload::Charset(CharsetRule {
-            encoding: parse_charset(prelude, allocator)?,
+            encoding: parse_charset(prelude, input)?,
         })
     } else if name.eq_ignore_ascii_case("namespace") {
-        let (prefix, url) = parse_namespace(prelude, allocator)?;
+        let (prefix, url) = parse_namespace(prelude, input)?;
         CssRulePayload::Namespace(NamespaceRule { prefix, url })
     } else {
         let (custom_name, query) = parse_custom_media(input, prelude)?;
@@ -358,7 +358,7 @@ fn parse_keyframes_rule<'ast>(
     at_rule_name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
-    let name = parse_keyframes_name(prelude, input.allocator())?;
+    let name = parse_keyframes_name(prelude, input)?;
     let name = store_node(name, input);
     let rule = input
         .ast_context_mut()
@@ -430,7 +430,7 @@ fn parse_font_feature_values_rule<'ast>(
     name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, name)?;
-    let family_names = parse_family_names(prelude, input.allocator())?;
+    let family_names = parse_family_names(prelude, input)?;
     let family_names = store_vec(family_names, input);
     let rule = input
         .ast_context_mut()
@@ -565,7 +565,7 @@ fn parse_page_contents<'ast>(
     loop {
         let start = input.state();
         let token = match input.next() {
-            Ok(token) => token.clone(),
+            Ok(token) => *token,
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };
@@ -729,8 +729,8 @@ fn parse_property_rule<'ast>(
     at_rule_name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
-    let name = parse_single_ident(prelude, input.allocator())?;
-    if !name.starts_with("--") {
+    let name = parse_single_ident(prelude, input)?;
+    if !input.ast_context().str(name).starts_with("--") {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(at_rule_name)));
     }
     let rule = append_declaration_owner(
@@ -861,8 +861,8 @@ fn parse_font_palette_values_rule<'ast>(
     at_rule_name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
-    let name = parse_single_ident(prelude, input.allocator())?;
-    if !name.starts_with("--") {
+    let name = parse_single_ident(prelude, input)?;
+    if !input.ast_context().str(name).starts_with("--") {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(at_rule_name)));
     }
     let rule = append_declaration_owner(
@@ -965,7 +965,7 @@ fn parse_counter_style_rule<'ast>(
     at_rule_name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
-    let name = parse_single_ident(prelude, input.allocator())?;
+    let name = parse_single_ident(prelude, input)?;
     let rule = append_declaration_owner(
         input,
         list,
@@ -1016,8 +1016,8 @@ fn parse_position_try_rule<'ast>(
     at_rule_name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let prelude = parse_group_rule_prelude(input, depth, at_rule_name)?;
-    let name = parse_single_ident(prelude, input.allocator())?;
-    if !name.starts_with("--") {
+    let name = parse_single_ident(prelude, input)?;
+    if !input.ast_context().str(name).starts_with("--") {
         return Err(input.new_custom_error(ParserError::InvalidAtRule(at_rule_name)));
     }
     let rule = append_declaration_owner(
@@ -1081,7 +1081,7 @@ fn parse_standard_declaration_contents<'ast>(
     loop {
         let start = input.state();
         let token = match input.next() {
-            Ok(token) => token.clone(),
+            Ok(token) => *token,
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };
@@ -1136,7 +1136,7 @@ fn parse_supports_rule<'ast>(
     name: &'ast str,
 ) -> Result<ConcreteRuleId<'ast>, ParseError<'ast, ParserError<'ast>>> {
     let raw_prelude = parse_group_rule_prelude(input, depth, name)?;
-    let condition = parse_supports_condition(raw_prelude);
+    let condition = parse_supports_condition(input.add_str(raw_prelude));
     let rule = input
         .ast_context_mut()
         .append_rule(

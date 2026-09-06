@@ -18,39 +18,38 @@ pub enum CSSWideOr<T> {
     CSSWide(CSSWideKeyword),
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Clone, Copy, Debug, PartialEq, Visit)]
 pub enum CustomPropertyName<'a> {
-    Custom(&'a str),
-    Unknown(&'a str),
+    Custom(AstStr<'a>),
+    Unknown(AstStr<'a>),
 }
 
-impl<'ast> AstNodeStorage<'ast> for CustomPropertyName<'ast> {
+unsafe impl<'ast> AstNodeStorage<'ast> for CustomPropertyName<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0014_0001);
-
-    fn decode(payload: NodePayload, context: &AstContext<'ast>) -> Self {
-        let bytes = payload.bytes();
-        let value =
-            context.resolve_string(u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as u64);
-        match bytes[0] {
-            0 => Self::Custom(value),
-            1 => Self::Unknown(value),
-            _ => panic!("invalid encoded CustomPropertyName variant"),
+    #[inline]
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
+    }
+    #[inline]
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    #[inline]
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::Custom(left), Self::Custom(right))
+            | (Self::Unknown(left), Self::Unknown(right)) => {
+                left == right || context.str(*left) == context.str(*right)
+            }
+            _ => false,
         }
-    }
-
-    fn encode_new(self, context: &mut AstContext<'ast>) -> NodePayload {
-        let mut bytes = [0; NodePayload::INLINE_BYTES];
-        let (kind, value) = match self {
-            Self::Custom(value) => (0, value),
-            Self::Unknown(value) => (1, value),
-        };
-        bytes[0] = kind;
-        bytes[4..8].copy_from_slice(&context.store_string(value).to_le_bytes());
-        NodePayload::inline(&bytes)
-    }
-
-    fn encode_existing(self, _current: NodePayload, context: &mut AstContext<'ast>) -> NodePayload {
-        self.encode_new(context)
     }
 }
 

@@ -20,7 +20,7 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
     depth: usize,
     css_wide_hint: CssWideValueHint<'i>,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
-    let property_id = PropertyId::from_name(name);
+    let property_id = PropertyId::from_name(name, input.ast_context_mut());
 
     let replay_enabled = !name.starts_with("--")
         && (matches!(css_wide_hint, CssWideValueHint::Candidate(_))
@@ -30,7 +30,14 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
     }
 
     input.with_declaration_token_replay(|input| {
-        parse_known_declaration_with_fallback(input, allocator, name, depth, css_wide_hint)
+        parse_known_declaration_with_fallback(
+            input,
+            allocator,
+            name,
+            property_id,
+            depth,
+            css_wide_hint,
+        )
     })
 }
 
@@ -38,10 +45,10 @@ fn parse_known_declaration_with_fallback<'i>(
     input: &mut Compiler<'i>,
     allocator: &'i Allocator,
     name: &'i str,
+    property_id: PropertyId<'i>,
     depth: usize,
     css_wide_hint: CssWideValueHint<'i>,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
-    let property_id = PropertyId::from_name(name);
     let start = input.state();
 
     let wide_keyword = match (property_id.known_id(), css_wide_hint) {
@@ -121,6 +128,9 @@ fn parse_declaration_fallback<'i>(
     let important = remove_important(input.ast_context(), &mut value);
 
     let declaration = if name.starts_with("--") {
+        let PropertyId::Custom(name) = property_id else {
+            unreachable!("dashed names are custom properties");
+        };
         let value = store_vec(value, input);
         Declaration::Custom(store_node(
             CustomProperty {
@@ -141,7 +151,7 @@ fn parse_declaration_fallback<'i>(
             property_id,
             value,
             reason,
-            preserve_unparsed_value(raw_value, important, allocator),
+            preserve_unparsed_value(raw_value, important, input),
             input,
         )
     };
@@ -153,7 +163,7 @@ pub(super) fn unparsed_declaration<'i>(
     property_id: PropertyId<'i>,
     value: Vec<'i, TokenOrValue<'i>>,
     reason: UnparsedPropertyReason,
-    raw_value: Option<&'i str>,
+    raw_value: Option<AstStr<'i>>,
     input: &mut Compiler<'i>,
 ) -> Declaration<'i> {
     let value = store_vec(value, input);
@@ -171,11 +181,11 @@ pub(super) fn unparsed_declaration<'i>(
 fn preserve_unparsed_value<'i>(
     raw_value: &'i str,
     important: bool,
-    allocator: &'i Allocator,
-) -> Option<&'i str> {
+    input: &mut Compiler<'i>,
+) -> Option<AstStr<'i>> {
     let raw_value = trim_css_whitespace(raw_value);
     if !important {
-        return Some(raw_value);
+        return Some(input.add_str(raw_value));
     }
 
     let (bang, important) = find_trailing_important(raw_value)?;
@@ -183,7 +193,7 @@ fn preserve_unparsed_value<'i>(
     without_important.push_str(&raw_value[..bang.start]);
     without_important.push_str(&raw_value[bang.end..important.start]);
     without_important.push_str(&raw_value[important.end..]);
-    Some(allocator.alloc_str(trim_css_whitespace(&without_important)))
+    Some(input.add_str(trim_css_whitespace(&without_important)))
 }
 
 fn trim_css_whitespace(value: &str) -> &str {
@@ -275,7 +285,7 @@ fn unparsed_reason<'i>(
 fn token_value_is_comment<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
         value,
-        TokenOrValue::Token(token) if matches!(ast.node(*token), ValueToken::Comment(_))
+        TokenOrValue::Token(token) if matches!(ValueToken::from_ast(ast.node(*token), ast), ValueToken::Comment(_))
     )
 }
 
@@ -541,7 +551,7 @@ fn parse_opacity<'i>(
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let location = input.current_source_location();
-            match input.next()?.clone() {
+            match *input.next()? {
                 ValueToken::Number(value) | ValueToken::Percentage(value) => {
                     Ok(Declaration::Opacity(value))
                 }
@@ -619,7 +629,7 @@ fn parse_transition_property<'i>(
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_transition_property_list(input)
-                .map(|value| Declaration::TransitionProperty(store_vec(value, input), prefix))
+                .map(|value| Declaration::TransitionProperty(store_node_vec(value, input), prefix))
         }),
     )
 }
@@ -653,7 +663,7 @@ fn parse_animation_name<'i>(
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             parse_comma_separated(input, AnimationName::parse)
-                .map(|value| Declaration::AnimationName(store_vec(value, input), prefix))
+                .map(|value| Declaration::AnimationName(store_node_vec(value, input), prefix))
         }),
     )
 }

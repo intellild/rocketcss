@@ -57,14 +57,14 @@ fn number_at(
 }
 
 fn token_ident<'a>(
-    value: &'a TokenOrValue<'a>,
-    ast: &VisitMutContext<'_, '_, '_>,
+    value: &TokenOrValue<'_>,
+    ast: &'a VisitMutContext<'_, '_, '_>,
 ) -> Option<&'a str> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
     match ast.ast_context().resolve_node(*token) {
-        Token::Ident(value) => Some(value),
+        Token::Ident(value) => Some(ast.ast_context().str(value)),
         _ => None,
     }
 }

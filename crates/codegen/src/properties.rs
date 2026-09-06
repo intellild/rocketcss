@@ -20,19 +20,6 @@ impl<'ghost> ToCss<'ghost> for VendorPrefix {
     }
 }
 
-impl<'ghost, T: ToCss<'ghost>> ToCss<'ghost> for CSSWideOr<T> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        match self {
-            Self::Value(value) => value.to_css(dest, _cx),
-            Self::CSSWide(keyword) => keyword.to_css(dest, _cx),
-        }
-    }
-}
-
 impl<'ghost> ToCss<'ghost> for PropertyId<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
@@ -41,8 +28,11 @@ impl<'ghost> ToCss<'ghost> for PropertyId<'_> {
     ) -> fmt::Result {
         self.vendor_prefix().to_css(dest, _cx)?;
         match self {
-            Self::Custom(value) => serialize_name(value, dest),
-            _ => dest.write_str(self.name()),
+            Self::Custom(value) => serialize_name(_cx.ast_context().str(*value), dest),
+            _ => dest.write_str(
+                self.known_name()
+                    .expect("non-custom property has a metadata name"),
+            ),
         }
     }
 }
@@ -117,17 +107,17 @@ comma_vec! {
     BackgroundOrigin,
     NodeId<'a, Background<'a>>,
     NodeId<'a, BoxShadow<'a>>,
-    PropertyId<'a>,
+    NodeId<'a, PropertyId<'a>>,
     Time,
     NodeId<'a, EasingFunction>,
     NodeId<'a, Transition<'a>>,
-    AnimationName<'a>,
+    NodeId<'a, AnimationName<'a>>,
     AnimationIterationCount,
     AnimationDirection,
     AnimationPlayState,
     AnimationFillMode,
     AnimationComposition,
-    AnimationTimeline<'a>,
+    NodeId<'a, AnimationTimeline<'a>>,
     AnimationAttachmentRange<'a>,
     AnimationRange<'a>,
     Animation<'a>,
@@ -140,28 +130,6 @@ comma_vec! {
     NodeId<'a, Mask<'a>>,
     WebKitMaskComposite,
     WebKitMaskSourceType,
-}
-
-impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, NodeId<'a, FontFamily<'a>>> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        let mut first = true;
-        for family in _cx
-            .ast_context()
-            .vec_iter(*self)
-            .filter(|family| !_cx.ast_context().resolve_node(*family).is_tombstone())
-        {
-            if !first {
-                dest.delim(Delimiter::Comma)?;
-            }
-            family.to_css(dest, _cx)?;
-            first = false;
-        }
-        Ok(())
-    }
 }
 
 macro_rules! space_vec {
@@ -212,7 +180,7 @@ macro_rules! impl_declaration_to_css {
                     Self::Custom(_) => serialize_name(self.name(ast), dest)?,
                     Self::Unparsed(value)
                         if matches!(
-                            ast.resolve_node(ast.resolve_node(*value).property_id),
+                            ast.resolve_node(ast.unparsed_property(*value).property_id()),
                             PropertyId::Custom(_)
                         ) =>
                     {

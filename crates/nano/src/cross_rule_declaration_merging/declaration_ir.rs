@@ -18,22 +18,23 @@ pub(super) enum CompactPropertyKey {
     Custom(u32),
 }
 
-#[derive(Debug)]
-pub(super) struct DeclarationIrClassifier<'scratch, 'ast> {
-    custom_property_ids: HashMap<'scratch, &'ast str, u32>,
+pub(super) struct DeclarationIrClassifier<'scratch> {
+    allocator: &'scratch Allocator,
+    custom_property_ids: HashMap<'scratch, &'scratch str, u32>,
 }
 
-impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
+impl<'scratch> DeclarationIrClassifier<'scratch> {
     pub(super) fn new_in(allocator: &'scratch Allocator) -> Self {
         Self {
+            allocator,
             custom_property_ids: HashMap::new_in(allocator),
         }
     }
 
     pub(super) fn property_key(
         &mut self,
-        ast: &AstContext<'ast>,
-        declaration: &Declaration<'ast>,
+        ast: &AstContext<'_>,
+        declaration: &Declaration<'_>,
         important: bool,
     ) -> Option<CompactPropertyKey> {
         if matches!(
@@ -48,7 +49,7 @@ impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
         let PropertyId::Custom(name) = declaration.property_id(ast)? else {
             return None;
         };
-        let id = self.intern_custom_property(name);
+        let id = self.intern_custom_property(ast.str(name));
         let key = id
             .checked_mul(2)
             .and_then(|id| id.checked_add(u32::from(important)))
@@ -58,20 +59,27 @@ impl<'scratch, 'ast> DeclarationIrClassifier<'scratch, 'ast> {
 
     pub(super) fn movement_domain(
         &mut self,
-        ast: &AstContext<'ast>,
-        declaration: &Declaration<'ast>,
+        ast: &AstContext<'_>,
+        declaration: &Declaration<'_>,
     ) -> Option<MovementDomain> {
         let property_id = declaration.property_id(ast)?;
         if let PropertyId::Custom(name) = property_id {
-            return Some(MovementDomain::Custom(self.intern_custom_property(name)));
+            return Some(MovementDomain::Custom(
+                self.intern_custom_property(ast.str(name)),
+            ));
         }
         movement_domain(property_id)
     }
 
-    fn intern_custom_property(&mut self, name: &'ast str) -> u32 {
+    fn intern_custom_property(&mut self, name: &str) -> u32 {
         let next_id = u32::try_from(self.custom_property_ids.len())
             .expect("custom property count exceeds u32::MAX");
-        *self.custom_property_ids.entry(name).or_insert(next_id)
+        if let Some(id) = self.custom_property_ids.get(name) {
+            return *id;
+        }
+        let name = self.allocator.alloc_str(name);
+        self.custom_property_ids.insert(name, next_id);
+        next_id
     }
 }
 
@@ -268,7 +276,7 @@ pub(super) struct IndexedDeclaration<'ast> {
 
 pub(super) struct DeclarationIrStore<'scratch, 'ast> {
     allocator: &'scratch Allocator,
-    classifier: DeclarationIrClassifier<'scratch, 'ast>,
+    classifier: DeclarationIrClassifier<'scratch>,
     occurrences: Vec<'scratch, Option<DeclarationOccurrenceIr<'ast>>>,
     serialized_values: Vec<'scratch, Option<&'scratch str>>,
     blocks: HashMap<'scratch, rocketcss_ast::ConcreteDeclarationBlockId<'ast>, DeclarationBlockIr>,
@@ -734,5 +742,67 @@ impl<'scratch, 'ast> DeclarationIrStore<'scratch, 'ast> {
         self.blocks
             .get(&block)
             .is_some_and(|summary| summary.has_box_effects)
+    }
+}
+
+#[cfg(test)]
+mod string_key_tests {
+    use super::*;
+    use rocketcss_ast::{CustomProperty, CustomPropertyName, DUMMY_SP};
+
+    #[test]
+    fn custom_property_classifier_compares_text_across_ranges() {
+        let allocator = Allocator::new();
+        let scratch = Allocator::new();
+        let mut ast = AstContext::with_source_in(&allocator, "--x --x --X", Default::default());
+        let first = ast.string_pool().source_range(0, 3);
+        let second = ast.string_pool().source_range(4, 7);
+        let upper = ast.string_pool().source_range(8, 11);
+        let extra = ast.add_str("--x");
+        assert_ne!(first, second);
+        assert_ne!(first, extra);
+        let declarations = [first, second, extra, upper].map(|range| {
+            let name = ast.alloc_node(CustomPropertyName::Custom(range), DUMMY_SP);
+            Declaration::Custom(ast.alloc_node(
+                CustomProperty {
+                    name,
+                    value: rocketcss_common::dense::DenseRange::empty(),
+                },
+                DUMMY_SP,
+            ))
+        });
+        let checkpoint = ast.node_checkpoint();
+        let bytes = ast.string_pool().extra_len();
+        let interned = ast.string_pool().len();
+        let mut classifier = DeclarationIrClassifier::new_in(&scratch);
+        let first_key = classifier
+            .property_key(&ast, &declarations[0], false)
+            .unwrap();
+        let first_domain = classifier.movement_domain(&ast, &declarations[0]).unwrap();
+        for declaration in &declarations[..3] {
+            assert_eq!(
+                classifier.property_key(&ast, declaration, false),
+                Some(first_key)
+            );
+            assert_eq!(
+                classifier.movement_domain(&ast, declaration),
+                Some(first_domain)
+            );
+            assert_ne!(
+                classifier.property_key(&ast, declaration, true),
+                Some(first_key)
+            );
+        }
+        assert_ne!(
+            classifier.property_key(&ast, &declarations[3], false),
+            Some(first_key)
+        );
+        assert!(
+            !first_domain.overlaps(&classifier.movement_domain(&ast, &declarations[3]).unwrap())
+        );
+        assert_eq!(classifier.custom_property_ids.len(), 2);
+        assert_eq!(ast.node_checkpoint(), checkpoint);
+        assert_eq!(ast.string_pool().extra_len(), bytes);
+        assert_eq!(ast.string_pool().len(), interned);
     }
 }

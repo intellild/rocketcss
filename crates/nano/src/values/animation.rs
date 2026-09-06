@@ -21,7 +21,7 @@ pub(crate) fn minify_animation<'ast>(
             };
             ast.ast_context()
                 .resolve_node(*name)
-                .keyword_class()
+                .keyword_class(ast.ast_context())
                 .is_some_and(|class| {
                     components
                         .iter()

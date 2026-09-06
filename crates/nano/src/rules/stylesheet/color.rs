@@ -13,7 +13,7 @@ pub(super) fn minify_hsl_function(
     };
     let mut components = arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
-            if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
+            if matches!(ast.ast_context().resolve_node(*token), token if match token { Token::WhiteSpace(_) | Token::Comma => true, Token::Delim(value) => ast.ast_context().str(value) == "/", _ => false }))
     });
     let hue = color_number(components.next()?, ast)?;
     let saturation = color_percentage(components.next()?, ast)?;
@@ -91,7 +91,7 @@ pub(super) fn minify_rgb_function(
     }
     let mut components = arguments.iter().filter(|value| {
         !matches!(value, TokenOrValue::Token(token)
-            if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(_) | Token::Comma | Token::Delim("/")))
+            if matches!(ast.ast_context().resolve_node(*token), token if match token { Token::WhiteSpace(_) | Token::Comma => true, Token::Delim(value) => ast.ast_context().str(value) == "/", _ => false }))
     });
     let (red, red_normalized) = color_component(components.next()?, ast)?;
     let (green, green_normalized) = color_component(components.next()?, ast)?;

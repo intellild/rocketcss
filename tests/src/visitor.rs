@@ -25,9 +25,9 @@ impl<'a> CompilationVisitorMut<'a> for RenameClass<'a> {
                     };
                     compilation.mutate_vec(*components, |components, compilation| {
                         for component in components.iter().copied() {
-                            compilation.mutate_node(component, |component, _| {
+                            compilation.mutate_node(component, |component, compilation| {
                                 if let SelectorComponent::Class(name) = component
-                                    && *name == "before"
+                                    && compilation.str(*name) == "before"
                                 {
                                     *name = self.after;
                                 }
@@ -56,7 +56,7 @@ fn plugins_transform_expected_css() {
             plugins.add_visitor(
                 "rename-class",
                 RenameClass {
-                    after: compiler.intern("after"),
+                    after: stylesheet.intern("after"),
                 },
             );
 

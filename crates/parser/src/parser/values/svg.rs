@@ -1,20 +1,5 @@
 use crate::prelude::*;
 
-macro_rules! keyword_parse {
-    ($ty:ty, $($name:literal => $variant:expr),+ $(,)?) => {
-        impl<'i> Parse<'i> for $ty {
-            fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-                let ident = input.expect_ident()?;
-                match_ignore_ascii_case!(
-                    ident,
-                    $( $name => Ok($variant), )+
-                    _ => Err(input.new_custom_error(ParserError::InvalidValue)),
-                )
-            }
-        }
-    };
-}
-
 keyword_parse!(FillRule, "nonzero" => Self::Nonzero, "evenodd" => Self::Evenodd,);
 keyword_parse!(
     StrokeLinecap,
@@ -113,11 +98,11 @@ fn parse_url<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<NodeId<'i, Url<'i>>, ParseError<'i, ParserError<'i>>> {
     let span = input.current_token_span().unwrap_or_default();
-    let url = match input.next()?.clone() {
+    let url = match *input.next()? {
         ValueToken::UnquotedUrl(url) => url,
         ValueToken::Function(name) if name.eq_ignore_ascii_case("url") => input
             .parse_nested_block(|input| {
-                let url = match input.next()?.clone() {
+                let url = match *input.next()? {
                     ValueToken::String(url) | ValueToken::UnquotedUrl(url) => url,
                     _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
                 };
@@ -126,6 +111,7 @@ fn parse_url<'i>(
             })?,
         _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
     };
+    let url = input.add_str(url);
     Ok(input.ast_context_mut().alloc_node(Url { url }, span))
 }
 

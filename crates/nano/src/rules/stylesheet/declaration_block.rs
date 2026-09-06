@@ -13,7 +13,8 @@ use crate::rules::layout::{BoxFamily, BoxProperty, box_property};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct UnknownDeclarationKey<'a> {
-    property_id: PropertyId<'a>,
+    // None preserves the internal Unparsed sentinel; custom names compare by content.
+    name: Option<&'a str>,
     important: bool,
 }
 
@@ -85,12 +86,12 @@ impl DeclarationLocation {
 }
 
 #[derive(Debug)]
-struct DeclarationMap<'scratch, 'ast> {
+struct DeclarationMap<'scratch> {
     known: AdaptiveHashMap<'scratch, KnownDeclarationKey, DeclarationLocation>,
-    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'ast>, DeclarationLocation>,
+    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'scratch>, DeclarationLocation>,
 }
 
-impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
+impl<'scratch> DeclarationMap<'scratch> {
     fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             known: AdaptiveHashMap::new_in(allocator),
@@ -122,13 +123,19 @@ impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
     #[inline]
     fn insert_unknown(
         &mut self,
-        property_id: PropertyId<'ast>,
+        ast: &AstContext<'_>,
+        allocator: &'scratch Allocator,
+        property_id: PropertyId<'_>,
         important: bool,
         location: DeclarationLocation,
     ) -> Option<DeclarationLocation> {
         self.unknown.insert(
             UnknownDeclarationKey {
-                property_id,
+                name: match property_id {
+                    PropertyId::Custom(name) => Some(allocator.alloc_str(ast.str(name))),
+                    PropertyId::Unparsed => None,
+                    _ => unreachable!("known properties use the generated key"),
+                },
                 important,
             },
             location,
@@ -291,18 +298,18 @@ impl<'scope, 'scratch, 'ast> DeclarationSequence<'scope, 'scratch, 'ast> {
     }
 }
 
-pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
-    ir: DeclarationIr<'scratch, 'ast>,
+pub(crate) struct DeclarationBlockMinifier<'scratch> {
+    ir: DeclarationIr<'scratch>,
 }
 
-impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
+impl<'scratch> DeclarationBlockMinifier<'scratch> {
     pub(crate) fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             ir: DeclarationIr::new(allocator),
         }
     }
 
-    pub(crate) fn minify_compilation_block(
+    pub(crate) fn minify_compilation_block<'ast: 'scratch>(
         &mut self,
         compilation: &mut AstContext<'ast>,
         block: ContextDeclarationBlockId<'ast>,
@@ -318,7 +325,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
             .expect("the scheduled declaration block remains live");
     }
 
-    fn minify_non_trivial(
+    fn minify_non_trivial<'ast: 'scratch>(
         &mut self,
         sequence: &mut DeclarationSequence<'_, '_, 'ast>,
         cx: &mut MinifyContext<'scratch>,
@@ -332,15 +339,15 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
 }
 
 #[derive(Debug)]
-struct DeclarationIr<'scratch, 'ast> {
-    declarations: DeclarationMap<'scratch, 'ast>,
+struct DeclarationIr<'scratch> {
+    declarations: DeclarationMap<'scratch>,
     boxes: [[BoxFamilyIr<'scratch>; 2]; BoxFamily::COUNT],
     dirty_boxes: u8,
     columns: [[ColumnsIr<'scratch>; 2]; 5],
     dirty_columns: u16,
 }
 
-impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
+impl<'scratch> DeclarationIr<'scratch> {
     fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             declarations: DeclarationMap::new(allocator),
@@ -429,7 +436,7 @@ fn vendor_prefix_index(prefix: VendorPrefix) -> Option<usize> {
 
 fn deduplicate_declarations<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, '_, 'ast>,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'scratch>,
     cx: &mut MinifyContext<'scratch>,
 ) where
     'ast: 'scratch,
@@ -470,7 +477,7 @@ fn process_columns_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'scratch>,
     cx: &mut MinifyContext<'scratch>,
 ) -> bool
 where
@@ -675,7 +682,7 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    declarations: &mut DeclarationMap<'scratch, 'ast>,
+    declarations: &mut DeclarationMap<'scratch>,
     cx: &mut MinifyContext<'scratch>,
 ) -> Option<DeclarationLocation>
 where
@@ -688,6 +695,8 @@ where
         declarations.insert_known(property_id, vendor_prefix, important, current)
     } else {
         declarations.insert_unknown(
+            sequence.ast_context(),
+            cx.allocator(),
             declaration
                 .property_id(sequence.ast_context())
                 .expect("tombstones are skipped before exact deduplication"),
@@ -714,7 +723,7 @@ fn process_box_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'scratch>,
     cx: &mut MinifyContext<'scratch>,
 ) -> bool
 where
@@ -1054,6 +1063,79 @@ mod tests {
     };
 
     #[test]
+    fn unknown_declaration_keys_compare_text_across_ranges() {
+        let allocator = Allocator::new();
+        let scratch = Allocator::new();
+        let mut ast = AstContext::with_source_in(&allocator, "--x --x --X", Default::default());
+        let first = ast.string_pool().source_range(0, 3);
+        let second = ast.string_pool().source_range(4, 7);
+        let upper = ast.string_pool().source_range(8, 11);
+        let extra = ast.add_str("--x");
+        assert_ne!(first, second);
+        assert_ne!(first, extra);
+        let mut map = DeclarationMap::new(&scratch);
+        let a = DeclarationLocation::new(0, 0);
+        let b = DeclarationLocation::new(1, 0);
+        // Exercise both the initial linear map and its promoted hash table.
+        for fillers in [0, 128] {
+            map.clear();
+            for index in 0..fillers {
+                let name = ast.add_str(&format!("--filler-{index}"));
+                assert_eq!(
+                    map.insert_unknown(&ast, &scratch, PropertyId::Custom(name), false, a),
+                    None
+                );
+            }
+            let checkpoint = ast.node_checkpoint();
+            let bytes = ast.string_pool().extra_len();
+            let interned = ast.string_pool().len();
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Custom(first), false, a),
+                None
+            );
+            for name in [second, extra] {
+                assert_eq!(
+                    map.insert_unknown(&ast, &scratch, PropertyId::Custom(name), false, b),
+                    Some(a)
+                );
+                assert_eq!(
+                    map.insert_unknown(&ast, &scratch, PropertyId::Custom(first), false, a),
+                    Some(b)
+                );
+            }
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Custom(upper), false, a),
+                None
+            );
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Custom(first), true, a),
+                None
+            );
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Unparsed, false, a),
+                None
+            );
+            assert_eq!(
+                map.insert_unknown(
+                    &ast,
+                    &scratch,
+                    PropertyId::Custom(rocketcss_ast::AstStr::EMPTY),
+                    false,
+                    b
+                ),
+                None
+            );
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Unparsed, false, b),
+                Some(a)
+            );
+            assert_eq!(ast.node_checkpoint(), checkpoint);
+            assert_eq!(ast.string_pool().extra_len(), bytes);
+            assert_eq!(ast.string_pool().len(), interned);
+        }
+    }
+
+    #[test]
     fn declaration_location_fits_in_one_word() {
         assert_eq!(std::mem::size_of::<DeclarationLocation>(), 4);
 
@@ -1080,7 +1162,8 @@ mod tests {
             ast: &mut AstContext<'ast>,
         ) -> rocketcss_ast::NodeId<'ast, CssColor<'ast>> {
             let arguments = ast.alloc_vec(rocketcss_common::vec::Vec::new_in(allocator));
-            let function = ast.alloc_node_without_span(Function::new("color-mix", arguments));
+            let function = Function::new("color-mix", arguments, ast);
+            let function = ast.alloc_node_without_span(function);
             ast.alloc_node_without_span(CssColor::Function(function))
         }
 

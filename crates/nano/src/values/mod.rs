@@ -1,2 +1,2 @@
 pub(crate) mod animation;
-mod font;
+pub(crate) mod font;
