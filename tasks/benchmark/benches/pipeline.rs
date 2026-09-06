@@ -5,7 +5,7 @@ use divan::{Bencher, black_box, counter::BytesCount};
 use rocketcss_benchmark::{BENCH_CASES, BenchCase, WRITER_CAPACITY_PADDING};
 use rocketcss_codegen::{Printer, PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::{Allocator, GhostToken};
-use rocketcss_parser::prelude::Compilation;
+use rocketcss_parser::prelude::AstContext;
 use std::cell::RefCell;
 
 fn main() {
@@ -15,7 +15,7 @@ fn main() {
 struct ParsedStyleSheet<'ghost> {
     // Fields are dropped in declaration order, so the stylesheet is dropped
     // before the allocator that owns its arena storage.
-    stylesheet: Compilation<'ghost>,
+    stylesheet: AstContext<'ghost>,
     _allocator: Box<Allocator>,
 }
 
@@ -97,17 +97,28 @@ fn minify(bencher: Bencher<'_, '_>, case: BenchCase) {
 
 #[divan::bench(args = BENCH_CASES)]
 fn codegen(bencher: Bencher<'_, '_>, case: BenchCase) {
+    codegen_impl(bencher, case, true);
+}
+
+#[divan::bench(args = BENCH_CASES)]
+fn codegen_raw(bencher: Bencher<'_, '_>, case: BenchCase) {
+    codegen_impl(bencher, case, false);
+}
+
+fn codegen_impl(bencher: Bencher<'_, '_>, case: BenchCase, minified: bool) {
     rocketcss_common::GhostToken::scope(|token| {
         let token = RefCell::new(token);
         bencher
             .counter(processed_bytes(case))
             .with_inputs(|| {
                 let mut input = ParsedStyleSheet::new(case.source, &mut token.borrow_mut());
-                rocketcss_nano::minify(
-                    &mut input.stylesheet,
-                    &mut token.borrow_mut(),
-                    rocketcss_nano::MinifyOptions::default(),
-                );
+                if minified {
+                    rocketcss_nano::minify(
+                        &mut input.stylesheet,
+                        &mut token.borrow_mut(),
+                        rocketcss_nano::MinifyOptions::default(),
+                    );
+                }
                 input
             })
             .bench_local_values(|input| {
@@ -124,5 +135,50 @@ fn codegen(bencher: Bencher<'_, '_>, case: BenchCase) {
                     black_box(output);
                 }
             });
+    });
+}
+
+#[divan::bench(args = BENCH_CASES)]
+fn end_to_end(bencher: Bencher<'_, '_>, case: BenchCase) {
+    end_to_end_impl(bencher, case, true);
+}
+
+#[divan::bench(args = BENCH_CASES)]
+fn end_to_end_raw(bencher: Bencher<'_, '_>, case: BenchCase) {
+    end_to_end_impl(bencher, case, false);
+}
+
+fn end_to_end_impl(bencher: Bencher<'_, '_>, case: BenchCase, minified: bool) {
+    bencher.counter(processed_bytes(case)).bench_local(|| {
+        for _ in 0..case.pipeline_iterations {
+            let allocator = Allocator::new();
+            allocator.with_ghost(|mut token| {
+                let mut stylesheet = rocketcss_parser::parse(
+                    black_box(case.source),
+                    &allocator,
+                    &mut token,
+                    rocketcss_parser::ParserOptions {
+                        error_recovery: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                if minified {
+                    rocketcss_nano::minify(
+                        &mut stylesheet,
+                        &mut token,
+                        rocketcss_nano::MinifyOptions::default(),
+                    );
+                }
+                let mut output = String::with_capacity(case.source.len() + WRITER_CAPACITY_PADDING);
+                stylesheet
+                    .to_css(
+                        &mut Printer::new(&mut output, PrinterOptions { prettify: false }),
+                        &ToCssContext::new(&token),
+                    )
+                    .unwrap();
+                black_box(output);
+            });
+        }
     });
 }

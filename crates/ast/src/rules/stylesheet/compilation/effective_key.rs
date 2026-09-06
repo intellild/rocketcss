@@ -3,7 +3,7 @@ use std::hash::{Hash, Hasher};
 use rocketcss_common::Allocator;
 use rustc_hash::FxHasher;
 
-use crate::VendorPrefix;
+use crate::{AstNodeStorage, VendorPrefix};
 
 use super::{ConcreteMutationError, ConcreteRuleId as RuleId, *};
 
@@ -293,7 +293,7 @@ impl<'ast, P> EffectiveContext<'ast, P> {
 
 #[derive(Debug)]
 pub struct SelectorValueRecord<'ast> {
-    selectors: crate::SelectorList<'ast>,
+    selectors: Option<crate::SelectorList<'ast>>,
     kind: SelectorFrameKind,
     vendor_prefix: VendorPrefix,
     fingerprint: u64,
@@ -302,7 +302,9 @@ pub struct SelectorValueRecord<'ast> {
 impl<'ast> SelectorValueRecord<'ast> {
     #[inline]
     pub fn selectors(&self) -> &crate::SelectorList<'ast> {
-        &self.selectors
+        self.selectors
+            .as_ref()
+            .expect("recursive access to a mutably borrowed selector value")
     }
 
     #[inline]
@@ -333,6 +335,8 @@ pub(crate) struct SelectorPathRecord<'ast> {
 pub(crate) struct ContextValueRecord<'ast, P> {
     pub(super) representative: super::RuleId<'ast, P>,
     pub(super) fingerprint: u64,
+    source_key: Option<rocketcss_common::AstStr<'ast>>,
+    fingerprint_is_source: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -420,7 +424,7 @@ pub(crate) struct LayerContextRecord<'ast, P> {
     pub(super) occurrence: super::RuleId<'ast, P>,
 }
 
-impl<'ast> Compilation<'ast> {
+impl<'ast> AstContext<'ast> {
     /// Applies one local transform to every canonical selector value, then
     /// repairs selector paths and EffectiveKeys whose identities converge.
     ///
@@ -434,7 +438,7 @@ impl<'ast> Compilation<'ast> {
         mut transform: impl FnMut(SelectorValueId<'ast>, &mut crate::SelectorList<'ast>),
     ) {
         let allocator = self.allocator;
-        self.transform_selector_values_in(allocator, &mut transform);
+        self.transform_selector_values_in(allocator, |id, selectors, _| transform(id, selectors));
     }
 
     /// Variant of [`Self::transform_selector_values`] whose repair scratch is
@@ -443,15 +447,36 @@ impl<'ast> Compilation<'ast> {
     pub fn transform_selector_values_in(
         &mut self,
         allocator: &Allocator,
-        mut transform: impl FnMut(SelectorValueId<'ast>, &mut crate::SelectorList<'ast>),
+        mut transform: impl FnMut(SelectorValueId<'ast>, &mut crate::SelectorList<'ast>, &mut Self),
     ) -> bool {
         let mut changed = false;
-        for (id, value) in self.selector_values.iter_enumerated_mut() {
-            let previous_fingerprint = value.fingerprint;
-            transform(id, &mut value.selectors);
-            value.fingerprint =
-                selector_value_fingerprint(&value.selectors, value.kind, value.vendor_prefix);
-            changed |= value.fingerprint != previous_fingerprint;
+        for index in 0..self.selector_values.len() {
+            let id = self
+                .selector_values
+                .id_at_offset(0, index)
+                .expect("an existing selector value has a store-owned dense ID");
+            let previous_fingerprint = self.selector_values[id].fingerprint;
+            let mut selectors = self.selector_values[id]
+                .selectors
+                .take()
+                .expect("recursive access to a mutably borrowed selector value");
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                transform(id, &mut selectors, self)
+            }));
+            self.selector_values[id].selectors = Some(selectors);
+            if let Err(payload) = result {
+                std::panic::resume_unwind(payload);
+            }
+            let value = &self.selector_values[id];
+            let selectors = *value
+                .selectors
+                .as_ref()
+                .expect("selector value was restored");
+            let kind = value.kind;
+            let vendor_prefix = value.vendor_prefix;
+            let fingerprint = selector_value_fingerprint(self, selectors, kind, vendor_prefix);
+            self.selector_values[id].fingerprint = fingerprint;
+            changed |= fingerprint != previous_fingerprint;
         }
 
         // The common minify path leaves the typed selector values untouched.
@@ -475,7 +500,11 @@ impl<'ast> Compilation<'ast> {
                         let candidate = &self.selector_values[candidate];
                         candidate.kind == value.kind
                             && candidate.vendor_prefix == value.vendor_prefix
-                            && candidate.selectors == value.selectors
+                            && selector_lists_are_equal(
+                                self,
+                                *candidate.selectors(),
+                                *value.selectors(),
+                            )
                     })
                 })
                 .unwrap_or(id);
@@ -619,6 +648,32 @@ impl<'ast> Compilation<'ast> {
         &mut self,
         allocator: &'scratch Allocator,
     ) -> Result<ContextIdentityRepair<'scratch, 'ast>, MutationError<'ast>> {
+        self.refresh_context_value_identities_with_remaps_by(
+            allocator,
+            |ast, representative| {
+                let kind = ast
+                    .context_frame_kind(representative)
+                    .expect("a context representative has a context frame kind");
+                ast.hash_context_frame(representative, kind)
+            },
+            |ast, left, right| {
+                let kind = ast
+                    .context_frame_kind(left)
+                    .expect("a context representative has a context frame kind");
+                ast.context_frame_kind(right) == Some(kind)
+                    && ast.context_frames_equal(left, right, kind)
+            },
+        )
+    }
+
+    /// Repairs context identities using context-aware payload fingerprinting and equality.
+    #[doc(hidden)]
+    pub fn refresh_context_value_identities_with_remaps_by<'scratch>(
+        &mut self,
+        allocator: &'scratch Allocator,
+        mut fingerprint: impl FnMut(&Self, RuleId<'ast>) -> u64,
+        mut frames_equal: impl FnMut(&Self, RuleId<'ast>, RuleId<'ast>) -> bool,
+    ) -> Result<ContextIdentityRepair<'scratch, 'ast>, MutationError<'ast>> {
         let mut changed = false;
         for index in 0..self.context_values.len() {
             let id = self
@@ -629,8 +684,13 @@ impl<'ast> Compilation<'ast> {
             let kind = self
                 .context_frame_kind(representative)
                 .ok_or(MutationError::InvalidRuleTopology(representative))?;
-            let fingerprint = self.hash_context_frame(representative, kind);
-            changed |= fingerprint != self.context_values[id].fingerprint;
+            let next_fingerprint = if kind.is_opaque() {
+                self.hash_context_frame(representative, kind)
+            } else {
+                fingerprint(self, representative)
+            };
+            changed |= self.context_values[id].fingerprint_is_source
+                || next_fingerprint != self.context_values[id].fingerprint;
         }
         if !changed {
             return Ok(ContextIdentityRepair {
@@ -638,7 +698,6 @@ impl<'ast> Compilation<'ast> {
                 effective_key_remaps: rocketcss_common::vec::Vec::new_in(allocator),
             });
         }
-
         let mut value_remaps =
             rocketcss_common::vec::Vec::with_capacity_in(self.context_values.len(), allocator);
         self.context_value_buckets.clear();
@@ -652,27 +711,33 @@ impl<'ast> Compilation<'ast> {
             let kind = self
                 .context_frame_kind(representative)
                 .ok_or(MutationError::InvalidRuleTopology(representative))?;
-            let fingerprint = self.hash_context_frame(representative, kind);
-            self.context_values[id].fingerprint = fingerprint;
+            let next_fingerprint = if kind.is_opaque() {
+                self.hash_context_frame(representative, kind)
+            } else {
+                fingerprint(self, representative)
+            };
+            let value = &mut self.context_values[id];
+            value.fingerprint = next_fingerprint;
+            value.source_key = None;
+            value.fingerprint_is_source = false;
             let canonical = self
                 .context_value_buckets
-                .get(&fingerprint)
+                .get(&next_fingerprint)
                 .and_then(|bucket| {
                     bucket.iter().find_map(|state| {
                         (self.context_frame_kind(state.representative) == Some(kind)
-                            && self.context_frames_equal(
-                                state.representative,
-                                representative,
-                                kind,
-                            ))
+                            && (kind.is_opaque() && state.representative == representative
+                                || !kind.is_opaque()
+                                    && frames_equal(self, state.representative, representative)))
                         .then_some(state.id)
                     })
                 })
                 .unwrap_or(id);
+            changed |= canonical != id;
             value_remaps.push(canonical);
             if canonical == id {
                 self.context_value_buckets
-                    .entry(fingerprint)
+                    .entry(next_fingerprint)
                     .or_default()
                     .push(ContextValueState { id, representative });
             }
@@ -748,7 +813,7 @@ impl<'ast> Compilation<'ast> {
             current = next;
         }
         Ok(ContextIdentityRepair {
-            changed: true,
+            changed,
             effective_key_remaps: key_remaps,
         })
     }
@@ -780,6 +845,21 @@ impl<'ast> Compilation<'ast> {
         context: EffectiveContext<'ast, CssRulePayload<'ast>>,
         rule: RuleId<'ast>,
     ) -> Result<EffectiveContext<'ast, CssRulePayload<'ast>>, MutationError<'ast>> {
+        self.enter_wrapper_context_with_source_key(context, rule, None)
+    }
+
+    /// Enters a wrapper while using its parser-owned prelude as the initial
+    /// canonicalization key. This keeps independently stored wrapper rules
+    /// canonical without comparing nested NodeId identities. A transform
+    /// later replaces these source fingerprints through the context-aware
+    /// identity refresh transaction.
+    #[doc(hidden)]
+    pub fn enter_wrapper_context_with_source_key(
+        &mut self,
+        context: EffectiveContext<'ast, CssRulePayload<'ast>>,
+        rule: RuleId<'ast>,
+        source_key: Option<&str>,
+    ) -> Result<EffectiveContext<'ast, CssRulePayload<'ast>>, MutationError<'ast>> {
         if matches!(
             self.rule(rule).map(RuleRecord::payload),
             Some(CssRulePayload::LayerBlock(_))
@@ -807,7 +887,7 @@ impl<'ast> Compilation<'ast> {
             });
         }
 
-        let value = self.intern_context_value(rule)?;
+        let value = self.intern_context_value(rule, source_key)?;
         let key = ContextPathKey {
             parent: context.context_path,
             value,
@@ -1098,7 +1178,7 @@ impl<'ast> Compilation<'ast> {
         kind: SelectorFrameKind,
         vendor_prefix: VendorPrefix,
     ) -> Result<SelectorValueId<'ast>, MutationError<'ast>> {
-        let fingerprint = selector_value_fingerprint(&selectors, kind, vendor_prefix);
+        let fingerprint = selector_value_fingerprint(self, selectors, kind, vendor_prefix);
         self.intern_selector_value_with_fingerprint(selectors, kind, vendor_prefix, fingerprint)
     }
 
@@ -1114,7 +1194,7 @@ impl<'ast> Compilation<'ast> {
                 let value = &self.selector_values[id];
                 value.kind == kind
                     && value.vendor_prefix == vendor_prefix
-                    && value.selectors == selectors
+                    && selector_lists_are_equal(self, *value.selectors(), selectors)
             })
         {
             return Ok(id);
@@ -1122,7 +1202,7 @@ impl<'ast> Compilation<'ast> {
         let id = self
             .selector_values
             .try_push(SelectorValueRecord {
-                selectors,
+                selectors: Some(selectors),
                 kind,
                 vendor_prefix,
                 fingerprint,
@@ -1174,23 +1254,46 @@ impl<'ast> Compilation<'ast> {
     fn intern_context_value(
         &mut self,
         rule: RuleId<'ast>,
+        source_key: Option<&str>,
     ) -> Result<ContextValueId<'ast>, MutationError<'ast>> {
         let kind = self
             .context_frame_kind(rule)
             .ok_or(MutationError::InvalidRuleTopology(rule))?;
-        let fingerprint = self.hash_context_frame(rule, kind);
+        let source_key = (!kind.is_opaque()).then_some(source_key).flatten();
+        let fingerprint = source_key.map_or_else(
+            || self.hash_context_frame(rule, kind),
+            |source_key| {
+                let mut hasher = FxHasher::default();
+                kind.hash(&mut hasher);
+                source_key.hash(&mut hasher);
+                hasher.finish()
+            },
+        );
         if let Some(bucket) = self.context_value_buckets.get(&fingerprint)
-            && let Some(state) = bucket
-                .iter()
-                .find(|state| self.context_frames_equal(state.representative, rule, kind))
+            && let Some(state) = bucket.iter().find(|state| {
+                self.context_frame_kind(state.representative) == Some(kind)
+                    && if kind.is_opaque() {
+                        state.representative == rule
+                    } else if let Some(source_key) = source_key {
+                        self.context_values[state.id]
+                            .source_key
+                            .map(|key| self.str(key))
+                            == Some(source_key)
+                    } else {
+                        self.context_frames_equal(state.representative, rule, kind)
+                    }
+            })
         {
             return Ok(state.id);
         }
+        let source_key = source_key.map(|key| self.add_str(key));
         let id = self
             .context_values
             .try_push(ContextValueRecord {
                 representative: rule,
                 fingerprint,
+                source_key,
+                fingerprint_is_source: source_key.is_some(),
             })
             .map_err(|_| MutationError::SelectorContextCapacityExhausted)?;
         self.context_value_buckets
@@ -1226,10 +1329,10 @@ impl<'ast> Compilation<'ast> {
                     debug_hash(&mut hasher, &payload.query);
                 }
                 CssRulePayload::Supports(payload) => {
-                    debug_hash(&mut hasher, &payload.condition);
+                    hash_supports_condition(self, &payload.condition, &mut hasher);
                 }
                 CssRulePayload::Container(payload) => {
-                    debug_hash(&mut hasher, &payload.name);
+                    debug_hash(&mut hasher, &payload.name.map(|name| self.str(name)));
                     debug_hash(&mut hasher, &payload.condition);
                 }
                 _ => unreachable!("typed context kind and payload remain aligned"),
@@ -1255,20 +1358,43 @@ impl<'ast> Compilation<'ast> {
                 left.query == right.query
             }
             (Some(CssRulePayload::Supports(left)), Some(CssRulePayload::Supports(right))) => {
-                left.condition == right.condition
+                left.condition.eq_in_context(&right.condition, self)
             }
             (Some(CssRulePayload::Container(left)), Some(CssRulePayload::Container(right))) => {
-                left.name == right.name && left.condition == right.condition
+                left.name.map(|name| self.str(name)) == right.name.map(|name| self.str(name))
+                    && left.condition == right.condition
             }
             _ => false,
         }
     }
 }
 
-/// Hashes a complete semantic context value without allocating a temporary
-/// formatted string. The context payload types intentionally do not implement
-/// `Hash`, while their derived `Debug` output includes every field used by the
-/// exact equality checks above. The resulting value is still only a bucket
+// Supports leaf text is an ordinary range, so fingerprinting must resolve it
+// just like SupportsCondition::eq_in_context. Nested node/list identity remains
+// unchanged here; the caller can provide a richer semantic context comparer.
+fn hash_supports_condition(
+    ast: &AstContext<'_>,
+    condition: &crate::SupportsCondition<'_>,
+    hasher: &mut FxHasher,
+) {
+    use crate::SupportsCondition;
+    std::mem::discriminant(condition).hash(hasher);
+    match condition {
+        SupportsCondition::Selector(value) | SupportsCondition::Unknown(value) => {
+            ast.str(*value).hash(hasher)
+        }
+        SupportsCondition::Declaration { property_id, value } => {
+            property_id.hash(hasher);
+            ast.str(*value).hash(hasher);
+        }
+        _ => debug_hash(hasher, condition),
+    }
+}
+
+/// Hashes identity-based context fields without allocating a temporary formatted
+/// string. Ordinary string ranges must be resolved before reaching this helper;
+/// their Debug representation identifies storage locations rather than text.
+/// The formatted fields must agree with the equality checks above. The resulting value is still only a bucket
 /// filter; canonicalization always calls `context_frames_equal` on collisions.
 fn debug_hash<T: std::fmt::Debug>(hasher: &mut FxHasher, value: &T) {
     let mut writer = DebugHashWriter(hasher);
@@ -1285,31 +1411,218 @@ impl std::fmt::Write for DebugHashWriter<'_> {
     }
 }
 
-fn selector_value_fingerprint(
-    selectors: &crate::SelectorList<'_>,
+fn selector_value_fingerprint<'ast>(
+    ast: &AstContext<'ast>,
+    selectors: crate::SelectorList<'ast>,
     kind: SelectorFrameKind,
     vendor_prefix: VendorPrefix,
 ) -> u64 {
     let mut hasher = FxHasher::default();
     kind.hash(&mut hasher);
     vendor_prefix.hash(&mut hasher);
-    selectors.hash(&mut hasher);
+    hash_selector_list(ast, selectors, &mut hasher);
     hasher.finish()
+}
+
+fn selector_lists_are_equal<'ast>(
+    ast: &AstContext<'ast>,
+    left: crate::SelectorList<'ast>,
+    right: crate::SelectorList<'ast>,
+) -> bool {
+    ast.vec_len(left) == ast.vec_len(right)
+        && ast
+            .vec_iter(left)
+            .zip(ast.vec_iter(right))
+            .all(|(left, right)| selectors_are_equal(ast, left, right))
+}
+
+fn selectors_are_equal<'ast>(
+    ast: &AstContext<'ast>,
+    left: crate::NodeId<'ast, crate::Selector<'ast>>,
+    right: crate::NodeId<'ast, crate::Selector<'ast>>,
+) -> bool {
+    let left = ast.resolve_node(left);
+    let right = ast.resolve_node(right);
+    match (&left, &right) {
+        (crate::Selector::Parsed(left), crate::Selector::Parsed(right)) => {
+            ast.vec_len(*left) == ast.vec_len(*right)
+                && ast
+                    .vec_iter(*left)
+                    .zip(ast.vec_iter(*right))
+                    .all(|(left, right)| selector_components_are_equal(ast, left, right))
+        }
+        _ => left == right,
+    }
+}
+
+fn selector_components_are_equal<'ast>(
+    ast: &AstContext<'ast>,
+    left: crate::NodeId<'ast, crate::SelectorComponent<'ast>>,
+    right: crate::NodeId<'ast, crate::SelectorComponent<'ast>>,
+) -> bool {
+    let left = ast.resolve_node(left);
+    let right = ast.resolve_node(right);
+    use crate::SelectorComponent as Component;
+    match (&left, &right) {
+        (Component::Negation(left), Component::Negation(right))
+        | (Component::Where(left), Component::Where(right))
+        | (Component::Is(left), Component::Is(right))
+        | (Component::Has(left), Component::Has(right)) => {
+            selector_lists_are_equal(ast, *left, *right)
+        }
+        (
+            Component::NthOf {
+                data: left_data,
+                selectors: left,
+            },
+            Component::NthOf {
+                data: right_data,
+                selectors: right,
+            },
+        ) => left_data == right_data && selector_lists_are_equal(ast, *left, *right),
+        (Component::Part(left), Component::Part(right)) => {
+            ast.vec_iter(*left).eq(ast.vec_iter(*right))
+        }
+        (
+            Component::Any {
+                vendor_prefix: left_prefix,
+                selectors: left,
+            },
+            Component::Any {
+                vendor_prefix: right_prefix,
+                selectors: right,
+            },
+        ) => left_prefix == right_prefix && selector_lists_are_equal(ast, *left, *right),
+        _ => left == right,
+    }
+}
+
+fn hash_selector_list<'ast>(
+    ast: &AstContext<'ast>,
+    selectors: crate::SelectorList<'ast>,
+    hasher: &mut FxHasher,
+) {
+    ast.vec_len(selectors).hash(hasher);
+    for selector in ast.vec_iter(selectors) {
+        let selector = ast.resolve_node(selector);
+        std::mem::discriminant(&selector).hash(hasher);
+        match selector {
+            crate::Selector::Parsed(components) => {
+                ast.vec_len(components).hash(hasher);
+                for component in ast.vec_iter(components) {
+                    hash_selector_component(ast, &ast.resolve_node(component), hasher);
+                }
+            }
+            crate::Selector::Unparsed(value) => value.hash(hasher),
+            crate::Selector::Tombstone => {}
+        }
+    }
+}
+
+fn hash_selector_component<'ast>(
+    ast: &AstContext<'ast>,
+    component: &crate::SelectorComponent<'ast>,
+    hasher: &mut FxHasher,
+) {
+    use crate::SelectorComponent as Component;
+    std::mem::discriminant(component).hash(hasher);
+    match component {
+        Component::Negation(selectors)
+        | Component::Where(selectors)
+        | Component::Is(selectors)
+        | Component::Has(selectors) => hash_selector_list(ast, *selectors, hasher),
+        Component::NthOf { data, selectors } => {
+            data.hash(hasher);
+            hash_selector_list(ast, *selectors, hasher);
+        }
+        Component::Part(names) => {
+            ast.vec_len(*names).hash(hasher);
+            for name in ast.vec_iter(*names) {
+                name.hash(hasher);
+            }
+        }
+        Component::Any {
+            vendor_prefix,
+            selectors,
+        } => {
+            vendor_prefix.hash(hasher);
+            hash_selector_list(ast, *selectors, hasher);
+        }
+        _ => component.hash(hasher),
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{Selector, Vec};
+    use crate::Selector;
 
     use super::*;
 
     #[test]
+    fn supports_context_identity_uses_string_contents_across_ranges() {
+        use crate::{PropertyId, SupportsCondition, SupportsRulePayload};
+        let allocator = rocketcss_common::Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let root = ast.stylesheet().root_rules();
+        let property = ast.alloc_node(PropertyId::Width, crate::DUMMY_SP);
+        let first = ast.add_str("same text");
+        let second = ast.add_str("same text");
+        let different = ast.add_str("different text");
+        assert_ne!(first, second);
+        for variant in 0..3 {
+            let condition = |value| match variant {
+                0 => SupportsCondition::Selector(value),
+                1 => SupportsCondition::Unknown(value),
+                _ => SupportsCondition::Declaration {
+                    property_id: property,
+                    value,
+                },
+            };
+            let mut rules = std::vec::Vec::new();
+            for value in [first, second, different] {
+                rules.push(
+                    ast.append_rule(
+                        root,
+                        CssRulePayload::Supports(SupportsRulePayload {
+                            condition: condition(value),
+                        }),
+                    )
+                    .unwrap(),
+                );
+            }
+            assert!(ast.context_frames_equal(rules[0], rules[1], ContextFrameKind::Supports));
+            assert_eq!(
+                ast.hash_context_frame(rules[0], ContextFrameKind::Supports),
+                ast.hash_context_frame(rules[1], ContextFrameKind::Supports)
+            );
+            assert!(!ast.context_frames_equal(rules[0], rules[2], ContextFrameKind::Supports));
+            let left = ast.intern_context_value(rules[0], None).unwrap();
+            let right = ast.intern_context_value(rules[1], None).unwrap();
+            let other = ast.intern_context_value(rules[2], None).unwrap();
+            assert_eq!(left, right);
+            assert_ne!(left, other);
+            let source_left = ast
+                .intern_context_value(rules[0], Some(&format!("first prelude {variant}")))
+                .unwrap();
+            let source_right = ast
+                .intern_context_value(rules[1], Some(&format!("second prelude {variant}")))
+                .unwrap();
+            assert_ne!(source_left, source_right);
+            ast.refresh_context_value_identities().unwrap();
+            let refreshed_left = ast.intern_context_value(rules[0], None).unwrap();
+            let refreshed_right = ast.intern_context_value(rules[1], None).unwrap();
+            assert_eq!(refreshed_left, refreshed_right);
+        }
+    }
+
+    #[test]
     fn selector_fingerprint_collisions_still_require_exact_equality() {
         let allocator = rocketcss_common::Allocator::new();
-        let mut compilation = Compilation::new_in(&allocator);
-        let empty = Vec::new_in(&allocator);
-        let mut tombstone = Vec::new_in(&allocator);
-        tombstone.push(Selector::Tombstone);
+        let mut compilation = AstContext::new_in(&allocator);
+        let empty = compilation.alloc_vec(allocator.vec());
+        let mut tombstone = allocator.vec();
+        tombstone.push(compilation.alloc_node(Selector::Tombstone, crate::DUMMY_SP));
+        let tombstone = compilation.alloc_vec(tombstone);
 
         let first = compilation
             .intern_selector_value_with_fingerprint(
@@ -1329,5 +1642,54 @@ mod tests {
             .unwrap();
 
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn selector_interning_compares_range_contents_instead_of_range_identity() {
+        let allocator = rocketcss_common::Allocator::new();
+        let mut compilation = AstContext::new_in(&allocator);
+
+        let first_component =
+            compilation.alloc_node(crate::SelectorComponent::Empty, crate::DUMMY_SP);
+        let first_components = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+            [first_component],
+            &allocator,
+        ));
+        let first_selector =
+            compilation.alloc_node(Selector::Parsed(first_components), crate::DUMMY_SP);
+        let first_selectors = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+            [first_selector],
+            &allocator,
+        ));
+        let second_component =
+            compilation.alloc_node(crate::SelectorComponent::Empty, crate::DUMMY_SP);
+        let second_components = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+            [second_component],
+            &allocator,
+        ));
+        let second_selector =
+            compilation.alloc_node(Selector::Parsed(second_components), crate::DUMMY_SP);
+        let second_selectors = compilation.alloc_vec(rocketcss_common::vec::Vec::from_iter_in(
+            [second_selector],
+            &allocator,
+        ));
+
+        assert_ne!(first_selectors, second_selectors);
+        let first = compilation
+            .intern_selector_value(
+                first_selectors,
+                SelectorFrameKind::Style,
+                VendorPrefix::NONE,
+            )
+            .unwrap();
+        let second = compilation
+            .intern_selector_value(
+                second_selectors,
+                SelectorFrameKind::Style,
+                VendorPrefix::NONE,
+            )
+            .unwrap();
+
+        assert_eq!(first, second);
     }
 }

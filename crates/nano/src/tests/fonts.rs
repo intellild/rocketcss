@@ -45,6 +45,7 @@ fn deduplicates_equivalent_font_families() {
         let Declaration::Unparsed(value) = first_property_declaration(&stylesheet) else {
             panic!("expected opaque font-family declaration")
         };
+        let value = stylesheet.resolve_node(*value);
         assert_eq!(value.reason, UnparsedPropertyReason::OpaqueValue);
     });
 }

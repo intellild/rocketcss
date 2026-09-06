@@ -1,3 +1,6 @@
+use super::{collect_tokens, token_values_contain_opaque};
+use crate::parser::length::parse_length_unit;
+use crate::parser::values::parse_two_nodes;
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for Display {
@@ -147,18 +150,6 @@ impl<'i> Parse<'i> for Display {
     }
 }
 
-fn set_once<'i, T>(
-    input: &mut Compiler<'i>,
-    slot: &mut Option<T>,
-    value: T,
-) -> Result<(), ParseError<'i, ParserError<'i>>> {
-    if slot.is_some() {
-        return Err(input.new_custom_error(ParserError::InvalidValue));
-    }
-    *slot = Some(value);
-    Ok(())
-}
-
 impl<'i> Parse<'i> for Visibility {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let ident = input.expect_ident()?;
@@ -199,64 +190,6 @@ impl<'i> Parse<'i> for OverflowKeyword {
     }
 }
 
-impl<'i> Parse<'i> for Overflow {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let x = OverflowKeyword::parse(input)?;
-        let y = input
-            .try_parse(OverflowKeyword::parse)
-            .unwrap_or_else(|_| clone_overflow_keyword(&x));
-        input.expect_exhausted()?;
-        Ok(Self { x, y })
-    }
-}
-
-fn clone_overflow_keyword(value: &OverflowKeyword) -> OverflowKeyword {
-    match value {
-        OverflowKeyword::Visible => OverflowKeyword::Visible,
-        OverflowKeyword::Hidden => OverflowKeyword::Hidden,
-        OverflowKeyword::Clip => OverflowKeyword::Clip,
-        OverflowKeyword::Scroll => OverflowKeyword::Scroll,
-        OverflowKeyword::Auto => OverflowKeyword::Auto,
-    }
-}
-
-impl<'i> Parse<'i> for AspectRatio {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let auto = input
-            .try_parse(|input| input.expect_ident_matching("auto"))
-            .is_ok();
-        let ratio = input.try_parse(parse_ratio).ok();
-        if !auto && ratio.is_none() {
-            return Err(input.new_custom_error(ParserError::InvalidValue));
-        }
-        input.expect_exhausted()?;
-        Ok(Self { auto, ratio })
-    }
-}
-
-fn parse_ratio<'i>(input: &mut Compiler<'i>) -> Result<Ratio, ParseError<'i, ParserError<'i>>> {
-    let numerator = input.expect_number()?;
-    let denominator = if input.try_parse(|input| input.expect_delim('/')).is_ok() {
-        Some(input.expect_number()?)
-    } else {
-        None
-    };
-    Ok(Ratio::new(numerator, denominator))
-}
-
-impl<'i> Parse<'i> for LengthPercentageOrAuto<'i> {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        if input
-            .try_parse(|input| input.expect_ident_matching("auto"))
-            .is_ok()
-        {
-            return Ok(Self::Auto);
-        }
-        LengthPercentage::parse(input)
-            .map(|value| Self::LengthPercentage(input.allocator().boxed(value)))
-    }
-}
-
 impl<'i> Parse<'i> for PositionProperty {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let ident = input.expect_ident()?;
@@ -286,220 +219,189 @@ impl<'i> Parse<'i> for ZIndex {
     }
 }
 
-fn clone_length_percentage<'i>(
-    value: &LengthPercentage<'i>,
-    allocator: &'i Allocator,
-) -> Option<Box<'i, LengthPercentage<'i>>> {
-    let value = match value {
-        LengthPercentage::Dimension(value) => LengthPercentage::Dimension(LengthValue {
-            unit: value.unit,
-            value: value.value,
-        }),
-        LengthPercentage::Percentage(value) => LengthPercentage::Percentage(*value),
-        LengthPercentage::Zero => LengthPercentage::Zero,
-        LengthPercentage::Calc(_) => return None,
-    };
-    Some(allocator.boxed(value))
-}
-
-fn clone_length_percentage_or_auto<'i>(
-    value: &LengthPercentageOrAuto<'i>,
-    allocator: &'i Allocator,
-) -> Option<Box<'i, LengthPercentageOrAuto<'i>>> {
-    let value = match value {
-        LengthPercentageOrAuto::Auto => LengthPercentageOrAuto::Auto,
-        LengthPercentageOrAuto::LengthPercentage(value) => {
-            LengthPercentageOrAuto::LengthPercentage(clone_length_percentage(value, allocator)?)
-        }
-    };
-    Some(allocator.boxed(value))
-}
-
-fn parse_four_box_values<'i>(
-    input: &mut Compiler<'i>,
-) -> Result<[Box<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
-    parse_four_box_values_with(input, LengthPercentageOrAuto::parse)
-}
-
-fn parse_four_box_values_without_auto<'i>(
-    input: &mut Compiler<'i>,
-) -> Result<[Box<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
-    parse_four_box_values_with(input, |input| {
-        let value = LengthPercentageOrAuto::parse(input)?;
-        if matches!(value, LengthPercentageOrAuto::Auto) {
-            return Err(input.new_custom_error(ParserError::InvalidValue));
-        }
-        Ok(value)
-    })
-}
-
-fn parse_four_box_values_with<'i>(
-    input: &mut Compiler<'i>,
-    mut parse: impl FnMut(
-        &mut Compiler<'i>,
-    ) -> Result<LengthPercentageOrAuto<'i>, ParseError<'i, ParserError<'i>>>,
-) -> Result<[Box<'i, LengthPercentageOrAuto<'i>>; 4], ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let mut values: [Option<Box<'i, LengthPercentageOrAuto<'i>>>; 4] =
-        std::array::from_fn(|_| None);
-    let mut count = 0;
-    while !input.is_exhausted() {
-        if count == values.len() {
-            return Err(input.new_custom_error(ParserError::InvalidValue));
-        }
-        values[count] = Some(allocator.boxed(parse(input)?));
-        count += 1;
+impl<'i> Parse<'i> for Size2D<'i, LengthPercentage<'i>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let [x, y] = parse_two_nodes(input, LengthPercentage::parse, |id, input| {
+            let value = match input.ast_context().node(id) {
+                LengthPercentage::Dimension(value) => LengthPercentage::Dimension(LengthValue {
+                    unit: value.unit,
+                    value: value.value,
+                }),
+                LengthPercentage::Percentage(value) => LengthPercentage::Percentage(value),
+                LengthPercentage::Zero => LengthPercentage::Zero,
+                LengthPercentage::Calc(_) => return None,
+            };
+            Some(store_node(value, input))
+        })?;
+        Ok(Self(x, y))
     }
-    if count == 0 {
+}
+
+impl<'i> Parse<'i> for Size2D<'i, Length<'i>> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let first_state = input.state();
+        let first = store_node(Length::parse(input)?, input);
+        let second = if input.is_exhausted() {
+            input.reset(&first_state);
+            store_node(Length::parse(input)?, input)
+        } else {
+            store_node(Length::parse(input)?, input)
+        };
+        Ok(Self(first, second))
+    }
+}
+
+keyword_parse!(BoxDecorationBreak, "slice" => Self::Slice, "clone" => Self::Clone,);
+keyword_parse!(TextOverflow, "clip" => Self::Clip, "ellipsis" => Self::Ellipsis,);
+
+fn set_once<'i, T>(
+    input: &mut Compiler<'i>,
+    slot: &mut Option<T>,
+    value: T,
+) -> Result<(), ParseError<'i, ParserError<'i>>> {
+    if slot.is_some() {
         return Err(input.new_custom_error(ParserError::InvalidValue));
     }
-
-    let top = values[0].take().unwrap();
-    let right = match count {
-        1 => clone_length_percentage_or_auto(&top, allocator),
-        _ => values[1].take(),
-    }
-    .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
-    let bottom = match count {
-        1 | 2 => clone_length_percentage_or_auto(&top, allocator),
-        _ => values[2].take(),
-    }
-    .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
-    let left = match count {
-        1 => clone_length_percentage_or_auto(&top, allocator),
-        2 | 3 => clone_length_percentage_or_auto(&right, allocator),
-        _ => values[3].take(),
-    }
-    .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
-    Ok([top, right, bottom, left])
+    *slot = Some(value);
+    Ok(())
 }
 
-fn parse_logical_box_values<'i>(
-    input: &mut Compiler<'i>,
-    allow_auto: bool,
-) -> Result<[Box<'i, LengthPercentageOrAuto<'i>>; 2], ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let parse = |input: &mut Compiler<'i>| {
-        let value = LengthPercentageOrAuto::parse(input)?;
-        if !allow_auto && matches!(value, LengthPercentageOrAuto::Auto) {
-            return Err(input.new_custom_error(ParserError::InvalidValue));
+impl<'i> Parse<'i> for Size<'i> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let allocator = input.allocator();
+        let location = input.current_source_location();
+        let token = *input.next()?;
+        match token {
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("auto") => Ok(Size::Auto),
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("min-content") => {
+                Ok(Size::MinContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("max-content") => {
+                Ok(Size::MaxContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("fit-content") => {
+                Ok(Size::FitContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("stretch") => Ok(Size::Stretch {
+                vendor_prefix: VendorPrefix::NONE,
+            }),
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("contain") => Ok(Size::Contain),
+            ValueToken::Function(name) if name.eq_ignore_ascii_case("fit-content") => {
+                let value = input.parse_nested_block(|input| {
+                    let value = LengthPercentage::parse(input)?;
+                    input.expect_exhausted()?;
+                    Ok(value)
+                })?;
+                Ok(Size::FitContentFunction(store_node(value, input)))
+            }
+            ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
+                let arguments =
+                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+                if token_values_contain_opaque(input.ast_context(), &arguments) {
+                    return Err(input.new_custom_error(ParserError::InvalidValue));
+                }
+                let arguments = store_vec(arguments, input);
+                Ok(Size::MathFunction(store_node(
+                    Function::new(name, arguments, input.ast_context_mut()),
+                    input,
+                )))
+            }
+            ValueToken::Percentage(value) => Ok(Size::LengthPercentage(store_node(
+                DimensionPercentage::Percentage(value),
+                input,
+            ))),
+            ValueToken::Dimension { unit, value } => {
+                let unit = parse_length_unit(&unit)
+                    .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
+                Ok(Size::LengthPercentage(store_node(
+                    DimensionPercentage::Dimension(LengthValue { unit, value }),
+                    input,
+                )))
+            }
+            ValueToken::Number(0.0) => Ok(Size::LengthPercentage(store_node(
+                DimensionPercentage::Dimension(LengthValue {
+                    unit: LengthUnit::Px,
+                    value: 0.0,
+                }),
+                input,
+            ))),
+            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
-        Ok(value)
-    };
-    let first = allocator.boxed(parse(input)?);
-    let second = if input.is_exhausted() {
-        clone_length_percentage_or_auto(&first, allocator)
-            .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?
-    } else {
-        allocator.boxed(parse(input)?)
-    };
-    input.expect_exhausted()?;
-    Ok([first, second])
+    }
 }
 
-macro_rules! parse_physical_box_values {
-    ($($ty:ident),+ $(,)?) => {
-        $(
-            impl<'i> Parse<'i> for $ty<'i> {
-                fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-                    let [top, right, bottom, left] = parse_four_box_values(input)?;
-                    Ok(Self { top, right, bottom, left })
-                }
+impl<'i> Parse<'i> for MaxSize<'i> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let allocator = input.allocator();
+        let location = input.current_source_location();
+        let token = *input.next()?;
+        match token {
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("none") => Ok(Self::None),
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("min-content") => {
+                Ok(Self::MinContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
             }
-        )+
-    };
-}
-
-parse_physical_box_values!(Inset, Margin);
-
-impl<'i> Parse<'i> for ScrollMargin<'i> {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [top, right, bottom, left] = parse_four_box_values_without_auto(input)?;
-        Ok(Self {
-            top,
-            right,
-            bottom,
-            left,
-        })
-    }
-}
-
-impl<'i> Parse<'i> for ScrollPadding<'i> {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [top, right, bottom, left] = parse_four_box_values_without_auto(input)?;
-        Ok(Self {
-            top,
-            right,
-            bottom,
-            left,
-        })
-    }
-}
-
-impl<'i> Parse<'i> for Padding<'i> {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [top, right, bottom, left] = parse_four_box_values_without_auto(input)?;
-        Ok(Self {
-            top,
-            right,
-            bottom,
-            left,
-        })
-    }
-}
-
-macro_rules! parse_logical_box_values {
-    ($($ty:ident, $first:ident, $second:ident, $allow_auto:expr),+ $(,)?) => {
-        $(
-            impl<'i> Parse<'i> for $ty<'i> {
-                fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-                    let [$first, $second] = parse_logical_box_values(input, $allow_auto)?;
-                    Ok(Self { $first, $second })
-                }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("max-content") => {
+                Ok(Self::MaxContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
             }
-        )+
-    };
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("fit-content") => {
+                Ok(Self::FitContent {
+                    vendor_prefix: VendorPrefix::NONE,
+                })
+            }
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("stretch") => Ok(Self::Stretch {
+                vendor_prefix: VendorPrefix::NONE,
+            }),
+            ValueToken::Ident(name) if name.eq_ignore_ascii_case("contain") => Ok(Self::Contain),
+            ValueToken::Function(name) if name.eq_ignore_ascii_case("fit-content") => {
+                let value = input.parse_nested_block(|input| {
+                    let value = LengthPercentage::parse(input)?;
+                    input.expect_exhausted()?;
+                    Ok(value)
+                })?;
+                Ok(Self::FitContentFunction(store_node(value, input)))
+            }
+            ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
+                let arguments =
+                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
+                if token_values_contain_opaque(input.ast_context(), &arguments) {
+                    return Err(input.new_custom_error(ParserError::InvalidValue));
+                }
+                let arguments = store_vec(arguments, input);
+                Ok(Self::MathFunction(store_node(
+                    Function::new(name, arguments, input.ast_context_mut()),
+                    input,
+                )))
+            }
+            ValueToken::Percentage(value) => Ok(Self::LengthPercentage(store_node(
+                DimensionPercentage::Percentage(value),
+                input,
+            ))),
+            ValueToken::Dimension { unit, value } => {
+                let unit = parse_length_unit(&unit)
+                    .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
+                Ok(Self::LengthPercentage(store_node(
+                    DimensionPercentage::Dimension(LengthValue { unit, value }),
+                    input,
+                )))
+            }
+            ValueToken::Number(0.0) => Ok(Self::LengthPercentage(store_node(
+                DimensionPercentage::Dimension(LengthValue {
+                    unit: LengthUnit::Px,
+                    value: 0.0,
+                }),
+                input,
+            ))),
+            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
+        }
+    }
 }
-
-parse_logical_box_values!(
-    InsetBlock,
-    block_start,
-    block_end,
-    true,
-    InsetInline,
-    inline_start,
-    inline_end,
-    true,
-    MarginBlock,
-    block_start,
-    block_end,
-    true,
-    MarginInline,
-    inline_start,
-    inline_end,
-    true,
-    PaddingBlock,
-    block_start,
-    block_end,
-    false,
-    PaddingInline,
-    inline_start,
-    inline_end,
-    false,
-    ScrollMarginBlock,
-    block_start,
-    block_end,
-    false,
-    ScrollMarginInline,
-    inline_start,
-    inline_end,
-    false,
-    ScrollPaddingBlock,
-    block_start,
-    block_end,
-    false,
-    ScrollPaddingInline,
-    inline_start,
-    inline_end,
-    false,
-);

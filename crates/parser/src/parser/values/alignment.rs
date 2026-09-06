@@ -1,19 +1,5 @@
+use super::image::is_non_negative_length_percentage;
 use crate::prelude::*;
-
-macro_rules! keyword_parse {
-    ($ty:ty, $($name:literal => $variant:expr),+ $(,)?) => {
-        impl<'i> Parse<'i> for $ty {
-            fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-                let ident = input.expect_ident()?;
-                match_ignore_ascii_case!(
-                    ident,
-                    $( $name => Ok($variant), )+
-                    _ => Err(input.new_custom_error(ParserError::InvalidValue)),
-                )
-            }
-        }
-    };
-}
 
 keyword_parse!(BaselinePosition, "first" => Self::First, "last" => Self::Last,);
 keyword_parse!(
@@ -49,7 +35,7 @@ keyword_parse!(
     "center" => Self::Center,
 );
 
-fn parse_align_content_value<'i>(
+pub(in crate::parser) fn parse_align_content_value<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<AlignContent, ParseError<'i, ParserError<'i>>> {
     let ident = input.expect_ident()?;
@@ -106,7 +92,7 @@ impl<'i> Parse<'i> for AlignContent {
     }
 }
 
-fn parse_justify_content_value<'i>(
+pub(in crate::parser) fn parse_justify_content_value<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<JustifyContent, ParseError<'i, ParserError<'i>>> {
     let ident = input.expect_ident()?;
@@ -155,7 +141,7 @@ impl<'i> Parse<'i> for JustifyContent {
     }
 }
 
-fn parse_align_self_value<'i>(
+pub(in crate::parser) fn parse_align_self_value<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<AlignSelf, ParseError<'i, ParserError<'i>>> {
     let ident = input.expect_ident()?;
@@ -210,7 +196,7 @@ impl<'i> Parse<'i> for AlignSelf {
     }
 }
 
-fn parse_align_items_value<'i>(
+pub(in crate::parser) fn parse_align_items_value<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<AlignItems, ParseError<'i, ParserError<'i>>> {
     let value = parse_align_self_value(input)?;
@@ -232,7 +218,7 @@ impl<'i> Parse<'i> for AlignItems {
     }
 }
 
-fn parse_justify_self_value<'i>(
+pub(in crate::parser) fn parse_justify_self_value<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<JustifySelf, ParseError<'i, ParserError<'i>>> {
     let ident = input.expect_ident()?;
@@ -290,7 +276,7 @@ impl<'i> Parse<'i> for JustifySelf {
     }
 }
 
-fn parse_justify_items_value<'i>(
+pub(in crate::parser) fn parse_justify_items_value<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<JustifyItems, ParseError<'i, ParserError<'i>>> {
     if input
@@ -339,47 +325,18 @@ impl<'i> Parse<'i> for JustifyItems {
     }
 }
 
-impl<'i> Parse<'i> for PlaceContent {
+impl<'i> Parse<'i> for GapValue<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let first_state = input.state();
-        let align = parse_align_content_value(input)?;
-        let justify = if input.is_exhausted() {
-            input.reset(&first_state);
-            parse_justify_content_value(input)?
-        } else {
-            parse_justify_content_value(input)?
-        };
-        input.expect_exhausted()?;
-        Ok(Self { align, justify })
-    }
-}
-
-impl<'i> Parse<'i> for PlaceSelf {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let first_state = input.state();
-        let align = parse_align_self_value(input)?;
-        let justify = if input.is_exhausted() {
-            input.reset(&first_state);
-            parse_justify_self_value(input)?
-        } else {
-            parse_justify_self_value(input)?
-        };
-        input.expect_exhausted()?;
-        Ok(Self { align, justify })
-    }
-}
-
-impl<'i> Parse<'i> for PlaceItems {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let first_state = input.state();
-        let align = parse_align_items_value(input)?;
-        let justify = if input.is_exhausted() {
-            input.reset(&first_state);
-            parse_justify_items_value(input)?
-        } else {
-            parse_justify_items_value(input)?
-        };
-        input.expect_exhausted()?;
-        Ok(Self { align, justify })
+        if input
+            .try_parse(|input| input.expect_ident_matching("normal"))
+            .is_ok()
+        {
+            return Ok(Self::Normal);
+        }
+        let value = LengthPercentage::parse(input)?;
+        if !is_non_negative_length_percentage(&value) {
+            return Err(input.new_custom_error(ParserError::InvalidValue));
+        }
+        Ok(Self::LengthPercentage(store_node(value, input)))
     }
 }

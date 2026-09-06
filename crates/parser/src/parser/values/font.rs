@@ -1,21 +1,5 @@
 use crate::prelude::*;
 
-impl<'i> Parse<'i> for Angle {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let location = input.current_source_location();
-        let ValueToken::Dimension { unit, value } = input.next()?.clone() else {
-            return Err(location.new_custom_error(ParserError::InvalidValue));
-        };
-        match unit {
-            Unit::Deg => Ok(Self::Deg(value)),
-            Unit::Rad => Ok(Self::Rad(value)),
-            Unit::Grad => Ok(Self::Grad(value)),
-            Unit::Turn => Ok(Self::Turn(value)),
-            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
-        }
-    }
-}
-
 impl<'i> Parse<'i> for FontWeight {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if let Ok(ident) = input.try_parse(Compiler::expect_ident) {
@@ -54,9 +38,10 @@ impl<'i> Parse<'i> for FontSize<'i> {
                 _ => Err(input.new_custom_error(ParserError::InvalidValue)),
             );
         }
-        Ok(Self::Length(
-            input.allocator().boxed(LengthPercentage::parse(input)?),
-        ))
+        Ok(Self::Length(store_node(
+            LengthPercentage::parse(input)?,
+            input,
+        )))
     }
 }
 
@@ -127,9 +112,10 @@ impl<'i> Parse<'i> for LineHeight<'i> {
         if let Ok(value) = input.try_parse(Compiler::expect_number) {
             return Ok(Self::Number(value));
         }
-        Ok(Self::Length(
-            input.allocator().boxed(LengthPercentage::parse(input)?),
-        ))
+        Ok(Self::Length(store_node(
+            LengthPercentage::parse(input)?,
+            input,
+        )))
     }
 }
 
@@ -137,28 +123,29 @@ impl<'i> Parse<'i> for FontFamily<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if let Ok(name) = input.try_parse(Compiler::expect_string) {
             input.expect_exhausted()?;
-            return Ok(Self::Custom(name));
+            return Ok(Self::Custom(input.add_str(name)));
         }
 
-        let allocator = input.allocator();
         let first = input.expect_ident()?;
         if input.is_exhausted() {
-            return Ok(Self::from_name(first));
+            return Ok(
+                Self::from_known_name(first).unwrap_or_else(|| Self::Custom(input.add_str(first)))
+            );
         }
-        if !matches!(Self::from_name(first), Self::Custom(_)) {
+        if Self::from_known_name(first).is_some() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
 
         let mut name = std::string::String::from(first);
         while !input.is_exhausted() {
             let part = input.expect_ident()?;
-            if !matches!(Self::from_name(part), Self::Custom(_)) {
+            if Self::from_known_name(part).is_some() {
                 return Err(input.new_custom_error(ParserError::InvalidValue));
             }
             name.push(' ');
             name.push_str(part);
         }
-        Ok(Self::Custom(allocator.alloc_str(&name)))
+        Ok(Self::Custom(input.add_str(&name)))
     }
 }
 
@@ -173,7 +160,8 @@ pub(crate) fn parse_font_family_list<'i>(
             if let Ok(family) = input.try_parse(FontFamily::parse) {
                 return Ok(family);
             }
-            super::collect_tokens(input, allocator, depth + 1).map(FontFamily::Unparsed)
+            super::collect_tokens(input, allocator, depth + 1)
+                .map(|value| FontFamily::Unparsed(store_vec(value, input)))
         })?;
         families.push(family);
         if input.try_parse(Compiler::expect_comma).is_err() {

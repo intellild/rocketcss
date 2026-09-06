@@ -1,5 +1,7 @@
 use crate::*;
 
+use crate::{AstNodeStorage, NodeKind, NodePayload};
+
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
 pub enum Resize {
     None,
@@ -13,7 +15,7 @@ pub enum Resize {
 #[derive(Debug, PartialEq, Visit)]
 pub enum ScrollbarColor<'a> {
     Auto,
-    Colors(Box<'a, CssColor<'a>>, Box<'a, CssColor<'a>>),
+    Colors(NodeId<'a, CssColor<'a>>, NodeId<'a, CssColor<'a>>),
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]
@@ -69,7 +71,7 @@ pub enum ScrollBehavior {
     Smooth,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum CursorKeyword {
     Auto,
     Default,
@@ -109,13 +111,24 @@ pub enum CursorKeyword {
     ZoomOut,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum ColorOrAuto<'a> {
     Auto,
-    Color(Box<'a, CssColor<'a>>),
+    Color(NodeId<'a, CssColor<'a>>),
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+impl_inline_node!(ColorOrAuto<'ast>, 0x00130001);
+
+impl<'ast> AstNodeClone<'ast> for ColorOrAuto<'ast> {
+    fn clone_in_context(self, context: &mut AstContext<'ast>) -> Self {
+        match self {
+            Self::Auto => Self::Auto,
+            Self::Color(value) => Self::Color(context.clone_encoded_node(value)),
+        }
+    }
+}
+
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum CaretShape {
     Auto,
     Bar,
@@ -132,7 +145,7 @@ pub enum UserSelect {
     All,
 }
 
-#[derive(CssKeyword, Debug, PartialEq, Visit)]
+#[derive(CssKeyword, Debug, Clone, Copy, PartialEq, Visit)]
 pub enum Appearance<'a> {
     None,
     Auto,
@@ -150,7 +163,37 @@ pub enum Appearance<'a> {
     SliderHorizontal,
     SquareButton,
     Textarea,
-    NonStandard(&'a str),
+    NonStandard(AstStr<'a>),
+}
+
+// SAFETY: this KIND always publishes and reads the same native Copy type.
+unsafe impl<'ast> AstNodeStorage<'ast> for Appearance<'ast> {
+    const KIND: NodeKind = NodeKind::new(0x0013_0002);
+    fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
+        match (self, other) {
+            (Self::NonStandard(a), Self::NonStandard(b)) => context.str(*a) == context.str(*b),
+            _ => self == other,
+        }
+    }
+    unsafe fn decode(payload: NodePayload, _context: &AstContext<'ast>) -> Self {
+        unsafe { payload.read_value() }
+    }
+    fn encode_new(self, _context: &mut AstContext<'ast>) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+    unsafe fn encode_existing(
+        self,
+        _current: NodePayload,
+        _context: &mut AstContext<'ast>,
+    ) -> NodePayload {
+        NodePayload::from_value(self)
+    }
+}
+
+impl<'ast> AstNodeClone<'ast> for Appearance<'ast> {
+    fn clone_in_context(self, _context: &mut AstContext<'ast>) -> Self {
+        self
+    }
 }
 
 #[derive(CssKeyword, Debug, PartialEq, Visit)]

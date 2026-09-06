@@ -6,7 +6,7 @@
 //! authoritative in the AST rather than being reconstructed into Nano records.
 
 use rocketcss_ast::{
-    Compilation, ConcreteDeclarationBlockId as DeclarationBlockId,
+    AstContext, ConcreteDeclarationBlockId as DeclarationBlockId,
     ConcreteMutationError as MutationError, ConcreteRuleId as RuleId, CssRulePayload, Declaration,
     DeclarationBlockOwner, DeclarationPayload, EffectiveKeyId, EqIgnoringTombstones,
     NestingRulePayload, Span, StyleRulePayload,
@@ -29,7 +29,7 @@ pub(crate) struct CrossRuleBuilder<'scratch, 'ast> {
 }
 
 impl<'scratch, 'ast> CrossRuleBuilder<'scratch, 'ast> {
-    pub(super) fn new(compilation: &Compilation<'ast>, allocator: &'scratch Allocator) -> Self {
+    pub(super) fn new(compilation: &AstContext<'ast>, allocator: &'scratch Allocator) -> Self {
         Self {
             state: CrossRuleState::new_in(compilation, allocator),
         }
@@ -37,7 +37,7 @@ impl<'scratch, 'ast> CrossRuleBuilder<'scratch, 'ast> {
 
     pub(super) fn publish_block(
         &mut self,
-        compilation: &Compilation<'ast>,
+        compilation: &AstContext<'ast>,
         block: DeclarationBlockId<'ast>,
     ) -> Result<(), MutationError<'ast>> {
         self.state.publish_block(compilation, block)
@@ -50,7 +50,7 @@ impl<'scratch, 'ast> CrossRuleBuilder<'scratch, 'ast> {
 
 pub(super) fn stabilize_with_builder<'scratch, 'ast>(
     mut builder: CrossRuleBuilder<'scratch, 'ast>,
-    compilation: &mut Compilation<'ast>,
+    compilation: &mut AstContext<'ast>,
     preserve_selector_compatibility: bool,
 ) -> Result<std::vec::Vec<DeclarationBlockId<'ast>>, MutationError<'ast>> {
     builder
@@ -342,7 +342,7 @@ struct CrossRuleState<'scratch, 'ast> {
 }
 
 impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
-    fn new_in(compilation: &Compilation<'ast>, allocator: &'scratch Allocator) -> Self {
+    fn new_in(compilation: &AstContext<'ast>, allocator: &'scratch Allocator) -> Self {
         let declaration_capacity = compilation.declarations_in_source_order().len();
         let block_capacity = compilation.declaration_block_count();
         Self {
@@ -370,7 +370,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
     #[cfg(test)]
     fn publish_all_blocks(
         &mut self,
-        compilation: &Compilation<'ast>,
+        compilation: &AstContext<'ast>,
     ) -> Result<(), MutationError<'ast>> {
         for (block_id, block) in compilation.declaration_blocks_in_source_order() {
             if !block.is_live() {
@@ -383,7 +383,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     fn publish_block(
         &mut self,
-        compilation: &Compilation<'ast>,
+        compilation: &AstContext<'ast>,
         block: DeclarationBlockId<'ast>,
     ) -> Result<(), MutationError<'ast>> {
         self.declaration_ir.freeze_block(compilation, block)?;
@@ -464,7 +464,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     #[cfg(test)]
     fn from_compilation<'minify>(
-        compilation: &Compilation<'ast>,
+        compilation: &AstContext<'ast>,
     ) -> Result<CrossRuleState<'minify, 'ast>, MutationError<'ast>>
     where
         'ast: 'minify,
@@ -508,7 +508,7 @@ struct CommonDeclaration<'ast> {
 impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
     fn run(
         &mut self,
-        compilation: &mut Compilation<'ast>,
+        compilation: &mut AstContext<'ast>,
         preserve_selector_compatibility: bool,
     ) -> Result<SchedulerStats, MutationError<'ast>> {
         let mut stats = SchedulerStats::default();
@@ -555,7 +555,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
         );
     }
 
-    fn run_s4(&mut self, compilation: &Compilation<'ast>) -> Result<(), MutationError<'ast>> {
+    fn run_s4(&mut self, compilation: &AstContext<'ast>) -> Result<(), MutationError<'ast>> {
         while let Some(origin) = self.dirty_s4_plan_items.pop() {
             let Some(occurrence) = self.declaration_ir.occurrence(origin).copied() else {
                 continue;
@@ -593,7 +593,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
     /// made by S4; this method only validates, preflights, and commits them.
     fn commit_s5(
         self,
-        compilation: &mut Compilation<'ast>,
+        compilation: &mut AstContext<'ast>,
     ) -> Result<std::vec::Vec<DeclarationBlockId<'ast>>, MutationError<'ast>> {
         self.assert_semantic_fixed_point();
 
@@ -678,17 +678,23 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 live_effects,
             } = plan.kind;
             let additional = live_effects.count_ones() as usize - 1;
+            let replacements = {
+                let record = compilation
+                    .declaration(plan.origin)
+                    .expect("S4 validated the declaration before terminal commit");
+                let DeclarationPayload::Property(original) = record.payload() else {
+                    unreachable!("an S4 box plan owns a property declaration")
+                };
+                materialize_box_longhands(original, family, live_effects, compilation)
+                    .expect("S4 validated a typed box shorthand before terminal commit")
+            };
             let result = compilation.rewrite_declaration_with_sequence(
                 plan.owner,
                 plan.origin,
                 additional,
                 DeclarationPayload::Property(Declaration::Tombstone),
-                |original, important| {
-                    let DeclarationPayload::Property(original) = original else {
-                        unreachable!("an S4 box plan owns a property declaration")
-                    };
-                    materialize_box_longhands(original, family, live_effects)
-                        .expect("S4 validated a typed box shorthand before terminal commit")
+                move |_original, important| {
+                    replacements
                         .into_iter()
                         .map(|declaration| (DeclarationPayload::Property(declaration), important))
                         .collect()
@@ -707,10 +713,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
         }
     }
 
-    fn run_s1(
-        &mut self,
-        compilation: &mut Compilation<'ast>,
-    ) -> Result<usize, MutationError<'ast>> {
+    fn run_s1(&mut self, compilation: &mut AstContext<'ast>) -> Result<usize, MutationError<'ast>> {
         let mut commits = 0;
         while let Some(candidate) = self.same_selector_candidates.pop() {
             let Some((left_rule, right_rule, key)) = validate_s1(compilation, candidate) else {
@@ -762,7 +765,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     fn run_s2(
         &mut self,
-        compilation: &mut Compilation<'ast>,
+        compilation: &mut AstContext<'ast>,
     ) -> Result<S2Stats, MutationError<'ast>> {
         let mut stats = S2Stats::default();
         while let Some(key) = self.declaration_override_candidates.pop() {
@@ -860,6 +863,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                                 self.scratch.previous_by_property.get(&property_key)
                                 && declarations_are_exactly_equal(
                                     compilation,
+                                    &mut self.declaration_ir,
                                     previous,
                                     declaration,
                                 )
@@ -918,7 +922,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     fn run_s3(
         &mut self,
-        compilation: &mut Compilation<'ast>,
+        compilation: &mut AstContext<'ast>,
         preserve_selector_compatibility: bool,
     ) -> Result<S3Stats, MutationError<'ast>> {
         let mut stats = S3Stats::default();
@@ -946,7 +950,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
             self.scratch.matched_left.clear();
             self.scratch.common.clear();
             for &left in &self.scratch.left_declarations {
-                let Some(left_ir) = self.declaration_ir.occurrence(left) else {
+                let Some(left_ir) = self.declaration_ir.occurrence(left).copied() else {
                     continue;
                 };
                 if !left_ir.is_exact_match_candidate() {
@@ -969,11 +973,18 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                     continue;
                 }
                 let mut matched = false;
-                if let Some(indexed) = self
+                if let Some(indexed_count) = self
                     .declaration_ir
                     .property_candidates(candidate.right, property_key)
+                    .map(<[_]>::len)
                 {
-                    for indexed in indexed {
+                    for index in 0..indexed_count {
+                        let indexed = self
+                            .declaration_ir
+                            .property_candidates(candidate.right, property_key)
+                            .and_then(|candidates| candidates.get(index))
+                            .copied()
+                            .expect("the immutable property index remains stable during matching");
                         let right = indexed.declaration;
                         let right_order = indexed.order;
                         if self.scratch.matched_right.contains(&right)
@@ -982,7 +993,12 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                                 .declaration_ir
                                 .occurrence(right)
                                 .is_none_or(|right| !right.is_exact_match_candidate())
-                            || !declarations_have_equal_effect(compilation, left, right)
+                            || !declarations_have_equal_effect(
+                                compilation,
+                                &mut self.declaration_ir,
+                                left,
+                                right,
+                            )
                         {
                             continue;
                         }
@@ -1005,7 +1021,12 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                                 !right.is_exact_match_candidate()
                                     || right.property_key != Some(property_key)
                             })
-                            || !declarations_have_equal_effect(compilation, left, right)
+                            || !declarations_have_equal_effect(
+                                compilation,
+                                &mut self.declaration_ir,
+                                left,
+                                right,
+                            )
                         {
                             continue;
                         }
@@ -1036,7 +1057,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                     self.scratch.right_residual.push(declaration);
                 }
             }
-            if !radix_partial_movement_is_safe(
+            if !ast_partial_movement_is_safe(
                 &self.scratch.common,
                 &self.scratch.left_residual,
                 &self.scratch.right_residual,
@@ -1046,17 +1067,20 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                 continue;
             }
 
+            let left_selectors = *compilation
+                .selector_value(endpoints.left_selector)
+                .expect("a validated selector value remains resolvable")
+                .selectors();
+            let right_selectors = *compilation
+                .selector_value(endpoints.right_selector)
+                .expect("a validated selector value remains resolvable")
+                .selectors();
             let Some(selectors) = materialize_selector_union(
-                compilation
-                    .selector_value(endpoints.left_selector)
-                    .expect("a validated selector value remains resolvable")
-                    .selectors(),
-                compilation
-                    .selector_value(endpoints.right_selector)
-                    .expect("a validated selector value remains resolvable")
-                    .selectors(),
+                &left_selectors,
+                &right_selectors,
                 preserve_selector_compatibility,
                 self.allocator,
+                compilation,
             ) else {
                 continue;
             };
@@ -1080,15 +1104,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
                     selector_value,
                     self.allocator,
                 )?;
-                let left_payload = compilation
-                    .rule_mut(endpoints.left_rule)
-                    .expect("the reused S3 endpoint remains live")
-                    .payload_mut();
-                match left_payload {
-                    CssRulePayload::Style(payload) => payload.span = endpoints.span,
-                    CssRulePayload::Nesting(payload) => payload.span = endpoints.span,
-                    _ => unreachable!("the S3 selector owner was validated"),
-                }
+                compilation.set_rule_span(endpoints.left_rule, endpoints.span)?;
 
                 for declaration in &self.scratch.common {
                     compilation.replace_declaration(
@@ -1138,19 +1154,19 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
             let payload = match endpoints.selector_kind {
                 rocketcss_ast::SelectorFrameKind::Style => {
                     CssRulePayload::Style(StyleRulePayload {
-                        span: endpoints.span,
                         selector_value,
                         vendor_prefix: endpoints.vendor_prefix,
                     })
                 }
                 rocketcss_ast::SelectorFrameKind::Nesting => {
-                    CssRulePayload::Nesting(NestingRulePayload {
-                        span: endpoints.span,
-                        selector_value,
-                    })
+                    CssRulePayload::Nesting(NestingRulePayload { selector_value })
                 }
             };
-            let rule_result = match compilation.insert_rule_after(endpoints.left_rule, payload) {
+            let rule_result = match compilation.insert_rule_after_with_span(
+                endpoints.left_rule,
+                payload,
+                endpoints.span,
+            ) {
                 Ok(result) => result,
                 Err(MutationError::<'ast>::RuleCapacityExhausted) => {
                     stats.rejected_capacity += 1;
@@ -1258,7 +1274,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     fn insert_history_occurrence(
         &mut self,
-        compilation: &Compilation<'ast>,
+        compilation: &AstContext<'ast>,
         key: EffectiveKeyId<'ast>,
         block: DeclarationBlockId<'ast>,
     ) -> bool {
@@ -1288,7 +1304,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     fn publish_incident_edges(
         &mut self,
-        compilation: &Compilation<'ast>,
+        compilation: &AstContext<'ast>,
         left: RuleId<'ast>,
         right: Option<RuleId<'ast>>,
     ) {
@@ -1315,7 +1331,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
         }
     }
 
-    fn enqueue_rule_incident_edges(&mut self, compilation: &Compilation<'ast>, rule: RuleId<'ast>) {
+    fn enqueue_rule_incident_edges(&mut self, compilation: &AstContext<'ast>, rule: RuleId<'ast>) {
         let Some(record) = compilation.rule(rule) else {
             return;
         };
@@ -1345,7 +1361,7 @@ impl<'scratch, 'ast> CrossRuleState<'scratch, 'ast> {
 
     fn edge_candidate(
         &self,
-        compilation: &Compilation<'ast>,
+        compilation: &AstContext<'ast>,
         left: RuleId<'ast>,
         right: RuleId<'ast>,
     ) -> Option<Candidate<'ast>> {
@@ -1386,7 +1402,7 @@ fn is_style_owner(payload: &CssRulePayload<'_>) -> bool {
 }
 
 fn validate_s1<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     candidate: Candidate<'ast>,
 ) -> Option<(RuleId<'ast>, RuleId<'ast>, EffectiveKeyId<'ast>)> {
     let left_block = compilation.declaration_block(candidate.left)?;
@@ -1415,21 +1431,43 @@ fn validate_s1<'ast>(
 }
 
 fn declarations_are_exactly_equal<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
+    declaration_ir: &mut DeclarationIrStore<'_, 'ast>,
     left: rocketcss_ast::DeclarationId<'ast>,
     right: rocketcss_ast::DeclarationId<'ast>,
 ) -> bool {
+    let left_id = left;
+    let right_id = right;
     let Some(left) = compilation.declaration(left) else {
         return false;
     };
     let Some(right) = compilation.declaration(right) else {
         return false;
     };
-    left.is_important() == right.is_important() && left.payload() == right.payload()
+    if left.is_important() != right.is_important() {
+        return false;
+    }
+    let (DeclarationPayload::Property(left_value), DeclarationPayload::Property(right_value)) =
+        (left.payload(), right.payload())
+    else {
+        return false;
+    };
+    if left_value == right_value {
+        return true;
+    }
+    if let Some(equal) =
+        crate::equality::known_declaration_structural_equality(compilation, left_value, right_value)
+    {
+        return equal;
+    }
+    if !declaration_ir.declarations_have_equal_css(compilation, left_id, right_id) {
+        return false;
+    }
+    crate::equality::declarations_with_equal_css_are_equal(compilation, left_value, right_value)
 }
 
 #[derive(Clone, Copy)]
-struct RadixS3Endpoints<'ast> {
+struct S3Endpoints<'ast> {
     left_rule: RuleId<'ast>,
     right_rule: RuleId<'ast>,
     left_key: EffectiveKeyId<'ast>,
@@ -1442,9 +1480,9 @@ struct RadixS3Endpoints<'ast> {
 }
 
 fn validate_s3<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     candidate: Candidate<'ast>,
-) -> Option<RadixS3Endpoints<'ast>> {
+) -> Option<S3Endpoints<'ast>> {
     let left_block = compilation.declaration_block(candidate.left)?;
     let right_block = compilation.declaration_block(candidate.right)?;
     if !left_block.is_live()
@@ -1465,16 +1503,18 @@ fn validate_s3<'ast>(
     {
         return None;
     }
-    let (left_selector, left_span) = match left_rule.payload() {
-        CssRulePayload::Style(payload) => (payload.selector_value, payload.span),
-        CssRulePayload::Nesting(payload) => (payload.selector_value, payload.span),
+    let left_selector = match left_rule.payload() {
+        CssRulePayload::Style(payload) => payload.selector_value,
+        CssRulePayload::Nesting(payload) => payload.selector_value,
         _ => return None,
     };
-    let (right_selector, right_span) = match right_rule.payload() {
-        CssRulePayload::Style(payload) => (payload.selector_value, payload.span),
-        CssRulePayload::Nesting(payload) => (payload.selector_value, payload.span),
+    let right_selector = match right_rule.payload() {
+        CssRulePayload::Style(payload) => payload.selector_value,
+        CssRulePayload::Nesting(payload) => payload.selector_value,
         _ => return None,
     };
+    let left_span = compilation.rule_span(left_rule_id)?;
+    let right_span = compilation.rule_span(right_rule_id)?;
     let left_value = compilation.selector_value(left_selector)?;
     let right_value = compilation.selector_value(right_selector)?;
     if left_selector == right_selector
@@ -1483,7 +1523,7 @@ fn validate_s3<'ast>(
     {
         return None;
     }
-    Some(RadixS3Endpoints {
+    Some(S3Endpoints {
         left_rule: left_rule_id,
         right_rule: right_rule_id,
         left_key: left_block.effective_key(),
@@ -1497,10 +1537,13 @@ fn validate_s3<'ast>(
 }
 
 fn declarations_have_equal_effect<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
+    declaration_ir: &mut DeclarationIrStore<'_, 'ast>,
     left: rocketcss_ast::DeclarationId<'ast>,
     right: rocketcss_ast::DeclarationId<'ast>,
 ) -> bool {
+    let left_id = left;
+    let right_id = right;
     let Some(left) = compilation.declaration(left) else {
         return false;
     };
@@ -1510,12 +1553,23 @@ fn declarations_have_equal_effect<'ast>(
     if left.is_important() != right.is_important() {
         return false;
     }
-    match (left.payload(), right.payload()) {
-        (DeclarationPayload::Property(left), DeclarationPayload::Property(right)) => {
-            left.eq_ignoring_tombstones(right)
-        }
-        _ => false,
+    let (DeclarationPayload::Property(left_value), DeclarationPayload::Property(right_value)) =
+        (left.payload(), right.payload())
+    else {
+        return false;
+    };
+    if left_value.eq_ignoring_tombstones(right_value, compilation) {
+        return true;
     }
+    if let Some(equal) =
+        crate::equality::known_declaration_structural_equality(compilation, left_value, right_value)
+    {
+        return equal;
+    }
+    if !declaration_ir.declarations_have_equal_css(compilation, left_id, right_id) {
+        return false;
+    }
+    crate::equality::declarations_with_equal_css_are_equal(compilation, left_value, right_value)
 }
 
 fn has_opaque_domain_conflict<'ast>(
@@ -1534,7 +1588,7 @@ fn has_opaque_domain_conflict<'ast>(
     })
 }
 
-fn radix_partial_movement_is_safe<'ast>(
+fn ast_partial_movement_is_safe<'ast>(
     common: &[CommonDeclaration<'ast>],
     left_residual: &[rocketcss_ast::DeclarationId<'ast>],
     right_residual: &[rocketcss_ast::DeclarationId<'ast>],
@@ -1551,7 +1605,7 @@ fn radix_partial_movement_is_safe<'ast>(
                 .windows(2)
                 .all(|pair| pair[0].right_order < pair[1].right_order);
         }
-        return radix_common_effect_order_is_safe(common, declaration_ir);
+        return ast_common_effect_order_is_safe(common, declaration_ir);
     }
     for common in common {
         let Some(common_domain) = declaration_ir
@@ -1572,10 +1626,10 @@ fn radix_partial_movement_is_safe<'ast>(
             }
         }
     }
-    radix_common_effect_order_is_safe(common, declaration_ir)
+    ast_common_effect_order_is_safe(common, declaration_ir)
 }
 
-fn radix_common_effect_order_is_safe<'ast>(
+fn ast_common_effect_order_is_safe<'ast>(
     common: &[CommonDeclaration<'ast>],
     declaration_ir: &DeclarationIrStore<'_, 'ast>,
 ) -> bool {
@@ -1616,7 +1670,7 @@ mod tests {
             &mut self,
             source: &'ast str,
             options: ParserOptions<'ast>,
-        ) -> Result<rocketcss_ast::Compilation<'ast>, rocketcss_parser::Error<'ast>>;
+        ) -> Result<rocketcss_ast::AstContext<'ast>, rocketcss_parser::Error<'ast>>;
     }
 
     impl<'ast> ParseTestCompilation<'ast> for Compiler<'ast> {
@@ -1624,7 +1678,7 @@ mod tests {
             &mut self,
             source: &'ast str,
             options: ParserOptions<'ast>,
-        ) -> Result<rocketcss_ast::Compilation<'ast>, rocketcss_parser::Error<'ast>> {
+        ) -> Result<rocketcss_ast::AstContext<'ast>, rocketcss_parser::Error<'ast>> {
             rocketcss_common::GhostToken::scope(|mut token| self.parse(source, &mut token, options))
         }
     }
@@ -1883,7 +1937,7 @@ mod tests {
     }
 
     #[test]
-    fn s3_inserts_a_shared_rule_and_block_at_their_final_radix_ids() {
+    fn s3_inserts_a_shared_rule_and_block_at_their_final_ast_ids() {
         rocketcss_common::GhostToken::scope(|mut token| {
             let allocator = Allocator::new();
             let options = ParserOptions::default();

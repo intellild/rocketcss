@@ -1,9 +1,9 @@
 use crate::{
-    Box, CharsetRule, ContainerCondition, CustomMediaRule, CustomProperty, Declaration, FamilyName,
-    FontFaceProperty, FontFeatureDeclaration, FontFeatureSubruleType, FontPaletteValuesProperty,
-    ImportRule, KeyframeSelector, KeyframesName, MediaList, NamespaceRule, PageMarginBox,
-    PageSelector, ParsedComponent, SelectorList, Span, SupportsCondition, SyntaxString,
-    TokenOrValue, Vec, VendorPrefix, ViewTransitionProperty,
+    AstStr, CharsetRule, ContainerCondition, CustomMediaRule, CustomProperty, Declaration,
+    FamilyName, FontFaceProperty, FontFeatureDeclaration, FontFeatureSubruleType,
+    FontPaletteValuesProperty, ImportRule, KeyframeSelector, KeyframesName, MediaList,
+    NamespaceRule, NodeId, PageMarginBox, PageSelector, ParsedComponent, SelectorList,
+    SupportsCondition, SyntaxString, TokenOrValue, Vec, VendorPrefix, ViewTransitionProperty,
 };
 
 use super::{DeclarationId, SelectorValueId};
@@ -11,10 +11,10 @@ use super::{DeclarationId, SelectorValueId};
 /// One typed descriptor occurrence inside `@property`.
 #[derive(Debug, PartialEq)]
 pub enum PropertyRuleDescriptor<'ast> {
-    Syntax(Box<'ast, SyntaxString<'ast>>),
+    Syntax(NodeId<'ast, SyntaxString<'ast>>),
     Inherits(bool),
-    InitialValue(Box<'ast, ParsedComponent<'ast>>),
-    Unknown(Box<'ast, CustomProperty<'ast>>),
+    InitialValue(NodeId<'ast, ParsedComponent<'ast>>),
+    Unknown(NodeId<'ast, CustomProperty<'ast>>),
 }
 
 /// One heterogeneous occurrence in the global authored declaration tape.
@@ -101,105 +101,84 @@ impl CssRulePayload<'_> {
 
 #[derive(Debug, PartialEq)]
 pub struct StyleRulePayload<'ast> {
-    pub span: Span,
     pub selector_value: SelectorValueId<'ast>,
     pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct MediaRulePayload<'ast> {
-    pub span: Span,
     pub query: MediaList<'ast>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct SupportsRulePayload<'ast> {
-    pub span: Span,
     pub condition: SupportsCondition<'ast>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StartingStyleRulePayload {
-    pub span: Span,
-}
+pub struct StartingStyleRulePayload;
 
 #[derive(Debug, PartialEq)]
 pub struct LayerStatementRulePayload<'ast> {
-    pub span: Span,
-    pub names: Vec<'ast, Vec<'ast, &'ast str>>,
+    pub names: Vec<'ast, Vec<'ast, AstStr<'ast>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct LayerBlockRulePayload<'ast> {
-    pub span: Span,
-    pub name: Option<Vec<'ast, &'ast str>>,
+    pub name: Option<Vec<'ast, AstStr<'ast>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ContainerRulePayload<'ast> {
-    pub span: Span,
-    pub name: Option<&'ast str>,
-    pub condition: Option<Box<'ast, ContainerCondition<'ast>>>,
+    pub name: Option<AstStr<'ast>>,
+    pub condition: Option<NodeId<'ast, ContainerCondition<'ast>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ScopeRulePayload<'ast> {
-    pub span: Span,
-    pub scope_start: Option<Box<'ast, SelectorList<'ast>>>,
-    pub scope_end: Option<Box<'ast, SelectorList<'ast>>>,
+    pub scope_start: Option<SelectorList<'ast>>,
+    pub scope_end: Option<SelectorList<'ast>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MozDocumentRulePayload {
-    pub span: Span,
-}
+pub struct MozDocumentRulePayload;
 
 #[derive(Debug, PartialEq)]
 pub struct UnknownAtRulePayload<'ast> {
-    pub span: Span,
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
     pub prelude: Vec<'ast, TokenOrValue<'ast>>,
     pub block: Option<Vec<'ast, TokenOrValue<'ast>>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CounterStyleRulePayload<'ast> {
-    pub span: Span,
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ViewportRulePayload {
-    pub span: Span,
     pub vendor_prefix: VendorPrefix,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PositionTryRulePayload<'ast> {
-    pub span: Span,
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FontFaceRulePayload {
-    pub span: Span,
-}
+pub struct FontFaceRulePayload;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FontPaletteValuesRulePayload<'ast> {
-    pub span: Span,
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ViewTransitionRulePayload {
-    pub span: Span,
-}
+pub struct ViewTransitionRulePayload;
 
 #[derive(Debug, PartialEq)]
 pub struct KeyframesRulePayload<'ast> {
-    pub span: Span,
-    pub name: Box<'ast, KeyframesName<'ast>>,
+    pub name: NodeId<'ast, KeyframesName<'ast>>,
     pub vendor_prefix: VendorPrefix,
 }
 
@@ -210,49 +189,39 @@ pub struct KeyframePayload<'ast> {
 
 #[derive(Debug, PartialEq)]
 pub struct PageRulePayload<'ast> {
-    pub span: Span,
-    pub selectors: Vec<'ast, PageSelector<'ast>>,
+    pub selectors: Vec<'ast, NodeId<'ast, PageSelector<'ast>>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct PageMarginPayload {
-    pub span: Span,
     pub margin_box: PageMarginBox,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PageDeclarationsPayload {
-    pub span: Span,
-}
+pub struct PageDeclarationsPayload;
 
 #[derive(Debug, PartialEq)]
 pub struct NestingRulePayload<'ast> {
-    pub span: Span,
     pub selector_value: SelectorValueId<'ast>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct FontFeatureValuesRulePayload<'ast> {
-    pub span: Span,
     pub name: Vec<'ast, FamilyName<'ast>>,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct FontFeatureSubrulePayload {
-    pub span: Span,
     pub name: FontFeatureSubruleType,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PropertyRulePayload<'ast> {
-    pub span: Span,
-    pub name: &'ast str,
+    pub name: AstStr<'ast>,
     pub syntax: Option<DeclarationId<'ast>>,
     pub inherits: Option<DeclarationId<'ast>>,
     pub initial_value: Option<DeclarationId<'ast>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NestedDeclarationsPayload {
-    pub span: Span,
-}
+pub struct NestedDeclarationsPayload;

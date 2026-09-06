@@ -1,5 +1,11 @@
 # Radix source-order AST IR
 
+> **Deprecated historical design.** The current AST storage design is
+> [`docs/ast-storage.md`](../ast-storage.md). New implementation work must use
+> responsibility-based `AstContext`, `NodeData`, and `ExtraData` terminology;
+> the names in this directory are retained only to describe the superseded
+> proposal.
+
 ## Status
 
 This directory defines the target physical AST representation built on

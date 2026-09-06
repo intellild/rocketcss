@@ -2,7 +2,7 @@
 
 use crate::{prelude::*, rules::NamedProperty};
 use rocketcss_ast::{
-    Compilation, ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId,
+    AstContext, ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId,
     CssRulePayload, DeclarationPayload, FontFeatureSubrulePayload, PageRulePayload,
     PropertyRuleDescriptor, PropertyRulePayload, RuleListId, RuleListIter, RuleRecord,
 };
@@ -13,22 +13,23 @@ enum LastSemicolon {
     Required,
 }
 
-impl<'ghost> ToCss<'ghost> for Compilation<'_> {
+impl<'ghost> ToCss<'ghost> for AstContext<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
         cx: &ToCssContext<'_, '_, 'ghost>,
     ) -> fmt::Result {
-        let writer = RadixWriter(self);
+        let cx = ToCssContext::with_ast(cx.token(), self);
+        let writer = AstWriter(self);
         for (index, comment) in self.license_comments().iter().enumerate() {
             dest.write_str("/*")?;
-            dest.write_str(comment)?;
+            dest.write_str(self.str(*comment))?;
             dest.write_str("*/")?;
             if index + 1 < self.license_comments().len() || !writer.root_is_empty() {
                 dest.new_line()?;
             }
         }
-        writer.write_rule_list(self.stylesheet().root_rules(), dest, cx)?;
+        writer.write_rule_list(self.stylesheet().root_rules(), dest, &cx)?;
         if !writer.root_is_empty() {
             dest.new_line()?;
         }
@@ -36,17 +37,17 @@ impl<'ghost> ToCss<'ghost> for Compilation<'_> {
     }
 }
 
-struct RadixWriter<'comp, 'ast>(&'comp Compilation<'ast>);
+struct AstWriter<'comp, 'ast>(&'comp AstContext<'ast>);
 
-impl<'ast> std::ops::Deref for RadixWriter<'_, 'ast> {
-    type Target = Compilation<'ast>;
+impl<'ast> std::ops::Deref for AstWriter<'_, 'ast> {
+    type Target = AstContext<'ast>;
 
     fn deref(&self) -> &Self::Target {
         self.0
     }
 }
 
-impl<'ast> RadixWriter<'_, 'ast> {
+impl<'ast> AstWriter<'_, 'ast> {
     fn root_is_empty(&self) -> bool {
         self.rule_list(self.stylesheet().root_rules())
             .is_none_or(|list| list.live_len() == 0)
@@ -117,11 +118,11 @@ impl<'ast> RadixWriter<'_, 'ast> {
             }
             CssRulePayload::LayerStatement(payload) => {
                 dest.write_str("@layer ")?;
-                for (index, name) in payload.names.iter().enumerate() {
+                for (index, name) in self.vec_iter(payload.names).enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
                     }
-                    write_layer_name(name, dest)?;
+                    write_layer_name(self.vec_iter(name).map(|part| self.str(part)), dest)?;
                 }
                 dest.write_char(';')
             }
@@ -129,7 +130,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 dest.write_str("@layer")?;
                 if let Some(name) = &payload.name {
                     dest.write_char(' ')?;
-                    write_layer_name(name, dest)?;
+                    write_layer_name(self.vec_iter(*name).map(|part| self.str(part)), dest)?;
                 }
                 self.write_child_rule_block(rule, dest, cx)
             }
@@ -137,7 +138,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 dest.write_str("@container")?;
                 if let Some(name) = payload.name {
                     dest.write_char(' ')?;
-                    serialize_identifier(name, dest)?;
+                    serialize_identifier(self.str(name), dest)?;
                 }
                 if let Some(condition) = &payload.condition {
                     dest.write_char(' ')?;
@@ -165,18 +166,18 @@ impl<'ast> RadixWriter<'_, 'ast> {
             }
             CssRulePayload::Unknown(payload) => {
                 dest.write_char('@')?;
-                serialize_identifier(payload.name, dest)?;
+                serialize_identifier(self.str(payload.name), dest)?;
                 if !payload.prelude.is_empty() {
                     dest.write_char(' ')?;
                     crate::token::write_token_list_without_outer_whitespace(
-                        &payload.prelude,
+                        payload.prelude,
                         dest,
                         cx,
                     )?;
                 }
                 if let Some(block) = &payload.block {
                     write_block(dest, |dest| {
-                        crate::token::write_token_list_without_outer_whitespace(block, dest, cx)
+                        crate::token::write_token_list_without_outer_whitespace(*block, dest, cx)
                     })
                 } else {
                     dest.write_char(';')
@@ -184,7 +185,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
             }
             CssRulePayload::CounterStyle(payload) => {
                 dest.write_str("@counter-style ")?;
-                serialize_identifier(payload.name, dest)?;
+                serialize_identifier(self.str(payload.name), dest)?;
                 self.write_property_block(rule, dest, cx)
             }
             CssRulePayload::Viewport(payload) => {
@@ -197,7 +198,9 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 dest.write_str("@position-try ")?;
                 dest.write_str("--")?;
                 serialize_name(
-                    payload.name.strip_prefix("--").unwrap_or(payload.name),
+                    self.str(payload.name)
+                        .strip_prefix("--")
+                        .unwrap_or(self.str(payload.name)),
                     dest,
                 )?;
                 self.write_property_block(rule, dest, cx)
@@ -208,7 +211,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
             }
             CssRulePayload::FontPaletteValues(payload) => {
                 dest.write_str("@font-palette-values ")?;
-                serialize_identifier(payload.name, dest)?;
+                serialize_identifier(self.str(payload.name), dest)?;
                 self.write_named_property_block(id, dest, cx, NamedKind::FontPalette)
             }
             CssRulePayload::ViewTransition(_) => {
@@ -238,7 +241,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
                 }
             }
             CssRulePayload::Keyframe(payload) => {
-                write_comma_separated(&payload.selectors, dest, cx)?;
+                write_comma_separated(self.vec_iter(payload.selectors), dest, cx)?;
                 self.write_property_block(rule, dest, cx)
             }
             CssRulePayload::Page(payload) => self.write_page_rule(rule, payload, dest, cx),
@@ -266,7 +269,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
             }
             CssRulePayload::FontFeatureValues(payload) => {
                 dest.write_str("@font-feature-values ")?;
-                write_comma_separated(&payload.name, dest, cx)?;
+                write_comma_separated(self.vec_iter(payload.name), dest, cx)?;
                 self.write_child_rule_block(rule, dest, cx)
             }
             CssRulePayload::FontFeatureSubrule(payload) => {
@@ -465,7 +468,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
         dest.write_str("@page")?;
         if !payload.selectors.is_empty() {
             dest.write_char(' ')?;
-            write_comma_separated(&payload.selectors, dest, cx)?;
+            write_comma_separated(self.vec_iter(payload.selectors), dest, cx)?;
         }
         let parent_block = rule
             .declaration_block()
@@ -563,7 +566,9 @@ impl<'ast> RadixWriter<'_, 'ast> {
         dest.write_str("@property ")?;
         dest.write_str("--")?;
         serialize_name(
-            payload.name.strip_prefix("--").unwrap_or(payload.name),
+            self.str(payload.name)
+                .strip_prefix("--")
+                .unwrap_or(self.str(payload.name)),
             dest,
         )?;
         write_block(dest, |dest| {
@@ -632,7 +637,7 @@ impl<'ast> RadixWriter<'_, 'ast> {
 type VisibleRule<'comp, 'ast> = (RuleId<'ast>, &'comp RuleRecord<'ast, CssRulePayload<'ast>>);
 
 fn next_visible_rule<'comp, 'ast>(
-    compilation: &'comp Compilation<'ast>,
+    compilation: &'comp AstContext<'ast>,
     rules: &mut RuleListIter<'ast, 'comp, CssRulePayload<'ast>>,
 ) -> Option<VisibleRule<'comp, 'ast>> {
     for (id, rule) in rules {
@@ -640,7 +645,10 @@ fn next_visible_rule<'comp, 'ast>(
             let selector = compilation
                 .selector_value(style.selector_value)
                 .expect("a style selector value remains resolvable");
-            if selector.selectors().iter().all(Selector::is_tombstone) {
+            if compilation
+                .vec_iter(*selector.selectors())
+                .all(|selector| compilation.resolve_node(selector).is_tombstone())
+            {
                 continue;
             }
         }
@@ -698,28 +706,38 @@ fn write_named_property<'ghost, PrinterT: PrinterTrait, T>(
 where
     T: NamedProperty + ToCss<'ghost>,
 {
-    serialize_name(value.css_name(), dest)?;
+    serialize_name(value.css_name(cx.ast_context()), dest)?;
     dest.write_char(':')?;
     dest.whitespace()?;
     value.to_css(dest, cx)
 }
 
-fn write_layer_name<PrinterT: PrinterTrait>(name: &[&str], dest: &mut PrinterT) -> fmt::Result {
-    for (index, part) in name.iter().enumerate() {
+fn write_layer_name<PrinterT, I>(name: I, dest: &mut PrinterT) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator,
+    I::Item: AsRef<str>,
+{
+    for (index, part) in name.into_iter().enumerate() {
         if index > 0 {
             dest.write_char('.')?;
         }
-        serialize_identifier(part, dest)?;
+        serialize_identifier(part.as_ref(), dest)?;
     }
     Ok(())
 }
 
-fn write_comma_separated<'ghost, PrinterT: PrinterTrait, T: ToCss<'ghost>>(
-    values: &[T],
+fn write_comma_separated<'ghost, PrinterT, I>(
+    values: I,
     dest: &mut PrinterT,
     cx: &ToCssContext<'_, '_, 'ghost>,
-) -> fmt::Result {
-    for (index, value) in values.iter().enumerate() {
+) -> fmt::Result
+where
+    PrinterT: PrinterTrait,
+    I: IntoIterator,
+    I::Item: ToCss<'ghost>,
+{
+    for (index, value) in values.into_iter().enumerate() {
         if index > 0 {
             dest.delim(Delimiter::Comma)?;
         }

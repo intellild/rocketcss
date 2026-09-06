@@ -1,30 +1,20 @@
 use crate::prelude::*;
 
-impl<'i> Parse<'i> for NumberOrPercentage {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        match input.next()?.clone() {
-            ValueToken::Number(value) => Ok(Self::Number(value)),
-            ValueToken::Percentage(value) => Ok(Self::Percentage(value)),
-            _ => Err(input.new_custom_error(ParserError::InvalidValue)),
-        }
-    }
-}
-
 impl<'i> Parse<'i> for Transform<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let function = input.expect_function()?;
         input.parse_nested_block(|input| match_ignore_ascii_case!(
             function,
             "translate" => parse_translate(input),
-            "translatex" => Ok(Self::TranslateX(input.allocator().boxed(LengthPercentage::parse(input)?))),
-            "translatey" => Ok(Self::TranslateY(input.allocator().boxed(LengthPercentage::parse(input)?))),
-            "translatez" => Ok(Self::TranslateZ(input.allocator().boxed(Length::parse(input)?))),
+            "translatex" => Ok(Self::TranslateX(store_node(LengthPercentage::parse(input)?, input))),
+            "translatey" => Ok(Self::TranslateY(store_node(LengthPercentage::parse(input)?, input))),
+            "translatez" => Ok(Self::TranslateZ(store_node(Length::parse(input)?, input))),
             "translate3d" => {
-                let x = input.allocator().boxed(LengthPercentage::parse(input)?);
+                let x = store_node(LengthPercentage::parse(input)?, input);
                 expect_comma_or_space_separator(input)?;
-                let y = input.allocator().boxed(LengthPercentage::parse(input)?);
+                let y = store_node(LengthPercentage::parse(input)?, input);
                 expect_comma_or_space_separator(input)?;
-                let z = input.allocator().boxed(Length::parse(input)?);
+                let z = store_node(Length::parse(input)?, input);
                 input.expect_exhausted()?;
                 Ok(Self::Translate3d((x, y, z)))
             },
@@ -69,9 +59,9 @@ impl<'i> Parse<'i> for Transform<'i> {
             },
             "skewx" => Ok(Self::SkewX(Angle::parse(input)?)),
             "skewy" => Ok(Self::SkewY(Angle::parse(input)?)),
-            "perspective" => Ok(Self::Perspective(input.allocator().boxed(Length::parse(input)?))),
-            "matrix" => Ok(Self::Matrix(input.allocator().boxed(parse_matrix(input)?))),
-            "matrix3d" => Ok(Self::Matrix3d(input.allocator().boxed(parse_matrix3d(input)?))),
+            "perspective" => Ok(Self::Perspective(store_node(Length::parse(input)?, input))),
+            "matrix" => Ok(Self::Matrix(store_node(parse_matrix(input)?, input))),
+            "matrix3d" => Ok(Self::Matrix3d(store_node(parse_matrix3d(input)?, input))),
             _ => Err(input.new_custom_error(ParserError::InvalidValue)),
         ))
     }
@@ -79,10 +69,11 @@ impl<'i> Parse<'i> for Transform<'i> {
 
 pub(crate) fn parse_transform_list<'i>(
     input: &mut Compiler<'i>,
-) -> Result<Vec<'i, Transform<'i>>, ParseError<'i, ParserError<'i>>> {
+) -> Result<Vec<'i, NodeId<'i, Transform<'i>>>, ParseError<'i, ParserError<'i>>> {
     let mut values = input.allocator().vec();
     while !input.is_exhausted() {
-        values.push(Transform::parse(input)?);
+        let value = Transform::parse(input)?;
+        values.push(store_node(value, input));
     }
     Ok(values)
 }
@@ -90,13 +81,12 @@ pub(crate) fn parse_transform_list<'i>(
 fn parse_translate<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<Transform<'i>, ParseError<'i, ParserError<'i>>> {
-    let allocator = input.allocator();
-    let x = allocator.boxed(LengthPercentage::parse(input)?);
+    let x = store_node(LengthPercentage::parse(input)?, input);
     let y = if input.is_exhausted() {
-        allocator.boxed(LengthPercentage::Zero)
+        store_node(LengthPercentage::Zero, input)
     } else {
         expect_comma_or_space_separator(input)?;
-        allocator.boxed(LengthPercentage::parse(input)?)
+        store_node(LengthPercentage::parse(input)?, input)
     };
     input.expect_exhausted()?;
     Ok(Transform::Translate((x, y)))
@@ -236,7 +226,7 @@ impl<'i> Parse<'i> for Perspective<'i> {
         {
             return Ok(Self::None);
         }
-        Ok(Self::Length(input.allocator().boxed(Length::parse(input)?)))
+        Ok(Self::Length(store_node(Length::parse(input)?, input)))
     }
 }
 
@@ -248,22 +238,24 @@ impl<'i> Parse<'i> for Translate<'i> {
         {
             return Ok(Self::None);
         }
-        let allocator = input.allocator();
-        let x = allocator.boxed(LengthPercentage::parse(input)?);
+        let x = store_node(LengthPercentage::parse(input)?, input);
         let y = if input.is_exhausted() {
-            allocator.boxed(LengthPercentage::Zero)
+            store_node(LengthPercentage::Zero, input)
         } else {
             expect_comma_or_space_separator(input)?;
-            allocator.boxed(LengthPercentage::parse(input)?)
+            store_node(LengthPercentage::parse(input)?, input)
         };
         let z = if input.is_exhausted() {
-            allocator.boxed(Length::Value(LengthValue {
-                unit: LengthUnit::Px,
-                value: 0.0,
-            }))
+            store_node(
+                Length::Value(LengthValue {
+                    unit: LengthUnit::Px,
+                    value: 0.0,
+                }),
+                input,
+            )
         } else {
             expect_comma_or_space_separator(input)?;
-            allocator.boxed(Length::parse(input)?)
+            store_node(Length::parse(input)?, input)
         };
         input.expect_exhausted()?;
         Ok(Self::Xyz { x, y, z })
@@ -293,18 +285,5 @@ impl<'i> Parse<'i> for Scale {
         };
         input.expect_exhausted()?;
         Ok(Self::Xyz { x, y, z })
-    }
-}
-
-impl<'i> Parse<'i> for Rotate {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let angle = Angle::parse(input)?;
-        input.expect_exhausted()?;
-        Ok(Self {
-            angle,
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        })
     }
 }

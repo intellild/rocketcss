@@ -1,9 +1,8 @@
 use crate::MinifyContext;
 use rocketcss_ast::{
-    CSSWideOr, Columns, Compilation, ConcreteDeclarationBlockId as RadixDeclarationBlockId,
-    CssColor, Declaration, DeclarationBlockMutationScope, DeclarationPayload, EqIgnoringTombstones,
-    Margin, Padding, PropertyId, ScopedDeclarationHandle, VendorPrefix, Visit, VisitContext,
-    Visitor,
+    AstContext, CSSWideOr, Columns, ConcreteDeclarationBlockId as ContextDeclarationBlockId,
+    CssColor, Declaration, DeclarationBlockMutationScope, DeclarationPayload, Margin, Padding,
+    PropertyId, ScopedDeclarationHandle, VendorPrefix, Visit, VisitContext, Visitor,
 };
 use rocketcss_common::{
     GhostToken,
@@ -14,7 +13,8 @@ use crate::rules::layout::{BoxFamily, BoxProperty, box_property};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct UnknownDeclarationKey<'a> {
-    property_id: PropertyId<'a>,
+    // None preserves the internal Unparsed sentinel; custom names compare by content.
+    name: Option<&'a str>,
     important: bool,
 }
 
@@ -86,12 +86,12 @@ impl DeclarationLocation {
 }
 
 #[derive(Debug)]
-struct DeclarationMap<'scratch, 'ast> {
+struct DeclarationMap<'scratch> {
     known: AdaptiveHashMap<'scratch, KnownDeclarationKey, DeclarationLocation>,
-    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'ast>, DeclarationLocation>,
+    unknown: AdaptiveHashMap<'scratch, UnknownDeclarationKey<'scratch>, DeclarationLocation>,
 }
 
-impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
+impl<'scratch> DeclarationMap<'scratch> {
     fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             known: AdaptiveHashMap::new_in(allocator),
@@ -123,13 +123,19 @@ impl<'scratch, 'ast> DeclarationMap<'scratch, 'ast> {
     #[inline]
     fn insert_unknown(
         &mut self,
-        property_id: PropertyId<'ast>,
+        ast: &AstContext<'_>,
+        allocator: &'scratch Allocator,
+        property_id: PropertyId<'_>,
         important: bool,
         location: DeclarationLocation,
     ) -> Option<DeclarationLocation> {
         self.unknown.insert(
             UnknownDeclarationKey {
-                property_id,
+                name: match property_id {
+                    PropertyId::Custom(name) => Some(allocator.alloc_str(ast.str(name))),
+                    PropertyId::Unparsed => None,
+                    _ => unreachable!("known properties use the generated key"),
+                },
                 important,
             },
             location,
@@ -197,7 +203,7 @@ struct DeclarationSequence<'scope, 'scratch, 'ast> {
 
 impl<'scope, 'scratch, 'ast> DeclarationSequence<'scope, 'scratch, 'ast> {
     #[inline]
-    fn radix(
+    fn ast(
         scope: DeclarationBlockMutationScope<'scope, 'ast>,
         allocator: &'scratch Allocator,
     ) -> Self {
@@ -282,31 +288,36 @@ impl<'scope, 'scratch, 'ast> DeclarationSequence<'scope, 'scratch, 'ast> {
     }
 
     #[inline]
-    fn allocator(&self, _location: DeclarationLocation) -> &'ast Allocator {
-        self.scope.allocator()
+    fn ast_context(&self) -> &AstContext<'ast> {
+        self.scope.ast_context()
+    }
+
+    #[inline]
+    fn ast_context_mut(&mut self) -> &mut AstContext<'ast> {
+        self.scope.ast_context_mut()
     }
 }
 
-pub(crate) struct DeclarationBlockMinifier<'scratch, 'ast> {
-    ir: DeclarationIr<'scratch, 'ast>,
+pub(crate) struct DeclarationBlockMinifier<'scratch> {
+    ir: DeclarationIr<'scratch>,
 }
 
-impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
+impl<'scratch> DeclarationBlockMinifier<'scratch> {
     pub(crate) fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             ir: DeclarationIr::new(allocator),
         }
     }
 
-    pub(crate) fn minify_compilation_block(
+    pub(crate) fn minify_compilation_block<'ast: 'scratch>(
         &mut self,
-        compilation: &mut Compilation<'ast>,
-        block: RadixDeclarationBlockId<'ast>,
+        compilation: &mut AstContext<'ast>,
+        block: ContextDeclarationBlockId<'ast>,
         cx: &mut MinifyContext<'scratch>,
     ) {
         compilation
             .with_declaration_block_mutations(block, |scope| {
-                let mut sequence = DeclarationSequence::radix(scope, cx.allocator());
+                let mut sequence = DeclarationSequence::ast(scope, cx.allocator());
                 if sequence.block_len(0) >= 2 {
                     self.minify_non_trivial(&mut sequence, cx);
                 }
@@ -314,7 +325,7 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
             .expect("the scheduled declaration block remains live");
     }
 
-    fn minify_non_trivial(
+    fn minify_non_trivial<'ast: 'scratch>(
         &mut self,
         sequence: &mut DeclarationSequence<'_, '_, 'ast>,
         cx: &mut MinifyContext<'scratch>,
@@ -328,15 +339,15 @@ impl<'scratch, 'ast> DeclarationBlockMinifier<'scratch, 'ast> {
 }
 
 #[derive(Debug)]
-struct DeclarationIr<'scratch, 'ast> {
-    declarations: DeclarationMap<'scratch, 'ast>,
+struct DeclarationIr<'scratch> {
+    declarations: DeclarationMap<'scratch>,
     boxes: [[BoxFamilyIr<'scratch>; 2]; BoxFamily::COUNT],
     dirty_boxes: u8,
     columns: [[ColumnsIr<'scratch>; 2]; 5],
     dirty_columns: u16,
 }
 
-impl<'scratch, 'ast> DeclarationIr<'scratch, 'ast> {
+impl<'scratch> DeclarationIr<'scratch> {
     fn new(allocator: &'scratch Allocator) -> Self {
         Self {
             declarations: DeclarationMap::new(allocator),
@@ -425,7 +436,7 @@ fn vendor_prefix_index(prefix: VendorPrefix) -> Option<usize> {
 
 fn deduplicate_declarations<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, '_, 'ast>,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'scratch>,
     cx: &mut MinifyContext<'scratch>,
 ) where
     'ast: 'scratch,
@@ -437,7 +448,8 @@ fn deduplicate_declarations<'scratch, 'ast>(
             if sequence.declaration(current).is_tombstone() {
                 continue;
             }
-            if declaration_skips_minification(sequence.declaration(current)) {
+            if declaration_skips_minification(sequence.declaration(current), sequence.ast_context())
+            {
                 ir.clear();
                 continue;
             }
@@ -465,13 +477,14 @@ fn process_columns_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'scratch>,
     cx: &mut MinifyContext<'scratch>,
 ) -> bool
 where
     'ast: 'scratch,
 {
-    let Some(property) = columns_property(sequence.declaration(current)) else {
+    let Some(property) = columns_property(sequence.declaration(current), sequence.ast_context())
+    else {
         return false;
     };
     if matches!(property, ColumnsProperty::BarrierAll) {
@@ -540,19 +553,22 @@ where
 }
 
 #[inline]
-fn columns_property(declaration: &Declaration<'_>) -> Option<ColumnsProperty> {
+fn columns_property(
+    declaration: &Declaration<'_>,
+    ast: &AstContext<'_>,
+) -> Option<ColumnsProperty> {
     let property_id = match declaration {
         Declaration::Columns(_, prefix) => return Some(ColumnsProperty::Shorthand(*prefix)),
         Declaration::ColumnWidth(_, prefix) => return Some(ColumnsProperty::Width(*prefix)),
         Declaration::ColumnCount(_, prefix) => return Some(ColumnsProperty::Count(*prefix)),
         Declaration::All(_) => return Some(ColumnsProperty::BarrierAll),
-        Declaration::Unparsed(value) => &*value.property_id,
+        Declaration::Unparsed(value) => ast.resolve_node(ast.resolve_node(*value).property_id),
         _ => return None,
     };
     match property_id {
-        PropertyId::Columns(prefix) => Some(ColumnsProperty::Shorthand(*prefix)),
-        PropertyId::ColumnWidth(prefix) => Some(ColumnsProperty::Width(*prefix)),
-        PropertyId::ColumnCount(prefix) => Some(ColumnsProperty::Count(*prefix)),
+        PropertyId::Columns(prefix) => Some(ColumnsProperty::Shorthand(prefix)),
+        PropertyId::ColumnWidth(prefix) => Some(ColumnsProperty::Width(prefix)),
+        PropertyId::ColumnCount(prefix) => Some(ColumnsProperty::Count(prefix)),
         PropertyId::All => Some(ColumnsProperty::BarrierAll),
         _ => None,
     }
@@ -569,27 +585,30 @@ fn fold_columns_override(
     prefix: VendorPrefix,
 ) -> bool {
     debug_assert!(shorthand < longhand);
+    let shorthand_declaration = sequence.replace(shorthand, Declaration::Tombstone);
     let mut longhand_declaration = sequence.replace(longhand, Declaration::Tombstone);
-    let folded = match (
-        sequence.declaration_mut(shorthand),
-        &mut longhand_declaration,
-    ) {
+    let folded = match (&shorthand_declaration, &mut longhand_declaration) {
         (
             Declaration::Columns(CSSWideOr::Value(value), shorthand_prefix),
             Declaration::ColumnWidth(CSSWideOr::Value(width), longhand_prefix),
         ) if *shorthand_prefix == prefix && *longhand_prefix == prefix => {
-            std::mem::swap(&mut value.width, width);
+            sequence
+                .ast_context_mut()
+                .mutate_node(*value, |value, _| std::mem::swap(&mut value.width, width));
             true
         }
         (
             Declaration::Columns(CSSWideOr::Value(value), shorthand_prefix),
             Declaration::ColumnCount(CSSWideOr::Value(count), longhand_prefix),
         ) if *shorthand_prefix == prefix && *longhand_prefix == prefix => {
-            std::mem::swap(&mut value.count, count);
+            sequence
+                .ast_context_mut()
+                .mutate_node(*value, |value, _| std::mem::swap(&mut value.count, count));
             true
         }
         _ => false,
     };
+    sequence.replace(shorthand, shorthand_declaration);
     if !folded {
         sequence.replace(longhand, longhand_declaration);
     }
@@ -607,7 +626,6 @@ where
     'ast: 'cx,
 {
     let target = std::cmp::max(width, count);
-    let allocator = sequence.allocator(target);
     if matches!(sequence.declaration(width), Declaration::ColumnWidth(CSSWideOr::Value(_), value_prefix) if *value_prefix == prefix)
         && matches!(sequence.declaration(count), Declaration::ColumnCount(CSSWideOr::Value(_), value_prefix) if *value_prefix == prefix)
     {
@@ -621,15 +639,13 @@ where
         else {
             unreachable!("typed columns IR validates column-count")
         };
+        let value = sequence.ast_context_mut().alloc_node_without_span(Columns {
+            count: count_value,
+            width: width_value,
+        });
         sequence.replace(
             target,
-            Declaration::Columns(
-                CSSWideOr::Value(allocator.boxed(Columns {
-                    count: count_value,
-                    width: width_value,
-                })),
-                prefix,
-            ),
+            Declaration::Columns(CSSWideOr::Value(value), prefix),
         );
         cx.record_declaration_removed();
         return true;
@@ -666,19 +682,23 @@ fn deduplicate_exact_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    declarations: &mut DeclarationMap<'scratch, 'ast>,
+    declarations: &mut DeclarationMap<'scratch>,
     cx: &mut MinifyContext<'scratch>,
 ) -> Option<DeclarationLocation>
 where
     'ast: 'scratch,
 {
     let declaration = sequence.declaration(current);
-    let previous = if let Some((property_id, vendor_prefix)) = declaration.known_id_and_prefix() {
+    let previous = if let Some((property_id, vendor_prefix)) =
+        declaration.known_id_and_prefix(sequence.ast_context())
+    {
         declarations.insert_known(property_id, vendor_prefix, important, current)
     } else {
         declarations.insert_unknown(
+            sequence.ast_context(),
+            cx.allocator(),
             declaration
-                .property_id()
+                .property_id(sequence.ast_context())
                 .expect("tombstones are skipped before exact deduplication"),
             important,
             current,
@@ -686,9 +706,11 @@ where
     };
     if let Some(previous) = previous
         && !sequence.declaration(previous).is_tombstone()
-        && sequence
-            .declaration(previous)
-            .eq_ignoring_tombstones(sequence.declaration(current))
+        && crate::equality::declarations_are_equal(
+            sequence.ast_context(),
+            sequence.declaration(previous),
+            sequence.declaration(current),
+        )
     {
         sequence.replace(previous, Declaration::Tombstone);
         cx.record_declaration_removed();
@@ -701,13 +723,13 @@ fn process_box_declaration<'scratch, 'ast>(
     sequence: &mut DeclarationSequence<'_, '_, 'ast>,
     current: DeclarationLocation,
     important: bool,
-    ir: &mut DeclarationIr<'scratch, 'ast>,
+    ir: &mut DeclarationIr<'scratch>,
     cx: &mut MinifyContext<'scratch>,
 ) -> bool
 where
     'ast: 'scratch,
 {
-    let Some(property) = box_property(sequence.declaration(current)) else {
+    let Some(property) = box_property(sequence.declaration(current), sequence.ast_context()) else {
         return false;
     };
     match property {
@@ -779,52 +801,66 @@ fn fold_box_side_override(
     side: usize,
 ) -> bool {
     debug_assert!(shorthand < longhand);
+    let shorthand_declaration = sequence.replace(shorthand, Declaration::Tombstone);
     let mut longhand_declaration = sequence.replace(longhand, Declaration::Tombstone);
-    let folded = match (
-        family,
-        sequence.declaration_mut(shorthand),
-        &mut longhand_declaration,
-    ) {
+    let folded = match (family, &shorthand_declaration, &mut longhand_declaration) {
         (BoxFamily::Margin, Declaration::Margin(value), longhand) => match (side, longhand) {
             (0, Declaration::MarginTop(target)) => {
-                std::mem::swap(&mut value.top, target);
+                sequence
+                    .ast_context_mut()
+                    .mutate_node(*value, |value, _| std::mem::swap(&mut value.top, target));
                 true
             }
             (1, Declaration::MarginRight(target)) => {
-                std::mem::swap(&mut value.right, target);
+                sequence
+                    .ast_context_mut()
+                    .mutate_node(*value, |value, _| std::mem::swap(&mut value.right, target));
                 true
             }
             (2, Declaration::MarginBottom(target)) => {
-                std::mem::swap(&mut value.bottom, target);
+                sequence
+                    .ast_context_mut()
+                    .mutate_node(*value, |value, _| std::mem::swap(&mut value.bottom, target));
                 true
             }
             (3, Declaration::MarginLeft(target)) => {
-                std::mem::swap(&mut value.left, target);
+                sequence
+                    .ast_context_mut()
+                    .mutate_node(*value, |value, _| std::mem::swap(&mut value.left, target));
                 true
             }
             _ => false,
         },
         (BoxFamily::Padding, Declaration::Padding(value), longhand) => match (side, longhand) {
             (0, Declaration::PaddingTop(target)) => {
-                std::mem::swap(&mut value.top, target);
+                sequence
+                    .ast_context_mut()
+                    .mutate_node(*value, |value, _| std::mem::swap(&mut value.top, target));
                 true
             }
             (1, Declaration::PaddingRight(target)) => {
-                std::mem::swap(&mut value.right, target);
+                sequence
+                    .ast_context_mut()
+                    .mutate_node(*value, |value, _| std::mem::swap(&mut value.right, target));
                 true
             }
             (2, Declaration::PaddingBottom(target)) => {
-                std::mem::swap(&mut value.bottom, target);
+                sequence
+                    .ast_context_mut()
+                    .mutate_node(*value, |value, _| std::mem::swap(&mut value.bottom, target));
                 true
             }
             (3, Declaration::PaddingLeft(target)) => {
-                std::mem::swap(&mut value.left, target);
+                sequence
+                    .ast_context_mut()
+                    .mutate_node(*value, |value, _| std::mem::swap(&mut value.left, target));
                 true
             }
             _ => false,
         },
         _ => false,
     };
+    sequence.replace(shorthand, shorthand_declaration);
     if !folded {
         sequence.replace(longhand, longhand_declaration);
     }
@@ -842,20 +878,19 @@ where
 {
     if let Some(keyword) = css_wide_box_longhands(sequence, locations) {
         let target = *locations.iter().max().expect("four box sides");
-        let allocator = sequence.allocator(target);
         let property_id = match family {
             BoxFamily::Margin => PropertyId::Margin,
             BoxFamily::Padding => PropertyId::Padding,
         };
+        let property_id = sequence
+            .ast_context_mut()
+            .alloc_node_without_span(property_id);
         for &location in &locations {
             if location != target {
                 sequence.replace(location, Declaration::Tombstone);
             }
         }
-        sequence.replace(
-            target,
-            Declaration::CSSWide(allocator.boxed(property_id), keyword),
-        );
+        sequence.replace(target, Declaration::CSSWide(property_id, keyword));
         record_merged_longhands(locations, target, cx);
         return true;
     }
@@ -917,7 +952,6 @@ where
         .into_iter()
         .max()
         .expect("four box sides");
-    let allocator = sequence.allocator(target);
     let top_declaration = sequence.replace(top, Declaration::Tombstone);
     let right_declaration = sequence.replace(right, Declaration::Tombstone);
     let bottom_declaration = sequence.replace(bottom, Declaration::Tombstone);
@@ -936,15 +970,13 @@ where
             let Declaration::MarginLeft(left_value) = left_declaration else {
                 unreachable!("typed margin IR validates every side")
             };
-            sequence.replace(
-                target,
-                Declaration::Margin(allocator.boxed(Margin {
-                    top: top_value,
-                    right: right_value,
-                    bottom: bottom_value,
-                    left: left_value,
-                })),
-            );
+            let value = sequence.ast_context_mut().alloc_node_without_span(Margin {
+                top: top_value,
+                right: right_value,
+                bottom: bottom_value,
+                left: left_value,
+            });
+            sequence.replace(target, Declaration::Margin(value));
         }
         BoxFamily::Padding => {
             let Declaration::PaddingTop(top_value) = top_declaration else {
@@ -959,15 +991,13 @@ where
             let Declaration::PaddingLeft(left_value) = left_declaration else {
                 unreachable!("typed padding IR validates every side")
             };
-            sequence.replace(
-                target,
-                Declaration::Padding(allocator.boxed(Padding {
-                    top: top_value,
-                    right: right_value,
-                    bottom: bottom_value,
-                    left: left_value,
-                })),
-            );
+            let value = sequence.ast_context_mut().alloc_node_without_span(Padding {
+                top: top_value,
+                right: right_value,
+                bottom: bottom_value,
+                left: left_value,
+            });
+            sequence.replace(target, Declaration::Padding(value));
         }
     }
     record_merged_longhands([top, right, bottom, left], target, cx);
@@ -986,15 +1016,21 @@ fn record_merged_longhands(
     }
 }
 
-fn declaration_skips_minification(declaration: &Declaration<'_>) -> bool {
+fn declaration_skips_minification<'ast>(
+    declaration: &Declaration<'ast>,
+    ast: &AstContext<'ast>,
+) -> bool {
     matches!(declaration, Declaration::Unparsed(_))
-        || functional_color_requires_history_barrier(declaration)
+        || functional_color_requires_history_barrier(declaration, ast)
 }
 
-fn functional_color_requires_history_barrier(declaration: &Declaration<'_>) -> bool {
+fn functional_color_requires_history_barrier<'ast>(
+    declaration: &Declaration<'ast>,
+    ast: &AstContext<'ast>,
+) -> bool {
     let mut visitor = FunctionalColorBarrierVisitor::default();
     GhostToken::scope(|token| {
-        declaration.visit(&mut visitor, &VisitContext::new(&token));
+        declaration.visit(&mut visitor, &VisitContext::with_ast(&token, ast));
     });
     visitor.requires_barrier
 }
@@ -1008,7 +1044,8 @@ impl<'ast, 'ghost> Visitor<'ast, 'ghost> for FunctionalColorBarrierVisitor {
     fn visit_css_color(&mut self, node: &CssColor<'ast>, cx: &VisitContext<'_, 'ast, 'ghost>) {
         if matches!(
             node,
-            CssColor::Function(function) if function.replacement.is_none()
+            CssColor::Function(function)
+                if cx.ast_context().resolve_node(*function).replacement.is_none()
         ) {
             self.requires_barrier = true;
         } else {
@@ -1024,6 +1061,79 @@ mod tests {
         BorderColor, Function, Gradient, GradientItem, Image, KnownColor, LineDirection, SVGPaint,
         VerticalPositionKeyword,
     };
+
+    #[test]
+    fn unknown_declaration_keys_compare_text_across_ranges() {
+        let allocator = Allocator::new();
+        let scratch = Allocator::new();
+        let mut ast = AstContext::with_source_in(&allocator, "--x --x --X", Default::default());
+        let first = ast.string_pool().source_range(0, 3);
+        let second = ast.string_pool().source_range(4, 7);
+        let upper = ast.string_pool().source_range(8, 11);
+        let extra = ast.add_str("--x");
+        assert_ne!(first, second);
+        assert_ne!(first, extra);
+        let mut map = DeclarationMap::new(&scratch);
+        let a = DeclarationLocation::new(0, 0);
+        let b = DeclarationLocation::new(1, 0);
+        // Exercise both the initial linear map and its promoted hash table.
+        for fillers in [0, 128] {
+            map.clear();
+            for index in 0..fillers {
+                let name = ast.add_str(&format!("--filler-{index}"));
+                assert_eq!(
+                    map.insert_unknown(&ast, &scratch, PropertyId::Custom(name), false, a),
+                    None
+                );
+            }
+            let checkpoint = ast.node_checkpoint();
+            let bytes = ast.string_pool().extra_len();
+            let interned = ast.string_pool().len();
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Custom(first), false, a),
+                None
+            );
+            for name in [second, extra] {
+                assert_eq!(
+                    map.insert_unknown(&ast, &scratch, PropertyId::Custom(name), false, b),
+                    Some(a)
+                );
+                assert_eq!(
+                    map.insert_unknown(&ast, &scratch, PropertyId::Custom(first), false, a),
+                    Some(b)
+                );
+            }
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Custom(upper), false, a),
+                None
+            );
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Custom(first), true, a),
+                None
+            );
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Unparsed, false, a),
+                None
+            );
+            assert_eq!(
+                map.insert_unknown(
+                    &ast,
+                    &scratch,
+                    PropertyId::Custom(rocketcss_ast::AstStr::EMPTY),
+                    false,
+                    b
+                ),
+                None
+            );
+            assert_eq!(
+                map.insert_unknown(&ast, &scratch, PropertyId::Unparsed, false, b),
+                Some(a)
+            );
+            assert_eq!(ast.node_checkpoint(), checkpoint);
+            assert_eq!(ast.string_pool().extra_len(), bytes);
+            assert_eq!(ast.string_pool().len(), interned);
+        }
+    }
 
     #[test]
     fn declaration_location_fits_in_one_word() {
@@ -1047,42 +1157,58 @@ mod tests {
 
     #[test]
     fn functional_color_barrier_walks_nested_color_values() {
-        let allocator = Allocator::new();
-        let unresolved_color = || {
-            CssColor::Function(allocator.boxed(Function::new(
-                "color-mix",
-                rocketcss_common::vec::Vec::new_in(&allocator),
-            )))
-        };
-        let known_color = || CssColor::Known(KnownColor::Red);
+        fn unresolved_color<'ast>(
+            allocator: &'ast Allocator,
+            ast: &mut AstContext<'ast>,
+        ) -> rocketcss_ast::NodeId<'ast, CssColor<'ast>> {
+            let arguments = ast.alloc_vec(rocketcss_common::vec::Vec::new_in(allocator));
+            let function = Function::new("color-mix", arguments, ast);
+            let function = ast.alloc_node_without_span(function);
+            ast.alloc_node_without_span(CssColor::Function(function))
+        }
 
-        let direct = Declaration::Color(allocator.boxed(unresolved_color()));
-        let border = Declaration::BorderColor(allocator.boxed(BorderColor {
-            bottom: allocator.boxed(known_color()),
-            left: allocator.boxed(known_color()),
-            right: allocator.boxed(known_color()),
-            top: allocator.boxed(unresolved_color()),
+        fn known_color<'ast>(
+            ast: &mut AstContext<'ast>,
+        ) -> rocketcss_ast::NodeId<'ast, CssColor<'ast>> {
+            ast.alloc_node_without_span(CssColor::Known(KnownColor::Red))
+        }
+
+        let allocator = Allocator::new();
+        let mut ast = AstContext::new_in(&allocator);
+        let direct = Declaration::Color(unresolved_color(&allocator, &mut ast));
+        let bottom = known_color(&mut ast);
+        let left = known_color(&mut ast);
+        let right = known_color(&mut ast);
+        let top = unresolved_color(&allocator, &mut ast);
+        let border = Declaration::BorderColor(ast.alloc_node_without_span(BorderColor {
+            bottom,
+            left,
+            right,
+            top,
         }));
         let mut gradient_items = allocator.vec();
-        gradient_items.push(GradientItem::ColorStop {
-            color: allocator.boxed(unresolved_color()),
+        let color = unresolved_color(&allocator, &mut ast);
+        gradient_items.push(ast.alloc_node_without_span(GradientItem::ColorStop {
+            color,
             position: None,
-        });
+        }));
+        let gradient_items = ast.alloc_vec(gradient_items);
         let mut images = allocator.vec();
-        images.push(Image::Gradient(allocator.boxed(Gradient::Linear {
+        let gradient = ast.alloc_node_without_span(Gradient::Linear {
             direction: LineDirection::Vertical(VerticalPositionKeyword::Bottom),
             items: gradient_items,
             vendor_prefix: VendorPrefix::NONE,
-        })));
+        });
+        images.push(Image::Gradient(gradient));
+        let images = ast.alloc_vec(images);
         let background_image = Declaration::BackgroundImage(images);
-        let fill = Declaration::Fill(
-            allocator.boxed(SVGPaint::Color(allocator.boxed(unresolved_color()))),
-        );
-        let plain = Declaration::Color(allocator.boxed(known_color()));
+        let fill_color = unresolved_color(&allocator, &mut ast);
+        let fill = Declaration::Fill(ast.alloc_node_without_span(SVGPaint::Color(fill_color)));
+        let plain = Declaration::Color(known_color(&mut ast));
 
         for declaration in [&direct, &border, &background_image, &fill] {
-            assert!(functional_color_requires_history_barrier(declaration));
+            assert!(functional_color_requires_history_barrier(declaration, &ast));
         }
-        assert!(!functional_color_requires_history_barrier(&plain));
+        assert!(!functional_color_requires_history_barrier(&plain, &ast));
     }
 }

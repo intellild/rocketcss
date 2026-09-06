@@ -92,13 +92,14 @@ fn collect_coverage(source: &str) -> Coverage {
             match declaration {
                 Declaration::Custom(_) => coverage.custom_properties += 1,
                 Declaration::Unparsed(property) => {
+                    let property = stylesheet.resolve_node(*property);
                     *coverage.unparsed.entry(property.reason.into()).or_default() += 1;
                 }
                 Declaration::Tombstone => {}
                 declaration => {
                     *coverage
                         .typed_by_property
-                        .entry(declaration.name().to_owned())
+                        .entry(declaration.name(&stylesheet).to_owned())
                         .or_default() += 1;
                 }
             }

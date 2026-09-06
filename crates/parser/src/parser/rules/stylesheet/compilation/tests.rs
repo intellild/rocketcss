@@ -2,14 +2,14 @@ use super::*;
 use crate::parser::ReplayCounters;
 
 fn selector_representative<'ast>(
-    _compilation: &Compilation<'ast>,
+    _compilation: &AstContext<'ast>,
     key: &ConcreteEffectiveKey<'ast>,
 ) -> Option<SelectorPathId<'ast>> {
     key.selector_path()
 }
 
 fn context_representative<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     key: &ConcreteEffectiveKey<'ast>,
 ) -> Option<ConcreteRuleId<'ast>> {
     let (_, value) = compilation.context_path_record(key.context_path()?)?;
@@ -17,7 +17,7 @@ fn context_representative<'ast>(
 }
 
 fn effective_key_for<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     rule: ConcreteRuleId<'ast>,
 ) -> EffectiveKeyId<'ast> {
     let block = compilation
@@ -31,7 +31,7 @@ fn effective_key_for<'ast>(
 }
 
 fn selector_path_for_rule<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     rule: ConcreteRuleId<'ast>,
 ) -> Option<SelectorPathId<'ast>> {
     compilation
@@ -40,7 +40,7 @@ fn selector_path_for_rule<'ast>(
 }
 
 fn selector_value_for_rule<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     rule: ConcreteRuleId<'ast>,
 ) -> SelectorValueId<'ast> {
     match compilation.rule(rule).unwrap().payload() {
@@ -51,7 +51,7 @@ fn selector_value_for_rule<'ast>(
 }
 
 fn effective_key_seed<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     rule: ConcreteRuleId<'ast>,
 ) -> ConcreteEffectiveKey<'ast> {
     let block = compilation.rule(rule).unwrap().declaration_block().unwrap();
@@ -65,7 +65,7 @@ fn effective_key_seed<'ast>(
         .unwrap()
 }
 
-fn declaration_chain_layouts(compilation: &Compilation<'_>) -> std::vec::Vec<(u32, u32)> {
+fn declaration_chain_layouts(compilation: &AstContext<'_>) -> std::vec::Vec<(u32, u32)> {
     compilation
         .declaration_blocks_in_source_order()
         .map(|(block, _)| declaration_chain_layout(compilation, block))
@@ -73,7 +73,7 @@ fn declaration_chain_layouts(compilation: &Compilation<'_>) -> std::vec::Vec<(u3
 }
 
 fn declaration_chain_layout<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     block: ConcreteDeclarationBlockId<'ast>,
 ) -> (u32, u32) {
     let ids = compilation
@@ -327,24 +327,23 @@ fn replacing_a_selector_updates_only_its_inherited_effective_key_subtree() {
 }
 
 #[test]
-fn radix_style_subset_preserves_semantic_blocks() {
+fn ast_style_subset_preserves_semantic_blocks() {
     let allocator = Allocator::new();
     let source = "a{color:red;& b{margin:0;padding:1px}color:blue}c{display:block}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
 
     assert_eq!(
-        declaration_chain_layouts(&radix),
+        declaration_chain_layouts(&ast),
         [(0, 1), (1, 2), (3, 1), (4, 1)]
     );
     assert!(
-        radix
-            .declarations_in_source_order()
+        ast.declarations_in_source_order()
             .all(|(_, declaration)| !declaration.is_important())
     );
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -366,7 +365,7 @@ fn inserts_a_direct_sibling_after_the_previous_subtree() {
     let inserted = compilation
         .insert_rule_after(
             outer,
-            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
+            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload),
         )
         .unwrap();
 
@@ -428,7 +427,7 @@ fn dense_insertion_preserves_existing_ids_and_effective_key_seeds() {
     let first = compilation
         .insert_rule_after(
             outer,
-            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
+            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload),
         )
         .unwrap();
     let key = compilation
@@ -439,7 +438,7 @@ fn dense_insertion_preserves_existing_ids_and_effective_key_seeds() {
         compilation
             .insert_rule_after(
                 outer,
-                CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
+                CssRulePayload::NestedDeclarations(NestedDeclarationsPayload),
             )
             .unwrap();
         assert_eq!(compilation.validate_ast(), Ok(()));
@@ -484,7 +483,7 @@ fn insertion_skips_retired_source_tombstones() {
     let inserted = compilation
         .insert_rule_after(
             first,
-            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload { span: DUMMY_SP }),
+            CssRulePayload::NestedDeclarations(NestedDeclarationsPayload),
         )
         .unwrap();
 
@@ -577,10 +576,10 @@ fn media_inside_style_splits_declaration_blocks_and_preserves_context() {
     let allocator = Allocator::new();
     let source = "a{color:red;@media (width>1px){color:blue;& b{margin:0}padding:1px}color:green}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let rules = radix
+    let rules = ast
         .rules_in_source_order()
         .map(|(id, rule)| {
             let kind = payload_kind(rule.payload());
@@ -605,37 +604,37 @@ fn media_inside_style_splits_declaration_blocks_and_preserves_context() {
         unreachable!()
     };
 
-    let outer_seed = effective_key_seed(&radix, outer.0);
-    let media_before_seed = effective_key_seed(&radix, media_before.0);
-    let nested_seed = effective_key_seed(&radix, nested.0);
-    let media_after_seed = effective_key_seed(&radix, media_after.0);
-    let outer_after_seed = effective_key_seed(&radix, outer_after.0);
-    assert_eq!(context_representative(&radix, &outer_seed), None);
+    let outer_seed = effective_key_seed(&ast, outer.0);
+    let media_before_seed = effective_key_seed(&ast, media_before.0);
+    let nested_seed = effective_key_seed(&ast, nested.0);
+    let media_after_seed = effective_key_seed(&ast, media_after.0);
+    let outer_after_seed = effective_key_seed(&ast, outer_after.0);
+    assert_eq!(context_representative(&ast, &outer_seed), None);
     assert_eq!(
-        selector_representative(&radix, &outer_seed),
-        selector_path_for_rule(&radix, outer.0)
+        selector_representative(&ast, &outer_seed),
+        selector_path_for_rule(&ast, outer.0)
     );
     assert_eq!(
-        selector_representative(&radix, &media_before_seed),
-        selector_path_for_rule(&radix, outer.0)
+        selector_representative(&ast, &media_before_seed),
+        selector_path_for_rule(&ast, outer.0)
     );
     assert_eq!(
-        context_representative(&radix, &media_before_seed),
+        context_representative(&ast, &media_before_seed),
         Some(media.0)
     );
     assert_eq!(media_after_seed, media_before_seed);
     assert_eq!(
-        selector_representative(&radix, &nested_seed),
-        selector_path_for_rule(&radix, nested.0)
+        selector_representative(&ast, &nested_seed),
+        selector_path_for_rule(&ast, nested.0)
     );
-    assert_eq!(context_representative(&radix, &nested_seed), Some(media.0));
+    assert_eq!(context_representative(&ast, &nested_seed), Some(media.0));
     assert_eq!(outer_after_seed, outer_seed);
 
     assert_eq!(
-        declaration_chain_layouts(&radix),
+        declaration_chain_layouts(&ast),
         [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1)]
     );
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -643,10 +642,10 @@ fn supports_wrappers_share_group_topology_without_losing_style_context() {
     let allocator = Allocator::new();
     let source = "@supports (display:grid){a{color:red}}b{@supports (color:oklch(0 0 0)){color:blue}color:green}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let rules = radix
+    let rules = ast
         .rules_in_source_order()
         .map(|(id, rule)| {
             let kind = payload_kind(rule.payload());
@@ -674,34 +673,34 @@ fn supports_wrappers_share_group_topology_without_losing_style_context() {
     let nested_supports = rules[3].0;
     let nested_declarations = rules[4].0;
     let trailing_declarations = rules[5].0;
-    assert_eq!(radix.rule(top_style).unwrap().parent(), Some(top_supports));
+    assert_eq!(ast.rule(top_style).unwrap().parent(), Some(top_supports));
     assert_eq!(
-        radix.rule(nested_supports).unwrap().parent(),
+        ast.rule(nested_supports).unwrap().parent(),
         Some(outer_style)
     );
 
     assert_eq!(
-        context_representative(&radix, &effective_key_seed(&radix, top_style)),
+        context_representative(&ast, &effective_key_seed(&ast, top_style)),
         Some(top_supports)
     );
     assert_eq!(
-        selector_representative(&radix, &effective_key_seed(&radix, nested_declarations)),
-        selector_path_for_rule(&radix, outer_style)
+        selector_representative(&ast, &effective_key_seed(&ast, nested_declarations)),
+        selector_path_for_rule(&ast, outer_style)
     );
     assert_eq!(
-        context_representative(&radix, &effective_key_seed(&radix, nested_declarations)),
+        context_representative(&ast, &effective_key_seed(&ast, nested_declarations)),
         Some(nested_supports)
     );
     assert_eq!(
-        context_representative(&radix, &effective_key_seed(&radix, trailing_declarations)),
+        context_representative(&ast, &effective_key_seed(&ast, trailing_declarations)),
         None
     );
 
     assert_eq!(
-        declaration_chain_layouts(&radix),
+        declaration_chain_layouts(&ast),
         [(0, 1), (0, 0), (1, 1), (2, 1)]
     );
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -710,10 +709,10 @@ fn starting_style_uses_explicit_source_order_segments() {
     let source =
         "@starting-style{a{opacity:0}}b{@starting-style{opacity:0;&:hover{opacity:.5}}opacity:1}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let kinds = radix
+    let kinds = ast
         .rules_in_source_order()
         .map(|(_, rule)| payload_kind(rule.payload()))
         .collect::<std::vec::Vec<_>>();
@@ -731,10 +730,10 @@ fn starting_style_uses_explicit_source_order_segments() {
     );
 
     assert_eq!(
-        declaration_chain_layouts(&radix),
+        declaration_chain_layouts(&ast),
         [(0, 1), (0, 0), (1, 1), (2, 1), (3, 1)]
     );
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -743,10 +742,10 @@ fn layer_statement_and_blocks_keep_distinct_topology() {
     let source =
         "@layer reset,theme;@layer app{a{color:red}}b{@layer nested{color:blue}color:green}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let rules = radix
+    let rules = ast
         .rules_in_source_order()
         .map(|(id, rule)| {
             let kind = payload_kind(rule.payload());
@@ -768,38 +767,32 @@ fn layer_statement_and_blocks_keep_distinct_topology() {
             "declarations"
         ]
     );
-    assert!(radix.rule(rules[0].0).unwrap().child_list().is_none());
-    assert!(radix.rule(rules[1].0).unwrap().child_list().is_some());
-    assert_eq!(radix.rule(rules[2].0).unwrap().parent(), Some(rules[1].0));
-    assert_eq!(radix.rule(rules[4].0).unwrap().parent(), Some(rules[3].0));
+    assert!(ast.rule(rules[0].0).unwrap().child_list().is_none());
+    assert!(ast.rule(rules[1].0).unwrap().child_list().is_some());
+    assert_eq!(ast.rule(rules[2].0).unwrap().parent(), Some(rules[1].0));
+    assert_eq!(ast.rule(rules[4].0).unwrap().parent(), Some(rules[3].0));
 
-    let nested_block = radix.rule(rules[5].0).unwrap().declaration_block().unwrap();
-    let nested_key = radix
-        .effective_key(
-            radix
-                .declaration_block(nested_block)
-                .unwrap()
-                .effective_key(),
-        )
+    let nested_block = ast.rule(rules[5].0).unwrap().declaration_block().unwrap();
+    let nested_key = ast
+        .effective_key(ast.declaration_block(nested_block).unwrap().effective_key())
         .unwrap();
     assert_eq!(
-        selector_representative(&radix, nested_key),
-        selector_path_for_rule(&radix, rules[3].0)
+        selector_representative(&ast, nested_key),
+        selector_path_for_rule(&ast, rules[3].0)
     );
-    assert_eq!(context_representative(&radix, nested_key), None);
+    assert_eq!(context_representative(&ast, nested_key), None);
     assert_eq!(
-        radix
-            .layer_context_record(nested_key.layer().unwrap())
+        ast.layer_context_record(nested_key.layer().unwrap())
             .unwrap()
             .1,
         rules[4].0
     );
 
     assert_eq!(
-        declaration_chain_layouts(&radix),
+        declaration_chain_layouts(&ast),
         [(0, 1), (0, 0), (1, 1), (2, 1)]
     );
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -807,10 +800,10 @@ fn nested_group_wrappers_preserve_the_full_parent_context_chain() {
     let allocator = Allocator::new();
     let source = "@container card (width>1px){@scope (.card) to (.end){a{color:red}}}b{@container style(--theme:dark){@scope (&){color:blue}}color:green}@-moz-document url-prefix(){c{display:block}}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let rules = radix
+    let rules = ast
         .rules_in_source_order()
         .map(|(id, rule)| {
             let kind = payload_kind(rule.payload());
@@ -840,31 +833,28 @@ fn nested_group_wrappers_preserve_the_full_parent_context_chain() {
     let container = rules[4].0;
     let scope = rules[5].0;
     let scoped_declarations = rules[6].0;
-    assert_eq!(radix.rule(container).unwrap().parent(), Some(outer_style));
-    assert_eq!(radix.rule(scope).unwrap().parent(), Some(container));
-    assert_eq!(
-        radix.rule(scoped_declarations).unwrap().parent(),
-        Some(scope)
-    );
-    let block = radix
+    assert_eq!(ast.rule(container).unwrap().parent(), Some(outer_style));
+    assert_eq!(ast.rule(scope).unwrap().parent(), Some(container));
+    assert_eq!(ast.rule(scoped_declarations).unwrap().parent(), Some(scope));
+    let block = ast
         .rule(scoped_declarations)
         .unwrap()
         .declaration_block()
         .unwrap();
-    let seed = radix
-        .effective_key(radix.declaration_block(block).unwrap().effective_key())
+    let seed = ast
+        .effective_key(ast.declaration_block(block).unwrap().effective_key())
         .unwrap();
     assert_eq!(
-        selector_representative(&radix, seed),
-        selector_path_for_rule(&radix, outer_style)
+        selector_representative(&ast, seed),
+        selector_path_for_rule(&ast, outer_style)
     );
-    assert_eq!(context_representative(&radix, seed), Some(scope));
+    assert_eq!(context_representative(&ast, seed), Some(scope));
 
     assert_eq!(
-        declaration_chain_layouts(&radix),
+        declaration_chain_layouts(&ast),
         [(0, 1), (0, 0), (1, 1), (2, 1), (3, 1)]
     );
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -872,39 +862,39 @@ fn unknown_at_rules_remain_opaque_and_lossless() {
     let allocator = Allocator::new();
     let source = "@foo screen and (x:y);a{color:red;@bar one{two:3;nested(x)}color:blue}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let ids = radix
+    let ids = ast
         .rules_in_source_order()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
     assert_eq!(ids.len(), 4);
 
-    let CssRulePayload::Unknown(radix_top) = radix.rule(ids[0]).unwrap().payload() else {
+    let CssRulePayload::Unknown(ast_top) = ast.rule(ids[0]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(radix_top.name, "foo");
-    assert!(!radix_top.prelude.is_empty());
-    assert!(radix_top.block.is_none());
-    assert!(radix.rule(ids[0]).unwrap().child_list().is_none());
+    assert_eq!(ast.str(ast_top.name), "foo");
+    assert!(!ast_top.prelude.is_empty());
+    assert!(ast_top.block.is_none());
+    assert!(ast.rule(ids[0]).unwrap().child_list().is_none());
 
-    let CssRulePayload::Unknown(radix_nested) = radix.rule(ids[2]).unwrap().payload() else {
+    let CssRulePayload::Unknown(ast_nested) = ast.rule(ids[2]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(radix_nested.name, "bar");
-    assert!(!radix_nested.prelude.is_empty());
+    assert_eq!(ast.str(ast_nested.name), "bar");
+    assert!(!ast_nested.prelude.is_empty());
     assert!(
-        radix_nested
+        ast_nested
             .block
             .as_ref()
             .is_some_and(|block| !block.is_empty())
     );
-    assert!(radix.rule(ids[2]).unwrap().child_list().is_none());
-    assert_eq!(radix.rule(ids[2]).unwrap().parent(), Some(ids[1]));
+    assert!(ast.rule(ids[2]).unwrap().child_list().is_none());
+    assert_eq!(ast.rule(ids[2]).unwrap().parent(), Some(ids[1]));
 
-    assert_eq!(declaration_chain_layouts(&radix), [(0, 1), (1, 1)]);
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(declaration_chain_layouts(&ast), [(0, 1), (1, 1)]);
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -912,10 +902,10 @@ fn declaration_owner_rules_share_one_lexical_property_tape() {
     let allocator = Allocator::new();
     let source = "a{color:red}@counter-style marker{system:cyclic;symbols:'x'}@viewport{width:device-width}@position-try --fallback{top:0;left:1px}b{color:blue}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let kinds = radix
+    let kinds = ast
         .rules_in_source_order()
         .map(|(_, rule)| payload_kind(rule.payload()))
         .collect::<std::vec::Vec<_>>();
@@ -930,21 +920,19 @@ fn declaration_owner_rules_share_one_lexical_property_tape() {
         ]
     );
     assert_eq!(
-        radix
-            .declarations_in_source_order()
+        ast.declarations_in_source_order()
             .map(|(id, _)| id.index())
             .collect::<std::vec::Vec<_>>(),
         [0, 1, 2, 3, 4, 5, 6]
     );
     assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(block, _)| declaration_chain_layout(&radix, block))
+        ast.declaration_blocks_in_source_order()
+            .map(|(block, _)| declaration_chain_layout(&ast, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 2), (3, 1), (4, 2), (6, 1)]
     );
 
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -965,28 +953,27 @@ fn font_face_descriptors_are_typed_occurrences_in_the_global_tape() {
     let allocator = Allocator::new();
     let source = "a{color:red}@font-face{font-family:Demo;src:url(demo.woff2);unicode-range:U+0-7F}b{color:blue}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let ids = radix
+    let ids = ast
         .rules_in_source_order()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
     assert_eq!(ids.len(), 3);
     assert!(matches!(
-        radix.rule(ids[1]).unwrap().payload(),
+        ast.rule(ids[1]).unwrap().payload(),
         CssRulePayload::FontFace(_)
     ));
     assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(block, _)| declaration_chain_layout(&radix, block))
+        ast.declaration_blocks_in_source_order()
+            .map(|(block, _)| declaration_chain_layout(&ast, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 3), (4, 1)]
     );
 
-    let block = radix.rule(ids[1]).unwrap().declaration_block().unwrap();
-    let descriptors = radix
+    let block = ast.rule(ids[1]).unwrap().declaration_block().unwrap();
+    let descriptors = ast
         .declarations_in_block(block)
         .unwrap()
         .collect::<std::vec::Vec<_>>();
@@ -995,7 +982,7 @@ fn font_face_descriptors_are_typed_occurrences_in_the_global_tape() {
         assert!(matches!(record.payload(), DeclarationPayload::FontFace(_)));
         assert!(!record.is_important());
     }
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -1003,32 +990,31 @@ fn palette_and_view_transition_descriptors_keep_typed_source_order() {
     let allocator = Allocator::new();
     let source = "a{color:red}@font-palette-values --theme{font-family:Demo;base-palette:1;override-colors:0 red}@view-transition{navigation:auto;types:foo bar}b{color:blue}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let ids = radix
+    let ids = ast
         .rules_in_source_order()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
     assert_eq!(ids.len(), 4);
     assert!(matches!(
-        radix.rule(ids[1]).unwrap().payload(),
+        ast.rule(ids[1]).unwrap().payload(),
         CssRulePayload::FontPaletteValues(_)
     ));
     assert!(matches!(
-        radix.rule(ids[2]).unwrap().payload(),
+        ast.rule(ids[2]).unwrap().payload(),
         CssRulePayload::ViewTransition(_)
     ));
     assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(block, _)| declaration_chain_layout(&radix, block))
+        ast.declaration_blocks_in_source_order()
+            .map(|(block, _)| declaration_chain_layout(&ast, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 3), (4, 2), (6, 1)]
     );
 
-    let palette_block = radix.rule(ids[1]).unwrap().declaration_block().unwrap();
-    let palette = radix
+    let palette_block = ast.rule(ids[1]).unwrap().declaration_block().unwrap();
+    let palette = ast
         .declarations_in_block(palette_block)
         .unwrap()
         .collect::<std::vec::Vec<_>>();
@@ -1041,8 +1027,8 @@ fn palette_and_view_transition_descriptors_keep_typed_source_order() {
         assert!(!record.is_important());
     }
 
-    let view_transition_block = radix.rule(ids[2]).unwrap().declaration_block().unwrap();
-    let view_transition = radix
+    let view_transition_block = ast.rule(ids[2]).unwrap().declaration_block().unwrap();
+    let view_transition = ast
         .declarations_in_block(view_transition_block)
         .unwrap()
         .collect::<std::vec::Vec<_>>();
@@ -1054,7 +1040,7 @@ fn palette_and_view_transition_descriptors_keep_typed_source_order() {
         ));
         assert!(!record.is_important());
     }
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -1062,47 +1048,59 @@ fn top_level_statements_preserve_payloads_and_ordering_state() {
     let allocator = Allocator::new();
     let source = "@charset 'UTF-8';@layer base;@import url(a.css) layer(theme) screen;@namespace svg url(http://www.w3.org/2000/svg);@custom-media --narrow (width < 30em);a{}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let ids = radix
+    let ids = ast
         .rules_in_source_order()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
     assert_eq!(ids.len(), 6);
 
-    let CssRulePayload::Charset(radix_charset) = radix.rule(ids[0]).unwrap().payload() else {
+    let CssRulePayload::Charset(ast_charset) = ast.rule(ids[0]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(radix_charset.encoding, "UTF-8");
+    assert_eq!(ast.str(ast_charset.encoding), "UTF-8");
 
-    let CssRulePayload::LayerStatement(radix_layer) = radix.rule(ids[1]).unwrap().payload() else {
+    let CssRulePayload::LayerStatement(ast_layer) = ast.rule(ids[1]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(radix_layer.names.as_slice(), [&["base"][..]]);
+    assert_eq!(ast.vec_len(ast_layer.names), 1);
+    let layer_name = ast.vec_get(ast_layer.names, 0).unwrap();
+    assert_eq!(
+        ast.vec_iter(layer_name)
+            .map(|part| ast.str(part))
+            .collect::<std::vec::Vec<_>>(),
+        ["base"]
+    );
 
-    let CssRulePayload::Import(radix_import) = radix.rule(ids[2]).unwrap().payload() else {
+    let CssRulePayload::Import(ast_import) = ast.rule(ids[2]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(radix_import.url, "a.css");
-    assert_eq!(radix_import.layer.as_deref(), Some(&["theme"][..]));
+    assert_eq!(ast.str(ast_import.url), "a.css");
+    assert_eq!(
+        ast_import.layer.map(|layer| ast
+            .vec_iter(layer)
+            .map(|part| ast.str(part))
+            .collect::<std::vec::Vec<_>>()),
+        Some(vec!["theme"])
+    );
 
-    let CssRulePayload::Namespace(radix_namespace) = radix.rule(ids[3]).unwrap().payload() else {
+    let CssRulePayload::Namespace(ast_namespace) = ast.rule(ids[3]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(radix_namespace.prefix, Some("svg"));
-    assert_eq!(radix_namespace.url, "http://www.w3.org/2000/svg");
+    assert_eq!(ast_namespace.prefix.map(|name| ast.str(name)), Some("svg"));
+    assert_eq!(ast.str(ast_namespace.url), "http://www.w3.org/2000/svg");
 
-    let CssRulePayload::CustomMedia(radix_custom_media) = radix.rule(ids[4]).unwrap().payload()
-    else {
+    let CssRulePayload::CustomMedia(ast_custom_media) = ast.rule(ids[4]).unwrap().payload() else {
         unreachable!()
     };
-    assert_eq!(radix_custom_media.name, "--narrow");
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.str(ast_custom_media.name), "--narrow");
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
-fn radix_top_level_state_rejects_late_and_nested_statements() {
+fn ast_top_level_state_rejects_late_and_nested_statements() {
     let allocator = Allocator::new();
     let strict = ParserOptions {
         error_recovery: false,
@@ -1125,10 +1123,10 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
     let allocator = Allocator::new();
     let source = "a{color:red}@-webkit-keyframes fade{from{opacity:0}bogus selector{bad:1}50%,to{opacity:1;transform:none}}b{color:blue}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let rules = radix
+    let rules = ast
         .rules_in_source_order()
         .map(|(id, rule)| (id, payload_kind(rule.payload())))
         .collect::<std::vec::Vec<_>>();
@@ -1140,43 +1138,46 @@ fn keyframe_syntax_positions_are_explicit_child_rules() {
         ["style", "keyframes", "keyframe", "keyframe", "style"]
     );
     let wrapper = rules[1].0;
-    let frames = radix
-        .rules_in_list(radix.rule(wrapper).unwrap().child_list().unwrap())
+    let frames = ast
+        .rules_in_list(ast.rule(wrapper).unwrap().child_list().unwrap())
         .unwrap()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
     assert_eq!(frames, [rules[2].0, rules[3].0]);
 
-    let CssRulePayload::Keyframes(radix_keyframes) = radix.rule(wrapper).unwrap().payload() else {
+    let CssRulePayload::Keyframes(ast_keyframes) = ast.rule(wrapper).unwrap().payload() else {
         unreachable!()
     };
     assert!(matches!(
-        *radix_keyframes.name,
-        KeyframesName::Ident("fade")
+        ast.resolve_node(ast_keyframes.name),
+        KeyframesName::Ident(value) if ast.str(value) == "fade"
     ));
-    assert_eq!(radix_keyframes.vendor_prefix, VendorPrefix::WEBKIT);
-    let CssRulePayload::Keyframe(first_frame) = radix.rule(frames[0]).unwrap().payload() else {
+    assert_eq!(ast_keyframes.vendor_prefix, VendorPrefix::WEBKIT);
+    let CssRulePayload::Keyframe(first_frame) = ast.rule(frames[0]).unwrap().payload() else {
         unreachable!()
     };
     assert!(matches!(
-        first_frame.selectors.as_slice(),
+        ast.vec_iter(first_frame.selectors)
+            .collect::<std::vec::Vec<_>>()
+            .as_slice(),
         [KeyframeSelector::From]
     ));
-    let CssRulePayload::Keyframe(second_frame) = radix.rule(frames[1]).unwrap().payload() else {
+    let CssRulePayload::Keyframe(second_frame) = ast.rule(frames[1]).unwrap().payload() else {
         unreachable!()
     };
     assert!(matches!(
-        second_frame.selectors.as_slice(),
+        ast.vec_iter(second_frame.selectors)
+            .collect::<std::vec::Vec<_>>()
+            .as_slice(),
         [KeyframeSelector::Percentage(0.5), KeyframeSelector::To]
     ));
     assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(block, _)| declaration_chain_layout(&radix, block))
+        ast.declaration_blocks_in_source_order()
+            .map(|(block, _)| declaration_chain_layout(&ast, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 1), (2, 2), (4, 1)]
     );
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -1184,10 +1185,10 @@ fn page_margin_rules_split_parent_declaration_blocks() {
     let allocator = Allocator::new();
     let source = "a{color:red}@page invoice:left{size:A4;@top-left{content:'x'}margin:0;@bottom-right{content:counter(page)}color:red}b{}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let rules = radix
+    let rules = ast
         .rules_in_source_order()
         .map(|(id, rule)| (id, payload_kind(rule.payload())))
         .collect::<std::vec::Vec<_>>();
@@ -1207,24 +1208,33 @@ fn page_margin_rules_split_parent_declaration_blocks() {
         ]
     );
     assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(block, _)| declaration_chain_layout(&radix, block))
+        ast.declaration_blocks_in_source_order()
+            .map(|(block, _)| declaration_chain_layout(&ast, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1), (0, 0)]
     );
 
     let page = rules[1].0;
-    let CssRulePayload::Page(radix_page) = radix.rule(page).unwrap().payload() else {
+    let CssRulePayload::Page(ast_page) = ast.rule(page).unwrap().payload() else {
         unreachable!()
     };
+    let selector = ast.resolve_node(ast.vec_get(ast_page.selectors, 0).unwrap());
+    let PageSelector {
+        name: Some(name),
+        pseudo_classes,
+    } = selector
+    else {
+        panic!("expected the parsed page selector");
+    };
+    assert_eq!(ast.str(name), "invoice");
     assert!(matches!(
-        radix_page.selectors.as_slice(),
-        [PageSelector { name: Some("invoice"), pseudo_classes }]
-            if matches!(pseudo_classes.as_slice(), [PagePseudoClass::Left])
+        ast.vec_iter(pseudo_classes)
+            .collect::<std::vec::Vec<_>>()
+            .as_slice(),
+        [PagePseudoClass::Left]
     ));
-    let page_children = radix
-        .rules_in_list(radix.rule(page).unwrap().child_list().unwrap())
+    let page_children = ast
+        .rules_in_list(ast.rule(page).unwrap().child_list().unwrap())
         .unwrap()
         .map(|(id, _)| id)
         .collect::<std::vec::Vec<_>>();
@@ -1233,14 +1243,14 @@ fn page_margin_rules_split_parent_declaration_blocks() {
         [rules[2].0, rules[3].0, rules[4].0, rules[5].0]
     );
 
-    let mut radix_page_declarations = std::vec::Vec::new();
+    let mut ast_page_declarations = std::vec::Vec::new();
     for owner in [page, rules[3].0, rules[5].0] {
-        let block = radix.rule(owner).unwrap().declaration_block().unwrap();
-        radix_page_declarations.extend(radix.declarations_in_block(block).unwrap());
+        let block = ast.rule(owner).unwrap().declaration_block().unwrap();
+        ast_page_declarations.extend(ast.declarations_in_block(block).unwrap());
     }
-    assert_eq!(radix_page_declarations.len(), 3);
+    assert_eq!(ast_page_declarations.len(), 3);
     assert!(
-        radix_page_declarations
+        ast_page_declarations
             .iter()
             .all(|declaration| !declaration.is_important())
     );
@@ -1249,19 +1259,19 @@ fn page_margin_rules_split_parent_declaration_blocks() {
         (rules[2].0, PageMarginBox::TopLeft),
         (rules[4].0, PageMarginBox::BottomRight),
     ] {
-        let CssRulePayload::PageMargin(radix_margin) = radix.rule(margin).unwrap().payload() else {
+        let CssRulePayload::PageMargin(ast_margin) = ast.rule(margin).unwrap().payload() else {
             unreachable!()
         };
-        assert_eq!(radix_margin.margin_box, expected_box);
-        let radix_block = radix.rule(margin).unwrap().declaration_block().unwrap();
-        let declarations = radix
-            .declarations_in_block(radix_block)
+        assert_eq!(ast_margin.margin_box, expected_box);
+        let ast_block = ast.rule(margin).unwrap().declaration_block().unwrap();
+        let declarations = ast
+            .declarations_in_block(ast_block)
             .unwrap()
             .collect::<std::vec::Vec<_>>();
         assert_eq!(declarations.len(), 1);
         assert!(!declarations[0].is_important());
     }
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -1269,10 +1279,10 @@ fn nest_rule_has_its_own_selector_owner_and_inherited_context() {
     let allocator = Allocator::new();
     let source = "a{@nest & .b{color:red;@media (width>1px){color:green}}color:blue}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let rules = radix
+    let rules = ast
         .rules_in_source_order()
         .map(|(id, rule)| (id, payload_kind(rule.payload())))
         .collect::<std::vec::Vec<_>>();
@@ -1287,51 +1297,42 @@ fn nest_rule_has_its_own_selector_owner_and_inherited_context() {
     let nesting = rules[1].0;
     let media = rules[2].0;
     let media_declarations = rules[3].0;
-    assert_eq!(radix.rule(nesting).unwrap().parent(), Some(outer));
-    assert_eq!(radix.rule(media).unwrap().parent(), Some(nesting));
-    assert_eq!(
-        radix.rule(media_declarations).unwrap().parent(),
-        Some(media)
-    );
+    assert_eq!(ast.rule(nesting).unwrap().parent(), Some(outer));
+    assert_eq!(ast.rule(media).unwrap().parent(), Some(nesting));
+    assert_eq!(ast.rule(media_declarations).unwrap().parent(), Some(media));
 
-    let nesting_block = radix.rule(nesting).unwrap().declaration_block().unwrap();
-    let nesting_seed = radix
+    let nesting_block = ast.rule(nesting).unwrap().declaration_block().unwrap();
+    let nesting_seed = ast
         .effective_key(
-            radix
-                .declaration_block(nesting_block)
+            ast.declaration_block(nesting_block)
                 .unwrap()
                 .effective_key(),
         )
         .unwrap();
     assert_eq!(
-        selector_representative(&radix, nesting_seed),
-        selector_path_for_rule(&radix, nesting)
+        selector_representative(&ast, nesting_seed),
+        selector_path_for_rule(&ast, nesting)
     );
-    assert_eq!(context_representative(&radix, nesting_seed), None);
-    let media_block = radix
+    assert_eq!(context_representative(&ast, nesting_seed), None);
+    let media_block = ast
         .rule(media_declarations)
         .unwrap()
         .declaration_block()
         .unwrap();
-    let media_seed = radix
-        .effective_key(
-            radix
-                .declaration_block(media_block)
-                .unwrap()
-                .effective_key(),
-        )
+    let media_seed = ast
+        .effective_key(ast.declaration_block(media_block).unwrap().effective_key())
         .unwrap();
     assert_eq!(
-        selector_representative(&radix, media_seed),
-        selector_path_for_rule(&radix, nesting)
+        selector_representative(&ast, media_seed),
+        selector_path_for_rule(&ast, nesting)
     );
-    assert_eq!(context_representative(&radix, media_seed), Some(media));
+    assert_eq!(context_representative(&ast, media_seed), Some(media));
 
     assert_eq!(
-        declaration_chain_layouts(&radix),
+        declaration_chain_layouts(&ast),
         [(0, 0), (0, 1), (1, 1), (2, 1)]
     );
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -1339,10 +1340,10 @@ fn font_feature_subrules_and_declarations_are_flattened() {
     let allocator = Allocator::new();
     let source = "@font-feature-values 'Demo'{@styleset{nice:1 2;alt:3}@swash{fancy:4}}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let rules = radix
+    let rules = ast
         .rules_in_source_order()
         .map(|(id, rule)| (id, payload_kind(rule.payload())))
         .collect::<std::vec::Vec<_>>();
@@ -1359,41 +1360,40 @@ fn font_feature_subrules_and_declarations_are_flattened() {
     );
     let wrapper = rules[0].0;
     assert_eq!(
-        radix
-            .rules_in_list(radix.rule(wrapper).unwrap().child_list().unwrap())
+        ast.rules_in_list(ast.rule(wrapper).unwrap().child_list().unwrap())
             .unwrap()
             .map(|(id, _)| id)
             .collect::<std::vec::Vec<_>>(),
         [rules[1].0, rules[2].0]
     );
     assert_eq!(
-        radix
-            .declaration_blocks_in_source_order()
-            .map(|(block, _)| declaration_chain_layout(&radix, block))
+        ast.declaration_blocks_in_source_order()
+            .map(|(block, _)| declaration_chain_layout(&ast, block))
             .collect::<std::vec::Vec<_>>(),
         [(0, 2), (2, 1)]
     );
 
-    let CssRulePayload::FontFeatureValues(radix_features) = radix.rule(wrapper).unwrap().payload()
+    let CssRulePayload::FontFeatureValues(ast_features) = ast.rule(wrapper).unwrap().payload()
     else {
         unreachable!()
     };
     assert!(matches!(
-        radix_features.name.as_slice(),
-        [FamilyName("Demo")]
+        ast.vec_iter(ast_features.name)
+            .collect::<std::vec::Vec<_>>()
+            .as_slice(),
+        [FamilyName(value)] if ast.str(*value) == "Demo"
     ));
     for (subrule, expected_name, expected_len) in [
         (rules[1].0, FontFeatureSubruleType::Styleset, 2),
         (rules[2].0, FontFeatureSubruleType::Swash, 1),
     ] {
-        let CssRulePayload::FontFeatureSubrule(radix_subrule) =
-            radix.rule(subrule).unwrap().payload()
+        let CssRulePayload::FontFeatureSubrule(ast_subrule) = ast.rule(subrule).unwrap().payload()
         else {
             unreachable!()
         };
-        assert_eq!(radix_subrule.name, expected_name);
-        let block = radix.rule(subrule).unwrap().declaration_block().unwrap();
-        let declarations = radix
+        assert_eq!(ast_subrule.name, expected_name);
+        let block = ast.rule(subrule).unwrap().declaration_block().unwrap();
+        let declarations = ast
             .declarations_in_block(block)
             .unwrap()
             .collect::<std::vec::Vec<_>>();
@@ -1406,7 +1406,7 @@ fn font_feature_subrules_and_declarations_are_flattened() {
             assert!(!record.is_important());
         }
     }
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -1414,15 +1414,15 @@ fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
     let allocator = Allocator::new();
     let source = "@property --space{syntax:'<length>';unknown:foo;syntax:'*';inherits:false;initial-value:10px}";
     let options = ParserOptions::default();
-    let radix = Compiler::new(&allocator)
+    let ast = Compiler::new(&allocator)
         .parse_compilation(source, options)
         .unwrap();
-    let (rule, record) = radix.rules_in_source_order().next().unwrap();
+    let (rule, record) = ast.rules_in_source_order().next().unwrap();
     let CssRulePayload::Property(property) = record.payload() else {
         unreachable!()
     };
     let block = record.declaration_block().unwrap();
-    let declarations = radix
+    let declarations = ast
         .declarations_in_block(block)
         .unwrap()
         .collect::<std::vec::Vec<_>>();
@@ -1443,16 +1443,14 @@ fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
     assert_eq!(property.inherits.unwrap().index(), 3);
     assert_eq!(property.initial_value.unwrap().index(), 4);
 
-    assert_eq!(property.name, "--space");
-    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Syntax(syntax)) = radix
-        .declaration(property.syntax.unwrap())
-        .unwrap()
-        .payload()
+    assert_eq!(ast.str(property.name), "--space");
+    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Syntax(syntax)) =
+        ast.declaration(property.syntax.unwrap()).unwrap().payload()
     else {
         unreachable!()
     };
-    assert!(matches!(&**syntax, SyntaxString::Universal));
-    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Inherits(inherits)) = radix
+    assert!(matches!(ast.resolve_node(*syntax), SyntaxString::Universal));
+    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::Inherits(inherits)) = ast
         .declaration(property.inherits.unwrap())
         .unwrap()
         .payload()
@@ -1460,16 +1458,18 @@ fn property_rule_keeps_occurrences_and_points_to_last_effective_descriptors() {
         unreachable!()
     };
     assert!(!*inherits);
-    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::InitialValue(initial)) = radix
+    let DeclarationPayload::PropertyRule(PropertyRuleDescriptor::InitialValue(initial)) = ast
         .declaration(property.initial_value.unwrap())
         .unwrap()
         .payload()
     else {
         unreachable!()
     };
-    assert!(matches!(&**initial, ParsedComponent::TokenList(values) if !values.is_empty()));
-    assert_eq!(radix.rule(rule).unwrap().parent(), None);
-    assert_eq!(radix.validate_ast(), Ok(()));
+    assert!(
+        matches!(ast.resolve_node(*initial), ParsedComponent::TokenList(values) if !values.is_empty())
+    );
+    assert_eq!(ast.rule(rule).unwrap().parent(), None);
+    assert_eq!(ast.validate_ast(), Ok(()));
 }
 
 #[test]
@@ -1490,7 +1490,7 @@ fn non_universal_property_still_requires_an_initial_value() {
 }
 
 fn property_declarations<'comp, 'ast>(
-    compilation: &'comp Compilation<'ast>,
+    compilation: &'comp AstContext<'ast>,
 ) -> std::vec::Vec<&'comp Declaration<'ast>> {
     compilation
         .declarations_in_source_order()
@@ -1501,7 +1501,7 @@ fn property_declarations<'comp, 'ast>(
 fn parse_with_replay_counters<'a>(
     allocator: &'a Allocator,
     source: &'a str,
-) -> (Compilation<'a>, ReplayCounters) {
+) -> (AstContext<'a>, ReplayCounters) {
     let mut compiler = Compiler::new(allocator);
     let compilation = compiler
         .parse_compilation(source, ParserOptions::default())
@@ -1540,7 +1540,8 @@ fn replay_failed_prefix_is_never_decoded_twice() {
     let declarations = property_declarations(&compilation);
     assert!(matches!(
         declarations[0],
-        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::InvalidValue
+        Declaration::Unparsed(value)
+            if compilation.resolve_node(*value).reason == UnparsedPropertyReason::InvalidValue
     ));
     // `1px` and the comma are decoded once by the typed parser and replayed
     // by the fallback; `2px` is decoded once by the fallback.
@@ -1559,7 +1560,8 @@ fn replay_nested_failure_reuses_the_whole_typed_tape() {
     let declarations = property_declarations(&compilation);
     assert!(matches!(
         declarations[0],
-        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::OpaqueValue
+        Declaration::Unparsed(value)
+            if compilation.resolve_node(*value).reason == UnparsedPropertyReason::OpaqueValue
     ));
     // calc, 1px, whitespace, +, whitespace, var, --x are all decoded by the
     // typed parser and replayed by the fallback; the closing parenthesis is
@@ -1578,7 +1580,8 @@ fn replay_css_wide_candidate_fallback_reuses_the_ident() {
     let declarations = property_declarations(&compilation);
     assert!(matches!(
         declarations[0],
-        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::InvalidValue
+        Declaration::Unparsed(value)
+            if compilation.resolve_node(*value).reason == UnparsedPropertyReason::InvalidValue
     ));
     // `initial` is decoded by the CSS-wide attempt and replayed by the
     // fallback; the whitespace and `5px` are decoded only by the fallback.
@@ -1596,7 +1599,8 @@ fn replay_css_wide_success_is_not_replayed() {
     assert!(matches!(
         property_declarations(&compilation)[0],
         Declaration::CSSWide(property_id, keyword)
-            if **property_id == PropertyId::Width && *keyword == CSSWideKeyword::Initial
+            if compilation.resolve_node(*property_id) == PropertyId::Width
+                && *keyword == CSSWideKeyword::Initial
     ));
     assert_eq!(counters.decodes, 0);
     assert_eq!(counters.replay_hits, 0);
@@ -1625,7 +1629,9 @@ fn unsupported_grammar_property_stays_on_the_inactive_fast_path() {
     let declarations = property_declarations(&compilation);
     assert!(matches!(
         declarations[0],
-        Declaration::Unparsed(value) if value.reason == UnparsedPropertyReason::UnsupportedGrammar
+        Declaration::Unparsed(value)
+            if compilation.resolve_node(*value).reason
+                == UnparsedPropertyReason::UnsupportedGrammar
     ));
     assert_eq!(counters.decodes, 0);
     assert_eq!(counters.replay_hits, 0);
@@ -1640,8 +1646,8 @@ fn unsupported_grammar_property_stays_on_the_inactive_fast_path() {
 #[test]
 fn capacity_estimates_cover_benchmark_corpora() {
     for source in [
-        include_str!("../../../../../tasks/benchmark/files/bootstrap.css"),
-        include_str!("../../../../../tasks/benchmark/files/tailwind.css"),
+        include_str!("../../../../../../../tasks/benchmark/files/bootstrap.css"),
+        include_str!("../../../../../../../tasks/benchmark/files/tailwind.css"),
     ] {
         let allocator = Allocator::new();
         let mut compiler = Compiler::new(&allocator);

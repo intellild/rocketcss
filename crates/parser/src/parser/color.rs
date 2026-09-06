@@ -1,10 +1,20 @@
+use super::rules::stylesheet::span_from;
 use super::values::{collect_tokens, token_values_contain_opaque};
 use crate::prelude::*;
+
+pub(crate) fn parse_css_color<'i>(
+    input: &mut Compiler<'i>,
+) -> Result<NodeId<'i, CssColor<'i>>, ParseError<'i, ParserError<'i>>> {
+    let start = input.state();
+    let color = CssColor::parse(input)?;
+    let span = span_from(&start, input.position());
+    Ok(input.ast_context_mut().alloc_node(color, span))
+}
 
 impl<'i> Parse<'i> for CssColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
-        let token = input.next()?.clone();
+        let token = *input.next()?;
         match token {
             ValueToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => {
                 Ok(CssColor::CurrentColor)
@@ -19,34 +29,38 @@ impl<'i> Parse<'i> for CssColor<'i> {
                 let allocator = input.allocator();
                 let arguments =
                     input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
-                if token_values_contain_opaque(&arguments) {
+                if token_values_contain_opaque(input.ast_context(), &arguments) {
                     return Err(location.new_custom_error(ParserError::InvalidValue));
                 }
-                let mut function = Function::new(name, arguments);
+                let arguments = store_vec(arguments, input);
+                let mut function = Function::new(name, arguments, input.ast_context_mut());
                 if matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
-                    if !is_supported_rgb_function(&function) {
+                    if !is_supported_rgb_function(input.ast_context(), &function) {
                         return Err(location.new_custom_error(ParserError::InvalidValue));
                     }
                     function.set_valid_rgb(true);
                 }
-                Ok(CssColor::Function(allocator.boxed(function)))
+                Ok(CssColor::Function(store_node(function, input)))
             }
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
     }
 }
 
-pub(super) fn validate_rgb_function(function: &mut Function<'_>) {
+pub(super) fn validate_rgb_function<'i>(ast: &AstContext<'i>, function: &mut Function<'i>) {
     if matches!(function.kind(), KnownFunction::Rgb | KnownFunction::Rgba) {
-        function.set_valid_rgb(is_supported_rgb_function(function));
+        function.set_valid_rgb(is_supported_rgb_function(ast, function));
     }
 }
 
-fn is_supported_rgb_function(function: &Function<'_>) -> bool {
-    let mut components = function.arguments.iter().filter(|value| {
+fn is_supported_rgb_function<'i>(ast: &AstContext<'i>, function: &Function<'i>) -> bool {
+    let components = ast
+        .vec_iter(function.arguments)
+        .collect::<std::vec::Vec<_>>();
+    let mut components = components.iter().filter(|value| {
         !matches!(
             value,
-            TokenOrValue::Token(token) if matches!(**token, ValueToken::WhiteSpace(_))
+            TokenOrValue::Token(token) if matches!(ValueToken::from_ast(ast.node(*token), ast), ValueToken::WhiteSpace(_))
         )
     });
     let Some(first) = components.next() else {
@@ -56,76 +70,78 @@ fn is_supported_rgb_function(function: &Function<'_>) -> bool {
         return false;
     };
 
-    let has_alpha = if is_comma(second) {
-        validate_legacy_rgb(first, &mut components)
+    let has_alpha = if is_comma(ast, second) {
+        validate_legacy_rgb(ast, first, &mut components)
     } else {
-        validate_modern_rgb(first, second, &mut components)
+        validate_modern_rgb(ast, first, second, &mut components)
     };
     has_alpha.is_some()
 }
 
-fn validate_legacy_rgb<'a>(
-    first: &'a TokenOrValue<'a>,
-    components: &mut impl Iterator<Item = &'a TokenOrValue<'a>>,
+fn validate_legacy_rgb<'a, 'i>(
+    ast: &AstContext<'i>,
+    first: &'a TokenOrValue<'i>,
+    components: &mut impl Iterator<Item = &'a TokenOrValue<'i>>,
 ) -> Option<bool> {
-    let first_kind = rgb_component_kind(first)?;
+    let first_kind = rgb_component_kind(ast, first)?;
     let second = components.next()?;
     let second_comma = components.next()?;
     let third = components.next()?;
-    if rgb_component_kind(second) != Some(first_kind)
-        || !is_comma(second_comma)
-        || rgb_component_kind(third) != Some(first_kind)
+    if rgb_component_kind(ast, second) != Some(first_kind)
+        || !is_comma(ast, second_comma)
+        || rgb_component_kind(ast, third) != Some(first_kind)
     {
         return None;
     }
 
     match components.next() {
         None => Some(false),
-        Some(comma) if is_comma(comma) => {
+        Some(comma) if is_comma(ast, comma) => {
             let alpha = components.next()?;
-            (is_rgb_alpha(alpha) && components.next().is_none()).then_some(true)
+            (is_rgb_alpha(ast, alpha) && components.next().is_none()).then_some(true)
         }
         Some(_) => None,
     }
 }
 
-fn validate_modern_rgb<'a>(
-    first: &'a TokenOrValue<'a>,
-    second: &'a TokenOrValue<'a>,
-    components: &mut impl Iterator<Item = &'a TokenOrValue<'a>>,
+fn validate_modern_rgb<'a, 'i>(
+    ast: &AstContext<'i>,
+    first: &'a TokenOrValue<'i>,
+    second: &'a TokenOrValue<'i>,
+    components: &mut impl Iterator<Item = &'a TokenOrValue<'i>>,
 ) -> Option<bool> {
-    if !is_modern_rgb_component(first) || !is_modern_rgb_component(second) {
+    if !is_modern_rgb_component(ast, first) || !is_modern_rgb_component(ast, second) {
         return None;
     }
     let third = components.next()?;
-    if !is_modern_rgb_component(third) {
+    if !is_modern_rgb_component(ast, third) {
         return None;
     }
 
     match components.next() {
         None => Some(false),
-        Some(slash) if is_slash(slash) => {
+        Some(slash) if is_slash(ast, slash) => {
             let alpha = components.next()?;
-            (is_modern_rgb_alpha(alpha) && components.next().is_none()).then_some(true)
+            (is_modern_rgb_alpha(ast, alpha) && components.next().is_none()).then_some(true)
         }
         Some(_) => None,
     }
 }
 
-fn is_modern_rgb_component(value: &TokenOrValue<'_>) -> bool {
-    rgb_component_kind(value).is_some() || is_none_keyword(value)
+fn is_modern_rgb_component<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
+    rgb_component_kind(ast, value).is_some() || is_none_keyword(ast, value)
 }
 
-fn is_modern_rgb_alpha(value: &TokenOrValue<'_>) -> bool {
-    is_rgb_alpha(value) || is_none_keyword(value)
+fn is_modern_rgb_alpha<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
+    is_rgb_alpha(ast, value) || is_none_keyword(ast, value)
 }
 
-fn is_none_keyword(value: &TokenOrValue<'_>) -> bool {
+fn is_none_keyword<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
         value,
         TokenOrValue::Token(token)
             if matches!(
-                &**token,
+                ValueToken::from_ast(ast.node(*token), ast),
                 ValueToken::Ident(value) if value.eq_ignore_ascii_case("none")
             )
     )
@@ -137,32 +153,37 @@ enum RgbComponentKind {
     Percentage,
 }
 
-fn rgb_component_kind(value: &TokenOrValue<'_>) -> Option<RgbComponentKind> {
+fn rgb_component_kind<'i>(
+    ast: &AstContext<'i>,
+    value: &TokenOrValue<'i>,
+) -> Option<RgbComponentKind> {
     let TokenOrValue::Token(token) = value else {
         return None;
     };
-    match **token {
+    match ValueToken::from_ast(ast.node(*token), ast) {
         ValueToken::Number(_) => Some(RgbComponentKind::Number),
         ValueToken::Percentage(_) => Some(RgbComponentKind::Percentage),
         _ => None,
     }
 }
 
-fn is_rgb_alpha(value: &TokenOrValue<'_>) -> bool {
+fn is_rgb_alpha<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
     let TokenOrValue::Token(token) = value else {
         return false;
     };
-    matches!(**token, ValueToken::Number(_) | ValueToken::Percentage(_))
-}
-
-fn is_comma(value: &TokenOrValue<'_>) -> bool {
-    matches!(value, TokenOrValue::Token(token) if matches!(**token, ValueToken::Comma))
-}
-
-fn is_slash(value: &TokenOrValue<'_>) -> bool {
     matches!(
-        value,
-        TokenOrValue::Token(token) if matches!(**token, ValueToken::Delim("/"))
+        ValueToken::from_ast(ast.node(*token), ast),
+        ValueToken::Number(_) | ValueToken::Percentage(_)
+    )
+}
+
+fn is_comma<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
+    matches!(value, TokenOrValue::Token(token) if matches!(ValueToken::from_ast(ast.node(*token), ast), ValueToken::Comma))
+}
+
+fn is_slash<'i>(ast: &AstContext<'i>, value: &TokenOrValue<'i>) -> bool {
+    matches!(
+        value, TokenOrValue::Token(token) if matches!(ValueToken::from_ast(ast.node(*token), ast), ValueToken::Delim("/"))
     )
 }
 

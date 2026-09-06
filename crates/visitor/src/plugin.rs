@@ -4,7 +4,7 @@ use std::{
     fmt,
 };
 
-use rocketcss_ast::{Compilation, CompilationVisitorMut, ConcreteMutationError};
+use rocketcss_ast::{AstContext, CompilationVisitorMut, ConcreteMutationError};
 use rocketcss_common::{Allocator, GhostToken};
 use rustc_hash::FxHashMap;
 
@@ -66,13 +66,13 @@ impl<'a, 'token, 'ghost> PluginContext<'a, 'token, 'ghost> {
     }
 }
 
-/// A plugin over the compiler-owned [`Compilation`].
+/// A plugin over the compiler-owned [`AstContext`].
 pub trait Plugin<'a, 'ghost> {
     fn name(&self) -> &str;
 
     fn transform(
         &mut self,
-        compilation: &mut Compilation<'a>,
+        compilation: &mut AstContext<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError>;
 }
@@ -112,7 +112,7 @@ impl<'plugin, 'a, 'ghost> Plugins<'plugin, 'a, 'ghost> {
 
     pub fn run(
         &mut self,
-        compilation: &mut Compilation<'a>,
+        compilation: &mut AstContext<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), PluginError> {
         for plugin in &mut self.plugins {
@@ -162,21 +162,19 @@ impl<'a, 'ghost, V: CompilationVisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlu
 
     fn transform(
         &mut self,
-        compilation: &mut Compilation<'a>,
+        compilation: &mut AstContext<'a>,
         _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         compilation
             .visit_compilation_mut(&mut self.visitor)
-            .map_err(|error| {
-                Box::new(RadixTraversalError(error.erase_arena_lifetime())) as BoxError
-            })
+            .map_err(|error| Box::new(AstTraversalError(error.erase_arena_lifetime())) as BoxError)
     }
 }
 
 #[derive(Debug)]
-struct RadixTraversalError(ConcreteMutationError<'static>);
+struct AstTraversalError(ConcreteMutationError<'static>);
 
-impl fmt::Display for RadixTraversalError {
+impl fmt::Display for AstTraversalError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
@@ -186,7 +184,7 @@ impl fmt::Display for RadixTraversalError {
     }
 }
 
-impl Error for RadixTraversalError {}
+impl Error for AstTraversalError {}
 
 /// Error annotated with the plugin that returned it.
 #[derive(Debug)]

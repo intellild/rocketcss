@@ -75,14 +75,6 @@ impl VisitMode {
         )
     }
 
-    fn reference(self) -> TokenStream2 {
-        if matches!(self, Self::Read) {
-            quote!(&)
-        } else {
-            quote!(&mut)
-        }
-    }
-
     fn iterator(self) -> Ident {
         format_ident!(
             "{}",
@@ -92,6 +84,14 @@ impl VisitMode {
                 "iter_mut"
             }
         )
+    }
+
+    fn reference(self) -> TokenStream2 {
+        if matches!(self, Self::Read) {
+            quote!(&)
+        } else {
+            quote!(&mut)
+        }
     }
 
     fn option_accessor(self) -> Ident {
@@ -188,7 +188,7 @@ fn expand_visit_mode(
     };
     let callback = format_ident!("visit_{}", name.to_string().to_case(Case::Snake));
     let body = visit_data(mode, data)?;
-    let impl_generics = impl_generics(generics, ast_lifetime, ghost_lifetime, &node_trait);
+    let impl_generics = impl_generics(generics, data, ast_lifetime, ghost_lifetime, &node_trait);
     let (impl_generics, _, where_clause) = impl_generics.split_for_impl();
     let (_, type_generics, _) = generics.split_for_impl();
 
@@ -269,6 +269,7 @@ fn visitor_lifetimes(generics: &Generics) -> syn::Result<(Lifetime, Lifetime)> {
 
 fn impl_generics(
     generics: &Generics,
+    data: &Data,
     ast_lifetime: &Lifetime,
     ghost_lifetime: &Lifetime,
     node_trait: &Ident,
@@ -297,7 +298,62 @@ fn impl_generics(
                 #ident: crate::#node_trait<#ast_lifetime, #ghost_lifetime>
             ));
     }
+    let mut node_types = Vec::new();
+    collect_node_id_types(data, &mut node_types);
+    for node_type in node_types {
+        let predicate = parse_quote!(#node_type: crate::AstNodeStorage<#ast_lifetime>);
+        impl_generics.make_where_clause().predicates.push(predicate);
+    }
     impl_generics
+}
+
+fn collect_node_id_types(data: &Data, node_types: &mut Vec<Type>) {
+    let fields = match data {
+        Data::Struct(data) => data.fields.iter().collect::<Vec<_>>(),
+        Data::Enum(data) => data
+            .variants
+            .iter()
+            .flat_map(|variant| variant.fields.iter())
+            .collect(),
+        Data::Union(_) => return,
+    };
+    for field in fields {
+        collect_node_id_types_from_type(&field.ty, node_types);
+    }
+}
+
+fn collect_node_id_types_from_type(ty: &Type, node_types: &mut Vec<Type>) {
+    match ty {
+        Type::Path(path) => {
+            for segment in &path.path.segments {
+                if segment.ident == "NodeId" {
+                    if let Some(node_type) = first_type_argument(&segment.arguments) {
+                        node_types.push(node_type.clone());
+                    }
+                    return;
+                }
+                if let PathArguments::AngleBracketed(arguments) = &segment.arguments {
+                    for argument in &arguments.args {
+                        if let GenericArgument::Type(argument) = argument {
+                            collect_node_id_types_from_type(argument, node_types);
+                        }
+                    }
+                }
+            }
+        }
+        Type::Array(ty) => collect_node_id_types_from_type(&ty.elem, node_types),
+        Type::Group(ty) => collect_node_id_types_from_type(&ty.elem, node_types),
+        Type::Paren(ty) => collect_node_id_types_from_type(&ty.elem, node_types),
+        Type::Ptr(ty) => collect_node_id_types_from_type(&ty.elem, node_types),
+        Type::Reference(ty) => collect_node_id_types_from_type(&ty.elem, node_types),
+        Type::Slice(ty) => collect_node_id_types_from_type(&ty.elem, node_types),
+        Type::Tuple(ty) => {
+            for element in &ty.elems {
+                collect_node_id_types_from_type(element, node_types);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn visit_data(mode: VisitMode, data: &Data) -> syn::Result<TokenStream2> {
@@ -474,7 +530,9 @@ fn visit_type(
                 ));
             };
             let name = segment.ident.to_string();
-            if name == "Atom" {
+            if name == "AstStr" {
+                Ok(quote!(visitor.visit_ast_str(#expression, cx);))
+            } else if name == "Atom" {
                 Ok(quote!(visitor.visit_atom(#expression, cx);))
             } else if name == "Pin" {
                 let Some(pin_target) = first_type_argument(&segment.arguments) else {
@@ -561,17 +619,6 @@ fn visit_type(
                 } else {
                     visit_type(mode, inner_ty, quote!((#expression).#accessor()), counter)
                 }
-            } else if name == "Vec" {
-                let Some(inner_ty) = first_type_argument(&segment.arguments) else {
-                    return Err(syn::Error::new(
-                        segment.span(),
-                        "expected a Vec type argument",
-                    ));
-                };
-                let binding = fresh_binding(counter);
-                let iterator = mode.iterator();
-                let inner = visit_type(mode, inner_ty, quote!(#binding), counter)?;
-                Ok(quote!(for #binding in (#expression).#iterator() { #inner }))
             } else if name == "GhostCell" {
                 let Some(_inner_ty) = first_type_argument(&segment.arguments) else {
                     return Err(syn::Error::new(

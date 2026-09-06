@@ -1,24 +1,29 @@
 use super::*;
+use rocketcss_ast::AstContext;
 
-pub(super) fn simple_calc_value(values: &[TokenOrValue<'_>]) -> Option<FunctionReplacement> {
+pub(super) fn simple_calc_value(
+    values: &[TokenOrValue<'_>],
+    ast: &VisitMutContext<'_, '_, '_>,
+) -> Option<FunctionReplacement> {
     let mut values = values.iter().filter(|value| {
-        !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)))
+        !matches!(value, TokenOrValue::Token(token)
+            if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(_)))
     });
-    let left = calc_value(values.next()?)?;
+    let left = calc_value(values.next()?, ast)?;
     let Some(operator) = values.next() else {
         return Some(unitless_calc_zero(left));
     };
-    let right = calc_value(values.next()?)?;
+    let right = calc_value(values.next()?, ast)?;
     if values.next().is_some() {
         return None;
     }
     let TokenOrValue::Token(operator) = operator else {
         return None;
     };
-    let Token::Delim(operator) = &**operator else {
+    let Token::Delim(operator) = ast.ast_context().resolve_node(*operator) else {
         return None;
     };
-    calculate_values(left, operator, right).map(unitless_calc_zero)
+    calculate_values(left, ast.ast_context().str(operator), right).map(unitless_calc_zero)
 }
 
 const MAX_CALC_TERMS: usize = 16;
@@ -162,17 +167,21 @@ impl CalcLinear {
         })
     }
 
-    pub(super) fn write_to(mut self, function: &mut Function<'_>) -> bool {
+    pub(super) fn write_to<'ast>(
+        mut self,
+        function: &mut Function<'ast>,
+        arguments: &mut Vec<'ast, TokenOrValue<'ast>>,
+        ast: &mut VisitMutContext<'_, 'ast, '_>,
+    ) -> bool {
         self.compact_cancelled_terms();
         if let Some(replacement) = self.replacement() {
             function.replacement = Some(unitless_calc_zero(replacement));
-            function.arguments.clear();
+            arguments.clear();
             return true;
         }
 
         let required = 1 + (self.len - 1) * 4;
-        if function
-            .arguments
+        if arguments
             .iter()
             .filter(|value| matches!(value, TokenOrValue::Token(_)))
             .count()
@@ -181,30 +190,32 @@ impl CalcLinear {
             return false;
         }
         for target in 0..required {
-            if matches!(function.arguments[target], TokenOrValue::Token(_)) {
+            if matches!(arguments[target], TokenOrValue::Token(_)) {
                 continue;
             }
-            let Some(source) = function.arguments[target + 1..]
+            let Some(source) = arguments[target + 1..]
                 .iter()
                 .position(|value| matches!(value, TokenOrValue::Token(_)))
                 .map(|source| target + 1 + source)
             else {
                 return false;
             };
-            function.arguments.swap(target, source);
+            arguments.swap(target, source);
         }
 
         let mut output = 0;
         for (index, term) in self.terms[..self.len].iter().copied().enumerate() {
             if index != 0 {
-                set_calc_token(&mut function.arguments[output], Token::WhiteSpace(" "));
+                let space = ast.ast_context_mut().add_str(" ");
+                set_calc_token(&mut arguments[output], Token::WhiteSpace(space), ast);
                 output += 1;
-                set_calc_token(
-                    &mut function.arguments[output],
-                    Token::Delim(if term.value < 0.0 { "-" } else { "+" }),
-                );
+                let operator =
+                    ast.ast_context_mut()
+                        .add_str(if term.value < 0.0 { "-" } else { "+" });
+                set_calc_token(&mut arguments[output], Token::Delim(operator), ast);
                 output += 1;
-                set_calc_token(&mut function.arguments[output], Token::WhiteSpace(" "));
+                let space = ast.ast_context_mut().add_str(" ");
+                set_calc_token(&mut arguments[output], Token::WhiteSpace(space), ast);
                 output += 1;
             }
             let value = if index == 0 {
@@ -217,23 +228,41 @@ impl CalcLinear {
                 CalcTermKind::Percentage => Token::Percentage(value),
                 CalcTermKind::Dimension(unit) => Token::Dimension { unit, value },
             };
-            set_calc_token(&mut function.arguments[output], token);
+            set_calc_token(&mut arguments[output], token, ast);
             output += 1;
         }
-        function.arguments.truncate(required);
+        arguments.truncate(required);
         true
     }
 }
 
-fn set_calc_token<'a>(value: &mut TokenOrValue<'a>, token_value: Token<'a>) {
+fn set_calc_token<'ast>(
+    value: &mut TokenOrValue<'ast>,
+    token_value: Token<'ast>,
+    ast: &mut VisitMutContext<'_, 'ast, '_>,
+) {
     let TokenOrValue::Token(token) = value else {
         unreachable!("calc output slots were normalized to tokens")
     };
-    **token = token_value;
+    ast.mutate_node(*token, |token, _| *token = token_value);
 }
 
-pub(super) fn calc_linear_expression(values: &[TokenOrValue<'_>]) -> Option<CalcLinear> {
-    let mut parser = CalcLinearParser { index: 0, values };
+pub(super) fn calc_linear_expression<'ast>(
+    values: &[TokenOrValue<'ast>],
+    ast: &VisitMutContext<'_, 'ast, '_>,
+) -> Option<CalcLinear> {
+    calc_linear_expression_in(values, ast.ast_context())
+}
+
+fn calc_linear_expression_in<'ast>(
+    values: &[TokenOrValue<'ast>],
+    ast: &AstContext<'ast>,
+) -> Option<CalcLinear> {
+    let mut parser = CalcLinearParser {
+        index: 0,
+        values,
+        ast,
+    };
     let mut result = parser.expression(false)?;
     parser.skip_whitespace();
     if parser.index != values.len() {
@@ -243,12 +272,13 @@ pub(super) fn calc_linear_expression(values: &[TokenOrValue<'_>]) -> Option<Calc
     Some(result)
 }
 
-struct CalcLinearParser<'values, 'arena> {
+struct CalcLinearParser<'values, 'context, 'arena> {
     index: usize,
     values: &'values [TokenOrValue<'arena>],
+    ast: &'context AstContext<'arena>,
 }
 
-impl CalcLinearParser<'_, '_> {
+impl<'values, 'context, 'arena> CalcLinearParser<'values, 'context, 'arena> {
     fn expression(&mut self, nested: bool) -> Option<CalcLinear> {
         let mut result = self.term()?;
         loop {
@@ -305,7 +335,9 @@ impl CalcLinearParser<'_, '_> {
         }
         let value = self.values.get(self.index)?;
         let mut result = match value {
-            TokenOrValue::Token(token) if matches!(**token, Token::ParenthesisBlock) => {
+            TokenOrValue::Token(token)
+                if matches!(self.ast.resolve_node(*token), Token::ParenthesisBlock) =>
+            {
                 self.index += 1;
                 let result = self.expression(true)?;
                 self.skip_whitespace();
@@ -316,18 +348,26 @@ impl CalcLinearParser<'_, '_> {
                 result
             }
             TokenOrValue::Function(function)
-                if function.kind() == KnownFunction::Calc && !function.is_vendor_prefixed() =>
+                if {
+                    let function = self.ast.resolve_node(*function);
+                    function.kind() == KnownFunction::Calc && !function.is_vendor_prefixed()
+                } =>
             {
                 self.index += 1;
+                let function = self.ast.resolve_node(*function);
                 if let Some(replacement) = function.replacement {
                     CalcLinear::from_value(replacement)?
                 } else {
-                    calc_linear_expression(&function.arguments)?
+                    let arguments = self
+                        .ast
+                        .vec_iter(function.arguments)
+                        .collect::<std::vec::Vec<_>>();
+                    calc_linear_expression_in(&arguments, self.ast)?
                 }
             }
             value => {
                 self.index += 1;
-                CalcLinear::from_value(calc_value(value)?)?
+                CalcLinear::from_value(calc_value_in(value, self.ast)?)?
             }
         };
         if sign < 0.0 {
@@ -343,23 +383,28 @@ impl CalcLinearParser<'_, '_> {
         let TokenOrValue::Token(token) = self.values.get(self.index)? else {
             return None;
         };
-        let Token::Delim(operator) = &**token else {
+        let Token::Delim(operator) = self.ast.resolve_node(*token) else {
             return None;
         };
         let operator = allowed
             .iter()
             .copied()
-            .find(|allowed| operator == allowed)?;
+            .find(|allowed| self.ast.str(operator) == *allowed)?;
         self.index += 1;
         Some(operator)
     }
 
     fn is_close_parenthesis(&self) -> bool {
-        matches!(self.values.get(self.index), Some(TokenOrValue::Token(token)) if matches!(**token, Token::CloseParenthesis))
+        matches!(self.values.get(self.index), Some(TokenOrValue::Token(token))
+            if matches!(self.ast.resolve_node(*token), Token::CloseParenthesis))
     }
 
     fn skip_whitespace(&mut self) {
-        while self.values.get(self.index).is_some_and(is_calc_whitespace) {
+        while self
+            .values
+            .get(self.index)
+            .is_some_and(|value| is_calc_whitespace_in(value, self.ast))
+        {
             self.index += 1;
         }
     }
@@ -373,7 +418,10 @@ fn unitless_calc_zero(value: FunctionReplacement) -> FunctionReplacement {
     }
 }
 
-pub(super) fn minify_flat_calc_operations(values: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
+pub(super) fn minify_flat_calc_operations<'ast>(
+    values: &mut Vec<'ast, TokenOrValue<'ast>>,
+    ast: &mut VisitMutContext<'_, 'ast, '_>,
+) -> bool {
     let mut changed = false;
     loop {
         let mut reduced = false;
@@ -381,32 +429,34 @@ pub(super) fn minify_flat_calc_operations(values: &mut Vec<'_, TokenOrValue<'_>>
             let TokenOrValue::Token(operator) = &values[operator_index] else {
                 continue;
             };
-            let Token::Delim(operator) = &**operator else {
+            let Token::Delim(operator) = ast.ast_context().resolve_node(*operator) else {
                 continue;
             };
-            if !matches!(*operator, "*" | "/") {
+            if !matches!(ast.ast_context().str(operator), "*" | "/") {
                 continue;
             }
             let Some(left_index) = values[..operator_index]
                 .iter()
-                .rposition(|value| !is_calc_whitespace(value))
+                .rposition(|value| !is_calc_whitespace(value, ast))
             else {
                 continue;
             };
             let Some(right_index) = values[operator_index + 1..]
                 .iter()
-                .position(|value| !is_calc_whitespace(value))
+                .position(|value| !is_calc_whitespace(value, ast))
                 .map(|index| operator_index + 1 + index)
             else {
                 continue;
             };
-            let Some(result) = calc_value(&values[left_index])
-                .zip(calc_value(&values[right_index]))
-                .and_then(|(left, right)| calculate_values(left, operator, right))
+            let Some(result) = calc_value(&values[left_index], ast)
+                .zip(calc_value(&values[right_index], ast))
+                .and_then(|(left, right)| {
+                    calculate_values(left, ast.ast_context().str(operator), right)
+                })
             else {
                 continue;
             };
-            if !set_calc_value(&mut values[left_index], result) {
+            if !set_calc_value(&mut values[left_index], result, ast) {
                 continue;
             }
             values.drain(left_index + 1..=right_index);
@@ -425,26 +475,26 @@ pub(super) fn minify_flat_calc_operations(values: &mut Vec<'_, TokenOrValue<'_>>
             let TokenOrValue::Token(operator) = &values[operator_index] else {
                 continue;
             };
-            let Token::Delim(operator) = &**operator else {
+            let Token::Delim(operator) = ast.ast_context().resolve_node(*operator) else {
                 continue;
             };
-            if !matches!(*operator, "+" | "-") {
+            if !matches!(ast.ast_context().str(operator), "+" | "-") {
                 continue;
             }
             let Some(left_index) = values[..operator_index]
                 .iter()
-                .rposition(|value| !is_calc_whitespace(value))
+                .rposition(|value| !is_calc_whitespace(value, ast))
             else {
                 continue;
             };
             let Some(right_index) = values[operator_index + 1..]
                 .iter()
-                .position(|value| !is_calc_whitespace(value))
+                .position(|value| !is_calc_whitespace(value, ast))
                 .map(|index| operator_index + 1 + index)
             else {
                 continue;
             };
-            if !calc_value(&values[right_index]).is_some_and(calc_value_is_zero) {
+            if !calc_value(&values[right_index], ast).is_some_and(calc_value_is_zero) {
                 continue;
             }
             values.drain(left_index + 1..=right_index);
@@ -467,24 +517,38 @@ fn calc_value_is_zero(value: FunctionReplacement) -> bool {
     )
 }
 
-fn is_calc_whitespace(value: &TokenOrValue<'_>) -> bool {
-    matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_) | Token::Comment(_)))
+fn is_calc_whitespace(value: &TokenOrValue<'_>, ast: &VisitMutContext<'_, '_, '_>) -> bool {
+    is_calc_whitespace_in(value, ast.ast_context())
 }
 
-fn set_calc_value(value: &mut TokenOrValue<'_>, result: FunctionReplacement) -> bool {
+fn is_calc_whitespace_in(value: &TokenOrValue<'_>, ast: &AstContext<'_>) -> bool {
+    matches!(value, TokenOrValue::Token(token)
+        if matches!(ast.resolve_node(*token), Token::WhiteSpace(_) | Token::Comment(_)))
+}
+
+fn set_calc_value<'ast>(
+    value: &mut TokenOrValue<'ast>,
+    result: FunctionReplacement,
+    ast: &mut VisitMutContext<'_, 'ast, '_>,
+) -> bool {
     match value {
         TokenOrValue::Token(token) => {
-            **token = match result {
+            let replacement = match result {
                 FunctionReplacement::Number(value) => Token::Number(value),
                 FunctionReplacement::Dimension { unit, value } => Token::Dimension { unit, value },
                 FunctionReplacement::Percentage(value) => Token::Percentage(value),
                 _ => return false,
             };
+            ast.mutate_node(*token, |token, _| *token = replacement);
             true
         }
         TokenOrValue::Function(function) => {
-            function.arguments.clear();
-            function.replacement = Some(result);
+            ast.mutate_node(*function, |function, ast| {
+                let mut arguments = function.arguments;
+                ast.rewrite_vec(&mut arguments, |arguments, _| arguments.clear());
+                function.arguments = arguments;
+                function.replacement = Some(result);
+            });
             true
         }
         TokenOrValue::Length(value) => match result {
@@ -505,30 +569,37 @@ fn set_calc_value(value: &mut TokenOrValue<'_>, result: FunctionReplacement) -> 
     }
 }
 
-pub(super) fn remove_redundant_calc_parentheses(values: &mut Vec<'_, TokenOrValue<'_>>) -> bool {
+pub(super) fn remove_redundant_calc_parentheses(
+    values: &mut Vec<'_, TokenOrValue<'_>>,
+    ast: &VisitMutContext<'_, '_, '_>,
+) -> bool {
     let Some(open) = values.iter().position(|value| {
-        matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::ParenthesisBlock))
+        matches!(value, TokenOrValue::Token(token)
+            if matches!(ast.ast_context().resolve_node(*token), Token::ParenthesisBlock))
     }) else {
         return false;
     };
     let Some(close) = values[open + 1..]
         .iter()
         .position(|value| {
-            matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::CloseParenthesis))
+            matches!(value, TokenOrValue::Token(token)
+                if matches!(ast.ast_context().resolve_node(*token), Token::CloseParenthesis))
         })
         .map(|index| open + 1 + index)
     else {
         return false;
     };
-    let previous = values[..open]
-        .iter()
-        .rev()
-        .find(|value| !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_))));
+    let previous = values[..open].iter().rev().find(|value| {
+        !matches!(value, TokenOrValue::Token(token)
+            if matches!(ast.ast_context().resolve_node(*token), Token::WhiteSpace(_)))
+    });
     let preceded_by_addition = previous.is_none_or(|value| {
-        matches!(value, TokenOrValue::Token(token) if matches!(&**token, Token::Delim("+") | Token::Delim("-")))
+        matches!(value, TokenOrValue::Token(token)
+            if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if matches!(ast.ast_context().str(value), "+" | "-")))
     });
     let contains_addition = values[open + 1..close].iter().any(|value| {
-        matches!(value, TokenOrValue::Token(token) if matches!(&**token, Token::Delim("+") | Token::Delim("-")))
+        matches!(value, TokenOrValue::Token(token)
+            if matches!(ast.ast_context().resolve_node(*token), Token::Delim(value) if matches!(ast.ast_context().str(value), "+" | "-")))
     });
     if !preceded_by_addition || contains_addition {
         return false;
@@ -538,9 +609,16 @@ pub(super) fn remove_redundant_calc_parentheses(values: &mut Vec<'_, TokenOrValu
     true
 }
 
-fn calc_value(value: &TokenOrValue<'_>) -> Option<FunctionReplacement> {
+fn calc_value(
+    value: &TokenOrValue<'_>,
+    ast: &VisitMutContext<'_, '_, '_>,
+) -> Option<FunctionReplacement> {
+    calc_value_in(value, ast.ast_context())
+}
+
+fn calc_value_in(value: &TokenOrValue<'_>, ast: &AstContext<'_>) -> Option<FunctionReplacement> {
     match value {
-        TokenOrValue::Token(token) => match **token {
+        TokenOrValue::Token(token) => match ast.resolve_node(*token) {
             Token::Number(value) => Some(FunctionReplacement::Number(value)),
             Token::Dimension { unit, value } => {
                 Some(FunctionReplacement::Dimension { unit, value })
@@ -552,7 +630,7 @@ fn calc_value(value: &TokenOrValue<'_>) -> Option<FunctionReplacement> {
             unit: Unit::Length(value.unit),
             value: value.value,
         }),
-        TokenOrValue::Function(function) => function.replacement,
+        TokenOrValue::Function(function) => ast.resolve_node(*function).replacement,
         _ => None,
     }
 }

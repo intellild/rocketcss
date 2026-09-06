@@ -133,8 +133,10 @@ pub enum LegacyJustify {
     Center,
 }
 
-#[derive(Debug, PartialEq, Visit)]
+#[derive(Debug, Clone, Copy, PartialEq, Visit)]
 pub enum GapValue<'a> {
     Normal,
-    LengthPercentage(Box<'a, LengthPercentage<'a>>),
+    LengthPercentage(NodeId<'a, LengthPercentage<'a>>),
 }
+
+impl_inline_node!(GapValue<'ast>, 0x000d0001);

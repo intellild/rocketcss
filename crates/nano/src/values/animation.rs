@@ -1,27 +1,32 @@
-use rocketcss_ast::{Animation, AnimationComponent};
+use rocketcss_ast::{Animation, AnimationComponent, VisitMutContext};
 
-use crate::{Minify, MinifyContext, Options, OptionsOp};
+use crate::{MinifyContext, Options, OptionsOp};
 
-impl Minify for Animation<'_> {
-    fn minify<'cx>(&mut self, cx: &mut MinifyContext<'cx>)
-    where
-        Self: 'cx,
-    {
-        if self.components.len() < 2 || !cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any) {
-            return;
-        }
+pub(crate) fn minify_animation<'ast>(
+    animation: &mut Animation<'ast>,
+    cx: &mut MinifyContext<'_>,
+    ast: &mut VisitMutContext<'_, 'ast, '_>,
+) {
+    if animation.components.len() < 2 || !cx.is_enabled(Options::ORDER_VALUES, OptionsOp::Any) {
+        return;
+    }
+    let mut changed = false;
+    ast.mutate_vec(animation.components, |components, ast| {
         // A keyframes name that collides with a present keyword class is
         // deferred behind the class so a reparse claims the class first.
         // With the class absent the name keeps its authored quotes instead.
-        let defer_name = self.components.iter().any(|component| {
+        let defer_name = components.iter().any(|component| {
             let AnimationComponent::Name(name) = component else {
                 return false;
             };
-            name.keyword_class().is_some_and(|class| {
-                self.components
-                    .iter()
-                    .any(|component| component.keyword_class() == Some(class))
-            })
+            ast.ast_context()
+                .resolve_node(*name)
+                .keyword_class(ast.ast_context())
+                .is_some_and(|class| {
+                    components
+                        .iter()
+                        .any(|component| component.keyword_class() == Some(class))
+                })
         });
         let rank = |component: &AnimationComponent<'_>| match component {
             AnimationComponent::Name(_) if defer_name => 8,
@@ -34,19 +39,16 @@ impl Minify for Animation<'_> {
             AnimationComponent::FillMode(_) => 6,
             AnimationComponent::PlayState(_) => 7,
         };
-        let mut changed = false;
-        for right in 1..self.components.len() {
+        for right in 1..components.len() {
             let mut current = right;
-            while current > 0
-                && rank(&self.components[current - 1]) > rank(&self.components[current])
-            {
-                self.components.swap(current - 1, current);
+            while current > 0 && rank(&components[current - 1]) > rank(&components[current]) {
+                components.swap(current - 1, current);
                 current -= 1;
                 changed = true;
             }
         }
-        if changed {
-            cx.record_value_normalized();
-        }
+    });
+    if changed {
+        cx.record_value_normalized();
     }
 }

@@ -1,20 +1,5 @@
 use crate::prelude::*;
 
-macro_rules! keyword_parse {
-    ($ty:ty, $($name:literal => $variant:expr),+ $(,)?) => {
-        impl<'i> Parse<'i> for $ty {
-            fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-                let ident = input.expect_ident()?;
-                match_ignore_ascii_case!(
-                    ident,
-                    $( $name => Ok($variant), )+
-                    _ => Err(input.new_custom_error(ParserError::InvalidValue)),
-                )
-            }
-        }
-    };
-}
-
 keyword_parse!(
     TextTransformCase,
     "none" => Self::None,
@@ -111,43 +96,6 @@ keyword_parse!(
     "isolate-override" => Self::IsolateOverride,
     "plaintext" => Self::Plaintext,
 );
-keyword_parse!(BoxDecorationBreak, "slice" => Self::Slice, "clone" => Self::Clone,);
-keyword_parse!(TextOverflow, "clip" => Self::Clip, "ellipsis" => Self::Ellipsis,);
-keyword_parse!(
-    Resize,
-    "none" => Self::None,
-    "both" => Self::Both,
-    "horizontal" => Self::Horizontal,
-    "vertical" => Self::Vertical,
-    "block" => Self::Block,
-    "inline" => Self::Inline,
-);
-
-impl<'i> Parse<'i> for TextTransform {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let case = TextTransformCase::parse(input)?;
-        let mut full_width = false;
-        let mut full_size_kana = false;
-        while !input.is_exhausted() {
-            let ident = input.expect_ident()?;
-            match_ignore_ascii_case!(
-                ident,
-                "full-width" => full_width = true,
-                "full-size-kana" => full_size_kana = true,
-                _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
-            );
-        }
-        if matches!(case, TextTransformCase::None) && (full_width || full_size_kana) {
-            return Err(input.new_custom_error(ParserError::InvalidValue));
-        }
-        Ok(Self {
-            case,
-            full_size_kana,
-            full_width,
-        })
-    }
-}
-
 impl<'i> Parse<'i> for Spacing<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         if input
@@ -156,7 +104,7 @@ impl<'i> Parse<'i> for Spacing<'i> {
         {
             return Ok(Self::Normal);
         }
-        Ok(Self::Length(input.allocator().boxed(Length::parse(input)?)))
+        Ok(Self::Length(store_node(Length::parse(input)?, input)))
     }
 }
 
@@ -184,7 +132,7 @@ impl<'i> Parse<'i> for TextDecorationLine<'i> {
         while !input.is_exhausted() {
             values.push(parse_text_decoration_line(input.expect_ident()?, input)?);
         }
-        Ok(Self::Value(values))
+        Ok(Self::Value(store_vec(values, input)))
     }
 }
 
@@ -216,9 +164,10 @@ impl<'i> Parse<'i> for TextDecorationThickness<'i> {
         {
             return Ok(Self::FromFont);
         }
-        Ok(Self::LengthPercentage(
-            input.allocator().boxed(LengthPercentage::parse(input)?),
-        ))
+        Ok(Self::LengthPercentage(store_node(
+            LengthPercentage::parse(input)?,
+            input,
+        )))
     }
 }
 
@@ -237,27 +186,5 @@ impl<'i> Parse<'i> for TextSizeAdjust {
             return Ok(Self::None);
         }
         Ok(Self::Percentage(input.expect_percentage()?))
-    }
-}
-
-impl<'i> Parse<'i> for TextIndent<'i> {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let value = input.allocator().boxed(LengthPercentage::parse(input)?);
-        let mut each_line = false;
-        let mut hanging = false;
-        while !input.is_exhausted() {
-            let ident = input.expect_ident()?;
-            match_ignore_ascii_case!(
-                ident,
-                "each-line" => each_line = true,
-                "hanging" => hanging = true,
-                _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
-            );
-        }
-        Ok(Self {
-            each_line,
-            hanging,
-            value,
-        })
     }
 }
