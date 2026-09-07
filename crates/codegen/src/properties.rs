@@ -20,19 +20,6 @@ impl<'ghost> ToCss<'ghost> for VendorPrefix {
     }
 }
 
-impl<'ghost, T: ToCss<'ghost>> ToCss<'ghost> for CSSWideOr<T> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        match self {
-            Self::Value(value) => value.to_css(dest, _cx),
-            Self::CSSWide(keyword) => keyword.to_css(dest, _cx),
-        }
-    }
-}
-
 impl<'ghost> ToCss<'ghost> for PropertyId<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
@@ -41,8 +28,11 @@ impl<'ghost> ToCss<'ghost> for PropertyId<'_> {
     ) -> fmt::Result {
         self.vendor_prefix().to_css(dest, _cx)?;
         match self {
-            Self::Custom(value) => serialize_name(value, dest),
-            _ => dest.write_str(self.name()),
+            Self::Custom(value) => serialize_name(_cx.ast_context().str(*value), dest),
+            _ => dest.write_str(
+                self.known_name()
+                    .expect("non-custom property has a metadata name"),
+            ),
         }
     }
 }
@@ -90,9 +80,9 @@ impl<'ghost> ToCss<'ghost> for u16 {
 macro_rules! comma_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, $ty> {
+            impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
-                    for (index, value) in self.iter().enumerate() {
+                    for (index, value) in _cx.ast_context().vec_iter(*self).enumerate() {
                         if index > 0 {
                             dest.delim(Delimiter::Comma)?;
                         }
@@ -110,62 +100,44 @@ comma_vec! {
     PositionComponent<'a, HorizontalPositionKeyword>,
     PositionComponent<'a, VerticalPositionKeyword>,
     BackgroundPosition<'a>,
-    BackgroundSize<'a>,
+    NodeId<'a, BackgroundSize<'a>>,
     BackgroundRepeat,
     BackgroundAttachment,
     BackgroundClip,
     BackgroundOrigin,
-    Background<'a>,
-    BoxShadow<'a>,
-    PropertyId<'a>,
+    NodeId<'a, Background<'a>>,
+    NodeId<'a, BoxShadow<'a>>,
+    NodeId<'a, PropertyId<'a>>,
     Time,
-    EasingFunction,
-    Transition<'a>,
-    AnimationName<'a>,
+    NodeId<'a, EasingFunction>,
+    NodeId<'a, Transition<'a>>,
+    NodeId<'a, AnimationName<'a>>,
     AnimationIterationCount,
     AnimationDirection,
     AnimationPlayState,
     AnimationFillMode,
     AnimationComposition,
-    AnimationTimeline<'a>,
+    NodeId<'a, AnimationTimeline<'a>>,
     AnimationAttachmentRange<'a>,
     AnimationRange<'a>,
     Animation<'a>,
-    TextShadow<'a>,
+    NodeId<'a, TextShadow<'a>>,
     MaskMode,
     Position<'a>,
     MaskClip,
     GeometryBox,
     MaskComposite,
-    Mask<'a>,
+    NodeId<'a, Mask<'a>>,
     WebKitMaskComposite,
     WebKitMaskSourceType,
-}
-
-impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, FontFamily<'a>> {
-    fn to_css<PrinterT: PrinterTrait>(
-        &self,
-        dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
-    ) -> fmt::Result {
-        let mut first = true;
-        for family in self.iter().filter(|family| !family.is_tombstone()) {
-            if !first {
-                dest.delim(Delimiter::Comma)?;
-            }
-            family.to_css(dest, _cx)?;
-            first = false;
-        }
-        Ok(())
-    }
 }
 
 macro_rules! space_vec {
     ($($ty:ty),+ $(,)?) => {
         $(
-            impl<'a, 'ghost> ToCss<'ghost> for rocketcss_common::vec::Vec<'a, $ty> {
+            impl<'a, 'ghost> ToCss<'ghost> for AstVec<'a, $ty> {
                 fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
-                    for (index, value) in self.iter().enumerate() {
+                    for (index, value) in _cx.ast_context().vec_iter(*self).enumerate() {
                         if index > 0 {
                             dest.write_char(' ')?;
                         }
@@ -178,7 +150,7 @@ macro_rules! space_vec {
     };
 }
 
-space_vec! { TrackSize<'a>, Transform<'a> }
+space_vec! { NodeId<'a, TrackSize<'a>>, NodeId<'a, Transform<'a>> }
 
 macro_rules! declaration_value_pattern {
     ($name:path, $value:ident) => {
@@ -202,15 +174,19 @@ macro_rules! impl_declaration_to_css {
                 if self.is_tombstone() {
                     return Ok(());
                 }
-                self.vendor_prefix().to_css(dest, _cx)?;
+                let ast = _cx.ast_context();
+                self.vendor_prefix(ast).to_css(dest, _cx)?;
                 match self {
-                    Self::Custom(_) => serialize_name(self.name(), dest)?,
+                    Self::Custom(_) => serialize_name(self.name(ast), dest)?,
                     Self::Unparsed(value)
-                        if matches!(&*value.property_id, PropertyId::Custom(_)) =>
+                        if matches!(
+                            ast.resolve_node(ast.unparsed_property(*value).property_id()),
+                            PropertyId::Custom(_)
+                        ) =>
                     {
-                        serialize_name(self.name(), dest)?;
+                        serialize_name(self.name(ast), dest)?;
                     }
-                    _ => dest.write_str(self.name())?,
+                    _ => dest.write_str(self.name(ast))?,
                 }
                 if matches!(self, Self::Custom(_)) {
                     dest.write_char(':')?;

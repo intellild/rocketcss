@@ -1,4 +1,4 @@
-use super::{stylesheet::check_depth, values::collect_tokens};
+use super::{rules::stylesheet::check_depth, values::collect_tokens};
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for SelectorList<'i> {
@@ -17,8 +17,10 @@ pub(super) fn parse_selector_list<'i>(
     let parsed =
         input.parse_comma_separated(|input| parse_selector(input, allocator, depth + 1))?;
     let mut selectors = allocator.vec();
-    selectors.extend(parsed);
-    Ok(selectors)
+    for selector in parsed {
+        selectors.push(store_node(selector, input));
+    }
+    Ok(store_vec(selectors, input))
 }
 
 pub(super) fn parse_selector_list_with_recovery<'i>(
@@ -35,10 +37,11 @@ pub(super) fn parse_selector_list_with_recovery<'i>(
         match input.parse_until_before(Delimiter::Comma, |input| {
             parse_selector(input, allocator, depth + 1)
         }) {
-            Ok(selector) => selectors.push(selector),
+            Ok(selector) => selectors.push(store_node(selector, input)),
             Err(_) => {
                 let raw = input.slice(start..input.position()).trim();
-                selectors.push(Selector::Unparsed(input.intern(raw)));
+                let selector = Selector::Unparsed(input.intern(raw));
+                selectors.push(store_node(selector, input));
             }
         }
 
@@ -50,7 +53,7 @@ pub(super) fn parse_selector_list_with_recovery<'i>(
         }
     }
 
-    Ok(selectors)
+    Ok(store_vec(selectors, input))
 }
 
 pub(super) fn parse_selector<'i>(
@@ -65,7 +68,7 @@ pub(super) fn parse_selector<'i>(
 
     loop {
         let token = match input.next_including_whitespace() {
-            Ok(token) => token.clone(),
+            Ok(token) => *token,
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(error) => return Err(error.into()),
         };
@@ -92,34 +95,39 @@ pub(super) fn parse_selector<'i>(
             _ => None,
         };
         if let Some(combinator) = explicit_combinator {
-            selector.push(SelectorComponent::Combinator(combinator));
+            selector.push(store_node(SelectorComponent::Combinator(combinator), input));
             pending_descendant = false;
             can_have_descendant = false;
             continue;
         }
 
         if pending_descendant && can_have_descendant {
-            selector.push(SelectorComponent::Combinator(Combinator::Descendant));
+            selector.push(store_node(
+                SelectorComponent::Combinator(Combinator::Descendant),
+                input,
+            ));
         }
         pending_descendant = false;
 
         let component = match token {
             ValueToken::Ident(name) if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
-                selector.push(SelectorComponent::Namespace {
-                    prefix: input.intern(name),
-                    url: input.intern(""),
-                });
+                let prefix = input.intern(name);
+                let url = input.intern("");
+                selector.push(store_node(
+                    SelectorComponent::Namespace { prefix, url },
+                    input,
+                ));
                 parse_type_selector(input)?
             }
             ValueToken::Ident(name) => local_name(name, input),
             ValueToken::IdHash(id) => SelectorComponent::Id(input.intern(id)),
             ValueToken::Delim("*") if input.try_parse(|input| input.expect_delim('|')).is_ok() => {
-                selector.push(SelectorComponent::ExplicitAnyNamespace);
+                selector.push(store_node(SelectorComponent::ExplicitAnyNamespace, input));
                 parse_type_selector(input)?
             }
             ValueToken::Delim("*") => SelectorComponent::ExplicitUniversalType,
             ValueToken::Delim("|") => {
-                selector.push(SelectorComponent::ExplicitNoNamespace);
+                selector.push(store_node(SelectorComponent::ExplicitNoNamespace, input));
                 parse_type_selector(input)?
             }
             ValueToken::Delim("&") => SelectorComponent::Nesting,
@@ -133,14 +141,21 @@ pub(super) fn parse_selector<'i>(
             }
             _ => return Err(input.new_custom_error(ParserError::InvalidSelector)),
         };
-        selector.push(component);
+        selector.push(store_node(component, input));
         can_have_descendant = true;
     }
 
-    if selector.is_empty() || matches!(selector.last(), Some(SelectorComponent::Combinator(_))) {
+    if selector.is_empty()
+        || selector.last().is_some_and(|component| {
+            matches!(
+                input.ast_context().resolve_node(*component),
+                SelectorComponent::Combinator(_)
+            )
+        })
+    {
         return Err(input.new_custom_error(ParserError::InvalidSelector));
     }
-    Ok(Selector::parsed(selector))
+    Ok(Selector::parsed(store_vec(selector, input)))
 }
 
 fn local_name<'i>(name: &str, input: &mut Compiler<'i>) -> SelectorComponent<'i> {
@@ -153,7 +168,7 @@ fn local_name<'i>(name: &str, input: &mut Compiler<'i>) -> SelectorComponent<'i>
 fn parse_type_selector<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
-    match input.next()?.clone() {
+    match *input.next()? {
         ValueToken::Ident(name) => Ok(local_name(name, input)),
         ValueToken::Delim("*") => Ok(SelectorComponent::ExplicitUniversalType),
         _ => Err(input.new_custom_error(ParserError::InvalidSelector)),
@@ -166,12 +181,13 @@ pub(super) fn parse_pseudo<'i>(
     depth: usize,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
     let is_element = input.try_parse(Compiler::expect_colon).is_ok();
-    let token = input.next()?.clone();
+    let token = *input.next()?;
 
     match token {
-        ValueToken::Ident(name) if is_element => Ok(SelectorComponent::PseudoElement(
-            allocator.boxed(pseudo_element(name, input)),
-        )),
+        ValueToken::Ident(name) if is_element => Ok(SelectorComponent::PseudoElement(store_node(
+            pseudo_element(name, input),
+            input,
+        ))),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("root") => Ok(SelectorComponent::Root),
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("empty") => {
             Ok(SelectorComponent::Empty)
@@ -179,17 +195,25 @@ pub(super) fn parse_pseudo<'i>(
         ValueToken::Ident(name) if name.eq_ignore_ascii_case("scope") => {
             Ok(SelectorComponent::Scope)
         }
-        ValueToken::Ident(name) => Ok(SelectorComponent::PseudoClass(
-            allocator.boxed(pseudo_class(name, input)),
-        )),
+        ValueToken::Ident(name) => Ok(SelectorComponent::PseudoClass(store_node(
+            pseudo_class(name, input),
+            input,
+        ))),
         ValueToken::Function(name) if is_element => {
             let arguments =
                 input.parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
-            Ok(SelectorComponent::PseudoElement(allocator.boxed(
+            let arguments = store_vec(arguments, input);
+            Ok(SelectorComponent::PseudoElement(store_node(
                 PseudoElement::CustomFunction {
-                    name: input.intern(name),
-                    arguments,
+                    function: store_node(
+                        CustomPseudoFunction {
+                            name: input.intern(name),
+                            arguments,
+                        },
+                        input,
+                    ),
                 },
+                input,
             )))
         }
         ValueToken::Function(name) => {
@@ -229,7 +253,7 @@ pub(super) fn parse_pseudo<'i>(
                     SelectorComponent::Where(input.parse_nested_block(|input| {
                         input.skip_whitespace();
                         if input.is_exhausted() {
-                            Ok(allocator.vec())
+                            Ok(store_vec(allocator.vec(), input))
                         } else {
                             parse_selector_list(input, allocator, depth + 1)
                         }
@@ -241,10 +265,19 @@ pub(super) fn parse_pseudo<'i>(
                 } else {
                     let arguments = input
                         .parse_nested_block(|input| collect_tokens(input, allocator, depth + 1))?;
-                    SelectorComponent::PseudoClass(allocator.boxed(PseudoClass::CustomFunction {
-                        name: input.intern(name),
-                        arguments,
-                    }))
+                    let arguments = store_vec(arguments, input);
+                    SelectorComponent::PseudoClass(store_node(
+                        PseudoClass::CustomFunction {
+                            function: store_node(
+                                CustomPseudoFunction {
+                                    name: input.intern(name),
+                                    arguments,
+                                },
+                                input,
+                            ),
+                        },
+                        input,
+                    ))
                 };
             Ok(component)
         }
@@ -300,9 +333,9 @@ fn parse_nth_affine(source: &str, kind: NthType) -> Option<NthSelectorData> {
 
 pub(super) fn parse_attribute<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
+    _allocator: &'i Allocator,
 ) -> Result<SelectorComponent<'i>, ParseError<'i, ParserError<'i>>> {
-    let first = input.next()?.clone();
+    let first = *input.next()?;
     let (namespace, name) = match first {
         ValueToken::Delim("|") => (None, input.expect_ident()?),
         ValueToken::Delim("*") => {
@@ -327,13 +360,16 @@ pub(super) fn parse_attribute<'i>(
                 local_name: name,
                 local_name_lower: lower_name,
             },
-            Some(namespace) => SelectorComponent::AttributeOther(allocator.boxed(AttrSelector {
-                namespace: Some(namespace),
-                local_name: name,
-                local_name_lower: lower_name,
-                operation: AttrOperation::Exists,
-                never_matches: false,
-            })),
+            Some(namespace) => SelectorComponent::AttributeOther(store_node(
+                AttrSelector {
+                    namespace: Some(namespace),
+                    local_name: name,
+                    local_name_lower: lower_name,
+                    operation: AttrOperation::Exists,
+                    never_matches: false,
+                },
+                input,
+            )),
         });
     }
 
@@ -368,17 +404,20 @@ pub(super) fn parse_attribute<'i>(
             case_sensitivity,
             never_matches: false,
         },
-        Some(namespace) => SelectorComponent::AttributeOther(allocator.boxed(AttrSelector {
-            namespace: Some(namespace),
-            local_name: name,
-            local_name_lower: lower_name,
-            operation: AttrOperation::WithValue {
-                operator,
-                case_sensitivity,
-                expected_value: value,
+        Some(namespace) => SelectorComponent::AttributeOther(store_node(
+            AttrSelector {
+                namespace: Some(namespace),
+                local_name: name,
+                local_name_lower: lower_name,
+                operation: AttrOperation::WithValue {
+                    operator,
+                    case_sensitivity,
+                    expected_value: value,
+                },
+                never_matches: false,
             },
-            never_matches: false,
-        })),
+            input,
+        )),
     })
 }
 

@@ -2,7 +2,7 @@ use rocketcss_ast::{ConcreteRuleId as RuleId, CssRulePayload, DeclarationPayload
 use rocketcss_parser::parse;
 use rocketcss_parser::prelude::*;
 
-fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<'ast>> {
+fn root_rule_ids<'ast>(compilation: &AstContext<'ast>) -> std::vec::Vec<RuleId<'ast>> {
     compilation
         .rules_in_list(compilation.stylesheet().root_rules())
         .unwrap()
@@ -11,7 +11,7 @@ fn root_rule_ids<'ast>(compilation: &Compilation<'ast>) -> std::vec::Vec<RuleId<
 }
 
 fn root_rule<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     index: usize,
 ) -> (RuleId<'ast>, &'tree RuleRecord<'ast, CssRulePayload<'ast>>) {
     let id = root_rule_ids(compilation)[index];
@@ -19,7 +19,7 @@ fn root_rule<'tree, 'ast>(
 }
 
 fn child_rule_ids<'ast>(
-    compilation: &Compilation<'ast>,
+    compilation: &AstContext<'ast>,
     parent: RuleId<'ast>,
 ) -> std::vec::Vec<RuleId<'ast>> {
     let list = compilation.rule(parent).unwrap().child_list().unwrap();
@@ -30,20 +30,33 @@ fn child_rule_ids<'ast>(
         .collect()
 }
 
-fn style_selectors<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+fn style_selectors<'ast>(
+    compilation: &AstContext<'ast>,
     rule: RuleId<'ast>,
-) -> &'tree SelectorList<'ast> {
+) -> std::vec::Vec<NodeId<'ast, Selector<'ast>>> {
     let selector = match compilation.rule(rule).unwrap().payload() {
         CssRulePayload::Style(payload) => payload.selector_value,
         CssRulePayload::Nesting(payload) => payload.selector_value,
         _ => panic!("expected selector-owning rule"),
     };
-    compilation.selector_value(selector).unwrap().selectors()
+    compilation.vec_snapshot(*compilation.selector_value(selector).unwrap().selectors())
+}
+
+fn selector_components<'tree, 'ast>(
+    compilation: &'tree AstContext<'ast>,
+    selector: &'tree NodeId<'ast, Selector<'ast>>,
+) -> std::vec::Vec<SelectorComponent<'ast>> {
+    let Selector::Parsed(components) = compilation.resolve_node(*selector) else {
+        panic!("expected parsed selector");
+    };
+    compilation
+        .vec_iter(components)
+        .map(|component| compilation.resolve_node(component))
+        .collect()
 }
 
 fn property_declarations<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     rule: RuleId<'ast>,
 ) -> std::vec::Vec<(&'tree Declaration<'ast>, bool)> {
     let block = compilation
@@ -63,7 +76,7 @@ fn property_declarations<'tree, 'ast>(
 }
 
 fn declaration_values<'tree, 'ast>(
-    compilation: &'tree Compilation<'ast>,
+    compilation: &'tree AstContext<'ast>,
     rule: RuleId<'ast>,
 ) -> std::vec::Vec<&'tree Declaration<'ast>> {
     property_declarations(compilation, rule)
@@ -73,7 +86,7 @@ fn declaration_values<'tree, 'ast>(
 }
 
 fn expect_parse_error<'ast>(
-    result: Result<Compilation<'ast>, rocketcss_parser::Error<'ast>>,
+    result: Result<AstContext<'ast>, rocketcss_parser::Error<'ast>>,
 ) -> rocketcss_parser::Error<'ast> {
     match result {
         Ok(_) => panic!("expected parsing to fail"),
@@ -166,27 +179,28 @@ fn parses_style_rule_selectors_and_declarations() {
             )
             .unwrap();
 
-        assert_eq!(sheet.license_comments(), ["! license "]);
+        assert_eq!(sheet.license_comments().iter().map(|comment| sheet.str(*comment)).collect::<std::vec::Vec<_>>(), ["! license "]);
         assert_eq!(compiler.source(), "input.css");
         assert_eq!(root_rule_ids(&sheet).len(), 1);
         let (rule_id, rule) = root_rule(&sheet, 0);
-        let CssRulePayload::Style(payload) = rule.payload() else {
+        let CssRulePayload::Style(_) = rule.payload() else {
             panic!("expected style rule")
         };
-        assert_eq!(payload.span, Span::new(15, source.len() as u32));
+        assert_eq!(sheet.rule_span(rule_id), Some(Span::new(15, source.len() as u32)));
         let selectors = style_selectors(&sheet, rule_id);
         assert_eq!(selectors.len(), 2);
         assert!(matches!(
-            &selectors[0][0],
-            SelectorComponent::Class(name) if *name == "Foo"
+            &selector_components(&sheet, &selectors[0])[0],
+            SelectorComponent::Class(name) if sheet.str(*name) == "Foo"
         ));
         assert!(matches!(
-            &selectors[1][1],
+            &selector_components(&sheet, &selectors[1])[1],
             SelectorComponent::Combinator(Combinator::Child)
         ));
         assert!(matches!(
-            &selectors[1][3],
-            SelectorComponent::PseudoClass(value) if matches!(**value, PseudoClass::Hover)
+            &selector_components(&sheet, &selectors[1])[3],
+            SelectorComponent::PseudoClass(value)
+                if matches!(sheet.resolve_node(*value), PseudoClass::Hover)
         ));
 
         let declarations = property_declarations(&sheet, rule_id);
@@ -194,13 +208,16 @@ fn parses_style_rule_selectors_and_declarations() {
         assert!(matches!(
             declarations[0].0,
             Declaration::Color(value)
-                if matches!(**value, rocketcss_ast::CssColor::Known(KnownColor::Red))
+                if matches!(sheet.node(*value), rocketcss_ast::CssColor::Known(KnownColor::Red))
         ));
         assert!(matches!(declarations[1].0, Declaration::Opacity(0.5)));
         assert!(matches!(
             declarations[2].0,
             Declaration::Custom(value)
-                if matches!(*value.name, CustomPropertyName::Custom("--gap"))
+                if matches!(
+                    sheet.resolve_node(sheet.resolve_node(*value).name),
+                    CustomPropertyName::Custom(name) if sheet.str(name) == "--gap"
+                )
         ));
         assert_eq!(
             declarations
@@ -233,34 +250,45 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
         assert!(matches!(
             declarations[0],
             Declaration::Custom(value)
-                if matches!(
-                    &value.value[..],
-                    [TokenOrValue::Color(color)]
-                        if matches!(
-                            &**color,
-                            CssColor::Function(function)
-                                if function.kind() == KnownFunction::Rgb
-                                    && function.is_valid_rgb()
-                        )
-                )
+                if {
+                    let value = sheet.resolve_node(*value);
+                    matches!(
+                        sheet.vec_snapshot(value.value).as_slice(),
+                        [TokenOrValue::Color(color)]
+                            if matches!(
+                                sheet.resolve_node(*color),
+                                CssColor::Function(function)
+                                    if {
+                                        let function = sheet.resolve_node(function);
+                                        function.kind() == KnownFunction::Rgb
+                                            && function.is_valid_rgb()
+                                    }
+                            )
+                    )
+                }
         ));
         for declaration in &declarations[1..4] {
             assert!(matches!(
                 declaration,
                 Declaration::Custom(value)
-                    if matches!(
-                        &value.value[..],
-                        [TokenOrValue::Function(function)]
-                            if function.kind() == KnownFunction::Rgb
-                                && !function.is_valid_rgb()
-                    )
+                    if {
+                        let value = sheet.resolve_node(*value);
+                        matches!(
+                            sheet.vec_snapshot(value.value).as_slice(),
+                            [TokenOrValue::Function(function)]
+                                if {
+                                    let function = sheet.resolve_node(*function);
+                                    function.kind() == KnownFunction::Rgb
+                                        && !function.is_valid_rgb()
+                                }
+                        )
+                    }
             ));
         }
         assert!(matches!(
             declarations[4],
             Declaration::Custom(value)
-                if value
-                    .value
+                if sheet.vec_snapshot(sheet.resolve_node(*value).value)
                     .iter()
                     .all(|value| matches!(value, TokenOrValue::Token(_)))
         ));
@@ -269,13 +297,19 @@ fn rgb_functions_are_reified_only_after_strict_validation() {
             assert!(matches!(
                 declaration,
                 Declaration::Unparsed(value)
-                    if value.reason == UnparsedPropertyReason::OpaqueValue
+                    if {
+                        let value = sheet.resolve_node(*value);
+                        value.reason == UnparsedPropertyReason::OpaqueValue
                         && matches!(
-                            &value.value[..],
+                            sheet.vec_snapshot(value.value).as_slice(),
                             [TokenOrValue::Function(function)]
-                                if function.kind() == KnownFunction::Rgb
-                                    && !function.is_valid_rgb()
+                                if {
+                                    let function = sheet.resolve_node(*function);
+                                    function.kind() == KnownFunction::Rgb
+                                        && !function.is_valid_rgb()
+                                }
                         )
+                    }
             ));
         }
     })
@@ -303,14 +337,18 @@ fn modern_rgb_accepts_mixed_and_missing_components() {
             assert!(matches!(
                 declaration,
                 Declaration::Custom(value)
-                    if matches!(
-                        &value.value[..],
-                        [TokenOrValue::Color(color)]
-                            if matches!(
-                                &**color,
-                                CssColor::Function(function) if function.is_valid_rgb()
-                            )
-                    )
+                    if {
+                        let value = sheet.resolve_node(*value);
+                        matches!(
+                            sheet.vec_snapshot(value.value).as_slice(),
+                            [TokenOrValue::Color(color)]
+                                if matches!(
+                                    sheet.node(*color),
+                                    CssColor::Function(function)
+                                        if sheet.resolve_node(function).is_valid_rgb()
+                                )
+                        )
+                    }
             ));
         }
         for declaration in &declarations[4..] {
@@ -318,8 +356,9 @@ fn modern_rgb_accepts_mixed_and_missing_components() {
                 declaration,
                 Declaration::Color(color) | Declaration::BackgroundColor(color)
                     if matches!(
-                        &**color,
-                        CssColor::Function(function) if function.is_valid_rgb()
+                        sheet.node(*color),
+                        CssColor::Function(function)
+                            if sheet.resolve_node(function).is_valid_rgb()
                     )
             ));
         }
@@ -348,7 +387,8 @@ fn review_regressions_preserve_invalid_and_commented_declarations() {
             assert!(matches!(
                 declaration,
                 Declaration::Unparsed(value)
-                    if value.reason == UnparsedPropertyReason::InvalidValue
+                    if sheet.resolve_node(*value).reason
+                        == UnparsedPropertyReason::InvalidValue
             ));
         }
         for declaration in &declarations[3..6] {
@@ -356,12 +396,15 @@ fn review_regressions_preserve_invalid_and_commented_declarations() {
                 matches!(
                     declaration,
                     Declaration::Unparsed(value)
-                        if value.reason == UnparsedPropertyReason::OpaqueValue
-                            && value.value.iter().any(|value| matches!(
+                        if {
+                            let value = sheet.resolve_node(*value);
+                            value.reason == UnparsedPropertyReason::OpaqueValue
+                            && sheet.vec_snapshot(value.value).iter().any(|value| matches!(
                                 value,
                                 TokenOrValue::Token(token)
-                                    if matches!(**token, ValueToken::Comment(_))
+                                    if matches!(sheet.resolve_node(*token), rocketcss_ast::Token::Comment(_))
                             ))
+                        }
                 ),
                 "{declaration:?}"
             );
@@ -407,18 +450,18 @@ fn parses_named_colors_as_known_color_nodes() {
         assert!(matches!(
             declarations[0].0,
             Declaration::Color(value)
-                if matches!(**value, CssColor::Known(KnownColor::Blue))
+                if matches!(sheet.node(*value), CssColor::Known(KnownColor::Blue))
         ));
         assert!(matches!(
             declarations[1].0,
             Declaration::BackgroundColor(value)
-                if matches!(**value, CssColor::Known(KnownColor::Lightgreen))
+                if matches!(sheet.node(*value), CssColor::Known(KnownColor::Lightgreen))
         ));
         assert!(matches!(
             declarations[2].0,
-            Declaration::Background(values)
+                Declaration::Background(values)
                 if matches!(
-                    &*values[0].color,
+                    sheet.node(sheet.node(sheet.vec_snapshot(*values)[0]).color),
                     CssColor::Known(KnownColor::Blue)
                 )
         ));
@@ -439,19 +482,24 @@ fn escaped_selector_and_function_values_are_decoded_in_ast() {
         let rule = root_rule(&sheet, 0).0;
         let selectors = style_selectors(&sheet, rule);
         assert!(matches!(
-            &selectors[0][0],
-            SelectorComponent::Class(name) if name == "foo"
+            &selector_components(&sheet, &selectors[0])[0],
+            SelectorComponent::Class(name) if sheet.str(*name) == "foo"
         ));
 
         let declarations = property_declarations(&sheet, rule);
         let Declaration::Unparsed(width) = declarations[0].0 else {
             panic!("expected opaque width")
         };
-        assert!(matches!(&*width.property_id, PropertyId::Width));
+        let width = sheet.resolve_node(*width);
+        assert!(matches!(
+            sheet.resolve_node(width.property_id),
+            PropertyId::Width
+        ));
         assert_eq!(width.reason, UnparsedPropertyReason::OpaqueValue);
-        assert!(width.value.iter().any(|value| matches!(
+        assert!(sheet.vec_snapshot(width.value).iter().any(|value| matches!(
             value,
-            TokenOrValue::Function(function) if function.name() == "calc"
+            TokenOrValue::Function(function)
+                if sheet.str(sheet.resolve_node(*function).name()) == "calc"
         )));
     })
 }
@@ -469,15 +517,16 @@ fn compiler_interns_equal_selector_strings_to_one_atom() {
             )
             .unwrap();
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
-        let SelectorComponent::Class(first) = &selectors[0][0] else {
+        let SelectorComponent::Class(first) = &selector_components(&sheet, &selectors[0])[0] else {
             panic!("expected first class selector")
         };
-        let SelectorComponent::Class(second) = &selectors[1][0] else {
+        let SelectorComponent::Class(second) = &selector_components(&sheet, &selectors[1])[0]
+        else {
             panic!("expected second class selector")
         };
 
         assert_eq!(first, second);
-        assert!(std::ptr::eq(first.as_str(), second.as_str()));
+        assert!(std::ptr::eq(sheet.str(*first), sheet.str(*second)));
     })
 }
 
@@ -497,18 +546,25 @@ fn scope_prelude_reuses_the_compiler_string_pool() {
         let CssRulePayload::Scope(scope) = scope.payload() else {
             panic!("expected scope rule")
         };
-        let SelectorComponent::Class(scope_class) = &scope.scope_start.as_ref().unwrap()[0][0]
+        let scope_start = sheet.vec_snapshot(scope.scope_start.unwrap());
+        let SelectorComponent::Class(scope_class) =
+            &selector_components(&sheet, &scope_start[0])[0]
         else {
             panic!("expected scope class selector")
         };
         let scoped_rule = child_rule_ids(&sheet, scope_id)[0];
-        let SelectorComponent::Class(rule_class) = &style_selectors(&sheet, scoped_rule)[0][0]
+        let rule_selectors = style_selectors(&sheet, scoped_rule);
+        let SelectorComponent::Class(rule_class) =
+            &selector_components(&sheet, &rule_selectors[0])[0]
         else {
             panic!("expected style class selector")
         };
 
         assert_eq!(scope_class, rule_class);
-        assert!(std::ptr::eq(scope_class.as_str(), rule_class.as_str()));
+        assert!(std::ptr::eq(
+            sheet.str(*scope_class),
+            sheet.str(*rule_class)
+        ));
     })
 }
 
@@ -528,24 +584,19 @@ fn parses_import_media_unknown_and_font_face_rules() {
         let CssRulePayload::Import(rule) = root_rule(&sheet, 0).1.payload() else {
             panic!("expected import")
         };
-        assert_eq!(rule.url, "a.css");
-        assert!(matches!(
-            rule.media
-                .as_ref()
-                .map(|media| &media.media_queries[0].media_type),
-            Some(MediaType::Screen)
-        ));
+        assert_eq!(sheet.str(rule.url), "a.css");
+        let import_media = sheet.resolve_node(rule.media.unwrap());
+        let import_query = sheet.resolve_node(sheet.vec_snapshot(import_media.media_queries)[0]);
+        assert!(matches!(import_query.media_type, MediaType::Screen));
 
         let (media_id, media) = root_rule(&sheet, 1);
         let CssRulePayload::Media(rule) = media.payload() else {
             panic!("expected media")
         };
         assert_eq!(child_rule_ids(&sheet, media_id).len(), 1);
-        assert!(matches!(
-            rule.query.media_queries[0].media_type,
-            MediaType::Screen
-        ));
-        assert!(rule.query.media_queries[0].condition.is_some());
+        let media_query = sheet.resolve_node(sheet.vec_snapshot(rule.query.media_queries)[0]);
+        assert!(matches!(media_query.media_type, MediaType::Screen));
+        assert!(media_query.condition.is_some());
 
         let (font_face_id, font_face) = root_rule(&sheet, 2);
         let CssRulePayload::FontFace(_) = font_face.payload() else {
@@ -564,13 +615,16 @@ fn parses_import_media_unknown_and_font_face_rules() {
         assert!(matches!(
             properties[0].payload(),
             DeclarationPayload::FontFace(FontFaceProperty::Custom(value))
-                if matches!(*value.name, CustomPropertyName::Unknown("font-family"))
+                if matches!(
+                    sheet.resolve_node(sheet.resolve_node(*value).name),
+                    CustomPropertyName::Unknown(name) if sheet.str(name) == "font-family"
+                )
         ));
 
         let CssRulePayload::Unknown(rule) = root_rule(&sheet, 3).1.payload() else {
             panic!("expected unknown at-rule")
         };
-        assert_eq!(rule.name, "unknown");
+        assert_eq!(sheet.str(rule.name), "unknown");
         assert!(rule.block.is_some());
     })
 }
@@ -590,79 +644,94 @@ fn parses_typed_media_conditions_and_features() {
         let CssRulePayload::Media(rule) = root_rule(&sheet, 0).1.payload() else {
             panic!("expected media rule")
         };
-        assert_eq!(rule.query.media_queries.len(), 5);
+        let queries = sheet
+            .vec_iter(rule.query.media_queries)
+            .map(|query| sheet.resolve_node(query))
+            .collect::<std::vec::Vec<_>>();
+        assert_eq!(queries.len(), 5);
 
+        let first_condition = sheet.resolve_node(queries[0].condition.unwrap());
+        let MediaCondition::Operation {
+            operator: Operator::And,
+            conditions,
+        } = first_condition
+        else {
+            panic!("expected and condition")
+        };
+        let MediaCondition::Feature(feature) =
+            sheet.resolve_node(sheet.vec_snapshot(conditions)[0])
+        else {
+            panic!("expected width feature")
+        };
+        let QueryFeature::Range {
+            name: MediaFeatureName::Standard(MediaFeatureId::Width),
+            operator: MediaFeatureComparison::GreaterThanEqual,
+            value,
+        } = sheet.resolve_node(feature)
+        else {
+            panic!("expected width range")
+        };
+        let MediaFeatureValue::Length(length) = sheet.resolve_node(value) else {
+            panic!("expected length value")
+        };
         assert!(matches!(
-            rule.query.media_queries[0].condition.as_ref(),
-            Some(MediaCondition::Operation {
-                operator: Operator::And,
-                conditions,
-            }) if matches!(
-                &conditions[0],
-                MediaCondition::Feature(feature)
-                    if matches!(
-                        &**feature,
-                        QueryFeature::Range {
-                            name: MediaFeatureName::Standard(MediaFeatureId::Width),
-                            operator: MediaFeatureComparison::GreaterThanEqual,
-                            value,
-                        } if matches!(
-                            value,
-                            MediaFeatureValue::Length(Length::Value(length))
-                                if length.value == 600.0 && length.unit == LengthUnit::Px
-                        )
-                    )
-            )
+            sheet.resolve_node(length),
+            Length::Value(length)
+                if length.value == 600.0 && length.unit == LengthUnit::Px
         ));
+        let second_condition = sheet.resolve_node(queries[1].condition.unwrap());
         assert!(matches!(
-            rule.query.media_queries[1].condition.as_ref(),
-            Some(MediaCondition::Not(condition))
+            second_condition,
+            MediaCondition::Not(condition)
                 if matches!(
-                    condition.as_ref(),
+                    sheet.resolve_node(condition),
                     MediaCondition::Feature(feature)
                         if matches!(
-                            feature.as_ref(),
+                            sheet.resolve_node(feature),
                             QueryFeature::Boolean {
                                 name: MediaFeatureName::Standard(MediaFeatureId::Hover)
                             }
                         )
                 )
         ));
+        let third_condition = sheet.resolve_node(queries[2].condition.unwrap());
         assert!(matches!(
-            rule.query.media_queries[2].condition.as_ref(),
-            Some(MediaCondition::Feature(feature))
-                if matches!(feature.as_ref(), QueryFeature::Interval {
+            third_condition,
+            MediaCondition::Feature(feature)
+                if matches!(sheet.resolve_node(feature), QueryFeature::Interval {
                     name: MediaFeatureName::Standard(MediaFeatureId::Width),
                     start_operator: MediaFeatureComparison::LessThan,
                     end_operator: MediaFeatureComparison::LessThanEqual,
                     ..
                 })
         ));
+        assert!(matches!(queries[3].media_type, MediaType::Screen));
+        let fourth_condition = sheet.resolve_node(queries[3].condition.unwrap());
         assert!(matches!(
-            rule.query.media_queries[3].media_type,
-            MediaType::Screen
-        ));
-        assert!(matches!(
-            rule.query.media_queries[3].condition.as_ref(),
-            Some(MediaCondition::Feature(feature))
+            fourth_condition,
+            MediaCondition::Feature(feature)
                 if matches!(
-                    feature.as_ref(),
+                    sheet.resolve_node(feature),
                     QueryFeature::Plain {
                         name: MediaFeatureName::Standard(MediaFeatureId::Resolution),
                         value,
-                    } if matches!(value, MediaFeatureValue::Resolution(Resolution::Dppx(2.0)))
+                    } if matches!(
+                        sheet.resolve_node(value),
+                        MediaFeatureValue::Resolution(Resolution::Dppx(2.0))
+                    )
                 )
         ));
+        let fifth_condition = sheet.resolve_node(queries[4].condition.unwrap());
         assert!(matches!(
-            rule.query.media_queries[4].condition.as_ref(),
-            Some(MediaCondition::Feature(feature))
+            fifth_condition,
+            MediaCondition::Feature(feature)
                 if matches!(
-                    feature.as_ref(),
+                    sheet.resolve_node(feature),
                     QueryFeature::Range {
                         name: MediaFeatureName::Standard(MediaFeatureId::Width),
                         operator: MediaFeatureComparison::LessThanEqual,
                         value,
-                    } if matches!(value, MediaFeatureValue::Env(_))
+                    } if matches!(sheet.resolve_node(value), MediaFeatureValue::Env(_))
                 )
         ));
     })
@@ -710,8 +779,8 @@ fn selector_error_recovery_preserves_a_pure_invalid_selector() {
         let rule = root_rule(&sheet, 0).0;
         let selectors = style_selectors(&sheet, rule);
         assert!(matches!(
-            &selectors[0],
-            Selector::Unparsed(raw) if raw == "(font-[family-name:var(--font-*)])"
+            sheet.resolve_node(selectors[0]),
+            Selector::Unparsed(raw) if sheet.str(raw) == "(font-[family-name:var(--font-*)])"
         ));
         assert!(matches!(
             property_declarations(&sheet, rule)[0].0,
@@ -737,12 +806,18 @@ fn selector_error_recovery_continues_at_commas() {
 
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert_eq!(selectors.len(), 3);
-        assert!(matches!(&selectors[0], Selector::Parsed(_)));
         assert!(matches!(
-            &selectors[1],
-            Selector::Unparsed(raw) if raw == "(font-[family-name:var(--font-*)])"
+            sheet.resolve_node(selectors[0]),
+            Selector::Parsed(_)
         ));
-        assert!(matches!(&selectors[2], Selector::Parsed(_)));
+        assert!(matches!(
+            sheet.resolve_node(selectors[1]),
+            Selector::Unparsed(raw) if sheet.str(raw) == "(font-[family-name:var(--font-*)])"
+        ));
+        assert!(matches!(
+            sheet.resolve_node(selectors[2]),
+            Selector::Parsed(_)
+        ));
     })
 }
 
@@ -763,12 +838,18 @@ fn selector_error_recovery_consumes_multiple_invalid_tokens() {
 
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert_eq!(selectors.len(), 3);
-        assert!(matches!(&selectors[0], Selector::Parsed(_)));
         assert!(matches!(
-            &selectors[1],
-            Selector::Unparsed(raw) if raw == ".broken ?? trailing"
+            sheet.resolve_node(selectors[0]),
+            Selector::Parsed(_)
         ));
-        assert!(matches!(&selectors[2], Selector::Parsed(_)));
+        assert!(matches!(
+            sheet.resolve_node(selectors[1]),
+            Selector::Unparsed(raw) if sheet.str(raw) == ".broken ?? trailing"
+        ));
+        assert!(matches!(
+            sheet.resolve_node(selectors[2]),
+            Selector::Parsed(_)
+        ));
     })
 }
 
@@ -802,90 +883,101 @@ fn parser_reports_unmatched_closing_token() {
 #[test]
 fn lightningcss_parse_trait_parses_values_from_strings() {
     let allocator = Allocator::new();
-    let selectors = rocketcss_ast::SelectorList::parse_string(".a:is(.b, #c)", &allocator).unwrap();
+    let (selectors, ast) =
+        rocketcss_ast::SelectorList::parse_string(".a:hover:is(.b, #c)", &allocator).unwrap();
     assert_eq!(selectors.len(), 1);
+    let selectors = ast.vec_snapshot(selectors);
+    let components = selector_components(&ast, &selectors[0]);
     assert!(matches!(
-        &selectors[0][1],
+        &components[2],
         SelectorComponent::Is(list) if list.len() == 2
     ));
+    let SelectorComponent::PseudoClass(hover) = components[1] else {
+        panic!("expected :hover")
+    };
+    assert!(matches!(ast.node(hover), PseudoClass::Hover));
 }
 
 #[test]
 fn parses_namespace_deep_and_empty_where_selectors() {
     let allocator = Allocator::new();
-    let selectors = SelectorList::parse_string(
+    let mut compiler = Compiler::new_with_source(
         "|e, *|*, svg|circle, [svg|fill=red], .a /deep/ .b, foo:where()",
         &allocator,
-    )
-    .unwrap();
+    );
+    let selectors = compiler.parse_entirely(SelectorList::parse).unwrap();
+    let ast = compiler.ast_context();
+    let selectors = ast.vec_snapshot(selectors);
 
     assert!(matches!(
-        &selectors[0][..],
+        selector_components(ast, &selectors[0]).as_slice(),
         [
             SelectorComponent::ExplicitNoNamespace,
             SelectorComponent::LocalName { name, .. }
-        ] if name == "e"
+        ] if ast.str(*name) == "e"
     ));
     assert!(matches!(
-        &selectors[1][..],
+        selector_components(ast, &selectors[1]).as_slice(),
         [
             SelectorComponent::ExplicitAnyNamespace,
             SelectorComponent::ExplicitUniversalType
         ]
     ));
     assert!(matches!(
-        &selectors[2][..],
+        selector_components(ast, &selectors[2]).as_slice(),
         [
             SelectorComponent::Namespace { prefix, .. },
             SelectorComponent::LocalName { name, .. }
-        ] if prefix == "svg" && name == "circle"
+        ] if ast.str(*prefix) == "svg" && ast.str(*name) == "circle"
     ));
     assert!(matches!(
-        &selectors[3][0],
+        &selector_components(ast, &selectors[3])[0],
         SelectorComponent::AttributeOther(attribute)
             if matches!(
-                &attribute.namespace,
-                Some(NamespaceConstraint::Specific { prefix, .. }) if prefix == "svg"
+                &ast.resolve_node(*attribute).namespace,
+                Some(NamespaceConstraint::Specific { prefix, .. }) if ast.str(*prefix) == "svg"
             )
     ));
     assert!(matches!(
-        &selectors[4][..],
+        selector_components(ast, &selectors[4]).as_slice(),
         [
             SelectorComponent::Class(left),
             SelectorComponent::Combinator(Combinator::Deep),
             SelectorComponent::Class(right)
-        ] if left == "a" && right == "b"
+        ] if ast.str(*left) == "a" && ast.str(*right) == "b"
     ));
     assert!(matches!(
-        &selectors[5][..],
+        selector_components(ast, &selectors[5]).as_slice(),
         [SelectorComponent::LocalName { name, .. }, SelectorComponent::Where(list)]
-            if name == "foo" && list.is_empty()
+            if ast.str(*name) == "foo" && list.is_empty()
     ));
 }
 
 #[test]
 fn parses_selection_and_placeholder_vendor_prefixes_into_typed_selectors() {
     let allocator = Allocator::new();
-    let selectors = SelectorList::parse_string(
+    let mut compiler = Compiler::new_with_source(
         "::-MoZ-selection,::-webkit-placeholder,::placeholder",
         &allocator,
-    )
-    .unwrap();
+    );
+    let selectors = compiler.parse_entirely(SelectorList::parse).unwrap();
+    let ast = compiler.ast_context();
+    let selectors = ast.vec_snapshot(selectors);
 
     assert!(matches!(
-        &selectors[0][0],
+        &selector_components(ast, &selectors[0])[0],
         SelectorComponent::PseudoElement(element)
-            if matches!(**element, PseudoElement::Selection(VendorPrefix::MOZ))
+            if matches!(ast.resolve_node(*element), PseudoElement::Selection(VendorPrefix::MOZ))
     ));
     assert!(matches!(
-        &selectors[1][0],
+        &selector_components(ast, &selectors[1])[0],
         SelectorComponent::PseudoElement(element)
-            if matches!(**element, PseudoElement::Placeholder(VendorPrefix::WEBKIT))
+            if matches!(ast.resolve_node(*element), PseudoElement::Placeholder(VendorPrefix::WEBKIT))
     ));
     assert!(matches!(
-        &selectors[2][0],
+        &selector_components(ast, &selectors[2])[0],
         SelectorComponent::PseudoElement(element)
-            if matches!(**element, PseudoElement::Placeholder(VendorPrefix::NONE))
+            if matches!(ast.resolve_node(*element), PseudoElement::Placeholder(VendorPrefix::NONE))
     ));
 }
 
@@ -907,7 +999,7 @@ fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
             panic!("expected keyframe")
         };
         assert!(matches!(
-            &first.selectors[0],
+            &sheet.vec_snapshot(first.selectors)[0],
             KeyframeSelector::TimelineRangePercentage(value)
                 if value.name == TimelineRangeName::Entry && value.percentage == 0.0
         ));
@@ -915,7 +1007,7 @@ fn parses_timeline_range_keyframes_and_skips_invalid_selectors() {
             panic!("expected keyframe")
         };
         assert!(matches!(
-            &second.selectors[0],
+            &sheet.vec_snapshot(second.selectors)[0],
             KeyframeSelector::TimelineRangePercentage(value)
                 if value.name == TimelineRangeName::Exit && value.percentage == 1.0
         ));
@@ -945,12 +1037,13 @@ fn parses_lightningcss_rule_families() {
         assert!(matches!(
             sheet.rule(roots[0]).unwrap().payload(),
             CssRulePayload::Namespace(rule)
-                if rule.prefix == Some("svg") && rule.url == "http://www.w3.org/2000/svg"
+                if rule.prefix.map(|name| sheet.str(name)) == Some("svg") && sheet.str(rule.url) == "http://www.w3.org/2000/svg"
         ));
         assert!(matches!(
             sheet.rule(roots[1]).unwrap().payload(),
             CssRulePayload::LayerStatement(rule)
-                if rule.names.len() == 2 && rule.names[1].as_slice() == ["theme", "base"]
+                if rule.names.len() == 2
+                    && sheet.vec_iter(sheet.vec_snapshot(rule.names)[1]).map(|part| sheet.str(part)).eq(["theme", "base"])
         ));
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
@@ -960,19 +1053,22 @@ fn parses_lightningcss_rule_families() {
         assert!(matches!(
             sheet.rule(roots[3]).unwrap().payload(),
             CssRulePayload::CustomMedia(rule)
-                if rule.name == "--narrow" && rule.query.media_queries.len() == 1
+                if sheet.str(rule.name) == "--narrow" && rule.query.media_queries.len() == 1
         ));
         assert!(matches!(
             sheet.rule(roots[4]).unwrap().payload(),
             CssRulePayload::Keyframes(rule)
-                if matches!(*rule.name, rocketcss_ast::KeyframesName::Ident("fade"))
+                if matches!(
+                    sheet.resolve_node(rule.name),
+                    rocketcss_ast::KeyframesName::Ident(value) if sheet.str(value) == "fade"
+                )
         ));
         let frames = child_rule_ids(&sheet, roots[4]);
         assert_eq!(frames.len(), 3);
         assert!(matches!(
             sheet.rule(frames[1]).unwrap().payload(),
             CssRulePayload::Keyframe(rule)
-                if matches!(rule.selectors[0], KeyframeSelector::Percentage(0.5))
+                if matches!(sheet.vec_snapshot(rule.selectors)[0], KeyframeSelector::Percentage(0.5))
         ));
         assert!(matches!(
             sheet.rule(roots[5]).unwrap().payload(),
@@ -984,11 +1080,11 @@ fn parses_lightningcss_rule_families() {
         ));
         assert!(matches!(
             sheet.rule(roots[7]).unwrap().payload(),
-            CssRulePayload::PositionTry(rule) if rule.name == "--fallback"
+            CssRulePayload::PositionTry(rule) if sheet.str(rule.name) == "--fallback"
         ));
         assert!(matches!(
             sheet.rule(roots[8]).unwrap().payload(),
-            CssRulePayload::Container(rule) if rule.name == Some("card") && rule.condition.is_some()
+            CssRulePayload::Container(rule) if rule.name.map(|name| sheet.str(name)) == Some("card") && rule.condition.is_some()
         ));
         assert!(matches!(
             sheet.rule(roots[9]).unwrap().payload(),
@@ -1014,15 +1110,17 @@ fn parses_import_modifiers_scope_and_page() {
         let CssRulePayload::Import(import) = sheet.rule(roots[0]).unwrap().payload() else {
             panic!("expected import")
         };
-        assert_eq!(import.layer.as_deref(), Some(&["theme", "base"][..]));
+        assert_eq!(
+            import.layer.map(|layer| sheet
+                .vec_iter(layer)
+                .map(|part| sheet.str(part))
+                .collect::<std::vec::Vec<_>>()),
+            Some(std::vec!["theme", "base"])
+        );
         assert!(import.supports.is_some());
-        assert!(matches!(
-            import
-                .media
-                .as_ref()
-                .map(|media| &media.media_queries[0].media_type),
-            Some(MediaType::Print)
-        ));
+        let import_media = sheet.resolve_node(import.media.unwrap());
+        let import_query = sheet.resolve_node(sheet.vec_snapshot(import_media.media_queries)[0]);
+        assert!(matches!(import_query.media_type, MediaType::Print));
 
         assert!(matches!(
             sheet.rule(roots[1]).unwrap().payload(),
@@ -1073,11 +1171,12 @@ fn enforces_import_and_namespace_order_like_lightningcss() {
         )
         .unwrap();
         assert_eq!(root_rule_ids(&valid).len(), 5);
+        let (charset_id, charset) = root_rule(&valid, 0);
         assert!(matches!(
-            root_rule(&valid, 0).1.payload(),
-            CssRulePayload::Charset(rule)
-                if rule.encoding == "UTF-8" && rule.span == Span::new(0, 17)
+            charset.payload(),
+            CssRulePayload::Charset(rule) if valid.str(rule.encoding) == "UTF-8"
         ));
+        assert_eq!(valid.rule_span(charset_id), Some(Span::new(0, 17)));
 
         let interrupted_import = expect_parse_error(parse(
             "@import \"a.css\";\n@layer reset,base;\n@import \"b.css\" layer(base);",
@@ -1124,11 +1223,12 @@ fn parses_charset_as_a_typed_rule() {
         .unwrap();
 
         assert_eq!(root_rule_ids(&sheet).len(), 1);
+        let (charset_id, charset) = root_rule(&sheet, 0);
         assert!(matches!(
-            root_rule(&sheet, 0).1.payload(),
-            CssRulePayload::Charset(rule)
-                if rule.encoding == "UTF-8" && rule.span == Span::new(0, 20)
+            charset.payload(),
+            CssRulePayload::Charset(rule) if sheet.str(rule.encoding) == "UTF-8"
         ));
+        assert_eq!(sheet.rule_span(charset_id), Some(Span::new(0, 20)));
 
         assert!(
             parse(
@@ -1256,7 +1356,10 @@ fn declaration_like_identifier_requires_explicit_error_recovery() {
         assert!(matches!(
             declarations[2].0,
             Declaration::Unparsed(value)
-                if matches!(&*value.property_id, PropertyId::Background)
+                if matches!(
+                    sheet.resolve_node(sheet.resolve_node(*value).property_id),
+                    PropertyId::Background
+                )
         ));
     })
 }
@@ -1276,12 +1379,12 @@ fn parses_typed_core_property_values() {
     assert!(matches!(
         declarations[0],
         Declaration::Color(color)
-            if matches!(**color, rocketcss_ast::CssColor::Rgba(rocketcss_ast::RGBA { red: 0, green: 255, blue: 0, alpha: 136 }))
+            if matches!(sheet.node(*color), rocketcss_ast::CssColor::Rgba(rocketcss_ast::RGBA { red: 0, green: 255, blue: 0, alpha: 136 }))
     ));
     assert!(matches!(
         declarations[1],
         Declaration::BackgroundColor(color)
-            if matches!(**color, rocketcss_ast::CssColor::CurrentColor)
+            if matches!(sheet.node(*color), rocketcss_ast::CssColor::CurrentColor)
     ));
     assert!(matches!(declarations[2], Declaration::Display(_)));
     assert!(matches!(
@@ -1359,7 +1462,8 @@ fn rejects_auto_for_scroll_margin_and_padding() {
             assert!(matches!(
                 declaration,
                 Declaration::Unparsed(value)
-                    if value.reason == UnparsedPropertyReason::InvalidValue
+                    if sheet.resolve_node(*value).reason
+                        == UnparsedPropertyReason::InvalidValue
             ));
         }
     })
@@ -1407,9 +1511,17 @@ fn parses_mask_shorthand_layers_without_losing_defaults() {
         let Declaration::Mask(layers, VendorPrefix::NONE) = declarations[0] else {
             panic!("expected typed mask shorthand")
         };
+        let layers = sheet.vec_snapshot(*layers);
+        let layers = layers
+            .into_iter()
+            .map(|layer| sheet.resolve_node(layer))
+            .collect::<std::vec::Vec<_>>();
         assert_eq!(layers.len(), 2);
-        assert!(matches!(&*layers[0].image, Image::Url(_)));
-        assert!(matches!(&*layers[0].size, BackgroundSize::Cover));
+        assert!(matches!(sheet.resolve_node(layers[0].image), Image::Url(_)));
+        assert!(matches!(
+            sheet.resolve_node(layers[0].size),
+            BackgroundSize::Cover
+        ));
         assert!(matches!(
             &layers[0].repeat.x,
             BackgroundRepeatKeyword::NoRepeat
@@ -1421,7 +1533,10 @@ fn parses_mask_shorthand_layers_without_losing_defaults() {
         ));
         assert!(matches!(&layers[0].composite, MaskComposite::Exclude));
         assert!(matches!(&layers[0].mode, MaskMode::Alpha));
-        assert!(matches!(&*layers[1].image, Image::Gradient(_)));
+        assert!(matches!(
+            sheet.resolve_node(layers[1].image),
+            Image::Gradient(_)
+        ));
         assert!(matches!(&layers[1].composite, MaskComposite::Add));
         assert!(matches!(&layers[1].mode, MaskMode::MatchSource));
     })
@@ -1443,6 +1558,11 @@ fn parses_mask_repeat_x_and_y_as_typed_layers() {
         else {
             panic!("expected typed mask shorthand")
         };
+        let layers = sheet.vec_snapshot(*layers);
+        let layers = layers
+            .into_iter()
+            .map(|layer| sheet.resolve_node(layer))
+            .collect::<std::vec::Vec<_>>();
         assert!(matches!(
             (&layers[0].repeat.x, &layers[0].repeat.y),
             (
@@ -1475,27 +1595,31 @@ fn parses_radial_mask_images_and_gradient_hints() {
         let Declaration::MaskImage(images, _) = declarations[0] else {
             panic!("expected typed mask-image")
         };
+        let images = sheet.vec_snapshot(*images);
         assert!(matches!(
             &images[0],
             Image::Gradient(gradient)
-                if matches!(&**gradient, Gradient::Radial { .. })
+                if matches!(sheet.resolve_node(*gradient), Gradient::Radial { .. })
         ));
         assert!(matches!(
             &images[1],
             Image::Gradient(gradient)
-                if matches!(&**gradient, Gradient::RepeatingRadial { .. })
+                if matches!(sheet.resolve_node(*gradient), Gradient::RepeatingRadial { .. })
                     && matches!(
-                        &**gradient,
+                        sheet.resolve_node(*gradient),
                         Gradient::RepeatingRadial { items, .. }
-                            if items.iter().any(|item| matches!(item, GradientItem::Hint(_)))
+                            if sheet.vec_snapshot(items).iter().any(|item| {
+                                matches!(sheet.resolve_node(*item), GradientItem::Hint(_))
+                            })
                     )
         ));
         assert!(matches!(
             &images[2],
             Image::Gradient(gradient)
-                if matches!(&**gradient, Gradient::Conic { .. })
+                if matches!(sheet.resolve_node(*gradient), Gradient::Conic { .. })
         ));
-        assert!(matches!(&images[3], Image::ImageSet(image_set) if image_set.options.len() == 2));
+        assert!(matches!(&images[3], Image::ImageSet(image_set)
+            if sheet.vec_snapshot(sheet.resolve_node(*image_set).options).len() == 2));
     })
 }
 
@@ -1550,7 +1674,8 @@ fn parses_single_and_two_value_layout_shorthands() {
         assert!(matches!(declarations[1], Declaration::PlaceSelf(PlaceSelf { .. })));
         assert!(matches!(declarations[2], Declaration::PlaceItems(PlaceItems { .. })));
         assert!(matches!(declarations[3], Declaration::Gap(_)));
-        assert!(matches!(declarations[4], Declaration::RowGap(value) if matches!(&**value, GapValue::Normal)));
+        assert!(matches!(declarations[4], Declaration::RowGap(value)
+            if matches!(sheet.resolve_node(*value), GapValue::Normal)));
         assert!(matches!(declarations[5], Declaration::ColumnGap(_)));
         assert!(matches!(declarations[6], Declaration::BorderSpacing(_)));
     })
@@ -1611,8 +1736,11 @@ fn stylo_derived_property_grammar_keeps_vectors_and_substitutions_typed() {
         assert!(matches!(
             declarations[6],
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::OpaqueValue
-                    && matches!(&*value.property_id, PropertyId::Width)
+                if {
+                    let value = sheet.resolve_node(*value);
+                    value.reason == UnparsedPropertyReason::OpaqueValue
+                        && matches!(sheet.resolve_node(value.property_id), PropertyId::Width)
+                }
         ));
     })
 }
@@ -1636,7 +1764,11 @@ fn parses_typed_text_longhands() {
         assert!(matches!(declarations[3], Declaration::TextAlign(TextAlign::Justify)));
         assert!(matches!(declarations[4], Declaration::WordSpacing(_)));
         assert!(matches!(declarations[5], Declaration::LetterSpacing(_)));
-        assert!(matches!(declarations[6], Declaration::TextIndent(value) if value.hanging && value.each_line));
+        assert!(matches!(declarations[6], Declaration::TextIndent(value)
+            if {
+                let value = sheet.resolve_node(*value);
+                value.hanging && value.each_line
+            }));
         assert!(matches!(declarations[7], Declaration::TextDecorationLine(_, _)));
         assert!(matches!(declarations[8], Declaration::TextDecorationStyle(TextDecorationStyle::Wavy, _)));
         assert!(matches!(declarations[9], Declaration::TextDecorationThickness(_)));
@@ -1663,25 +1795,38 @@ fn parses_font_family_into_typed_ast_nodes() {
     assert!(matches!(
         declarations[0],
         Declaration::FontFamily(families)
-            if matches!(families.as_slice(), [
-                FontFamily::Custom("serif"),
-                FontFamily::SansSerif,
-                FontFamily::Custom("Fancy Font"),
-                FontFamily::Custom("A"),
-                FontFamily::Custom("slab inherit"),
-            ])
+            if matches!(
+                sheet
+                    .vec_iter(*families)
+                    .map(|family| sheet.resolve_node(family))
+                    .collect::<std::vec::Vec<_>>()
+                    .as_slice(),
+                [
+                    FontFamily::Custom(serif),
+                    FontFamily::SansSerif,
+                    FontFamily::Custom(fancy),
+                    FontFamily::Custom(a),
+                    FontFamily::Custom(slab),
+                ] if sheet.str(*serif) == "serif" && sheet.str(*fancy) == "Fancy Font" && sheet.str(*a) == "A" && sheet.str(*slab) == "slab inherit"
+            )
     ));
     assert!(matches!(
         declarations[1],
         Declaration::Unparsed(value)
-            if value.reason == UnparsedPropertyReason::OpaqueValue
-                && matches!(&*value.property_id, PropertyId::FontFamily)
+            if {
+                let value = sheet.resolve_node(*value);
+                value.reason == UnparsedPropertyReason::OpaqueValue
+                    && matches!(sheet.resolve_node(value.property_id), PropertyId::FontFamily)
+            }
     ));
     assert!(matches!(
         declarations[2],
         Declaration::Unparsed(value)
-            if value.reason == UnparsedPropertyReason::InvalidValue
-                && matches!(&*value.property_id, PropertyId::FontFamily)
+            if {
+                let value = sheet.resolve_node(*value);
+                value.reason == UnparsedPropertyReason::InvalidValue
+                    && matches!(sheet.resolve_node(value.property_id), PropertyId::FontFamily)
+            }
     ));
     })
 }
@@ -1702,31 +1847,40 @@ fn parses_known_multicol_and_legacy_gap_ast_nodes() {
     assert!(matches!(
         declarations[0],
         Declaration::ColumnRule(value, prefix)
-            if prefix.contains(VendorPrefix::WEBKIT)
+            if {
+                let value = sheet.resolve_node(*value);
+                prefix.contains(VendorPrefix::WEBKIT)
                 && matches!(value.style, Some(LineStyle::Solid))
                 && value.width.is_some()
                 && value.color.is_some()
+            }
     ));
     assert!(matches!(
         declarations[1],
         Declaration::Columns(CSSWideOr::Value(value), prefix)
-            if *prefix == VendorPrefix::NONE
+            if {
+                let value = sheet.resolve_node(*value);
+                *prefix == VendorPrefix::NONE
                 && matches!(value.count, ColumnCount::Integer(3))
                 && matches!(&value.width, ColumnWidth::Length(_))
+            }
     ));
     assert!(matches!(
         declarations[2],
         Declaration::GridColumnGap(value)
-            if matches!(&**value, GapValue::LengthPercentage(_))
+            if matches!(sheet.resolve_node(*value), GapValue::LengthPercentage(_))
     ));
     assert!(matches!(
         declarations[3],
-        Declaration::GridRowGap(value) if matches!(&**value, GapValue::Normal)
+        Declaration::GridRowGap(value) if matches!(sheet.resolve_node(*value), GapValue::Normal)
     ));
     assert!(matches!(
         declarations[4],
         Declaration::Unparsed(value)
-            if matches!(&*value.property_id, PropertyId::Columns(VendorPrefix::NONE))
+            if matches!(
+                sheet.resolve_node(sheet.resolve_node(*value).property_id),
+                PropertyId::Columns(VendorPrefix::NONE)
+            )
     ));
     assert!(matches!(
         declarations[5],
@@ -1769,8 +1923,11 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
         assert!(matches!(
             declarations[1].0,
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::OpaqueValue
-                    && matches!(&*value.property_id, PropertyId::Width)
+                if {
+                    let value = sheet.resolve_node(*value);
+                    value.reason == UnparsedPropertyReason::OpaqueValue
+                        && matches!(sheet.resolve_node(value.property_id), PropertyId::Width)
+                }
         ));
         assert!(declarations[1].1);
         assert!(matches!(
@@ -1781,20 +1938,30 @@ fn declaration_parsing_uses_property_ids_and_preserves_fallbacks() {
         assert!(matches!(
             declarations[3].0,
             Declaration::Unparsed(value)
-                if matches!(&*value.property_id, PropertyId::Custom("future-property"))
+                if matches!(
+                    sheet.resolve_node(sheet.resolve_node(*value).property_id),
+                    PropertyId::Custom(name) if sheet.str(name) == "future-property"
+                )
         ));
         assert!(matches!(
             declarations[4].0,
             Declaration::Custom(value)
-                if matches!(&*value.name, CustomPropertyName::Custom("--theme"))
-                    && value.value.iter().any(|token| matches!(token,
-                        TokenOrValue::Function(function) if function.name() == "fn"))
+                if {
+                    let value = sheet.resolve_node(*value);
+                    matches!(sheet.resolve_node(value.name), CustomPropertyName::Custom(name) if sheet.str(name) == "--theme")
+                        && sheet.vec_snapshot(value.value).iter().any(|token| matches!(token,
+                            TokenOrValue::Function(function)
+                                if sheet.str(sheet.resolve_node(*function).name()) == "fn"))
+                }
         ));
         assert!(declarations[4].1);
         assert!(matches!(
             declarations[5].0,
             Declaration::Unparsed(value)
-                if matches!(&*value.property_id, PropertyId::Opacity)
+                if matches!(
+                    sheet.resolve_node(sheet.resolve_node(*value).property_id),
+                    PropertyId::Opacity
+                )
         ));
         assert!(!declarations[5].1);
         assert!(matches!(declarations[6].0, Declaration::Height(_)));
@@ -1826,12 +1993,12 @@ fn declaration_ast_distinguishes_typed_opaque_invalid_and_unsupported_values() {
         assert!(matches!(
             declarations[0],
             Declaration::CSSWide(property_id, CSSWideKeyword::Initial)
-                if matches!(**property_id, PropertyId::Width)
+                if matches!(sheet.resolve_node(*property_id), PropertyId::Width)
         ));
         assert!(matches!(
             declarations[1],
             Declaration::MaxWidth(value)
-                if matches!(**value, MaxSize::FitContentFunction(_))
+                if matches!(sheet.resolve_node(*value), MaxSize::FitContentFunction(_))
         ));
         assert!(matches!(
             declarations[2],
@@ -1845,23 +2012,26 @@ fn declaration_ast_distinguishes_typed_opaque_invalid_and_unsupported_values() {
         assert!(matches!(
             declarations[4],
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::OpaqueValue
+                if sheet.resolve_node(*value).reason == UnparsedPropertyReason::OpaqueValue
         ));
         assert!(matches!(
             declarations[5],
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::InvalidValue
+                if sheet.resolve_node(*value).reason == UnparsedPropertyReason::InvalidValue
         ));
         assert!(matches!(
             declarations[6],
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::UnsupportedGrammar
-                    && matches!(&*value.property_id, PropertyId::BoxShadow(..))
+                if {
+                    let value = sheet.resolve_node(*value);
+                    value.reason == UnparsedPropertyReason::UnsupportedGrammar
+                        && matches!(sheet.resolve_node(value.property_id), PropertyId::BoxShadow(..))
+                }
         ));
         assert!(matches!(
             declarations[7],
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::UnknownProperty
+                if sheet.resolve_node(*value).reason == UnparsedPropertyReason::UnknownProperty
         ));
     })
 }
@@ -1893,24 +2063,24 @@ fn css_wide_probe_preserves_typed_and_lossless_declaration_paths() {
         assert!(matches!(
             declarations[1].0,
             Declaration::CSSWide(property_id, CSSWideKeyword::Inherit)
-                if matches!(**property_id, PropertyId::Height)
+                if matches!(sheet.resolve_node(*property_id), PropertyId::Height)
         ));
         assert!(declarations[1].1);
         assert!(matches!(
             declarations[2].0,
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::InvalidValue
+                if sheet.resolve_node(*value).reason == UnparsedPropertyReason::InvalidValue
         ));
         assert!(matches!(
             declarations[3].0,
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::OpaqueValue
+                if sheet.resolve_node(*value).reason == UnparsedPropertyReason::OpaqueValue
         ));
         assert!(matches!(declarations[4].0, Declaration::Custom(_)));
         assert!(matches!(
             declarations[5].0,
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::UnknownProperty
+                if sheet.resolve_node(*value).reason == UnparsedPropertyReason::UnknownProperty
         ));
         assert!(matches!(
             declarations[6].0,
@@ -1922,7 +2092,7 @@ fn css_wide_probe_preserves_typed_and_lossless_declaration_paths() {
         assert!(matches!(
             declarations[7].0,
             Declaration::Unparsed(value)
-                if value.reason == UnparsedPropertyReason::OpaqueValue
+                if sheet.resolve_node(*value).reason == UnparsedPropertyReason::OpaqueValue
         ));
         assert!(matches!(
             declarations[8].0,
@@ -1950,12 +2120,12 @@ fn css_wide_prescan_handles_escapes_and_an_omitted_final_semicolon() {
         assert!(matches!(
             declarations[0],
             Declaration::CSSWide(property_id, CSSWideKeyword::Initial)
-                if matches!(**property_id, PropertyId::Color)
+                if matches!(sheet.resolve_node(*property_id), PropertyId::Color)
         ));
         assert!(matches!(
             declarations[1],
             Declaration::CSSWide(property_id, CSSWideKeyword::RevertLayer)
-                if matches!(**property_id, PropertyId::MinWidth)
+                if matches!(sheet.resolve_node(*property_id), PropertyId::MinWidth)
         ));
     })
 }
@@ -1979,7 +2149,10 @@ fn recognizes_overlay_as_a_known_property() {
                     !matches!(
                         *declaration,
                         Declaration::Unparsed(value)
-                            if matches!(&*value.property_id, PropertyId::Custom("overlay"))
+                            if matches!(
+                                sheet.resolve_node(sheet.resolve_node(*value).property_id),
+                                PropertyId::Custom(name) if sheet.str(name) == "overlay"
+                            )
                     )
                 })
         );
@@ -2007,13 +2180,13 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         let CssRulePayload::Property(property) = sheet.rule(roots[0]).unwrap().payload() else {
             panic!("expected property rule")
         };
-        assert_eq!(property.name, "--brand-color");
+        assert_eq!(sheet.str(property.name), "--brand-color");
         assert!(property.initial_value.is_some());
         assert!(matches!(
             sheet.declaration(property.syntax.unwrap()).unwrap().payload(),
             DeclarationPayload::PropertyRule(
                 rocketcss_ast::PropertyRuleDescriptor::Syntax(syntax)
-            ) if matches!(&**syntax, SyntaxString::Components(_))
+            ) if matches!(sheet.resolve_node(*syntax), SyntaxString::Components(_))
         ));
         assert!(matches!(
             sheet
@@ -2033,7 +2206,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
         );
         assert!(matches!(
             sheet.rule(roots[2]).unwrap().payload(),
-            CssRulePayload::FontPaletteValues(rule) if rule.name == "--dark"
+            CssRulePayload::FontPaletteValues(rule) if sheet.str(rule.name) == "--dark"
         ));
         assert_eq!(
             sheet
@@ -2047,8 +2220,8 @@ fn parses_property_view_transition_palette_and_nest_rules() {
             panic!("expected font-feature-values")
         };
         assert!(matches!(
-            features.name.as_slice(),
-            [FamilyName("Demo Sans")]
+            sheet.vec_snapshot(features.name).as_slice(),
+            [FamilyName(value)] if sheet.str(*value) == "Demo Sans"
         ));
         let feature_rule = child_rule_ids(&sheet, roots[3])[0];
         let feature_block = sheet
@@ -2064,7 +2237,7 @@ fn parses_property_view_transition_palette_and_nest_rules() {
                 .unwrap()
                 .payload(),
             DeclarationPayload::FontFeature(declaration)
-                if declaration.values.as_slice() == [1, 2]
+                if sheet.vec_snapshot(declaration.values) == [1, 2]
         ));
         assert!(matches!(
             sheet
@@ -2167,20 +2340,20 @@ fn preserves_picker_pseudo_element_and_allows_chaining_pseudo_class() {
         let selectors = style_selectors(&sheet, rule);
         assert_eq!(selectors.len(), 1);
 
-        let selector = &selectors[0];
+        let selector = selector_components(&sheet, &selectors[0]);
         assert_eq!(selector.len(), 3);
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name, .. } if name == "select"
+            SelectorComponent::LocalName { name, .. } if sheet.str(*name) == "select"
         ));
 
         assert!(matches!(
             &selector[1],
             SelectorComponent::PseudoElement(element)
                 if matches!(
-                    &**element,
-                    PseudoElement::CustomFunction { name, .. } if name == "picker"
+                    sheet.resolve_node(*element),
+                    PseudoElement::CustomFunction { function } if sheet.str(sheet.resolve_node(function).name) == "picker"
                 )
         ));
         assert!(matches!(&selector[2], SelectorComponent::Negation(_)));
@@ -2201,22 +2374,22 @@ fn preserves_details_content_chained_with_before_pseudo_element() {
         let selectors = style_selectors(&sheet, rule);
         assert_eq!(selectors.len(), 1);
 
-        let selector = &selectors[0];
+        let selector = selector_components(&sheet, &selectors[0]);
         assert_eq!(selector.len(), 2);
 
         assert!(matches!(
             &selector[0],
             SelectorComponent::PseudoElement(element)
                 if matches!(
-                    &**element,
-                    PseudoElement::Custom { name } if name == "details-content"
+                    sheet.resolve_node(*element),
+                    PseudoElement::Custom { name } if sheet.str(name) == "details-content"
                 )
         ));
 
         assert!(matches!(
             &selector[1],
             SelectorComponent::PseudoElement(element)
-                if matches!(**element, PseudoElement::Before)
+                if matches!(sheet.resolve_node(*element), PseudoElement::Before)
         ));
 
         let Declaration::BackgroundColor(_) = property_declarations(&sheet, rule)[0].0 else {
@@ -2235,20 +2408,20 @@ fn preserves_has_slotted_pseudo_class() {
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert_eq!(selectors.len(), 1);
 
-        let selector = &selectors[0];
+        let selector = selector_components(&sheet, &selectors[0]);
         assert_eq!(selector.len(), 2);
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name, .. } if name == "slot"
+            SelectorComponent::LocalName { name, .. } if sheet.str(*name) == "slot"
         ));
 
         assert!(matches!(
             &selector[1],
             SelectorComponent::PseudoClass(pc)
                 if matches!(
-                    &**pc,
-                    PseudoClass::Custom { name } if name == "has-slotted"
+                    sheet.resolve_node(*pc),
+                    PseudoClass::Custom { name } if sheet.str(name) == "has-slotted"
                 )
         ));
     })
@@ -2264,12 +2437,12 @@ fn preserves_pseudo_element_arg_inside_has_selector() {
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert_eq!(selectors.len(), 1);
 
-        let selector = &selectors[0];
+        let selector = selector_components(&sheet, &selectors[0]);
         assert_eq!(selector.len(), 2);
 
         assert!(matches!(
             &selector[0],
-            SelectorComponent::LocalName { name, .. } if name == "video"
+            SelectorComponent::LocalName { name, .. } if sheet.str(*name) == "video"
         ));
 
         assert!(matches!(&selector[1], SelectorComponent::Negation(_)));
@@ -2287,22 +2460,41 @@ fn preserves_scroll_button_and_scroll_marker_pseudo_elements() {
 
         let selectors = style_selectors(&sheet, root_rule(&sheet, 0).0);
         assert!(matches!(
-            &selectors[0][0],
+            &selector_components(&sheet, &selectors[0])[0],
             SelectorComponent::PseudoElement(element)
                 if matches!(
-                    &**element,
-                    PseudoElement::Custom { name } if name == "scroll-button"
+                    sheet.resolve_node(*element),
+                    PseudoElement::Custom { name } if sheet.str(name) == "scroll-button"
                 )
         ));
 
         let selectors = style_selectors(&sheet, root_rule(&sheet, 1).0);
         assert!(matches!(
-            &selectors[0][3],
+            &selector_components(&sheet, &selectors[0])[3],
             SelectorComponent::PseudoElement(element)
                 if matches!(
-                    &**element,
-                    PseudoElement::Custom { name } if name == "scroll-marker"
+                    sheet.resolve_node(*element),
+                    PseudoElement::Custom { name } if sheet.str(name) == "scroll-marker"
                 )
         ));
     })
+}
+
+#[test]
+fn escaped_custom_property_name_is_added_to_the_pool_once() {
+    let allocator = Allocator::new();
+    allocator.with_ghost(|mut token| {
+        let sheet = Compiler::new(&allocator)
+            .parse(r"a{--\78:1}", &mut token, ParserOptions::default())
+            .unwrap();
+        let declarations = property_declarations(&sheet, root_rule(&sheet, 0).0);
+        let Declaration::Custom(property) = declarations[0].0 else {
+            panic!("expected custom property");
+        };
+        assert!(
+            matches!(sheet.resolve_node(sheet.resolve_node(*property).name),
+            CustomPropertyName::Custom(name) if sheet.str(name) == "--x")
+        );
+        assert_eq!(sheet.string_pool().extra_len(), "--x".len());
+    });
 }

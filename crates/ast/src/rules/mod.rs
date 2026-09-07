@@ -31,34 +31,3 @@ pub use text::*;
 pub use transform::*;
 pub use ui::*;
 pub use view_transition::*;
-
-use crate::{GetSpan, SetSpan, Span};
-
-macro_rules! impl_spanned {
-    ($($ty:ident),+ $(,)?) => {
-        $(
-            impl GetSpan for $ty<'_> {
-                #[inline]
-                fn span(&self) -> Span {
-                    self.span
-                }
-            }
-
-            impl SetSpan for $ty<'_> {
-                #[inline]
-                fn set_span(&mut self, span: Span) {
-                    self.span = span;
-                }
-            }
-        )+
-    };
-}
-
-impl_spanned!(
-    Composes,
-    CharsetRule,
-    NamespaceRule,
-    CustomMediaRule,
-    Url,
-    ImportRule,
-);

@@ -12,6 +12,106 @@ use std::{
     ops::{Index, IndexMut},
 };
 
+/// A compact typed range into an append-only dense table.
+///
+/// The range contains only its half-open `start..end` bounds. It deliberately
+/// does not expose element access: the store that created it must resolve the
+/// bounds so callers cannot bypass the owning context.
+#[repr(C)]
+pub struct DenseRange<'arena, T> {
+    start: u32,
+    end: u32,
+    phantom_data: PhantomData<fn() -> &'arena T>,
+}
+
+impl<T> DenseRange<'_, T> {
+    #[inline]
+    pub const fn empty() -> Self {
+        Self {
+            start: 0,
+            end: 0,
+            phantom_data: PhantomData,
+        }
+    }
+
+    #[inline]
+    pub const fn len(self) -> usize {
+        (self.end - self.start) as usize
+    }
+
+    #[inline]
+    pub const fn is_empty(self) -> bool {
+        self.start == self.end
+    }
+
+    /// Creates a range whose bounds have been validated by its owning dense
+    /// store.
+    ///
+    /// # Safety
+    ///
+    /// `start..end` must identify a contiguous sequence of `T` values in the
+    /// store that will resolve this range, and that store must outlive
+    /// `'arena`.
+    #[doc(hidden)]
+    #[inline]
+    pub const unsafe fn from_indices_unchecked(start: usize, end: usize) -> Self {
+        debug_assert!(start <= end);
+        debug_assert!(end <= u32::MAX as usize);
+        Self {
+            start: start as u32,
+            end: end as u32,
+            phantom_data: PhantomData,
+        }
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub const fn start_index(self) -> usize {
+        self.start as usize
+    }
+
+    #[doc(hidden)]
+    #[inline]
+    pub const fn end_index(self) -> usize {
+        self.end as usize
+    }
+}
+
+impl<T> Clone for DenseRange<'_, T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for DenseRange<'_, T> {}
+
+impl<T> fmt::Debug for DenseRange<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DenseRange")
+            .field("start", &self.start)
+            .field("end", &self.end)
+            .finish()
+    }
+}
+
+impl<T> PartialEq for DenseRange<'_, T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start && self.end == other.end
+    }
+}
+
+impl<T> Eq for DenseRange<'_, T> {}
+
+impl<T> Hash for DenseRange<'_, T> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.start.hash(state);
+        self.end.hash(state);
+    }
+}
+
 /// A stable typed index produced by a [`DenseStore`].
 ///
 /// The arena lifetime prevents an index from outliving the allocator that
@@ -406,6 +506,13 @@ impl<'arena, Domain: 'arena, T> DenseStore<'arena, Domain, T> {
         );
         self.values.reserve(additional);
     }
+
+    /// Discards entries allocated after `len` while preserving all earlier IDs.
+    #[doc(hidden)]
+    #[inline]
+    pub fn truncate(&mut self, len: usize) {
+        self.values.truncate(len);
+    }
 }
 
 impl<Domain, T: fmt::Debug> fmt::Debug for DenseStore<'_, Domain, T> {
@@ -540,6 +647,13 @@ mod tests {
         assert_eq!(store[first], "first");
         assert_eq!(store[second], "second");
         assert_eq!(store.ids().collect::<std::vec::Vec<_>>(), [first, second]);
+    }
+
+    #[test]
+    fn dense_ranges_store_only_two_u32_bounds() {
+        assert_eq!(size_of::<DenseRange<'_, u8>>(), 2 * size_of::<u32>());
+        assert_eq!(DenseRange::<u8>::empty().len(), 0);
+        assert!(DenseRange::<u8>::empty().is_empty());
     }
 
     #[test]

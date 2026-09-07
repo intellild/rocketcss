@@ -1,4 +1,4 @@
-use rocketcss_ast::{Atom, CompilationVisitorMut, Selector, SelectorComponent};
+use rocketcss_ast::{AstContext, Atom, CompilationVisitorMut, Selector, SelectorComponent};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::Allocator;
 use rocketcss_parser::{Compiler, ParserOptions};
@@ -15,19 +15,28 @@ impl<'a> CompilationVisitorMut<'a> for RenameClass<'a> {
         &mut self,
         _id: rocketcss_ast::SelectorValueId,
         selectors: &mut rocketcss_ast::SelectorList<'a>,
+        compilation: &mut AstContext<'a>,
     ) {
-        for selector in selectors {
-            let Selector::Parsed(components) = selector else {
-                continue;
-            };
-            for component in components {
-                if let SelectorComponent::Class(name) = component
-                    && *name == "before"
-                {
-                    *name = self.after;
-                }
+        compilation.mutate_vec(*selectors, |selectors, compilation| {
+            for selector in selectors.iter().copied() {
+                compilation.mutate_node(selector, |selector, compilation| {
+                    let Selector::Parsed(components) = selector else {
+                        return;
+                    };
+                    compilation.mutate_vec(*components, |components, compilation| {
+                        for component in components.iter().copied() {
+                            compilation.mutate_node(component, |component, compilation| {
+                                if let SelectorComponent::Class(name) = component
+                                    && compilation.str(*name) == "before"
+                                {
+                                    *name = self.after;
+                                }
+                            });
+                        }
+                    });
+                });
             }
-        }
+        });
     }
 }
 
@@ -47,7 +56,7 @@ fn plugins_transform_expected_css() {
             plugins.add_visitor(
                 "rename-class",
                 RenameClass {
-                    after: compiler.intern("after"),
+                    after: stylesheet.intern("after"),
                 },
             );
 

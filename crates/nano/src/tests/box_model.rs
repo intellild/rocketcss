@@ -252,13 +252,15 @@ fn s5_output_is_byte_idempotent_after_reparse() {
 }
 
 fn unparsed_value_storage<'a>(
-    stylesheet: &Compilation<'a>,
-) -> (*const TokenOrValue<'a>, *const Token<'a>) {
+    stylesheet: &AstContext<'a>,
+) -> (AstVec<'a, TokenOrValue<'a>>, NodeId<'a, Token<'a>>) {
     let Declaration::Unparsed(property) = first_property_declaration(stylesheet) else {
         panic!("expected unparsed property")
     };
-    let TokenOrValue::Token(token) = &property.value[0] else {
+    let property = stylesheet.resolve_node(*property);
+    let values = stylesheet.vec_snapshot(property.value);
+    let TokenOrValue::Token(token) = &values[0] else {
         panic!("expected token value")
     };
-    (property.value.as_ptr(), &**token)
+    (property.value, *token)
 }

@@ -1,13 +1,13 @@
 use rocketcss_visitor::prelude::*;
 
 use rocketcss_ast::{
-    Compilation, CompilationVisitMutContext, CompilationVisitor, CompilationVisitorMut,
+    AstContext, CompilationVisitMutContext, CompilationVisitor, CompilationVisitorMut,
     ConcreteDeclarationBlockId as DeclarationBlockId, ConcreteRuleId as RuleId, CssRulePayload,
     DeclarationBlockOwner, DeclarationId, DeclarationPayload, DeclarationRecord, RuleRecord,
     SelectorValueId,
 };
 
-fn parse_test_compilation<'a>(allocator: &'a Allocator, source: &'a str) -> Compilation<'a> {
+fn parse_test_compilation<'a>(allocator: &'a Allocator, source: &'a str) -> AstContext<'a> {
     GhostToken::scope(|mut token| {
         rocketcss_parser::Compiler::new(allocator)
             .parse(
@@ -37,7 +37,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
         &mut self,
         _id: RuleId<'a>,
         _rule: &RuleRecord<'a, CssRulePayload<'a>>,
-        _compilation: &Compilation<'a>,
+        _compilation: &AstContext<'a>,
     ) {
         self.events.push(StructuralEvent::Rule);
     }
@@ -46,7 +46,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
         &mut self,
         _id: DeclarationBlockId<'a>,
         _block: &rocketcss_ast::DeclarationBlockRecord<CssRulePayload<'a>>,
-        _compilation: &Compilation<'a>,
+        _compilation: &AstContext<'a>,
     ) {
         self.events.push(StructuralEvent::DeclarationBlock);
     }
@@ -56,7 +56,7 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
         _block: DeclarationBlockId<'a>,
         _id: DeclarationId<'a>,
         _declaration: &DeclarationRecord<'a, DeclarationPayload<'a>>,
-        _compilation: &Compilation<'a>,
+        _compilation: &AstContext<'a>,
     ) {
         self.events.push(StructuralEvent::Declaration);
     }
@@ -66,14 +66,14 @@ impl<'a> CompilationVisitor<'a> for StructuralRecorder {
         _block: DeclarationBlockId<'a>,
         _id: DeclarationId<'a>,
         _descriptor: &DeclarationRecord<'a, DeclarationPayload<'a>>,
-        _compilation: &Compilation<'a>,
+        _compilation: &AstContext<'a>,
     ) {
         self.events.push(StructuralEvent::Descriptor);
     }
 }
 
 #[test]
-fn radix_traversal_uses_lexical_rule_and_declaration_order() {
+fn ast_traversal_uses_lexical_rule_and_declaration_order() {
     let allocator = Allocator::new();
     let compilation = parse_test_compilation(
         &allocator,
@@ -103,14 +103,14 @@ fn radix_traversal_uses_lexical_rule_and_declaration_order() {
     );
 }
 
-struct RadixRewrite<'a> {
+struct ContextRewrite<'a> {
     first_rule: RuleId<'a>,
     replacement_selector: SelectorValueId<'a>,
     selector_replaced: bool,
     declaration_replaced: bool,
 }
 
-impl<'a> CompilationVisitorMut<'a> for RadixRewrite<'a> {
+impl<'a> CompilationVisitorMut<'a> for ContextRewrite<'a> {
     fn visit_rule(&mut self, id: RuleId<'a>, cx: &mut CompilationVisitMutContext<'_, 'a>) {
         if id == self.first_rule {
             self.selector_replaced = cx
@@ -135,7 +135,7 @@ impl<'a> CompilationVisitorMut<'a> for RadixRewrite<'a> {
 }
 
 #[test]
-fn radix_mutable_traversal_uses_selector_and_declaration_transactions() {
+fn ast_mutable_traversal_uses_selector_and_declaration_transactions() {
     let allocator = Allocator::new();
     let mut compilation = parse_test_compilation(&allocator, ".before{color:red}.after{width:1px}");
     let rules = compilation
@@ -151,7 +151,7 @@ fn radix_mutable_traversal_uses_selector_and_declaration_transactions() {
         panic!("expected a style rule")
     };
     let replacement_selector = second_payload.selector_value;
-    let mut visitor = RadixRewrite {
+    let mut visitor = ContextRewrite {
         first_rule: *first_rule,
         replacement_selector,
         selector_replaced: false,

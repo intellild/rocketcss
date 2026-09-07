@@ -1,7 +1,7 @@
 use super::*;
 use rocketcss_parser::Compiler;
 
-fn run_radix(source: &str) -> String {
+fn run_ast(source: &str) -> String {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let mut compilation = Compiler::new(&allocator)
@@ -18,24 +18,24 @@ fn run_radix(source: &str) -> String {
     })
 }
 
-fn assert_radix_minify_parity(source: &str) {
-    assert_eq!(run_radix(source), run(source), "source: {source}");
+fn assert_ast_minify_parity(source: &str) {
+    assert_eq!(run_ast(source), run(source), "source: {source}");
 }
 
 #[test]
-fn radix_local_declaration_minify_preserves_pipeline_output() {
+fn ast_local_declaration_minify_preserves_pipeline_output() {
     for source in [
         "a{color:rgb(255,0,0);color:red}",
         "a{margin-top:0;margin-right:0;margin-bottom:0;margin-left:0}",
         "a{display:-webkit-box;display:flex;display:flex}",
         "a{columns:auto auto;width:0px;opacity:0.50}",
     ] {
-        assert_radix_minify_parity(source);
+        assert_ast_minify_parity(source);
     }
 }
 
 #[test]
-fn radix_s1_s2_and_s3_preserve_pipeline_output() {
+fn ast_s1_s2_and_s3_preserve_pipeline_output() {
     for source in [
         "a{color:red}a{background:blue}",
         "*a{color:red}a{background:blue}",
@@ -43,12 +43,12 @@ fn radix_s1_s2_and_s3_preserve_pipeline_output() {
         "a{color:red;margin:0}b{color:red;padding:0}",
         "a{color:red}b{color:red;width:1px}c{width:1px}",
     ] {
-        assert_radix_minify_parity(source);
+        assert_ast_minify_parity(source);
     }
 }
 
 #[test]
-fn radix_minify_is_idempotent() {
+fn ast_minify_is_idempotent() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let mut compilation = Compiler::new(&allocator)
@@ -79,19 +79,19 @@ fn radix_minify_is_idempotent() {
 }
 
 #[test]
-fn radix_nested_property_blocks_preserve_pipeline_output() {
+fn ast_nested_property_blocks_preserve_pipeline_output() {
     for source in [
         "@media print{a{color:red}b{color:red}}",
         "@supports (display:grid){a{opacity:.5}b{opacity:.5}}",
         "a{color:red;&:hover{color:blue}}b{color:red}",
         "a{color:red}b{color:red;&:hover{color:blue}}",
     ] {
-        assert_radix_minify_parity(source);
+        assert_ast_minify_parity(source);
     }
 }
 
 #[test]
-fn radix_rule_local_values_and_descriptors_preserve_pipeline_output() {
+fn ast_rule_local_values_and_descriptors_preserve_pipeline_output() {
     for source in [
         "a,a{color:red}",
         "*:first-child{color:red}",
@@ -100,6 +100,6 @@ fn radix_rule_local_values_and_descriptors_preserve_pipeline_output() {
         "@foo x /* discard */ y;",
         "@property --accent{syntax:'<color>';inherits:false;initial-value:rgb(255,0,0)}",
     ] {
-        assert_radix_minify_parity(source);
+        assert_ast_minify_parity(source);
     }
 }

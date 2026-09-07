@@ -24,38 +24,40 @@ fn option_operations_are_explicit() {
 #[test]
 fn property_context_dispatches_by_property_id() {
     GhostToken::scope(|token| {
+        let allocator = Allocator::new();
+        let ast = rocketcss_ast::AstContext::new_in(&allocator);
         let animation = PropertyId::Animation(VendorPrefix::WEBKIT);
         assert_eq!(
-            properties::value_context(&animation, true, true).property,
+            properties::value_context(&ast, &animation, true, true).property,
             context::PropertyContext::Animation
         );
         assert_eq!(
-            properties::value_context(&animation, false, true).property,
+            properties::value_context(&ast, &animation, false, true).property,
             context::PropertyContext::TimingFunction
         );
 
         let border = PropertyId::Border;
         assert_eq!(
-            properties::value_context(&border, true, true).property,
+            properties::value_context(&ast, &border, true, true).property,
             context::PropertyContext::Border
         );
         assert_eq!(
-            properties::value_context(&border, false, true).property,
+            properties::value_context(&ast, &border, false, true).property,
             context::PropertyContext::Generic
         );
 
-        let columns = PropertyId::from_name("CoLuMnS");
+        let columns = PropertyId::from_known_name("CoLuMnS").unwrap();
         assert_eq!(columns, PropertyId::Columns(VendorPrefix::NONE));
         assert_eq!(
-            properties::value_context(&columns, true, true).property,
+            properties::value_context(&ast, &columns, true, true).property,
             context::PropertyContext::Columns
         );
         assert_eq!(
-            properties::value_context(&columns, false, true).property,
+            properties::value_context(&ast, &columns, false, true).property,
             context::PropertyContext::Generic
         );
 
-        let prefixed_animation = PropertyId::from_name("-WebKit-ANIMATION");
+        let prefixed_animation = PropertyId::from_known_name("-WebKit-ANIMATION").unwrap();
         assert_eq!(
             prefixed_animation,
             PropertyId::Animation(VendorPrefix::WEBKIT)
@@ -67,11 +69,11 @@ fn property_context_dispatches_by_property_id() {
             "-webkit-animation"
         );
         assert_eq!(
-            properties::value_context(&prefixed_animation, true, true).property,
+            properties::value_context(&ast, &prefixed_animation, true, true).property,
             context::PropertyContext::Animation
         );
         assert_eq!(
-            properties::value_context(&prefixed_animation, false, true).property,
+            properties::value_context(&ast, &prefixed_animation, false, true).property,
             context::PropertyContext::TimingFunction
         );
     });

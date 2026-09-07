@@ -285,7 +285,9 @@ fn stylo_names(longhands: &str, shorthands: &str) -> BTreeSet<String> {
 }
 
 fn classify(name: &str, stylo: bool) -> Result<Classification, String> {
-    match PropertyId::from_name(name).support_classification() {
+    match PropertyId::from_known_name(name)
+        .map_or(PropertySupport::Custom, |id| id.support_classification())
+    {
         PropertySupport::Typed => Ok(Classification::Typed),
         PropertySupport::UnsupportedGrammar => Ok(Classification::Unsupported),
         PropertySupport::Custom if stylo && STYLO_OUT_OF_SCOPE.contains(&name) => {
@@ -337,7 +339,7 @@ fn audits_property_metadata_against_lightning_and_stylo_inventories() {
     );
     for name in &rocket_names {
         assert!(
-            PropertyId::from_name(name).known_id().is_some(),
+            PropertyId::from_known_name(name).is_some(),
             "RocketCSS metadata entry {name} does not resolve to a known PropertyId"
         );
     }

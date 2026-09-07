@@ -1,10 +1,9 @@
-use super::values::{collect_tokens, token_values_contain_opaque};
 use crate::prelude::*;
 
 impl<'i> Parse<'i> for Length<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
-        match input.next()?.clone() {
+        match *input.next()? {
             ValueToken::Dimension { unit, value } => {
                 let unit = parse_length_unit(&unit)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
@@ -14,152 +13,6 @@ impl<'i> Parse<'i> for Length<'i> {
                 unit: LengthUnit::Px,
                 value: 0.0,
             })),
-            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
-        }
-    }
-}
-
-impl<'i> Parse<'i> for LengthPercentage<'i> {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let location = input.current_source_location();
-        match input.next()?.clone() {
-            ValueToken::Percentage(value) => Ok(Self::Percentage(value)),
-            ValueToken::Dimension { unit, value } => {
-                let unit = parse_length_unit(&unit)
-                    .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Self::Dimension(LengthValue { unit, value }))
-            }
-            ValueToken::Number(0.0) => Ok(Self::Zero),
-            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
-        }
-    }
-}
-
-impl<'i> Parse<'i> for Size<'i> {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
-        let location = input.current_source_location();
-        let token = input.next()?.clone();
-        match token {
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("auto") => Ok(Size::Auto),
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("min-content") => {
-                Ok(Size::MinContent {
-                    vendor_prefix: VendorPrefix::NONE,
-                })
-            }
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("max-content") => {
-                Ok(Size::MaxContent {
-                    vendor_prefix: VendorPrefix::NONE,
-                })
-            }
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("fit-content") => {
-                Ok(Size::FitContent {
-                    vendor_prefix: VendorPrefix::NONE,
-                })
-            }
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("stretch") => Ok(Size::Stretch {
-                vendor_prefix: VendorPrefix::NONE,
-            }),
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("contain") => Ok(Size::Contain),
-            ValueToken::Function(name) if name.eq_ignore_ascii_case("fit-content") => {
-                let value = input.parse_nested_block(|input| {
-                    let value = LengthPercentage::parse(input)?;
-                    input.expect_exhausted()?;
-                    Ok(value)
-                })?;
-                Ok(Size::FitContentFunction(allocator.boxed(value)))
-            }
-            ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
-                let arguments =
-                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
-                if token_values_contain_opaque(&arguments) {
-                    return Err(input.new_custom_error(ParserError::InvalidValue));
-                }
-                Ok(Size::MathFunction(
-                    allocator.boxed(Function::new(name, arguments)),
-                ))
-            }
-            ValueToken::Percentage(value) => Ok(Size::LengthPercentage(
-                allocator.boxed(DimensionPercentage::Percentage(value)),
-            )),
-            ValueToken::Dimension { unit, value } => {
-                let unit = parse_length_unit(&unit)
-                    .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Size::LengthPercentage(allocator.boxed(
-                    DimensionPercentage::Dimension(LengthValue { unit, value }),
-                )))
-            }
-            ValueToken::Number(0.0) => Ok(Size::LengthPercentage(allocator.boxed(
-                DimensionPercentage::Dimension(LengthValue {
-                    unit: LengthUnit::Px,
-                    value: 0.0,
-                }),
-            ))),
-            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
-        }
-    }
-}
-
-impl<'i> Parse<'i> for MaxSize<'i> {
-    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let allocator = input.allocator();
-        let location = input.current_source_location();
-        let token = input.next()?.clone();
-        match token {
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("none") => Ok(Self::None),
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("min-content") => {
-                Ok(Self::MinContent {
-                    vendor_prefix: VendorPrefix::NONE,
-                })
-            }
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("max-content") => {
-                Ok(Self::MaxContent {
-                    vendor_prefix: VendorPrefix::NONE,
-                })
-            }
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("fit-content") => {
-                Ok(Self::FitContent {
-                    vendor_prefix: VendorPrefix::NONE,
-                })
-            }
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("stretch") => Ok(Self::Stretch {
-                vendor_prefix: VendorPrefix::NONE,
-            }),
-            ValueToken::Ident(name) if name.eq_ignore_ascii_case("contain") => Ok(Self::Contain),
-            ValueToken::Function(name) if name.eq_ignore_ascii_case("fit-content") => {
-                let value = input.parse_nested_block(|input| {
-                    let value = LengthPercentage::parse(input)?;
-                    input.expect_exhausted()?;
-                    Ok(value)
-                })?;
-                Ok(Self::FitContentFunction(allocator.boxed(value)))
-            }
-            ValueToken::Function(name) if KnownFunction::from_name(name).is_math() => {
-                let arguments =
-                    input.parse_nested_block(|input| collect_tokens(input, allocator, 1))?;
-                if token_values_contain_opaque(&arguments) {
-                    return Err(input.new_custom_error(ParserError::InvalidValue));
-                }
-                Ok(Self::MathFunction(
-                    allocator.boxed(Function::new(name, arguments)),
-                ))
-            }
-            ValueToken::Percentage(value) => Ok(Self::LengthPercentage(
-                allocator.boxed(DimensionPercentage::Percentage(value)),
-            )),
-            ValueToken::Dimension { unit, value } => {
-                let unit = parse_length_unit(&unit)
-                    .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
-                Ok(Self::LengthPercentage(allocator.boxed(
-                    DimensionPercentage::Dimension(LengthValue { unit, value }),
-                )))
-            }
-            ValueToken::Number(0.0) => Ok(Self::LengthPercentage(allocator.boxed(
-                DimensionPercentage::Dimension(LengthValue {
-                    unit: LengthUnit::Px,
-                    value: 0.0,
-                }),
-            ))),
             _ => Err(location.new_custom_error(ParserError::InvalidValue)),
         }
     }
@@ -223,4 +76,44 @@ pub(super) fn parse_length_unit_name(unit: &str) -> Option<LengthUnit> {
         "cqmax" => Some(LengthUnit::Cqmax),
         _ => None,
     )
+}
+
+pub(in crate::parser) fn is_non_negative_length(value: &Length<'_>) -> bool {
+    match value {
+        Length::Value(value) => value.value >= 0.0,
+        Length::Calc(_) => true,
+    }
+}
+
+impl<'i> Parse<'i> for Time {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let location = input.current_source_location();
+        match *input.next()? {
+            ValueToken::Dimension {
+                unit: Unit::Seconds,
+                value,
+            } => Ok(Self::Seconds(value)),
+            ValueToken::Dimension {
+                unit: Unit::Milliseconds,
+                value,
+            } => Ok(Self::Milliseconds(value)),
+            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
+        }
+    }
+}
+
+impl<'i> Parse<'i> for Angle {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let location = input.current_source_location();
+        let ValueToken::Dimension { unit, value } = *input.next()? else {
+            return Err(location.new_custom_error(ParserError::InvalidValue));
+        };
+        match unit {
+            Unit::Deg => Ok(Self::Deg(value)),
+            Unit::Rad => Ok(Self::Rad(value)),
+            Unit::Grad => Ok(Self::Grad(value)),
+            Unit::Turn => Ok(Self::Turn(value)),
+            _ => Err(location.new_custom_error(ParserError::InvalidValue)),
+        }
+    }
 }

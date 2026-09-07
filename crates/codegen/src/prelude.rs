@@ -8,4 +8,5 @@ pub(crate) use crate::printer::{
 };
 pub use crate::{
     Delimiter, Printer, PrinterOptions, PrinterState, PrinterTrait, ToCss, ToCssContext,
+    css_value_matches_serialization, css_values_are_equal,
 };

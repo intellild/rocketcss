@@ -1,5 +1,4 @@
 use crate::Visit;
-use rocketcss_common::boxed::Box;
 
 pub const DUMMY_SP: Span = Span { start: 0, end: 0 };
 
@@ -55,25 +54,5 @@ where
             Some(s) => s.span(),
             None => DUMMY_SP,
         }
-    }
-}
-
-impl<'a, S> GetSpan for Box<'a, S>
-where
-    S: GetSpan,
-{
-    #[inline]
-    fn span(&self) -> crate::Span {
-        (**self).span()
-    }
-}
-
-impl<'a, S> SetSpan for Box<'a, S>
-where
-    S: SetSpan,
-{
-    #[inline]
-    fn set_span(&mut self, span: crate::Span) {
-        (**self).set_span(span);
     }
 }

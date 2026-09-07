@@ -1,6 +1,6 @@
 use super::*;
 
-impl<'ast, R: Unpin, D, K> RadixCompilation<'ast, R, D, K> {
+impl<'ast, R: Unpin, D, K> AstContext<'ast, R, D, K> {
     /// Returns the final live rule in `rule`'s lexical subtree.
     ///
     /// Direct siblings are not necessarily adjacent in global source order

@@ -10,7 +10,7 @@ pub trait CompilationVisitor<'ast> {
         &mut self,
         _id: ConcreteRuleId<'ast>,
         _rule: &RuleRecord<'ast, CssRulePayload<'ast>>,
-        _compilation: &Compilation<'ast>,
+        _compilation: &AstContext<'ast>,
     ) {
     }
 
@@ -18,7 +18,7 @@ pub trait CompilationVisitor<'ast> {
         &mut self,
         _id: ConcreteDeclarationBlockId<'ast>,
         _block: &DeclarationBlockRecord<'ast, CssRulePayload<'ast>>,
-        _compilation: &Compilation<'ast>,
+        _compilation: &AstContext<'ast>,
     ) {
     }
 
@@ -27,7 +27,7 @@ pub trait CompilationVisitor<'ast> {
         _block: ConcreteDeclarationBlockId<'ast>,
         _id: DeclarationId<'ast>,
         _declaration: &DeclarationRecord<'ast, DeclarationPayload<'ast>>,
-        _compilation: &Compilation<'ast>,
+        _compilation: &AstContext<'ast>,
     ) {
     }
 
@@ -36,7 +36,7 @@ pub trait CompilationVisitor<'ast> {
         _block: ConcreteDeclarationBlockId<'ast>,
         _id: DeclarationId<'ast>,
         _descriptor: &DeclarationRecord<'ast, DeclarationPayload<'ast>>,
-        _compilation: &Compilation<'ast>,
+        _compilation: &AstContext<'ast>,
     ) {
     }
 }
@@ -51,6 +51,7 @@ pub trait CompilationVisitorMut<'ast> {
         &mut self,
         _id: SelectorValueId<'ast>,
         _selectors: &mut crate::SelectorList<'ast>,
+        _compilation: &mut AstContext<'ast>,
     ) {
     }
 
@@ -87,12 +88,12 @@ pub trait CompilationVisitorMut<'ast> {
 
 /// Mutation access available during [`CompilationVisitorMut`] traversal.
 pub struct CompilationVisitMutContext<'comp, 'ast> {
-    compilation: &'comp mut Compilation<'ast>,
+    compilation: &'comp mut AstContext<'ast>,
 }
 
 impl<'comp, 'ast> CompilationVisitMutContext<'comp, 'ast> {
     #[inline]
-    pub fn compilation(&self) -> &Compilation<'ast> {
+    pub fn compilation(&self) -> &AstContext<'ast> {
         self.compilation
     }
 
@@ -143,7 +144,7 @@ impl<'comp, 'ast> CompilationVisitMutContext<'comp, 'ast> {
     }
 }
 
-impl<'ast> Compilation<'ast> {
+impl<'ast> AstContext<'ast> {
     /// Visits live rules in lexical preorder, followed by each rule's owned
     /// declaration block and ordered declaration occurrences.
     pub fn visit_compilation<V: ?Sized + CompilationVisitor<'ast>>(
@@ -189,8 +190,9 @@ impl<'ast> Compilation<'ast> {
         &mut self,
         visitor: &mut V,
     ) -> Result<(), ConcreteMutationError<'ast>> {
-        self.transform_selector_values(|id, selectors| {
-            visitor.visit_selector_value(id, selectors);
+        let allocator = self.allocator;
+        self.transform_selector_values_in(allocator, |id, selectors, compilation| {
+            visitor.visit_selector_value(id, selectors, compilation);
         });
         let mut current = self.first_rule_in_source;
         while let Some(rule_id) = current {

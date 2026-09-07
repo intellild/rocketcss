@@ -1,20 +1,5 @@
 use crate::prelude::*;
 
-macro_rules! keyword_parse {
-    ($ty:ty, $($name:literal => $variant:expr),+ $(,)?) => {
-        impl<'i> Parse<'i> for $ty {
-            fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-                let ident = input.expect_ident()?;
-                match_ignore_ascii_case!(
-                    ident,
-                    $( $name => Ok($variant), )+
-                    _ => Err(input.new_custom_error(ParserError::InvalidValue)),
-                )
-            }
-        }
-    };
-}
-
 keyword_parse!(
     PointerEvents,
     "auto" => Self::Auto,
@@ -76,9 +61,7 @@ impl<'i> Parse<'i> for ColorOrAuto<'i> {
         {
             return Ok(Self::Auto);
         }
-        Ok(Self::Color(
-            input.allocator().boxed(CssColor::parse(input)?),
-        ))
+        Ok(Self::Color(parse_css_color(input)?))
     }
 }
 
@@ -91,10 +74,19 @@ impl<'i> Parse<'i> for ScrollbarColor<'i> {
             input.expect_exhausted()?;
             return Ok(Self::Auto);
         }
-        let allocator = input.allocator();
-        let first = allocator.boxed(CssColor::parse(input)?);
-        let second = allocator.boxed(CssColor::parse(input)?);
+        let first = parse_css_color(input)?;
+        let second = parse_css_color(input)?;
         input.expect_exhausted()?;
         Ok(Self::Colors(first, second))
     }
 }
+
+keyword_parse!(
+    Resize,
+    "none" => Self::None,
+    "both" => Self::Both,
+    "horizontal" => Self::Horizontal,
+    "vertical" => Self::Vertical,
+    "block" => Self::Block,
+    "inline" => Self::Inline,
+);

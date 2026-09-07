@@ -12,19 +12,28 @@ impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for Rename<'a> {
         &mut self,
         _id: rocketcss_ast::SelectorValueId<'a>,
         selectors: &mut SelectorList<'a>,
+        compilation: &mut AstContext<'a>,
     ) {
-        for selector in selectors {
-            let Selector::Parsed(components) = selector else {
-                continue;
-            };
-            for component in components {
-                if let SelectorComponent::Class(name) = component
-                    && *name == self.from
-                {
-                    *name = self.to;
-                }
+        compilation.mutate_vec(*selectors, |selectors, compilation| {
+            for selector in selectors {
+                compilation.mutate_node(*selector, |selector, compilation| {
+                    let Selector::Parsed(components) = selector else {
+                        return;
+                    };
+                    compilation.mutate_vec(*components, |components, compilation| {
+                        for component in components {
+                            compilation.mutate_node(*component, |component, compilation| {
+                                if let SelectorComponent::Class(name) = component
+                                    && compilation.str(*name) == self.from
+                                {
+                                    *name = self.to;
+                                }
+                            });
+                        }
+                    });
+                });
             }
-        }
+        });
     }
 }
 
@@ -37,7 +46,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordPlugin {
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _compilation: &mut AstContext<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         context
@@ -60,8 +69,8 @@ fn plugins_run_in_registration_order_and_share_context() {
                 rocketcss_parser::ParserOptions::default(),
             )
             .unwrap();
-        let middle = compiler.intern("middle");
-        let last = compiler.intern("last");
+        let middle = sheet.intern("middle");
+        let last = sheet.intern("last");
         let mut context = PluginContext::new(&allocator, &mut token);
         context.insert(std::vec::Vec::<&'static str>::new());
         let mut plugins = Plugins::new();
@@ -100,9 +109,13 @@ fn plugins_run_in_registration_order_and_share_context() {
             .selector_value(rule.selector_value)
             .expect("the selector value remains valid")
             .selectors();
+        let selectors = sheet.vec_snapshot(*selectors);
+        let Selector::Parsed(components) = sheet.resolve_node(selectors[0]) else {
+            panic!("expected parsed selector");
+        };
         assert!(matches!(
-            selectors[0][0],
-            SelectorComponent::Class(name) if name == "last"
+            sheet.resolve_node(sheet.vec_snapshot(components)[0]),
+            SelectorComponent::Class(name) if sheet.str(name) == "last"
         ));
     });
 }
@@ -127,7 +140,7 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for FailingPlugin {
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _compilation: &mut AstContext<'a>,
         _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         Err(std::boxed::Box::new(ExpectedFailure))
@@ -159,16 +172,16 @@ fn plugin_errors_include_the_plugin_name() {
     });
 }
 
-struct RecordRadixPlugin(&'static str);
+struct RecordContextPlugin(&'static str);
 
-impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordRadixPlugin {
+impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordContextPlugin {
     fn name(&self) -> &str {
         self.0
     }
 
     fn transform(
         &mut self,
-        _compilation: &mut Compilation<'a>,
+        _compilation: &mut AstContext<'a>,
         context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
         context
@@ -194,7 +207,7 @@ impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for TombstoneProperties {
 }
 
 #[test]
-fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
+fn ast_plugins_run_on_one_authoritative_compilation_in_registration_order() {
     let allocator = Allocator::new();
     allocator.with_ghost(|mut token| {
         let mut compilation = rocketcss_parser::Compiler::new(&allocator)
@@ -207,9 +220,9 @@ fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
         let mut context = PluginContext::new(&allocator, &mut token);
         context.insert(std::vec::Vec::<&'static str>::new());
         let mut plugins = Plugins::new();
-        plugins.add(RecordRadixPlugin("one"));
+        plugins.add(RecordContextPlugin("one"));
         plugins.add_visitor("tombstone-properties", TombstoneProperties);
-        plugins.add(RecordRadixPlugin("two"));
+        plugins.add(RecordContextPlugin("two"));
 
         plugins.run(&mut compilation, &mut context).unwrap();
 

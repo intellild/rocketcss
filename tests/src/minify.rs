@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rocketcss_ast::CssRulePayload;
+use rocketcss_ast::{CssRulePayload, Span};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::Allocator;
 use rocketcss_nano::{MinifyOptions, minify};
@@ -129,11 +129,13 @@ fn synthesized_cross_rule_fixture_preserves_combined_source_span() {
             .unwrap()
             .collect::<Vec<_>>();
         assert_eq!(rules.len(), 1);
-        let CssRulePayload::Style(rule) = rules[0].1.payload() else {
+        let CssRulePayload::Style(_) = rules[0].1.payload() else {
             panic!("expected one synthesized style rule");
         };
-        assert_eq!(rule.span.start, 0);
-        assert_eq!(rule.span.end, source.trim_end().len() as u32);
+        assert_eq!(
+            stylesheet.rule_span(rules[0].0),
+            Some(Span::new(0, source.trim_end().len() as u32))
+        );
     });
 }
 
