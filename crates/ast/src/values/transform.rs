@@ -408,7 +408,11 @@ unsafe impl<'ast> AstNodeStorage<'ast> for Transform<'ast> {
         context: &mut AstContext<'ast>,
     ) -> NodePayload {
         let header: TransformHeader<'ast> = unsafe { current.read_value() };
-        store_transform(self, Some(header.extra as usize), context)
+        store_transform(
+            self,
+            (header.extra != u32::MAX).then_some(header.extra as usize),
+            context,
+        )
     }
 }
 
@@ -451,7 +455,7 @@ fn store_transform<'ast>(
     existing: Option<usize>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
-    let mut slot = ExtraData::default();
+    let mut slot = None;
     let data = match value {
         Transform::Translate(value) => TransformData::Translate(value),
         Transform::TranslateX(value) => TransformData::TranslateX(value),
@@ -470,7 +474,7 @@ fn store_transform<'ast>(
         Transform::Matrix(value) => TransformData::Matrix(value),
         Transform::Matrix3d(value) => TransformData::Matrix3d(value),
         Transform::Translate3d((x, y, z)) => {
-            slot = ExtraData::from_value(z);
+            slot = Some(ExtraData::from_value(z));
             TransformData::Translate3d { x, y }
         }
         Transform::Scale((x, y)) => {
@@ -487,7 +491,7 @@ fn store_transform<'ast>(
             let (x_percentage, x) = number_parts(x);
             let (y_percentage, y) = number_parts(y);
             let (z_percentage, z) = number_parts(z);
-            slot = ExtraData::from_value(z);
+            slot = Some(ExtraData::from_value(z));
             TransformData::Scale3d {
                 x_percentage,
                 y_percentage,
@@ -498,7 +502,7 @@ fn store_transform<'ast>(
         }
         Transform::Rotate3d((x, y, z, angle)) => {
             let (unit, value) = TransformAngleUnit::split(angle);
-            slot = ExtraData::from_value([z, value]);
+            slot = Some(ExtraData::from_value([z, value]));
             TransformData::Rotate3d { unit, x, y }
         }
         Transform::Skew((x, y)) => {
@@ -512,12 +516,16 @@ fn store_transform<'ast>(
             }
         }
     };
-    let extra = match existing {
-        Some(index) => {
+    // Keep an allocated tail across inline variants, but do not allocate one
+    // until a variant actually needs it.
+    let extra = match (existing, slot) {
+        (Some(index), Some(slot)) => {
             context.set_extra_slot(index, slot);
             index
         }
-        None => context.alloc_extra_slots([slot]),
+        (None, Some(slot)) => context.alloc_extra_slots([slot]),
+        (Some(index), None) => index,
+        (None, None) => u32::MAX as usize,
     };
     NodePayload::from_value(TransformHeader {
         data,
@@ -718,6 +726,10 @@ mod storage_tests {
         let p = NumberOrPercentage::Percentage(50.0);
         let before = ast.encoded_extra_len();
         let node = ast.alloc_node(Transform::TranslateX(x), DUMMY_SP);
+        assert_eq!(ast.encoded_extra_len(), before);
+        ast.mutate_node(node, |value, _| *value = Transform::Rotate(Angle::Deg(0.0)));
+        assert_eq!(ast.encoded_extra_len(), before);
+        ast.mutate_node(node, |value, _| *value = Transform::Translate3d((x, y, z)));
         assert_eq!(ast.encoded_extra_len(), before + 1);
         let checkpoint = ast.node_checkpoint();
         for expected in [

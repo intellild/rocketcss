@@ -160,9 +160,12 @@ fields; necessary compact enum/Option representations are documented below.
 Function names are ordinary AstStr values. The payload stores a native header
 containing the argument range, overflow index, flags, and KnownFunction. Reads
 preserve the identity resolved at construction instead of reclassifying text.
-The overflow holds the name range in one slot and the native optional replacement
-across two opaque slots; padding is never read as integers. Unchanged writes reuse
-all three slots and leave the string pool untouched. Function codegen streams
+A plain function stores only its name range in one overflow slot. A function
+created with a replacement stores the name plus two native replacement slots.
+The first replacement of a plain function promotes it to that three-slot record;
+the previous name-only slot remains in the append-only arena until context drop.
+Later Some/None transitions retain and reuse the promoted record. Padding is
+never read as integers, and unchanged writes leave the string pool untouched. Function codegen streams
 arguments directly from the shared table, including lossless fallback functions.
 
 TokenOrValue is 12 bytes as a logical value. Its private native eight-byte list
@@ -667,11 +670,11 @@ overflow. Declaration name/prefix dispatch reads only the metadata slot; token
 fallback output reads only the list slot. `None` and `Some(empty)` remain distinct.
 
 `AstContext::function` returns a read-only `FunctionRef`. Arguments, kind and
-flags are inline. A header boolean, derived from the replacement on every write,
-uses existing payload padding and avoids loading the two replacement slots when
-there is no replacement. Replacement output does not load the name slot; opaque
+flags are inline. A private storage enum distinguishes a name-only record, a
+promoted empty record, and a present replacement without growing the header.
+Absent replacements do not load the replacement slots. Replacement output does not load the name slot; opaque
 fallback serialization does not load replacement slots. Name and replacement
-storage still occupy the same three reused overflow slots. Both ordinary values
+storage uses one slot until promotion, then reuses the three-slot record. Both ordinary values
 and stored-node serialization share the same function-writing helpers.
 
 These views borrow the context while retaining the ID's range lifetime. Their
@@ -1057,25 +1060,31 @@ AnglePercentage) are natively eight bytes, so their lists use the same direct
 Copy representation as nodes. Percentage, Zero, Calc and the dimension unit/value
 remain typed; no separate list enum or dimension unit conversion is needed.
 DimensionValue supplies only the associated kind metadata. Slot access enforces
-capacity at compile time for each concrete generic instance. WebKitGradient uses a native header and two typed extra slots for
-radii and the stop range; Linear/Radial transitions reuse the same overflow.
+capacity at compile time for each concrete generic instance. WebKitGradient uses
+a native header and initially stores only the stop range for Linear. Radial uses
+two typed slots for radii and stops. The first Linear-to-Radial transition promotes
+the record, retaining the old single slot until context drop; later transitions
+reuse the two-slot record, including when switched back to Linear.
 Stored codegen uses WebKitGradientRead: Linear skips the radii slot, Radial
 reads its native pair, and the stop range is read after coordinate output.
 Owned/stored variants share a writer that retains radius and stop order,
 including duplicate stops and the original comma formatting.
-Gradient also keeps a native 16-byte header and one extra slot. A private
+Gradient keeps a native 16-byte header and allocates its item-range extra slot
+only for linear/radial/conic variants. A private
 12-byte enum holds its linear/radial/conic/WebKit data; repeating and vendor
 prefix values remain typed. Linear directions flatten nested angle variants
 into an eight-byte enum, while conic angles split into a typed unit and scalar
 so the position handle still fits inline. This is necessary layout compression,
 not byte serialization. The item range slot is written with the appropriate
 length/angle type before its header is published and is reused on every variant
-transition. WebKit variants retain the reserved slot but never read its content.
+transition. A fresh WebKit variant allocates no range slot. If a range slot was
+already allocated by another variant, WebKit retains its index without reading
+or rewriting its content, allowing later variants to reuse it.
 GradientRead exposes linear/radial/conic header fields with typed, context-bound
 item-range views. Stored codegen reads items after direction/shape/position
 output, using the same variant writers as owned values. Repeating flags, vendor
 prefixes, angle units and item ordering are preserved; the WebKit view contains
-only its child handle and does not access the reserved range slot.
+only its child handle and does not access an item-range slot.
 There are no remaining byte codecs in values/image.rs; the dimension unit
 conversion for compact DimensionPercentage lists is still required.
 
@@ -1184,11 +1193,12 @@ Perspective, Translate and GapValue store their native enums directly. Scale
 uses a private 16-byte native enum that flattens three NumberOrPercentage values
 into three typed boolean flags and three f32 fields, preserving all eight type
 combinations and the distinct None variant. This retains necessary compression
-without byte serialization. The general Transform also uses a 16-byte native header and one reusable extra
-slot. Its private data enum retains native small variants and flattens only
+without byte serialization. The general Transform uses a 16-byte native header
+and allocates one extra slot only when first needed by a 3d variant. Its private data enum retains native small variants and flattens only
 Scale/Scale3d, Rotate3d and Skew scalar metadata. Translate3d writes a typed z
 handle, Scale3d writes an f32, and Rotate3d writes [z, angle_value] to overflow;
-other variants never read it. The appropriate slot type is written before the
+other variants neither allocate nor access a tail on construction. They retain
+any previously allocated tail for reuse. The appropriate slot type is written before the
 new header is published on every variant transition. All 21 public variants,
 angle units and number/percentage distinctions remain separate. Both transform
 modules are now free of byte codecs.

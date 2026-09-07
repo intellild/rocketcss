@@ -413,8 +413,14 @@ pub struct Function<'a> {
     pub replacement: Option<FunctionReplacement>,
 }
 
-// The native header fits one payload. The lossless name occupies one extra
-// slot and the optional replacement occupies two opaque extra slots.
+// Plain functions store only their lossless name. Replacement storage is
+// allocated on demand and retained for subsequent mutations.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FunctionStorage {
+    NameOnly,
+    ReplacementEmpty,
+    Replacement,
+}
 #[derive(Clone, Copy)]
 #[repr(C)]
 struct FunctionHeader<'a> {
@@ -422,7 +428,7 @@ struct FunctionHeader<'a> {
     extra: u32,
     flags: FunctionFlags,
     kind: KnownFunction,
-    has_replacement: bool,
+    storage: FunctionStorage,
 }
 
 pub use access::FunctionRef;
@@ -483,7 +489,7 @@ mod access {
 
         #[inline]
         pub fn replacement(&self) -> Option<FunctionReplacement> {
-            if !self.header.has_replacement {
+            if self.header.storage != FunctionStorage::Replacement {
                 return None;
             }
             let extra = self.header.extra as usize;
@@ -510,11 +516,15 @@ unsafe impl<'ast> AstNodeStorage<'ast> for Function<'ast> {
             flags: header.flags,
             kind: header.kind,
             name: unsafe { context.extra_slot(extra).read_value() },
-            replacement: unsafe {
-                ExtraData::read_value_array([
-                    context.extra_slot(extra + 1),
-                    context.extra_slot(extra + 2),
-                ])
+            replacement: if header.storage == FunctionStorage::Replacement {
+                unsafe {
+                    ExtraData::read_value_array([
+                        context.extra_slot(extra + 1),
+                        context.extra_slot(extra + 2),
+                    ])
+                }
+            } else {
+                None
             },
         }
     }
@@ -529,7 +539,7 @@ unsafe impl<'ast> AstNodeStorage<'ast> for Function<'ast> {
         context: &mut AstContext<'ast>,
     ) -> NodePayload {
         let header: FunctionHeader<'ast> = unsafe { current.read_value() };
-        encode_function(self, Some(header.extra as usize), context)
+        encode_function(self, Some(header), context)
     }
 
     fn eq_in_context(&self, other: &Self, context: &AstContext<'_>) -> bool {
@@ -555,26 +565,44 @@ impl<'ast> AstNodeClone<'ast> for Function<'ast> {
 
 fn encode_function<'ast>(
     function: Function<'ast>,
-    existing_extra: Option<usize>,
+    existing: Option<FunctionHeader<'ast>>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
     let name = ExtraData::from_value(function.name);
-    let [replacement_low, replacement_high] = ExtraData::from_value_array(function.replacement);
-    let extra = match existing_extra {
-        Some(extra) => {
-            context.set_extra_slot(extra, name);
-            context.set_extra_slot(extra + 1, replacement_low);
-            context.set_extra_slot(extra + 2, replacement_high);
-            extra
+    let has_storage = function.replacement.is_some()
+        || existing.is_some_and(|header| header.storage != FunctionStorage::NameOnly);
+    let storage = if function.replacement.is_some() {
+        FunctionStorage::Replacement
+    } else if has_storage {
+        FunctionStorage::ReplacementEmpty
+    } else {
+        FunctionStorage::NameOnly
+    };
+    let extra = if let Some(header) =
+        existing.filter(|header| (header.storage != FunctionStorage::NameOnly) == has_storage)
+    {
+        let extra = header.extra as usize;
+        context.set_extra_slot(extra, name);
+        if function.replacement.is_some() {
+            let [low, high] = ExtraData::from_value_array(function.replacement);
+            context.set_extra_slot(extra + 1, low);
+            context.set_extra_slot(extra + 2, high);
         }
-        None => context.alloc_extra_slots([name, replacement_low, replacement_high]),
+        extra
+    } else if has_storage {
+        // First replacement promotes a name-only record once. The old name
+        // slot remains in the append-only arena; later replacements reuse this block.
+        let [low, high] = ExtraData::from_value_array(function.replacement);
+        context.alloc_extra_slots([name, low, high])
+    } else {
+        context.alloc_extra_slots([name])
     };
     NodePayload::from_value(FunctionHeader {
         arguments: function.arguments,
         extra: u32::try_from(extra).expect("Function overflow index exceeds u32"),
         flags: function.flags,
         kind: function.kind,
-        has_replacement: function.replacement.is_some(),
+        storage,
     })
 }
 
@@ -985,6 +1013,43 @@ mod storage_tests {
     }
 
     #[test]
+    fn plain_function_allocates_replacement_storage_only_once() {
+        let allocator = Allocator::new();
+        let mut context = AstContext::new_in(&allocator);
+        let function = Function::new("CaLc", crate::AstVec::empty(), &mut context);
+        let id = context.alloc_node(function, DUMMY_SP);
+        assert_eq!(context.encoded_extra_len(), 1);
+        let checkpoint = context.node_checkpoint();
+        for _ in 0..3 {
+            assert_eq!(context.function(id).replacement(), None);
+            assert_eq!(context.node(id).replacement, None);
+            context.mutate_node(id, |value, context| value.set_name("CaLc", context));
+            assert_eq!(context.node_checkpoint(), checkpoint);
+        }
+        // Unrelated storage prevents relying on adjacent allocations.
+        let unrelated = context.alloc_encoded_vec([123_u32].into_iter());
+        let before = context.encoded_extra_len();
+        context.mutate_node(id, |value, _| {
+            value.replacement = Some(FunctionReplacement::Number(-0.0));
+        });
+        assert_eq!(context.encoded_extra_len(), before + 3);
+        let promoted = context.node_checkpoint();
+        for replacement in [None, Some(FunctionReplacement::Number(2.0)), None] {
+            context.mutate_node(id, |value, _| value.replacement = replacement);
+            assert_eq!(context.function(id).replacement(), replacement);
+            assert_eq!(context.node(id).replacement, replacement);
+            assert_eq!(context.str(context.function(id).name()), "CaLc");
+            assert_eq!(context.vec_get(unrelated, 0), Some(123));
+            assert_eq!(context.node_checkpoint(), promoted);
+        }
+        let before = context.encoded_extra_len();
+        let clone = context.clone_node(id);
+        assert_eq!(context.encoded_extra_len(), before + 1);
+        assert_eq!(context.node(clone).replacement, None);
+        assert_eq!(std::mem::size_of::<super::FunctionHeader<'_>>(), 16);
+    }
+
+    #[test]
     fn function_storage_preserves_native_state_and_reuses_overflow() {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
@@ -1087,7 +1152,8 @@ mod storage_tests {
         let allocator = Allocator::new();
         let mut context = AstContext::new_in(&allocator);
         let arguments = context.alloc_encoded_vec(std::iter::empty());
-        let function = Function::new("FuN", arguments, &mut context);
+        let mut function = Function::new("FuN", arguments, &mut context);
+        function.replacement = Some(FunctionReplacement::Number(0.0));
         let name = function.name();
         let id = context.alloc_node(function, DUMMY_SP);
         let checkpoint = context.node_checkpoint();

@@ -376,7 +376,11 @@ unsafe impl<'ast> AstNodeStorage<'ast> for Gradient<'ast> {
         context: &mut AstContext<'ast>,
     ) -> NodePayload {
         let header: GradientHeader<'ast> = unsafe { current.read_value() };
-        store_gradient(self, Some(header.extra as usize), context)
+        store_gradient(
+            self,
+            (header.extra != u32::MAX).then_some(header.extra as usize),
+            context,
+        )
     }
 }
 
@@ -462,7 +466,7 @@ fn store_gradient<'ast>(
                 vendor_prefix,
                 direction: direction.into(),
             },
-            ExtraData::from_value(items),
+            Some(ExtraData::from_value(items)),
         ),
         Gradient::RepeatingLinear {
             direction,
@@ -474,7 +478,7 @@ fn store_gradient<'ast>(
                 vendor_prefix,
                 direction: direction.into(),
             },
-            ExtraData::from_value(items),
+            Some(ExtraData::from_value(items)),
         ),
         Gradient::Radial {
             items,
@@ -488,7 +492,7 @@ fn store_gradient<'ast>(
                 position,
                 shape,
             },
-            ExtraData::from_value(items),
+            Some(ExtraData::from_value(items)),
         ),
         Gradient::RepeatingRadial {
             items,
@@ -502,7 +506,7 @@ fn store_gradient<'ast>(
                 position,
                 shape,
             },
-            ExtraData::from_value(items),
+            Some(ExtraData::from_value(items)),
         ),
         Gradient::Conic {
             angle,
@@ -517,7 +521,7 @@ fn store_gradient<'ast>(
                     value,
                     position,
                 },
-                ExtraData::from_value(items),
+                Some(ExtraData::from_value(items)),
             )
         }
         Gradient::RepeatingConic {
@@ -533,19 +537,19 @@ fn store_gradient<'ast>(
                     value,
                     position,
                 },
-                ExtraData::from_value(items),
+                Some(ExtraData::from_value(items)),
             )
         }
-        Gradient::WebKitGradient(value) => {
-            (GradientData::WebKitGradient(value), ExtraData::default())
-        }
+        Gradient::WebKitGradient(value) => (GradientData::WebKitGradient(value), None),
     };
-    let extra = match existing_extra {
-        Some(index) => {
+    let extra = match (existing_extra, items) {
+        (Some(index), Some(items)) => {
             context.set_extra_slot(index, items);
             index
         }
-        None => context.alloc_extra_slots([items]),
+        (None, Some(items)) => context.alloc_extra_slots([items]),
+        (Some(index), None) => index,
+        (None, None) => u32::MAX as usize,
     };
     NodePayload::from_value(GradientHeader {
         data,
@@ -569,13 +573,25 @@ pub enum WebKitGradient<'a> {
     },
 }
 
-// The header fits one payload; radii and the stop range each occupy one slot.
+// A linear gradient stores only its stop range. Once radial storage exists,
+// retain it across variant changes so later mutations reuse the same record.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WebKitGradientStorage {
+    Linear,
+    LinearWithRadii,
+    Radial,
+}
+impl WebKitGradientStorage {
+    fn stops_offset(self) -> usize {
+        usize::from(self != Self::Linear)
+    }
+}
 #[derive(Clone, Copy)]
 struct WebKitGradientHeader<'ast> {
     from: NodeId<'ast, WebKitGradientPoint>,
     to: NodeId<'ast, WebKitGradientPoint>,
     extra: u32,
-    radial: bool,
+    storage: WebKitGradientStorage,
 }
 
 pub use webkit_gradient_access::WebKitGradientRead;
@@ -593,7 +609,7 @@ mod webkit_gradient_access {
             self.header.to
         }
         pub fn radii(&self) -> Option<[f32; 2]> {
-            self.header.radial.then(|| {
+            (self.header.storage == WebKitGradientStorage::Radial).then(|| {
                 // SAFETY: the first extra slot is written as native [f32; 2].
                 unsafe {
                     self.context
@@ -603,10 +619,10 @@ mod webkit_gradient_access {
             })
         }
         pub fn stops(&self) -> Vec<'id, WebKitColorStop<'id>> {
-            // SAFETY: the second extra slot is written as the native stop range.
+            // SAFETY: storage selects the slot written as the native stop range.
             unsafe {
                 self.context
-                    .extra_slot(self.header.extra as usize + 1)
+                    .extra_slot(self.header.extra as usize + self.header.storage.stops_offset())
                     .read_value()
             }
         }
@@ -625,7 +641,8 @@ mod webkit_gradient_access {
     }
 }
 
-// SAFETY: this kind always stores WebKitGradientHeader, followed by typed radii/range slots.
+// SAFETY: this kind stores WebKitGradientHeader; storage selects a range-only
+// record or a native radii/range record.
 unsafe impl<'ast> AstNodeStorage<'ast> for WebKitGradient<'ast> {
     const KIND: NodeKind = NodeKind::new(0x0003_000f);
 
@@ -635,10 +652,14 @@ unsafe impl<'ast> AstNodeStorage<'ast> for WebKitGradient<'ast> {
             from,
             to,
             extra,
-            radial,
+            storage,
         } = header;
-        let stops = unsafe { context.extra_slot(extra as usize + 1).read_value() };
-        if radial {
+        let stops = unsafe {
+            context
+                .extra_slot(extra as usize + storage.stops_offset())
+                .read_value()
+        };
+        if storage == WebKitGradientStorage::Radial {
             let [start_radius, end_radius]: [f32; 2] =
                 unsafe { context.extra_slot(extra as usize).read_value() };
             Self::Radial {
@@ -663,7 +684,7 @@ unsafe impl<'ast> AstNodeStorage<'ast> for WebKitGradient<'ast> {
         context: &mut AstContext<'ast>,
     ) -> NodePayload {
         let header: WebKitGradientHeader<'ast> = unsafe { current.read_value() };
-        store_webkit_gradient(self, Some(header.extra as usize), context)
+        store_webkit_gradient(self, Some(header), context)
     }
 }
 
@@ -694,7 +715,7 @@ impl<'ast> AstNodeClone<'ast> for WebKitGradient<'ast> {
 
 fn store_webkit_gradient<'ast>(
     value: WebKitGradient<'ast>,
-    existing_extra: Option<usize>,
+    existing: Option<WebKitGradientHeader<'ast>>,
     context: &mut AstContext<'ast>,
 ) -> NodePayload {
     let (from, to, radii, stops, radial) = match value {
@@ -707,21 +728,37 @@ fn store_webkit_gradient<'ast>(
             stops,
         } => (from, to, [start_radius, end_radius], stops, true),
     };
-    let fields = [ExtraData::from_value(radii), ExtraData::from_value(stops)];
-    let extra = match existing_extra {
-        Some(index) => {
-            for (offset, field) in fields.into_iter().enumerate() {
-                context.set_extra_slot(index + offset, field);
-            }
-            index
+    let has_radii =
+        radial || existing.is_some_and(|header| header.storage != WebKitGradientStorage::Linear);
+    let storage = if radial {
+        WebKitGradientStorage::Radial
+    } else if has_radii {
+        WebKitGradientStorage::LinearWithRadii
+    } else {
+        WebKitGradientStorage::Linear
+    };
+    let stops = ExtraData::from_value(stops);
+    let extra = if let Some(header) =
+        existing.filter(|header| header.storage.stops_offset() == storage.stops_offset())
+    {
+        let index = header.extra as usize;
+        if radial {
+            context.set_extra_slot(index, ExtraData::from_value(radii));
         }
-        None => context.alloc_extra_slots(fields),
+        context.set_extra_slot(index + storage.stops_offset(), stops);
+        index
+    } else if has_radii {
+        // Promotion happens at most once; append-only storage retains the old
+        // one-slot linear record until the context is dropped.
+        context.alloc_extra_slots([ExtraData::from_value(radii), stops])
+    } else {
+        context.alloc_extra_slots([stops])
     };
     NodePayload::from_value(WebKitGradientHeader {
         from,
         to,
         extra: u32::try_from(extra).expect("extra index exceeds u32"),
-        radial,
+        storage,
     })
 }
 
@@ -1123,6 +1160,9 @@ mod storage_tests {
         );
         let before = context.encoded_extra_len();
         let node = context.alloc_encoded_node(Gradient::WebKitGradient(webkit), DUMMY_SP);
+        assert_eq!(context.encoded_extra_len(), before);
+        context.mutate_node(node, |value, _| *value = Gradient::WebKitGradient(webkit));
+        assert_eq!(context.encoded_extra_len(), before);
         let vendor_prefix = VendorPrefix::WEBKIT | VendorPrefix::MOZ;
         for direction in [
             LineDirection::Angle(Angle::Deg(-0.0)),
@@ -1454,7 +1494,23 @@ mod storage_tests {
         let before = context.encoded_extra_len();
         let gradient =
             context.alloc_encoded_node(WebKitGradient::Linear { from, to, stops }, DUMMY_SP);
-        assert_eq!(context.encoded_extra_len(), before + 2);
+        assert_eq!(context.encoded_extra_len(), before + 1);
+        context.mutate_node(gradient, |value, _| {
+            *value = WebKitGradient::Linear { from, to, stops }
+        });
+        assert_eq!(context.encoded_extra_len(), before + 1);
+        assert_eq!(context.webkit_gradient(gradient).radii(), None);
+        assert_eq!(context.webkit_gradient(gradient).stops(), stops);
+        context.mutate_node(gradient, |value, _| {
+            *value = WebKitGradient::Radial {
+                from,
+                to,
+                stops,
+                start_radius: 1.0,
+                end_radius: 2.0,
+            }
+        });
+        assert_eq!(context.encoded_extra_len(), before + 3);
         let checkpoint = context.node_checkpoint();
         for bits in [
             0,

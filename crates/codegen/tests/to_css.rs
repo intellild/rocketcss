@@ -135,7 +135,6 @@ fn stored_transform_preserves_all_variants_and_tail_order() {
             DUMMY_SP,
         );
         let node = ast.alloc_node(Transform::TranslateX(x), DUMMY_SP);
-        let checkpoint = ast.node_checkpoint();
         for (value, expected) in [
             (Transform::Translate((x, y)), "translate(25%,75%)"),
             (Transform::TranslateX(x), "translateX(25%)"),
@@ -171,6 +170,8 @@ fn stored_transform_preserves_all_variants_and_tail_order() {
                 "matrix3d(1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16)",
             ),
         ] {
+            ast.mutate_node(node, |stored, _| *stored = value);
+            let checkpoint = ast.node_checkpoint();
             for _ in 0..3 {
                 ast.mutate_node(node, |stored, _| *stored = value);
                 let cx = ToCssContext::with_ast(&token, &ast);
@@ -232,7 +233,6 @@ fn stored_gradient_preserves_variants_prefixes_and_item_ranges() {
         let vendor_prefix = VendorPrefix::WEBKIT;
         let direction = LineDirection::Horizontal(HorizontalPositionKeyword::Right);
         let node = ast.alloc_node(Gradient::WebKitGradient(webkit), DUMMY_SP);
-        let checkpoint = ast.node_checkpoint();
         for (value, expected) in [
             (
                 Gradient::Linear {
@@ -290,6 +290,7 @@ fn stored_gradient_preserves_variants_prefixes_and_item_ranges() {
             ),
         ] {
             ast.mutate_node(node, |stored, _| *stored = value);
+            let checkpoint = ast.node_checkpoint();
             let cx = ToCssContext::with_ast(&token, &ast);
             for prettify in [false, true] {
                 let expected = if prettify {
@@ -335,7 +336,6 @@ fn stored_webkit_gradient_preserves_radii_and_stop_order() {
         let stops = ast.alloc_vec(values);
         let empty = ast.alloc_vec(allocator.vec::<WebKitColorStop<'_>>());
         let node = ast.alloc_node(WebKitGradient::Linear { from, to, stops }, DUMMY_SP);
-        let checkpoint = ast.node_checkpoint();
         for (radii, range) in [
             (None, stops),
             (Some([2.0, 7.0]), stops),
@@ -359,6 +359,7 @@ fn stored_webkit_gradient_preserves_radii_and_stop_order() {
                     },
                 }
             });
+            let checkpoint = ast.node_checkpoint();
             let view = ast.webkit_gradient(node);
             assert_eq!(view.radii(), radii);
             assert_eq!(view.stops(), range);
@@ -2268,7 +2269,6 @@ fn stored_function_fields_preserve_fallbacks_and_replacement_transitions() {
         ] {
             let function = Function::new(name, arguments, &mut ast);
             let id = ast.alloc_node(function, DUMMY_SP);
-            let checkpoint = ast.node_checkpoint();
             let pool_bytes = ast.string_pool().extra_len();
             for (replacement, output) in [
                 (None, expected),
@@ -2285,6 +2285,7 @@ fn stored_function_fields_preserve_fallbacks_and_replacement_transitions() {
                 (None, expected),
             ] {
                 ast.mutate_node(id, |value, _| value.replacement = replacement);
+                let checkpoint = ast.node_checkpoint();
                 let view = ast.function(id);
                 assert_eq!(view.replacement(), replacement);
                 assert_eq!(view.arguments(), arguments);
@@ -2297,8 +2298,8 @@ fn stored_function_fields_preserve_fallbacks_and_replacement_transitions() {
                     .unwrap(),
                     output,
                 );
+                assert_eq!(ast.node_checkpoint(), checkpoint);
             }
-            assert_eq!(ast.node_checkpoint(), checkpoint);
             assert_eq!(ast.string_pool().extra_len(), pool_bytes);
         }
     });
