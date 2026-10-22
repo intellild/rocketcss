@@ -13,7 +13,6 @@ path = "src/lib.rs"
 rocketcss_ast     = { workspace = true }
 rocketcss_codegen = { workspace = true }
 rocketcss_common  = { workspace = true }
-rocketcss_nano    = { workspace = true }
 rocketcss_parser  = { workspace = true }
 rocketcss_visitor = { workspace = true }
 rustc-hash        = { workspace = true }

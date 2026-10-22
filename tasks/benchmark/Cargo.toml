@@ -12,7 +12,6 @@ lightningcss      = { workspace = true }
 mimalloc          = { workspace = true }
 rocketcss_codegen = { workspace = true }
 rocketcss_common  = { workspace = true }
-rocketcss_nano    = { workspace = true }
 rocketcss_parser  = { workspace = true }
 rustc-hash        = { workspace = true }
 stylo             = { workspace = true }
@@ -29,10 +28,6 @@ name    = "parser"
 [[bench]]
 harness = false
 name    = "codegen"
-
-[[bench]]
-harness = false
-name    = "minify"
 
 [[bench]]
 harness = false

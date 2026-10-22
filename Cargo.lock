@@ -1224,6 +1224,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rocketcss_ast_next"
+version = "0.1.0"
+dependencies = [
+ "rocketcss_common",
+ "rocketcss_macros",
+]
+
+[[package]]
+name = "rocketcss_ast_next_tools"
+version = "0.0.0"
+dependencies = [
+ "convert_case 0.11.0",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "rocketcss_ast_size"
 version = "0.0.0"
 dependencies = [
@@ -1253,7 +1272,6 @@ dependencies = [
  "mimalloc",
  "rocketcss_codegen",
  "rocketcss_common",
- "rocketcss_nano",
  "rocketcss_parser",
  "rustc-hash",
  "stylo",
@@ -1295,25 +1313,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "rocketcss_nano"
-version = "0.1.0"
-dependencies = [
- "bitflags",
- "rocketcss_ast",
- "rocketcss_codegen",
- "rocketcss_common",
- "rocketcss_parser",
- "rocketcss_visitor",
- "rustc-hash",
- "smallvec",
- "zmij",
-]
-
-[[package]]
 name = "rocketcss_parser"
 version = "0.1.0"
 dependencies = [
  "rocketcss_ast",
+ "rocketcss_ast_next",
  "rocketcss_common",
  "serde_json",
 ]
@@ -1325,7 +1329,6 @@ dependencies = [
  "rocketcss_ast",
  "rocketcss_codegen",
  "rocketcss_common",
- "rocketcss_nano",
  "rocketcss_parser",
  "rocketcss_visitor",
  "rustc-hash",

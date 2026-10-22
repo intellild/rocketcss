@@ -1,0 +1,127 @@
+//! Mapping from the tokenizer's value token to the flattened token node.
+
+use super::prelude::*;
+
+pub(crate) fn alloc_token<'i>(
+    ast: &mut Ast<'i>,
+    token: OldToken<'i>,
+    span: Span,
+) -> Token<'i> {
+    let data = match token {
+        OldToken::Ident(value) => TokenData::Ident(value),
+        OldToken::AtKeyword(value) => TokenData::AtKeyword(value),
+        OldToken::Hash(value) => TokenData::Hash(value),
+        OldToken::IdHash(value) => TokenData::IdHash(value),
+        OldToken::MinifiedHash(value) => TokenData::MinifiedHash(value),
+        OldToken::String(value) => TokenData::String(value),
+        OldToken::UnquotedFont(value) => TokenData::UnquotedFont(value),
+        OldToken::UnquotedUrl(value) => TokenData::UnquotedUrl(value),
+        OldToken::Delim(value) => TokenData::Delim(value),
+        OldToken::Number(value) => TokenData::Number(value),
+        OldToken::Percentage(value) => TokenData::Percentage(value),
+        OldToken::Dimension { unit, value } => TokenData::Dimension {
+            unit: alloc_unit(ast, unit, span),
+            value,
+        },
+        OldToken::UnknownDimension { unit, value } => {
+            TokenData::UnknownDimension { unit, value }
+        }
+        OldToken::WhiteSpace(value) => TokenData::WhiteSpace(value),
+        OldToken::Comment(value) => TokenData::Comment(value),
+        OldToken::Colon => TokenData::Colon,
+        OldToken::Semicolon => TokenData::Semicolon,
+        OldToken::Comma => TokenData::Comma,
+        OldToken::IncludeMatch => TokenData::IncludeMatch,
+        OldToken::DashMatch => TokenData::DashMatch,
+        OldToken::PrefixMatch => TokenData::PrefixMatch,
+        OldToken::SuffixMatch => TokenData::SuffixMatch,
+        OldToken::SubstringMatch => TokenData::SubstringMatch,
+        OldToken::Cdo => TokenData::Cdo,
+        OldToken::Cdc => TokenData::Cdc,
+        OldToken::Function(value) => TokenData::Function(value),
+        OldToken::ParenthesisBlock => TokenData::ParenthesisBlock,
+        OldToken::SquareBracketBlock => TokenData::SquareBracketBlock,
+        OldToken::CurlyBracketBlock => TokenData::CurlyBracketBlock,
+        OldToken::BadUrl(value) => TokenData::BadUrl(value),
+        OldToken::BadString(value) => TokenData::BadString(value),
+        OldToken::CloseParenthesis => TokenData::CloseParenthesis,
+        OldToken::CloseSquareBracket => TokenData::CloseSquareBracket,
+        OldToken::CloseCurlyBracket => TokenData::CloseCurlyBracket,
+    };
+    ast.alloc_token(data, span)
+}
+
+pub(crate) fn convert_length_unit(unit: OldLengthUnit) -> LengthUnit {
+    match unit {
+        OldLengthUnit::Px => LengthUnit::Px,
+        OldLengthUnit::In => LengthUnit::In,
+        OldLengthUnit::Cm => LengthUnit::Cm,
+        OldLengthUnit::Mm => LengthUnit::Mm,
+        OldLengthUnit::Q => LengthUnit::Q,
+        OldLengthUnit::Pt => LengthUnit::Pt,
+        OldLengthUnit::Pc => LengthUnit::Pc,
+        OldLengthUnit::Em => LengthUnit::Em,
+        OldLengthUnit::Rem => LengthUnit::Rem,
+        OldLengthUnit::Ex => LengthUnit::Ex,
+        OldLengthUnit::Rex => LengthUnit::Rex,
+        OldLengthUnit::Ch => LengthUnit::Ch,
+        OldLengthUnit::Rch => LengthUnit::Rch,
+        OldLengthUnit::Cap => LengthUnit::Cap,
+        OldLengthUnit::Rcap => LengthUnit::Rcap,
+        OldLengthUnit::Ic => LengthUnit::Ic,
+        OldLengthUnit::Ric => LengthUnit::Ric,
+        OldLengthUnit::Lh => LengthUnit::Lh,
+        OldLengthUnit::Rlh => LengthUnit::Rlh,
+        OldLengthUnit::Vw => LengthUnit::Vw,
+        OldLengthUnit::Lvw => LengthUnit::Lvw,
+        OldLengthUnit::Svw => LengthUnit::Svw,
+        OldLengthUnit::Dvw => LengthUnit::Dvw,
+        OldLengthUnit::Cqw => LengthUnit::Cqw,
+        OldLengthUnit::Vh => LengthUnit::Vh,
+        OldLengthUnit::Lvh => LengthUnit::Lvh,
+        OldLengthUnit::Svh => LengthUnit::Svh,
+        OldLengthUnit::Dvh => LengthUnit::Dvh,
+        OldLengthUnit::Cqh => LengthUnit::Cqh,
+        OldLengthUnit::Vi => LengthUnit::Vi,
+        OldLengthUnit::Svi => LengthUnit::Svi,
+        OldLengthUnit::Lvi => LengthUnit::Lvi,
+        OldLengthUnit::Dvi => LengthUnit::Dvi,
+        OldLengthUnit::Cqi => LengthUnit::Cqi,
+        OldLengthUnit::Vb => LengthUnit::Vb,
+        OldLengthUnit::Svb => LengthUnit::Svb,
+        OldLengthUnit::Lvb => LengthUnit::Lvb,
+        OldLengthUnit::Dvb => LengthUnit::Dvb,
+        OldLengthUnit::Cqb => LengthUnit::Cqb,
+        OldLengthUnit::Vmin => LengthUnit::Vmin,
+        OldLengthUnit::Svmin => LengthUnit::Svmin,
+        OldLengthUnit::Lvmin => LengthUnit::Lvmin,
+        OldLengthUnit::Dvmin => LengthUnit::Dvmin,
+        OldLengthUnit::Cqmin => LengthUnit::Cqmin,
+        OldLengthUnit::Vmax => LengthUnit::Vmax,
+        OldLengthUnit::Svmax => LengthUnit::Svmax,
+        OldLengthUnit::Lvmax => LengthUnit::Lvmax,
+        OldLengthUnit::Dvmax => LengthUnit::Dvmax,
+        OldLengthUnit::Cqmax => LengthUnit::Cqmax,
+    }
+}
+
+
+fn alloc_unit<'i>(ast: &mut Ast<'i>, unit: OldUnit, span: Span) -> Unit<'i> {
+    let data = match unit {
+        OldUnit::Length(unit) => UnitData::Length(convert_length_unit(unit)),
+        OldUnit::Deg => UnitData::Deg,
+        OldUnit::Rad => UnitData::Rad,
+        OldUnit::Grad => UnitData::Grad,
+        OldUnit::Turn => UnitData::Turn,
+        OldUnit::Seconds => UnitData::Seconds,
+        OldUnit::Milliseconds => UnitData::Milliseconds,
+        OldUnit::Hertz => UnitData::Hertz,
+        OldUnit::Kilohertz => UnitData::Kilohertz,
+        OldUnit::Dpi => UnitData::Dpi,
+        OldUnit::Dpcm => UnitData::Dpcm,
+        OldUnit::Dppx => UnitData::Dppx,
+        OldUnit::ResolutionX => UnitData::ResolutionX,
+        OldUnit::Flex => UnitData::Flex,
+    };
+    ast.alloc_unit(data, span)
+}

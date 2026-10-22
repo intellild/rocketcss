@@ -1,0 +1,128 @@
+#[ast]
+pub enum Length<'a> {
+    Value(LengthValue),
+    Calc(Box<'a, Calc<'a, Length<'a>>>),
+}
+
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LengthUnit {
+    Px,
+    In,
+    Cm,
+    Mm,
+    Q,
+    Pt,
+    Pc,
+    Em,
+    Rem,
+    Ex,
+    Rex,
+    Ch,
+    Rch,
+    Cap,
+    Rcap,
+    Ic,
+    Ric,
+    Lh,
+    Rlh,
+    Vw,
+    Lvw,
+    Svw,
+    Dvw,
+    Cqw,
+    Vh,
+    Lvh,
+    Svh,
+    Dvh,
+    Cqh,
+    Vi,
+    Svi,
+    Lvi,
+    Dvi,
+    Cqi,
+    Vb,
+    Svb,
+    Lvb,
+    Dvb,
+    Cqb,
+    Vmin,
+    Svmin,
+    Lvmin,
+    Dvmin,
+    Cqmin,
+    Vmax,
+    Svmax,
+    Lvmax,
+    Dvmax,
+    Cqmax,
+}
+
+#[ast]
+pub enum Calc<'a, V> {
+    Value(Box<'a, V>),
+    Number(f32),
+    Sum((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Product((f32, Box<'a, Calc<'a, V>>)),
+    Function(Box<'a, MathFunction<'a, V>>),
+}
+
+#[ast]
+#[allow(clippy::type_complexity)]
+pub enum MathFunction<'a, V> {
+    Calc(Box<'a, Calc<'a, V>>),
+    Min(Vec<'a, Calc<'a, V>>),
+    Max(Vec<'a, Calc<'a, V>>),
+    Clamp(
+        (
+            Box<'a, Calc<'a, V>>,
+            Box<'a, Calc<'a, V>>,
+            Box<'a, Calc<'a, V>>,
+        ),
+    ),
+    Round((RoundingStrategy, Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Rem((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Mod((Box<'a, Calc<'a, V>>, Box<'a, Calc<'a, V>>)),
+    Abs(Box<'a, Calc<'a, V>>),
+    Sign(Box<'a, Calc<'a, V>>),
+    Hypot(Vec<'a, Calc<'a, V>>),
+}
+
+#[derive(CssKeyword, Debug, PartialEq, Clone, Copy, Eq, Hash)]
+pub enum RoundingStrategy {
+    Nearest,
+    Up,
+    Down,
+    ToZero,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Resolution {
+    Dpi(f32),
+    Dpcm(f32),
+    Dppx(f32),
+}
+
+#[ast]
+/// A CSS `<ratio>` value.
+///
+/// The optional denominator records whether the source wrote the `/ <number>` part, so
+/// serialization reproduces the original expression instead of normalizing by
+/// value.
+pub struct Ratio {
+    pub denominator: Option<f32>,
+    pub numerator: f32,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Angle {
+    Deg(f32),
+    Rad(f32),
+    Grad(f32),
+    Turn(f32),
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Time {
+    Seconds(f32),
+    Milliseconds(f32),
+}

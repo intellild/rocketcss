@@ -6,8 +6,6 @@ use std::{
 
 mod codegen;
 mod coverage;
-mod minify;
-mod minify_dynamic;
 mod parser;
 mod property_inventory;
 mod visitor;

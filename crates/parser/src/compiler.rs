@@ -1,4 +1,5 @@
 use rocketcss_ast::{Atom, Compilation};
+use rocketcss_ast_next::Ast;
 use rocketcss_common::{Allocator, GhostToken, StringPool};
 
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
 /// Shared state for parsing CSS into one arena-owned compilation.
 pub struct Compiler<'alloc> {
     pub(crate) allocator: &'alloc Allocator,
+    pub(crate) ast: Ast<'alloc>,
     pub(crate) string_pool: StringPool<'alloc>,
     pub(crate) cursor: ParserCursor<'alloc>,
     pub(crate) replay: DeclarationTokenReplay<'alloc>,
@@ -20,6 +22,7 @@ impl<'alloc> Compiler<'alloc> {
     pub fn new(allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
+            ast: Ast::new_in(allocator),
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(""),
             replay: DeclarationTokenReplay::new(allocator),
@@ -32,6 +35,7 @@ impl<'alloc> Compiler<'alloc> {
     pub fn new_with_source(source: &'alloc str, allocator: &'alloc Allocator) -> Self {
         Self {
             allocator,
+            ast: Ast::new_in(allocator),
             string_pool: StringPool::new_in(allocator),
             cursor: ParserCursor::new(source),
             replay: DeclarationTokenReplay::new(allocator),
@@ -50,6 +54,16 @@ impl<'alloc> Compiler<'alloc> {
         self.source = options.filename;
         self.source_map_url = self.cursor.source_map_url;
         Ok(compilation)
+    }
+
+    #[inline]
+    pub fn ast(&self) -> &Ast<'alloc> {
+        &self.ast
+    }
+
+    #[inline]
+    pub fn ast_mut(&mut self) -> &mut Ast<'alloc> {
+        &mut self.ast
     }
 
     #[inline]

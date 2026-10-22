@@ -174,6 +174,10 @@ impl Allocator {
         self.arena.alloc_str(s)
     }
 
+    pub fn alloc_slice_copy<T: Copy>(&self, values: &[T]) -> &[T] {
+        self.arena.alloc_slice_copy(values)
+    }
+
     pub fn alloc_wtf8(&self, s: &wtf8::Wtf8) -> &wtf8::Wtf8 {
         let bytes = self.arena.alloc_slice_copy(s.as_bytes());
         unsafe { wtf8::Wtf8::from_bytes_unchecked(bytes) }

@@ -71,45 +71,12 @@ fn parse(bencher: Bencher<'_, '_>, case: BenchCase) {
 }
 
 #[divan::bench(args = BENCH_CASES)]
-fn minify(bencher: Bencher<'_, '_>, case: BenchCase) {
-    rocketcss_common::GhostToken::scope(|token| {
-        let token = RefCell::new(token);
-        bencher
-            .counter(processed_bytes(case))
-            .with_inputs(|| {
-                std::iter::repeat_with(|| {
-                    ParsedStyleSheet::new(case.source, &mut token.borrow_mut())
-                })
-                .take(case.pipeline_iterations)
-                .collect::<Vec<_>>()
-            })
-            .bench_local_values(|mut inputs| {
-                for input in &mut inputs {
-                    black_box(rocketcss_nano::minify(
-                        &mut input.stylesheet,
-                        &mut token.borrow_mut(),
-                        rocketcss_nano::MinifyOptions::default(),
-                    ));
-                }
-            });
-    });
-}
-
-#[divan::bench(args = BENCH_CASES)]
 fn codegen(bencher: Bencher<'_, '_>, case: BenchCase) {
     rocketcss_common::GhostToken::scope(|token| {
         let token = RefCell::new(token);
         bencher
             .counter(processed_bytes(case))
-            .with_inputs(|| {
-                let mut input = ParsedStyleSheet::new(case.source, &mut token.borrow_mut());
-                rocketcss_nano::minify(
-                    &mut input.stylesheet,
-                    &mut token.borrow_mut(),
-                    rocketcss_nano::MinifyOptions::default(),
-                );
-                input
-            })
+            .with_inputs(|| ParsedStyleSheet::new(case.source, &mut token.borrow_mut()))
             .bench_local_values(|input| {
                 for _ in 0..case.pipeline_iterations {
                     let mut output =

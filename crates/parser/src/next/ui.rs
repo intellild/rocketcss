@@ -1,0 +1,111 @@
+//! UI value parsing into the flattened AST.
+
+use super::prelude::*;
+
+macro_rules! keyword_parse {
+    ($ty:ty, $($name:literal => $variant:expr),+ $(,)?) => {
+        impl<'i> Parse<'i> for $ty {
+            fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+                let ident = input.expect_ident()?;
+                match_ignore_ascii_case!(
+                    ident,
+                    $( $name => Ok($variant), )+
+                    _ => Err(input.new_custom_error(ParserError::InvalidValue)),
+                )
+            }
+        }
+    };
+}
+
+keyword_parse!(
+    PointerEvents,
+    "auto" => Self::Auto,
+    "none" => Self::None,
+    "visiblepainted" => Self::VisiblePainted,
+    "visiblefill" => Self::VisibleFill,
+    "visiblestroke" => Self::VisibleStroke,
+    "visible" => Self::Visible,
+    "painted" => Self::Painted,
+    "fill" => Self::Fill,
+    "stroke" => Self::Stroke,
+    "all" => Self::All,
+);
+keyword_parse!(
+    Float,
+    "none" => Self::None,
+    "left" => Self::Left,
+    "right" => Self::Right,
+    "inline-start" => Self::InlineStart,
+    "inline-end" => Self::InlineEnd,
+);
+keyword_parse!(
+    Clear,
+    "none" => Self::None,
+    "left" => Self::Left,
+    "right" => Self::Right,
+    "both" => Self::Both,
+    "inline-start" => Self::InlineStart,
+    "inline-end" => Self::InlineEnd,
+);
+keyword_parse!(
+    TouchAction,
+    "auto" => Self::Auto,
+    "none" => Self::None,
+    "manipulation" => Self::Manipulation,
+    "pan-x" => Self::PanX,
+    "pan-y" => Self::PanY,
+    "pan-left" => Self::PanLeft,
+    "pan-right" => Self::PanRight,
+    "pan-up" => Self::PanUp,
+    "pan-down" => Self::PanDown,
+    "pinch-zoom" => Self::PinchZoom,
+);
+keyword_parse!(ScrollBehavior, "auto" => Self::Auto, "smooth" => Self::Smooth,);
+keyword_parse!(
+    UserSelect,
+    "auto" => Self::Auto,
+    "text" => Self::Text,
+    "none" => Self::None,
+    "contain" => Self::Contain,
+    "all" => Self::All,
+);
+
+impl<'i> Parse<'i> for ColorOrAuto<'i> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let span = DUMMY_SP;
+        if input
+            .try_parse(|input| input.expect_ident_matching("auto"))
+            .is_ok()
+        {
+            return Ok(input
+                .ast_mut()
+                .alloc_color_or_auto(ColorOrAutoData::Auto, span));
+        }
+        let color = CssColor::parse(input)?;
+        Ok(input
+            .ast_mut()
+            .alloc_color_or_auto(ColorOrAutoData::Color(color), span))
+    }
+}
+
+impl<'i> Parse<'i> for ScrollbarColor<'i> {
+    fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
+        let span = DUMMY_SP;
+        if input
+            .try_parse(|input| input.expect_ident_matching("auto"))
+            .is_ok()
+        {
+            input.expect_exhausted()?;
+            return Ok(input
+                .ast_mut()
+                .alloc_scrollbar_color(ScrollbarColorData::Auto, span));
+        }
+        let first = CssColor::parse(input)?;
+        let second = CssColor::parse(input)?;
+        input.expect_exhausted()?;
+        Ok(input.ast_mut().alloc_scrollbar_color(
+            ScrollbarColorData::Colors(first, second),
+            span,
+        ))
+    }
+}

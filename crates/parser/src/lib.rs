@@ -10,6 +10,7 @@ macro_rules! match_byte {
 
 mod compiler;
 mod escape;
+mod next;
 mod parser;
 pub mod prelude;
 mod tokenizer;
