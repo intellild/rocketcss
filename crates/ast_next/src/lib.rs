@@ -10,7 +10,6 @@ mod context;
 mod impls;
 mod impls_values;
 mod known_colors;
-mod properties_impl;
 mod span;
 mod storage;
 
@@ -44,6 +43,7 @@ macro_rules! match_ignore_ascii_case {
     }};
 }
 
+#[allow(unused_imports, non_snake_case)]
 mod generated;
 pub use generated::*;
 
@@ -82,8 +82,12 @@ mod tests {
         let mut ast = Ast::new_in(&allocator);
 
         let declarations = ast.alloc_slice::<DeclarationPayload<'_>>(&[]);
+        let important = ast.alloc_slice::<bool>(&[]);
         let block = ast.alloc_declaration_block(
-            DeclarationBlockData { declarations },
+            DeclarationBlockData {
+                declarations,
+                important,
+            },
             DUMMY_SP,
         );
         let selectors = ast.alloc_slice::<Selector<'_>>(&[]);
@@ -105,14 +109,21 @@ mod tests {
             DUMMY_SP,
         );
         let rules = ast.alloc_slice(&[rule]);
-        let style_sheet = ast.alloc_style_sheet(StyleSheetData { rules }, DUMMY_SP);
+        let style_sheet = ast.alloc_style_sheet(
+            StyleSheetData {
+                rules,
+                license_comments: &[],
+            },
+            DUMMY_SP,
+        );
         let compilation = Compilation::new(ast, style_sheet);
 
         assert_eq!(compilation.style_sheet().rules(compilation.ast()).len(), 1);
         let rule = compilation.style_sheet().rules(compilation.ast())[0];
         assert!(rule.declarations(compilation.ast()).is_some());
-        assert!(rule
-            .payload(compilation.ast())
-            .owns_property_declarations(compilation.ast()));
+        assert!(
+            rule.payload(compilation.ast())
+                .owns_property_declarations(compilation.ast())
+        );
     }
 }

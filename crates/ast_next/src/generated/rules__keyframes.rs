@@ -37,8 +37,8 @@ impl<'ast> KeyframeSelector<'ast> {
     pub fn kind(self, ast: &Ast<'ast>) -> KeyframeSelectorKind {
         match ast.data(self) {
             KeyframeSelectorData::Percentage { .. } => KeyframeSelectorKind::Percentage,
-            KeyframeSelectorData::From { .. } => KeyframeSelectorKind::From,
-            KeyframeSelectorData::To { .. } => KeyframeSelectorKind::To,
+            KeyframeSelectorData::From => KeyframeSelectorKind::From,
+            KeyframeSelectorData::To => KeyframeSelectorKind::To,
             KeyframeSelectorData::TimelineRangePercentage { .. } => {
                 KeyframeSelectorKind::TimelineRangePercentage
             }

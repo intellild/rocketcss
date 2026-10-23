@@ -145,7 +145,7 @@ pub enum TextEmphasisFillMode {
     Open,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextEmphasisShape {
     Dot,
     Circle,

@@ -1,5 +1,5 @@
 use crate::*;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LineStyle {
     None,
     Hidden,
@@ -50,9 +50,9 @@ impl<'ast> BorderSideWidth<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> BorderSideWidthKind {
         match ast.data(self) {
-            BorderSideWidthData::Thin { .. } => BorderSideWidthKind::Thin,
-            BorderSideWidthData::Medium { .. } => BorderSideWidthKind::Medium,
-            BorderSideWidthData::Thick { .. } => BorderSideWidthKind::Thick,
+            BorderSideWidthData::Thin => BorderSideWidthKind::Thin,
+            BorderSideWidthData::Medium => BorderSideWidthKind::Medium,
+            BorderSideWidthData::Thick => BorderSideWidthKind::Thick,
             BorderSideWidthData::Length { .. } => BorderSideWidthKind::Length,
         }
     }
@@ -188,7 +188,7 @@ impl<'ast> BorderImageSideWidth<'ast> {
             BorderImageSideWidthData::LengthPercentage { .. } => {
                 BorderImageSideWidthKind::LengthPercentage
             }
-            BorderImageSideWidthData::Auto { .. } => BorderImageSideWidthKind::Auto,
+            BorderImageSideWidthData::Auto => BorderImageSideWidthKind::Auto,
         }
     }
 }
@@ -248,7 +248,7 @@ impl<'ast> OutlineStyle<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> OutlineStyleKind {
         match ast.data(self) {
-            OutlineStyleData::Auto { .. } => OutlineStyleKind::Auto,
+            OutlineStyleData::Auto => OutlineStyleKind::Auto,
             OutlineStyleData::LineStyle { .. } => OutlineStyleKind::LineStyle,
         }
     }

@@ -19,7 +19,7 @@ impl<'i> Parse<'i> for ObjectFit {
 
 impl<'i> Parse<'i> for Image<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let token = input.next()?.clone();
         match token {
             OldToken::Ident(name) if name.eq_ignore_ascii_case("none") => {
@@ -150,24 +150,25 @@ fn parse_image_set<'i>(
     input: &mut Compiler<'i>,
     vendor_prefix: VendorPrefix,
 ) -> Result<ImageSet<'i>, ParseError<'i, ParserError<'i>>> {
-    let options = parse_comma_separated(input, |input| {
-        parse_image_set_option(input, vendor_prefix)
-    })?;
+    let options =
+        parse_comma_separated(input, |input| parse_image_set_option(input, vendor_prefix))?;
     let options = input.ast().alloc_slice(&options);
-    Ok(input.ast_mut().alloc_image_set(
-        ImageSetData {
-            options,
-            vendor_prefix,
-        },
-        DUMMY_SP,
-    ))
+    Ok(with_token_span!(input, |span| input
+        .ast_mut()
+        .alloc_image_set(
+            ImageSetData {
+                options,
+                vendor_prefix,
+            },
+            span,
+        )))
 }
 
 fn parse_image_set_option<'i>(
     input: &mut Compiler<'i>,
     vendor_prefix: VendorPrefix,
 ) -> Result<ImageSetOption<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let image = if let Ok(url) = input.try_parse(Compiler::expect_string) {
         let url = input.ast_mut().alloc_url(UrlData { url }, span);
         input.ast_mut().alloc_image(ImageData::Url(url), span)
@@ -238,7 +239,7 @@ fn parse_linear_gradient<'i>(
     vendor_prefix: VendorPrefix,
     repeating: bool,
 ) -> Result<Gradient<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let direction = if let Ok(direction) = input.try_parse(parse_line_direction) {
         input.expect_comma()?;
         direction
@@ -278,7 +279,7 @@ fn parse_radial_gradient<'i>(
     vendor_prefix: VendorPrefix,
     repeating: bool,
 ) -> Result<Gradient<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let default_shape = |input: &mut Compiler<'i>| {
         let extent = input
             .ast_mut()
@@ -294,9 +295,7 @@ fn parse_radial_gradient<'i>(
         let y = input
             .ast_mut()
             .alloc_position_component(PositionComponentData::Center, span);
-        input
-            .ast_mut()
-            .alloc_position(PositionData { x, y }, span)
+        input.ast_mut().alloc_position(PositionData { x, y }, span)
     };
 
     let header = input.try_parse(|input| {
@@ -310,9 +309,7 @@ fn parse_radial_gradient<'i>(
         let position = if has_position {
             input.parse_until_before(Delimiter::Comma, |input| {
                 let (x, y) = parse_position_components(input)?;
-                Ok(input
-                    .ast_mut()
-                    .alloc_position(PositionData { x, y }, span))
+                Ok(input.ast_mut().alloc_position(PositionData { x, y }, span))
             })?
         } else {
             default_position(input)
@@ -360,7 +357,7 @@ fn parse_conic_gradient<'i>(
     input: &mut Compiler<'i>,
     repeating: bool,
 ) -> Result<Gradient<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let default_position = |input: &mut Compiler<'i>| {
         let x = input
             .ast_mut()
@@ -368,9 +365,7 @@ fn parse_conic_gradient<'i>(
         let y = input
             .ast_mut()
             .alloc_position_component(PositionComponentData::Center, span);
-        input
-            .ast_mut()
-            .alloc_position(PositionData { x, y }, span)
+        input.ast_mut().alloc_position(PositionData { x, y }, span)
     };
     let header = input.try_parse(|input| {
         let has_from = input
@@ -390,9 +385,7 @@ fn parse_conic_gradient<'i>(
         let position = if has_position {
             input.parse_until_before(Delimiter::Comma, |input| {
                 let (x, y) = parse_position_components(input)?;
-                Ok(input
-                    .ast_mut()
-                    .alloc_position(PositionData { x, y }, span))
+                Ok(input.ast_mut().alloc_position(PositionData { x, y }, span))
             })?
         } else {
             default_position(input)
@@ -436,7 +429,7 @@ fn parse_conic_gradient<'i>(
 fn parse_radial_shape<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<EndingShape<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     if let Ok(value) = input.try_parse(Length::parse) {
         let circle = input
             .ast_mut()
@@ -586,7 +579,7 @@ fn parse_line_direction<'i>(
 fn parse_gradient_item<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<GradientItem<'i, LengthValue<'i>>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     if let Ok(color) = input.try_parse(CssColor::parse) {
         let position = input.try_parse(LengthPercentage::parse).ok();
         input.expect_exhausted()?;
@@ -605,7 +598,7 @@ fn parse_gradient_item<'i>(
 fn parse_conic_gradient_item<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<GradientItem<'i, Angle>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     if let Ok(color) = input.try_parse(CssColor::parse) {
         let position = input.try_parse(parse_angle_percentage).ok();
         input.expect_exhausted()?;
@@ -624,7 +617,7 @@ fn parse_conic_gradient_item<'i>(
 fn parse_angle_percentage<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<AnglePercentage<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let data = match input.next()?.clone() {
         OldToken::Percentage(value) => DimensionPercentageData::<Angle>::Percentage(value),
         OldToken::Number(0.0) => DimensionPercentageData::<Angle>::Dimension(Angle::Deg(0.0)),
@@ -640,7 +633,5 @@ fn parse_angle_percentage<'i>(
         }
         _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
     };
-    Ok(input
-        .ast_mut()
-        .alloc_dimension_percentage(data, span))
+    Ok(input.ast_mut().alloc_dimension_percentage(data, span))
 }

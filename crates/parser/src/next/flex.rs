@@ -103,19 +103,21 @@ impl<'i> Parse<'i> for FlexFlow<'i> {
         if direction.is_none() && wrap.is_none() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(input.ast_mut().alloc_flex_flow(
-            FlexFlowData {
-                direction: direction.unwrap_or(FlexDirection::Row),
-                wrap: wrap.unwrap_or(FlexWrap::Nowrap),
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_flex_flow(
+                FlexFlowData {
+                    direction: direction.unwrap_or(FlexDirection::Row),
+                    wrap: wrap.unwrap_or(FlexWrap::Nowrap),
+                },
+                span,
+            )))
     }
 }
 
 impl<'i> Parse<'i> for Flex<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("none"))
             .is_ok()
@@ -183,10 +185,9 @@ impl<'i> Parse<'i> for Flex<'i> {
         let basis = match basis {
             Some(basis) => basis,
             None => {
-                let zero = input.ast_mut().alloc_dimension_percentage(
-                    DimensionPercentageData::<LengthValue>::Zero,
-                    span,
-                );
+                let zero = input
+                    .ast_mut()
+                    .alloc_dimension_percentage(DimensionPercentageData::<LengthValue>::Zero, span);
                 input.ast_mut().alloc_length_percentage_or_auto(
                     LengthPercentageOrAutoData::LengthPercentage(zero),
                     span,

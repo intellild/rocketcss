@@ -32,7 +32,7 @@ impl<'ast> FilterList<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> FilterListKind {
         match ast.data(self) {
-            FilterListData::None { .. } => FilterListKind::None,
+            FilterListData::None => FilterListKind::None,
             FilterListData::Filters { .. } => FilterListKind::Filters,
         }
     }

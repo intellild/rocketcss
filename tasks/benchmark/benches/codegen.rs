@@ -32,7 +32,7 @@ fn rocketcss(bencher: Bencher<'_, '_>, case: BenchCase) {
                 stylesheet
                     .to_css(
                         &mut Printer::new(&mut output, PrinterOptions { prettify: false }),
-                        &ToCssContext::new(&token),
+                        &ToCssContext::new(&token, stylesheet.ast()),
                     )
                     .unwrap();
                 black_box(output);

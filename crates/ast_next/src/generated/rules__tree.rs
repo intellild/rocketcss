@@ -5,6 +5,7 @@ pub struct StyleSheet<'ast>(pub(crate) NodeId<'ast, StyleSheetData<'ast>>);
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StyleSheetData<'ast> {
     pub rules: &'ast [CssRule<'ast>],
+    pub license_comments: &'ast [&'ast str],
 }
 impl<'ast> NodeStorage<'ast> for StyleSheet<'ast> {
     const KIND: NodeKind = super::kind::KIND_STYLE_SHEET;
@@ -27,6 +28,16 @@ impl<'ast> StyleSheet<'ast> {
     pub fn set_rules(self, ast: &mut Ast<'ast>, value: &'ast [CssRule<'ast>]) {
         let mut data = ast.data(self);
         data.rules = value;
+        ast.set_data(self, data);
+    }
+    #[inline]
+    pub fn license_comments(self, ast: &Ast<'ast>) -> &'ast [&'ast str] {
+        ast.data(self).license_comments
+    }
+    #[inline]
+    pub fn set_license_comments(self, ast: &mut Ast<'ast>, value: &'ast [&'ast str]) {
+        let mut data = ast.data(self);
+        data.license_comments = value;
         ast.set_data(self, data);
     }
 }
@@ -131,6 +142,7 @@ pub struct DeclarationBlock<'ast>(pub(crate) NodeId<'ast, DeclarationBlockData<'
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeclarationBlockData<'ast> {
     pub declarations: &'ast [DeclarationPayload<'ast>],
+    pub important: &'ast [bool],
 }
 impl<'ast> NodeStorage<'ast> for DeclarationBlock<'ast> {
     const KIND: NodeKind = super::kind::KIND_DECLARATION_BLOCK;
@@ -155,6 +167,16 @@ impl<'ast> DeclarationBlock<'ast> {
         data.declarations = value;
         ast.set_data(self, data);
     }
+    #[inline]
+    pub fn important(self, ast: &Ast<'ast>) -> &'ast [bool] {
+        ast.data(self).important
+    }
+    #[inline]
+    pub fn set_important(self, ast: &mut Ast<'ast>, value: &'ast [bool]) {
+        let mut data = ast.data(self);
+        data.important = value;
+        ast.set_data(self, data);
+    }
 }
 impl<'ast> GetSpan<'ast> for DeclarationBlock<'ast> {
     #[inline]
@@ -177,6 +199,13 @@ impl<'ast> Ast<'ast> {
     ) -> DeclarationBlock<'ast> {
         self.alloc(data, span)
     }
+}
+use crate::*;
+/// One declaration payload together with its authored `!important` flag.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeclarationEntry<'ast> {
+    pub payload: DeclarationPayload<'ast>,
+    pub important: bool,
 }
 use crate::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

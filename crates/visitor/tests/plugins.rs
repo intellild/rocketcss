@@ -2,27 +2,31 @@ use std::{error::Error, fmt};
 
 use rocketcss_visitor::prelude::*;
 
+use rocketcss_ast_next::{
+    Compilation, DeclarationData, DeclarationEntry, DeclarationPayloadData, SelectorComponentData,
+    SelectorData,
+};
+
 struct Rename<'a> {
     from: &'static str,
     to: Atom<'a>,
 }
 
-impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for Rename<'a> {
-    fn visit_selector_value(
+impl<'ast> VisitorMut<'ast> for Rename<'ast> {
+    fn visit_selector(
         &mut self,
-        _id: rocketcss_ast::SelectorValueId<'a>,
-        selectors: &mut SelectorList<'a>,
+        selector: rocketcss_ast_next::Selector<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast>,
     ) {
-        for selector in selectors {
-            let Selector::Parsed(components) = selector else {
-                continue;
-            };
-            for component in components {
-                if let SelectorComponent::Class(name) = component
-                    && *name == self.from
-                {
-                    *name = self.to;
-                }
+        let ast = cx.ast();
+        let SelectorData::Parsed(components) = selector.data(ast) else {
+            return;
+        };
+        for component in components.iter().copied() {
+            if matches!(component.data(cx.ast()), SelectorComponentData::Class(name) if name == self.from)
+            {
+                cx.ast_mut()
+                    .set_data(component, SelectorComponentData::Class(self.to));
             }
         }
     }
@@ -88,21 +92,19 @@ fn plugins_run_in_registration_order_and_share_context() {
             context.get::<std::vec::Vec<&str>>().unwrap(),
             &["one", "two"]
         );
-        let (_, rule) = sheet
-            .rules_in_list(sheet.stylesheet().root_rules())
-            .unwrap()
-            .next()
-            .unwrap();
-        let rocketcss_ast::CssRulePayload::Style(rule) = rule.payload() else {
+        let ast = sheet.ast();
+        let rule = sheet.style_sheet().rules(ast)[0];
+        let rocketcss_ast_next::CssRulePayloadData::Style(style) = rule.payload(ast).data(ast)
+        else {
             panic!("expected style rule")
         };
-        let selectors = sheet
-            .selector_value(rule.selector_value)
-            .expect("the selector value remains valid")
-            .selectors();
+        let selector = style.selectors(ast)[0];
+        let SelectorData::Parsed(components) = selector.data(ast) else {
+            panic!("expected parsed selector")
+        };
         assert!(matches!(
-            selectors[0][0],
-            SelectorComponent::Class(name) if name == "last"
+            components[0].data(ast),
+            SelectorComponentData::Class(name) if name == "last"
         ));
     });
 }
@@ -181,15 +183,18 @@ impl<'a, 'ghost> Plugin<'a, 'ghost> for RecordRadixPlugin {
 
 struct TombstoneProperties;
 
-impl<'a> rocketcss_ast::CompilationVisitorMut<'a> for TombstoneProperties {
+impl<'ast> VisitorMut<'ast> for TombstoneProperties {
     fn visit_declaration(
         &mut self,
-        block: rocketcss_ast::ConcreteDeclarationBlockId<'a>,
-        declaration: rocketcss_ast::DeclarationId<'a>,
-        cx: &mut rocketcss_ast::CompilationVisitMutContext<'_, 'a>,
+        entry: DeclarationEntry<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast>,
     ) {
-        cx.replace_property_declaration(block, declaration, Declaration::Tombstone)
-            .unwrap();
+        let ast = cx.ast();
+        let Some(declaration) = entry.payload.as_property(ast) else {
+            return;
+        };
+        cx.ast_mut()
+            .set_data(declaration, DeclarationData::Tombstone);
     }
 }
 
@@ -217,23 +222,13 @@ fn radix_plugins_run_on_one_authoritative_compilation_in_registration_order() {
             context.get::<std::vec::Vec<&str>>().unwrap(),
             &["one", "two"]
         );
-        let block = compilation
-            .rules_in_list(compilation.stylesheet().root_rules())
-            .unwrap()
-            .next()
-            .unwrap()
-            .1
-            .declaration_block()
-            .unwrap();
+        let ast = compilation.ast();
+        let rule = compilation.style_sheet().rules(ast)[0];
+        let block = rule.declarations(ast).unwrap();
         assert!(matches!(
-            compilation
-                .declarations_in_block(block)
-                .unwrap()
-                .next()
-                .unwrap()
-                .payload(),
-            rocketcss_ast::DeclarationPayload::Property(Declaration::Tombstone)
+            block.declarations(ast)[0].data(ast),
+            DeclarationPayloadData::Property(declaration)
+                if matches!(declaration.data(ast), DeclarationData::Tombstone)
         ));
-        assert_eq!(compilation.validate_ast(), Ok(()));
     });
 }

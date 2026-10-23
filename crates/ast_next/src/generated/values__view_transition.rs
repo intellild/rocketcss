@@ -39,7 +39,7 @@ impl<'ast> NoneOrCustomIdentList<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> NoneOrCustomIdentListKind {
         match ast.data(self) {
-            NoneOrCustomIdentListData::None { .. } => NoneOrCustomIdentListKind::None,
+            NoneOrCustomIdentListData::None => NoneOrCustomIdentListKind::None,
             NoneOrCustomIdentListData::Idents { .. } => NoneOrCustomIdentListKind::Idents,
         }
     }

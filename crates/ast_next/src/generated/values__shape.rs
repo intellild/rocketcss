@@ -39,7 +39,7 @@ impl<'ast> ClipPath<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> ClipPathKind {
         match ast.data(self) {
-            ClipPathData::None { .. } => ClipPathKind::None,
+            ClipPathData::None => ClipPathKind::None,
             ClipPathData::Url { .. } => ClipPathKind::Url,
             ClipPathData::Shape { .. } => ClipPathKind::Shape,
             ClipPathData::Box { .. } => ClipPathKind::Box,
@@ -179,8 +179,8 @@ impl<'ast> ShapeRadius<'ast> {
     pub fn kind(self, ast: &Ast<'ast>) -> ShapeRadiusKind {
         match ast.data(self) {
             ShapeRadiusData::LengthPercentage { .. } => ShapeRadiusKind::LengthPercentage,
-            ShapeRadiusData::ClosestSide { .. } => ShapeRadiusKind::ClosestSide,
-            ShapeRadiusData::FarthestSide { .. } => ShapeRadiusKind::FarthestSide,
+            ShapeRadiusData::ClosestSide => ShapeRadiusKind::ClosestSide,
+            ShapeRadiusData::FarthestSide => ShapeRadiusKind::FarthestSide,
         }
     }
 }

@@ -1,7 +1,8 @@
 //! Hand-written behavior for generated tree nodes.
 
 use crate::{
-    Ast, CssRulePayload, CssRulePayloadKind, Declaration, DeclarationPayload, DeclarationPayloadKind,
+    Ast, CssRulePayload, CssRulePayloadKind, Declaration, DeclarationPayload,
+    DeclarationPayloadKind,
 };
 
 impl<'ast> CssRulePayload<'ast> {

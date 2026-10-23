@@ -1,71 +1,73 @@
 use crate::prelude::*;
 
-impl<'ghost> ToCss<'ghost> for Unit {
+impl<'ast, 'ghost> ToCss<'ghost> for Unit<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Length(unit) => unit.to_css(dest, _cx),
-            Self::Deg => dest.write_str("deg"),
-            Self::Rad => dest.write_str("rad"),
-            Self::Grad => dest.write_str("grad"),
-            Self::Turn => dest.write_str("turn"),
-            Self::Seconds => dest.write_str("s"),
-            Self::Milliseconds => dest.write_str("ms"),
-            Self::Hertz => dest.write_str("hz"),
-            Self::Kilohertz => dest.write_str("khz"),
-            Self::Dpi => dest.write_str("dpi"),
-            Self::Dpcm => dest.write_str("dpcm"),
-            Self::Dppx => dest.write_str("dppx"),
-            Self::ResolutionX => dest.write_str("x"),
-            Self::Flex => dest.write_str("fr"),
+        match self.data(_cx.ast()) {
+            UnitData::Length(unit) => unit.to_css(dest, _cx),
+            UnitData::Deg => dest.write_str("deg"),
+            UnitData::Rad => dest.write_str("rad"),
+            UnitData::Grad => dest.write_str("grad"),
+            UnitData::Turn => dest.write_str("turn"),
+            UnitData::Seconds => dest.write_str("s"),
+            UnitData::Milliseconds => dest.write_str("ms"),
+            UnitData::Hertz => dest.write_str("hz"),
+            UnitData::Kilohertz => dest.write_str("khz"),
+            UnitData::Dpi => dest.write_str("dpi"),
+            UnitData::Dpcm => dest.write_str("dpcm"),
+            UnitData::Dppx => dest.write_str("dppx"),
+            UnitData::ResolutionX => dest.write_str("x"),
+            UnitData::Flex => dest.write_str("fr"),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Token<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Token<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         use cssparser::{CowRcStr, ToCss as CssParserToCss, Token as CssToken};
 
-        match self {
-            Self::Ident(value) => CssToken::Ident(CowRcStr::from(*value)).to_css(dest),
-            Self::AtKeyword(value) => CssToken::AtKeyword(CowRcStr::from(*value)).to_css(dest),
-            Self::Hash(value) => CssToken::Hash(CowRcStr::from(*value)).to_css(dest),
-            Self::IdHash(value) => CssToken::IDHash(CowRcStr::from(*value)).to_css(dest),
-            Self::MinifiedHash(value) => write_minified_hash(value, dest),
-            Self::String(value) => CssToken::QuotedString(CowRcStr::from(*value)).to_css(dest),
-            Self::UnquotedFont(value) => write_unquoted_font(value, dest),
-            Self::UnquotedUrl(value) => CssToken::UnquotedUrl(CowRcStr::from(*value)).to_css(dest),
-            Self::Delim(value) => {
+        match self.data(_cx.ast()) {
+            TokenData::Ident(value) => CssToken::Ident(CowRcStr::from(value)).to_css(dest),
+            TokenData::AtKeyword(value) => CssToken::AtKeyword(CowRcStr::from(value)).to_css(dest),
+            TokenData::Hash(value) => CssToken::Hash(CowRcStr::from(value)).to_css(dest),
+            TokenData::IdHash(value) => CssToken::IDHash(CowRcStr::from(value)).to_css(dest),
+            TokenData::MinifiedHash(value) => write_minified_hash(value, dest),
+            TokenData::String(value) => CssToken::QuotedString(CowRcStr::from(value)).to_css(dest),
+            TokenData::UnquotedFont(value) => write_unquoted_font(value, dest),
+            TokenData::UnquotedUrl(value) => {
+                CssToken::UnquotedUrl(CowRcStr::from(value)).to_css(dest)
+            }
+            TokenData::Delim(value) => {
                 for character in value.chars() {
                     CssToken::Delim(character).to_css(dest)?;
                 }
                 Ok(())
             }
-            Self::Number(value) => serialize_number(*value, dest),
-            Self::Percentage(value) => {
-                serialize_number(*value * 100.0, dest)?;
+            TokenData::Number(value) => serialize_number(value, dest),
+            TokenData::Percentage(value) => {
+                serialize_number(value * 100.0, dest)?;
                 dest.write_char('%')
             }
-            Self::Dimension { unit, value } => serialize_dimension(*value, unit, dest, _cx),
-            Self::UnknownDimension { unit, value } => {
-                serialize_number(*value, dest)?;
+            TokenData::Dimension { unit, value } => serialize_dimension(value, &unit, dest, _cx),
+            TokenData::UnknownDimension { unit, value } => {
+                serialize_number(value, dest)?;
                 dest.write_str(unit)
             }
-            Self::WhiteSpace(value) => {
+            TokenData::WhiteSpace(value) => {
                 if dest.prettify() {
                     dest.write_str(value)
                 } else {
                     dest.write_char(' ')
                 }
             }
-            Self::Comment(value) => {
+            TokenData::Comment(value) => {
                 if !dest.prettify() {
                     return Ok(());
                 }
@@ -73,31 +75,31 @@ impl<'ghost> ToCss<'ghost> for Token<'_> {
                 dest.write_str(value)?;
                 dest.write_str("*/")
             }
-            Self::Colon => dest.write_char(':'),
-            Self::Semicolon => dest.write_char(';'),
-            Self::Comma => dest.write_char(','),
-            Self::IncludeMatch => dest.write_str("~="),
-            Self::DashMatch => dest.write_str("|="),
-            Self::PrefixMatch => dest.write_str("^="),
-            Self::SuffixMatch => dest.write_str("$="),
-            Self::SubstringMatch => dest.write_str("*="),
-            Self::Cdo => dest.write_str("<!--"),
-            Self::Cdc => dest.write_str("-->"),
-            Self::Function(value) => {
+            TokenData::Colon => dest.write_char(':'),
+            TokenData::Semicolon => dest.write_char(';'),
+            TokenData::Comma => dest.write_char(','),
+            TokenData::IncludeMatch => dest.write_str("~="),
+            TokenData::DashMatch => dest.write_str("|="),
+            TokenData::PrefixMatch => dest.write_str("^="),
+            TokenData::SuffixMatch => dest.write_str("$="),
+            TokenData::SubstringMatch => dest.write_str("*="),
+            TokenData::Cdo => dest.write_str("<!--"),
+            TokenData::Cdc => dest.write_str("-->"),
+            TokenData::Function(value) => {
                 serialize_identifier(value, dest)?;
                 dest.write_char('(')
             }
-            Self::ParenthesisBlock => dest.write_char('('),
-            Self::SquareBracketBlock => dest.write_char('['),
-            Self::CurlyBracketBlock => dest.write_char('{'),
-            Self::BadUrl(value) => {
+            TokenData::ParenthesisBlock => dest.write_char('('),
+            TokenData::SquareBracketBlock => dest.write_char('['),
+            TokenData::CurlyBracketBlock => dest.write_char('{'),
+            TokenData::BadUrl(value) => {
                 dest.write_str("url(")?;
                 dest.write_str(value)
             }
-            Self::BadString(value) => dest.write_str(value),
-            Self::CloseParenthesis => dest.write_char(')'),
-            Self::CloseSquareBracket => dest.write_char(']'),
-            Self::CloseCurlyBracket => dest.write_char('}'),
+            TokenData::BadString(value) => dest.write_str(value),
+            TokenData::CloseParenthesis => dest.write_char(')'),
+            TokenData::CloseSquareBracket => dest.write_char(']'),
+            TokenData::CloseCurlyBracket => dest.write_char('}'),
         }
     }
 }
@@ -152,10 +154,10 @@ fn write_minified_hash<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT)
 pub(crate) fn write_token_list<'ghost, PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
-        if index > 0 && minified_color_needs_separator(&values[index - 1], value) {
+        if index > 0 && minified_color_needs_separator(cx.ast(), &values[index - 1], value) {
             dest.write_char(' ')?;
         }
         value.to_css(dest, cx)?;
@@ -171,7 +173,7 @@ pub(crate) fn write_token_list<'ghost, PrinterT: PrinterTrait>(
 pub(crate) fn write_unparsed_token_list<'ghost, PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     for value in values {
         write_unparsed_token_or_value(value, dest, cx)?;
@@ -182,61 +184,72 @@ pub(crate) fn write_unparsed_token_list<'ghost, PrinterT: PrinterTrait>(
 fn write_unparsed_token_or_value<'ghost, PrinterT: PrinterTrait>(
     value: &TokenOrValue<'_>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
-    match value {
-        TokenOrValue::Token(token) => match &**token {
-            Token::Comment(comment) => {
+    let ast = cx.ast();
+    match value.data(ast) {
+        TokenOrValueData::Token(token) => match token.data(ast) {
+            TokenData::Comment(comment) => {
                 dest.write_str("/*")?;
                 dest.write_str(comment)?;
                 dest.write_str("*/")
             }
-            Token::WhiteSpace(whitespace) => dest.write_str(whitespace),
-            token => token.to_css(dest, cx),
+            TokenData::WhiteSpace(whitespace) => dest.write_str(whitespace),
+            _ => token.to_css(dest, cx),
         },
-        TokenOrValue::Function(function) => {
-            dest.write_str(function.name())?;
+        TokenOrValueData::Function(function) => {
+            dest.write_str(function.name(ast))?;
             dest.write_char('(')?;
-            write_unparsed_token_list(&function.arguments, dest, cx)?;
-            if function.kind().is_variable()
+            write_unparsed_token_list(function.arguments(ast), dest, cx)?;
+            let arguments = function.arguments(ast);
+            if function.kind(ast).is_variable()
                 && matches!(
-                    function.arguments.last(),
-                    Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma)
+                    arguments.last(),
+                    Some(value)
+                        if matches!(
+                            value.data(ast),
+                            TokenOrValueData::Token(token)
+                                if matches!(token.data(ast), TokenData::Comma)
+                        )
                 )
             {
                 dest.write_char(' ')?;
             }
             dest.write_char(')')
         }
-        value => value.to_css(dest, cx),
+        _ => value.to_css(dest, cx),
     }
 }
 
-fn minified_color_needs_separator(left: &TokenOrValue<'_>, right: &TokenOrValue<'_>) -> bool {
-    let TokenOrValue::Function(function) = left else {
+fn minified_color_needs_separator<'ast>(
+    ast: &Ast<'ast>,
+    left: &TokenOrValue<'ast>,
+    right: &TokenOrValue<'ast>,
+) -> bool {
+    let TokenOrValueData::Function(function) = left.data(ast) else {
         return false;
     };
     let ends_as_identifier_or_hash = matches!(
-        function.replacement,
-        Some(FunctionReplacement::Rgb { .. })
-            | Some(FunctionReplacement::Rgba { alpha: 0.0, .. })
-            | Some(FunctionReplacement::Rgba { use_hex: true, .. })
+        function.replacement(ast).map(|value| value.data(ast)),
+        Some(FunctionReplacementData::Rgb { .. })
+            | Some(FunctionReplacementData::Rgba { alpha: 0.0, .. })
+            | Some(FunctionReplacementData::Rgba { use_hex: true, .. })
     );
     ends_as_identifier_or_hash
-        && !matches!(right, TokenOrValue::Token(token)
-            if matches!(**token, Token::WhiteSpace(_) | Token::Comma | Token::Semicolon
-                | Token::CloseParenthesis | Token::CloseSquareBracket | Token::CloseCurlyBracket))
+        && !matches!(right.data(ast), TokenOrValueData::Token(token)
+            if matches!(token.data(ast), TokenData::WhiteSpace(_) | TokenData::Comma | TokenData::Semicolon
+                | TokenData::CloseParenthesis | TokenData::CloseSquareBracket | TokenData::CloseCurlyBracket))
 }
 
 pub(crate) fn write_token_list_trimmed<'ghost, PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     let start = values
         .iter()
         .position(|value| {
-            !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)))
+            !matches!(value.data(cx.ast()), TokenOrValueData::Token(token) if matches!(token.data(cx.ast()), TokenData::WhiteSpace(_)))
         })
         .unwrap_or(values.len());
     write_token_list(&values[start..], dest, cx)
@@ -245,9 +258,10 @@ pub(crate) fn write_token_list_trimmed<'ghost, PrinterT: PrinterTrait>(
 pub(crate) fn write_token_list_without_outer_whitespace<'ghost, PrinterT: PrinterTrait>(
     values: &[TokenOrValue<'_>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
-    let is_whitespace = |value: &TokenOrValue<'_>| matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)));
+    let ast = cx.ast();
+    let is_whitespace = |value: &TokenOrValue<'_>| matches!(value.data(ast), TokenOrValueData::Token(token) if matches!(token.data(ast), TokenData::WhiteSpace(_)));
     let start = values
         .iter()
         .position(|value| !is_whitespace(value))
@@ -259,30 +273,32 @@ pub(crate) fn write_token_list_without_outer_whitespace<'ghost, PrinterT: Printe
     write_token_list(&values[start..end], dest, cx)
 }
 
-fn starts_with_whitespace(values: &[TokenOrValue<'_>]) -> bool {
-    matches!(values.first(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::WhiteSpace(_)))
+fn starts_with_whitespace<'ast>(ast: &Ast<'ast>, values: &[TokenOrValue<'ast>]) -> bool {
+    matches!(values.first(), Some(value) if matches!(value.data(ast), TokenOrValueData::Token(token) if matches!(token.data(ast), TokenData::WhiteSpace(_))))
 }
 
-impl<'ghost> ToCss<'ghost> for TokenOrValue<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for TokenOrValue<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Token(value) => value.to_css(dest, _cx),
-            Self::Color(value) => value.to_css(dest, _cx),
-            Self::UnresolvedColor(value) => value.to_css(dest, _cx),
-            Self::Url(value) => value.to_css(dest, _cx),
-            Self::Var(value) => value.to_css(dest, _cx),
-            Self::Env(value) => value.to_css(dest, _cx),
-            Self::Function(value) => value.to_css(dest, _cx),
-            Self::Length(value) => serialize_dimension(value.value, &value.unit, dest, _cx),
-            Self::Angle(value) => value.to_css(dest, _cx),
-            Self::Time(value) => value.to_css(dest, _cx),
-            Self::Resolution(value) => value.to_css(dest, _cx),
-            Self::DashedIdent(value) => write_dashed_ident(value, dest),
-            Self::AnimationName(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            TokenOrValueData::Token(value) => value.to_css(dest, _cx),
+            TokenOrValueData::Color(value) => value.to_css(dest, _cx),
+            TokenOrValueData::UnresolvedColor(value) => value.to_css(dest, _cx),
+            TokenOrValueData::Url(value) => value.to_css(dest, _cx),
+            TokenOrValueData::Var(value) => value.to_css(dest, _cx),
+            TokenOrValueData::Env(value) => value.to_css(dest, _cx),
+            TokenOrValueData::Function(value) => value.to_css(dest, _cx),
+            TokenOrValueData::Length(value) => {
+                serialize_dimension(value.value(_cx.ast()), &value.unit(_cx.ast()), dest, _cx)
+            }
+            TokenOrValueData::Angle(value) => value.to_css(dest, _cx),
+            TokenOrValueData::Time(value) => value.to_css(dest, _cx),
+            TokenOrValueData::Resolution(value) => value.to_css(dest, _cx),
+            TokenOrValueData::DashedIdent(value) => write_dashed_ident(value, dest),
+            TokenOrValueData::AnimationName(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -292,17 +308,18 @@ fn write_dashed_ident<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT) 
     serialize_name(value.strip_prefix("--").unwrap_or(value), dest)
 }
 
-impl<'ghost> ToCss<'ghost> for Url<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Url<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
+        let data = _cx.ast().data(*self);
         dest.write_str("url(")?;
-        if !dest.prettify() && can_write_unquoted_url(self.url) {
-            write_unquoted_url(self.url, dest)?;
+        if !dest.prettify() && can_write_unquoted_url(data.url) {
+            write_unquoted_url(data.url, dest)?;
         } else {
-            serialize_string(self.url, dest)?;
+            serialize_string(data.url, dest)?;
         }
         dest.write_char(')')
     }
@@ -332,23 +349,24 @@ fn write_unquoted_url<PrinterT: PrinterTrait>(value: &str, dest: &mut PrinterT) 
     dest.write_str(&value[start..])
 }
 
-impl<'ghost> ToCss<'ghost> for Variable<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Variable<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
+        let data = _cx.ast().data(*self);
         dest.write_str("var(")?;
-        self.name.to_css(dest, _cx)?;
-        if let Some(fallback) = &self.fallback {
+        data.name.to_css(dest, _cx)?;
+        if let Some(fallback) = data.fallback {
             dest.write_char(',')?;
             if fallback.is_empty() {
                 dest.write_char(' ')?;
-            } else if !starts_with_whitespace(fallback) {
+            } else if !starts_with_whitespace(_cx.ast(), fallback) {
                 dest.whitespace()?;
             }
             write_token_list(fallback, dest, _cx)?;
-            if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
+            if matches!(fallback.last(), Some(value) if matches!(value.data(_cx.ast()), TokenOrValueData::Token(token) if matches!(token.data(_cx.ast()), TokenData::Comma)))
             {
                 dest.write_char(' ')?;
             }
@@ -357,27 +375,28 @@ impl<'ghost> ToCss<'ghost> for Variable<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for EnvironmentVariable<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for EnvironmentVariable<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
+        let data = _cx.ast().data(*self);
         dest.write_str("env(")?;
-        self.name.to_css(dest, _cx)?;
-        for index in &self.indices {
+        data.name.to_css(dest, _cx)?;
+        for index in data.indices {
             dest.write_char(' ')?;
             serialize_int(*index, dest)?;
         }
-        if let Some(fallback) = &self.fallback {
+        if let Some(fallback) = data.fallback {
             dest.write_char(',')?;
             if fallback.is_empty() {
                 dest.write_char(' ')?;
-            } else if !starts_with_whitespace(fallback) {
+            } else if !starts_with_whitespace(_cx.ast(), fallback) {
                 dest.whitespace()?;
             }
             write_token_list(fallback, dest, _cx)?;
-            if matches!(fallback.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
+            if matches!(fallback.last(), Some(value) if matches!(value.data(_cx.ast()), TokenOrValueData::Token(token) if matches!(token.data(_cx.ast()), TokenData::Comma)))
             {
                 dest.write_char(' ')?;
             }
@@ -386,16 +405,16 @@ impl<'ghost> ToCss<'ghost> for EnvironmentVariable<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for EnvironmentVariableName<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for EnvironmentVariableName<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::UA(value) => value.to_css(dest, _cx),
-            Self::Custom(value) => value.to_css(dest, _cx),
-            Self::Unknown(value) => serialize_identifier(value, dest),
+        match self.data(_cx.ast()) {
+            EnvironmentVariableNameData::UA(value) => value.to_css(dest, _cx),
+            EnvironmentVariableNameData::Custom(value) => value.to_css(dest, _cx),
+            EnvironmentVariableNameData::Unknown(value) => serialize_identifier(value, dest),
         }
     }
 }
@@ -404,7 +423,7 @@ impl<'ghost> ToCss<'ghost> for UAEnvironmentVariable {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(
             self.as_css_str()
@@ -413,14 +432,15 @@ impl<'ghost> ToCss<'ghost> for UAEnvironmentVariable {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for DashedIdentReference<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for DashedIdentReference<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_dashed_ident(self.ident, dest)?;
-        if let Some(from) = &self.from {
+        let data = _cx.ast().data(*self);
+        write_dashed_ident(data.ident, dest)?;
+        if let Some(from) = &data.from {
             dest.write_str(" from ")?;
             from.to_css(dest, _cx)?;
         }
@@ -432,7 +452,7 @@ impl<'ghost> ToCss<'ghost> for Specifier<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Global => dest.write_str("global"),
@@ -442,33 +462,35 @@ impl<'ghost> ToCss<'ghost> for Specifier<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Function<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Function<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        if let Some(replacement) = self.replacement {
-            return match replacement {
-                FunctionReplacement::GrayAlpha { alpha, lightness } => {
+        let data = _cx.ast().data(*self);
+        let ast = _cx.ast();
+        if let Some(replacement) = data.replacement {
+            return match replacement.data(ast) {
+                FunctionReplacementData::GrayAlpha { alpha, lightness } => {
                     dest.write_str("hsla(0,0%,")?;
                     serialize_number(lightness * 100.0, dest)?;
                     dest.write_str("%,")?;
                     serialize_number(alpha, dest)?;
                     dest.write_char(')')
                 }
-                FunctionReplacement::Number(value) => serialize_number(value, dest),
-                FunctionReplacement::Dimension { unit, value } => {
+                FunctionReplacementData::Number(value) => serialize_number(value, dest),
+                FunctionReplacementData::Dimension { unit, value } => {
                     serialize_dimension(value, &unit, dest, _cx)
                 }
-                FunctionReplacement::Percentage(value) => {
+                FunctionReplacementData::Percentage(value) => {
                     serialize_number(value * 100.0, dest)?;
                     dest.write_char('%')
                 }
-                FunctionReplacement::Rgb { blue, green, red } => {
+                FunctionReplacementData::Rgb { blue, green, red } => {
                     write_minified_rgb(red, green, blue, dest)
                 }
-                FunctionReplacement::Rgba {
+                FunctionReplacementData::Rgba {
                     alpha,
                     blue,
                     green,
@@ -477,24 +499,27 @@ impl<'ghost> ToCss<'ghost> for Function<'_> {
                 } => write_minified_rgba(red, green, blue, alpha, use_hex, dest),
             };
         }
-        serialize_identifier(self.name(), dest)?;
-        if self.is_identifier() {
+        serialize_identifier(data.name, dest)?;
+        if data.flags.contains(FunctionFlags::IS_IDENTIFIER) {
             return Ok(());
         }
         dest.write_char('(')?;
-        if self.is_unquoted_url() {
-            let [TokenOrValue::Token(token)] = self.arguments.as_slice() else {
+        if data.flags.contains(FunctionFlags::UNQUOTED_URL) {
+            let [value] = data.arguments else {
                 unreachable!("unquoted URL functions retain one string token")
             };
-            let Token::String(value) = &**token else {
+            let TokenOrValueData::Token(token) = value.data(ast) else {
+                unreachable!("unquoted URL functions retain one string token")
+            };
+            let TokenData::String(value) = token.data(ast) else {
                 unreachable!("unquoted URL functions retain one string token")
             };
             write_unquoted_url(value, dest)?;
             return dest.write_char(')');
         }
-        write_token_list(&self.arguments, dest, _cx)?;
-        if self.kind().is_variable()
-            && matches!(self.arguments.last(), Some(TokenOrValue::Token(token)) if matches!(**token, Token::Comma))
+        write_token_list(data.arguments, dest, _cx)?;
+        if data.kind.is_variable()
+            && matches!(data.arguments.last(), Some(value) if matches!(value.data(ast), TokenOrValueData::Token(token) if matches!(token.data(ast), TokenData::Comma)))
         {
             dest.write_char(' ')?;
         }
@@ -562,7 +587,7 @@ impl<'ghost> ToCss<'ghost> for AnimationName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),

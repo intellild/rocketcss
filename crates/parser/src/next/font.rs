@@ -1,9 +1,6 @@
 //! Font value parsing into the flattened AST.
 
-use super::{
-    prelude::*,
-    values::collect_tokens,
-};
+use super::{prelude::*, values::collect_tokens};
 
 impl<'i> Parse<'i> for FontWeight {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
@@ -27,7 +24,7 @@ impl<'i> Parse<'i> for FontWeight {
 
 impl<'i> Parse<'i> for FontSize<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if let Ok(ident) = input.try_parse(Compiler::expect_ident) {
             let data = match ident.to_ascii_lowercase().as_str() {
                 "xx-small" => FontSizeData::Absolute(AbsoluteFontSize::XxSmall),
@@ -109,7 +106,7 @@ impl<'i> Parse<'i> for FontVariantCaps {
 
 impl<'i> Parse<'i> for LineHeight<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("normal"))
             .is_ok()
@@ -132,7 +129,7 @@ impl<'i> Parse<'i> for LineHeight<'i> {
 
 impl<'i> Parse<'i> for FontFamily<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if let Ok(name) = input.try_parse(Compiler::expect_string) {
             input.expect_exhausted()?;
             return Ok(input
@@ -175,9 +172,9 @@ pub(crate) fn parse_font_family_list<'i>(
                 return Ok(family);
             }
             let tokens = collect_tokens(input, depth + 1)?;
-            Ok(input
+            Ok(with_token_span!(input, |span| input
                 .ast_mut()
-                .alloc_font_family(FontFamilyData::Unparsed(tokens), DUMMY_SP))
+                .alloc_font_family(FontFamilyData::Unparsed(tokens), span)))
         })?;
         families.push(family);
         if input.try_parse(Compiler::expect_comma).is_err() {

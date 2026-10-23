@@ -1,15 +1,13 @@
 //! Mask value parsing into the flattened AST.
 
 use super::{
-    background::{
-        parse_background_repeat, parse_background_size, parse_position_components,
-    },
+    background::{parse_background_repeat, parse_background_size, parse_position_components},
     prelude::*,
 };
 
 impl<'i> Parse<'i> for Mask<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let mut image = None;
         let mut position = None;
         let mut size = None;

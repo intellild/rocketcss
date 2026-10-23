@@ -1,8 +1,8 @@
 //! Common visitor and plugin types.
 
 pub use crate::{
-    AstType, BoxError, Plugin, PluginContext, PluginError, Plugins, Visit, VisitContext, VisitMut,
-    VisitMutContext, Visitor, VisitorMut, VisitorPlugin,
+    BoxError, Plugin, PluginContext, PluginError, Plugins, VisitMutContext, Visitor, VisitorMut,
+    VisitorPlugin, visit_compilation, visit_compilation_mut,
 };
-pub use rocketcss_ast::prelude::*;
-pub use rocketcss_common::Allocator;
+pub use rocketcss_ast_next::*;
+pub use rocketcss_common::prelude::*;

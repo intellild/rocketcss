@@ -121,13 +121,13 @@ impl<'ast> DisplayInside<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> DisplayInsideKind {
         match ast.data(self) {
-            DisplayInsideData::Flow { .. } => DisplayInsideKind::Flow,
-            DisplayInsideData::FlowRoot { .. } => DisplayInsideKind::FlowRoot,
-            DisplayInsideData::Table { .. } => DisplayInsideKind::Table,
+            DisplayInsideData::Flow => DisplayInsideKind::Flow,
+            DisplayInsideData::FlowRoot => DisplayInsideKind::FlowRoot,
+            DisplayInsideData::Table => DisplayInsideKind::Table,
             DisplayInsideData::Flex { .. } => DisplayInsideKind::Flex,
             DisplayInsideData::Box { .. } => DisplayInsideKind::Box,
-            DisplayInsideData::Grid { .. } => DisplayInsideKind::Grid,
-            DisplayInsideData::Ruby { .. } => DisplayInsideKind::Ruby,
+            DisplayInsideData::Grid => DisplayInsideKind::Grid,
+            DisplayInsideData::Ruby => DisplayInsideKind::Ruby,
         }
     }
 }
@@ -215,7 +215,7 @@ impl<'ast> Size<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> SizeKind {
         match ast.data(self) {
-            SizeData::Auto { .. } => SizeKind::Auto,
+            SizeData::Auto => SizeKind::Auto,
             SizeData::LengthPercentage { .. } => SizeKind::LengthPercentage,
             SizeData::MathFunction { .. } => SizeKind::MathFunction,
             SizeData::MinContent { .. } => SizeKind::MinContent,
@@ -223,7 +223,7 @@ impl<'ast> Size<'ast> {
             SizeData::FitContent { .. } => SizeKind::FitContent,
             SizeData::FitContentFunction { .. } => SizeKind::FitContentFunction,
             SizeData::Stretch { .. } => SizeKind::Stretch,
-            SizeData::Contain { .. } => SizeKind::Contain,
+            SizeData::Contain => SizeKind::Contain,
         }
     }
 }
@@ -293,7 +293,7 @@ impl<'ast> MaxSize<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> MaxSizeKind {
         match ast.data(self) {
-            MaxSizeData::None { .. } => MaxSizeKind::None,
+            MaxSizeData::None => MaxSizeKind::None,
             MaxSizeData::LengthPercentage { .. } => MaxSizeKind::LengthPercentage,
             MaxSizeData::MathFunction { .. } => MaxSizeKind::MathFunction,
             MaxSizeData::MinContent { .. } => MaxSizeKind::MinContent,
@@ -301,7 +301,7 @@ impl<'ast> MaxSize<'ast> {
             MaxSizeData::FitContent { .. } => MaxSizeKind::FitContent,
             MaxSizeData::FitContentFunction { .. } => MaxSizeKind::FitContentFunction,
             MaxSizeData::Stretch { .. } => MaxSizeKind::Stretch,
-            MaxSizeData::Contain { .. } => MaxSizeKind::Contain,
+            MaxSizeData::Contain => MaxSizeKind::Contain,
         }
     }
 }
@@ -528,7 +528,7 @@ impl<'ast> Ast<'ast> {
     }
 }
 use crate::*;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BoxDecorationBreak {
     Slice,
     Clone,

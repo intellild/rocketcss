@@ -34,7 +34,7 @@ impl<'ast> ListStyleType<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> ListStyleTypeKind {
         match ast.data(self) {
-            ListStyleTypeData::None { .. } => ListStyleTypeKind::None,
+            ListStyleTypeData::None => ListStyleTypeKind::None,
             ListStyleTypeData::String { .. } => ListStyleTypeKind::String,
             ListStyleTypeData::CounterStyle { .. } => ListStyleTypeKind::CounterStyle,
         }
@@ -140,7 +140,7 @@ pub enum SymbolsType {
     Fixed,
 }
 use crate::*;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PredefinedCounterStyle {
     Decimal,
     DecimalLeadingZero,

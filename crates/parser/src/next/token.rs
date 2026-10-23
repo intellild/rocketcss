@@ -2,11 +2,7 @@
 
 use super::prelude::*;
 
-pub(crate) fn alloc_token<'i>(
-    ast: &mut Ast<'i>,
-    token: OldToken<'i>,
-    span: Span,
-) -> Token<'i> {
+pub(crate) fn alloc_token<'i>(ast: &mut Ast<'i>, token: OldToken<'i>, span: Span) -> Token<'i> {
     let data = match token {
         OldToken::Ident(value) => TokenData::Ident(value),
         OldToken::AtKeyword(value) => TokenData::AtKeyword(value),
@@ -23,9 +19,7 @@ pub(crate) fn alloc_token<'i>(
             unit: alloc_unit(ast, unit, span),
             value,
         },
-        OldToken::UnknownDimension { unit, value } => {
-            TokenData::UnknownDimension { unit, value }
-        }
+        OldToken::UnknownDimension { unit, value } => TokenData::UnknownDimension { unit, value },
         OldToken::WhiteSpace(value) => TokenData::WhiteSpace(value),
         OldToken::Comment(value) => TokenData::Comment(value),
         OldToken::Colon => TokenData::Colon,
@@ -104,7 +98,6 @@ pub(crate) fn convert_length_unit(unit: OldLengthUnit) -> LengthUnit {
         OldLengthUnit::Cqmax => LengthUnit::Cqmax,
     }
 }
-
 
 fn alloc_unit<'i>(ast: &mut Ast<'i>, unit: OldUnit, span: Span) -> Unit<'i> {
     let data = match unit {

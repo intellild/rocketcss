@@ -61,6 +61,28 @@ pub use tombstone::*;
 pub use values::*;
 pub use visit_context::{VisitContext, VisitMutContext};
 
+impl<'a, 'ghost> Visit<'a, 'ghost> for Atom<'a> {
+    #[inline]
+    fn visit<VisitorT: ?Sized + Visitor<'a, 'ghost>>(
+        &self,
+        visitor: &mut VisitorT,
+        cx: &VisitContext<'_, 'a, 'ghost>,
+    ) {
+        visitor.visit_atom(self, cx);
+    }
+}
+
+impl<'a, 'ghost> VisitMut<'a, 'ghost> for Atom<'a> {
+    #[inline]
+    fn visit_mut<VisitorT: ?Sized + VisitorMut<'a, 'ghost>>(
+        &mut self,
+        visitor: &mut VisitorT,
+        cx: &mut VisitMutContext<'_, 'a, 'ghost>,
+    ) {
+        visitor.visit_atom(self, cx);
+    }
+}
+
 #[cfg(target_pointer_width = "64")]
 const _: () = {
     use std::mem::size_of;

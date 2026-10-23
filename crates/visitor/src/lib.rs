@@ -7,8 +7,7 @@
 
 mod plugin;
 pub mod prelude;
+mod visit;
 
 pub use plugin::{BoxError, Plugin, PluginContext, PluginError, Plugins, VisitorPlugin};
-pub use rocketcss_ast::{
-    AstType, Visit, VisitContext, VisitMut, VisitMutContext, Visitor, VisitorMut,
-};
+pub use visit::{VisitMutContext, Visitor, VisitorMut, visit_compilation, visit_compilation_mut};

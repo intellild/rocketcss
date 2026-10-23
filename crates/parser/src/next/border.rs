@@ -32,16 +32,20 @@ impl<'i> Parse<'i> for BorderSideWidth<'i> {
                 "thick" => BorderSideWidthData::Thick,
                 _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
             );
-            return Ok(input.ast_mut().alloc_border_side_width(data, DUMMY_SP));
+            return Ok(with_token_span!(input, |span| input
+                .ast_mut()
+                .alloc_border_side_width(data, span)));
         }
         let length = Length::parse(input)?;
         if !is_non_negative_length(&length, input.ast()) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(input.ast_mut().alloc_border_side_width(
-            BorderSideWidthData::Length(length),
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_border_side_width(
+                BorderSideWidthData::Length(length),
+                span,
+            )))
     }
 }
 
@@ -52,7 +56,10 @@ pub(super) fn is_non_negative_length<'i>(value: &Length<'i>, ast: &Ast<'i>) -> b
     }
 }
 
-pub(super) fn is_non_negative_length_percentage<'i>(value: &LengthPercentage<'i>, ast: &Ast<'i>) -> bool {
+pub(super) fn is_non_negative_length_percentage<'i>(
+    value: &LengthPercentage<'i>,
+    ast: &Ast<'i>,
+) -> bool {
     match value.data(ast) {
         DimensionPercentageData::Dimension(value) => value.value(ast) >= 0.0,
         DimensionPercentageData::Percentage(value) => value >= 0.0,
@@ -94,115 +101,141 @@ fn parse_two_values<'i, T: Copy>(
     mut parse: impl FnMut(&mut Compiler<'i>) -> Result<T, ParseError<'i, ParserError<'i>>>,
 ) -> Result<[T; 2], ParseError<'i, ParserError<'i>>> {
     let first = parse(input)?;
-    let second = if input.is_exhausted() { first } else { parse(input)? };
+    let second = if input.is_exhausted() {
+        first
+    } else {
+        parse(input)?
+    };
     input.expect_exhausted()?;
     Ok([first, second])
 }
 
 impl<'i> Parse<'i> for BorderColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [top, right, bottom, left] =
-            parse_four_values(input, CssColor::parse)?;
-        Ok(input.ast_mut().alloc_border_color(
-            BorderColorData {
-                top,
-                right,
-                bottom,
-                left,
-            },
-            DUMMY_SP,
-        ))
+        let [top, right, bottom, left] = parse_four_values(input, CssColor::parse)?;
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_border_color(
+                BorderColorData {
+                    top,
+                    right,
+                    bottom,
+                    left,
+                },
+                span,
+            )))
     }
 }
 
 impl<'i> Parse<'i> for BorderStyle<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [top, right, bottom, left] = parse_four_values(input, LineStyle::parse)?;
-        Ok(input.ast_mut().alloc_border_style(
-            BorderStyleData {
-                top,
-                right,
-                bottom,
-                left,
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_border_style(
+                BorderStyleData {
+                    top,
+                    right,
+                    bottom,
+                    left,
+                },
+                span,
+            )))
     }
 }
 
 impl<'i> Parse<'i> for BorderWidth<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let [top, right, bottom, left] =
-            parse_four_values(input, BorderSideWidth::parse)?;
-        Ok(input.ast_mut().alloc_border_width(
-            BorderWidthData {
-                top,
-                right,
-                bottom,
-                left,
-            },
-            DUMMY_SP,
-        ))
+        let [top, right, bottom, left] = parse_four_values(input, BorderSideWidth::parse)?;
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_border_width(
+                BorderWidthData {
+                    top,
+                    right,
+                    bottom,
+                    left,
+                },
+                span,
+            )))
     }
 }
 
 impl<'i> Parse<'i> for BorderBlockColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [start, end] = parse_two_values(input, CssColor::parse)?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_border_block_color(BorderBlockColorData { start, end }, DUMMY_SP))
+            .alloc_border_block_color(
+                BorderBlockColorData { start, end },
+                span
+            )))
     }
 }
 
 impl<'i> Parse<'i> for BorderBlockStyle<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [start, end] = parse_two_values(input, LineStyle::parse)?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_border_block_style(BorderBlockStyleData { start, end }, DUMMY_SP))
+            .alloc_border_block_style(
+                BorderBlockStyleData { start, end },
+                span
+            )))
     }
 }
 
 impl<'i> Parse<'i> for BorderBlockWidth<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [start, end] = parse_two_values(input, BorderSideWidth::parse)?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_border_block_width(BorderBlockWidthData { start, end }, DUMMY_SP))
+            .alloc_border_block_width(
+                BorderBlockWidthData { start, end },
+                span
+            )))
     }
 }
 
 impl<'i> Parse<'i> for BorderInlineColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [start, end] = parse_two_values(input, CssColor::parse)?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_border_inline_color(BorderInlineColorData { start, end }, DUMMY_SP))
+            .alloc_border_inline_color(
+                BorderInlineColorData { start, end },
+                span
+            )))
     }
 }
 
 impl<'i> Parse<'i> for BorderInlineStyle<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [start, end] = parse_two_values(input, LineStyle::parse)?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_border_inline_style(BorderInlineStyleData { start, end }, DUMMY_SP))
+            .alloc_border_inline_style(
+                BorderInlineStyleData { start, end },
+                span
+            )))
     }
 }
 
 impl<'i> Parse<'i> for BorderInlineWidth<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [start, end] = parse_two_values(input, BorderSideWidth::parse)?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_border_inline_width(BorderInlineWidthData { start, end }, DUMMY_SP))
+            .alloc_border_inline_width(
+                BorderInlineWidthData { start, end },
+                span
+            )))
     }
 }
 
 impl<'i> Parse<'i> for OutlineStyle<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("auto"))
             .is_ok()
@@ -221,9 +254,15 @@ impl<'i> Parse<'i> for OutlineStyle<'i> {
 impl<'i> Parse<'i> for Size2D<'i, LengthPercentage<'i>> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [x, y] = parse_two_values(input, LengthPercentage::parse)?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_size_2_d(Size2DData { field_0: x, field_1: y }, DUMMY_SP))
+            .alloc_size_2_d(
+                Size2DData {
+                    field_0: x,
+                    field_1: y
+                },
+                span
+            )))
     }
 }
 
@@ -237,9 +276,15 @@ impl<'i> Parse<'i> for Size2D<'i, Length<'i>> {
         } else {
             Length::parse(input)?
         };
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_size_2_d(Size2DData { field_0: first, field_1: second }, DUMMY_SP))
+            .alloc_size_2_d(
+                Size2DData {
+                    field_0: first,
+                    field_1: second
+                },
+                span
+            )))
     }
 }
 
@@ -283,27 +328,45 @@ impl<'i> Parse<'i> for BorderRadius<'i> {
         };
         let [top_left_x, top_right_x, bottom_right_x, bottom_left_x] = horizontal;
         let [top_left_y, top_right_y, bottom_right_y, bottom_left_y] = vertical;
-        let top_left = input
-            .ast_mut()
-            .alloc_size_2_d(Size2DData { field_0: top_left_x, field_1: top_left_y }, DUMMY_SP);
-        let top_right = input
-            .ast_mut()
-            .alloc_size_2_d(Size2DData { field_0: top_right_x, field_1: top_right_y }, DUMMY_SP);
-        let bottom_right = input
-            .ast_mut()
-            .alloc_size_2_d(Size2DData { field_0: bottom_right_x, field_1: bottom_right_y }, DUMMY_SP);
-        let bottom_left = input
-            .ast_mut()
-            .alloc_size_2_d(Size2DData { field_0: bottom_left_x, field_1: bottom_left_y }, DUMMY_SP);
-        Ok(input.ast_mut().alloc_border_radius(
-            BorderRadiusData {
-                top_left,
-                top_right,
-                bottom_right,
-                bottom_left,
+        let top_left = with_token_span!(input, |span| input.ast_mut().alloc_size_2_d(
+            Size2DData {
+                field_0: top_left_x,
+                field_1: top_left_y
             },
-            DUMMY_SP,
-        ))
+            span
+        ));
+        let top_right = with_token_span!(input, |span| input.ast_mut().alloc_size_2_d(
+            Size2DData {
+                field_0: top_right_x,
+                field_1: top_right_y
+            },
+            span
+        ));
+        let bottom_right = with_token_span!(input, |span| input.ast_mut().alloc_size_2_d(
+            Size2DData {
+                field_0: bottom_right_x,
+                field_1: bottom_right_y
+            },
+            span
+        ));
+        let bottom_left = with_token_span!(input, |span| input.ast_mut().alloc_size_2_d(
+            Size2DData {
+                field_0: bottom_left_x,
+                field_1: bottom_left_y
+            },
+            span
+        ));
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_border_radius(
+                BorderRadiusData {
+                    top_left,
+                    top_right,
+                    bottom_right,
+                    bottom_left,
+                },
+                span,
+            )))
     }
 }
 
@@ -312,7 +375,7 @@ fn parse_generic_border<'i, S: Copy>(
     mut parse_style: impl FnMut(&mut Compiler<'i>) -> Result<S, ParseError<'i, ParserError<'i>>>,
     default_style: S,
 ) -> Result<GenericBorder<'i, S>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let mut color = None;
     let mut style = None;
     let mut width = None;
@@ -373,9 +436,9 @@ impl<'i> Parse<'i> for GenericBorder<'i, LineStyle> {
 
 impl<'i> Parse<'i> for GenericBorder<'i, OutlineStyle<'i>> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let default_style = input
+        let default_style = with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_outline_style(OutlineStyleData::LineStyle(LineStyle::None), DUMMY_SP);
+            .alloc_outline_style(OutlineStyleData::LineStyle(LineStyle::None), span));
         parse_generic_border(input, OutlineStyle::parse, default_style)
     }
 }

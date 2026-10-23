@@ -53,15 +53,17 @@ impl<'i> Parse<'i> for Transition<'i> {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
 
-        Ok(input.ast_mut().alloc_transition(
-            TransitionData {
-                delay: delay.unwrap_or(Time::Seconds(0.0)),
-                duration: duration.unwrap_or(Time::Seconds(0.0)),
-                property: property.unwrap_or(PropertyId::All),
-                timing_function: timing_function.unwrap_or(EasingFunction::Ease),
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_transition(
+                TransitionData {
+                    delay: delay.unwrap_or(Time::Seconds(0.0)),
+                    duration: duration.unwrap_or(Time::Seconds(0.0)),
+                    property: property.unwrap_or(PropertyId::All),
+                    timing_function: timing_function.unwrap_or(EasingFunction::Ease),
+                },
+                span,
+            )))
     }
 }
 
@@ -228,7 +230,7 @@ impl<'i> Parse<'i> for AnimationName<'i> {
 
 impl<'i> Parse<'i> for Animation<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let mut components = Vec::new();
         let mut duration_claimed = false;
         let mut timing_function_claimed = false;
@@ -242,10 +244,11 @@ impl<'i> Parse<'i> for Animation<'i> {
         while !input.is_exhausted() {
             if !duration_claimed && let Ok(value) = input.try_parse(Time::parse) {
                 duration_claimed = true;
-                components.push(input.ast_mut().alloc_animation_component(
-                    AnimationComponentData::Duration(value),
-                    span,
-                ));
+                components.push(
+                    input
+                        .ast_mut()
+                        .alloc_animation_component(AnimationComponentData::Duration(value), span),
+                );
                 continue;
             }
             if !timing_function_claimed && let Ok(value) = input.try_parse(EasingFunction::parse) {
@@ -258,10 +261,11 @@ impl<'i> Parse<'i> for Animation<'i> {
             }
             if !delay_claimed && let Ok(value) = input.try_parse(Time::parse) {
                 delay_claimed = true;
-                components.push(input.ast_mut().alloc_animation_component(
-                    AnimationComponentData::Delay(value),
-                    span,
-                ));
+                components.push(
+                    input
+                        .ast_mut()
+                        .alloc_animation_component(AnimationComponentData::Delay(value), span),
+                );
                 continue;
             }
             if !iteration_count_claimed
@@ -276,34 +280,38 @@ impl<'i> Parse<'i> for Animation<'i> {
             }
             if !direction_claimed && let Ok(value) = input.try_parse(AnimationDirection::parse) {
                 direction_claimed = true;
-                components.push(input.ast_mut().alloc_animation_component(
-                    AnimationComponentData::Direction(value),
-                    span,
-                ));
+                components.push(
+                    input
+                        .ast_mut()
+                        .alloc_animation_component(AnimationComponentData::Direction(value), span),
+                );
                 continue;
             }
             if !fill_mode_claimed && let Ok(value) = input.try_parse(AnimationFillMode::parse) {
                 fill_mode_claimed = true;
-                components.push(input.ast_mut().alloc_animation_component(
-                    AnimationComponentData::FillMode(value),
-                    span,
-                ));
+                components.push(
+                    input
+                        .ast_mut()
+                        .alloc_animation_component(AnimationComponentData::FillMode(value), span),
+                );
                 continue;
             }
             if !play_state_claimed && let Ok(value) = input.try_parse(AnimationPlayState::parse) {
                 play_state_claimed = true;
-                components.push(input.ast_mut().alloc_animation_component(
-                    AnimationComponentData::PlayState(value),
-                    span,
-                ));
+                components.push(
+                    input
+                        .ast_mut()
+                        .alloc_animation_component(AnimationComponentData::PlayState(value), span),
+                );
                 continue;
             }
             if !name_claimed && let Ok(value) = input.try_parse(AnimationName::parse) {
                 name_claimed = true;
-                components.push(input.ast_mut().alloc_animation_component(
-                    AnimationComponentData::Name(value),
-                    span,
-                ));
+                components.push(
+                    input
+                        .ast_mut()
+                        .alloc_animation_component(AnimationComponentData::Name(value), span),
+                );
                 continue;
             }
             return Err(input.new_custom_error(ParserError::InvalidValue));

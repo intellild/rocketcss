@@ -194,8 +194,8 @@ impl<'ast> FontFaceStyle<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> FontFaceStyleKind {
         match ast.data(self) {
-            FontFaceStyleData::Normal { .. } => FontFaceStyleKind::Normal,
-            FontFaceStyleData::Italic { .. } => FontFaceStyleKind::Italic,
+            FontFaceStyleData::Normal => FontFaceStyleKind::Normal,
+            FontFaceStyleData::Italic => FontFaceStyleKind::Italic,
             FontFaceStyleData::Oblique { .. } => FontFaceStyleKind::Oblique,
         }
     }

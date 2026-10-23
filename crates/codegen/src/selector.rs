@@ -1,42 +1,52 @@
 use crate::prelude::*;
 
-impl<'ghost> ToCss<'ghost> for SelectorList<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for &'ast [Selector<'ast>] {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         write_selector_list(self, dest, _cx)
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Selector<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Selector<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Parsed(components) => {
+        match self.data(_cx.ast()) {
+            SelectorData::Parsed(components) => {
                 for component in components {
                     component.to_css(dest, _cx)?;
                 }
                 Ok(())
             }
-            Self::Unparsed(raw) => dest.write_str(raw),
-            Self::Tombstone => Ok(()),
+            SelectorData::Unparsed(raw) => dest.write_str(&raw),
+            SelectorData::Tombstone => Ok(()),
         }
+    }
+}
+
+fn selector_components<'ast>(
+    ast: &Ast<'ast>,
+    selector: Selector<'ast>,
+) -> &'ast [SelectorComponent<'ast>] {
+    match selector.data(ast) {
+        SelectorData::Parsed(components) => components,
+        _ => &[],
     }
 }
 
 fn write_selector_list<'ghost, PrinterT: PrinterTrait>(
     selectors: &[Selector<'_>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     let mut wrote_selector = false;
     for selector in selectors {
-        if selector.is_tombstone() {
+        if matches!(selector.data(cx.ast()), SelectorData::Tombstone) {
             continue;
         }
         if wrote_selector {
@@ -48,37 +58,37 @@ fn write_selector_list<'ghost, PrinterT: PrinterTrait>(
     Ok(())
 }
 
-impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for SelectorComponent<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Combinator(value) => value.to_css(dest, _cx),
-            Self::ExplicitAnyNamespace => dest.write_str("*|"),
-            Self::ExplicitNoNamespace => dest.write_char('|'),
-            Self::DefaultNamespace(_) => Ok(()),
-            Self::Namespace { prefix, .. } => {
-                serialize_identifier(prefix, dest)?;
+        match self.data(_cx.ast()) {
+            SelectorComponentData::Combinator(value) => value.to_css(dest, _cx),
+            SelectorComponentData::ExplicitAnyNamespace => dest.write_str("*|"),
+            SelectorComponentData::ExplicitNoNamespace => dest.write_char('|'),
+            SelectorComponentData::DefaultNamespace(_) => Ok(()),
+            SelectorComponentData::Namespace { prefix, .. } => {
+                serialize_identifier(&prefix, dest)?;
                 dest.write_char('|')
             }
-            Self::ExplicitUniversalType => dest.write_char('*'),
-            Self::LocalName { name, .. } => serialize_identifier(name, dest),
-            Self::Id(value) => {
+            SelectorComponentData::ExplicitUniversalType => dest.write_char('*'),
+            SelectorComponentData::LocalName { name, .. } => serialize_identifier(&name, dest),
+            SelectorComponentData::Id(value) => {
                 dest.write_char('#')?;
-                serialize_identifier(value, dest)
+                serialize_identifier(&value, dest)
             }
-            Self::Class(value) => {
+            SelectorComponentData::Class(value) => {
                 dest.write_char('.')?;
-                serialize_identifier(value, dest)
+                serialize_identifier(&value, dest)
             }
-            Self::AttributeInNoNamespaceExists { local_name, .. } => {
+            SelectorComponentData::AttributeInNoNamespaceExists { local_name, .. } => {
                 dest.write_char('[')?;
-                serialize_identifier(local_name, dest)?;
+                serialize_identifier(&local_name, dest)?;
                 dest.write_char(']')
             }
-            Self::AttributeInNoNamespace {
+            SelectorComponentData::AttributeInNoNamespace {
                 local_name,
                 operator,
                 value,
@@ -86,35 +96,36 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 ..
             } => write_attribute(
                 None,
-                local_name,
-                Some((*operator, value, *case_sensitivity)),
+                &local_name,
+                Some((operator, value.as_ref(), case_sensitivity)),
                 dest,
                 _cx,
             ),
-            Self::AttributeOther(value) => value.to_css(dest, _cx),
-            Self::Negation(selectors) => {
+            SelectorComponentData::AttributeOther(value) => value.to_css(dest, _cx),
+            SelectorComponentData::Negation(selectors) => {
                 dest.write_str(":not(")?;
                 write_selector_list(selectors, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Root => dest.write_str(":root"),
-            Self::Empty => dest.write_str(":empty"),
-            Self::Scope => dest.write_str(":scope"),
-            Self::Nth(value) => value.to_css(dest, _cx),
-            Self::NthOf { data, selectors } => {
-                write_nth_start(data, true, dest)?;
-                write_nth_affine(data, dest)?;
+            SelectorComponentData::Root => dest.write_str(":root"),
+            SelectorComponentData::Empty => dest.write_str(":empty"),
+            SelectorComponentData::Scope => dest.write_str(":scope"),
+            SelectorComponentData::Nth(value) => value.to_css(dest, _cx),
+            SelectorComponentData::NthOf { data, selectors } => {
+                let data = _cx.ast().data(data);
+                write_nth_start(&data, true, dest)?;
+                write_nth_affine(&data, dest)?;
                 dest.write_str(" of ")?;
                 write_selector_list(selectors, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::PseudoClass(value) => value.to_css(dest, _cx),
-            Self::Slotted(selector) => {
+            SelectorComponentData::PseudoClass(value) => value.to_css(dest, _cx),
+            SelectorComponentData::Slotted(selector) => {
                 dest.write_str("::slotted(")?;
                 selector.to_css(dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Part(parts) => {
+            SelectorComponentData::Part(parts) => {
                 dest.write_str("::part(")?;
                 for (index, part) in parts.iter().enumerate() {
                     if index > 0 {
@@ -124,7 +135,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 }
                 dest.write_char(')')
             }
-            Self::Host(selector) => {
+            SelectorComponentData::Host(selector) => {
                 dest.write_str(":host")?;
                 if let Some(selector) = selector {
                     dest.write_char('(')?;
@@ -133,23 +144,30 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 }
                 Ok(())
             }
-            Self::Where(selectors) => {
+            SelectorComponentData::Where(selectors) => {
                 dest.write_str(":where(")?;
                 write_selector_list(selectors, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Is(selectors) => {
+            SelectorComponentData::Is(selectors) => {
                 if selectors.len() == 1
-                    && !selectors[0]
+                    && !selector_components(_cx.ast(), selectors[0])
                         .iter()
-                        .any(|component| matches!(component, SelectorComponent::Combinator(_)))
-                    && !selectors[0].iter().any(|component| {
-                        matches!(
-                            component,
-                            SelectorComponent::LocalName { .. }
-                                | SelectorComponent::ExplicitUniversalType
-                        )
-                    })
+                        .any(|component| {
+                            matches!(
+                                component.data(_cx.ast()),
+                                SelectorComponentData::Combinator(_)
+                            )
+                        })
+                    && !selector_components(_cx.ast(), selectors[0])
+                        .iter()
+                        .any(|component| {
+                            matches!(
+                                component.data(_cx.ast()),
+                                SelectorComponentData::LocalName { .. }
+                                    | SelectorComponentData::ExplicitUniversalType
+                            )
+                        })
                 {
                     return selectors[0].to_css(dest, _cx);
                 }
@@ -157,7 +175,7 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 write_selector_list(selectors, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Any {
+            SelectorComponentData::Any {
                 vendor_prefix,
                 selectors,
             } => {
@@ -167,13 +185,13 @@ impl<'ghost> ToCss<'ghost> for SelectorComponent<'_> {
                 write_selector_list(selectors, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Has(selectors) => {
+            SelectorComponentData::Has(selectors) => {
                 dest.write_str(":has(")?;
                 write_selector_list(selectors, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::PseudoElement(value) => value.to_css(dest, _cx),
-            Self::Nesting => dest.write_char('&'),
+            SelectorComponentData::PseudoElement(value) => value.to_css(dest, _cx),
+            SelectorComponentData::Nesting => dest.write_char('&'),
         }
     }
 }
@@ -182,7 +200,7 @@ impl<'ghost> ToCss<'ghost> for Combinator {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Child => dest.delim(Delimiter::ChildCombinator),
@@ -196,22 +214,23 @@ impl<'ghost> ToCss<'ghost> for Combinator {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for AttrSelector<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for AttrSelector<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        let namespace = self.namespace.as_ref();
-        match &self.operation {
-            AttrOperation::Exists => write_attribute(namespace, &self.local_name, None, dest, _cx),
+        let data = _cx.ast().data(*self);
+        let namespace = data.namespace.as_ref();
+        match &data.operation {
+            AttrOperation::Exists => write_attribute(namespace, &data.local_name, None, dest, _cx),
             AttrOperation::WithValue {
                 operator,
                 case_sensitivity,
                 expected_value,
             } => write_attribute(
                 namespace,
-                &self.local_name,
+                &data.local_name,
                 Some((*operator, expected_value, *case_sensitivity)),
                 dest,
                 _cx,
@@ -225,7 +244,7 @@ fn write_attribute<'ghost, PrinterT: PrinterTrait>(
     local_name: &str,
     operation: Option<(AttrSelectorOperator, &str, ParsedCaseSensitivity)>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_char('[')?;
     if let Some(namespace) = namespace {
@@ -256,7 +275,7 @@ impl<'ghost> ToCss<'ghost> for NamespaceConstraint<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Any => dest.write_str("*|"),
@@ -272,7 +291,7 @@ impl<'ghost> ToCss<'ghost> for AttrOperation<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Exists => Ok(()),
@@ -293,7 +312,7 @@ impl<'ghost> ToCss<'ghost> for ParsedCaseSensitivity {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::ExplicitCaseSensitive => dest.write_str(" s"),
@@ -307,7 +326,7 @@ impl<'ghost> ToCss<'ghost> for AttrSelectorOperator {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(match self {
             Self::Equal => "=",
@@ -320,15 +339,16 @@ impl<'ghost> ToCss<'ghost> for AttrSelectorOperator {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for NthSelectorData {
+impl<'ast, 'ghost> ToCss<'ghost> for NthSelectorData<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_nth_start(self, self.is_function, dest)?;
-        if self.is_function {
-            write_nth_affine(self, dest)?;
+        let data = _cx.ast().data(*self);
+        write_nth_start(&data, data.is_function, dest)?;
+        if data.is_function {
+            write_nth_affine(&data, dest)?;
             dest.write_char(')')?;
         }
         Ok(())
@@ -339,14 +359,14 @@ impl<'ghost> ToCss<'ghost> for NthType {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("nth types are static keywords"))
     }
 }
 
 fn write_nth_start<PrinterT: PrinterTrait>(
-    value: &NthSelectorData,
+    value: &NthSelectorDataData,
     is_function: bool,
     dest: &mut PrinterT,
 ) -> fmt::Result {
@@ -367,7 +387,7 @@ fn write_nth_start<PrinterT: PrinterTrait>(
 }
 
 fn write_nth_affine<PrinterT: PrinterTrait>(
-    value: &NthSelectorData,
+    value: &NthSelectorDataData,
     dest: &mut PrinterT,
 ) -> fmt::Result {
     match (value.a, value.b) {
@@ -407,20 +427,20 @@ impl<'ghost> ToCss<'ghost> for Direction {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("directions are static keywords"))
     }
 }
 
-impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for PseudoClass<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Lang { languages } => {
+        match self.data(_cx.ast()) {
+            PseudoClassData::Lang { languages } => {
                 dest.write_str(":lang(")?;
                 for (index, language) in languages.iter().enumerate() {
                     if index > 0 {
@@ -430,20 +450,30 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
                 }
                 dest.write_char(')')
             }
-            Self::Dir { direction } => {
+            PseudoClassData::Dir { direction } => {
                 dest.write_str(":dir(")?;
                 direction.to_css(dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Fullscreen(prefix) => write_prefixed_pseudo(prefix, "fullscreen", dest, _cx),
-            Self::AnyLink(prefix) => write_prefixed_pseudo(prefix, "any-link", dest, _cx),
-            Self::ReadOnly(prefix) => write_prefixed_pseudo(prefix, "read-only", dest, _cx),
-            Self::ReadWrite(prefix) => write_prefixed_pseudo(prefix, "read-write", dest, _cx),
-            Self::PlaceholderShown(prefix) => {
-                write_prefixed_pseudo(prefix, "placeholder-shown", dest, _cx)
+            PseudoClassData::Fullscreen(prefix) => {
+                write_prefixed_pseudo(&prefix, "fullscreen", dest, _cx)
             }
-            Self::Autofill(prefix) => write_prefixed_pseudo(prefix, "autofill", dest, _cx),
-            Self::ActiveViewTransitionType { kinds } => {
+            PseudoClassData::AnyLink(prefix) => {
+                write_prefixed_pseudo(&prefix, "any-link", dest, _cx)
+            }
+            PseudoClassData::ReadOnly(prefix) => {
+                write_prefixed_pseudo(&prefix, "read-only", dest, _cx)
+            }
+            PseudoClassData::ReadWrite(prefix) => {
+                write_prefixed_pseudo(&prefix, "read-write", dest, _cx)
+            }
+            PseudoClassData::PlaceholderShown(prefix) => {
+                write_prefixed_pseudo(&prefix, "placeholder-shown", dest, _cx)
+            }
+            PseudoClassData::Autofill(prefix) => {
+                write_prefixed_pseudo(&prefix, "autofill", dest, _cx)
+            }
+            PseudoClassData::ActiveViewTransitionType { kinds } => {
                 dest.write_str(":active-view-transition-type(")?;
                 for (index, kind) in kinds.iter().enumerate() {
                     if index > 0 {
@@ -453,26 +483,26 @@ impl<'ghost> ToCss<'ghost> for PseudoClass<'_> {
                 }
                 dest.write_char(')')
             }
-            Self::State { state } => {
+            PseudoClassData::State { state } => {
                 dest.write_str(":state(")?;
-                serialize_identifier(state, dest)?;
+                serialize_identifier(&state, dest)?;
                 dest.write_char(')')
             }
-            Self::Local { selector } => selector.to_css(dest, _cx),
-            Self::Global { selector } => selector.to_css(dest, _cx),
-            Self::WebKitScrollbar(value) => value.to_css(dest, _cx),
-            Self::Custom { name } => {
+            PseudoClassData::Local { selector } => selector.to_css(dest, _cx),
+            PseudoClassData::Global { selector } => selector.to_css(dest, _cx),
+            PseudoClassData::WebKitScrollbar(value) => value.to_css(dest, _cx),
+            PseudoClassData::Custom { name } => {
                 dest.write_char(':')?;
-                dest.write_str(name)
+                dest.write_str(&name)
             }
-            Self::CustomFunction { name, arguments } => {
+            PseudoClassData::CustomFunction { name, arguments } => {
                 dest.write_char(':')?;
-                dest.write_str(name)?;
+                dest.write_str(&name)?;
                 dest.write_char('(')?;
                 crate::token::write_token_list(arguments, dest, _cx)?;
                 dest.write_char(')')
             }
-            value => dest.write_str(pseudo_class_name(value)),
+            value => dest.write_str(pseudo_class_name(&value)),
         }
     }
 }
@@ -481,59 +511,59 @@ fn write_prefixed_pseudo<'ghost, PrinterT: PrinterTrait>(
     prefix: &VendorPrefix,
     name: &str,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_char(':')?;
     prefix.to_css(dest, cx)?;
     dest.write_str(name)
 }
 
-fn pseudo_class_name(value: &PseudoClass<'_>) -> &'static str {
+fn pseudo_class_name(value: &PseudoClassData<'_>) -> &'static str {
     match value {
-        PseudoClass::Hover => ":hover",
-        PseudoClass::Active => ":active",
-        PseudoClass::Focus => ":focus",
-        PseudoClass::FocusVisible => ":focus-visible",
-        PseudoClass::FocusWithin => ":focus-within",
-        PseudoClass::Current => ":current",
-        PseudoClass::Past => ":past",
-        PseudoClass::Future => ":future",
-        PseudoClass::Playing => ":playing",
-        PseudoClass::Paused => ":paused",
-        PseudoClass::Seeking => ":seeking",
-        PseudoClass::Buffering => ":buffering",
-        PseudoClass::Stalled => ":stalled",
-        PseudoClass::Muted => ":muted",
-        PseudoClass::VolumeLocked => ":volume-locked",
-        PseudoClass::Open => ":open",
-        PseudoClass::Closed => ":closed",
-        PseudoClass::Modal => ":modal",
-        PseudoClass::PictureInPicture => ":picture-in-picture",
-        PseudoClass::PopoverOpen => ":popover-open",
-        PseudoClass::Defined => ":defined",
-        PseudoClass::Link => ":link",
-        PseudoClass::LocalLink => ":local-link",
-        PseudoClass::Target => ":target",
-        PseudoClass::TargetCurrent => ":target-current",
-        PseudoClass::TargetBefore => ":target-before",
-        PseudoClass::TargetAfter => ":target-after",
-        PseudoClass::TargetWithin => ":target-within",
-        PseudoClass::Visited => ":visited",
-        PseudoClass::Enabled => ":enabled",
-        PseudoClass::Disabled => ":disabled",
-        PseudoClass::Default => ":default",
-        PseudoClass::Checked => ":checked",
-        PseudoClass::Indeterminate => ":indeterminate",
-        PseudoClass::Blank => ":blank",
-        PseudoClass::Valid => ":valid",
-        PseudoClass::Invalid => ":invalid",
-        PseudoClass::InRange => ":in-range",
-        PseudoClass::OutOfRange => ":out-of-range",
-        PseudoClass::Required => ":required",
-        PseudoClass::Optional => ":optional",
-        PseudoClass::UserValid => ":user-valid",
-        PseudoClass::UserInvalid => ":user-invalid",
-        PseudoClass::ActiveViewTransition => ":active-view-transition",
+        PseudoClassData::Hover => ":hover",
+        PseudoClassData::Active => ":active",
+        PseudoClassData::Focus => ":focus",
+        PseudoClassData::FocusVisible => ":focus-visible",
+        PseudoClassData::FocusWithin => ":focus-within",
+        PseudoClassData::Current => ":current",
+        PseudoClassData::Past => ":past",
+        PseudoClassData::Future => ":future",
+        PseudoClassData::Playing => ":playing",
+        PseudoClassData::Paused => ":paused",
+        PseudoClassData::Seeking => ":seeking",
+        PseudoClassData::Buffering => ":buffering",
+        PseudoClassData::Stalled => ":stalled",
+        PseudoClassData::Muted => ":muted",
+        PseudoClassData::VolumeLocked => ":volume-locked",
+        PseudoClassData::Open => ":open",
+        PseudoClassData::Closed => ":closed",
+        PseudoClassData::Modal => ":modal",
+        PseudoClassData::PictureInPicture => ":picture-in-picture",
+        PseudoClassData::PopoverOpen => ":popover-open",
+        PseudoClassData::Defined => ":defined",
+        PseudoClassData::Link => ":link",
+        PseudoClassData::LocalLink => ":local-link",
+        PseudoClassData::Target => ":target",
+        PseudoClassData::TargetCurrent => ":target-current",
+        PseudoClassData::TargetBefore => ":target-before",
+        PseudoClassData::TargetAfter => ":target-after",
+        PseudoClassData::TargetWithin => ":target-within",
+        PseudoClassData::Visited => ":visited",
+        PseudoClassData::Enabled => ":enabled",
+        PseudoClassData::Disabled => ":disabled",
+        PseudoClassData::Default => ":default",
+        PseudoClassData::Checked => ":checked",
+        PseudoClassData::Indeterminate => ":indeterminate",
+        PseudoClassData::Blank => ":blank",
+        PseudoClassData::Valid => ":valid",
+        PseudoClassData::Invalid => ":invalid",
+        PseudoClassData::InRange => ":in-range",
+        PseudoClassData::OutOfRange => ":out-of-range",
+        PseudoClassData::Required => ":required",
+        PseudoClassData::Optional => ":optional",
+        PseudoClassData::UserValid => ":user-valid",
+        PseudoClassData::UserInvalid => ":user-invalid",
+        PseudoClassData::ActiveViewTransition => ":active-view-transition",
         _ => unreachable!(),
     }
 }
@@ -542,7 +572,7 @@ impl<'ghost> ToCss<'ghost> for WebKitScrollbarPseudoClass {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(match self {
             Self::Horizontal => ":horizontal",
@@ -560,52 +590,62 @@ impl<'ghost> ToCss<'ghost> for WebKitScrollbarPseudoClass {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for PseudoElement<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for PseudoElement<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Selection(prefix) => write_prefixed_element(prefix, "selection", dest, _cx),
-            Self::Placeholder(prefix) => write_prefixed_element(prefix, "placeholder", dest, _cx),
-            Self::Backdrop(prefix) => write_prefixed_element(prefix, "backdrop", dest, _cx),
-            Self::FileSelectorButton(prefix) => {
-                write_prefixed_element(prefix, "file-selector-button", dest, _cx)
+        match self.data(_cx.ast()) {
+            PseudoElementData::Selection(prefix) => {
+                write_prefixed_element(&prefix, "selection", dest, _cx)
             }
-            Self::HighlightFunction { name } => write_element_function("highlight", name, dest),
-            Self::WebKitScrollbar(value) => value.to_css(dest, _cx),
-            Self::CueFunction { selector } => write_selector_function("cue", selector, dest, _cx),
-            Self::CueRegionFunction { selector } => {
-                write_selector_function("cue-region", selector, dest, _cx)
+            PseudoElementData::Placeholder(prefix) => {
+                write_prefixed_element(&prefix, "placeholder", dest, _cx)
             }
-            Self::ViewTransitionGroup { part } => {
-                write_part_function("view-transition-group", part, dest, _cx)
+            PseudoElementData::Backdrop(prefix) => {
+                write_prefixed_element(&prefix, "backdrop", dest, _cx)
             }
-            Self::ViewTransitionImagePair { part } => {
-                write_part_function("view-transition-image-pair", part, dest, _cx)
+            PseudoElementData::FileSelectorButton(prefix) => {
+                write_prefixed_element(&prefix, "file-selector-button", dest, _cx)
             }
-            Self::ViewTransitionOld { part } => {
-                write_part_function("view-transition-old", part, dest, _cx)
+            PseudoElementData::HighlightFunction { name } => {
+                write_element_function("highlight", &name, dest)
             }
-            Self::ViewTransitionNew { part } => {
-                write_part_function("view-transition-new", part, dest, _cx)
+            PseudoElementData::WebKitScrollbar(value) => value.to_css(dest, _cx),
+            PseudoElementData::CueFunction { selector } => {
+                write_selector_function("cue", &selector, dest, _cx)
             }
-            Self::PickerFunction { identifier } => {
-                write_element_function("picker", identifier, dest)
+            PseudoElementData::CueRegionFunction { selector } => {
+                write_selector_function("cue-region", &selector, dest, _cx)
             }
-            Self::Custom { name } => {
+            PseudoElementData::ViewTransitionGroup { part } => {
+                write_part_function("view-transition-group", &part, dest, _cx)
+            }
+            PseudoElementData::ViewTransitionImagePair { part } => {
+                write_part_function("view-transition-image-pair", &part, dest, _cx)
+            }
+            PseudoElementData::ViewTransitionOld { part } => {
+                write_part_function("view-transition-old", &part, dest, _cx)
+            }
+            PseudoElementData::ViewTransitionNew { part } => {
+                write_part_function("view-transition-new", &part, dest, _cx)
+            }
+            PseudoElementData::PickerFunction { identifier } => {
+                write_element_function("picker", &identifier, dest)
+            }
+            PseudoElementData::Custom { name } => {
                 dest.write_str("::")?;
-                dest.write_str(name)
+                dest.write_str(&name)
             }
-            Self::CustomFunction { name, arguments } => {
+            PseudoElementData::CustomFunction { name, arguments } => {
                 dest.write_str("::")?;
-                dest.write_str(name)?;
+                dest.write_str(&name)?;
                 dest.write_char('(')?;
                 crate::token::write_token_list(arguments, dest, _cx)?;
                 dest.write_char(')')
             }
-            value => dest.write_str(pseudo_element_name(value)),
+            value => dest.write_str(pseudo_element_name(&value)),
         }
     }
 }
@@ -614,7 +654,7 @@ fn write_prefixed_element<'ghost, PrinterT: PrinterTrait>(
     prefix: &VendorPrefix,
     name: &str,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_str("::")?;
     prefix.to_css(dest, cx)?;
@@ -637,7 +677,7 @@ fn write_selector_function<'ghost, PrinterT: PrinterTrait>(
     name: &str,
     selector: &Selector<'_>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_str("::")?;
     dest.write_str(name)?;
@@ -650,7 +690,7 @@ fn write_part_function<'ghost, PrinterT: PrinterTrait>(
     name: &str,
     part: &ViewTransitionPartSelector<'_>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     dest.write_str("::")?;
     dest.write_str(name)?;
@@ -659,23 +699,23 @@ fn write_part_function<'ghost, PrinterT: PrinterTrait>(
     dest.write_char(')')
 }
 
-fn pseudo_element_name(value: &PseudoElement<'_>) -> &'static str {
+fn pseudo_element_name(value: &PseudoElementData<'_>) -> &'static str {
     match value {
-        PseudoElement::After => ":after",
-        PseudoElement::Before => ":before",
-        PseudoElement::FirstLine => ":first-line",
-        PseudoElement::FirstLetter => ":first-letter",
-        PseudoElement::DetailsContent => "::details-content",
-        PseudoElement::TargetText => "::target-text",
-        PseudoElement::SearchText => "::search-text",
-        PseudoElement::Marker => "::marker",
-        PseudoElement::Cue => "::cue",
-        PseudoElement::CueRegion => "::cue-region",
-        PseudoElement::ViewTransition => "::view-transition",
-        PseudoElement::PickerIcon => "::picker-icon",
-        PseudoElement::Checkmark => "::checkmark",
-        PseudoElement::GrammarError => "::grammar-error",
-        PseudoElement::SpellingError => "::spelling-error",
+        PseudoElementData::After => ":after",
+        PseudoElementData::Before => ":before",
+        PseudoElementData::FirstLine => ":first-line",
+        PseudoElementData::FirstLetter => ":first-letter",
+        PseudoElementData::DetailsContent => "::details-content",
+        PseudoElementData::TargetText => "::target-text",
+        PseudoElementData::SearchText => "::search-text",
+        PseudoElementData::Marker => "::marker",
+        PseudoElementData::Cue => "::cue",
+        PseudoElementData::CueRegion => "::cue-region",
+        PseudoElementData::ViewTransition => "::view-transition",
+        PseudoElementData::PickerIcon => "::picker-icon",
+        PseudoElementData::Checkmark => "::checkmark",
+        PseudoElementData::GrammarError => "::grammar-error",
+        PseudoElementData::SpellingError => "::spelling-error",
         _ => unreachable!(),
     }
 }
@@ -684,7 +724,7 @@ impl<'ghost> ToCss<'ghost> for WebKitScrollbarPseudoElement {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(match self {
             Self::Scrollbar => "::-webkit-scrollbar",
@@ -702,7 +742,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionPartName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::All => dest.write_char('*'),
@@ -711,16 +751,17 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionPartName<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ViewTransitionPartSelector<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for ViewTransitionPartSelector<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        if let Some(name) = &self.name {
+        let data = _cx.ast().data(*self);
+        if let Some(name) = &data.name {
             name.to_css(dest, _cx)?;
         }
-        for class in &self.classes {
+        for class in data.classes {
             dest.write_char('.')?;
             serialize_identifier(class, dest)?;
         }

@@ -1,4 +1,6 @@
-use rocketcss_ast::CssRulePayload;
+use rocketcss_ast_next::{
+    CssRule, CssRulePayloadData, DeclarationBlockData, SelectorData, StyleRuleData,
+};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::{Allocator, GhostToken};
 use rocketcss_parser::{Compiler, ParserOptions};
@@ -14,7 +16,7 @@ fn assert_radix_codegen_parity(source: &str) {
         for prettify in [false, true] {
             let printer_options = PrinterOptions { prettify };
             let radix_output = radix
-                .to_css_string(printer_options, &ToCssContext::new(&token))
+                .to_css_string(printer_options, &ToCssContext::new(&token, radix.ast()))
                 .unwrap();
             let reparsed = Compiler::new(&allocator)
                 .parse(&radix_output, &mut token, options)
@@ -24,7 +26,7 @@ fn assert_radix_codegen_parity(source: &str) {
                     )
                 });
             let reparsed_output = reparsed
-                .to_css_string(printer_options, &ToCssContext::new(&token))
+                .to_css_string(printer_options, &ToCssContext::new(&token, reparsed.ast()))
                 .unwrap();
             assert_eq!(radix_output, reparsed_output, "source: {source}");
         }
@@ -59,24 +61,28 @@ fn streams_the_selector_value_published_by_an_ast_transaction() {
         let mut radix = Compiler::new(&allocator)
             .parse("a{x:1}b{x:2}", &mut token, options)
             .unwrap();
-        let styles = radix
-            .rules_in_source_order()
-            .filter_map(|(id, rule)| {
-                matches!(rule.payload(), CssRulePayload::Style(_)).then_some(id)
-            })
-            .collect::<std::vec::Vec<_>>();
-        let replacement = match radix.rule(styles[1]).unwrap().payload() {
-            CssRulePayload::Style(payload) => payload.selector_value,
+        let styles = style_rules(&radix);
+        let replacement = match styles[1].payload(radix.ast()).data(radix.ast()) {
+            CssRulePayloadData::Style(payload) => payload.selectors(radix.ast()),
             _ => unreachable!(),
         };
-        radix
-            .replace_rule_selector_value(styles[0], replacement)
-            .unwrap();
+        let style = match styles[0].payload(radix.ast()).data(radix.ast()) {
+            CssRulePayloadData::Style(payload) => payload,
+            _ => unreachable!(),
+        };
+        let vendor_prefix = style.vendor_prefix(radix.ast());
+        radix.ast_mut().set_data(
+            style,
+            StyleRuleData {
+                selectors: replacement,
+                vendor_prefix,
+            },
+        );
 
         let actual = radix
             .to_css_string(
                 PrinterOptions { prettify: false },
-                &ToCssContext::new(&token),
+                &ToCssContext::new(&token, radix.ast()),
             )
             .unwrap();
         assert_eq!(actual, "b{x:1}b{x:2}");
@@ -91,23 +97,59 @@ fn streams_an_adjacent_block_merge_directly_from_live_topology() {
         let mut radix = Compiler::new(&allocator)
             .parse("a{color:red}a{color:blue}", &mut token, options)
             .unwrap();
-        let styles = radix
-            .rules_in_source_order()
-            .filter_map(|(id, rule)| {
-                matches!(rule.payload(), CssRulePayload::Style(_)).then_some(id)
-            })
-            .collect::<std::vec::Vec<_>>();
-        radix
-            .merge_adjacent_rule_declaration_blocks(styles[0], styles[1])
-            .unwrap();
+        let styles = style_rules(&radix);
+        let first_block = styles[0].declarations(radix.ast()).unwrap();
+        let second_block = styles[1].declarations(radix.ast()).unwrap();
+        let (merged, merged_important) = {
+            let ast = radix.ast();
+            let mut declarations = first_block.declarations(ast).to_vec();
+            declarations.extend_from_slice(second_block.declarations(ast));
+            let mut important = first_block.important(ast).to_vec();
+            important.extend_from_slice(second_block.important(ast));
+            (ast.alloc_slice(&declarations), ast.alloc_slice(&important))
+        };
+        radix.ast_mut().set_data(
+            first_block,
+            DeclarationBlockData {
+                declarations: merged,
+                important: merged_important,
+            },
+        );
+
+        let tombstone = radix
+            .ast_mut()
+            .alloc_selector(SelectorData::Tombstone, Default::default());
+        let tombstone_selectors = radix.ast().alloc_slice(&[tombstone]);
+        let second_style = match styles[1].payload(radix.ast()).data(radix.ast()) {
+            CssRulePayloadData::Style(payload) => payload,
+            _ => unreachable!(),
+        };
+        let vendor_prefix = second_style.vendor_prefix(radix.ast());
+        radix.ast_mut().set_data(
+            second_style,
+            StyleRuleData {
+                selectors: tombstone_selectors,
+                vendor_prefix,
+            },
+        );
 
         let actual = radix
             .to_css_string(
                 PrinterOptions { prettify: false },
-                &ToCssContext::new(&token),
+                &ToCssContext::new(&token, radix.ast()),
             )
             .unwrap();
         assert_eq!(actual, "a{color:red;color:blue}");
-        assert_eq!(radix.validate_ast(), Ok(()));
     });
+}
+
+fn style_rules<'ast>(compilation: &rocketcss_ast_next::Compilation<'ast>) -> Vec<CssRule<'ast>> {
+    let ast = compilation.ast();
+    compilation
+        .style_sheet()
+        .rules(ast)
+        .iter()
+        .copied()
+        .filter(|rule| matches!(rule.payload(ast).data(ast), CssRulePayloadData::Style(_)))
+        .collect()
 }

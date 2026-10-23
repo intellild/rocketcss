@@ -1,4 +1,4 @@
-use rocketcss_ast::{Declaration, DeclarationPayload, UnparsedPropertyReason};
+use rocketcss_ast_next::{CssRule, DeclarationData, UnparsedPropertyReason};
 use rocketcss_common::Allocator;
 use rocketcss_parser::{ParserOptions, parse};
 use rustc_hash::FxHashMap;
@@ -84,27 +84,46 @@ fn collect_coverage(source: &str) -> Coverage {
         .expect("benchmark stylesheet should parse");
 
         let mut coverage = Coverage::default();
-        for (_, declaration) in stylesheet.declarations_in_source_order() {
-            let DeclarationPayload::Property(declaration) = declaration.payload() else {
-                continue;
-            };
+        visit_rules(
+            stylesheet.ast(),
+            stylesheet.style_sheet().rules(stylesheet.ast()),
+            &mut coverage,
+        );
+        coverage
+    })
+}
 
-            match declaration {
-                Declaration::Custom(_) => coverage.custom_properties += 1,
-                Declaration::Unparsed(property) => {
-                    *coverage.unparsed.entry(property.reason.into()).or_default() += 1;
-                }
-                Declaration::Tombstone => {}
-                declaration => {
-                    *coverage
-                        .typed_by_property
-                        .entry(declaration.name().to_owned())
-                        .or_default() += 1;
+fn visit_rules<'ast>(
+    ast: &rocketcss_ast_next::Ast<'ast>,
+    rules: &[CssRule<'ast>],
+    coverage: &mut Coverage,
+) {
+    for rule in rules {
+        if let Some(block) = rule.declarations(ast) {
+            for payload in block.declarations(ast) {
+                let Some(declaration) = payload.as_property(ast) else {
+                    continue;
+                };
+                match declaration.data(ast) {
+                    DeclarationData::Custom(_) => coverage.custom_properties += 1,
+                    DeclarationData::Unparsed(property) => {
+                        *coverage
+                            .unparsed
+                            .entry(property.reason(ast).into())
+                            .or_default() += 1;
+                    }
+                    DeclarationData::Tombstone => {}
+                    _ => {
+                        *coverage
+                            .typed_by_property
+                            .entry(declaration.name(ast).to_owned())
+                            .or_default() += 1;
+                    }
                 }
             }
         }
-        coverage
-    })
+        visit_rules(ast, rule.children(ast), coverage);
+    }
 }
 
 fn assert_typed(coverage: &Coverage, properties: &[&str]) {

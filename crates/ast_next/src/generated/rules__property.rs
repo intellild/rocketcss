@@ -152,7 +152,7 @@ impl<'ast> SyntaxString<'ast> {
     pub fn kind(self, ast: &Ast<'ast>) -> SyntaxStringKind {
         match ast.data(self) {
             SyntaxStringData::Components { .. } => SyntaxStringKind::Components,
-            SyntaxStringData::Universal { .. } => SyntaxStringKind::Universal,
+            SyntaxStringData::Universal => SyntaxStringKind::Universal,
         }
     }
 }
@@ -240,25 +240,23 @@ impl<'ast> SyntaxComponentKind<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> SyntaxComponentKindKind {
         match ast.data(self) {
-            SyntaxComponentKindData::Length { .. } => SyntaxComponentKindKind::Length,
-            SyntaxComponentKindData::Number { .. } => SyntaxComponentKindKind::Number,
-            SyntaxComponentKindData::Percentage { .. } => SyntaxComponentKindKind::Percentage,
-            SyntaxComponentKindData::LengthPercentage { .. } => {
-                SyntaxComponentKindKind::LengthPercentage
-            }
-            SyntaxComponentKindData::String { .. } => SyntaxComponentKindKind::String,
-            SyntaxComponentKindData::Color { .. } => SyntaxComponentKindKind::Color,
-            SyntaxComponentKindData::Image { .. } => SyntaxComponentKindKind::Image,
-            SyntaxComponentKindData::Url { .. } => SyntaxComponentKindKind::Url,
-            SyntaxComponentKindData::Integer { .. } => SyntaxComponentKindKind::Integer,
-            SyntaxComponentKindData::Angle { .. } => SyntaxComponentKindKind::Angle,
-            SyntaxComponentKindData::Time { .. } => SyntaxComponentKindKind::Time,
-            SyntaxComponentKindData::Resolution { .. } => SyntaxComponentKindKind::Resolution,
-            SyntaxComponentKindData::TransformFunction { .. } => {
+            SyntaxComponentKindData::Length => SyntaxComponentKindKind::Length,
+            SyntaxComponentKindData::Number => SyntaxComponentKindKind::Number,
+            SyntaxComponentKindData::Percentage => SyntaxComponentKindKind::Percentage,
+            SyntaxComponentKindData::LengthPercentage => SyntaxComponentKindKind::LengthPercentage,
+            SyntaxComponentKindData::String => SyntaxComponentKindKind::String,
+            SyntaxComponentKindData::Color => SyntaxComponentKindKind::Color,
+            SyntaxComponentKindData::Image => SyntaxComponentKindKind::Image,
+            SyntaxComponentKindData::Url => SyntaxComponentKindKind::Url,
+            SyntaxComponentKindData::Integer => SyntaxComponentKindKind::Integer,
+            SyntaxComponentKindData::Angle => SyntaxComponentKindKind::Angle,
+            SyntaxComponentKindData::Time => SyntaxComponentKindKind::Time,
+            SyntaxComponentKindData::Resolution => SyntaxComponentKindKind::Resolution,
+            SyntaxComponentKindData::TransformFunction => {
                 SyntaxComponentKindKind::TransformFunction
             }
-            SyntaxComponentKindData::TransformList { .. } => SyntaxComponentKindKind::TransformList,
-            SyntaxComponentKindData::CustomIdent { .. } => SyntaxComponentKindKind::CustomIdent,
+            SyntaxComponentKindData::TransformList => SyntaxComponentKindKind::TransformList,
+            SyntaxComponentKindData::CustomIdent => SyntaxComponentKindKind::CustomIdent,
             SyntaxComponentKindData::Literal { .. } => SyntaxComponentKindKind::Literal,
         }
     }

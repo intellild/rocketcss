@@ -64,7 +64,8 @@ fn stylo_selector_text_to_ast_corpus() {
         let source = case_string(case, "source");
         let name = case_string(case, "name");
         let allocator = Allocator::new();
-        let result = SelectorList::parse_string(source, &allocator);
+        let mut compiler = Compiler::new_with_source(source, &allocator);
+        let result = compiler.parse_entirely(<&[rocketcss_ast_next::Selector]>::parse);
 
         if let Err(error) = result {
             failures.push(format!("{name}: {error:?}; source: {source:?}"));

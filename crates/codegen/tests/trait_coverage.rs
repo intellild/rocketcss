@@ -1,6 +1,6 @@
-use rocketcss_ast::*;
+use rocketcss_ast_next::*;
 use rocketcss_codegen::{Printer, PrinterOptions, PrinterTrait, ToCss, ToCssContext};
-use rocketcss_common::GhostToken;
+use rocketcss_common::{Allocator, GhostToken};
 
 fn assert_to_css<T>()
 where
@@ -11,7 +11,7 @@ where
 fn serialize_with_printer_trait<'ghost, T: ToCss<'ghost>, PrinterT: PrinterTrait>(
     value: &T,
     printer: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> std::fmt::Result {
     value.to_css(printer, cx)
 }
@@ -132,12 +132,14 @@ fn every_css_ast_node_implements_to_css() {
 #[test]
 fn to_css_only_depends_on_the_printer_trait() {
     GhostToken::scope(|token| {
+        let allocator = Allocator::new();
+        let ast = Ast::new_in(&allocator);
         let mut output = String::new();
         let mut printer = Printer::new(&mut output, PrinterOptions::default());
         serialize_with_printer_trait(
             &CSSWideKeyword::Initial,
             &mut printer,
-            &ToCssContext::new(&token),
+            &ToCssContext::new(&token, &ast),
         )
         .unwrap();
         assert_eq!(output, "initial");

@@ -25,7 +25,7 @@ pub enum SymbolsType {
     Fixed,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PredefinedCounterStyle {
     Decimal,
     DecimalLeadingZero,

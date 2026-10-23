@@ -46,7 +46,7 @@ impl<'ast> CssColor<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> CssColorKind {
         match ast.data(self) {
-            CssColorData::CurrentColor { .. } => CssColorKind::CurrentColor,
+            CssColorData::CurrentColor => CssColorKind::CurrentColor,
             CssColorData::Known { .. } => CssColorKind::Known,
             CssColorData::Rgba { .. } => CssColorKind::Rgba,
             CssColorData::Function { .. } => CssColorKind::Function,

@@ -1,5 +1,5 @@
-use rocketcss_ast::{Atom, Compilation};
-use rocketcss_ast_next::Ast;
+use rocketcss_ast_next::{Ast, Compilation};
+use rocketcss_common::Atom;
 use rocketcss_common::{Allocator, GhostToken, StringPool};
 
 use crate::{

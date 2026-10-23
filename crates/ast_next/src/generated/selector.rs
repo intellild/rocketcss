@@ -37,7 +37,7 @@ impl<'ast> Selector<'ast> {
         match ast.data(self) {
             SelectorData::Parsed { .. } => SelectorKind::Parsed,
             SelectorData::Unparsed { .. } => SelectorKind::Unparsed,
-            SelectorData::Tombstone { .. } => SelectorKind::Tombstone,
+            SelectorData::Tombstone => SelectorKind::Tombstone,
         }
     }
 }
@@ -167,17 +167,17 @@ impl<'ast> SelectorComponent<'ast> {
     pub fn kind(self, ast: &Ast<'ast>) -> SelectorComponentKind {
         match ast.data(self) {
             SelectorComponentData::Combinator { .. } => SelectorComponentKind::Combinator,
-            SelectorComponentData::ExplicitAnyNamespace { .. } => {
+            SelectorComponentData::ExplicitAnyNamespace => {
                 SelectorComponentKind::ExplicitAnyNamespace
             }
-            SelectorComponentData::ExplicitNoNamespace { .. } => {
+            SelectorComponentData::ExplicitNoNamespace => {
                 SelectorComponentKind::ExplicitNoNamespace
             }
             SelectorComponentData::DefaultNamespace { .. } => {
                 SelectorComponentKind::DefaultNamespace
             }
             SelectorComponentData::Namespace { .. } => SelectorComponentKind::Namespace,
-            SelectorComponentData::ExplicitUniversalType { .. } => {
+            SelectorComponentData::ExplicitUniversalType => {
                 SelectorComponentKind::ExplicitUniversalType
             }
             SelectorComponentData::LocalName { .. } => SelectorComponentKind::LocalName,
@@ -191,9 +191,9 @@ impl<'ast> SelectorComponent<'ast> {
             }
             SelectorComponentData::AttributeOther { .. } => SelectorComponentKind::AttributeOther,
             SelectorComponentData::Negation { .. } => SelectorComponentKind::Negation,
-            SelectorComponentData::Root { .. } => SelectorComponentKind::Root,
-            SelectorComponentData::Empty { .. } => SelectorComponentKind::Empty,
-            SelectorComponentData::Scope { .. } => SelectorComponentKind::Scope,
+            SelectorComponentData::Root => SelectorComponentKind::Root,
+            SelectorComponentData::Empty => SelectorComponentKind::Empty,
+            SelectorComponentData::Scope => SelectorComponentKind::Scope,
             SelectorComponentData::Nth { .. } => SelectorComponentKind::Nth,
             SelectorComponentData::NthOf { .. } => SelectorComponentKind::NthOf,
             SelectorComponentData::PseudoClass { .. } => SelectorComponentKind::PseudoClass,
@@ -205,7 +205,7 @@ impl<'ast> SelectorComponent<'ast> {
             SelectorComponentData::Any { .. } => SelectorComponentKind::Any,
             SelectorComponentData::Has { .. } => SelectorComponentKind::Has,
             SelectorComponentData::PseudoElement { .. } => SelectorComponentKind::PseudoElement,
-            SelectorComponentData::Nesting { .. } => SelectorComponentKind::Nesting,
+            SelectorComponentData::Nesting => SelectorComponentKind::Nesting,
         }
     }
 }
@@ -649,56 +649,56 @@ impl<'ast> PseudoClass<'ast> {
         match ast.data(self) {
             PseudoClassData::Lang { .. } => PseudoClassKind::Lang,
             PseudoClassData::Dir { .. } => PseudoClassKind::Dir,
-            PseudoClassData::Hover { .. } => PseudoClassKind::Hover,
-            PseudoClassData::Active { .. } => PseudoClassKind::Active,
-            PseudoClassData::Focus { .. } => PseudoClassKind::Focus,
-            PseudoClassData::FocusVisible { .. } => PseudoClassKind::FocusVisible,
-            PseudoClassData::FocusWithin { .. } => PseudoClassKind::FocusWithin,
-            PseudoClassData::Current { .. } => PseudoClassKind::Current,
-            PseudoClassData::Past { .. } => PseudoClassKind::Past,
-            PseudoClassData::Future { .. } => PseudoClassKind::Future,
-            PseudoClassData::Playing { .. } => PseudoClassKind::Playing,
-            PseudoClassData::Paused { .. } => PseudoClassKind::Paused,
-            PseudoClassData::Seeking { .. } => PseudoClassKind::Seeking,
-            PseudoClassData::Buffering { .. } => PseudoClassKind::Buffering,
-            PseudoClassData::Stalled { .. } => PseudoClassKind::Stalled,
-            PseudoClassData::Muted { .. } => PseudoClassKind::Muted,
-            PseudoClassData::VolumeLocked { .. } => PseudoClassKind::VolumeLocked,
+            PseudoClassData::Hover => PseudoClassKind::Hover,
+            PseudoClassData::Active => PseudoClassKind::Active,
+            PseudoClassData::Focus => PseudoClassKind::Focus,
+            PseudoClassData::FocusVisible => PseudoClassKind::FocusVisible,
+            PseudoClassData::FocusWithin => PseudoClassKind::FocusWithin,
+            PseudoClassData::Current => PseudoClassKind::Current,
+            PseudoClassData::Past => PseudoClassKind::Past,
+            PseudoClassData::Future => PseudoClassKind::Future,
+            PseudoClassData::Playing => PseudoClassKind::Playing,
+            PseudoClassData::Paused => PseudoClassKind::Paused,
+            PseudoClassData::Seeking => PseudoClassKind::Seeking,
+            PseudoClassData::Buffering => PseudoClassKind::Buffering,
+            PseudoClassData::Stalled => PseudoClassKind::Stalled,
+            PseudoClassData::Muted => PseudoClassKind::Muted,
+            PseudoClassData::VolumeLocked => PseudoClassKind::VolumeLocked,
             PseudoClassData::Fullscreen { .. } => PseudoClassKind::Fullscreen,
-            PseudoClassData::Open { .. } => PseudoClassKind::Open,
-            PseudoClassData::Closed { .. } => PseudoClassKind::Closed,
-            PseudoClassData::Modal { .. } => PseudoClassKind::Modal,
-            PseudoClassData::PictureInPicture { .. } => PseudoClassKind::PictureInPicture,
-            PseudoClassData::PopoverOpen { .. } => PseudoClassKind::PopoverOpen,
-            PseudoClassData::Defined { .. } => PseudoClassKind::Defined,
+            PseudoClassData::Open => PseudoClassKind::Open,
+            PseudoClassData::Closed => PseudoClassKind::Closed,
+            PseudoClassData::Modal => PseudoClassKind::Modal,
+            PseudoClassData::PictureInPicture => PseudoClassKind::PictureInPicture,
+            PseudoClassData::PopoverOpen => PseudoClassKind::PopoverOpen,
+            PseudoClassData::Defined => PseudoClassKind::Defined,
             PseudoClassData::AnyLink { .. } => PseudoClassKind::AnyLink,
-            PseudoClassData::Link { .. } => PseudoClassKind::Link,
-            PseudoClassData::LocalLink { .. } => PseudoClassKind::LocalLink,
-            PseudoClassData::Target { .. } => PseudoClassKind::Target,
-            PseudoClassData::TargetCurrent { .. } => PseudoClassKind::TargetCurrent,
-            PseudoClassData::TargetBefore { .. } => PseudoClassKind::TargetBefore,
-            PseudoClassData::TargetAfter { .. } => PseudoClassKind::TargetAfter,
-            PseudoClassData::TargetWithin { .. } => PseudoClassKind::TargetWithin,
-            PseudoClassData::Visited { .. } => PseudoClassKind::Visited,
-            PseudoClassData::Enabled { .. } => PseudoClassKind::Enabled,
-            PseudoClassData::Disabled { .. } => PseudoClassKind::Disabled,
+            PseudoClassData::Link => PseudoClassKind::Link,
+            PseudoClassData::LocalLink => PseudoClassKind::LocalLink,
+            PseudoClassData::Target => PseudoClassKind::Target,
+            PseudoClassData::TargetCurrent => PseudoClassKind::TargetCurrent,
+            PseudoClassData::TargetBefore => PseudoClassKind::TargetBefore,
+            PseudoClassData::TargetAfter => PseudoClassKind::TargetAfter,
+            PseudoClassData::TargetWithin => PseudoClassKind::TargetWithin,
+            PseudoClassData::Visited => PseudoClassKind::Visited,
+            PseudoClassData::Enabled => PseudoClassKind::Enabled,
+            PseudoClassData::Disabled => PseudoClassKind::Disabled,
             PseudoClassData::ReadOnly { .. } => PseudoClassKind::ReadOnly,
             PseudoClassData::ReadWrite { .. } => PseudoClassKind::ReadWrite,
             PseudoClassData::PlaceholderShown { .. } => PseudoClassKind::PlaceholderShown,
-            PseudoClassData::Default { .. } => PseudoClassKind::Default,
-            PseudoClassData::Checked { .. } => PseudoClassKind::Checked,
-            PseudoClassData::Indeterminate { .. } => PseudoClassKind::Indeterminate,
-            PseudoClassData::Blank { .. } => PseudoClassKind::Blank,
-            PseudoClassData::Valid { .. } => PseudoClassKind::Valid,
-            PseudoClassData::Invalid { .. } => PseudoClassKind::Invalid,
-            PseudoClassData::InRange { .. } => PseudoClassKind::InRange,
-            PseudoClassData::OutOfRange { .. } => PseudoClassKind::OutOfRange,
-            PseudoClassData::Required { .. } => PseudoClassKind::Required,
-            PseudoClassData::Optional { .. } => PseudoClassKind::Optional,
-            PseudoClassData::UserValid { .. } => PseudoClassKind::UserValid,
-            PseudoClassData::UserInvalid { .. } => PseudoClassKind::UserInvalid,
+            PseudoClassData::Default => PseudoClassKind::Default,
+            PseudoClassData::Checked => PseudoClassKind::Checked,
+            PseudoClassData::Indeterminate => PseudoClassKind::Indeterminate,
+            PseudoClassData::Blank => PseudoClassKind::Blank,
+            PseudoClassData::Valid => PseudoClassKind::Valid,
+            PseudoClassData::Invalid => PseudoClassKind::Invalid,
+            PseudoClassData::InRange => PseudoClassKind::InRange,
+            PseudoClassData::OutOfRange => PseudoClassKind::OutOfRange,
+            PseudoClassData::Required => PseudoClassKind::Required,
+            PseudoClassData::Optional => PseudoClassKind::Optional,
+            PseudoClassData::UserValid => PseudoClassKind::UserValid,
+            PseudoClassData::UserInvalid => PseudoClassKind::UserInvalid,
             PseudoClassData::Autofill { .. } => PseudoClassKind::Autofill,
-            PseudoClassData::ActiveViewTransition { .. } => PseudoClassKind::ActiveViewTransition,
+            PseudoClassData::ActiveViewTransition => PseudoClassKind::ActiveViewTransition,
             PseudoClassData::ActiveViewTransitionType { .. } => {
                 PseudoClassKind::ActiveViewTransitionType
             }
@@ -859,25 +859,25 @@ impl<'ast> PseudoElement<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> PseudoElementKind {
         match ast.data(self) {
-            PseudoElementData::After { .. } => PseudoElementKind::After,
-            PseudoElementData::Before { .. } => PseudoElementKind::Before,
-            PseudoElementData::FirstLine { .. } => PseudoElementKind::FirstLine,
-            PseudoElementData::FirstLetter { .. } => PseudoElementKind::FirstLetter,
-            PseudoElementData::DetailsContent { .. } => PseudoElementKind::DetailsContent,
-            PseudoElementData::TargetText { .. } => PseudoElementKind::TargetText,
-            PseudoElementData::SearchText { .. } => PseudoElementKind::SearchText,
+            PseudoElementData::After => PseudoElementKind::After,
+            PseudoElementData::Before => PseudoElementKind::Before,
+            PseudoElementData::FirstLine => PseudoElementKind::FirstLine,
+            PseudoElementData::FirstLetter => PseudoElementKind::FirstLetter,
+            PseudoElementData::DetailsContent => PseudoElementKind::DetailsContent,
+            PseudoElementData::TargetText => PseudoElementKind::TargetText,
+            PseudoElementData::SearchText => PseudoElementKind::SearchText,
             PseudoElementData::Selection { .. } => PseudoElementKind::Selection,
             PseudoElementData::Placeholder { .. } => PseudoElementKind::Placeholder,
             PseudoElementData::HighlightFunction { .. } => PseudoElementKind::HighlightFunction,
-            PseudoElementData::Marker { .. } => PseudoElementKind::Marker,
+            PseudoElementData::Marker => PseudoElementKind::Marker,
             PseudoElementData::Backdrop { .. } => PseudoElementKind::Backdrop,
             PseudoElementData::FileSelectorButton { .. } => PseudoElementKind::FileSelectorButton,
             PseudoElementData::WebKitScrollbar { .. } => PseudoElementKind::WebKitScrollbar,
-            PseudoElementData::Cue { .. } => PseudoElementKind::Cue,
-            PseudoElementData::CueRegion { .. } => PseudoElementKind::CueRegion,
+            PseudoElementData::Cue => PseudoElementKind::Cue,
+            PseudoElementData::CueRegion => PseudoElementKind::CueRegion,
             PseudoElementData::CueFunction { .. } => PseudoElementKind::CueFunction,
             PseudoElementData::CueRegionFunction { .. } => PseudoElementKind::CueRegionFunction,
-            PseudoElementData::ViewTransition { .. } => PseudoElementKind::ViewTransition,
+            PseudoElementData::ViewTransition => PseudoElementKind::ViewTransition,
             PseudoElementData::ViewTransitionGroup { .. } => PseudoElementKind::ViewTransitionGroup,
             PseudoElementData::ViewTransitionImagePair { .. } => {
                 PseudoElementKind::ViewTransitionImagePair
@@ -885,10 +885,10 @@ impl<'ast> PseudoElement<'ast> {
             PseudoElementData::ViewTransitionOld { .. } => PseudoElementKind::ViewTransitionOld,
             PseudoElementData::ViewTransitionNew { .. } => PseudoElementKind::ViewTransitionNew,
             PseudoElementData::PickerFunction { .. } => PseudoElementKind::PickerFunction,
-            PseudoElementData::PickerIcon { .. } => PseudoElementKind::PickerIcon,
-            PseudoElementData::Checkmark { .. } => PseudoElementKind::Checkmark,
-            PseudoElementData::GrammarError { .. } => PseudoElementKind::GrammarError,
-            PseudoElementData::SpellingError { .. } => PseudoElementKind::SpellingError,
+            PseudoElementData::PickerIcon => PseudoElementKind::PickerIcon,
+            PseudoElementData::Checkmark => PseudoElementKind::Checkmark,
+            PseudoElementData::GrammarError => PseudoElementKind::GrammarError,
+            PseudoElementData::SpellingError => PseudoElementKind::SpellingError,
             PseudoElementData::Custom { .. } => PseudoElementKind::Custom,
             PseudoElementData::CustomFunction { .. } => PseudoElementKind::CustomFunction,
         }

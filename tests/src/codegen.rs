@@ -15,7 +15,10 @@ fn prints_expected_css() {
                 .unwrap_or_else(|error| panic!("{} should parse: {error:?}", input.display()));
 
             let actual = stylesheet
-                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .to_css_string(
+                    PrinterOptions::default(),
+                    &ToCssContext::new(&token, stylesheet.ast()),
+                )
                 .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
 
             assert_eq!(actual, expected, "fixture: {}", input.display());
@@ -39,13 +42,13 @@ fn preserves_leading_license_comments_in_all_output_modes() {
         let pretty = stylesheet
             .to_css_string(
                 PrinterOptions { prettify: true },
-                &ToCssContext::new(&token),
+                &ToCssContext::new(&token, stylesheet.ast()),
             )
             .expect("stylesheet should print in pretty mode");
         let compact = stylesheet
             .to_css_string(
                 PrinterOptions { prettify: false },
-                &ToCssContext::new(&token),
+                &ToCssContext::new(&token, stylesheet.ast()),
             )
             .expect("stylesheet should print in compact mode");
 

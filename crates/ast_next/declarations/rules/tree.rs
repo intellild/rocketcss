@@ -4,6 +4,8 @@
 #[ast]
 pub struct StyleSheet<'a> {
     pub rules: Vec<'a, CssRule<'a>>,
+    /// Authored `/*! ... */` license comments preserved at the top of the file.
+    pub license_comments: Vec<'a, &'a str>,
 }
 
 /// One authored or synthesized rule with its direct children and declarations.
@@ -18,6 +20,15 @@ pub struct CssRule<'a> {
 #[ast]
 pub struct DeclarationBlock<'a> {
     pub declarations: Vec<'a, DeclarationPayload<'a>>,
+    /// Authored `!important` flags, parallel to `declarations`.
+    pub important: Vec<'a, bool>,
+}
+
+/// One declaration payload together with its authored `!important` flag.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeclarationEntry<'a> {
+    pub payload: DeclarationPayload<'a>,
+    pub important: bool,
 }
 
 /// One typed descriptor occurrence inside `@property`.

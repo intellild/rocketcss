@@ -5,23 +5,14 @@
 use std::fmt;
 use std::ops::{BitOr, Range};
 
-use rocketcss_ast::Token as ValueToken;
+use crate::lexer::Token as ValueToken;
 
 use crate::tokenizer::TokenizerState;
 use crate::{Compiler, SourceLocation, SourcePosition, Span, Token, TokenAndSpan, Tokenizer};
 
-mod color;
-mod css_rule;
-mod length;
-mod media;
-mod properties;
-mod radix_ast;
-mod rules;
-mod selector;
 pub(crate) mod stylesheet;
 mod token;
 mod traits;
-mod values;
 
 pub use traits::{Error, Parse, ParserError, ParserOptions};
 
@@ -297,6 +288,7 @@ impl<'ast> DeclarationTokenReplay<'ast> {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn counters(&self) -> ReplayCounters {
         ReplayCounters {
             decodes: self.decodes,
@@ -308,6 +300,7 @@ impl<'ast> DeclarationTokenReplay<'ast> {
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) struct ReplayCounters {
     pub decodes: usize,
     pub replay_hits: usize,
@@ -850,6 +843,7 @@ impl<'i> Compiler<'i> {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn replay_counters(&self) -> ReplayCounters {
         self.replay.counters()
     }

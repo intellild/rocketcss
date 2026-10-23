@@ -1,11 +1,10 @@
 use std::borrow::Cow;
 
-use rocketcss_ast::{Token as ValueToken, Unit, match_ignore_ascii_case};
+use crate::lexer::{LengthUnit, Token as ValueToken, Unit};
+use crate::match_ignore_ascii_case;
 use rocketcss_common::Allocator;
 
 use crate::{Span, Token};
-
-use super::length::parse_length_unit_name;
 
 pub(crate) fn decode_token<'i>(
     kind: Token,
@@ -63,6 +62,62 @@ pub(crate) fn decode_token<'i>(
         Token::CloseSquareBracket => ValueToken::CloseSquareBracket,
         Token::CloseCurlyBracket => ValueToken::CloseCurlyBracket,
     }
+}
+
+fn parse_length_unit_name(unit: &str) -> Option<LengthUnit> {
+    match_ignore_ascii_case!(
+        unit,
+        "px" => Some(LengthUnit::Px),
+        "in" => Some(LengthUnit::In),
+        "cm" => Some(LengthUnit::Cm),
+        "mm" => Some(LengthUnit::Mm),
+        "q" => Some(LengthUnit::Q),
+        "pt" => Some(LengthUnit::Pt),
+        "pc" => Some(LengthUnit::Pc),
+        "em" => Some(LengthUnit::Em),
+        "rem" => Some(LengthUnit::Rem),
+        "ex" => Some(LengthUnit::Ex),
+        "rex" => Some(LengthUnit::Rex),
+        "ch" => Some(LengthUnit::Ch),
+        "rch" => Some(LengthUnit::Rch),
+        "cap" => Some(LengthUnit::Cap),
+        "rcap" => Some(LengthUnit::Rcap),
+        "ic" => Some(LengthUnit::Ic),
+        "ric" => Some(LengthUnit::Ric),
+        "lh" => Some(LengthUnit::Lh),
+        "rlh" => Some(LengthUnit::Rlh),
+        "vw" => Some(LengthUnit::Vw),
+        "lvw" => Some(LengthUnit::Lvw),
+        "svw" => Some(LengthUnit::Svw),
+        "dvw" => Some(LengthUnit::Dvw),
+        "cqw" => Some(LengthUnit::Cqw),
+        "vh" => Some(LengthUnit::Vh),
+        "lvh" => Some(LengthUnit::Lvh),
+        "svh" => Some(LengthUnit::Svh),
+        "dvh" => Some(LengthUnit::Dvh),
+        "cqh" => Some(LengthUnit::Cqh),
+        "vi" => Some(LengthUnit::Vi),
+        "svi" => Some(LengthUnit::Svi),
+        "lvi" => Some(LengthUnit::Lvi),
+        "dvi" => Some(LengthUnit::Dvi),
+        "cqi" => Some(LengthUnit::Cqi),
+        "vb" => Some(LengthUnit::Vb),
+        "svb" => Some(LengthUnit::Svb),
+        "lvb" => Some(LengthUnit::Lvb),
+        "dvb" => Some(LengthUnit::Dvb),
+        "cqb" => Some(LengthUnit::Cqb),
+        "vmin" => Some(LengthUnit::Vmin),
+        "svmin" => Some(LengthUnit::Svmin),
+        "lvmin" => Some(LengthUnit::Lvmin),
+        "dvmin" => Some(LengthUnit::Dvmin),
+        "cqmin" => Some(LengthUnit::Cqmin),
+        "vmax" => Some(LengthUnit::Vmax),
+        "svmax" => Some(LengthUnit::Svmax),
+        "lvmax" => Some(LengthUnit::Lvmax),
+        "dvmax" => Some(LengthUnit::Dvmax),
+        "cqmax" => Some(LengthUnit::Cqmax),
+        _ => None,
+    )
 }
 
 fn parse_unit(unit: &str) -> Option<Unit> {

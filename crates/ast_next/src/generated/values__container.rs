@@ -1,5 +1,5 @@
 use crate::*;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ContainerType {
     Normal,
     InlineSize,
@@ -40,7 +40,7 @@ impl<'ast> ContainerNameList<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> ContainerNameListKind {
         match ast.data(self) {
-            ContainerNameListData::None { .. } => ContainerNameListKind::None,
+            ContainerNameListData::None => ContainerNameListKind::None,
             ContainerNameListData::Names { .. } => ContainerNameListKind::Names,
         }
     }

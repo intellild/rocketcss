@@ -4,7 +4,7 @@ use rocketcss_common::Allocator;
 
 use crate::{
     NodeId, NodeKind, NodePayload, NodeStorage, Span,
-    storage::{inline_data_size, NodePayload as Payload},
+    storage::{NodePayload as Payload, inline_data_size},
 };
 
 /// Compiler-owned storage for one flattened syntax tree.
@@ -27,6 +27,17 @@ impl<'ast> Ast<'ast> {
             spans: Vec::new(),
             kinds: Vec::new(),
             payloads: Vec::new(),
+        }
+    }
+
+    /// Creates a context with preallocated node columns.
+    #[inline]
+    pub fn with_capacity_in(allocator: &'ast Allocator, capacity: usize) -> Self {
+        Self {
+            allocator,
+            spans: Vec::with_capacity(capacity),
+            kinds: Vec::with_capacity(capacity),
+            payloads: Vec::with_capacity(capacity),
         }
     }
 

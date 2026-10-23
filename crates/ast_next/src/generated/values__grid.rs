@@ -35,7 +35,7 @@ impl<'ast> TrackSizing<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> TrackSizingKind {
         match ast.data(self) {
-            TrackSizingData::None { .. } => TrackSizingKind::None,
+            TrackSizingData::None => TrackSizingKind::None,
             TrackSizingData::TrackList { .. } => TrackSizingKind::TrackList,
         }
     }
@@ -228,9 +228,9 @@ impl<'ast> TrackBreadth<'ast> {
         match ast.data(self) {
             TrackBreadthData::Length { .. } => TrackBreadthKind::Length,
             TrackBreadthData::Flex { .. } => TrackBreadthKind::Flex,
-            TrackBreadthData::MinContent { .. } => TrackBreadthKind::MinContent,
-            TrackBreadthData::MaxContent { .. } => TrackBreadthKind::MaxContent,
-            TrackBreadthData::Auto { .. } => TrackBreadthKind::Auto,
+            TrackBreadthData::MinContent => TrackBreadthKind::MinContent,
+            TrackBreadthData::MaxContent => TrackBreadthKind::MaxContent,
+            TrackBreadthData::Auto => TrackBreadthKind::Auto,
         }
     }
 }
@@ -306,7 +306,7 @@ impl<'ast> GridTemplateAreas<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> GridTemplateAreasKind {
         match ast.data(self) {
-            GridTemplateAreasData::None { .. } => GridTemplateAreasKind::None,
+            GridTemplateAreasData::None => GridTemplateAreasKind::None,
             GridTemplateAreasData::Areas { .. } => GridTemplateAreasKind::Areas,
         }
     }
@@ -371,7 +371,7 @@ impl<'ast> GridLine<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> GridLineKind {
         match ast.data(self) {
-            GridLineData::Auto { .. } => GridLineKind::Auto,
+            GridLineData::Auto => GridLineKind::Auto,
             GridLineData::Area { .. } => GridLineKind::Area,
             GridLineData::Line { .. } => GridLineKind::Line,
             GridLineData::Span { .. } => GridLineKind::Span,

@@ -56,7 +56,10 @@ fn lightningcss_stylesheet_ast_to_css_corpus() {
                 panic!("{name}: parser corpus stopped producing an AST: {error:?}")
             });
             stylesheet
-                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .to_css_string(
+                    PrinterOptions::default(),
+                    &ToCssContext::new(&token, stylesheet.ast()),
+                )
                 .expect("rocketcss AST should serialize")
         });
         compared += 1;

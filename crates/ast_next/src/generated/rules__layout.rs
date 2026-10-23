@@ -828,7 +828,7 @@ impl<'ast> ColumnWidth<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> ColumnWidthKind {
         match ast.data(self) {
-            ColumnWidthData::Auto { .. } => ColumnWidthKind::Auto,
+            ColumnWidthData::Auto => ColumnWidthKind::Auto,
             ColumnWidthData::Length { .. } => ColumnWidthKind::Length,
         }
     }

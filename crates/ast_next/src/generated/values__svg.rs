@@ -43,9 +43,9 @@ impl<'ast> SVGPaint<'ast> {
         match ast.data(self) {
             SVGPaintData::Url { .. } => SVGPaintKind::Url,
             SVGPaintData::Color { .. } => SVGPaintKind::Color,
-            SVGPaintData::ContextFill { .. } => SVGPaintKind::ContextFill,
-            SVGPaintData::ContextStroke { .. } => SVGPaintKind::ContextStroke,
-            SVGPaintData::None { .. } => SVGPaintKind::None,
+            SVGPaintData::ContextFill => SVGPaintKind::ContextFill,
+            SVGPaintData::ContextStroke => SVGPaintKind::ContextStroke,
+            SVGPaintData::None => SVGPaintKind::None,
         }
     }
 }
@@ -101,7 +101,7 @@ impl<'ast> SVGPaintFallback<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> SVGPaintFallbackKind {
         match ast.data(self) {
-            SVGPaintFallbackData::None { .. } => SVGPaintFallbackKind::None,
+            SVGPaintFallbackData::None => SVGPaintFallbackKind::None,
             SVGPaintFallbackData::Color { .. } => SVGPaintFallbackKind::Color,
         }
     }
@@ -184,7 +184,7 @@ impl<'ast> StrokeDasharray<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> StrokeDasharrayKind {
         match ast.data(self) {
-            StrokeDasharrayData::None { .. } => StrokeDasharrayKind::None,
+            StrokeDasharrayData::None => StrokeDasharrayKind::None,
             StrokeDasharrayData::Values { .. } => StrokeDasharrayKind::Values,
         }
     }
@@ -245,7 +245,7 @@ impl<'ast> Marker<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> MarkerKind {
         match ast.data(self) {
-            MarkerData::None { .. } => MarkerKind::None,
+            MarkerData::None => MarkerKind::None,
             MarkerData::Url { .. } => MarkerKind::Url,
         }
     }

@@ -183,27 +183,27 @@ impl<'ast> FontFamily<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> FontFamilyKind {
         match ast.data(self) {
-            FontFamilyData::Serif { .. } => FontFamilyKind::Serif,
-            FontFamilyData::SansSerif { .. } => FontFamilyKind::SansSerif,
-            FontFamilyData::Cursive { .. } => FontFamilyKind::Cursive,
-            FontFamilyData::Fantasy { .. } => FontFamilyKind::Fantasy,
-            FontFamilyData::Monospace { .. } => FontFamilyKind::Monospace,
-            FontFamilyData::SystemUi { .. } => FontFamilyKind::SystemUi,
-            FontFamilyData::Emoji { .. } => FontFamilyKind::Emoji,
-            FontFamilyData::Math { .. } => FontFamilyKind::Math,
-            FontFamilyData::Fangsong { .. } => FontFamilyKind::Fangsong,
-            FontFamilyData::UiSerif { .. } => FontFamilyKind::UiSerif,
-            FontFamilyData::UiSansSerif { .. } => FontFamilyKind::UiSansSerif,
-            FontFamilyData::UiMonospace { .. } => FontFamilyKind::UiMonospace,
-            FontFamilyData::UiRounded { .. } => FontFamilyKind::UiRounded,
-            FontFamilyData::Initial { .. } => FontFamilyKind::Initial,
-            FontFamilyData::Inherit { .. } => FontFamilyKind::Inherit,
-            FontFamilyData::Unset { .. } => FontFamilyKind::Unset,
-            FontFamilyData::Default { .. } => FontFamilyKind::Default,
-            FontFamilyData::Revert { .. } => FontFamilyKind::Revert,
-            FontFamilyData::RevertLayer { .. } => FontFamilyKind::RevertLayer,
+            FontFamilyData::Serif => FontFamilyKind::Serif,
+            FontFamilyData::SansSerif => FontFamilyKind::SansSerif,
+            FontFamilyData::Cursive => FontFamilyKind::Cursive,
+            FontFamilyData::Fantasy => FontFamilyKind::Fantasy,
+            FontFamilyData::Monospace => FontFamilyKind::Monospace,
+            FontFamilyData::SystemUi => FontFamilyKind::SystemUi,
+            FontFamilyData::Emoji => FontFamilyKind::Emoji,
+            FontFamilyData::Math => FontFamilyKind::Math,
+            FontFamilyData::Fangsong => FontFamilyKind::Fangsong,
+            FontFamilyData::UiSerif => FontFamilyKind::UiSerif,
+            FontFamilyData::UiSansSerif => FontFamilyKind::UiSansSerif,
+            FontFamilyData::UiMonospace => FontFamilyKind::UiMonospace,
+            FontFamilyData::UiRounded => FontFamilyKind::UiRounded,
+            FontFamilyData::Initial => FontFamilyKind::Initial,
+            FontFamilyData::Inherit => FontFamilyKind::Inherit,
+            FontFamilyData::Unset => FontFamilyKind::Unset,
+            FontFamilyData::Default => FontFamilyKind::Default,
+            FontFamilyData::Revert => FontFamilyKind::Revert,
+            FontFamilyData::RevertLayer => FontFamilyKind::RevertLayer,
             FontFamilyData::Unparsed { .. } => FontFamilyKind::Unparsed,
-            FontFamilyData::Tombstone { .. } => FontFamilyKind::Tombstone,
+            FontFamilyData::Tombstone => FontFamilyKind::Tombstone,
             FontFamilyData::Custom { .. } => FontFamilyKind::Custom,
         }
     }
@@ -284,7 +284,7 @@ impl<'ast> LineHeight<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> LineHeightKind {
         match ast.data(self) {
-            LineHeightData::Normal { .. } => LineHeightKind::Normal,
+            LineHeightData::Normal => LineHeightKind::Normal,
             LineHeightData::Number { .. } => LineHeightKind::Number,
             LineHeightData::Length { .. } => LineHeightKind::Length,
         }

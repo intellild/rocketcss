@@ -42,7 +42,7 @@ impl<'ast> ScrollbarColor<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> ScrollbarColorKind {
         match ast.data(self) {
-            ScrollbarColorData::Auto { .. } => ScrollbarColorKind::Auto,
+            ScrollbarColorData::Auto => ScrollbarColorKind::Auto,
             ScrollbarColorData::Colors { .. } => ScrollbarColorKind::Colors,
         }
     }
@@ -196,7 +196,7 @@ impl<'ast> ColorOrAuto<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> ColorOrAutoKind {
         match ast.data(self) {
-            ColorOrAutoData::Auto { .. } => ColorOrAutoKind::Auto,
+            ColorOrAutoData::Auto => ColorOrAutoKind::Auto,
             ColorOrAutoData::Color { .. } => ColorOrAutoKind::Color,
         }
     }

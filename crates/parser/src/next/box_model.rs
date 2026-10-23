@@ -4,7 +4,7 @@ use super::prelude::*;
 
 impl<'i> Parse<'i> for Display<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let mut outside = None;
         let mut inside = None;
         let mut is_list_item = false;
@@ -159,9 +159,9 @@ impl<'i> Parse<'i> for Display<'i> {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
         let outside = outside.unwrap_or({
-            if inside.is_some_and(|inside| {
-                matches!(inside.data(input.ast()), DisplayInsideData::Ruby)
-            }) {
+            if inside
+                .is_some_and(|inside| matches!(inside.data(input.ast()), DisplayInsideData::Ruby))
+            {
                 DisplayOutside::Inline
             } else {
                 DisplayOutside::Block
@@ -260,13 +260,11 @@ impl<'i> Parse<'i> for OverflowKeyword {
 impl<'i> Parse<'i> for Overflow<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let x = OverflowKeyword::parse(input)?;
-        let y = input
-            .try_parse(OverflowKeyword::parse)
-            .unwrap_or_else(|_| x);
+        let y = input.try_parse(OverflowKeyword::parse).unwrap_or(x);
         input.expect_exhausted()?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_overflow(OverflowData { x, y }, DUMMY_SP))
+            .alloc_overflow(OverflowData { x, y }, span)))
     }
 }
 
@@ -280,9 +278,9 @@ impl<'i> Parse<'i> for AspectRatio<'i> {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
         input.expect_exhausted()?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_aspect_ratio(AspectRatioData { auto, ratio }, DUMMY_SP))
+            .alloc_aspect_ratio(AspectRatioData { auto, ratio }, span)))
     }
 }
 
@@ -293,13 +291,13 @@ fn parse_ratio<'i>(input: &mut Compiler<'i>) -> Result<Ratio<'i>, ParseError<'i,
     } else {
         None
     };
-    Ok(input.ast_mut().alloc_ratio(
+    Ok(with_token_span!(input, |span| input.ast_mut().alloc_ratio(
         RatioData {
             denominator,
             numerator,
         },
-        DUMMY_SP,
-    ))
+        span,
+    )))
 }
 
 impl<'i> Parse<'i> for LengthPercentageOrAuto<'i> {
@@ -308,17 +306,20 @@ impl<'i> Parse<'i> for LengthPercentageOrAuto<'i> {
             .try_parse(|input| input.expect_ident_matching("auto"))
             .is_ok()
         {
-            return Ok(input
+            return Ok(with_token_span!(input, |span| input
                 .ast_mut()
-                .alloc_length_percentage_or_auto(LengthPercentageOrAutoData::Auto, DUMMY_SP));
+                .alloc_length_percentage_or_auto(
+                    LengthPercentageOrAutoData::Auto,
+                    span
+                )));
         }
         let value = <LengthPercentage>::parse(input)?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
             .alloc_length_percentage_or_auto(
                 LengthPercentageOrAutoData::LengthPercentage(value),
-                DUMMY_SP,
-            ))
+                span,
+            )))
     }
 }
 
@@ -362,10 +363,7 @@ fn parse_four_box_values_without_auto<'i>(
 ) -> Result<[LengthPercentageOrAuto<'i>; 4], ParseError<'i, ParserError<'i>>> {
     parse_four_box_values_with(input, |input| {
         let value = LengthPercentageOrAuto::parse(input)?;
-        if matches!(
-            value.data(input.ast()),
-            LengthPercentageOrAutoData::Auto
-        ) {
+        if matches!(value.data(input.ast()), LengthPercentageOrAutoData::Auto) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
         Ok(value)
@@ -416,7 +414,11 @@ fn parse_logical_box_values<'i>(
         Ok(value)
     };
     let first = parse(input)?;
-    let second = if input.is_exhausted() { first } else { parse(input)? };
+    let second = if input.is_exhausted() {
+        first
+    } else {
+        parse(input)?
+    };
     input.expect_exhausted()?;
     Ok([first, second])
 }
@@ -428,7 +430,7 @@ macro_rules! parse_physical_box_values {
                 fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
                     let [top, right, bottom, left] = parse_four_box_values(input)?;
                     let data = $data { top, right, bottom, left };
-                    Ok(input.ast_mut().$alloc(data, DUMMY_SP))
+                    Ok(with_token_span!(input, |span| input.ast_mut().$alloc(data, span)))
                 }
             }
         )+
@@ -443,45 +445,51 @@ parse_physical_box_values!(
 impl<'i> Parse<'i> for ScrollMargin<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [top, right, bottom, left] = parse_four_box_values_without_auto(input)?;
-        Ok(input.ast_mut().alloc_scroll_margin(
-            ScrollMarginData {
-                top,
-                right,
-                bottom,
-                left,
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_scroll_margin(
+                ScrollMarginData {
+                    top,
+                    right,
+                    bottom,
+                    left,
+                },
+                span,
+            )))
     }
 }
 
 impl<'i> Parse<'i> for ScrollPadding<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [top, right, bottom, left] = parse_four_box_values_without_auto(input)?;
-        Ok(input.ast_mut().alloc_scroll_padding(
-            ScrollPaddingData {
-                top,
-                right,
-                bottom,
-                left,
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_scroll_padding(
+                ScrollPaddingData {
+                    top,
+                    right,
+                    bottom,
+                    left,
+                },
+                span,
+            )))
     }
 }
 
 impl<'i> Parse<'i> for Padding<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let [top, right, bottom, left] = parse_four_box_values_without_auto(input)?;
-        Ok(input.ast_mut().alloc_padding(
-            PaddingData {
-                top,
-                right,
-                bottom,
-                left,
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_padding(
+                PaddingData {
+                    top,
+                    right,
+                    bottom,
+                    left,
+                },
+                span,
+            )))
     }
 }
 
@@ -492,7 +500,7 @@ macro_rules! parse_logical_box_values {
                 fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
                     let [$first, $second] = parse_logical_box_values(input, $allow_auto)?;
                     let data = $data { $first, $second };
-                    Ok(input.ast_mut().$alloc(data, DUMMY_SP))
+                    Ok(with_token_span!(input, |span| input.ast_mut().$alloc(data, span)))
                 }
             }
         )+

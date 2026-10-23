@@ -1,21 +1,23 @@
-use super::values::{
-    collect_custom_property_tokens, collect_tokens, css_wide_keyword, parse_animation_list,
-    parse_comma_separated, parse_font_family_list, parse_transform_list,
-    parse_transition_property_list, remove_important, trim_leading_whitespace,
-    value_contains_comment,
-};
-use crate::prelude::*;
+//! Property declaration parsing into the flattened AST.
+
 use std::ops::Range;
 
+use super::{
+    prelude::*,
+    values::{
+        collect_custom_property_tokens, collect_tokens, css_wide_keyword, remove_important,
+        trim_leading_whitespace,
+    },
+};
+
 #[derive(Clone, Copy)]
-pub(super) enum CssWideValueHint<'i> {
+pub(crate) enum CssWideValueHint<'i> {
     NotCssWide,
     Candidate(&'i str),
 }
 
-pub(super) fn parse_declaration_with_css_wide_hint<'i>(
+pub(crate) fn parse_declaration_with_css_wide_hint<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
     name: &'i str,
     depth: usize,
     css_wide_hint: CssWideValueHint<'i>,
@@ -26,17 +28,16 @@ pub(super) fn parse_declaration_with_css_wide_hint<'i>(
         && (matches!(css_wide_hint, CssWideValueHint::Candidate(_))
             || property_id.parser_strategy() != PropertyParserStrategy::Unsupported);
     if !replay_enabled {
-        return parse_declaration_fallback(input, allocator, name, depth, property_id, false);
+        return parse_declaration_fallback(input, name, depth, property_id, false);
     }
 
     input.with_declaration_token_replay(|input| {
-        parse_known_declaration_with_fallback(input, allocator, name, depth, css_wide_hint)
+        parse_known_declaration_with_fallback(input, name, depth, css_wide_hint)
     })
 }
 
 fn parse_known_declaration_with_fallback<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
     name: &'i str,
     depth: usize,
     css_wide_hint: CssWideValueHint<'i>,
@@ -61,25 +62,13 @@ fn parse_known_declaration_with_fallback<'i>(
             && !input.saw_comments_since(&start)
         {
             let _ = input.try_parse(Compiler::expect_semicolon);
-            let declaration = match property_id {
-                PropertyId::All => Declaration::All(keyword),
-                PropertyId::ColumnWidth(prefix) => {
-                    Declaration::ColumnWidth(CSSWideOr::CSSWide(keyword), prefix)
-                }
-                PropertyId::ColumnCount(prefix) => {
-                    Declaration::ColumnCount(CSSWideOr::CSSWide(keyword), prefix)
-                }
-                PropertyId::Columns(prefix) => {
-                    Declaration::Columns(CSSWideOr::CSSWide(keyword), prefix)
-                }
-                _ => Declaration::CSSWide(allocator.boxed(property_id), keyword),
-            };
+            let declaration = css_wide_declaration(input, property_id, keyword);
             return Ok((declaration, important));
         }
         input.reset(&start);
     }
 
-    let typed = try_parse_typed_declaration(input, &property_id, allocator, depth);
+    let typed = try_parse_typed_declaration(input, &property_id, depth);
     let typed_grammar_supported = typed.is_some();
     if let Some(Ok(declaration)) = typed
         && let Some(important) = parse_declaration_end(input)
@@ -90,75 +79,81 @@ fn parse_known_declaration_with_fallback<'i>(
     }
     input.reset(&start);
 
-    parse_declaration_fallback(
-        input,
-        allocator,
-        name,
-        depth,
-        property_id,
-        typed_grammar_supported,
-    )
+    parse_declaration_fallback(input, name, depth, property_id, typed_grammar_supported)
+}
+
+fn css_wide_declaration<'i>(
+    input: &mut Compiler<'i>,
+    property_id: PropertyId<'i>,
+    keyword: CSSWideKeyword,
+) -> Declaration<'i> {
+    let data = match property_id {
+        PropertyId::All => DeclarationData::All(keyword),
+        PropertyId::ColumnWidth(prefix) => {
+            DeclarationData::ColumnWidth(CSSWideOr::CSSWide(keyword), prefix)
+        }
+        PropertyId::ColumnCount(prefix) => {
+            DeclarationData::ColumnCount(CSSWideOr::CSSWide(keyword), prefix)
+        }
+        PropertyId::Columns(prefix) => {
+            DeclarationData::Columns(CSSWideOr::CSSWide(keyword), prefix)
+        }
+        _ => DeclarationData::CSSWide(property_id, keyword),
+    };
+    alloc_declaration(input, data)
 }
 
 fn parse_declaration_fallback<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
     name: &'i str,
     depth: usize,
     property_id: PropertyId<'i>,
     typed_grammar_supported: bool,
 ) -> Result<(Declaration<'i>, bool), ParseError<'i, ParserError<'i>>> {
     let value_start = input.position();
-    let mut value = input.parse_until_before(Delimiter::Semicolon, |input| {
+    let value = input.parse_until_before(Delimiter::Semicolon, |input| {
         if name.starts_with("--") {
-            collect_custom_property_tokens(input, allocator, depth + 1)
+            collect_custom_property_tokens(input, depth + 1)
         } else {
-            collect_tokens(input, allocator, depth + 1)
+            collect_tokens(input, depth + 1)
         }
     })?;
     let raw_value = input.slice(value_start..input.position());
     let _ = input.try_parse(Compiler::expect_semicolon);
-    let important = remove_important(&mut value);
+    let (important, value) = remove_important(input.ast(), value);
 
     let declaration = if name.starts_with("--") {
-        Declaration::Custom(allocator.boxed(CustomProperty {
-            name: allocator.boxed(CustomPropertyName::Custom(name)),
-            value,
-        }))
+        let custom = with_token_span!(input, |span| input.ast_mut().alloc_custom_property(
+            CustomPropertyData {
+                name: CustomPropertyName::Custom(name),
+                value,
+            },
+            span,
+        ));
+        alloc_declaration(input, DeclarationData::Custom(custom))
     } else {
-        trim_leading_whitespace(&mut value);
-        let reason = unparsed_reason(&property_id, &value, typed_grammar_supported);
-        unparsed_declaration(
-            property_id,
-            value,
-            reason,
-            preserve_unparsed_value(raw_value, important, allocator),
-            allocator,
-        )
+        let value = trim_leading_whitespace(input.ast(), value);
+        let reason = unparsed_reason(input.ast(), &property_id, value, typed_grammar_supported);
+        let raw_value = preserve_unparsed_value(input, raw_value, important);
+        let unparsed = with_token_span!(input, |span| input.ast_mut().alloc_unparsed_property(
+            UnparsedPropertyData {
+                property_id,
+                reason,
+                raw_value,
+                value,
+            },
+            span,
+        ));
+        alloc_declaration(input, DeclarationData::Unparsed(unparsed))
     };
 
     Ok((declaration, important))
 }
 
-pub(super) fn unparsed_declaration<'i>(
-    property_id: PropertyId<'i>,
-    value: Vec<'i, TokenOrValue<'i>>,
-    reason: UnparsedPropertyReason,
-    raw_value: Option<&'i str>,
-    allocator: &'i Allocator,
-) -> Declaration<'i> {
-    Declaration::Unparsed(allocator.boxed(UnparsedProperty {
-        property_id: allocator.boxed(property_id),
-        reason,
-        raw_value,
-        value,
-    }))
-}
-
 fn preserve_unparsed_value<'i>(
+    input: &mut Compiler<'i>,
     raw_value: &'i str,
     important: bool,
-    allocator: &'i Allocator,
 ) -> Option<&'i str> {
     let raw_value = trim_css_whitespace(raw_value);
     if !important {
@@ -170,7 +165,11 @@ fn preserve_unparsed_value<'i>(
     without_important.push_str(&raw_value[..bang.start]);
     without_important.push_str(&raw_value[bang.end..important.start]);
     without_important.push_str(&raw_value[important.end..]);
-    Some(allocator.alloc_str(trim_css_whitespace(&without_important)))
+    Some(
+        input
+            .ast()
+            .alloc_str(trim_css_whitespace(&without_important)),
+    )
 }
 
 fn trim_css_whitespace(value: &str) -> &str {
@@ -232,44 +231,47 @@ fn find_trailing_important(value: &str) -> Option<(Range<usize>, Range<usize>)> 
     ))
 }
 
-fn unparsed_reason(
-    property_id: &PropertyId<'_>,
-    value: &[TokenOrValue<'_>],
+fn unparsed_reason<'i>(
+    ast: &Ast<'i>,
+    property_id: &PropertyId<'i>,
+    value: &[TokenOrValue<'i>],
     typed_grammar_supported: bool,
 ) -> UnparsedPropertyReason {
     if matches!(property_id, PropertyId::Custom(_)) {
         return UnparsedPropertyReason::UnknownProperty;
     }
-    if value.iter().any(token_value_is_comment) {
+    if value.iter().any(|value| token_value_is_comment(ast, value)) {
         return UnparsedPropertyReason::OpaqueValue;
     }
     if !typed_grammar_supported {
         return UnparsedPropertyReason::UnsupportedGrammar;
     }
-    // `background` currently has a typed fast path for color-only values, but
-    // its full shorthand grammar is not implemented yet. A failed fast path
-    // therefore means "unsupported grammar", not invalid syntax.
     if matches!(property_id, PropertyId::Background) {
         return UnparsedPropertyReason::UnsupportedGrammar;
     }
-    if value.iter().any(token_value_is_opaque) {
+    if value.iter().any(|value| token_value_is_opaque(ast, value)) {
         return UnparsedPropertyReason::OpaqueValue;
     }
     UnparsedPropertyReason::InvalidValue
 }
 
-fn token_value_is_comment(value: &TokenOrValue<'_>) -> bool {
+fn token_value_is_comment<'i>(ast: &Ast<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
-        value,
-        TokenOrValue::Token(token) if matches!(**token, ValueToken::Comment(_))
+        value.data(ast),
+        TokenOrValueData::Token(token) if matches!(token.data(ast), TokenData::Comment(_))
     )
 }
 
-fn token_value_is_opaque(value: &TokenOrValue<'_>) -> bool {
+fn token_value_is_opaque<'i>(ast: &Ast<'i>, value: &TokenOrValue<'i>) -> bool {
     matches!(
-        value,
-        TokenOrValue::Function(_) | TokenOrValue::Var(_) | TokenOrValue::Env(_)
+        value.data(ast),
+        TokenOrValueData::Function(_) | TokenOrValueData::Var(_) | TokenOrValueData::Env(_)
     )
+}
+
+#[inline]
+fn alloc_declaration<'i>(input: &mut Compiler<'i>, data: DeclarationData<'i>) -> Declaration<'i> {
+    with_token_span!(input, |span| input.ast_mut().alloc_declaration(data, span))
 }
 
 macro_rules! generate_typed_parser {
@@ -283,7 +285,6 @@ macro_rules! generate_typed_parser {
         fn try_parse_typed_declaration<'i>(
             input: &mut Compiler<'i>,
             property_id: &PropertyId<'i>,
-            allocator: &'i Allocator,
             depth: usize,
         ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
             $(
@@ -293,208 +294,208 @@ macro_rules! generate_typed_parser {
                     ;
                     $property, $value;
                     $($vp)?;
-                    input, property_id, allocator, depth
+                    input, property_id, depth
                 );
             )+
             None
         }
     };
 
-    (@dispatch ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {};
-    (@dispatch ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {};
-    (@dispatch unsupported ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {};
-    (@dispatch unsupported ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {};
+    (@dispatch ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {};
+    (@dispatch ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {};
+    (@dispatch unsupported ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {};
+    (@dispatch unsupported ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {};
 
-    (@dispatch parse : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch parse : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property(value)));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value))));
         }
     };
-    (@dispatch parse : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch parse : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property(value, *prefix)));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value, *prefix))));
         }
     };
 
-    (@dispatch boxed : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch boxed : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value))));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value))));
         }
     };
-    (@dispatch boxed : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch boxed : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value, *prefix))));
         }
     };
 
-    (@dispatch comma_separated : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch comma_separated : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
-                |input| super::values::parse_comma_separated(input, <$parser as Parse>::parse),
-            ).map(Declaration::$property));
+                |input| super::animation::parse_comma_separated(input, <$parser as Parse>::parse),
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value))));
         }
     };
-    (@dispatch comma_separated : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch comma_separated : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
-                |input| super::values::parse_comma_separated(input, <$parser as Parse>::parse),
-            ).map(|value| Declaration::$property(value, *prefix)));
+                |input| super::animation::parse_comma_separated(input, <$parser as Parse>::parse),
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value, *prefix))));
         }
     };
 
-    (@dispatch whitespace_separated : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
-        if let PropertyId::$property = $property_id {
-            return Some($input.parse_until_before_stop_on_error(
-                Delimiter::Bang | Delimiter::Semicolon,
-                <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value))));
-        }
-    };
-    (@dispatch whitespace_separated : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
-        if let PropertyId::$property(prefix) = $property_id {
-            return Some($input.parse_until_before_stop_on_error(
-                Delimiter::Bang | Delimiter::Semicolon,
-                <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
-        }
-    };
-
-    (@dispatch rect : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch whitespace_separated : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value))));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value))));
         }
     };
-    (@dispatch rect : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch whitespace_separated : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value, *prefix))));
         }
     };
 
-    (@dispatch two_value : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch rect : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value))));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value))));
         }
     };
-    (@dispatch two_value : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch rect : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property($allocator.boxed(value), *prefix)));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value, *prefix))));
         }
     };
 
-    (@dispatch custom : $adapter:ident ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
-        if let PropertyId::$property = $property_id {
-            return $adapter($input, $allocator, $depth);
-        }
-    };
-    (@dispatch custom : $adapter:ident ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
-        if let PropertyId::$property(prefix) = $property_id {
-            return $adapter($input, $allocator, *prefix, $depth);
-        }
-    };
-
-    (@dispatch css_wide : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch two_value : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property(CSSWideOr::Value(value))));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value))));
         }
     };
-    (@dispatch css_wide : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch two_value : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property(CSSWideOr::Value(value), *prefix)));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(value, *prefix))));
         }
     };
 
-    (@dispatch css_wide_boxed : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch custom : $adapter:ident ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
+        if let PropertyId::$property = $property_id {
+            return $adapter($input, $depth);
+        }
+    };
+    (@dispatch custom : $adapter:ident ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
+        if let PropertyId::$property(prefix) = $property_id {
+            return $adapter($input, *prefix, $depth);
+        }
+    };
+
+    (@dispatch css_wide : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property(CSSWideOr::Value($allocator.boxed(value)))));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(CSSWideOr::Value(value)))));
         }
     };
-    (@dispatch css_wide_boxed : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $allocator:ident, $depth:ident) => {
+    (@dispatch css_wide : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
         if let PropertyId::$property(prefix) = $property_id {
             return Some($input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 <$parser as Parse>::parse,
-            ).map(|value| Declaration::$property(CSSWideOr::Value($allocator.boxed(value)), *prefix)));
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(CSSWideOr::Value(value), *prefix))));
+        }
+    };
+
+    (@dispatch css_wide_boxed : $parser:ty ; $property:ident, $value:ty;; $input:ident, $property_id:ident, $depth:ident) => {
+        if let PropertyId::$property = $property_id {
+            return Some($input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                <$parser as Parse>::parse,
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(CSSWideOr::Value(value)))));
+        }
+    };
+    (@dispatch css_wide_boxed : $parser:ty ; $property:ident, $value:ty; $vp:tt; $input:ident, $property_id:ident, $depth:ident) => {
+        if let PropertyId::$property(prefix) = $property_id {
+            return Some($input.parse_until_before_stop_on_error(
+                Delimiter::Bang | Delimiter::Semicolon,
+                <$parser as Parse>::parse,
+            ).map(|value| alloc_declaration($input, DeclarationData::$property(CSSWideOr::Value(value), *prefix))));
         }
     };
 }
 
-rocketcss_ast::for_each_property!(generate_typed_parser);
+rocketcss_ast_next::for_each_property!(generate_typed_parser);
 
 fn parse_all<'i>(
     input: &mut Compiler<'i>,
-    _allocator: &'i Allocator,
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let ident = input.expect_ident()?;
-            css_wide_keyword(ident)
-                .map(Declaration::All)
-                .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))
+            let keyword = css_wide_keyword(ident)
+                .ok_or_else(|| input.new_custom_error(ParserError::InvalidValue))?;
+            Ok(alloc_declaration(input, DeclarationData::All(keyword)))
         }),
     )
 }
 
 fn parse_background<'i>(
     input: &mut Compiler<'i>,
-    allocator: &'i Allocator,
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            let mut values = allocator.vec();
-            values.push(Background::parse(input)?);
-            Ok(Declaration::Background(values))
+            let value = Background::parse(input)?;
+            let values = input.ast().alloc_slice(&[value]);
+            Ok(alloc_declaration(
+                input,
+                DeclarationData::Background(values),
+            ))
         }),
     )
 }
 
 fn parse_opacity<'i>(
     input: &mut Compiler<'i>,
-    _allocator: &'i Allocator,
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
             let location = input.current_source_location();
             match input.next()?.clone() {
-                ValueToken::Number(value) | ValueToken::Percentage(value) => {
-                    Ok(Declaration::Opacity(value))
+                OldToken::Number(value) | OldToken::Percentage(value) => {
+                    Ok(alloc_declaration(input, DeclarationData::Opacity(value)))
                 }
                 _ => Err(location.new_custom_error(ParserError::InvalidValue)),
             }
@@ -504,30 +505,31 @@ fn parse_opacity<'i>(
 
 fn parse_font_family<'i>(
     input: &mut Compiler<'i>,
-    _allocator: &'i Allocator,
     depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            let families = parse_font_family_list(input, depth)?;
+            let families = super::font::parse_font_family_list(input, depth)?;
             if families
                 .iter()
-                .any(|family| matches!(family, FontFamily::Unparsed(_)))
+                .any(|family| matches!(family.data(input.ast()), FontFamilyData::Unparsed(_)))
             {
                 return Err(input.new_custom_error(ParserError::InvalidValue));
             }
-            Ok(Declaration::FontFamily(families))
+            Ok(alloc_declaration(
+                input,
+                DeclarationData::FontFamily(families),
+            ))
         }),
     )
 }
 
 fn parse_transform<'i>(
     input: &mut Compiler<'i>,
-    _allocator: &'i Allocator,
     prefix: VendorPrefix,
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
-    if value_contains_comment(input) {
+    if super::animation::value_contains_comment(input) {
         return None;
     }
     if input
@@ -538,71 +540,71 @@ fn parse_transform<'i>(
     }
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            parse_transform_list(input).map(|value| Declaration::Transform(value, prefix))
+            super::transform::parse_transform_list(input)
+                .map(|value| alloc_declaration(input, DeclarationData::Transform(value, prefix)))
         }),
     )
 }
 
 fn parse_transition<'i>(
     input: &mut Compiler<'i>,
-    _allocator: &'i Allocator,
     prefix: VendorPrefix,
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
-    if value_contains_comment(input) {
+    if super::animation::value_contains_comment(input) {
         return None;
     }
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            parse_comma_separated(input, Transition::parse)
-                .map(|value| Declaration::Transition(value, prefix))
+            super::animation::parse_comma_separated(input, Transition::parse)
+                .map(|value| alloc_declaration(input, DeclarationData::Transition(value, prefix)))
         }),
     )
 }
 
 fn parse_transition_property<'i>(
     input: &mut Compiler<'i>,
-    _allocator: &'i Allocator,
     prefix: VendorPrefix,
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            parse_transition_property_list(input)
-                .map(|value| Declaration::TransitionProperty(value, prefix))
+            super::animation::parse_transition_property_list(input).map(|value| {
+                alloc_declaration(input, DeclarationData::TransitionProperty(value, prefix))
+            })
         }),
     )
 }
 
 fn parse_animation<'i>(
     input: &mut Compiler<'i>,
-    _allocator: &'i Allocator,
     prefix: VendorPrefix,
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
-    if value_contains_comment(input) {
+    if super::animation::value_contains_comment(input) {
         return None;
     }
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            parse_animation_list(input).map(|value| Declaration::Animation(value, prefix))
+            super::animation::parse_animation_list(input)
+                .map(|value| alloc_declaration(input, DeclarationData::Animation(value, prefix)))
         }),
     )
 }
 
 fn parse_animation_name<'i>(
     input: &mut Compiler<'i>,
-    _allocator: &'i Allocator,
     prefix: VendorPrefix,
     _depth: usize,
 ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
-    if value_contains_comment(input) {
+    if super::animation::value_contains_comment(input) {
         return None;
     }
     Some(
         input.parse_until_before_stop_on_error(Delimiter::Bang | Delimiter::Semicolon, |input| {
-            parse_comma_separated(input, AnimationName::parse)
-                .map(|value| Declaration::AnimationName(value, prefix))
+            super::animation::parse_comma_separated(input, AnimationName::parse).map(|value| {
+                alloc_declaration(input, DeclarationData::AnimationName(value, prefix))
+            })
         }),
     )
 }
@@ -611,18 +613,18 @@ macro_rules! prefixed_comma_adapter {
     ($name:ident, $variant:ident, $value:ty) => {
         fn $name<'i>(
             input: &mut Compiler<'i>,
-            _allocator: &'i Allocator,
             prefix: VendorPrefix,
             _depth: usize,
         ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
-            if value_contains_comment(input) {
+            if super::animation::value_contains_comment(input) {
                 return None;
             }
             Some(input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 |input| {
-                    parse_comma_separated(input, <$value as Parse>::parse)
-                        .map(|value| Declaration::$variant(value, prefix))
+                    super::animation::parse_comma_separated(input, <$value as Parse>::parse).map(
+                        |value| alloc_declaration(input, DeclarationData::$variant(value, prefix)),
+                    )
                 },
             ))
         }
@@ -664,7 +666,6 @@ macro_rules! prefixed_number_adapter {
     ($name:ident, $variant:ident) => {
         fn $name<'i>(
             input: &mut Compiler<'i>,
-            _allocator: &'i Allocator,
             prefix: VendorPrefix,
             _depth: usize,
         ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
@@ -672,7 +673,10 @@ macro_rules! prefixed_number_adapter {
                 Delimiter::Bang | Delimiter::Semicolon,
                 |input| {
                     let value = input.expect_number()?;
-                    Ok(Declaration::$variant(value, prefix))
+                    Ok(alloc_declaration(
+                        input,
+                        DeclarationData::$variant(value, prefix),
+                    ))
                 },
             ))
         }
@@ -693,14 +697,13 @@ macro_rules! number_adapter {
     ($name:ident, $variant:ident) => {
         fn $name<'i>(
             input: &mut Compiler<'i>,
-            _allocator: &'i Allocator,
             _depth: usize,
         ) -> Option<Result<Declaration<'i>, ParseError<'i, ParserError<'i>>>> {
             Some(input.parse_until_before_stop_on_error(
                 Delimiter::Bang | Delimiter::Semicolon,
                 |input| {
                     let value = input.expect_number()?;
-                    Ok(Declaration::$variant(value))
+                    Ok(alloc_declaration(input, DeclarationData::$variant(value)))
                 },
             ))
         }

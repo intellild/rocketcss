@@ -350,9 +350,12 @@ impl<'i> Parse<'i> for PlaceContent<'i> {
             parse_justify_content_value(input)?
         };
         input.expect_exhausted()?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_place_content(PlaceContentData { align, justify }, DUMMY_SP))
+            .alloc_place_content(
+                PlaceContentData { align, justify },
+                span
+            )))
     }
 }
 
@@ -367,9 +370,9 @@ impl<'i> Parse<'i> for PlaceSelf<'i> {
             parse_justify_self_value(input)?
         };
         input.expect_exhausted()?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_place_self(PlaceSelfData { align, justify }, DUMMY_SP))
+            .alloc_place_self(PlaceSelfData { align, justify }, span)))
     }
 }
 
@@ -384,8 +387,11 @@ impl<'i> Parse<'i> for PlaceItems<'i> {
             parse_justify_items_value(input)?
         };
         input.expect_exhausted()?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_place_items(PlaceItemsData { align, justify }, DUMMY_SP))
+            .alloc_place_items(
+                PlaceItemsData { align, justify },
+                span
+            )))
     }
 }

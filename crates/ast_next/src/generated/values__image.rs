@@ -36,7 +36,7 @@ impl<'ast> Image<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> ImageKind {
         match ast.data(self) {
-            ImageData::None { .. } => ImageKind::None,
+            ImageData::None => ImageKind::None,
             ImageData::Url { .. } => ImageKind::Url,
             ImageData::Gradient { .. } => ImageKind::Gradient,
             ImageData::ImageSet { .. } => ImageKind::ImageSet,
@@ -387,7 +387,7 @@ where
         match ast.data(self) {
             DimensionPercentageData::Dimension { .. } => DimensionPercentageKind::Dimension,
             DimensionPercentageData::Percentage { .. } => DimensionPercentageKind::Percentage,
-            DimensionPercentageData::Zero { .. } => DimensionPercentageKind::Zero,
+            DimensionPercentageData::Zero => DimensionPercentageKind::Zero,
             DimensionPercentageData::Calc { .. } => DimensionPercentageKind::Calc,
         }
     }
@@ -470,7 +470,7 @@ where
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> PositionComponentKind {
         match ast.data(self) {
-            PositionComponentData::Center { .. } => PositionComponentKind::Center,
+            PositionComponentData::Center => PositionComponentKind::Center,
             PositionComponentData::Length { .. } => PositionComponentKind::Length,
             PositionComponentData::Side { .. } => PositionComponentKind::Side,
         }
@@ -746,8 +746,8 @@ impl<'ast> BackgroundSize<'ast> {
     pub fn kind(self, ast: &Ast<'ast>) -> BackgroundSizeKind {
         match ast.data(self) {
             BackgroundSizeData::Explicit { .. } => BackgroundSizeKind::Explicit,
-            BackgroundSizeData::Cover { .. } => BackgroundSizeKind::Cover,
-            BackgroundSizeData::Contain { .. } => BackgroundSizeKind::Contain,
+            BackgroundSizeData::Cover => BackgroundSizeKind::Cover,
+            BackgroundSizeData::Contain => BackgroundSizeKind::Contain,
         }
     }
 }
@@ -807,7 +807,7 @@ impl<'ast> LengthPercentageOrAuto<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> LengthPercentageOrAutoKind {
         match ast.data(self) {
-            LengthPercentageOrAutoData::Auto { .. } => LengthPercentageOrAutoKind::Auto,
+            LengthPercentageOrAutoData::Auto => LengthPercentageOrAutoKind::Auto,
             LengthPercentageOrAutoData::LengthPercentage { .. } => {
                 LengthPercentageOrAutoKind::LengthPercentage
             }

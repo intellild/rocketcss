@@ -93,8 +93,8 @@ impl<'ast> AnimationTimeline<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> AnimationTimelineKind {
         match ast.data(self) {
-            AnimationTimelineData::Auto { .. } => AnimationTimelineKind::Auto,
-            AnimationTimelineData::None { .. } => AnimationTimelineKind::None,
+            AnimationTimelineData::Auto => AnimationTimelineKind::Auto,
+            AnimationTimelineData::None => AnimationTimelineKind::None,
             AnimationTimelineData::DashedIdent { .. } => AnimationTimelineKind::DashedIdent,
             AnimationTimelineData::Scroll { .. } => AnimationTimelineKind::Scroll,
             AnimationTimelineData::View { .. } => AnimationTimelineKind::View,
@@ -180,7 +180,7 @@ impl<'ast> AnimationAttachmentRange<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> AnimationAttachmentRangeKind {
         match ast.data(self) {
-            AnimationAttachmentRangeData::Normal { .. } => AnimationAttachmentRangeKind::Normal,
+            AnimationAttachmentRangeData::Normal => AnimationAttachmentRangeKind::Normal,
             AnimationAttachmentRangeData::LengthPercentage { .. } => {
                 AnimationAttachmentRangeKind::LengthPercentage
             }

@@ -6,13 +6,11 @@ impl<'i> Parse<'i> for CssColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let location = input.current_source_location();
         let token = input.next()?.clone();
-        let span = DUMMY_SP;
+        let span = token_span(input);
         match token {
-            OldToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => {
-                Ok(input
-                    .ast_mut()
-                    .alloc_css_color(CssColorData::CurrentColor, span))
-            }
+            OldToken::Ident(name) if name.eq_ignore_ascii_case("currentcolor") => Ok(input
+                .ast_mut()
+                .alloc_css_color(CssColorData::CurrentColor, span)),
             OldToken::Ident(name) => {
                 let color = KnownColor::from_name(name)
                     .ok_or_else(|| location.new_custom_error(ParserError::InvalidValue))?;
@@ -35,9 +33,13 @@ impl<'i> Parse<'i> for CssColor<'i> {
                 }
                 let function = Function::new(name, arguments, input.ast_mut(), span);
                 validate_rgb_function(input.ast_mut(), function);
-                let valid = function.flags(input.ast()).contains(FunctionFlags::VALID_RGB);
-                if matches!(function.kind(input.ast()), KnownFunction::Rgb | KnownFunction::Rgba)
-                    && !valid
+                let valid = function
+                    .flags(input.ast())
+                    .contains(FunctionFlags::VALID_RGB);
+                if matches!(
+                    function.kind(input.ast()),
+                    KnownFunction::Rgb | KnownFunction::Rgba
+                ) && !valid
                 {
                     return Err(location.new_custom_error(ParserError::InvalidValue));
                 }
@@ -51,10 +53,7 @@ impl<'i> Parse<'i> for CssColor<'i> {
 }
 
 pub(super) fn validate_rgb_function<'i>(ast: &mut Ast<'i>, function: Function<'i>) {
-    if matches!(
-        function.kind(ast),
-        KnownFunction::Rgb | KnownFunction::Rgba
-    ) {
+    if matches!(function.kind(ast), KnownFunction::Rgb | KnownFunction::Rgba) {
         let valid = is_supported_rgb_function(ast, function.arguments(ast));
         let mut flags = function.flags(ast);
         flags.set(FunctionFlags::VALID_RGB, valid);
@@ -63,12 +62,9 @@ pub(super) fn validate_rgb_function<'i>(ast: &mut Ast<'i>, function: Function<'i
 }
 
 fn is_supported_rgb_function<'i>(ast: &Ast<'i>, arguments: &'i [TokenOrValue<'i>]) -> bool {
-    let mut components = arguments.iter().filter(|value| {
-        !matches!(
-            token_data(**value, ast),
-            Some(TokenData::WhiteSpace(_))
-        )
-    });
+    let mut components = arguments
+        .iter()
+        .filter(|value| !matches!(token_data(**value, ast), Some(TokenData::WhiteSpace(_))));
     let Some(first) = components.next() else {
         return false;
     };
@@ -182,10 +178,7 @@ fn is_comma(value: TokenOrValue<'_>, ast: &Ast<'_>) -> bool {
 }
 
 fn is_slash(value: TokenOrValue<'_>, ast: &Ast<'_>) -> bool {
-    matches!(
-        token_data(value, ast),
-        Some(TokenData::Delim("/"))
-    )
+    matches!(token_data(value, ast), Some(TokenData::Delim("/")))
 }
 
 pub(super) fn parse_hex_color(value: &str) -> Option<RGBAData> {

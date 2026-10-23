@@ -13,7 +13,7 @@
 
 use self::Token::*;
 use crate::escape;
-use rocketcss_ast::Span;
+use crate::lexer::Span;
 use std::ops::Range;
 
 /// A capture of the tokenizer state that can be restored with [`Tokenizer::reset`].

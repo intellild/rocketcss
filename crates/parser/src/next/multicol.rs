@@ -7,7 +7,7 @@ use super::{
 
 impl<'i> Parse<'i> for ColumnRule<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let mut width = None;
         let mut style = None;
         let mut color = None;
@@ -37,15 +37,20 @@ impl<'i> Parse<'i> for ColumnRule<'i> {
         if width.is_none() && style.is_none() && color.is_none() {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(input
-            .ast_mut()
-            .alloc_column_rule(ColumnRuleData { color, style, width }, span))
+        Ok(input.ast_mut().alloc_column_rule(
+            ColumnRuleData {
+                color,
+                style,
+                width,
+            },
+            span,
+        ))
     }
 }
 
 impl<'i> Parse<'i> for ColumnWidth<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("auto"))
             .is_ok()
@@ -82,7 +87,7 @@ impl<'i> Parse<'i> for ColumnCount {
 
 impl<'i> Parse<'i> for Columns<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let mut width = None;
         let mut count = None;
         let mut auto_count = 0u8;
@@ -92,9 +97,11 @@ impl<'i> Parse<'i> for Columns<'i> {
                 && let Ok(value) = input.try_parse(Length::parse)
                 && is_non_negative_length(&value, input.ast())
             {
-                width = Some(input
-                    .ast_mut()
-                    .alloc_column_width(ColumnWidthData::Length(value), span));
+                width = Some(
+                    input
+                        .ast_mut()
+                        .alloc_column_width(ColumnWidthData::Length(value), span),
+                );
                 continue;
             }
             if count.is_none()
@@ -137,14 +144,12 @@ impl<'i> Parse<'i> for Columns<'i> {
 
 impl<'i> Parse<'i> for GapValue<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("normal"))
             .is_ok()
         {
-            return Ok(input
-                .ast_mut()
-                .alloc_gap_value(GapValueData::Normal, span));
+            return Ok(input.ast_mut().alloc_gap_value(GapValueData::Normal, span));
         }
         let value = LengthPercentage::parse(input)?;
         if !is_non_negative_length_percentage(&value, input.ast()) {
@@ -158,7 +163,7 @@ impl<'i> Parse<'i> for GapValue<'i> {
 
 impl<'i> Parse<'i> for Gap<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let first_state = input.state();
         let row = GapValue::parse(input)?;
         let column = if input.is_exhausted() {
@@ -167,8 +172,6 @@ impl<'i> Parse<'i> for Gap<'i> {
         } else {
             GapValue::parse(input)?
         };
-        Ok(input
-            .ast_mut()
-            .alloc_gap(GapData { column, row }, span))
+        Ok(input.ast_mut().alloc_gap(GapData { column, row }, span))
     }
 }

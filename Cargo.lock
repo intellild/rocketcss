@@ -1270,6 +1270,7 @@ dependencies = [
  "hashbrown",
  "lightningcss",
  "mimalloc",
+ "rocketcss_ast_next",
  "rocketcss_codegen",
  "rocketcss_common",
  "rocketcss_parser",
@@ -1285,7 +1286,7 @@ dependencies = [
  "cssparser",
  "itoa",
  "lightningcss",
- "rocketcss_ast",
+ "rocketcss_ast_next",
  "rocketcss_common",
  "rocketcss_parser",
  "serde_json",
@@ -1316,7 +1317,6 @@ dependencies = [
 name = "rocketcss_parser"
 version = "0.1.0"
 dependencies = [
- "rocketcss_ast",
  "rocketcss_ast_next",
  "rocketcss_common",
  "serde_json",
@@ -1326,7 +1326,7 @@ dependencies = [
 name = "rocketcss_tests"
 version = "0.0.0"
 dependencies = [
- "rocketcss_ast",
+ "rocketcss_ast_next",
  "rocketcss_codegen",
  "rocketcss_common",
  "rocketcss_parser",
@@ -1339,7 +1339,7 @@ dependencies = [
 name = "rocketcss_visitor"
 version = "0.1.0"
 dependencies = [
- "rocketcss_ast",
+ "rocketcss_ast_next",
  "rocketcss_common",
  "rocketcss_parser",
  "rustc-hash",

@@ -165,7 +165,7 @@ impl<'ast> GapValue<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> GapValueKind {
         match ast.data(self) {
-            GapValueData::Normal { .. } => GapValueKind::Normal,
+            GapValueData::Normal => GapValueKind::Normal,
             GapValueData::LengthPercentage { .. } => GapValueKind::LengthPercentage,
         }
     }

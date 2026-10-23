@@ -1,15 +1,16 @@
 use crate::prelude::*;
 
-impl<'ghost> ToCss<'ghost> for LengthValue {
+impl<'ast, 'ghost> ToCss<'ghost> for LengthValue<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        if self.value == 0.0 && !dest.in_calc() {
+        let data = _cx.ast().data(*self);
+        if data.value == 0.0 && !dest.in_calc() {
             return dest.write_char('0');
         }
-        serialize_dimension(self.value, &self.unit, dest, _cx)
+        serialize_dimension(data.value, &data.unit, dest, _cx)
     }
 }
 
@@ -17,45 +18,45 @@ impl<'ghost> ToCss<'ghost> for LengthUnit {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("length units are static strings"))
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Length<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Length<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Value(value) => value.to_css(dest, _cx),
-            Self::Calc(calc) => calc.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            LengthData::Value(value) => value.to_css(dest, _cx),
+            LengthData::Calc(calc) => calc.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for Calc<'_, V> {
+impl<'ast, 'ghost, V: ToCss<'ghost> + Copy> ToCss<'ghost> for Calc<'ast, V> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        dest.with_calc(|dest| match self {
-            Self::Value(value) => value.to_css(dest, _cx),
-            Self::Number(value) => serialize_number(*value, dest),
-            Self::Sum((left, right)) => {
+        dest.with_calc(|dest| match self.data(_cx.ast()) {
+            CalcData::Value(value) => value.to_css(dest, _cx),
+            CalcData::Number(value) => serialize_number(value, dest),
+            CalcData::Sum((left, right)) => {
                 left.to_css(dest, _cx)?;
                 dest.write_str(" + ")?;
                 right.to_css(dest, _cx)
             }
-            Self::Product((factor, value)) => {
-                serialize_number(*factor, dest)?;
+            CalcData::Product((factor, value)) => {
+                serialize_number(factor, dest)?;
                 dest.write_str(" * ")?;
                 value.to_css(dest, _cx)
             }
-            Self::Function(function) => function.to_css(dest, _cx),
+            CalcData::Function(function) => function.to_css(dest, _cx),
         })
     }
 }
@@ -74,10 +75,10 @@ where
     dest.write_char(')')
 }
 
-fn write_calc_list<'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost>>(
-    values: &[Calc<'_, V>],
+fn write_calc_list<'ast, 'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost> + Copy>(
+    values: &[Calc<'ast, V>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
@@ -88,49 +89,57 @@ fn write_calc_list<'ghost, PrinterT: PrinterTrait, V: ToCss<'ghost>>(
     Ok(())
 }
 
-impl<'ghost, V: ToCss<'ghost>> ToCss<'ghost> for MathFunction<'_, V> {
+impl<'ast, 'ghost, V: ToCss<'ghost> + Copy> ToCss<'ghost> for MathFunction<'ast, V> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Calc(value) => write_function("calc", dest, |dest| value.to_css(dest, _cx)),
-            Self::Min(values) => {
+        match self.data(_cx.ast()) {
+            MathFunctionData::Calc(value) => {
+                write_function("calc", dest, |dest| value.to_css(dest, _cx))
+            }
+            MathFunctionData::Min(values) => {
                 write_function("min", dest, |dest| write_calc_list(values, dest, _cx))
             }
-            Self::Max(values) => {
+            MathFunctionData::Max(values) => {
                 write_function("max", dest, |dest| write_calc_list(values, dest, _cx))
             }
-            Self::Clamp((min, value, max)) => write_function("clamp", dest, |dest| {
+            MathFunctionData::Clamp((min, value, max)) => write_function("clamp", dest, |dest| {
                 min.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 value.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 max.to_css(dest, _cx)
             }),
-            Self::Round((strategy, value, interval)) => write_function("round", dest, |dest| {
-                if !matches!(strategy, RoundingStrategy::Nearest) {
-                    strategy.to_css(dest, _cx)?;
+            MathFunctionData::Round((strategy, value, interval)) => {
+                write_function("round", dest, |dest| {
+                    if !matches!(strategy, RoundingStrategy::Nearest) {
+                        strategy.to_css(dest, _cx)?;
+                        dest.delim(Delimiter::Comma)?;
+                    }
+                    value.to_css(dest, _cx)?;
                     dest.delim(Delimiter::Comma)?;
-                }
-                value.to_css(dest, _cx)?;
-                dest.delim(Delimiter::Comma)?;
-                interval.to_css(dest, _cx)
-            }),
-            Self::Rem((left, right)) => write_function("rem", dest, |dest| {
+                    interval.to_css(dest, _cx)
+                })
+            }
+            MathFunctionData::Rem((left, right)) => write_function("rem", dest, |dest| {
                 left.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 right.to_css(dest, _cx)
             }),
-            Self::Mod((left, right)) => write_function("mod", dest, |dest| {
+            MathFunctionData::Mod((left, right)) => write_function("mod", dest, |dest| {
                 left.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 right.to_css(dest, _cx)
             }),
-            Self::Abs(value) => write_function("abs", dest, |dest| value.to_css(dest, _cx)),
-            Self::Sign(value) => write_function("sign", dest, |dest| value.to_css(dest, _cx)),
-            Self::Hypot(values) => {
+            MathFunctionData::Abs(value) => {
+                write_function("abs", dest, |dest| value.to_css(dest, _cx))
+            }
+            MathFunctionData::Sign(value) => {
+                write_function("sign", dest, |dest| value.to_css(dest, _cx))
+            }
+            MathFunctionData::Hypot(values) => {
                 write_function("hypot", dest, |dest| write_calc_list(values, dest, _cx))
             }
         }
@@ -141,7 +150,7 @@ impl<'ghost> ToCss<'ghost> for RoundingStrategy {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(
             self.as_css_str()
@@ -154,25 +163,27 @@ impl<'ghost> ToCss<'ghost> for Resolution {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         let (value, unit) = match self {
-            Self::Dpi(value) => (*value, Unit::Dpi),
-            Self::Dpcm(value) => (*value, Unit::Dpcm),
-            Self::Dppx(value) => (*value, Unit::Dppx),
+            Self::Dpi(value) => (*value, "dpi"),
+            Self::Dpcm(value) => (*value, "dpcm"),
+            Self::Dppx(value) => (*value, "dppx"),
         };
-        serialize_dimension(value, &unit, dest, _cx)
+        serialize_number(value, dest)?;
+        dest.write_str(unit)
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Ratio {
+impl<'ast, 'ghost> ToCss<'ghost> for Ratio<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        serialize_number(self.numerator, dest)?;
-        if let Some(denominator) = self.denominator {
+        let data = _cx.ast().data(*self);
+        serialize_number(data.numerator, dest)?;
+        if let Some(denominator) = data.denominator {
             dest.write_char('/')?;
             serialize_number(denominator, dest)?;
         }
@@ -184,15 +195,16 @@ impl<'ghost> ToCss<'ghost> for Angle {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         let (value, unit) = match self {
-            Self::Deg(value) => (*value, Unit::Deg),
-            Self::Rad(value) => (*value, Unit::Rad),
-            Self::Grad(value) => (*value, Unit::Grad),
-            Self::Turn(value) => (*value, Unit::Turn),
+            Self::Deg(value) => (*value, "deg"),
+            Self::Rad(value) => (*value, "rad"),
+            Self::Grad(value) => (*value, "grad"),
+            Self::Turn(value) => (*value, "turn"),
         };
-        serialize_dimension(value, &unit, dest, _cx)
+        serialize_number(value, dest)?;
+        dest.write_str(unit)
     }
 }
 
@@ -200,25 +212,23 @@ impl<'ghost> ToCss<'ghost> for Time {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
-            Self::Seconds(value) => serialize_dimension(*value, &Unit::Seconds, dest, _cx),
+            Self::Seconds(value) => {
+                serialize_number(*value, dest)?;
+                dest.write_char('s')
+            }
             Self::Milliseconds(value) => {
                 let mut milliseconds = String::new();
-                serialize_dimension(
-                    *value,
-                    &Unit::Milliseconds,
-                    &mut Printer::new(&mut milliseconds, dest.options()),
-                    _cx,
-                )?;
+                serialize_number(*value, &mut Printer::new(&mut milliseconds, dest.options()))?;
+                milliseconds.push_str("ms");
                 let mut seconds = String::new();
-                serialize_dimension(
+                serialize_number(
                     *value / 1000.0,
-                    &Unit::Seconds,
                     &mut Printer::new(&mut seconds, dest.options()),
-                    _cx,
                 )?;
+                seconds.push('s');
                 dest.write_str(if seconds.len() < milliseconds.len() {
                     &seconds
                 } else {

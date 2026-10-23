@@ -4,7 +4,9 @@ use std::{
     fmt,
 };
 
-use rocketcss_ast::{Compilation, CompilationVisitorMut, ConcreteMutationError};
+use rocketcss_ast_next::Compilation;
+
+use crate::visit::{VisitorMut, visit_compilation_mut};
 use rocketcss_common::{Allocator, GhostToken};
 use rustc_hash::FxHashMap;
 
@@ -105,7 +107,7 @@ impl<'plugin, 'a, 'ghost> Plugins<'plugin, 'a, 'ghost> {
 
     pub fn add_visitor<V>(&mut self, name: &'static str, visitor: V)
     where
-        V: CompilationVisitorMut<'a> + 'plugin,
+        V: VisitorMut<'a> + 'plugin,
     {
         self.add(VisitorPlugin::new(name, visitor));
     }
@@ -155,7 +157,7 @@ impl<V> VisitorPlugin<V> {
     }
 }
 
-impl<'a, 'ghost, V: CompilationVisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlugin<V> {
+impl<'a, 'ghost, V: VisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlugin<V> {
     fn name(&self) -> &str {
         self.name
     }
@@ -165,28 +167,10 @@ impl<'a, 'ghost, V: CompilationVisitorMut<'a>> Plugin<'a, 'ghost> for VisitorPlu
         compilation: &mut Compilation<'a>,
         _context: &mut PluginContext<'a, '_, 'ghost>,
     ) -> Result<(), BoxError> {
-        compilation
-            .visit_compilation_mut(&mut self.visitor)
-            .map_err(|error| {
-                Box::new(RadixTraversalError(error.erase_arena_lifetime())) as BoxError
-            })
+        visit_compilation_mut(compilation, &mut self.visitor);
+        Ok(())
     }
 }
-
-#[derive(Debug)]
-struct RadixTraversalError(ConcreteMutationError<'static>);
-
-impl fmt::Display for RadixTraversalError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "invalid AST during plugin traversal: {:?}",
-            self.0
-        )
-    }
-}
-
-impl Error for RadixTraversalError {}
 
 /// Error annotated with the plugin that returned it.
 #[derive(Debug)]

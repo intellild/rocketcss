@@ -1,15 +1,23 @@
 use crate::prelude::*;
 
-impl<'ghost> ToCss<'ghost> for MediaList<'_> {
+fn is_whitespace<'ast>(ast: &Ast<'ast>, value: &TokenOrValue<'ast>) -> bool {
+    matches!(
+        value.data(ast),
+        TokenOrValueData::Token(token) if matches!(token.data(ast), TokenData::WhiteSpace(_))
+    )
+}
+
+impl<'ast, 'ghost> ToCss<'ghost> for MediaList<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        if self.media_queries.is_empty() {
+        let media_queries = self.media_queries(_cx.ast());
+        if media_queries.is_empty() {
             return dest.write_str("not all");
         }
-        for (index, query) in self.media_queries.iter().enumerate() {
+        for (index, query) in media_queries.iter().enumerate() {
             if index > 0 {
                 dest.delim(Delimiter::Comma)?;
             }
@@ -19,62 +27,67 @@ impl<'ghost> ToCss<'ghost> for MediaList<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for MediaQuery<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        if let Some(condition) = &self.condition
-            && let MediaCondition::Unknown(tokens) = condition
+        let ast = _cx.ast();
+        let data = ast.data(*self);
+        if let Some(condition) = data.condition
+            && let MediaConditionData::Unknown(tokens) = condition.data(ast)
         {
-            if matches!(self.qualifier, Some(Qualifier::Not))
-                && matches!(self.media_type, MediaType::All)
+            if matches!(data.qualifier, Some(Qualifier::Not))
+                && matches!(data.media_type, MediaType::All)
                 && matches!(
-                    tokens.iter().find(|value| {
-                        !matches!(value, TokenOrValue::Token(token) if matches!(**token, Token::WhiteSpace(_)))
-                    }),
-                    Some(TokenOrValue::Token(token)) if matches!(**token, Token::ParenthesisBlock)
+                    tokens.iter().find(|value| !is_whitespace(ast, value)),
+                    Some(value)
+                        if matches!(
+                            value.data(ast),
+                            TokenOrValueData::Token(token)
+                                if matches!(token.data(ast), TokenData::ParenthesisBlock)
+                        )
                 )
             {
                 dest.write_str("not ")?;
                 return crate::token::write_token_list_trimmed(tokens, dest, _cx);
             }
 
-            if let Some(qualifier) = &self.qualifier {
+            if let Some(qualifier) = data.qualifier {
                 qualifier.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
             }
-            let wrote_type = !matches!(self.media_type, MediaType::All);
-            if wrote_type || self.qualifier.is_some() {
-                self.media_type.to_css(dest, _cx)?;
+            let wrote_type = !matches!(data.media_type, MediaType::All);
+            if wrote_type || data.qualifier.is_some() {
+                data.media_type.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
             }
             return crate::token::write_token_list_trimmed(tokens, dest, _cx);
         }
 
-        if let Some(qualifier) = &self.qualifier {
+        if let Some(qualifier) = data.qualifier {
             qualifier.to_css(dest, _cx)?;
             dest.write_char(' ')?;
         }
 
-        let has_type = !matches!(self.media_type, MediaType::All);
-        match &self.media_type {
-            MediaType::All if self.qualifier.is_some() || self.condition.is_none() => {
+        let has_type = !matches!(data.media_type, MediaType::All);
+        match data.media_type {
+            MediaType::All if data.qualifier.is_some() || data.condition.is_none() => {
                 dest.write_str("all")?
             }
             MediaType::All => {}
             value => value.to_css(dest, _cx)?,
         }
 
-        if let Some(condition) = &self.condition {
-            if has_type || self.qualifier.is_some() {
+        if let Some(condition) = data.condition {
+            if has_type || data.qualifier.is_some() {
                 dest.write_str(" and ")?;
             }
-            let needs_parens = (has_type || self.qualifier.is_some())
+            let needs_parens = (has_type || data.qualifier.is_some())
                 && matches!(
-                    *condition,
-                    MediaCondition::Operation {
+                    condition.data(ast),
+                    MediaConditionData::Operation {
                         operator: Operator::Or,
                         ..
                     }
@@ -91,31 +104,32 @@ impl<'ghost> ToCss<'ghost> for MediaQuery<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for MediaCondition<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for MediaCondition<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        write_media_condition(self, None, dest, _cx)
+        write_media_condition(*self, None, dest, _cx)
     }
 }
 
-fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
-    condition: &MediaCondition<'_>,
+fn write_media_condition<'ast, 'ghost, PrinterT: PrinterTrait>(
+    condition: MediaCondition<'ast>,
     parent: Option<&Operator>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
-    match condition {
-        MediaCondition::Feature(value) => value.to_css(dest, cx),
-        MediaCondition::Not(value) => {
+    let ast = cx.ast();
+    match condition.data(ast) {
+        MediaConditionData::Feature(value) => value.to_css(dest, cx),
+        MediaConditionData::Not(value) => {
             let wrap_not = parent.is_some();
             if wrap_not {
                 dest.write_char('(')?;
             }
             dest.write_str("not ")?;
-            let needs_parens = matches!(**value, MediaCondition::Operation { .. });
+            let needs_parens = matches!(value.data(ast), MediaConditionData::Operation { .. });
             if needs_parens {
                 dest.write_char('(')?;
             }
@@ -128,11 +142,11 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
             }
             Ok(())
         }
-        MediaCondition::Operation {
+        MediaConditionData::Operation {
             conditions,
             operator,
         } => {
-            let needs_parens = parent.is_some_and(|parent| parent != operator);
+            let needs_parens = parent.is_some_and(|parent| *parent != operator);
             if needs_parens {
                 dest.write_char('(')?;
             }
@@ -143,32 +157,34 @@ fn write_media_condition<'ghost, PrinterT: PrinterTrait>(
                         Operator::Or => " or ",
                     })?;
                 }
-                write_media_condition(condition, Some(operator), dest, cx)?;
+                write_media_condition(*condition, Some(&operator), dest, cx)?;
             }
             if needs_parens {
                 dest.write_char(')')?;
             }
             Ok(())
         }
-        MediaCondition::Unknown(values) => crate::token::write_token_list(values, dest, cx),
+        MediaConditionData::Unknown(values) => crate::token::write_token_list(values, dest, cx),
     }
 }
 
-impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for QueryFeature<'_, FeatureId> {
+impl<'ast, 'ghost, FeatureId: ToCss<'ghost> + Copy> ToCss<'ghost>
+    for QueryFeature<'ast, FeatureId>
+{
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_char('(')?;
-        match self {
-            Self::Plain { name, value } => {
+        match self.data(_cx.ast()) {
+            QueryFeatureData::Plain { name, value } => {
                 name.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Colon)?;
                 value.to_css(dest, _cx)?;
             }
-            Self::Boolean { name } => name.to_css(dest, _cx)?,
-            Self::Range {
+            QueryFeatureData::Boolean { name } => name.to_css(dest, _cx)?,
+            QueryFeatureData::Range {
                 name,
                 operator,
                 value,
@@ -177,7 +193,7 @@ impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for QueryFeature<'_, Featur
                 operator.to_css(dest, _cx)?;
                 value.to_css(dest, _cx)?;
             }
-            Self::Interval {
+            QueryFeatureData::Interval {
                 end,
                 end_operator,
                 name,
@@ -199,7 +215,7 @@ impl<'ghost, FeatureId: ToCss<'ghost>> ToCss<'ghost> for MediaFeatureName<'_, Fe
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Standard(value) => value.to_css(dest, _cx),
@@ -216,7 +232,7 @@ impl<'ghost> ToCss<'ghost> for MediaFeatureId {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(
             self.as_css_str()
@@ -225,21 +241,21 @@ impl<'ghost> ToCss<'ghost> for MediaFeatureId {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for MediaFeatureValue<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for MediaFeatureValue<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Length(value) => value.to_css(dest, _cx),
-            Self::Number(value) => serialize_number(*value, dest),
-            Self::Integer(value) => serialize_int(*value, dest),
-            Self::Boolean(value) => dest.write_char(if *value { '1' } else { '0' }),
-            Self::Resolution(value) => value.to_css(dest, _cx),
-            Self::Ratio(value) => value.to_css(dest, _cx),
-            Self::Ident(value) => serialize_identifier(value, dest),
-            Self::Env(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            MediaFeatureValueData::Length(value) => value.to_css(dest, _cx),
+            MediaFeatureValueData::Number(value) => serialize_number(value, dest),
+            MediaFeatureValueData::Integer(value) => serialize_int(value, dest),
+            MediaFeatureValueData::Boolean(value) => dest.write_char(if value { '1' } else { '0' }),
+            MediaFeatureValueData::Resolution(value) => value.to_css(dest, _cx),
+            MediaFeatureValueData::Ratio(value) => value.to_css(dest, _cx),
+            MediaFeatureValueData::Ident(value) => serialize_identifier(value, dest),
+            MediaFeatureValueData::Env(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -248,7 +264,7 @@ impl<'ghost> ToCss<'ghost> for MediaFeatureComparison {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.whitespace()?;
         dest.write_str(match self {
@@ -266,7 +282,7 @@ impl<'ghost> ToCss<'ghost> for Operator {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("operators are static keywords"))
     }
@@ -276,7 +292,7 @@ impl<'ghost> ToCss<'ghost> for MediaType<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Custom(value) => serialize_identifier(value, dest),
@@ -293,22 +309,26 @@ impl<'ghost> ToCss<'ghost> for Qualifier {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str(self.as_css_str().expect("qualifiers are static keywords"))
     }
 }
 
-impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for SupportsCondition<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Not(value) => {
+        let ast = _cx.ast();
+        match self.data(ast) {
+            SupportsConditionData::Not(value) => {
                 dest.write_str("not ")?;
-                let needs_parens = matches!(**value, Self::And(_) | Self::Or(_));
+                let needs_parens = matches!(
+                    value.data(ast),
+                    SupportsConditionData::And(_) | SupportsConditionData::Or(_)
+                );
                 if needs_parens {
                     dest.write_char('(')?;
                 }
@@ -318,19 +338,17 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
                 }
                 Ok(())
             }
-            Self::And(values) | Self::Or(values) => {
-                let operator = if matches!(self, Self::And(_)) {
-                    " and "
-                } else {
-                    " or "
-                };
+            SupportsConditionData::And(values) | SupportsConditionData::Or(values) => {
+                let is_and = matches!(self.data(ast), SupportsConditionData::And(_));
+                let operator = if is_and { " and " } else { " or " };
                 for (index, value) in values.iter().enumerate() {
                     if index > 0 {
                         dest.write_str(operator)?;
                     }
                     let needs_parens = matches!(
-                        (self, value),
-                        (Self::And(_), Self::Or(_)) | (Self::Or(_), Self::And(_))
+                        (is_and, value.data(ast)),
+                        (true, SupportsConditionData::Or(_))
+                            | (false, SupportsConditionData::And(_))
                     );
                     if needs_parens {
                         dest.write_char('(')?;
@@ -342,19 +360,19 @@ impl<'ghost> ToCss<'ghost> for SupportsCondition<'_> {
                 }
                 Ok(())
             }
-            Self::Declaration { property_id, value } => {
+            SupportsConditionData::Declaration { property_id, value } => {
                 dest.write_char('(')?;
                 property_id.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Colon)?;
                 dest.write_str(value)?;
                 dest.write_char(')')
             }
-            Self::Selector(value) => {
+            SupportsConditionData::Selector(value) => {
                 dest.write_str("selector(")?;
                 dest.write_str(value)?;
                 dest.write_char(')')
             }
-            Self::Unknown(value) => dest.write_str(value),
+            SupportsConditionData::Unknown(value) => dest.write_str(value),
         }
     }
 }

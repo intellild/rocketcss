@@ -117,7 +117,7 @@ pub struct Rect<'a, T>(
     pub Box<'a, T>,
     pub Box<'a, T>,
 );
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BoxDecorationBreak {
     Slice,
     Clone,

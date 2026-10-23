@@ -14,7 +14,7 @@ impl<'i> Parse<'i> for NumberOrPercentage {
 
 impl<'i> Parse<'i> for Transform<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let function = input.expect_function()?;
         input.parse_nested_block(|input| match_ignore_ascii_case!(
             function,
@@ -136,13 +136,14 @@ pub(crate) fn parse_transform_list<'i>(
 }
 
 fn zero_length_percentage<'i>(input: &mut Compiler<'i>) -> LengthPercentage<'i> {
-    input
-        .ast_mut()
-        .alloc_dimension_percentage(DimensionPercentageData::<LengthValue>::Zero, DUMMY_SP)
+    with_token_span!(input, |span| input.ast_mut().alloc_dimension_percentage(
+        DimensionPercentageData::<LengthValue>::Zero,
+        span
+    ))
 }
 
 fn zero_length<'i>(input: &mut Compiler<'i>) -> Length<'i> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let value = input.ast_mut().alloc_length_value(
         LengthValueData {
             unit: LengthUnit::Px,
@@ -164,9 +165,9 @@ fn parse_translate<'i>(
         LengthPercentage::parse(input)?
     };
     input.expect_exhausted()?;
-    Ok(input
+    Ok(with_token_span!(input, |span| input
         .ast_mut()
-        .alloc_transform(TransformData::Translate((x, y)), DUMMY_SP))
+        .alloc_transform(TransformData::Translate((x, y)), span)))
 }
 
 fn parse_scale<'i>(
@@ -180,9 +181,9 @@ fn parse_scale<'i>(
         NumberOrPercentage::parse(input)?
     };
     input.expect_exhausted()?;
-    Ok(input
+    Ok(with_token_span!(input, |span| input
         .ast_mut()
-        .alloc_transform(TransformData::Scale((x, y)), DUMMY_SP))
+        .alloc_transform(TransformData::Scale((x, y)), span)))
 }
 
 fn expect_comma_or_space_separator<'i>(
@@ -209,17 +210,19 @@ fn parse_matrix<'i>(
         }
     }
     input.expect_exhausted()?;
-    Ok(input.ast_mut().alloc_matrix_for_float(
-        MatrixForFloatData {
-            a: values[0],
-            b: values[1],
-            c: values[2],
-            d: values[3],
-            e: values[4],
-            f: values[5],
-        },
-        DUMMY_SP,
-    ))
+    Ok(with_token_span!(input, |span| input
+        .ast_mut()
+        .alloc_matrix_for_float(
+            MatrixForFloatData {
+                a: values[0],
+                b: values[1],
+                c: values[2],
+                d: values[3],
+                e: values[4],
+                f: values[5],
+            },
+            span,
+        )))
 }
 
 fn parse_matrix3d<'i>(
@@ -234,27 +237,29 @@ fn parse_matrix3d<'i>(
         }
     }
     input.expect_exhausted()?;
-    Ok(input.ast_mut().alloc_matrix_3_d_for_float(
-        Matrix3DForFloatData {
-            m11: values[0],
-            m12: values[1],
-            m13: values[2],
-            m14: values[3],
-            m21: values[4],
-            m22: values[5],
-            m23: values[6],
-            m24: values[7],
-            m31: values[8],
-            m32: values[9],
-            m33: values[10],
-            m34: values[11],
-            m41: values[12],
-            m42: values[13],
-            m43: values[14],
-            m44: values[15],
-        },
-        DUMMY_SP,
-    ))
+    Ok(with_token_span!(input, |span| input
+        .ast_mut()
+        .alloc_matrix_3_d_for_float(
+            Matrix3DForFloatData {
+                m11: values[0],
+                m12: values[1],
+                m13: values[2],
+                m14: values[3],
+                m21: values[4],
+                m22: values[5],
+                m23: values[6],
+                m24: values[7],
+                m31: values[8],
+                m32: values[9],
+                m33: values[10],
+                m34: values[11],
+                m41: values[12],
+                m42: values[13],
+                m43: values[14],
+                m44: values[15],
+            },
+            span,
+        )))
 }
 
 impl<'i> Parse<'i> for TransformStyle {
@@ -298,7 +303,7 @@ impl<'i> Parse<'i> for BackfaceVisibility {
 
 impl<'i> Parse<'i> for Perspective<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("none"))
             .is_ok()
@@ -316,14 +321,12 @@ impl<'i> Parse<'i> for Perspective<'i> {
 
 impl<'i> Parse<'i> for Translate<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("none"))
             .is_ok()
         {
-            return Ok(input
-                .ast_mut()
-                .alloc_translate(TranslateData::None, span));
+            return Ok(input.ast_mut().alloc_translate(TranslateData::None, span));
         }
         let x = LengthPercentage::parse(input)?;
         let y = if input.is_exhausted() {
@@ -375,14 +378,16 @@ impl<'i> Parse<'i> for Rotate<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let angle = Angle::parse(input)?;
         input.expect_exhausted()?;
-        Ok(input.ast_mut().alloc_rotate(
-            RotateData {
-                angle,
-                x: 0.0,
-                y: 0.0,
-                z: 1.0,
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_rotate(
+                RotateData {
+                    angle,
+                    x: 0.0,
+                    y: 0.0,
+                    z: 1.0,
+                },
+                span,
+            )))
     }
 }

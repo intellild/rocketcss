@@ -67,7 +67,7 @@ keyword_parse!(
 
 impl<'i> Parse<'i> for SVGPaint<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let state = input.state();
         if let Ok(value) = input.try_parse(parse_svg_paint_keyword) {
             return Ok(value);
@@ -76,10 +76,9 @@ impl<'i> Parse<'i> for SVGPaint<'i> {
 
         if let Ok(url) = input.try_parse(parse_url) {
             let fallback = input.try_parse(parse_svg_paint_fallback).ok();
-            return Ok(input.ast_mut().alloc_svg_paint(
-                SVGPaintData::Url { fallback, url },
-                span,
-            ));
+            return Ok(input
+                .ast_mut()
+                .alloc_svg_paint(SVGPaintData::Url { fallback, url }, span));
         }
         input.reset(&state);
 
@@ -101,13 +100,15 @@ fn parse_svg_paint_keyword<'i>(
         "context-stroke" => SVGPaintData::ContextStroke,
         _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
     );
-    Ok(input.ast_mut().alloc_svg_paint(data, DUMMY_SP))
+    Ok(with_token_span!(input, |span| input
+        .ast_mut()
+        .alloc_svg_paint(data, span)))
 }
 
 fn parse_svg_paint_fallback<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<SVGPaintFallback<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     if input
         .try_parse(|input| input.expect_ident_matching("none"))
         .is_ok()
@@ -122,21 +123,20 @@ fn parse_svg_paint_fallback<'i>(
         .alloc_svg_paint_fallback(SVGPaintFallbackData::Color(color), span))
 }
 
-fn parse_url<'i>(
-    input: &mut Compiler<'i>,
-) -> Result<Url<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+fn parse_url<'i>(input: &mut Compiler<'i>) -> Result<Url<'i>, ParseError<'i, ParserError<'i>>> {
+    let span = token_span(input);
     let url = match input.next()?.clone() {
         OldToken::UnquotedUrl(url) => url,
-        OldToken::Function(name) if name.eq_ignore_ascii_case("url") => input
-            .parse_nested_block(|input| {
+        OldToken::Function(name) if name.eq_ignore_ascii_case("url") => {
+            input.parse_nested_block(|input| {
                 let url = match input.next()?.clone() {
                     OldToken::String(url) | OldToken::UnquotedUrl(url) => url,
                     _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
                 };
                 input.expect_exhausted()?;
                 Ok(url)
-            })?,
+            })?
+        }
         _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
     };
     Ok(input.ast_mut().alloc_url(UrlData { url }, span))
@@ -144,7 +144,7 @@ fn parse_url<'i>(
 
 impl<'i> Parse<'i> for StrokeDasharray<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("none"))
             .is_ok()
@@ -176,7 +176,7 @@ impl<'i> Parse<'i> for StrokeDasharray<'i> {
 
 impl<'i> Parse<'i> for Marker<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("none"))
             .is_ok()

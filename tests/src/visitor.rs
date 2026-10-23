@@ -1,8 +1,8 @@
-use rocketcss_ast::{Atom, CompilationVisitorMut, Selector, SelectorComponent};
+use rocketcss_ast_next::{Atom, SelectorComponentData, SelectorData};
 use rocketcss_codegen::{PrinterOptions, ToCss, ToCssContext};
 use rocketcss_common::Allocator;
 use rocketcss_parser::{Compiler, ParserOptions};
-use rocketcss_visitor::{PluginContext, Plugins};
+use rocketcss_visitor::{PluginContext, Plugins, VisitMutContext, VisitorMut};
 
 use crate::{expected_path, fixture_paths, read_fixture};
 
@@ -10,22 +10,22 @@ struct RenameClass<'a> {
     after: Atom<'a>,
 }
 
-impl<'a> CompilationVisitorMut<'a> for RenameClass<'a> {
-    fn visit_selector_value(
+impl<'ast> VisitorMut<'ast> for RenameClass<'ast> {
+    fn visit_selector(
         &mut self,
-        _id: rocketcss_ast::SelectorValueId,
-        selectors: &mut rocketcss_ast::SelectorList<'a>,
+        selector: rocketcss_ast_next::Selector<'ast>,
+        cx: &mut VisitMutContext<'_, 'ast>,
     ) {
-        for selector in selectors {
-            let Selector::Parsed(components) = selector else {
-                continue;
-            };
-            for component in components {
-                if let SelectorComponent::Class(name) = component
-                    && *name == "before"
-                {
-                    *name = self.after;
-                }
+        let SelectorData::Parsed(components) = selector.data(cx.ast()) else {
+            return;
+        };
+        for component in components.iter().copied() {
+            if matches!(
+                component.data(cx.ast()),
+                SelectorComponentData::Class(name) if name == "before"
+            ) {
+                cx.ast_mut()
+                    .set_data(component, SelectorComponentData::Class(self.after));
             }
         }
     }
@@ -55,7 +55,10 @@ fn plugins_transform_expected_css() {
                 .run(&mut stylesheet, &mut context)
                 .unwrap_or_else(|error| panic!("{} should transform: {error}", input.display()));
             let actual = stylesheet
-                .to_css_string(PrinterOptions::default(), &ToCssContext::new(&token))
+                .to_css_string(
+                    PrinterOptions::default(),
+                    &ToCssContext::new(&token, stylesheet.ast()),
+                )
                 .unwrap_or_else(|error| panic!("{} should print: {error}", input.display()));
 
             assert_eq!(actual, expected, "fixture: {}", input.display());

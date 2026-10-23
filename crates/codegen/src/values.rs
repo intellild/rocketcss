@@ -6,7 +6,7 @@ macro_rules! keyword_values {
     ($($ty:ty),+ $(,)?) => {
         $(
             impl<'ghost> ToCss<'ghost> for $ty {
-                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, 'ghost>) -> fmt::Result {
+                fn to_css<PrinterT: PrinterTrait>(&self, dest: &mut PrinterT, _cx: &ToCssContext<'_, '_, '_, 'ghost>) -> fmt::Result {
                     dest.write_str(self.as_css_str().expect("keyword enum has only static variants"))
                 }
             }
@@ -117,15 +117,15 @@ keyword_values! {
     CSSWideKeyword,
 }
 
-impl<'ghost> ToCss<'ghost> for ScrollbarColor<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for ScrollbarColor<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        cx: &ToCssContext<'_, '_, 'ghost>,
+        cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Auto => dest.write_str("auto"),
-            Self::Colors(first, second) => {
+        match self.data(cx.ast()) {
+            ScrollbarColorData::Auto => dest.write_str("auto"),
+            ScrollbarColorData::Colors(first, second) => {
                 first.to_css(dest, cx)?;
                 dest.write_char(' ')?;
                 second.to_css(dest, cx)
@@ -134,35 +134,36 @@ impl<'ghost> ToCss<'ghost> for ScrollbarColor<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Content<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Content<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        cx: &ToCssContext<'_, '_, 'ghost>,
+        cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        crate::token::write_token_list(&self.value, dest, cx)
+        let data = cx.ast().data(*self);
+        crate::token::write_token_list(data.value, dest, cx)
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Image<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Image<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Url(value) => value.to_css(dest, _cx),
-            Self::Gradient(value) => value.to_css(dest, _cx),
-            Self::ImageSet(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            ImageData::None => dest.write_str("none"),
+            ImageData::Url(value) => value.to_css(dest, _cx),
+            ImageData::Gradient(value) => value.to_css(dest, _cx),
+            ImageData::ImageSet(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-fn write_gradient_items<'ghost, PrinterT: PrinterTrait, D: ToCss<'ghost>>(
-    items: &[GradientItem<'_, D>],
+fn write_gradient_items<'ast, 'ghost, PrinterT: PrinterTrait, D: ToCss<'ghost> + Copy>(
+    items: &[GradientItem<'ast, D>],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, item) in items.iter().enumerate() {
         if index > 0 {
@@ -173,29 +174,31 @@ fn write_gradient_items<'ghost, PrinterT: PrinterTrait, D: ToCss<'ghost>>(
     Ok(())
 }
 
-impl<'ghost> ToCss<'ghost> for Gradient<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Gradient<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Linear {
+        match self.data(_cx.ast()) {
+            GradientData::Linear {
                 direction,
                 items,
                 vendor_prefix,
             }
-            | Self::RepeatingLinear {
+            | GradientData::RepeatingLinear {
                 direction,
                 items,
                 vendor_prefix,
             } => {
                 vendor_prefix.to_css(dest, _cx)?;
-                dest.write_str(if matches!(self, Self::RepeatingLinear { .. }) {
-                    "repeating-linear-gradient("
-                } else {
-                    "linear-gradient("
-                })?;
+                dest.write_str(
+                    if matches!(self.data(_cx.ast()), GradientData::RepeatingLinear { .. }) {
+                        "repeating-linear-gradient("
+                    } else {
+                        "linear-gradient("
+                    },
+                )?;
                 if !matches!(
                     direction,
                     LineDirection::Vertical(VerticalPositionKeyword::Bottom)
@@ -206,24 +209,26 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                 write_gradient_items(items, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Radial {
+            GradientData::Radial {
                 items,
                 position,
                 shape,
                 vendor_prefix,
             }
-            | Self::RepeatingRadial {
+            | GradientData::RepeatingRadial {
                 items,
                 position,
                 shape,
                 vendor_prefix,
             } => {
                 vendor_prefix.to_css(dest, _cx)?;
-                dest.write_str(if matches!(self, Self::RepeatingRadial { .. }) {
-                    "repeating-radial-gradient("
-                } else {
-                    "radial-gradient("
-                })?;
+                dest.write_str(
+                    if matches!(self.data(_cx.ast()), GradientData::RepeatingRadial { .. }) {
+                        "repeating-radial-gradient("
+                    } else {
+                        "radial-gradient("
+                    },
+                )?;
                 shape.to_css(dest, _cx)?;
                 dest.write_str(" at ")?;
                 position.to_css(dest, _cx)?;
@@ -231,21 +236,23 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                 write_gradient_items(items, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Conic {
+            GradientData::Conic {
                 angle,
                 items,
                 position,
             }
-            | Self::RepeatingConic {
+            | GradientData::RepeatingConic {
                 angle,
                 items,
                 position,
             } => {
-                dest.write_str(if matches!(self, Self::RepeatingConic { .. }) {
-                    "repeating-conic-gradient(from "
-                } else {
-                    "conic-gradient(from "
-                })?;
+                dest.write_str(
+                    if matches!(self.data(_cx.ast()), GradientData::RepeatingConic { .. }) {
+                        "repeating-conic-gradient(from "
+                    } else {
+                        "conic-gradient(from "
+                    },
+                )?;
                 angle.to_css(dest, _cx)?;
                 dest.write_str(" at ")?;
                 position.to_css(dest, _cx)?;
@@ -253,20 +260,20 @@ impl<'ghost> ToCss<'ghost> for Gradient<'_> {
                 write_gradient_items(items, dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::WebKitGradient(value) => value.to_css(dest, _cx),
+            GradientData::WebKitGradient(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for WebKitGradient<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for WebKitGradient<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("-webkit-gradient(")?;
-        match self {
-            Self::Linear { from, to, stops } => {
+        match self.data(_cx.ast()) {
+            WebKitGradientData::Linear { from, to, stops } => {
                 dest.write_str("linear, ")?;
                 from.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
@@ -276,7 +283,7 @@ impl<'ghost> ToCss<'ghost> for WebKitGradient<'_> {
                     stop.to_css(dest, _cx)?;
                 }
             }
-            Self::Radial {
+            WebKitGradientData::Radial {
                 from,
                 start_radius,
                 to,
@@ -286,11 +293,11 @@ impl<'ghost> ToCss<'ghost> for WebKitGradient<'_> {
                 dest.write_str("radial, ")?;
                 from.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
-                serialize_number(*start_radius, dest)?;
+                serialize_number(start_radius, dest)?;
                 dest.delim(Delimiter::Comma)?;
                 to.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
-                serialize_number(*end_radius, dest)?;
+                serialize_number(end_radius, dest)?;
                 for stop in stops {
                     dest.delim(Delimiter::Comma)?;
                     stop.to_css(dest, _cx)?;
@@ -305,7 +312,7 @@ impl<'ghost> ToCss<'ghost> for LineDirection {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Angle(value) => value.to_css(dest, _cx),
@@ -330,14 +337,14 @@ impl<'ghost> ToCss<'ghost> for LineDirection {
     }
 }
 
-impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for GradientItem<'_, D> {
+impl<'ast, 'ghost, D: ToCss<'ghost> + Copy> ToCss<'ghost> for GradientItem<'ast, D> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::ColorStop { color, position } => {
+        match self.data(_cx.ast()) {
+            GradientItemData::ColorStop { color, position } => {
                 color.to_css(dest, _cx)?;
                 if let Some(position) = position {
                     dest.write_char(' ')?;
@@ -345,39 +352,39 @@ impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for GradientItem<'_, D> {
                 }
                 Ok(())
             }
-            Self::Hint(value) => value.to_css(dest, _cx),
+            GradientItemData::Hint(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost, D: ToCss<'ghost>> ToCss<'ghost> for DimensionPercentage<'_, D> {
+impl<'ast, 'ghost, D: ToCss<'ghost> + Copy> ToCss<'ghost> for DimensionPercentage<'ast, D> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Dimension(value) => value.to_css(dest, _cx),
-            Self::Percentage(value) => {
-                serialize_number(*value * 100.0, dest)?;
+        match self.data(_cx.ast()) {
+            DimensionPercentageData::Dimension(value) => value.to_css(dest, _cx),
+            DimensionPercentageData::Percentage(value) => {
+                serialize_number(value * 100.0, dest)?;
                 dest.write_char('%')
             }
-            Self::Zero => dest.write_char('0'),
-            Self::Calc(value) => value.to_css(dest, _cx),
+            DimensionPercentageData::Zero => dest.write_char('0'),
+            DimensionPercentageData::Calc(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost, S: ToCss<'ghost>> ToCss<'ghost> for PositionComponent<'_, S> {
+impl<'ast, 'ghost, S: ToCss<'ghost> + Copy> ToCss<'ghost> for PositionComponent<'ast, S> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Center => dest.write_str("center"),
-            Self::Length(value) => value.to_css(dest, _cx),
-            Self::Side { offset, side } => {
+        match self.data(_cx.ast()) {
+            PositionComponentData::Center => dest.write_str("center"),
+            PositionComponentData::Length(value) => value.to_css(dest, _cx),
+            PositionComponentData::Side { offset, side } => {
                 side.to_css(dest, _cx)?;
                 if let Some(offset) = offset {
                     dest.write_char(' ')?;
@@ -389,34 +396,34 @@ impl<'ghost, S: ToCss<'ghost>> ToCss<'ghost> for PositionComponent<'_, S> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for EndingShape<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for EndingShape<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Ellipse(value) => value.to_css(dest, _cx),
-            Self::Circle(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            EndingShapeData::Ellipse(value) => value.to_css(dest, _cx),
+            EndingShapeData::Circle(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Ellipse<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Ellipse<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("ellipse")?;
-        match self {
-            Self::Size { x, y } => {
+        match self.data(_cx.ast()) {
+            EllipseData::Size { x, y } => {
                 dest.write_char(' ')?;
                 x.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
                 y.to_css(dest, _cx)
             }
-            Self::Extent(value) => {
+            EllipseData::Extent(value) => {
                 dest.write_char(' ')?;
                 value.to_css(dest, _cx)
             }
@@ -424,17 +431,17 @@ impl<'ghost> ToCss<'ghost> for Ellipse<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Circle<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Circle<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         dest.write_str("circle")?;
         dest.write_char(' ')?;
-        match self {
-            Self::Radius(value) => value.to_css(dest, _cx),
-            Self::Extent(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            CircleData::Radius(value) => value.to_css(dest, _cx),
+            CircleData::Extent(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -443,7 +450,7 @@ impl<'ghost, S: ToCss<'ghost>> ToCss<'ghost> for WebKitGradientPointComponent<S>
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Center => dest.write_str("center"),
@@ -457,7 +464,7 @@ impl<'ghost> ToCss<'ghost> for NumberOrPercentage {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(value) => serialize_number(*value, dest),
@@ -469,89 +476,91 @@ impl<'ghost> ToCss<'ghost> for NumberOrPercentage {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BackgroundSize<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for BackgroundSize<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Explicit { height, width } => {
+        match self.data(_cx.ast()) {
+            BackgroundSizeData::Explicit { height, width } => {
                 width.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
                 height.to_css(dest, _cx)
             }
-            Self::Cover => dest.write_str("cover"),
-            Self::Contain => dest.write_str("contain"),
+            BackgroundSizeData::Cover => dest.write_str("cover"),
+            BackgroundSizeData::Contain => dest.write_str("contain"),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for LengthPercentageOrAuto<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for LengthPercentageOrAuto<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Auto => dest.write_str("auto"),
-            Self::LengthPercentage(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            LengthPercentageOrAutoData::Auto => dest.write_str("auto"),
+            LengthPercentageOrAutoData::LengthPercentage(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Display {
+impl<'ast, 'ghost> ToCss<'ghost> for Display<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Keyword(value) => value.to_css(dest, _cx),
-            Self::Pair {
+        match self.data(_cx.ast()) {
+            DisplayData::Keyword(value) => value.to_css(dest, _cx),
+            DisplayData::Pair {
                 inside,
                 is_list_item,
                 outside,
             } => {
-                if *is_list_item
+                if is_list_item
                     && matches!(outside, DisplayOutside::Block)
-                    && matches!(inside, DisplayInside::Flow)
+                    && matches!(inside.data(_cx.ast()), DisplayInsideData::Flow)
                 {
                     return dest.write_str("list-item");
                 }
-                match (outside, inside) {
-                    (DisplayOutside::Block, DisplayInside::Flow) => dest.write_str("block")?,
-                    (DisplayOutside::Inline, DisplayInside::Flow) => dest.write_str("inline")?,
-                    (DisplayOutside::Block, DisplayInside::FlowRoot) => {
+                match (outside, inside.data(_cx.ast())) {
+                    (DisplayOutside::Block, DisplayInsideData::Flow) => dest.write_str("block")?,
+                    (DisplayOutside::Inline, DisplayInsideData::Flow) => {
+                        dest.write_str("inline")?
+                    }
+                    (DisplayOutside::Block, DisplayInsideData::FlowRoot) => {
                         dest.write_str("flow-root")?
                     }
-                    (DisplayOutside::Inline, DisplayInside::FlowRoot) => {
+                    (DisplayOutside::Inline, DisplayInsideData::FlowRoot) => {
                         dest.write_str("inline-block")?
                     }
-                    (DisplayOutside::Block, DisplayInside::Flex { vendor_prefix }) => {
+                    (DisplayOutside::Block, DisplayInsideData::Flex { vendor_prefix }) => {
                         vendor_prefix.to_css(dest, _cx)?;
                         dest.write_str("flex")?;
                     }
-                    (DisplayOutside::Inline, DisplayInside::Flex { vendor_prefix }) => {
+                    (DisplayOutside::Inline, DisplayInsideData::Flex { vendor_prefix }) => {
                         dest.write_str("inline-")?;
                         vendor_prefix.to_css(dest, _cx)?;
                         dest.write_str("flex")?;
                     }
-                    (DisplayOutside::Block, DisplayInside::Box { vendor_prefix }) => {
+                    (DisplayOutside::Block, DisplayInsideData::Box { vendor_prefix }) => {
                         vendor_prefix.to_css(dest, _cx)?;
                         dest.write_str("box")?;
                     }
-                    (DisplayOutside::Inline, DisplayInside::Box { vendor_prefix }) => {
+                    (DisplayOutside::Inline, DisplayInsideData::Box { vendor_prefix }) => {
                         vendor_prefix.to_css(dest, _cx)?;
                         dest.write_str("inline-box")?;
                     }
-                    (DisplayOutside::Block, DisplayInside::Grid) => dest.write_str("grid")?,
-                    (DisplayOutside::Inline, DisplayInside::Grid) => {
+                    (DisplayOutside::Block, DisplayInsideData::Grid) => dest.write_str("grid")?,
+                    (DisplayOutside::Inline, DisplayInsideData::Grid) => {
                         dest.write_str("inline-grid")?
                     }
-                    (DisplayOutside::Inline, DisplayInside::Ruby) => dest.write_str("ruby")?,
-                    (DisplayOutside::Block, DisplayInside::Table) => dest.write_str("table")?,
-                    (DisplayOutside::Inline, DisplayInside::Table) => {
+                    (DisplayOutside::Inline, DisplayInsideData::Ruby) => dest.write_str("ruby")?,
+                    (DisplayOutside::Block, DisplayInsideData::Table) => dest.write_str("table")?,
+                    (DisplayOutside::Inline, DisplayInsideData::Table) => {
                         dest.write_str("inline-table")?
                     }
                     _ => {
@@ -560,7 +569,7 @@ impl<'ghost> ToCss<'ghost> for Display {
                         inside.to_css(dest, _cx)?;
                     }
                 }
-                if *is_list_item {
+                if is_list_item {
                     dest.write_str(" list-item")?;
                 }
                 Ok(())
@@ -569,26 +578,26 @@ impl<'ghost> ToCss<'ghost> for Display {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for DisplayInside {
+impl<'ast, 'ghost> ToCss<'ghost> for DisplayInside<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Flow => dest.write_str("flow"),
-            Self::FlowRoot => dest.write_str("flow-root"),
-            Self::Table => dest.write_str("table"),
-            Self::Flex { vendor_prefix } => {
+        match self.data(_cx.ast()) {
+            DisplayInsideData::Flow => dest.write_str("flow"),
+            DisplayInsideData::FlowRoot => dest.write_str("flow-root"),
+            DisplayInsideData::Table => dest.write_str("table"),
+            DisplayInsideData::Flex { vendor_prefix } => {
                 vendor_prefix.to_css(dest, _cx)?;
                 dest.write_str("flex")
             }
-            Self::Box { vendor_prefix } => {
+            DisplayInsideData::Box { vendor_prefix } => {
                 vendor_prefix.to_css(dest, _cx)?;
                 dest.write_str("box")
             }
-            Self::Grid => dest.write_str("grid"),
-            Self::Ruby => dest.write_str("ruby"),
+            DisplayInsideData::Grid => dest.write_str("grid"),
+            DisplayInsideData::Ruby => dest.write_str("ruby"),
         }
     }
 }
@@ -597,72 +606,72 @@ fn write_prefixed_keyword<'ghost, PrinterT: PrinterTrait>(
     prefix: &VendorPrefix,
     value: &str,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     prefix.to_css(dest, cx)?;
     dest.write_str(value)
 }
 
-impl<'ghost> ToCss<'ghost> for Size<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Size<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Auto => dest.write_str("auto"),
-            Self::LengthPercentage(value) => value.to_css(dest, _cx),
-            Self::MathFunction(value) => value.to_css(dest, _cx),
-            Self::MinContent { vendor_prefix } => {
-                write_prefixed_keyword(vendor_prefix, "min-content", dest, _cx)
+        match self.data(_cx.ast()) {
+            SizeData::Auto => dest.write_str("auto"),
+            SizeData::LengthPercentage(value) => value.to_css(dest, _cx),
+            SizeData::MathFunction(value) => value.to_css(dest, _cx),
+            SizeData::MinContent { vendor_prefix } => {
+                write_prefixed_keyword(&vendor_prefix, "min-content", dest, _cx)
             }
-            Self::MaxContent { vendor_prefix } => {
-                write_prefixed_keyword(vendor_prefix, "max-content", dest, _cx)
+            SizeData::MaxContent { vendor_prefix } => {
+                write_prefixed_keyword(&vendor_prefix, "max-content", dest, _cx)
             }
-            Self::FitContent { vendor_prefix } => {
-                write_prefixed_keyword(vendor_prefix, "fit-content", dest, _cx)
+            SizeData::FitContent { vendor_prefix } => {
+                write_prefixed_keyword(&vendor_prefix, "fit-content", dest, _cx)
             }
-            Self::FitContentFunction(value) => {
+            SizeData::FitContentFunction(value) => {
                 dest.write_str("fit-content(")?;
                 value.to_css(dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Stretch { vendor_prefix } => {
-                write_prefixed_keyword(vendor_prefix, "stretch", dest, _cx)
+            SizeData::Stretch { vendor_prefix } => {
+                write_prefixed_keyword(&vendor_prefix, "stretch", dest, _cx)
             }
-            Self::Contain => dest.write_str("contain"),
+            SizeData::Contain => dest.write_str("contain"),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for MaxSize<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for MaxSize<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::LengthPercentage(value) => value.to_css(dest, _cx),
-            Self::MathFunction(value) => value.to_css(dest, _cx),
-            Self::MinContent { vendor_prefix } => {
-                write_prefixed_keyword(vendor_prefix, "min-content", dest, _cx)
+        match self.data(_cx.ast()) {
+            MaxSizeData::None => dest.write_str("none"),
+            MaxSizeData::LengthPercentage(value) => value.to_css(dest, _cx),
+            MaxSizeData::MathFunction(value) => value.to_css(dest, _cx),
+            MaxSizeData::MinContent { vendor_prefix } => {
+                write_prefixed_keyword(&vendor_prefix, "min-content", dest, _cx)
             }
-            Self::MaxContent { vendor_prefix } => {
-                write_prefixed_keyword(vendor_prefix, "max-content", dest, _cx)
+            MaxSizeData::MaxContent { vendor_prefix } => {
+                write_prefixed_keyword(&vendor_prefix, "max-content", dest, _cx)
             }
-            Self::FitContent { vendor_prefix } => {
-                write_prefixed_keyword(vendor_prefix, "fit-content", dest, _cx)
+            MaxSizeData::FitContent { vendor_prefix } => {
+                write_prefixed_keyword(&vendor_prefix, "fit-content", dest, _cx)
             }
-            Self::FitContentFunction(value) => {
+            MaxSizeData::FitContentFunction(value) => {
                 dest.write_str("fit-content(")?;
                 value.to_css(dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::Stretch { vendor_prefix } => {
-                write_prefixed_keyword(vendor_prefix, "stretch", dest, _cx)
+            MaxSizeData::Stretch { vendor_prefix } => {
+                write_prefixed_keyword(&vendor_prefix, "stretch", dest, _cx)
             }
-            Self::Contain => dest.write_str("contain"),
+            MaxSizeData::Contain => dest.write_str("contain"),
         }
     }
 }
@@ -671,7 +680,7 @@ impl<'ghost> ToCss<'ghost> for PositionProperty {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Static => dest.write_str("static"),
@@ -683,97 +692,102 @@ impl<'ghost> ToCss<'ghost> for PositionProperty {
     }
 }
 
-impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Size2D<'_, T> {
+impl<'ast, 'ghost, T: ToCss<'ghost> + PartialEq + Copy> ToCss<'ghost> for Size2D<'ast, T> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        self.0.to_css(dest, _cx)?;
-        if self.0 != self.1 {
+        let data = _cx.ast().data(*self);
+        data.field_0.to_css(dest, _cx)?;
+        if data.field_0 != data.field_1 {
             dest.write_char(' ')?;
-            self.1.to_css(dest, _cx)?;
+            data.field_1.to_css(dest, _cx)?;
         }
         Ok(())
     }
 }
 
-impl<'ghost, T: ToCss<'ghost> + PartialEq> ToCss<'ghost> for Rect<'_, T> {
+impl<'ast, 'ghost, T: ToCss<'ghost> + PartialEq + Copy> ToCss<'ghost> for Rect<'ast, T> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        self.0.to_css(dest, _cx)?;
-        if self.0 == self.1 && self.0 == self.2 && self.0 == self.3 {
+        let data = _cx.ast().data(*self);
+        data.field_0.to_css(dest, _cx)?;
+        if data.field_0 == data.field_1
+            && data.field_0 == data.field_2
+            && data.field_0 == data.field_3
+        {
             return Ok(());
         }
         dest.write_char(' ')?;
-        self.1.to_css(dest, _cx)?;
-        if self.0 == self.2 && self.1 == self.3 {
+        data.field_1.to_css(dest, _cx)?;
+        if data.field_0 == data.field_2 && data.field_1 == data.field_3 {
             return Ok(());
         }
         dest.write_char(' ')?;
-        self.2.to_css(dest, _cx)?;
-        if self.1 != self.3 {
+        data.field_2.to_css(dest, _cx)?;
+        if data.field_1 != data.field_3 {
             dest.write_char(' ')?;
-            self.3.to_css(dest, _cx)?;
+            data.field_3.to_css(dest, _cx)?;
         }
         Ok(())
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BorderSideWidth<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for BorderSideWidth<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Thin => dest.write_str("thin"),
-            Self::Medium => dest.write_str("medium"),
-            Self::Thick => dest.write_str("thick"),
-            Self::Length(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            BorderSideWidthData::Thin => dest.write_str("thin"),
+            BorderSideWidthData::Medium => dest.write_str("medium"),
+            BorderSideWidthData::Thick => dest.write_str("thick"),
+            BorderSideWidthData::Length(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for LengthOrNumber<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for LengthOrNumber<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Number(value) => serialize_number(*value, dest),
-            Self::Length(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            LengthOrNumberData::Number(value) => serialize_number(value, dest),
+            LengthOrNumberData::Length(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BorderImageSideWidth<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for BorderImageSideWidth<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Number(value) => serialize_number(*value, dest),
-            Self::LengthPercentage(value) => value.to_css(dest, _cx),
-            Self::Auto => dest.write_str("auto"),
+        match self.data(_cx.ast()) {
+            BorderImageSideWidthData::Number(value) => serialize_number(value, dest),
+            BorderImageSideWidthData::LengthPercentage(value) => value.to_css(dest, _cx),
+            BorderImageSideWidthData::Auto => dest.write_str("auto"),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for OutlineStyle {
+impl<'ast, 'ghost> ToCss<'ghost> for OutlineStyle<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Auto => dest.write_str("auto"),
-            Self::LineStyle(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            OutlineStyleData::Auto => dest.write_str("auto"),
+            OutlineStyleData::LineStyle(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -781,7 +795,7 @@ impl<'ghost> ToCss<'ghost> for OutlineStyle {
 fn write_overflow_position<'ghost, PrinterT: PrinterTrait>(
     overflow: &Option<OverflowPosition>,
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     if let Some(overflow) = overflow {
         overflow.to_css(dest, cx)?;
@@ -794,7 +808,7 @@ impl<'ghost> ToCss<'ghost> for AlignContent {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -815,7 +829,7 @@ impl<'ghost> ToCss<'ghost> for JustifyContent {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -842,7 +856,7 @@ macro_rules! self_alignment {
             fn to_css<PrinterT: PrinterTrait>(
                 &self,
                 $dest: &mut PrinterT,
-                _cx: &ToCssContext<'_, '_, 'ghost>,
+                _cx: &ToCssContext<'_, '_, '_, 'ghost>,
             ) -> fmt::Result {
                 match self {
                     Self::Normal => $dest.write_str("normal"),
@@ -869,7 +883,7 @@ impl<'ghost> ToCss<'ghost> for JustifySelf {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -899,7 +913,7 @@ impl<'ghost> ToCss<'ghost> for JustifyItems {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -928,15 +942,15 @@ impl<'ghost> ToCss<'ghost> for JustifyItems {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for GapValue<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for GapValue<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Normal => dest.write_str("normal"),
-            Self::LengthPercentage(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            GapValueData::Normal => dest.write_str("normal"),
+            GapValueData::LengthPercentage(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -958,15 +972,15 @@ pub(crate) fn write_line_names<PrinterT: PrinterTrait>(
     dest.write_char(']')
 }
 
-impl<'ghost> ToCss<'ghost> for TrackSizing<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for TrackSizing<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::TrackList { items, line_names } => {
+        match self.data(_cx.ast()) {
+            TrackSizingData::None => dest.write_str("none"),
+            TrackSizingData::TrackList { items, line_names } => {
                 let mut wrote_value = false;
                 for (index, item) in items.iter().enumerate() {
                     if let Some(names) = line_names.get(index)
@@ -998,35 +1012,35 @@ impl<'ghost> ToCss<'ghost> for TrackSizing<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TrackListItem<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for TrackListItem<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::TrackSize(value) => value.to_css(dest, _cx),
-            Self::TrackRepeat(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            TrackListItemData::TrackSize(value) => value.to_css(dest, _cx),
+            TrackListItemData::TrackRepeat(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TrackSize<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for TrackSize<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::TrackBreadth(value) => value.to_css(dest, _cx),
-            Self::MinMax { max, min } => {
+        match self.data(_cx.ast()) {
+            TrackSizeData::TrackBreadth(value) => value.to_css(dest, _cx),
+            TrackSizeData::MinMax { max, min } => {
                 dest.write_str("minmax(")?;
                 min.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 max.to_css(dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::FitContent(value) => {
+            TrackSizeData::FitContent(value) => {
                 dest.write_str("fit-content(")?;
                 value.to_css(dest, _cx)?;
                 dest.write_char(')')
@@ -1035,18 +1049,21 @@ impl<'ghost> ToCss<'ghost> for TrackSize<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TrackBreadth<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for TrackBreadth<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Length(value) => value.to_css(dest, _cx),
-            Self::Flex(value) => serialize_dimension(*value, &Unit::Flex, dest, _cx),
-            Self::MinContent => dest.write_str("min-content"),
-            Self::MaxContent => dest.write_str("max-content"),
-            Self::Auto => dest.write_str("auto"),
+        match self.data(_cx.ast()) {
+            TrackBreadthData::Length(value) => value.to_css(dest, _cx),
+            TrackBreadthData::Flex(value) => {
+                serialize_number(value, dest)?;
+                dest.write_str("fr")
+            }
+            TrackBreadthData::MinContent => dest.write_str("min-content"),
+            TrackBreadthData::MaxContent => dest.write_str("max-content"),
+            TrackBreadthData::Auto => dest.write_str("auto"),
         }
     }
 }
@@ -1055,7 +1072,7 @@ impl<'ghost> ToCss<'ghost> for RepeatCount {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(value) => serialize_number(*value, dest),
@@ -1065,16 +1082,16 @@ impl<'ghost> ToCss<'ghost> for RepeatCount {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for GridTemplateAreas<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for GridTemplateAreas<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Areas { areas, columns } => {
-                let columns = *columns as usize;
+        match self.data(_cx.ast()) {
+            GridTemplateAreasData::None => dest.write_str("none"),
+            GridTemplateAreasData::Areas { areas, columns } => {
+                let columns = columns as usize;
                 if columns == 0 {
                     return Ok(());
                 }
@@ -1097,18 +1114,18 @@ impl<'ghost> ToCss<'ghost> for GridTemplateAreas<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for GridLine<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for GridLine<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Auto => dest.write_str("auto"),
-            Self::Area { name } => serialize_identifier(name, dest),
-            Self::Line { index, name } => {
-                if *index != 0 {
-                    serialize_int(*index, dest)?;
+        match self.data(_cx.ast()) {
+            GridLineData::Auto => dest.write_str("auto"),
+            GridLineData::Area { name } => serialize_identifier(name, dest),
+            GridLineData::Line { index, name } => {
+                if index != 0 {
+                    serialize_int(index, dest)?;
                     if name.is_some() {
                         dest.write_char(' ')?;
                     }
@@ -1118,11 +1135,11 @@ impl<'ghost> ToCss<'ghost> for GridLine<'_> {
                 }
                 Ok(())
             }
-            Self::Span { index, name } => {
+            GridLineData::Span { index, name } => {
                 dest.write_str("span")?;
-                if *index != 0 {
+                if index != 0 {
                     dest.write_char(' ')?;
-                    serialize_int(*index, dest)?;
+                    serialize_int(index, dest)?;
                 }
                 if let Some(name) = name {
                     dest.write_char(' ')?;
@@ -1138,7 +1155,7 @@ impl<'ghost> ToCss<'ghost> for FontWeight {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Absolute(value) => value.to_css(dest, _cx),
@@ -1152,7 +1169,7 @@ impl<'ghost> ToCss<'ghost> for AbsoluteFontWeight {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Weight(value) => serialize_number(*value, dest),
@@ -1162,16 +1179,16 @@ impl<'ghost> ToCss<'ghost> for AbsoluteFontWeight {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for FontSize<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for FontSize<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Length(value) => value.to_css(dest, _cx),
-            Self::Absolute(value) => value.to_css(dest, _cx),
-            Self::Relative(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            FontSizeData::Length(value) => value.to_css(dest, _cx),
+            FontSizeData::Absolute(value) => value.to_css(dest, _cx),
+            FontSizeData::Relative(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -1180,7 +1197,7 @@ impl<'ghost> ToCss<'ghost> for FontStretch {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Keyword(value) => value.to_css(dest, _cx),
@@ -1196,7 +1213,7 @@ impl<'ghost> ToCss<'ghost> for FontStyle {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -1210,29 +1227,29 @@ impl<'ghost> ToCss<'ghost> for FontStyle {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for LineHeight<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for LineHeight<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Normal => dest.write_str("normal"),
-            Self::Number(value) => serialize_number(*value, dest),
-            Self::Length(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            LineHeightData::Normal => dest.write_str("normal"),
+            LineHeightData::Number(value) => serialize_number(value, dest),
+            LineHeightData::Length(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for VerticalAlign<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for VerticalAlign<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Keyword(value) => value.to_css(dest, _cx),
-            Self::Length(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            VerticalAlignData::Keyword(value) => value.to_css(dest, _cx),
+            VerticalAlignData::Length(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -1241,7 +1258,7 @@ impl<'ghost> ToCss<'ghost> for EasingFunction {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Linear => dest.write_str("linear"),
@@ -1303,7 +1320,7 @@ impl<'ghost> ToCss<'ghost> for AnimationIterationCount {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Number(value) => serialize_number(*value, dest),
@@ -1312,25 +1329,25 @@ impl<'ghost> ToCss<'ghost> for AnimationIterationCount {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for AnimationTimeline<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for AnimationTimeline<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Auto => dest.write_str("auto"),
-            Self::None => dest.write_str("none"),
-            Self::DashedIdent(value) => {
+        match self.data(_cx.ast()) {
+            AnimationTimelineData::Auto => dest.write_str("auto"),
+            AnimationTimelineData::None => dest.write_str("none"),
+            AnimationTimelineData::DashedIdent(value) => {
                 dest.write_str("--")?;
                 serialize_name(value.strip_prefix("--").unwrap_or(value), dest)
             }
-            Self::Scroll(value) => {
+            AnimationTimelineData::Scroll(value) => {
                 dest.write_str("scroll(")?;
                 value.to_css(dest, _cx)?;
                 dest.write_char(')')
             }
-            Self::View(value) => {
+            AnimationTimelineData::View(value) => {
                 dest.write_str("view(")?;
                 value.to_css(dest, _cx)?;
                 dest.write_char(')')
@@ -1339,16 +1356,16 @@ impl<'ghost> ToCss<'ghost> for AnimationTimeline<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for AnimationAttachmentRange<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for AnimationAttachmentRange<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Normal => dest.write_str("normal"),
-            Self::LengthPercentage(value) => value.to_css(dest, _cx),
-            Self::TimelineRange { name, offset } => {
+        match self.data(_cx.ast()) {
+            AnimationAttachmentRangeData::Normal => dest.write_str("normal"),
+            AnimationAttachmentRangeData::LengthPercentage(value) => value.to_css(dest, _cx),
+            AnimationAttachmentRangeData::TimelineRange { name, offset } => {
                 name.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
                 offset.to_css(dest, _cx)
@@ -1374,7 +1391,7 @@ where
 fn write_comma_values<'ghost, PrinterT: PrinterTrait, T: ToCss<'ghost>>(
     values: &[&T],
     dest: &mut PrinterT,
-    cx: &ToCssContext<'_, '_, 'ghost>,
+    cx: &ToCssContext<'_, '_, '_, 'ghost>,
 ) -> fmt::Result {
     for (index, value) in values.iter().enumerate() {
         if index > 0 {
@@ -1385,110 +1402,114 @@ fn write_comma_values<'ghost, PrinterT: PrinterTrait, T: ToCss<'ghost>>(
     Ok(())
 }
 
-impl<'ghost> ToCss<'ghost> for Transform<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Transform<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Translate((x, y)) => write_function_values("translate", dest, |dest| {
-                write_comma_values(&[x, y], dest, _cx)
+        match self.data(_cx.ast()) {
+            TransformData::Translate((x, y)) => write_function_values("translate", dest, |dest| {
+                write_comma_values(&[&x, &y], dest, _cx)
             }),
-            Self::TranslateX(value) => {
+            TransformData::TranslateX(value) => {
                 write_function_values("translateX", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::TranslateY(value) => {
+            TransformData::TranslateY(value) => {
                 write_function_values("translateY", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::TranslateZ(value) => {
+            TransformData::TranslateZ(value) => {
                 write_function_values("translateZ", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Translate3d((x, y, z)) => write_function_values("translate3d", dest, |dest| {
-                x.to_css(dest, _cx)?;
-                dest.delim(Delimiter::Comma)?;
-                y.to_css(dest, _cx)?;
-                dest.delim(Delimiter::Comma)?;
-                z.to_css(dest, _cx)
-            }),
-            Self::Scale((x, y)) => {
-                write_function_values("scale", dest, |dest| write_comma_values(&[x, y], dest, _cx))
+            TransformData::Translate3d((x, y, z)) => {
+                write_function_values("translate3d", dest, |dest| {
+                    x.to_css(dest, _cx)?;
+                    dest.delim(Delimiter::Comma)?;
+                    y.to_css(dest, _cx)?;
+                    dest.delim(Delimiter::Comma)?;
+                    z.to_css(dest, _cx)
+                })
             }
-            Self::ScaleX(value) => {
+            TransformData::Scale((x, y)) => write_function_values("scale", dest, |dest| {
+                write_comma_values(&[&x, &y], dest, _cx)
+            }),
+            TransformData::ScaleX(value) => {
                 write_function_values("scaleX", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::ScaleY(value) => {
+            TransformData::ScaleY(value) => {
                 write_function_values("scaleY", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::ScaleZ(value) => {
+            TransformData::ScaleZ(value) => {
                 write_function_values("scaleZ", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Scale3d((x, y, z)) => write_function_values("scale3d", dest, |dest| {
+            TransformData::Scale3d((x, y, z)) => write_function_values("scale3d", dest, |dest| {
                 x.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 y.to_css(dest, _cx)?;
                 dest.delim(Delimiter::Comma)?;
                 z.to_css(dest, _cx)
             }),
-            Self::Rotate(value) => {
+            TransformData::Rotate(value) => {
                 write_function_values("rotate", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::RotateX(value) => {
+            TransformData::RotateX(value) => {
                 write_function_values("rotateX", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::RotateY(value) => {
+            TransformData::RotateY(value) => {
                 write_function_values("rotateY", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::RotateZ(value) => {
+            TransformData::RotateZ(value) => {
                 write_function_values("rotateZ", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Rotate3d((x, y, z, angle)) => write_function_values("rotate3d", dest, |dest| {
-                for value in [x, y, z] {
-                    serialize_number(*value, dest)?;
-                    dest.delim(Delimiter::Comma)?;
-                }
-                angle.to_css(dest, _cx)
-            }),
-            Self::Skew((x, y)) => {
-                write_function_values("skew", dest, |dest| write_comma_values(&[x, y], dest, _cx))
+            TransformData::Rotate3d((x, y, z, angle)) => {
+                write_function_values("rotate3d", dest, |dest| {
+                    for value in [x, y, z] {
+                        serialize_number(value, dest)?;
+                        dest.delim(Delimiter::Comma)?;
+                    }
+                    angle.to_css(dest, _cx)
+                })
             }
-            Self::SkewX(value) => {
+            TransformData::Skew((x, y)) => write_function_values("skew", dest, |dest| {
+                write_comma_values(&[&x, &y], dest, _cx)
+            }),
+            TransformData::SkewX(value) => {
                 write_function_values("skewX", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::SkewY(value) => {
+            TransformData::SkewY(value) => {
                 write_function_values("skewY", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Perspective(value) => {
+            TransformData::Perspective(value) => {
                 write_function_values("perspective", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Matrix(value) => value.to_css(dest, _cx),
-            Self::Matrix3d(value) => value.to_css(dest, _cx),
+            TransformData::Matrix(value) => value.to_css(dest, _cx),
+            TransformData::Matrix3d(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Perspective<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Perspective<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Length(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            PerspectiveData::None => dest.write_str("none"),
+            PerspectiveData::Length(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Translate<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Translate<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Xyz { x, y, z } => {
+        match self.data(_cx.ast()) {
+            TranslateData::None => dest.write_str("none"),
+            TranslateData::Xyz { x, y, z } => {
                 x.to_css(dest, _cx)?;
                 dest.write_char(' ')?;
                 y.to_css(dest, _cx)?;
@@ -1503,7 +1524,7 @@ impl<'ghost> ToCss<'ghost> for Scale {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1518,28 +1539,28 @@ impl<'ghost> ToCss<'ghost> for Scale {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Spacing<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Spacing<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Normal => dest.write_str("normal"),
-            Self::Length(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            SpacingData::Normal => dest.write_str("normal"),
+            SpacingData::Length(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TextDecorationLine<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for TextDecorationLine<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::ExclusiveTextDecorationLine(value) => value.to_css(dest, _cx),
-            Self::Value(values) => {
+        match self.data(_cx.ast()) {
+            TextDecorationLineData::ExclusiveTextDecorationLine(value) => value.to_css(dest, _cx),
+            TextDecorationLineData::Value(values) => {
                 for (index, value) in values.iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
@@ -1552,29 +1573,29 @@ impl<'ghost> ToCss<'ghost> for TextDecorationLine<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TextDecorationThickness<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for TextDecorationThickness<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Auto => dest.write_str("auto"),
-            Self::FromFont => dest.write_str("from-font"),
-            Self::LengthPercentage(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            TextDecorationThicknessData::Auto => dest.write_str("auto"),
+            TextDecorationThicknessData::FromFont => dest.write_str("from-font"),
+            TextDecorationThicknessData::LengthPercentage(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for TextEmphasisStyle<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for TextEmphasisStyle<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Keyword { fill, shape } => {
+        match self.data(_cx.ast()) {
+            TextEmphasisStyleData::None => dest.write_str("none"),
+            TextEmphasisStyleData::Keyword { fill, shape } => {
                 fill.to_css(dest, _cx)?;
                 if let Some(shape) = shape {
                     dest.write_char(' ')?;
@@ -1582,7 +1603,7 @@ impl<'ghost> ToCss<'ghost> for TextEmphasisStyle<'_> {
                 }
                 Ok(())
             }
-            Self::String(value) => serialize_string(value, dest),
+            TextEmphasisStyleData::String(value) => serialize_string(value, dest),
         }
     }
 }
@@ -1591,7 +1612,7 @@ impl<'ghost> ToCss<'ghost> for TextSizeAdjust {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -1604,15 +1625,15 @@ impl<'ghost> ToCss<'ghost> for TextSizeAdjust {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ColorOrAuto<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for ColorOrAuto<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Auto => dest.write_str("auto"),
-            Self::Color(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            ColorOrAutoData::Auto => dest.write_str("auto"),
+            ColorOrAutoData::Color(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -1621,7 +1642,7 @@ impl<'ghost> ToCss<'ghost> for Appearance<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::NonStandard(value) => dest.write_str(value),
@@ -1634,30 +1655,30 @@ impl<'ghost> ToCss<'ghost> for Appearance<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ListStyleType<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for ListStyleType<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::String(value) => serialize_string(value, dest),
-            Self::CounterStyle(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            ListStyleTypeData::None => dest.write_str("none"),
+            ListStyleTypeData::String(value) => serialize_string(value, dest),
+            ListStyleTypeData::CounterStyle(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for CounterStyle<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for CounterStyle<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Predefined(value) => value.to_css(dest, _cx),
-            Self::Name(value) => serialize_identifier(value, dest),
-            Self::Symbols { symbols, system } => {
+        match self.data(_cx.ast()) {
+            CounterStyleData::Predefined(value) => value.to_css(dest, _cx),
+            CounterStyleData::Name(value) => serialize_identifier(value, dest),
+            CounterStyleData::Symbols { symbols, system } => {
                 dest.write_str("symbols(")?;
                 if !matches!(system, SymbolsType::Symbolic) {
                     system.to_css(dest, _cx)?;
@@ -1675,27 +1696,27 @@ impl<'ghost> ToCss<'ghost> for CounterStyle<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Symbol<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Symbol<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::String(value) => serialize_string(value, dest),
-            Self::Image(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            SymbolData::String(value) => serialize_string(value, dest),
+            SymbolData::Image(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for SVGPaint<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for SVGPaint<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Url { fallback, url } => {
+        match self.data(_cx.ast()) {
+            SVGPaintData::Url { fallback, url } => {
                 url.to_css(dest, _cx)?;
                 if let Some(fallback) = fallback {
                     dest.write_char(' ')?;
@@ -1703,36 +1724,36 @@ impl<'ghost> ToCss<'ghost> for SVGPaint<'_> {
                 }
                 Ok(())
             }
-            Self::Color(value) => value.to_css(dest, _cx),
-            Self::ContextFill => dest.write_str("context-fill"),
-            Self::ContextStroke => dest.write_str("context-stroke"),
-            Self::None => dest.write_str("none"),
+            SVGPaintData::Color(value) => value.to_css(dest, _cx),
+            SVGPaintData::ContextFill => dest.write_str("context-fill"),
+            SVGPaintData::ContextStroke => dest.write_str("context-stroke"),
+            SVGPaintData::None => dest.write_str("none"),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for SVGPaintFallback<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for SVGPaintFallback<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Color(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            SVGPaintFallbackData::None => dest.write_str("none"),
+            SVGPaintFallbackData::Color(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for StrokeDasharray<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for StrokeDasharray<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Values(values) => {
+        match self.data(_cx.ast()) {
+            StrokeDasharrayData::None => dest.write_str("none"),
+            StrokeDasharrayData::Values(values) => {
                 for (index, value) in values.iter().enumerate() {
                     if index > 0 {
                         dest.delim(Delimiter::Comma)?;
@@ -1745,29 +1766,29 @@ impl<'ghost> ToCss<'ghost> for StrokeDasharray<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Marker<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Marker<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Url(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            MarkerData::None => dest.write_str("none"),
+            MarkerData::Url(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ClipPath<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for ClipPath<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Url(value) => value.to_css(dest, _cx),
-            Self::Shape {
+        match self.data(_cx.ast()) {
+            ClipPathData::None => dest.write_str("none"),
+            ClipPathData::Url(value) => value.to_css(dest, _cx),
+            ClipPathData::Shape {
                 reference_box,
                 shape,
             } => {
@@ -1775,36 +1796,36 @@ impl<'ghost> ToCss<'ghost> for ClipPath<'_> {
                 dest.write_char(' ')?;
                 reference_box.to_css(dest, _cx)
             }
-            Self::Box(value) => value.to_css(dest, _cx),
+            ClipPathData::Box(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for BasicShape<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for BasicShape<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Inset(value) => value.to_css(dest, _cx),
-            Self::Circle(value) => value.to_css(dest, _cx),
-            Self::Ellipse(value) => value.to_css(dest, _cx),
-            Self::Polygon(value) => value.to_css(dest, _cx),
+        match self.data(_cx.ast()) {
+            BasicShapeData::Inset(value) => value.to_css(dest, _cx),
+            BasicShapeData::Circle(value) => value.to_css(dest, _cx),
+            BasicShapeData::Ellipse(value) => value.to_css(dest, _cx),
+            BasicShapeData::Polygon(value) => value.to_css(dest, _cx),
         }
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ShapeRadius<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for ShapeRadius<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::LengthPercentage(value) => value.to_css(dest, _cx),
-            Self::ClosestSide => dest.write_str("closest-side"),
-            Self::FarthestSide => dest.write_str("farthest-side"),
+        match self.data(_cx.ast()) {
+            ShapeRadiusData::LengthPercentage(value) => value.to_css(dest, _cx),
+            ShapeRadiusData::ClosestSide => dest.write_str("closest-side"),
+            ShapeRadiusData::FarthestSide => dest.write_str("farthest-side"),
         }
     }
 }
@@ -1813,7 +1834,7 @@ impl<'ghost> ToCss<'ghost> for MaskClip {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::GeometryBox(value) => value.to_css(dest, _cx),
@@ -1822,15 +1843,15 @@ impl<'ghost> ToCss<'ghost> for MaskClip {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for FilterList<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for FilterList<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Filters(values) => {
+        match self.data(_cx.ast()) {
+            FilterListData::None => dest.write_str("none"),
+            FilterListData::Filters(values) => {
                 for (index, value) in values.iter().enumerate() {
                     if index > 0 {
                         dest.write_char(' ')?;
@@ -1843,44 +1864,44 @@ impl<'ghost> ToCss<'ghost> for FilterList<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for Filter<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for Filter<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Blur(value) => {
+        match self.data(_cx.ast()) {
+            FilterData::Blur(value) => {
                 write_function_values("blur", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Brightness(value) => {
+            FilterData::Brightness(value) => {
                 write_function_values("brightness", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Contrast(value) => {
+            FilterData::Contrast(value) => {
                 write_function_values("contrast", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Grayscale(value) => {
+            FilterData::Grayscale(value) => {
                 write_function_values("grayscale", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::HueRotate(value) => {
+            FilterData::HueRotate(value) => {
                 write_function_values("hue-rotate", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Invert(value) => {
+            FilterData::Invert(value) => {
                 write_function_values("invert", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Opacity(value) => {
+            FilterData::Opacity(value) => {
                 write_function_values("opacity", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Saturate(value) => {
+            FilterData::Saturate(value) => {
                 write_function_values("saturate", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Sepia(value) => {
+            FilterData::Sepia(value) => {
                 write_function_values("sepia", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::DropShadow(value) => {
+            FilterData::DropShadow(value) => {
                 write_function_values("drop-shadow", dest, |dest| value.to_css(dest, _cx))
             }
-            Self::Url(value) => value.to_css(dest, _cx),
+            FilterData::Url(value) => value.to_css(dest, _cx),
         }
     }
 }
@@ -1889,7 +1910,7 @@ impl<'ghost> ToCss<'ghost> for ZIndex {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Auto => dest.write_str("auto"),
@@ -1898,15 +1919,15 @@ impl<'ghost> ToCss<'ghost> for ZIndex {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for ContainerNameList<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for ContainerNameList<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Names(values) => write_ident_list(values, dest),
+        match self.data(_cx.ast()) {
+            ContainerNameListData::None => dest.write_str("none"),
+            ContainerNameListData::Names(values) => write_ident_list(values, dest),
         }
     }
 }
@@ -1925,7 +1946,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::None => dest.write_str("none"),
@@ -1935,15 +1956,15 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionName<'_> {
     }
 }
 
-impl<'ghost> ToCss<'ghost> for NoneOrCustomIdentList<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for NoneOrCustomIdentList<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::None => dest.write_str("none"),
-            Self::Idents(values) => write_ident_list(values, dest),
+        match self.data(_cx.ast()) {
+            NoneOrCustomIdentListData::None => dest.write_str("none"),
+            NoneOrCustomIdentListData::Idents(values) => write_ident_list(values, dest),
         }
     }
 }
@@ -1952,7 +1973,7 @@ impl<'ghost> ToCss<'ghost> for ViewTransitionGroup<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         match self {
             Self::Normal => dest.write_str("normal"),
@@ -1967,7 +1988,7 @@ impl<'ghost> ToCss<'ghost> for CustomPropertyName<'_> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
         let value = match self {
             Self::Custom(value) | Self::Unknown(value) => value,

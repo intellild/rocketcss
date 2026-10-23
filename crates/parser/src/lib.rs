@@ -10,6 +10,7 @@ macro_rules! match_byte {
 
 mod compiler;
 mod escape;
+mod lexer;
 mod next;
 mod parser;
 pub mod prelude;
@@ -17,19 +18,19 @@ mod tokenizer;
 
 pub use compiler::Compiler;
 pub use escape::unescape;
+pub use lexer::{LengthUnit, Span, Token as ValueToken, Unit};
 pub use parser::stylesheet::parse;
 pub use parser::{
     BasicParseError, BasicParseErrorKind, Delimiter, Delimiters, Error, Parse, ParseError,
     ParseErrorKind, ParseUntilErrorBehavior, ParserError, ParserOptions, ParserState,
 };
-pub use rocketcss_ast::{Span, Token as ValueToken};
 pub use tokenizer::{
     SourceLocation, SourcePosition, Token, TokenAndSpan, Tokenizer, TokenizerState,
 };
 
 #[cfg(test)]
 mod tests {
-    use rocketcss_ast::match_ignore_ascii_case;
+    use crate::match_ignore_ascii_case;
 
     #[test]
     fn ascii_case_match_evaluates_input_once_and_supports_aliases() {

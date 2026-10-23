@@ -2,6 +2,7 @@
 
 pub use crate::Compiler;
 pub use crate::escape::unescape;
+pub use crate::lexer::{LengthUnit, Span, Token as ValueToken, Unit};
 pub use crate::parser::stylesheet::parse;
 pub use crate::parser::{
     BasicParseError, BasicParseErrorKind, Delimiter, Delimiters, Error, Parse, ParseError,
@@ -10,6 +11,4 @@ pub use crate::parser::{
 pub use crate::tokenizer::{
     SourceLocation, SourcePosition, Token as LexicalToken, TokenAndSpan, Tokenizer, TokenizerState,
 };
-pub use rocketcss_ast::Token as ValueToken;
-pub(crate) use rocketcss_ast::match_ignore_ascii_case;
-pub use rocketcss_ast::prelude::*;
+pub use rocketcss_common::prelude::*;

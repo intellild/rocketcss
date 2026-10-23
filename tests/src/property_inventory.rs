@@ -1,4 +1,4 @@
-use rocketcss_ast::{PropertyId, PropertySupport};
+use rocketcss_ast_next::{PropertyId, PropertySupport};
 use std::{collections::BTreeSet, fs, path::Path};
 
 macro_rules! property_names {
@@ -13,7 +13,7 @@ macro_rules! property_names {
     };
 }
 
-const ROCKETCSS_PROPERTY_NAMES: &[&str] = rocketcss_ast::for_each_property!(property_names);
+const ROCKETCSS_PROPERTY_NAMES: &[&str] = rocketcss_ast_next::for_each_property!(property_names);
 
 // These are Stylo-only declarations that are either Gecko/Servo internals,
 // generated helper sections, or newer specifications absent from the local

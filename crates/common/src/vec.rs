@@ -543,6 +543,17 @@ impl<T: Unpin> Vec<'_, T> {
 // Inherent methods
 ////////////////////////////////////////////////////////////////////////////////
 
+impl<'bump, T: 'bump + Unpin + Copy> Vec<'bump, T> {
+    /// Consumes the vector and returns its arena-owned contents as a slice.
+    ///
+    /// The backing allocation lives in the owning allocator, so the slice
+    /// outlives the vector handle itself.
+    #[inline]
+    pub fn into_slice(self) -> &'bump [T] {
+        unsafe { std::slice::from_raw_parts(self.buf.ptr(), self.len_usize()) }
+    }
+}
+
 impl<'bump, T: 'bump + Unpin> Vec<'bump, T> {
     /// Constructs a new, empty `Vec<'bump, T>`.
     ///

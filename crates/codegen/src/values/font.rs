@@ -1,19 +1,34 @@
 use crate::prelude::*;
 
-impl<'ghost> ToCss<'ghost> for FontFamily<'_> {
+impl<'ast, 'ghost> ToCss<'ghost> for FontFamily<'ast> {
     fn to_css<PrinterT: PrinterTrait>(
         &self,
         dest: &mut PrinterT,
-        _cx: &ToCssContext<'_, '_, 'ghost>,
+        _cx: &ToCssContext<'_, '_, '_, 'ghost>,
     ) -> fmt::Result {
-        match self {
-            Self::Custom(value) => write_custom_font_family(value, dest),
-            Self::Unparsed(value) => crate::token::write_token_list(value, dest, _cx),
-            Self::Tombstone => Ok(()),
-            _ => dest.write_str(
-                self.as_css_str()
-                    .expect("known font families are static keywords"),
-            ),
+        match self.data(_cx.ast()) {
+            FontFamilyData::Custom(value) => write_custom_font_family(value, dest),
+            FontFamilyData::Unparsed(value) => crate::token::write_token_list(value, dest, _cx),
+            FontFamilyData::Tombstone => Ok(()),
+            FontFamilyData::Serif => dest.write_str("serif"),
+            FontFamilyData::SansSerif => dest.write_str("sans-serif"),
+            FontFamilyData::Cursive => dest.write_str("cursive"),
+            FontFamilyData::Fantasy => dest.write_str("fantasy"),
+            FontFamilyData::Monospace => dest.write_str("monospace"),
+            FontFamilyData::SystemUi => dest.write_str("system-ui"),
+            FontFamilyData::Emoji => dest.write_str("emoji"),
+            FontFamilyData::Math => dest.write_str("math"),
+            FontFamilyData::Fangsong => dest.write_str("fangsong"),
+            FontFamilyData::UiSerif => dest.write_str("ui-serif"),
+            FontFamilyData::UiSansSerif => dest.write_str("ui-sans-serif"),
+            FontFamilyData::UiMonospace => dest.write_str("ui-monospace"),
+            FontFamilyData::UiRounded => dest.write_str("ui-rounded"),
+            FontFamilyData::Initial => dest.write_str("initial"),
+            FontFamilyData::Inherit => dest.write_str("inherit"),
+            FontFamilyData::Unset => dest.write_str("unset"),
+            FontFamilyData::Default => dest.write_str("default"),
+            FontFamilyData::Revert => dest.write_str("revert"),
+            FontFamilyData::RevertLayer => dest.write_str("revert-layer"),
         }
     }
 }
@@ -23,10 +38,10 @@ pub(crate) fn write_custom_font_family<PrinterT: PrinterTrait>(
     dest: &mut PrinterT,
 ) -> fmt::Result {
     let requires_quotes = value.is_empty()
-        || !matches!(FontFamily::from_name(value), FontFamily::Custom(_))
+        || FontFamily::is_generic_name(value)
         || value
             .split_ascii_whitespace()
-            .any(|part| !matches!(FontFamily::from_name(part), FontFamily::Custom(_)))
+            .any(FontFamily::is_generic_name)
         || value.starts_with(' ')
         || value.ends_with(' ')
         || value.contains("  ")

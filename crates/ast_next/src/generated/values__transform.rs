@@ -167,7 +167,7 @@ impl<'ast> Perspective<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> PerspectiveKind {
         match ast.data(self) {
-            PerspectiveData::None { .. } => PerspectiveKind::None,
+            PerspectiveData::None => PerspectiveKind::None,
             PerspectiveData::Length { .. } => PerspectiveKind::Length,
         }
     }
@@ -232,7 +232,7 @@ impl<'ast> Translate<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> TranslateKind {
         match ast.data(self) {
-            TranslateData::None { .. } => TranslateKind::None,
+            TranslateData::None => TranslateKind::None,
             TranslateData::Xyz { .. } => TranslateKind::Xyz,
         }
     }

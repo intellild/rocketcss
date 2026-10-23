@@ -72,7 +72,7 @@ keyword_parse!(
 
 impl<'i> Parse<'i> for ColorOrAuto<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("auto"))
             .is_ok()
@@ -90,7 +90,7 @@ impl<'i> Parse<'i> for ColorOrAuto<'i> {
 
 impl<'i> Parse<'i> for ScrollbarColor<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("auto"))
             .is_ok()
@@ -103,9 +103,8 @@ impl<'i> Parse<'i> for ScrollbarColor<'i> {
         let first = CssColor::parse(input)?;
         let second = CssColor::parse(input)?;
         input.expect_exhausted()?;
-        Ok(input.ast_mut().alloc_scrollbar_color(
-            ScrollbarColorData::Colors(first, second),
-            span,
-        ))
+        Ok(input
+            .ast_mut()
+            .alloc_scrollbar_color(ScrollbarColorData::Colors(first, second), span))
     }
 }

@@ -72,7 +72,7 @@ impl<'i> Parse<'i> for BackgroundOrigin {
 
 impl<'i> Parse<'i> for Background<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let color = CssColor::parse(input)?;
         let image = input.ast_mut().alloc_image(ImageData::None, span);
         let x = zero_position::<HorizontalPositionKeyword>(input.ast_mut());
@@ -93,10 +93,9 @@ impl<'i> Parse<'i> for Background<'i> {
         let width = input
             .ast_mut()
             .alloc_length_percentage_or_auto(LengthPercentageOrAutoData::Auto, span);
-        let size = input.ast_mut().alloc_background_size(
-            BackgroundSizeData::Explicit { height, width },
-            span,
-        );
+        let size = input
+            .ast_mut()
+            .alloc_background_size(BackgroundSizeData::Explicit { height, width }, span);
         Ok(input.ast_mut().alloc_background(
             BackgroundData {
                 attachment: BackgroundAttachment::Scroll,
@@ -124,7 +123,7 @@ impl<'i> Parse<'i> for BackgroundRepeat<'i> {
 pub(super) fn parse_background_repeat<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<BackgroundRepeat<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let ident = input.expect_ident()?;
     if ident.eq_ignore_ascii_case("repeat-x") {
         return Ok(input.ast_mut().alloc_background_repeat(
@@ -152,9 +151,7 @@ pub(super) fn parse_background_repeat<'i>(
         "no-repeat" => Ok(BackgroundRepeatKeyword::NoRepeat),
         _ => Err(input.new_custom_error(ParserError::InvalidValue)),
     )?;
-    let y = input
-        .try_parse(BackgroundRepeatKeyword::parse)
-        .unwrap_or(x);
+    let y = input.try_parse(BackgroundRepeatKeyword::parse).unwrap_or(x);
     Ok(input
         .ast_mut()
         .alloc_background_repeat(BackgroundRepeatData { x, y }, span))
@@ -171,7 +168,7 @@ impl<'i> Parse<'i> for BackgroundSize<'i> {
 pub(super) fn parse_background_size<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<BackgroundSize<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     if input
         .try_parse(|input| input.expect_ident_matching("cover"))
         .is_ok()
@@ -206,9 +203,9 @@ impl<'i> Parse<'i> for Position<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let (x, y) = parse_position_components(input)?;
         input.expect_exhausted()?;
-        Ok(input
+        Ok(with_token_span!(input, |span| input
             .ast_mut()
-            .alloc_position(PositionData { x, y }, DUMMY_SP))
+            .alloc_position(PositionData { x, y }, span)))
     }
 }
 
@@ -216,10 +213,12 @@ impl<'i> Parse<'i> for BackgroundPosition<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
         let (x, y) = parse_position_components(input)?;
         input.expect_exhausted()?;
-        Ok(input.ast_mut().alloc_background_position(
-            BackgroundPositionData { x, y },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_background_position(
+                BackgroundPositionData { x, y },
+                span,
+            )))
     }
 }
 
@@ -235,7 +234,7 @@ pub(super) fn parse_position_components<'i>(
 fn parse_horizontal_first_position<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<PositionComponents<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let x = parse_position_component::<HorizontalPositionKeyword>(
         input,
         parse_horizontal_position_keyword,
@@ -264,7 +263,7 @@ fn parse_horizontal_first_position<'i>(
 fn parse_vertical_first_position<'i>(
     input: &mut Compiler<'i>,
 ) -> Result<PositionComponents<'i>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     let y = parse_position_component::<VerticalPositionKeyword>(
         input,
         parse_vertical_position_keyword,
@@ -334,7 +333,7 @@ fn parse_position_component<'i, S: Copy>(
     input: &mut Compiler<'i>,
     mut parse_side: impl FnMut(&mut Compiler<'i>) -> Result<S, ParseError<'i, ParserError<'i>>>,
 ) -> Result<PositionComponent<'i, S>, ParseError<'i, ParserError<'i>>> {
-    let span = DUMMY_SP;
+    let span = token_span(input);
     if input
         .try_parse(|input| input.expect_ident_matching("center"))
         .is_ok()
@@ -345,10 +344,9 @@ fn parse_position_component<'i, S: Copy>(
     }
     if let Ok(side) = input.try_parse(&mut parse_side) {
         let offset = input.try_parse(LengthPercentage::parse).ok();
-        return Ok(input.ast_mut().alloc_position_component(
-            PositionComponentData::Side { offset, side },
-            span,
-        ));
+        return Ok(input
+            .ast_mut()
+            .alloc_position_component(PositionComponentData::Side { offset, side }, span));
     }
     let value = LengthPercentage::parse(input)?;
     Ok(input

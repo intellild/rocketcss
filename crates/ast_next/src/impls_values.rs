@@ -1,6 +1,9 @@
 //! Hand-written helpers for plain AST values.
 
-use crate::{Function, FunctionData, KnownFunction, RGBAData, TokenOrValue, VendorPrefix};
+use crate::{
+    AnimationComponent, AnimationComponentData, AnimationKeywordClass, AnimationName, Function,
+    FunctionData, KnownFunction, RGBAData, TokenOrValue, VendorPrefix,
+};
 
 impl VendorPrefix {
     pub const NONE: Self = Self { bits: 1 };
@@ -245,11 +248,7 @@ impl<'ast> crate::FontFamily<'ast> {
         )
     }
 
-    pub fn from_name(
-        name: &'ast str,
-        ast: &mut crate::Ast<'ast>,
-        span: crate::Span,
-    ) -> Self {
+    pub fn from_name(name: &'ast str, ast: &mut crate::Ast<'ast>, span: crate::Span) -> Self {
         let data = crate::match_ignore_ascii_case!(
             name,
             "serif" => crate::FontFamilyData::Serif,
@@ -279,11 +278,53 @@ impl<'ast> crate::FontFamily<'ast> {
 
 /// A color channel tuple returned by [`crate::KnownColor::rgba`].
 #[inline]
+#[allow(dead_code)]
 pub const fn rgba(red: u8, green: u8, blue: u8, alpha: u8) -> RGBAData {
     RGBAData {
         red,
         green,
         blue,
         alpha,
+    }
+}
+
+impl<'ast> AnimationComponent<'ast> {
+    /// The keyword class of a non-name component.
+    pub fn keyword_class(self, ast: &crate::Ast<'ast>) -> Option<AnimationKeywordClass> {
+        match self.data(ast) {
+            AnimationComponentData::TimingFunction(_) => {
+                Some(AnimationKeywordClass::TimingFunction)
+            }
+            AnimationComponentData::IterationCount(_) => {
+                Some(AnimationKeywordClass::IterationCount)
+            }
+            AnimationComponentData::Direction(_) => Some(AnimationKeywordClass::Direction),
+            AnimationComponentData::FillMode(_) => Some(AnimationKeywordClass::FillMode),
+            AnimationComponentData::PlayState(_) => Some(AnimationKeywordClass::PlayState),
+            AnimationComponentData::Name(_)
+            | AnimationComponentData::Duration(_)
+            | AnimationComponentData::Delay(_) => None,
+        }
+    }
+}
+
+impl AnimationName<'_> {
+    /// The keyword class this name collides with on reparse.
+    pub fn keyword_class(&self) -> Option<AnimationKeywordClass> {
+        let name = match self {
+            Self::Ident(name) | Self::String(name) => *name,
+            Self::None => return None,
+        };
+        crate::match_ignore_ascii_case!(
+            name,
+            "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end" =>
+                Some(AnimationKeywordClass::TimingFunction),
+            "infinite" => Some(AnimationKeywordClass::IterationCount),
+            "normal" | "reverse" | "alternate" | "alternate-reverse" =>
+                Some(AnimationKeywordClass::Direction),
+            "forwards" | "backwards" | "both" => Some(AnimationKeywordClass::FillMode),
+            "running" | "paused" => Some(AnimationKeywordClass::PlayState),
+            _ => None,
+        )
     }
 }

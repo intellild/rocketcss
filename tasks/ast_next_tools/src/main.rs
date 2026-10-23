@@ -1,5 +1,6 @@
 //! Generates the flattened RocketCSS AST from declaration files.
 //!
+#![allow(dead_code)]
 //! Declarations live under `crates/ast_next/declarations`. Every item marked
 //! `#[ast]` becomes a four-byte node handle plus a copyable data record; other
 //! public items are emitted as plain values. Generated output is checked in.
@@ -16,9 +17,420 @@ use proc_macro2::{Ident, Span as MacroSpan, TokenStream};
 use quote::{format_ident, quote};
 use std::sync::OnceLock;
 use syn::{
-    Attribute, Fields, GenericArgument, GenericParam, Generics, Item, ItemEnum, ItemStruct,
-    ItemType, PathArguments, Type, Visibility,
+    Attribute, Fields, GenericArgument, GenericParam, Generics, Item, ItemEnum, ItemMacro,
+    ItemStruct, ItemType, LitStr, PathArguments, Token, Type, Visibility,
+    parse::{Parse, ParseStream},
 };
+
+/// One entry of the authored `property_table!` metadata.
+struct PropertyEntry {
+    attrs: Vec<Attribute>,
+    name: LitStr,
+    variant: Ident,
+    value: Type,
+    vendor_prefix: Option<Type>,
+    strategy: Option<(Ident, TokenStream)>,
+}
+
+impl Parse for PropertyEntry {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let attrs = input.call(Attribute::parse_outer)?;
+        let name = input.parse::<LitStr>()?;
+        input.parse::<Token![:]>()?;
+        let variant = input.parse::<Ident>()?;
+        let content;
+        syn::parenthesized!(content in input);
+        let value = content.parse::<Type>()?;
+        let vendor_prefix = if content.peek(Token![,]) {
+            content.parse::<Token![,]>()?;
+            Some(content.parse::<Type>()?)
+        } else {
+            None
+        };
+        let strategy = if input.peek(syn::token::Bracket) {
+            let strategy_content;
+            syn::bracketed!(strategy_content in input);
+            let name = strategy_content.parse::<Ident>()?;
+            let args = if strategy_content.peek(Token![:]) {
+                strategy_content.parse::<Token![:]>()?;
+                strategy_content.parse::<TokenStream>()?
+            } else {
+                TokenStream::new()
+            };
+            Some((name, args))
+        } else {
+            None
+        };
+        if input.peek(Token![,]) {
+            input.parse::<Token![,]>()?;
+        }
+        Ok(Self {
+            attrs,
+            name,
+            variant,
+            value,
+            vendor_prefix,
+            strategy,
+        })
+    }
+}
+
+fn property_entries(tokens: TokenStream) -> Vec<PropertyEntry> {
+    syn::parse::Parser::parse2(
+        |input: ParseStream<'_>| {
+            let mut entries = Vec::new();
+            while !input.is_empty() {
+                entries.push(input.parse::<PropertyEntry>()?);
+            }
+            Ok(entries)
+        },
+        tokens,
+    )
+    .expect("failed to parse property_table! metadata")
+}
+
+fn is_property_table(item: &ItemMacro) -> bool {
+    item.mac
+        .path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "property_table")
+}
+
+fn property_items(entries: &[PropertyEntry]) -> (ItemEnum, ItemEnum) {
+    let id_variants = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        let attrs = &entry.attrs;
+        if entry.vendor_prefix.is_some() {
+            quote!(#(#attrs)* #variant(VendorPrefix))
+        } else {
+            quote!(#(#attrs)* #variant)
+        }
+    });
+    let property_id = syn::parse2::<ItemEnum>(quote! {
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        pub enum PropertyId<'a> {
+            #(#id_variants,)*
+            Unparsed,
+            Custom(&'a str),
+        }
+    })
+    .expect("failed to synthesize PropertyId");
+
+    let declaration_variants = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        let value = &entry.value;
+        let attrs = &entry.attrs;
+        if let Some(prefix) = &entry.vendor_prefix {
+            quote!(#(#attrs)* #variant(#value, #prefix))
+        } else {
+            quote!(#(#attrs)* #variant(#value))
+        }
+    });
+    let declaration = syn::parse2::<ItemEnum>(quote! {
+        #[ast]
+        pub enum Declaration<'a> {
+            #(#declaration_variants,)*
+            CSSWide(PropertyId<'a>, CSSWideKeyword),
+            Unparsed(UnparsedProperty<'a>),
+            Custom(CustomProperty<'a>),
+            Tombstone,
+        }
+    })
+    .expect("failed to synthesize Declaration");
+    (property_id, declaration)
+}
+
+fn property_strategy(entry: &PropertyEntry) -> TokenStream {
+    let Some((strategy, _)) = &entry.strategy else {
+        return quote!(PropertyParserStrategy::Unsupported);
+    };
+    match strategy.to_string().as_str() {
+        "unsupported" => quote!(PropertyParserStrategy::Unsupported),
+        "parse" => quote!(PropertyParserStrategy::Parse),
+        "boxed" => quote!(PropertyParserStrategy::Boxed),
+        "comma_separated" => quote!(PropertyParserStrategy::CommaSeparated),
+        "whitespace_separated" => quote!(PropertyParserStrategy::WhitespaceSeparated),
+        "rect" => quote!(PropertyParserStrategy::Rect),
+        "two_value" => quote!(PropertyParserStrategy::TwoValue),
+        "custom" => quote!(PropertyParserStrategy::Custom),
+        "css_wide" => quote!(PropertyParserStrategy::CssWide),
+        "css_wide_boxed" => quote!(PropertyParserStrategy::CssWideBoxed),
+        other => panic!("unknown property parser strategy: {other}"),
+    }
+}
+
+fn property_table_macro(entries: &[PropertyEntry]) -> TokenStream {
+    let entries = entries.iter().map(|entry| {
+        let attrs = &entry.attrs;
+        let name = &entry.name;
+        let variant = &entry.variant;
+        let value = &entry.value;
+        let prefix = entry
+            .vendor_prefix
+            .as_ref()
+            .map(|prefix| quote!(, #prefix))
+            .unwrap_or_default();
+        let strategy = match &entry.strategy {
+            Some((name, args)) if args.is_empty() => quote!([#name]),
+            Some((name, args)) => quote!([#name: #args]),
+            None => quote!(),
+        };
+        quote!(#(#attrs)* #name: #variant(#value #prefix) #strategy,)
+    });
+    quote! {
+        #[macro_export]
+        macro_rules! for_each_property {
+            ($macro:ident) => {
+                $macro! {
+                    #(#entries)*
+                }
+            };
+        }
+    }
+}
+
+fn generate_property_impls(entries: &[PropertyEntry]) -> TokenStream {
+    let declaration_variant_idents = entries.iter().map(|entry| &entry.variant);
+    let from_name_arms = entries.iter().map(|entry| {
+        let name = &entry.name;
+        let variant = &entry.variant;
+        if entry.vendor_prefix.is_some() {
+            quote!(#name => Some(Self::#variant(VendorPrefix::NONE)),)
+        } else {
+            quote!(#name => Some(Self::#variant),)
+        }
+    });
+    let prefixed_arms = entries
+        .iter()
+        .filter(|entry| entry.vendor_prefix.is_some())
+        .map(|entry| {
+            let name = &entry.name;
+            let variant = &entry.variant;
+            quote!(#name => Some(Self::#variant(prefix)),)
+        });
+    let name_arms = entries.iter().map(|entry| {
+        let name = &entry.name;
+        let variant = &entry.variant;
+        if entry.vendor_prefix.is_some() {
+            quote!(Self::#variant(_) => #name,)
+        } else {
+            quote!(Self::#variant => #name,)
+        }
+    });
+    let vendor_prefix_arms = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        if entry.vendor_prefix.is_some() {
+            quote!(Self::#variant(prefix) => *prefix,)
+        } else {
+            quote!(Self::#variant => VendorPrefix::NONE,)
+        }
+    });
+    let known_id_arms = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        let id = quote!(KnownPropertyDiscriminant::#variant as u32);
+        if entry.vendor_prefix.is_some() {
+            quote!(Self::#variant(prefix) => Some((#id, *prefix)),)
+        } else {
+            quote!(Self::#variant => Some((#id, VendorPrefix::NONE)),)
+        }
+    });
+    let strategy_arms = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        let strategy = property_strategy(entry);
+        if entry.vendor_prefix.is_some() {
+            quote!(Self::#variant(_) => #strategy,)
+        } else {
+            quote!(Self::#variant => #strategy,)
+        }
+    });
+    let declaration_ids = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        if entry.vendor_prefix.is_some() {
+            quote!(DeclarationData::#variant(_, prefix) => Some((KnownPropertyDiscriminant::#variant as u32, prefix)),)
+        } else {
+            quote!(DeclarationData::#variant(..) => Some((KnownPropertyDiscriminant::#variant as u32, VendorPrefix::NONE)),)
+        }
+    });
+    let declaration_property_ids = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        if entry.vendor_prefix.is_some() {
+            quote!(DeclarationData::#variant(_, prefix) => Some(PropertyId::#variant(prefix)),)
+        } else {
+            quote!(DeclarationData::#variant(..) => Some(PropertyId::#variant),)
+        }
+    });
+    let declaration_names = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        let name = &entry.name;
+        quote!(DeclarationData::#variant(..) => #name,)
+    });
+    let declaration_prefixes = entries.iter().map(|entry| {
+        let variant = &entry.variant;
+        if entry.vendor_prefix.is_some() {
+            quote!(DeclarationData::#variant(_, prefix) => prefix,)
+        } else {
+            quote!(DeclarationData::#variant(..) => VendorPrefix::NONE,)
+        }
+    });
+
+    quote! {
+        #[repr(u32)]
+        enum KnownPropertyDiscriminant {
+            #(#declaration_variant_idents,)*
+        }
+
+        impl<'ast> PropertyId<'ast> {
+            /// Resolves a property name while retaining unknown names for lossless parsing.
+            pub fn from_name(name: &'ast str) -> Self {
+                let property_id = crate::match_ignore_ascii_case!(
+                    name,
+                    #(#from_name_arms)*
+                    _ => None,
+                );
+                if let Some(property_id) = property_id {
+                    return property_id;
+                }
+                if let Some((prefix, unprefixed_name)) = VendorPrefix::split_from_name(name) {
+                    let property_id = crate::match_ignore_ascii_case!(
+                        unprefixed_name,
+                        #(#prefixed_arms)*
+                        _ => None,
+                    );
+                    if let Some(property_id) = property_id {
+                        return property_id;
+                    }
+                }
+                Self::Custom(name)
+            }
+
+            /// Returns the canonical CSS property name.
+            pub fn name(&self) -> &'ast str {
+                match self {
+                    #(#name_arms)*
+                    Self::Unparsed => "",
+                    Self::Custom(name) => name,
+                }
+            }
+
+            /// Returns the vendor prefix associated with this property identifier.
+            pub fn vendor_prefix(&self) -> VendorPrefix {
+                match self {
+                    #(#vendor_prefix_arms)*
+                    Self::Unparsed | Self::Custom(_) => VendorPrefix::NONE,
+                }
+            }
+
+            /// Returns the compact discriminant of a known property.
+            #[inline]
+            pub fn known_id(&self) -> Option<u32> {
+                self.known_id_and_prefix().map(|(id, _)| id)
+            }
+
+            /// Returns the compact discriminant and vendor prefix of a known property.
+            #[inline]
+            pub fn known_id_and_prefix(&self) -> Option<(u32, VendorPrefix)> {
+                match self {
+                    #(#known_id_arms)*
+                    Self::Unparsed | Self::Custom(_) => None,
+                }
+            }
+
+            /// Returns the generated parser strategy for this known property.
+            pub fn parser_strategy(&self) -> PropertyParserStrategy {
+                match self {
+                    #(#strategy_arms)*
+                    Self::Unparsed | Self::Custom(_) => PropertyParserStrategy::Unsupported,
+                }
+            }
+
+            /// Returns the generated support classification for this property.
+            pub fn support_classification(&self) -> PropertySupport {
+                match self {
+                    Self::Custom(_) => PropertySupport::Custom,
+                    Self::Unparsed => PropertySupport::UnsupportedGrammar,
+                    _ => self.parser_strategy().support_classification(),
+                }
+            }
+        }
+
+        impl PropertyParserStrategy {
+            #[inline]
+            pub const fn support_classification(self) -> PropertySupport {
+                match self {
+                    Self::Unsupported => PropertySupport::UnsupportedGrammar,
+                    Self::Parse
+                    | Self::Boxed
+                    | Self::CommaSeparated
+                    | Self::WhitespaceSeparated
+                    | Self::Rect
+                    | Self::TwoValue
+                    | Self::Custom
+                    | Self::CssWide
+                    | Self::CssWideBoxed => PropertySupport::Typed,
+                }
+            }
+        }
+
+        impl<'ast> Declaration<'ast> {
+            /// Returns the compact discriminant and vendor prefix of a known declaration.
+            #[inline]
+            pub fn known_id_and_prefix(self, ast: &Ast<'ast>) -> Option<(u32, VendorPrefix)> {
+                match self.data(ast) {
+                    #(#declaration_ids)*
+                    DeclarationData::CSSWide(property_id, _) => property_id.known_id_and_prefix(),
+                    DeclarationData::Unparsed(value) => {
+                        value.property_id(ast).known_id_and_prefix()
+                    }
+                    DeclarationData::Custom(_) | DeclarationData::Tombstone => None,
+                }
+            }
+
+            /// Returns the typed identity of this declaration.
+            #[inline]
+            pub fn property_id(self, ast: &Ast<'ast>) -> Option<PropertyId<'ast>> {
+                match self.data(ast) {
+                    #(#declaration_property_ids)*
+                    DeclarationData::CSSWide(property_id, _) => Some(property_id),
+                    DeclarationData::Unparsed(value) => Some(value.property_id(ast)),
+                    DeclarationData::Custom(value) => Some(PropertyId::Custom(match value.name(ast) {
+                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                    })),
+                    DeclarationData::Tombstone => None,
+                }
+            }
+
+            /// Returns the canonical CSS property name.
+            pub fn name(self, ast: &Ast<'ast>) -> &'ast str {
+                match self.data(ast) {
+                    #(#declaration_names)*
+                    DeclarationData::CSSWide(property_id, _) => property_id.name(),
+                    DeclarationData::Unparsed(value) => value.property_id(ast).name(),
+                    DeclarationData::Custom(value) => match value.name(ast) {
+                        CustomPropertyName::Custom(name) | CustomPropertyName::Unknown(name) => name,
+                    },
+                    DeclarationData::Tombstone => "",
+                }
+            }
+
+            /// Returns the vendor prefix associated with this declaration.
+            pub fn vendor_prefix(self, ast: &Ast<'ast>) -> VendorPrefix {
+                match self.data(ast) {
+                    #(#declaration_prefixes)*
+                    DeclarationData::CSSWide(property_id, _) => property_id.vendor_prefix(),
+                    DeclarationData::Unparsed(value) => value.property_id(ast).vendor_prefix(),
+                    DeclarationData::Custom(_) | DeclarationData::Tombstone => VendorPrefix::NONE,
+                }
+            }
+
+            /// Returns whether this declaration slot is an in-place tombstone.
+            #[inline]
+            pub fn is_tombstone(self, ast: &Ast<'ast>) -> bool {
+                matches!(self.data(ast), DeclarationData::Tombstone)
+            }
+        }
+    }
+}
 
 static NODE_NAMES: OnceLock<HashSet<String>> = OnceLock::new();
 
@@ -190,9 +602,10 @@ fn generate_module(items: &[Item], kinds: &mut Vec<Ident>) -> TokenStream {
                 }
             }
             Item::Enum(item) if is_public(&item.vis) => {
-                let data_enum = item.variants.iter().any(|variant| {
-                    !matches!(variant.fields, Fields::Unit)
-                });
+                let data_enum = item
+                    .variants
+                    .iter()
+                    .any(|variant| !matches!(variant.fields, Fields::Unit));
                 if has_ast_attribute(&item.attrs) && data_enum {
                     kinds.push(item.ident.clone());
                     body.extend(generate_enum(item));
@@ -201,6 +614,15 @@ fn generate_module(items: &[Item], kinds: &mut Vec<Ident>) -> TokenStream {
                 }
             }
             Item::Type(item) if is_public(&item.vis) => body.extend(generate_alias(item)),
+            Item::Macro(item) if is_property_table(item) => {
+                let entries = property_entries(item.mac.tokens.clone());
+                let (property_id, declaration) = property_items(&entries);
+                body.extend(generate_plain_enum(&property_id));
+                kinds.push(declaration.ident.clone());
+                body.extend(generate_enum(&declaration));
+                body.extend(property_table_macro(&entries));
+                body.extend(generate_property_impls(&entries));
+            }
             _ => {}
         }
     }
@@ -327,7 +749,9 @@ fn replace_lifetimes(arguments: &mut PathArguments) {
     if let PathArguments::AngleBracketed(arguments) = arguments {
         for argument in &mut arguments.args {
             match argument {
-                GenericArgument::Lifetime(lifetime) => *lifetime = syn::Lifetime::new("'ast", MacroSpan::call_site()),
+                GenericArgument::Lifetime(lifetime) => {
+                    *lifetime = syn::Lifetime::new("'ast", MacroSpan::call_site())
+                }
                 GenericArgument::Type(ty) => *ty = transform_type(ty),
                 _ => {}
             }
@@ -623,7 +1047,11 @@ fn generate_enum(item: &ItemEnum) -> TokenStream {
     for variant in &item.variants {
         let variant_name = &variant.ident;
         kind_variants.push(quote!(#variant_name));
-        kind_arms.push(quote!(#data::#variant_name { .. } => #kind::#variant_name));
+        if matches!(variant.fields, Fields::Unit) {
+            kind_arms.push(quote!(#data::#variant_name => #kind::#variant_name));
+        } else {
+            kind_arms.push(quote!(#data::#variant_name { .. } => #kind::#variant_name));
+        }
         let fields = match &variant.fields {
             Fields::Unit => quote!(),
             Fields::Unnamed(fields) => {
@@ -754,7 +1182,9 @@ fn generate_plain_struct(item: &ItemStruct) -> TokenStream {
             Some(quote!(pub #ident: #ty))
         })
         .collect::<Vec<_>>();
-    let has_derive = attrs.iter().any(|attribute| attribute.path().is_ident("derive"));
+    let has_derive = attrs
+        .iter()
+        .any(|attribute| attribute.path().is_ident("derive"));
     let fallback = (!has_derive).then(|| quote!(#[derive(Clone, Copy, Debug, PartialEq)]));
     quote! {
         use crate::*;
@@ -790,7 +1220,9 @@ fn generate_plain_enum(item: &ItemEnum) -> TokenStream {
         let variant_attrs = &variant.attrs;
         quote!(#(#variant_attrs)* #name #fields)
     });
-    let has_derive = attrs.iter().any(|attribute| attribute.path().is_ident("derive"));
+    let has_derive = attrs
+        .iter()
+        .any(|attribute| attribute.path().is_ident("derive"));
     let fallback = (!has_derive).then(|| quote!(#[derive(Clone, Copy, Debug, PartialEq)]));
     quote! {
         use crate::*;

@@ -113,7 +113,7 @@ impl<'ast> Spacing<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> SpacingKind {
         match ast.data(self) {
-            SpacingData::Normal { .. } => SpacingKind::Normal,
+            SpacingData::Normal => SpacingKind::Normal,
             SpacingData::Length { .. } => SpacingKind::Length,
         }
     }
@@ -261,8 +261,8 @@ impl<'ast> TextDecorationThickness<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> TextDecorationThicknessKind {
         match ast.data(self) {
-            TextDecorationThicknessData::Auto { .. } => TextDecorationThicknessKind::Auto,
-            TextDecorationThicknessData::FromFont { .. } => TextDecorationThicknessKind::FromFont,
+            TextDecorationThicknessData::Auto => TextDecorationThicknessKind::Auto,
+            TextDecorationThicknessData::FromFont => TextDecorationThicknessKind::FromFont,
             TextDecorationThicknessData::LengthPercentage { .. } => {
                 TextDecorationThicknessKind::LengthPercentage
             }
@@ -337,7 +337,7 @@ impl<'ast> TextEmphasisStyle<'ast> {
     #[inline]
     pub fn kind(self, ast: &Ast<'ast>) -> TextEmphasisStyleKind {
         match ast.data(self) {
-            TextEmphasisStyleData::None { .. } => TextEmphasisStyleKind::None,
+            TextEmphasisStyleData::None => TextEmphasisStyleKind::None,
             TextEmphasisStyleData::Keyword { .. } => TextEmphasisStyleKind::Keyword,
             TextEmphasisStyleData::String { .. } => TextEmphasisStyleKind::String,
         }
@@ -372,7 +372,7 @@ pub enum TextEmphasisFillMode {
     Open,
 }
 use crate::*;
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(CssKeyword, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextEmphasisShape {
     Dot,
     Circle,

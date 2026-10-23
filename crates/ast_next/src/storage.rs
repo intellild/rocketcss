@@ -107,6 +107,7 @@ impl NodeKind {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub(crate) const fn value(self) -> u16 {
         self.0
     }
@@ -129,10 +130,7 @@ impl NodePayload {
         let mut words = [0u64; 2];
         // SAFETY: the value fits and `words` provides at least its size.
         unsafe {
-            words
-                .as_mut_ptr()
-                .cast::<T>()
-                .write_unaligned(value);
+            words.as_mut_ptr().cast::<T>().write_unaligned(value);
         }
         Self { words }
     }

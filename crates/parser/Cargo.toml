@@ -9,7 +9,6 @@ repository.workspace  = true
 version               = "0.1.0"
 
 [dependencies]
-rocketcss_ast      = { workspace = true }
 rocketcss_ast_next = { workspace = true }
 rocketcss_common   = { workspace = true }
 

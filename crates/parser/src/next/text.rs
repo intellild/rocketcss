@@ -142,20 +142,22 @@ impl<'i> Parse<'i> for TextTransform<'i> {
         if matches!(case, TextTransformCase::None) && (full_width || full_size_kana) {
             return Err(input.new_custom_error(ParserError::InvalidValue));
         }
-        Ok(input.ast_mut().alloc_text_transform(
-            TextTransformData {
-                case,
-                full_size_kana,
-                full_width,
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_text_transform(
+                TextTransformData {
+                    case,
+                    full_size_kana,
+                    full_width,
+                },
+                span,
+            )))
     }
 }
 
 impl<'i> Parse<'i> for Spacing<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("normal"))
             .is_ok()
@@ -171,7 +173,7 @@ impl<'i> Parse<'i> for Spacing<'i> {
 
 impl<'i> Parse<'i> for TextDecorationLine<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         let first = input.expect_ident()?;
         if first.eq_ignore_ascii_case("none") {
             return Ok(input.ast_mut().alloc_text_decoration_line(
@@ -226,7 +228,7 @@ fn parse_text_decoration_line<'i>(
 
 impl<'i> Parse<'i> for TextDecorationThickness<'i> {
     fn parse(input: &mut Compiler<'i>) -> Result<Self, ParseError<'i, ParserError<'i>>> {
-        let span = DUMMY_SP;
+        let span = token_span(input);
         if input
             .try_parse(|input| input.expect_ident_matching("auto"))
             .is_ok()
@@ -283,13 +285,15 @@ impl<'i> Parse<'i> for TextIndent<'i> {
                 _ => return Err(input.new_custom_error(ParserError::InvalidValue)),
             );
         }
-        Ok(input.ast_mut().alloc_text_indent(
-            TextIndentData {
-                each_line,
-                hanging,
-                value,
-            },
-            DUMMY_SP,
-        ))
+        Ok(with_token_span!(input, |span| input
+            .ast_mut()
+            .alloc_text_indent(
+                TextIndentData {
+                    each_line,
+                    hanging,
+                    value,
+                },
+                span,
+            )))
     }
 }
